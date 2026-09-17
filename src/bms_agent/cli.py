@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from . import config
+from .cache import build_index
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import extract_invoice
 from .pricing import format_cost_summary
@@ -42,9 +43,13 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     client = anthropic.Anthropic()
     out_dir = Path(args.out)
     model = config.model_id()
-    print(f"Extrayendo {len(pdfs)} documentos con {model}\n")
+    cache = {} if args.force else build_index(out_dir)
+    print(f"Extrayendo {len(pdfs)} documentos con {model}")
+    if cache:
+        print(f"{len(cache)} extracciones previas en {out_dir}/ disponibles para reutilizar")
+    print()
 
-    failures = 0
+    failures = reused = 0
     tokens_in = tokens_out = extracted = 0
     for path in pdfs:
         try:
@@ -52,6 +57,14 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         except UnsupportedDocument as exc:
             print(f"  omitido  {path.name}: {exc}")
             failures += 1
+            continue
+
+        hit = cache.get(doc.sha256)
+        if hit is not None and hit.matches(
+            model, config.PROMPT_VERSION, config.SCHEMA_VERSION
+        ):
+            print(f"  cache    {path.name} -> {hit.path.name}  (sin coste)")
+            reused += 1
             continue
 
         try:
@@ -69,7 +82,8 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         suffix = f"  (dudoso: {', '.join(flagged)})" if flagged else ""
         print(f"  ok       {path.name} -> {target.name}{suffix}")
 
-    print(f"\nHecho. {extracted} de {len(pdfs)} extraidos en {out_dir}/\n")
+    print(f"\nHecho. {extracted} extraidos, {reused} reutilizados, "
+          f"{failures} con problemas, de {len(pdfs)} documentos en {out_dir}/\n")
     if extracted:
         print(format_cost_summary(model, extracted, tokens_in, tokens_out))
     return 1 if failures else 0
@@ -118,6 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     p_extract = sub.add_parser("extract", help="extrae los PDF de una carpeta")
     p_extract.add_argument("directory", help="carpeta con los PDF")
     p_extract.add_argument("--out", default="out", help="carpeta de salida (por defecto: out)")
+    p_extract.add_argument(
+        "--force",
+        action="store_true",
+        help="vuelve a extraer aunque ya exista el documento (gasta creditos)",
+    )
     p_extract.set_defaults(func=_cmd_extract)
 
     p_score = sub.add_parser("score", help="compara las extracciones con las respuestas")
