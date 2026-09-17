@@ -23,6 +23,7 @@ sistema funcione.
 | [docs/instalacion-windows.md](docs/instalacion-windows.md) | **Si no has ejecutado esto nunca, empieza aquí.** Clave de API, instalación y primera prueba en Windows, paso a paso. |
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral. |
+| [docs/portal-consulta.md](docs/portal-consulta.md) | Arquitectura del portal web de consulta: modelo de lectura separado, API de solo lectura y frontend estático sin datos. |
 | [docs/costes.md](docs/costes.md) | Por qué la suscripción y la API son carteras distintas, cómo ponerle un techo duro al gasto y las palancas para bajarlo. |
 | [docs/mcp-setup.md](docs/mcp-setup.md) | Registro del servidor MCP de Zapier y por qué queda fuera del camino que toca dinero. |
 
