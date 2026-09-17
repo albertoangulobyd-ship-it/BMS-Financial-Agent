@@ -17,6 +17,7 @@ from pathlib import Path
 from . import config
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import extract_invoice
+from .pricing import format_cost_summary
 from .schema import InvoiceExtraction
 from .scoring import Report, load_ground_truth, score_document, format_report
 
@@ -44,6 +45,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     print(f"Extrayendo {len(pdfs)} documentos con {model}\n")
 
     failures = 0
+    tokens_in = tokens_out = extracted = 0
     for path in pdfs:
         try:
             doc = load_pdf(path)
@@ -60,11 +62,16 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             continue
 
         target = record.write_json(out_dir)
+        extracted += 1
+        tokens_in += record.usage.get("input_tokens") or 0
+        tokens_out += record.usage.get("output_tokens") or 0
         flagged = record.extraction.low_confidence_fields
         suffix = f"  (dudoso: {', '.join(flagged)})" if flagged else ""
         print(f"  ok       {path.name} -> {target.name}{suffix}")
 
-    print(f"\nHecho. {len(pdfs) - failures} de {len(pdfs)} extraidos en {out_dir}/")
+    print(f"\nHecho. {extracted} de {len(pdfs)} extraidos en {out_dir}/\n")
+    if extracted:
+        print(format_cost_summary(model, extracted, tokens_in, tokens_out))
     return 1 if failures else 0
 
 
