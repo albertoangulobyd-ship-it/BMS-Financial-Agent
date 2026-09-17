@@ -1,0 +1,31 @@
+# Ejemplo del formato. Copiar a respuestas.yaml y rellenar con facturas reales.
+#
+# Los importes se escriben tal como estan impresos en la factura.
+# Un campo que la factura no lleva se escribe como null.
+
+factura-ejemplo-2026-4471.pdf:
+  supplier_name: "Bouwtechniek Van Dijk BV"
+  kvk_number: "87654321"
+  vat_number: "NL001234567B01"
+  invoice_number: "2026-4471"
+  invoice_date: "2026-09-15"
+  service_period_start: "2026-08-31"
+  service_period_end: "2026-09-06"
+  subtotal_excl_vat: "8.740,00"
+  vat_rate: "21%"
+  vat_amount: "1.835,40"
+  total_incl_vat: "10.575,40"
+  vat_regime: "standard"
+  iban: "NL02ABNA0123456789"
+
+factura-ejemplo-sin-kvk.pdf:
+  supplier_name: "J. de Vries"
+  kvk_number: null          # esta factura no lleva numero KvK
+  vat_number: "NL002345678B01"
+  invoice_number: "2026-018"
+  invoice_date: "2026-09-12"
+  service_period_start: "2026-09-07"
+  service_period_end: "2026-09-13"
+  total_incl_vat: "2.178,00"
+  vat_amount: "378,00"
+  vat_regime: "standard"

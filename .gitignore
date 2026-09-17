@@ -1,0 +1,14 @@
+# Facturas reales y cualquier dato de la empresa. Nunca entran en git.
+/facturas/
+/out/
+/ground_truth/*.yaml
+!/ground_truth/_ejemplo.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.env

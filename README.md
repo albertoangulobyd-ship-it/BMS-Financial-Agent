@@ -20,10 +20,24 @@ sistema funcione.
 | Documento | Contenido |
 | --- | --- |
 | [docs/arquitectura.md](docs/arquitectura.md) | Zonas de confianza, reglas duras, reparto de responsabilidades, modelo de datos, plan por fases, SEPA, IVA y AVG. |
+| [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral. |
 | [docs/mcp-setup.md](docs/mcp-setup.md) | Registro del servidor MCP de Zapier y por qué queda fuera del camino que toca dinero. |
 
+## Puesta en marcha
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+
+export ANTHROPIC_API_KEY=sk-ant-...
+bms-agent extract facturas/    # deja los PDF ahí primero
+bms-agent score
+```
+
 ## Estado
 
-Propuesta de arquitectura. Sin código todavía. La fase 0 (observador, cero
-escrituras) es el siguiente paso.
+Fase 0 en marcha: el observador lee PDFs de una carpeta, los extrae a esquema
+y mide la precisión contra respuestas escritas a mano. No tiene credenciales
+de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
