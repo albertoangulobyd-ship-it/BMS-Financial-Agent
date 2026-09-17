@@ -1,5 +1,6 @@
 # Facturas reales y cualquier dato de la empresa. Nunca entran en git.
 /facturas/
+/facturas-ejemplo/
 /out/
 /ground_truth/*.yaml
 !/ground_truth/_ejemplo.yaml
