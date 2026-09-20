@@ -106,7 +106,30 @@ $EDITOR ground_truth/respuestas.yaml
 bms-agent score
 ```
 
-### Ver lo que ha entendido
+### El panel: qué está pasando
+
+```bash
+bms-agent panel
+start panel.html          # en Windows; open panel.html en macOS
+```
+
+Vista agregada de **todo el histórico**, no una ficha por factura. Lleva:
+
+- Tiles con importe, proveedores, horas, IVA soportado, cuántas hay por
+  revisar y cuántas no se pueden pagar tal cual.
+- Avisos agrupados: duplicados de número (B2), duplicados por contenido (B3),
+  periodos solapados (B4), más de un IBAN por proveedor (F3) y cambios de
+  tarifa (G3). Son los que solo se ven cruzando el histórico completo.
+- Gasto por mes y ranking por proveedor, **en base imponible**: comparar por
+  el total con IVA premiaría al régimen y no al gasto.
+- Matriz proveedor × semana ISO. Una celda vacía es una semana sin factura de
+  ese proveedor; dos facturas en la misma celda salen marcadas.
+- La tabla completa, ordenable, filtrable y exportable a CSV.
+
+Los filtros de arriba acotan todo lo que hay debajo, así que las cifras
+siempre concuerdan entre sí.
+
+### Ver una factura en detalle
 
 ```bash
 bms-agent report

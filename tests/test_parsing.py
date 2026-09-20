@@ -132,3 +132,34 @@ def test_cobrar_iva_con_traslado_de_deuda_es_un_fallo() -> None:
     })
     assert resultado.failed
     assert resultado.rule == "E4"
+
+
+def test_el_modulo_97_acepta_ibanes_reales() -> None:
+    from bms_agent.checks import validar_iban
+
+    assert validar_iban("NL91ABNA0417164300")
+    assert validar_iban("NL91 ABNA 0417 1643 00")
+    assert validar_iban("nl91abna0417164300")
+    assert validar_iban("DE89370400440532013000")
+
+
+def test_el_modulo_97_rechaza_lo_inventado() -> None:
+    from bms_agent.checks import validar_iban
+
+    assert not validar_iban("NL91ABNA0417164301")   # un digito cambiado
+    assert not validar_iban("NL02ABNA0123456780")   # control incorrecto
+    assert not validar_iban("")
+    assert not validar_iban("NL91")
+    assert not validar_iban("NL91ABNA04171643!!")
+
+
+def test_la_aritmetica_de_linea_detecta_un_importe_mal() -> None:
+    from bms_agent.checks import check_line_arithmetic
+
+    bueno = check_line_arithmetic({"lines": [
+        {"quantity_raw": "37,50", "unit_rate_raw": "42,50", "line_total_raw": "1.593,75"}]})
+    assert bueno.status == "ok"
+
+    malo = check_line_arithmetic({"lines": [
+        {"quantity_raw": "37,50", "unit_rate_raw": "42,50", "line_total_raw": "1.953,75"}]})
+    assert malo.failed

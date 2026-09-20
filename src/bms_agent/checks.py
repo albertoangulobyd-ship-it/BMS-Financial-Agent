@@ -167,7 +167,75 @@ def run_checks(extraction: dict[str, Any]) -> list[CheckResult]:
     """Todas las comprobaciones que hoy se pueden hacer sin sistemas externos."""
     return [
         check_required_fields(extraction),
+        check_line_arithmetic(extraction),
         check_lines_sum(extraction),
         check_vat_amount(extraction),
         check_total(extraction),
+        check_iban(extraction),
     ]
+
+
+def validar_iban(iban: str) -> bool:
+    """Regla F1: digito de control modulo 97 (ISO 13616).
+
+    Aritmetica pura, sin sistemas externos. Un IBAN que no pasa esta
+    comprobacion esta mal transcrito o es inventado, y en los dos casos el
+    pago no puede salir.
+    """
+    texto = "".join(str(iban or "").split()).upper()
+    if not (15 <= len(texto) <= 34) or not texto[:2].isalpha() or not texto[2:4].isdigit():
+        return False
+    if not texto.isalnum():
+        return False
+    movido = texto[4:] + texto[:4]
+    digitos = "".join(str(int(c, 36)) if c.isalpha() else c for c in movido)
+    return int(digitos) % 97 == 1
+
+
+def check_iban(extraction: dict[str, Any]) -> CheckResult:
+    """F1: el IBAN impreso es sintacticamente valido."""
+    iban = extraction.get("iban")
+    if not iban:
+        return CheckResult("F1", "IBAN", "sin datos", "La factura no lleva IBAN.")
+    limpio = "".join(str(iban).split()).upper()
+    if validar_iban(limpio):
+        return CheckResult("F1", "IBAN", "ok", f"{limpio} pasa el digito de control.")
+    return CheckResult(
+        "F1", "IBAN", "fallo",
+        f"{limpio} no pasa el digito de control modulo 97.",
+    )
+
+
+def check_line_arithmetic(extraction: dict[str, Any]) -> CheckResult:
+    """D2b: cantidad por tarifa da el importe de cada linea."""
+    lineas = extraction.get("lines") or []
+    if not lineas:
+        return CheckResult("D2b", "Aritmetica de linea", "sin datos", "La factura no tiene lineas.")
+
+    fallos: list[str] = []
+    evaluadas = 0
+    for indice, linea in enumerate(lineas, start=1):
+        cantidad = _amount(linea.get("quantity_raw"))
+        tarifa = _amount(linea.get("unit_rate_raw"))
+        importe = _amount(linea.get("line_total_raw"))
+        if cantidad is None or tarifa is None or importe is None:
+            continue
+        evaluadas += 1
+        esperado = (cantidad * tarifa).quantize(Decimal("0.01"))
+        if abs(esperado - importe) > TOLERANCE_LINE:
+            fallos.append(
+                f"linea {indice}: {cantidad} x {_euros(tarifa)} deberia dar "
+                f"{_euros(esperado)} y pone {_euros(importe)}"
+            )
+
+    if not evaluadas:
+        return CheckResult(
+            "D2b", "Aritmetica de linea", "sin datos",
+            "Ninguna linea trae cantidad, tarifa e importe a la vez.",
+        )
+    if fallos:
+        return CheckResult("D2b", "Aritmetica de linea", "fallo", "; ".join(fallos))
+    return CheckResult(
+        "D2b", "Aritmetica de linea", "ok",
+        f"Las {evaluadas} lineas con datos completos cuadran.",
+    )

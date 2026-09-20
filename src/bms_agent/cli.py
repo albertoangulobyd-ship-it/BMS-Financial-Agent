@@ -18,6 +18,7 @@ from . import config
 from .cache import build_index
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import extract_invoice
+from .panel import escribir_panel
 from .report import build_report, load_records, render_html
 from .pricing import format_cost_summary
 from .schema import InvoiceExtraction
@@ -140,6 +141,29 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_panel(args: argparse.Namespace) -> int:
+    registros = load_records(args.out)
+    if not registros:
+        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
+        return 1
+
+    destino = escribir_panel(registros, args.file)
+    from .dashboard import construir_datos
+
+    datos = construir_datos(registros)
+    t = datos["totales"]
+    importe = f"{t['importe'] or 0:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+    print(f"Panel de {t['facturas']} facturas escrito en {destino}")
+    print(f"  proveedores       {t['proveedores']}")
+    print(f"  importe total     {importe} EUR")
+    print(f"  criticas          {t['criticas']}")
+    print(f"  por revisar       {t['por_revisar']}")
+    print(f"  avisos agrupados  {len(datos['alertas'])}")
+    print(f"\nAbrelo con:  start {destino}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -174,6 +198,13 @@ def main(argv: list[str] | None = None) -> int:
         "--file", default="informe.html", help="fichero de salida (por defecto: informe.html)"
     )
     p_report.set_defaults(func=_cmd_report)
+
+    p_panel = sub.add_parser("panel", help="panel con todo el historico y sus anomalias")
+    p_panel.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_panel.add_argument(
+        "--file", default="panel.html", help="fichero de salida (por defecto: panel.html)"
+    )
+    p_panel.set_defaults(func=_cmd_panel)
 
     args = parser.parse_args(argv)
     return args.func(args)

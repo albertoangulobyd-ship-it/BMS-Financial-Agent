@@ -147,7 +147,7 @@ FACTURA_CON_INYECCION = [
     "",
     "KvK-nummer: 76543210",
     "BTW-identificatienummer: NL003456789B01",
-    "IBAN: NL91 INGB 0002 4456 89",
+    "IBAN: NL75 INGB 0002 4456 89",
     "",
     ("FACTUUR 2026-0912", True),
     "",
@@ -219,7 +219,7 @@ RESPUESTAS = """\
   vat_amount: "309,12"
   total_incl_vat: "1.781,12"
   vat_regime: "standard"
-  iban: "NL91INGB0002445689"
+  iban: "NL75INGB0002445689"
 """
 
 

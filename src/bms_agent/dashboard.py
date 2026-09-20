@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 from .checks import run_checks
+from .checks import _euros
 from .parsing import ParseError, parse_amount, parse_iso_date
 
 VENTANA_DUPLICADO = timedelta(days=14)
@@ -43,9 +44,12 @@ class Fila:
     fecha: str
     fecha_orden: str
     periodo: str
+    periodo_ini: str
+    periodo_fin: str
     ubicaciones: str
     semanas: str
     horas: Decimal | None
+    otras_unidades: list[str]
     base: Decimal | None
     iva: Decimal | None
     total: Decimal | None
@@ -53,7 +57,12 @@ class Fila:
     iban: str
     vencimiento: str
     estado: str  # ok | revisar | critico
-    motivos: list[str]
+    fallos: list[str]   # reglas incumplidas: no se paga sin resolver
+    avisos: list[str]   # cosas que mirar, pero no bloquean
+
+    @property
+    def motivos(self) -> list[str]:
+        return self.fallos + self.avisos
 
 
 def _dec(raw: Any) -> Decimal | None:
@@ -75,6 +84,12 @@ def _fecha(raw: Any) -> date | None:
 
 
 def _horas(extraction: dict[str, Any]) -> Decimal | None:
+    """Suma solo las lineas facturadas en horas.
+
+    Lo facturado en dias, piezas o kilometros no son horas y sumarlo daria un
+    numero sin sentido. Lo que queda fuera se declara en _otras_unidades para
+    que no desaparezca en silencio.
+    """
     total = Decimal(0)
     visto = False
     for linea in extraction.get("lines") or []:
@@ -84,6 +99,33 @@ def _horas(extraction: dict[str, Any]) -> Decimal | None:
                 total += cantidad
                 visto = True
     return total if visto else None
+
+
+def _otras_unidades(extraction: dict[str, Any]) -> list[str]:
+    """Unidades distintas de la hora presentes en la factura."""
+    unidades: list[str] = []
+    for linea in extraction.get("lines") or []:
+        unidad = (linea.get("unit") or "").strip().lower()
+        if unidad and not unidad.startswith("uur") and unidad not in unidades:
+            unidades.append(unidad)
+    return unidades
+
+
+def _identidad(extraction: dict[str, Any]) -> str:
+    """Clave canonica del proveedor.
+
+    El nombre impreso cambia entre facturas del mismo autonomo ("J. de Vries",
+    "De Vries Montage"). El btw-id no. Agrupar por nombre haria que un cambio
+    de IBAN acompanado de un cambio de nombre pasara desapercibido, que es
+    justo la forma que toma el fraude cuando alguien se esfuerza.
+    """
+    btw = (extraction.get("vat_number") or "").replace(" ", "").upper()
+    if btw:
+        return "btw:" + btw
+    kvk = (extraction.get("kvk_number") or "").strip()
+    if kvk:
+        return "kvk:" + kvk
+    return "nom:" + (extraction.get("supplier_name") or "").strip().lower()
 
 
 def _unicos(valores: list[Any]) -> str:
@@ -100,16 +142,16 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
     for registro in registros:
         x = registro.get("extraction") or {}
         comprobaciones = run_checks(x)
-        motivos = [f"{c.label}: {c.detail}" for c in comprobaciones if c.failed]
+        fallos = [f"{c.label}: {c.detail}" for c in comprobaciones if c.failed]
 
+        avisos: list[str] = []
         dudosos = x.get("low_confidence_fields") or []
         if dudosos:
-            motivos.append("Lectura dudosa en " + ", ".join(dudosos))
+            avisos.append("Lectura dudosa en " + ", ".join(dudosos))
         if x.get("document_notes"):
-            motivos.append("El documento lleva texto marcado para revisar")
+            avisos.append("El documento lleva texto marcado para revisar")
 
-        critico = any(c.failed for c in comprobaciones)
-        estado = "critico" if critico else ("revisar" if motivos else "ok")
+        estado = "critico" if fallos else ("revisar" if avisos else "ok")
 
         inicio, fin = x.get("service_period_start"), x.get("service_period_end")
         periodo = f"{inicio or '?'} a {fin or '?'}" if (inicio or fin) else "—"
@@ -123,9 +165,12 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
                 fecha=x.get("invoice_date") or "—",
                 fecha_orden=x.get("invoice_date") or "0000-00-00",
                 periodo=periodo,
+                periodo_ini=inicio or "",
+                periodo_fin=fin or inicio or "",
                 ubicaciones=_unicos([l.get("location") for l in lineas]),
                 semanas=_unicos([l.get("week_number") for l in lineas]),
                 horas=_horas(x),
+                otras_unidades=_otras_unidades(x),
                 base=_dec(x.get("subtotal_excl_vat_raw")),
                 iva=_dec(x.get("vat_amount_raw")),
                 total=_dec(x.get("total_incl_vat_raw")),
@@ -133,7 +178,8 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
                 iban=(x.get("iban") or "—"),
                 vencimiento=x.get("due_date") or "—",
                 estado=estado,
-                motivos=motivos,
+                fallos=fallos,
+                avisos=avisos,
             )
         )
     filas.sort(key=lambda f: f.fecha_orden, reverse=True)
@@ -141,14 +187,20 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
 
 
 def por_mes(filas: list[Fila]) -> list[dict[str, Any]]:
-    """Serie temporal de gasto. Incluye los meses vacios del rango."""
+    """Serie temporal de gasto, en BASE IMPONIBLE.
+
+    No en total con IVA: una factura con el IVA trasladado no lleva cuota y
+    otra al 21% si, asi que compararlas por el total premia al regimen, no al
+    gasto. La base es lo unico comparable entre regimenes.
+    """
     acumulado: dict[str, list[Any]] = defaultdict(lambda: [0, Decimal(0)])
     for fila in filas:
-        if fila.fecha_orden == "0000-00-00" or fila.total is None:
+        importe = fila.base if fila.base is not None else fila.total
+        if fila.fecha_orden == "0000-00-00" or importe is None:
             continue
         clave = fila.fecha_orden[:7]
         acumulado[clave][0] += 1
-        acumulado[clave][1] += fila.total
+        acumulado[clave][1] += importe
 
     if not acumulado:
         return []
@@ -176,8 +228,9 @@ def por_proveedor(filas: list[Fila]) -> list[dict[str, Any]]:
              "horas": Decimal(0), "primera": None, "ultima": None, "avisos": 0},
         )
         entrada["facturas"] += 1
-        if fila.total is not None:
-            entrada["total"] += fila.total
+        importe = fila.base if fila.base is not None else fila.total
+        if importe is not None:
+            entrada["total"] += importe
         if fila.horas is not None:
             entrada["horas"] += fila.horas
         if fila.estado != "ok":
@@ -244,27 +297,40 @@ def detectar_duplicados(filas: list[Fila]) -> list[Alerta]:
                 alertas.append(Alerta(
                     "revisar", "B3", "Posible duplicado por contenido",
                     f"{proveedor}: {a.numero} y {b.numero} suman lo mismo "
-                    f"({b.total:,.2f}) con {(fb - fa).days} dias de diferencia.",
+                    f"({_euros(b.total)}) con {(fb - fa).days} dias de diferencia.",
                     [a.fichero, b.fichero],
                 ))
     return alertas
 
 
 def detectar_periodos_repetidos(filas: list[Fila]) -> list[Alerta]:
-    """Regla B4: la misma semana facturada dos veces."""
+    """Regla B4: el mismo periodo facturado dos veces.
+
+    Se comparan rangos de fechas, no cadenas. Un periodo del 7 al 13 solapa
+    con otro del 1 al 10 aunque los textos no se parezcan en nada, y ese es
+    precisamente el caso que hay que cazar: si coincidieran letra por letra
+    seria un duplicado de los faciles.
+    """
     alertas: list[Alerta] = []
-    por_clave: dict[tuple[str, str], list[Fila]] = defaultdict(list)
+    por_proveedor_: dict[str, list[tuple[date, date, Fila]]] = defaultdict(list)
     for fila in filas:
-        if fila.periodo != "—":
-            por_clave[(fila.proveedor, fila.periodo)].append(fila)
-    for (proveedor, periodo), grupo in sorted(por_clave.items()):
-        if len(grupo) > 1:
-            alertas.append(Alerta(
-                "critico", "B4", "Periodo facturado dos veces",
-                f"{proveedor} ha facturado el periodo {periodo} en "
-                f"{len(grupo)} facturas distintas.",
-                [f.fichero for f in grupo],
-            ))
+        inicio, fin = _fecha(fila.periodo_ini), _fecha(fila.periodo_fin)
+        if inicio and fin and inicio <= fin:
+            por_proveedor_[fila.proveedor].append((inicio, fin, fila))
+
+    for proveedor, rangos in sorted(por_proveedor_.items()):
+        rangos.sort(key=lambda r: r[0])
+        for i, (ini_a, fin_a, fila_a) in enumerate(rangos):
+            for ini_b, fin_b, fila_b in rangos[i + 1:]:
+                if ini_b > fin_a:
+                    break
+                dias = (min(fin_a, fin_b) - ini_b).days + 1
+                alertas.append(Alerta(
+                    "critico", "B4", "Periodo facturado dos veces",
+                    f"{proveedor}: {fila_a.numero} ({fila_a.periodo}) y "
+                    f"{fila_b.numero} ({fila_b.periodo}) solapan {dias} dia(s).",
+                    [fila_a.fichero, fila_b.fichero],
+                ))
     return alertas
 
 
@@ -316,12 +382,17 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
             continue
         distintas = sorted(por_tarifa)
         fechas = sorted(fecha for lista in por_tarifa.values() for fecha, _ in lista)
+        habitual = max(por_tarifa, key=lambda t: len(por_tarifa[t]))
+        desviadas = sorted(
+            f for t, ficheros in ficheros_por_tarifa.items() if t != habitual
+            for f in ficheros
+        )
         alertas.append(Alerta(
             "revisar", "G3", "Tarifa distinta por el mismo trabajo",
-            f"{proveedor}, {trabajo} en {ubicacion}: " +
-            " y ".join(f"{t:,.2f}" for t in distintas) +
-            f" entre {fechas[0]} y {fechas[-1]}.",
-            sorted(set().union(*ficheros_por_tarifa.values())),
+            f"{proveedor}, {trabajo} en {ubicacion}: habitual {_euros(habitual)}, "
+            "tambien " + " y ".join(_euros(t) for t in distintas if t != habitual) +
+            f", entre {fechas[0]} y {fechas[-1]}.",
+            desviadas,
         ))
     return alertas
 
@@ -329,23 +400,35 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
 def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
     """Un proveedor con mas de un IBAN en el historico. Parada dura F3."""
     ibanes: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    nombres: dict[str, str] = {}
     for registro in registros:
         x = registro.get("extraction") or {}
-        proveedor = x.get("supplier_name") or "(sin nombre)"
+        clave = _identidad(x)
+        nombres[clave] = x.get("supplier_name") or "(sin nombre)"
         iban = (x.get("iban") or "").replace(" ", "").upper()
         if iban:
-            ibanes[proveedor][iban].append(registro.get("source_name", "—"))
+            ibanes[clave][iban].append(registro.get("source_name", "—"))
 
     alertas: list[Alerta] = []
-    for proveedor, cuentas in sorted(ibanes.items()):
-        if len(cuentas) > 1:
-            alertas.append(Alerta(
-                "critico", "F3", "Mas de un IBAN para el mismo proveedor",
-                f"{proveedor} aparece con {len(cuentas)} cuentas distintas: " +
-                ", ".join(sorted(cuentas)) +
-                ". Verificacion telefonica al numero ya conocido antes de pagar.",
-                sorted({f for lista in cuentas.values() for f in lista}),
-            ))
+    for clave, cuentas in sorted(ibanes.items()):
+        proveedor = nombres.get(clave, clave)
+        if len(cuentas) < 2:
+            continue
+        # Solo son sospechosas las facturas del IBAN minoritario. Marcar las
+        # veinte facturas historicas del proveedor como criticas ahoga la
+        # senal: la cuenta de siempre no es la que hay que verificar.
+        habitual = max(cuentas, key=lambda c: len(cuentas[c]))
+        sospechosas = sorted(
+            f for cuenta, lista in cuentas.items() if cuenta != habitual for f in lista
+        )
+        otras = sorted(c for c in cuentas if c != habitual)
+        alertas.append(Alerta(
+            "critico", "F3", "Mas de un IBAN para el mismo proveedor",
+            f"{proveedor} cobra habitualmente en {habitual}, pero "
+            f"{len(sospechosas)} factura(s) traen " + ", ".join(otras) +
+            ". Verificacion telefonica al numero ya conocido antes de pagar.",
+            sospechosas,
+        ))
     return alertas
 
 
@@ -358,15 +441,43 @@ def construir_alertas(
     alertas += detectar_periodos_repetidos(filas)
     alertas += detectar_cambios_de_tarifa(registros)
 
+    # Los motivos que se repiten se agrupan. Veintidos avisos identicos de
+    # "lectura dudosa" no son veintidos hallazgos: son uno, con veintidos
+    # facturas detras, y listarlos por separado entierra todo lo demas.
+    grupos: dict[tuple[str, str], dict[str, Any]] = {}
     for fila in filas:
-        for motivo in fila.motivos:
-            severidad = "critico" if fila.estado == "critico" else "revisar"
-            alertas.append(Alerta(
-                severidad, "—", motivo.split(":")[0],
-                f"{fila.proveedor} {fila.numero}: {motivo}", [fila.fichero],
-            ))
+        for severidad, regla, motivo in (
+            [("critico", "D", m) for m in fila.fallos]
+            + [("revisar", "—", m) for m in fila.avisos]
+        ):
+            titulo = motivo.split(":")[0]
+            clave = (severidad, titulo)
+            entrada = grupos.setdefault(clave, {
+                "severidad": severidad, "regla": regla, "titulo": titulo,
+                "detalles": [], "facturas": [], "proveedores": set(),
+            })
+            entrada["detalles"].append(f"{fila.proveedor} {fila.numero}: {motivo}")
+            entrada["facturas"].append(fila.fichero)
+            entrada["proveedores"].add(fila.proveedor)
 
-    alertas.sort(key=lambda a: (SEVERIDAD_ORDEN.get(a.severidad, 9), a.regla, a.titulo))
+    for entrada in grupos.values():
+        cuantas = len(entrada["facturas"])
+        if cuantas == 1:
+            detalle = entrada["detalles"][0]
+        else:
+            proveedores = sorted(entrada["proveedores"])
+            de_quien = (
+                proveedores[0] if len(proveedores) == 1
+                else f"{len(proveedores)} proveedores"
+            )
+            detalle = f"{cuantas} facturas de {de_quien}. " + entrada["detalles"][0]
+        alertas.append(Alerta(
+            entrada["severidad"], entrada["regla"], entrada["titulo"],
+            detalle, entrada["facturas"],
+        ))
+
+    alertas.sort(key=lambda a: (
+        SEVERIDAD_ORDEN.get(a.severidad, 9), a.regla, -len(a.facturas), a.titulo))
     return alertas
 
 
@@ -379,10 +490,122 @@ def _num(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
 
 
+def _propagar_alertas_a_filas(filas: list[Fila], alertas: list[Alerta]) -> None:
+    """Una factura involucrada en un duplicado o un cambio de IBAN no esta "ok".
+
+    Las reglas que cruzan el historico (B2, B3, B4, F3, G3) no las ve una
+    factura sola, asi que su estado hay que propagarlo hacia atras. Sin esto,
+    una factura duplicada aparece verde en la tabla mientras la alerta de
+    arriba dice que es critica, y el panel se contradice a si mismo.
+    """
+    por_fichero = {f.fichero: f for f in filas}
+    for alerta in alertas:
+        if alerta.regla in ("—", "D"):
+            continue
+        for fichero in alerta.facturas:
+            fila = por_fichero.get(fichero)
+            if fila is None:
+                continue
+            texto = f"{alerta.titulo} (regla {alerta.regla})"
+            if alerta.severidad == "critico":
+                if texto not in fila.fallos:
+                    fila.fallos.append(texto)
+                fila.estado = "critico"
+            else:
+                if texto not in fila.avisos:
+                    fila.avisos.append(texto)
+                if fila.estado == "ok":
+                    fila.estado = "revisar"
+
+
+def _lunes(semana: str) -> date:
+    """Lunes de una semana ISO escrita como 2026-W37."""
+    ano, num = int(semana[:4]), int(semana[6:])
+    return date.fromisocalendar(ano, num, 1)
+
+
+def _rango_de_semanas(primera: str, ultima: str) -> list[str]:
+    """Todas las semanas ISO entre dos, ambas incluidas."""
+    dia, fin = _lunes(primera), _lunes(ultima)
+    salida: list[str] = []
+    while dia <= fin:
+        iso = dia.isocalendar()
+        salida.append(f"{iso.year}-W{iso.week:02d}")
+        dia += timedelta(days=7)
+    return salida
+
+
+def _semanas_de(fila: Fila) -> list[str]:
+    """Semanas ISO que cubre una factura.
+
+    Se usa la semana que declara la propia factura cuando esta; si no, la
+    semana ISO del fin del periodo. Un zzp'er factura por semana, asi que
+    esta es la unidad en la que se ve si falta una o si hay dos.
+    """
+    declaradas = [s for s in fila.semanas.split(" · ") if s.strip().isdigit()]
+    fin = _fecha(fila.periodo_fin) or _fecha(fila.fecha_orden)
+    if not fin:
+        return []
+    ano = fin.isocalendar().year
+    if declaradas:
+        return [f"{ano}-W{int(s):02d}" for s in declaradas]
+    return [f"{ano}-W{fin.isocalendar().week:02d}"]
+
+
+def matriz_semanal(filas: list[Fila], maximo: int = 18) -> dict[str, Any]:
+    """Rejilla proveedor por semana ISO.
+
+    Una celda vacia es una semana sin factura de ese proveedor; dos o mas
+    facturas en la misma celda es lo que hay que mirar. Sin el programa de
+    planificacion no se puede saber si un hueco es que no trabajo o que no ha
+    facturado, pero si se sabe a quien hay que llamar.
+    """
+    celdas: dict[tuple[str, str], dict[str, Any]] = {}
+    semanas: set[str] = set()
+    for fila in filas:
+        importe = fila.base if fila.base is not None else fila.total
+        for semana in _semanas_de(fila):
+            semanas.add(semana)
+            celda = celdas.setdefault((fila.proveedor, semana),
+                                      {"importe": Decimal(0), "n": 0, "estados": []})
+            celda["importe"] += (importe or Decimal(0))
+            celda["n"] += 1
+            celda["estados"].append(fila.estado)
+
+    if not semanas:
+        return {"semanas": [], "proveedores": [], "maximo": 0}
+
+    # Rango continuo: una semana sin facturas tiene que verse como hueco.
+    # Es precisamente el dato que hace util esta rejilla.
+    orden = _rango_de_semanas(min(semanas), max(semanas))[-maximo:]
+    visibles = set(orden)
+    proveedores: dict[str, dict[str, Any]] = {}
+    for (proveedor, semana), celda in celdas.items():
+        if semana not in visibles:
+            continue
+        entrada = proveedores.setdefault(proveedor, {"proveedor": proveedor, "celdas": {}, "total": Decimal(0)})
+        estado = ("critico" if "critico" in celda["estados"]
+                  else "revisar" if "revisar" in celda["estados"] else "ok")
+        entrada["celdas"][semana] = {
+            "importe": _num(celda["importe"]), "n": celda["n"], "estado": estado,
+        }
+        entrada["total"] += celda["importe"]
+
+    lista = sorted(proveedores.values(), key=lambda e: e["total"], reverse=True)
+    tope = max((c["importe"] or 0) for e in lista for c in e["celdas"].values())
+    return {
+        "semanas": orden,
+        "proveedores": [{"proveedor": e["proveedor"], "celdas": e["celdas"],
+                         "total": _num(e["total"])} for e in lista],
+        "maximo": tope,
+    }
+
+
 def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
     """Todo lo que el panel necesita, listo para serializar a JSON."""
     filas = construir_filas(registros)
     alertas = construir_alertas(filas, registros)
+    _propagar_alertas_a_filas(filas, alertas)
 
     coste = Decimal(0)
     for registro in registros:
@@ -410,6 +633,7 @@ def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
                 "horas": _num(f.horas), "base": _num(f.base), "iva": _num(f.iva),
                 "total": _num(f.total), "regimen": f.regimen, "iban": f.iban,
                 "vencimiento": f.vencimiento, "estado": f.estado, "motivos": f.motivos,
+                "otras_unidades": f.otras_unidades,
             }
             for f in filas
         ],
@@ -425,6 +649,7 @@ def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for p in por_proveedor(filas)
         ],
+        "matriz": matriz_semanal(filas),
         "por_regimen": [
             {"clave": r["clave"], "etiqueta": r["etiqueta"],
              "facturas": r["facturas"], "total": _num(r["total"])}
@@ -441,7 +666,7 @@ def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
             "iva": _num(iva),
             "horas": _num(horas),
             "proveedores": len({f.proveedor for f in filas}),
-            "criticas": sum(1 for a in alertas if a.severidad == "critico"),
+            "criticas": sum(1 for f in filas if f.estado == "critico"),
             "por_revisar": sum(1 for f in filas if f.estado != "ok"),
             "coste_lectura": _num(coste),
             "desde": min((f.fecha_orden for f in filas if f.fecha_orden != "0000-00-00"), default=None),
