@@ -18,6 +18,7 @@ from . import config
 from .cache import build_index
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import extract_invoice
+from .report import build_report, load_records, render_html
 from .pricing import format_cost_summary
 from .schema import InvoiceExtraction
 from .scoring import Report, load_ground_truth, score_document, format_report
@@ -120,6 +121,25 @@ def _cmd_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    records = load_records(args.out)
+    if not records:
+        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
+        return 1
+
+    data = build_report(records)
+    target = Path(args.file)
+    target.write_text(render_html(data), encoding="utf-8")
+
+    print(f"Informe de {len(data.invoices)} facturas escrito en {target}")
+    importe = f"{data.total_amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    print(f"  importe total     {importe} EUR")
+    print(f"  con avisos        {data.with_flags}")
+    print(f"  coste de lectura  ${data.total_cost:.4f}")
+    print(f"\nAbrelo con:  start {target}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -147,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
         help="fichero de respuestas escritas a mano",
     )
     p_score.set_defaults(func=_cmd_score)
+
+    p_report = sub.add_parser("report", help="genera un informe HTML de lo extraido")
+    p_report.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_report.add_argument(
+        "--file", default="informe.html", help="fichero de salida (por defecto: informe.html)"
+    )
+    p_report.set_defaults(func=_cmd_report)
 
     args = parser.parse_args(argv)
     return args.func(args)

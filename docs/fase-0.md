@@ -106,6 +106,23 @@ $EDITOR ground_truth/respuestas.yaml
 bms-agent score
 ```
 
+### Ver lo que ha entendido
+
+```bash
+bms-agent report
+start informe.html        # en Windows; open informe.html en macOS
+```
+
+Genera un fichero HTML con cada factura: proveedor, número, periodo, las
+líneas con su semana y ubicación, los totales, y las comprobaciones que se
+pueden hacer sin consultar el planning ni Exact. Al pie de cada una queda la
+procedencia: qué modelo la leyó, con qué versión de prompt, cuántos tokens y
+cuánto costó.
+
+Es un fichero local. No hay servidor, no hay base de datos y no sale nada a
+internet. Es el primer paso del [portal](portal-consulta.md), en la forma más
+segura posible: sin desplegar nada.
+
 `bms-agent schema` imprime el esquema de extracción, útil para revisar qué
 campos se piden antes de gastar una sola llamada.
 

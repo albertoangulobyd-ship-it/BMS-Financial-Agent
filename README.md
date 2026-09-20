@@ -36,7 +36,8 @@ pytest
 
 export ANTHROPIC_API_KEY=sk-ant-...
 bms-agent extract facturas/    # deja los PDF ahí primero
-bms-agent score
+bms-agent score                # precisión contra respuestas escritas a mano
+bms-agent report               # informe HTML de lo que ha entendido
 ```
 
 ## Estado

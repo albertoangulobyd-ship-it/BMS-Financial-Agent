@@ -108,3 +108,27 @@ def test_parse_iso_date_rechaza_lo_que_no_resuelve(raw: str) -> None:
 
 def test_normalize_iban() -> None:
     assert normalize_iban("nl02 abna 0123 4567 89") == "NL02ABNA0123456789"
+
+
+def test_iva_trasladado_no_cuenta_como_dato_ausente() -> None:
+    """Una factura con btw verlegd no tiene tipo, y eso es lo correcto."""
+    from bms_agent.checks import check_vat_amount
+
+    resultado = check_vat_amount({
+        "vat_regime": "reverse_charged", "vat_amount_raw": "0,00",
+        "subtotal_excl_vat_raw": "1.520,00", "vat_rate_raw": None,
+    })
+    assert resultado.status == "no aplica"
+    assert not resultado.failed
+
+
+def test_cobrar_iva_con_traslado_de_deuda_es_un_fallo() -> None:
+    """Regla E4: con el IVA trasladado no se puede repercutir."""
+    from bms_agent.checks import check_vat_amount
+
+    resultado = check_vat_amount({
+        "vat_regime": "reverse_charged", "vat_amount_raw": "319,20",
+        "subtotal_excl_vat_raw": "1.520,00", "vat_rate_raw": "21%",
+    })
+    assert resultado.failed
+    assert resultado.rule == "E4"
