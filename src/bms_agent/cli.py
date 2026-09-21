@@ -164,6 +164,21 @@ def _cmd_panel(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_simulador(args: argparse.Namespace) -> int:
+    from .simulador import escribir_simulador
+
+    registros = load_records(args.out)
+    if not registros:
+        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
+        return 1
+
+    destino = escribir_simulador(registros, args.file, tarifas=args.tarifas)
+    print(f"Simulador escrito en {destino}")
+    print("  Mueve el margen o escribe una tarifa y todo se recalcula en la pagina.")
+    print(f"\nAbrelo con:  start {destino}")
+    return 0
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     from .serve import servir
 
@@ -242,6 +257,16 @@ def main(argv: list[str] | None = None) -> int:
         help="tabla de tarifas de venta (por defecto: config/tarifas.yaml)",
     )
     p_export.set_defaults(func=_cmd_export)
+
+    p_sim = sub.add_parser(
+        "simulador", help="simulador de tarifas de venta, con recalculo en vivo"
+    )
+    p_sim.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_sim.add_argument("--file", default="simulador.html", help="fichero de salida")
+    p_sim.add_argument(
+        "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de partida"
+    )
+    p_sim.set_defaults(func=_cmd_simulador)
 
     p_serve = sub.add_parser(
         "serve", help="servidor local de desarrollo (solo 127.0.0.1)"

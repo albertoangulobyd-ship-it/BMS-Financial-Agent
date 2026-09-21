@@ -193,3 +193,26 @@ celdas que empiezan por `=`, `+`, `-` o `@`, que Excel las ejecuta.
 **`estado` ya viene cruzado con todo el histórico.** Una factura señalada por
 un duplicado o por un cambio de IBAN sale como `critico` aunque ella sola
 parezca correcta. No hay que recalcularlo en el cliente.
+
+
+---
+
+## El simulador de tarifas
+
+```bash
+bms-agent simulador --tarifas config/tarifas.yaml
+```
+
+Una página aparte, para **decidir el modelo de precios** antes de fijarlo en
+la configuración. Lleva las líneas de compra sin agrupar y recalcula en el
+navegador: mueves el margen, escribes una tarifa pactada o marcas un concepto
+como no refacturable, y las cifras se mueven al instante.
+
+Lo que se ve: horas facturables, coste, venta, margen en euros y sobre venta;
+el reparto por cliente con el coste y el margen encima; y una línea por
+cliente, obra, semana y trabajo, con una etiqueta que dice si el precio vino
+de una tarifa pactada o del margen.
+
+Cuando el modelo esté decidido, esos números se escriben en
+`config/tarifas.yaml` y pasan a alimentar el bloque `facturacion` del contrato
+de datos.

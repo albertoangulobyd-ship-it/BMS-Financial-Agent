@@ -254,3 +254,61 @@ def proyectar(
             if total_venta else None,
         },
     }
+
+
+def lineas_para_simulador(
+    registros: list[dict[str, Any]], tarifas: Tarifas | None = None
+) -> dict[str, Any]:
+    """Lineas de compra en crudo, para simular precios en el navegador.
+
+    El simulador recalcula en vivo cuando se toca una tarifa, asi que necesita
+    las lineas sin agrupar. La agrupacion y el precio los hace el cliente.
+    """
+    tarifas = tarifas or Tarifas()
+    lineas: list[dict[str, Any]] = []
+    obras: set[str] = set()
+    trabajos: set[str] = set()
+
+    for registro in registros:
+        x = registro.get("extraction") or {}
+        proveedor = x.get("supplier_name") or "(sin nombre)"
+        fecha = x.get("invoice_date") or ""
+        for linea in x.get("lines") or []:
+            if not (linea.get("unit") or "").lower().startswith("uur"):
+                continue
+            horas = _dec(linea.get("quantity_raw"))
+            coste = _dec(linea.get("unit_rate_raw"))
+            obra = str(linea.get("location") or "").strip()
+            if horas is None or coste is None or not obra:
+                continue
+            trabajo = _tipo_de_trabajo(linea.get("description"))
+            semana = linea.get("week_number")
+            obras.add(obra)
+            trabajos.add(trabajo)
+            lineas.append({
+                "proveedor": proveedor,
+                "fichero": registro.get("source_name", "—"),
+                "obra": obra,
+                "trabajo": trabajo,
+                "semana": f"W{int(semana):02d}" if isinstance(semana, int) else "—",
+                "fecha": fecha,
+                "horas": _num(horas),
+                "coste_hora": _num(coste),
+            })
+
+    combinaciones = sorted({(l["obra"], l["trabajo"]) for l in lineas})
+    return {
+        "lineas": lineas,
+        "obras": sorted(obras),
+        "trabajos": sorted(trabajos),
+        "combinaciones": [{"obra": o, "trabajo": t} for o, t in combinaciones],
+        "sugerido": {
+            "margen": float(tarifas.margen_por_defecto),
+            "obras": {o: tarifas.cliente_de(o) or "" for o in sorted(obras)},
+            "tarifas": {
+                f"{o}|{t}": _num(tarifas.tarifa_de(o, t))
+                for o, t in combinaciones
+            },
+            "no_facturable": sorted(tarifas.no_facturable),
+        },
+    }
