@@ -118,3 +118,41 @@ def test_una_factura_sin_fecha_va_al_final() -> None:
     data = build_report([rec("sinfecha.pdf", None), rec("confecha.pdf", "2026-03-01")])
 
     assert [v.source_name for v in data.invoices] == ["confecha.pdf", "sinfecha.pdf"]
+
+
+def test_una_fecha_hostil_no_se_cuela_en_el_html_del_panel() -> None:
+    """La cabecera del panel interpolaba invoice_date sin escapar."""
+    from bms_agent.panel import render_html
+    from bms_agent.dashboard import construir_datos
+
+    hostil = {
+        "source_name": "a.pdf",
+        "extraction": {
+            "supplier_name": "X", "invoice_number": "1",
+            "invoice_date": '2026-09-15"><script>alert(1)</script>',
+            "total_incl_vat_raw": "100,00", "lines": [],
+            "low_confidence_fields": [],
+        },
+    }
+    salida = render_html(construir_datos([hostil]), "hoy")
+    assert "<script>alert" not in salida
+
+
+def test_un_comentario_html_incrustado_no_rompe_el_bloque_script() -> None:
+    """<!--<script en un PDF abria un comentario y vaciaba el panel entero."""
+    from bms_agent.panel import render_html
+    from bms_agent.dashboard import construir_datos
+
+    hostil = {
+        "source_name": "a.pdf",
+        "extraction": {
+            "supplier_name": "<!--<script>", "invoice_number": "1",
+            "invoice_date": "2026-09-15", "total_incl_vat_raw": "100,00",
+            "lines": [], "low_confidence_fields": [],
+            "document_notes": "</script><img src=x onerror=alert(1)>",
+        },
+    }
+    salida = render_html(construir_datos([hostil]), "hoy")
+    cuerpo = salida.split("const DATOS = ", 1)[1]
+    assert "<!--" not in cuerpo
+    assert "</script>" not in cuerpo.split("\n</script>")[0]

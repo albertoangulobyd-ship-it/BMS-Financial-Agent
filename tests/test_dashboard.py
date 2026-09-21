@@ -352,3 +352,123 @@ def test_la_matriz_marca_la_semana_con_dos_facturas() -> None:
 
     m = matriz_semanal(construir_filas([con_semana("a.pdf", "1"), con_semana("b.pdf", "2")]))
     assert m["proveedores"][0]["celdas"]["2026-W37"]["n"] == 2
+
+
+def test_un_cambio_de_banco_real_no_acusa_al_historico_correcto() -> None:
+    """La cuenta de referencia es la mas antigua, no la mas repetida.
+
+    Si un proveedor cambia de banco y luego manda veinte facturas con la
+    cuenta nueva, la frecuencia convertiria la nueva en "habitual" y marcaria
+    como sospechosas las antiguas, que son las correctas.
+    """
+    viejas = [factura(f"v{i}.pdf", numero=f"v{i}", fecha=f"2026-0{i+1}-05",
+                      iban="NL02ABNA0123456789") for i in range(2)]
+    nuevas = [factura(f"n{i}.pdf", numero=f"n{i}", fecha=f"2026-0{i+5}-05",
+                      iban="NL91ABNA0417164300") for i in range(4)]
+
+    alertas = detectar_ibanes(viejas + nuevas)
+
+    assert len(alertas) == 1
+    assert sorted(alertas[0].facturas) == ["n0.pdf", "n1.pdf", "n2.pdf", "n3.pdf"]
+    assert "NL02ABNA0123456789" in alertas[0].detalle
+
+
+def test_una_subida_de_tarifa_senala_las_nuevas_no_las_viejas() -> None:
+    def con_tarifa(nombre, fecha, tarifa):
+        return factura(nombre, numero=nombre, fecha=fecha,
+                       lineas=[linea("Montagewerk", "Schiedam", tarifa)])
+
+    alertas = detectar_cambios_de_tarifa([
+        con_tarifa("a.pdf", "2026-03-05", "42,50"),
+        con_tarifa("b.pdf", "2026-06-05", "58,00"),
+        con_tarifa("c.pdf", "2026-07-05", "58,00"),
+        con_tarifa("d.pdf", "2026-08-05", "58,00"),
+    ])
+
+    assert len(alertas) == 1
+    assert sorted(alertas[0].facturas) == ["b.pdf", "c.pdf", "d.pdf"]
+
+
+def test_b3_no_salta_entre_semanas_distintas_al_mismo_importe() -> None:
+    """Un autonomo con tarifa fija factura lo mismo cada semana."""
+    a = factura("a.pdf", numero="1", fecha="2026-09-08",
+                inicio="2026-08-31", fin="2026-09-06")
+    b = factura("b.pdf", numero="2", fecha="2026-09-15",
+                inicio="2026-09-07", fin="2026-09-13")
+    assert [x for x in detectar_duplicados(construir_filas([a, b])) if x.regla == "B3"] == []
+
+
+def test_b3_si_salta_cuando_los_periodos_se_pisan() -> None:
+    a = factura("a.pdf", numero="1", fecha="2026-09-08",
+                inicio="2026-09-07", fin="2026-09-13")
+    b = factura("b.pdf", numero="2", fecha="2026-09-15",
+                inicio="2026-09-07", fin="2026-09-13")
+    assert [x for x in detectar_duplicados(construir_filas([a, b])) if x.regla == "B3"]
+
+
+def test_una_nota_de_credito_no_es_periodo_facturado_dos_veces() -> None:
+    a = factura("a.pdf", numero="1", total="1.000,00")
+    b = factura("b.pdf", numero="2-C", total="-1.000,00")
+    assert detectar_periodos_repetidos(construir_filas([a, b])) == []
+
+
+def test_una_fecha_en_formato_neerlandes_no_tumba_el_panel() -> None:
+    """parse_iso_date acepta 13-09-2026 a proposito; el panel debe aguantarlo."""
+    from bms_agent.dashboard import construir_datos
+
+    a = factura("a.pdf", numero="1", fecha="13-09-2026")
+    b = factura("b.pdf", numero="2", fecha="2026-08-30")
+    datos = construir_datos([a, b])
+
+    assert [f["orden"] for f in datos["filas"]] == ["2026-09-13", "2026-08-30"]
+    assert [m["mes"] for m in datos["por_mes"]] == ["2026-08", "2026-09"]
+
+
+def test_la_semana_52_facturada_en_enero_va_al_ano_anterior() -> None:
+    from bms_agent.dashboard import matriz_semanal
+
+    reg = factura("a.pdf", numero="1", fecha="2026-01-06",
+                  inicio="2025-12-22", fin="2025-12-28",
+                  lineas=[{"description": "Montage", "location": "X", "unit": "uur",
+                           "quantity_raw": "8,00", "unit_rate_raw": "40,00",
+                           "line_total_raw": "320,00", "week_number": 52}])
+    m = matriz_semanal(construir_filas([reg]))
+    assert "2025-W52" in m["proveedores"][0]["celdas"]
+
+
+def test_una_semana_53_imposible_no_lanza_excepcion() -> None:
+    from bms_agent.dashboard import matriz_semanal
+
+    reg = factura("a.pdf", numero="1", fecha="2026-06-10",
+                  inicio="2026-06-01", fin="2026-06-07",
+                  lineas=[{"description": "Montage", "location": "X", "unit": "uur",
+                           "quantity_raw": "8,00", "unit_rate_raw": "40,00",
+                           "line_total_raw": "320,00", "week_number": 53}])
+    m = matriz_semanal(construir_filas([reg]))   # 2026 tiene 53 semanas ISO
+    assert m["semanas"]
+
+
+def test_b4_ve_el_periodo_aunque_solo_este_en_las_lineas() -> None:
+    def sin_cabecera(nombre, numero):
+        reg = factura(nombre, numero=numero, inicio=None, fin=None,
+                      lineas=[{"description": "Montage", "location": "X", "unit": "uur",
+                               "quantity_raw": "8,00", "unit_rate_raw": "40,00",
+                               "line_total_raw": "320,00", "week_number": 37,
+                               "period_start": "2026-09-07", "period_end": "2026-09-13"}])
+        reg["extraction"]["service_period_start"] = None
+        reg["extraction"]["service_period_end"] = None
+        return reg
+
+    alertas = detectar_periodos_repetidos(
+        construir_filas([sin_cabecera("a.pdf", "1"), sin_cabecera("b.pdf", "2")]))
+    assert len(alertas) == 1 and alertas[0].regla == "B4"
+
+
+def test_g3_vigila_tambien_las_lineas_sin_obra() -> None:
+    def sin_obra(nombre, tarifa):
+        return factura(nombre, numero=nombre, lineas=[
+            {"description": "Montagewerk", "location": None, "unit": "uur",
+             "quantity_raw": "8,00", "unit_rate_raw": tarifa, "line_total_raw": "320,00"}])
+
+    alertas = detectar_cambios_de_tarifa([sin_obra("a.pdf", "40,00"), sin_obra("b.pdf", "55,00")])
+    assert len(alertas) == 1 and alertas[0].regla == "G3"

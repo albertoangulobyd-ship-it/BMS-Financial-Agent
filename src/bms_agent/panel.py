@@ -14,6 +14,7 @@ se concatena en markup.
 
 from __future__ import annotations
 
+import html
 import json
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ from typing import Any
 
 from .dashboard import construir_datos
 from .panel_assets import CSS, JS
+
+E = html.escape
 
 
 def _cabecera(datos: dict[str, Any], generado: str) -> str:
@@ -42,8 +45,12 @@ def _cabecera(datos: dict[str, Any], generado: str) -> str:
 
 def render_html(datos: dict[str, Any], generado: str) -> str:
     payload = json.dumps(datos, ensure_ascii=False, separators=(",", ":"))
-    # </script> dentro de una cadena JSON cerraria la etiqueta antes de tiempo.
-    payload = payload.replace("</", "<\\/")
+    # Dentro de un bloque script, el tokenizador de HTML reacciona a "<!--",
+    # "<script" y "</script". Escapar solo "</" dejaba pasar un "<!--<script"
+    # incrustado en un PDF, que abre un comentario y se come el resto del
+    # bloque: el panel quedaba en blanco. Escapar todo "<" lo cierra entero, y
+    # dentro de un literal JS \u003c es exactamente el mismo caracter.
+    payload = payload.replace("<", "\\u003c")
 
     return (
         "<!doctype html>\n"

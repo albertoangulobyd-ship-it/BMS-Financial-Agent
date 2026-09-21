@@ -19,12 +19,13 @@ CSS = """
   --grid:#E6E9EE; --axis:#C3C7CE;
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
   --seq1:#cde2fb; --seq2:#9ec5f4; --seq3:#6da7ec; --seq4:#3987e5; --seq5:#256abf;
-  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --good:#0ca30c; --warning:#a06a00; --serious:#ec835a; --critical:#d03b3b;
   --critical-soft:#F8E8E8; --warning-soft:#F7EEE0; --good-soft:#E3F0EB;
   --sans:'Archivo','Segoe UI',system-ui,-apple-system,sans-serif;
   --mono:'IBM Plex Mono','Cascadia Mono',Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --warning:#fab219;
   --seq1:#172335; --seq2:#1c3a5c; --seq3:#235485; --seq4:#2a6fae; --seq5:#3987e5;
   --ground:#0D1117; --surface:#161B23; --surface-2:#1E252F;
   --ink:#E3E9F1; --ink-soft:#9DA9BA; --ink-faint:#77838F;
@@ -35,6 +36,7 @@ CSS = """
   --critical-soft:#2B1719; --warning-soft:#292014; --good-soft:#11241E;
 }}
 :root[data-theme="dark"]{
+  --warning:#fab219;
   --seq1:#172335; --seq2:#1c3a5c; --seq3:#235485; --seq4:#2a6fae; --seq5:#3987e5;
   --ground:#0D1117; --surface:#161B23; --surface-2:#1E252F;
   --ink:#E3E9F1; --ink-soft:#9DA9BA; --ink-faint:#77838F;
@@ -109,7 +111,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,th[role=button]:fo
 @media (min-width:900px){.charts{grid-template-columns:1.25fr 1fr}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px 20px}
 .card h2{margin:0 0 2px;font-size:.98rem;font-weight:600}
-.card .hint{margin:0 0 14px;font-size:.8rem;color:var(--ink-faint)}
+.hint{margin:0 0 14px;font-size:.8rem;color:var(--ink-faint)}
 .chart{position:relative}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
 .gridline{stroke:var(--grid);stroke-width:1}
@@ -121,7 +123,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,th[role=button]:fo
 .barlabel{fill:var(--ink);font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums}
 .catlabel{fill:var(--ink-soft);font-size:10.5px}
 .hit{fill:transparent;cursor:pointer}
-.hit:hover + .bar, .bar.hot{fill:var(--accent)}
+.bar.hot{fill:var(--accent)}
 .empty{padding:26px 0;text-align:center;color:var(--ink-faint);font-size:.88rem}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .08s;
   background:var(--surface);border:1px solid var(--line-strong);border-radius:4px;
@@ -143,7 +145,7 @@ select:focus-visible,input:focus-visible,button:focus-visible,th[role=button]:fo
 /* matriz proveedor x semana: rampa secuencial, un solo tono */
 .matrix-wrap{overflow-x:auto}
 table.matrix{border-collapse:separate;border-spacing:2px;min-width:auto;width:auto}
-table.matrix th{position:static;background:none;padding:2px 4px;font-size:.58rem;
+table.matrix th{position:static;background:none;border:none;padding:2px 4px;font-size:.58rem;
   letter-spacing:.06em;cursor:default;white-space:nowrap}
 table.matrix th.prov{text-align:left;font-family:var(--sans);font-size:.78rem;
   font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink);
@@ -174,7 +176,7 @@ th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);white
 th{position:sticky;top:0;background:var(--surface-2);z-index:2;
   font-family:var(--mono);font-weight:500;font-size:.6rem;letter-spacing:.09em;
   text-transform:uppercase;color:var(--ink-faint);cursor:pointer;user-select:none}
-th:hover{color:var(--ink)}
+.tw th:hover{color:var(--ink)}
 th .arrow{opacity:.45;margin-left:3px}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.82rem}
 td.mono{font-family:var(--mono);font-size:.8rem}
@@ -249,6 +251,9 @@ function filtrar() {
 }
 
 const suma = (filas, campo) => filas.reduce((a, f) => a + (f[campo] || 0), 0);
+// Base imponible con respaldo al total. Comparar regimenes por el total con
+// IVA premia al regimen y no al gasto, y es lo que dicen los rotulos.
+const baseDe = (f) => (f.base != null ? f.base : f.total);
 
 // ---------- tiles ----------
 
@@ -260,7 +265,7 @@ function pintarTiles(filas) {
   const proveedores = new Set(filas.map((f) => f.proveedor)).size;
 
   const tiles = [
-    {v: eur(suma(filas, 'total')), k: 'Importe total EUR',
+    {v: eur(filas.reduce((a, f) => a + (baseDe(f) || 0), 0)), k: 'Base imponible EUR',
      e: filas.length + (filas.length === 1 ? ' factura' : ' facturas')},
     {v: String(proveedores), k: 'Proveedores'},
     {v: num(suma(filas, 'horas'), 1), k: 'Horas facturadas'},
@@ -307,9 +312,10 @@ function pintarMeses(filas) {
 
   const acc = new Map();
   for (const f of filas) {
-    if (!f.total || f.orden === '0000-00-00') continue;
+    const v = baseDe(f);
+    if (v == null || f.orden === '0000-00-00') continue;
     const k = f.orden.slice(0, 7);
-    acc.set(k, (acc.get(k) || 0) + f.total);
+    acc.set(k, (acc.get(k) || 0) + v);
   }
   if (!acc.size) { const p = document.createElement('p');
     p.className = 'empty'; p.textContent = 'Sin facturas en este filtro.';
@@ -334,8 +340,8 @@ function pintarMeses(filas) {
   const ancho = pw / serie.length;
   const bw = Math.max(Math.min(ancho - 2, 54), 3);
 
-  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img',
-    'aria-label': 'Gasto en facturas por mes'});
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'group',
+    'aria-label': 'Gasto en facturas por mes, base imponible'});
 
   for (let i = 0; i <= 4; i++) {
     const v = (tope / 4) * i;
@@ -349,8 +355,12 @@ function pintarMeses(filas) {
   serie.forEach((d, i) => {
     const cx = L + i * ancho + ancho / 2;
     const h = d.total > 0 ? Math.max(y(0) - y(d.total), 2) : 0;
-    if (h) svg.append(el('rect', {class: 'bar', x: cx - bw / 2, y: y(d.total),
-      width: bw, height: h, rx: 2}));
+    let marca = null;
+    if (h) {
+      marca = el('rect', {class: 'bar', x: cx - bw / 2, y: y(d.total),
+        width: bw, height: h, rx: 2});
+      svg.append(marca);
+    }
 
     if (serie.length <= 14 || i % Math.ceil(serie.length / 12) === 0) {
       const tx = el('text', {class: 'tick', x: cx, y: H - B + 16, 'text-anchor': 'middle'});
@@ -364,12 +374,17 @@ function pintarMeses(filas) {
     const hit = el('rect', {class: 'hit', x: L + i * ancho, y: T,
       width: ancho, height: ph, tabindex: '0', role: 'button'});
     hit.setAttribute('aria-label', mesCorto(d.mes) + ': ' + eur(d.total) + ' euros');
-    const mostrar = () => tip(caja, (cx / W) * caja.clientWidth, y(d.total) / H * caja.clientHeight,
-      mesCorto(d.mes), eur(d.total) + ' EUR', 'var(--s1)');
+    const barra = h ? svg.querySelector('rect.bar:nth-of-type(' + (i + 1) + ')') : null;
+    const mostrar = () => {
+      tip(caja, (cx / W) * caja.clientWidth, y(d.total) / H * caja.clientHeight,
+        mesCorto(d.mes), eur(d.total) + ' EUR', 'var(--s1)');
+      if (marca) marca.classList.add('hot');
+    };
+    const ocultar = () => { destip(caja); if (marca) marca.classList.remove('hot'); };
     hit.addEventListener('pointermove', mostrar);
     hit.addEventListener('focus', mostrar);
-    hit.addEventListener('pointerleave', () => destip(caja));
-    hit.addEventListener('blur', () => destip(caja));
+    hit.addEventListener('pointerleave', ocultar);
+    hit.addEventListener('blur', ocultar);
     svg.append(hit);
   });
   caja.prepend(svg);
@@ -384,7 +399,7 @@ function pintarProveedores(filas) {
   const acc = new Map();
   for (const f of filas) {
     const e = acc.get(f.proveedor) || {total: 0, n: 0};
-    e.total += f.total || 0; e.n += 1; acc.set(f.proveedor, e);
+    e.total += baseDe(f) || 0; e.n += 1; acc.set(f.proveedor, e);
   }
   if (!acc.size) { const p = document.createElement('p');
     p.className = 'empty'; p.textContent = 'Sin facturas en este filtro.';
@@ -403,8 +418,8 @@ function pintarProveedores(filas) {
   const fila = 34, gap = 3, L = 4, R = 82, W = 560;
   const H = lista.length * (fila + gap) + 6;
   const max = Math.max(...lista.map((d) => d.total), 1);
-  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img',
-    'aria-label': 'Importe facturado por proveedor'});
+  const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'group',
+    'aria-label': 'Base imponible facturada por proveedor'});
 
   lista.forEach((d, i) => {
     const yb = i * (fila + gap);
@@ -414,7 +429,8 @@ function pintarProveedores(filas) {
     const nm = el('text', {class: 'catlabel', x: L, y: yb + 11});
     nm.textContent = d.nombre.length > 46 ? d.nombre.slice(0, 44) + '…' : d.nombre;
     svg.append(nm);
-    const vl = el('text', {class: 'barlabel', x: W - R + 8, y: yb + fila - 5});
+    const vl = el('text', {class: 'barlabel', x: W - 4, y: yb + fila - 5,
+      'text-anchor': 'end'});
     vl.textContent = eur(d.total); svg.append(vl);
 
     const hit = el('rect', {class: 'hit', x: 0, y: yb, width: W, height: fila + gap,
@@ -440,7 +456,7 @@ function pintarRegimen(filas) {
   const acc = new Map();
   for (const f of filas) {
     const e = acc.get(f.regimen) || {total: 0, n: 0};
-    e.total += f.total || 0; e.n += 1; acc.set(f.regimen, e);
+    e.total += baseDe(f) || 0; e.n += 1; acc.set(f.regimen, e);
   }
   const total = [...acc.values()].reduce((a, e) => a + e.total, 0);
   if (!total) { const p = document.createElement('p');
@@ -595,39 +611,90 @@ function pintarTabla(filas) {
     }
   }
 
+  // El pie se rellena por CLAVE de columna. Construirlo con una lista
+  // posicional lo dejaba desplazado una celda en cuanto cambiaba COLUMNAS.
   const tfoot = $('#tfoot'); tfoot.textContent = '';
   const trf = document.createElement('tr');
-  const cells = ['', ordenadas.length + (ordenadas.length === 1 ? ' factura' : ' facturas'),
-    '', '', '', '', num(suma(ordenadas, 'horas'), 1), eur(suma(ordenadas, 'base')),
-    eur(suma(ordenadas, 'iva')), eur(suma(ordenadas, 'total')), '', '', ''];
-  cells.forEach((v, i) => {
+  const pie = {
+    fecha: ordenadas.length + (ordenadas.length === 1 ? ' factura' : ' facturas'),
+    horas: num(suma(ordenadas, 'horas'), 1),
+    base: eur(suma(ordenadas, 'base')),
+    iva: eur(suma(ordenadas, 'iva')),
+    total: eur(suma(ordenadas, 'total')),
+  };
+  trf.append(document.createElement('td'));
+  for (const c of COLUMNAS) {
     const td = document.createElement('td');
-    if (i >= 6 && i <= 9) td.className = 'n';
-    td.textContent = v; trf.append(td);
-  });
-  const extra = document.createElement('td'); trf.append(extra);
+    if (c.n) td.className = 'n';
+    td.textContent = pie[c.k] || '';
+    trf.append(td);
+  }
   tfoot.append(trf);
 }
 
 // ---------- matriz proveedor x semana ----------
 
+// Semanas ISO entre dos, ambas incluidas. Se recorre por lunes.
+function rangoSemanas(primera, ultima) {
+  const lunes = (k) => {
+    const [a, w] = [parseInt(k.slice(0, 4), 10), parseInt(k.slice(6), 10)];
+    const cuatro = new Date(Date.UTC(a, 0, 4));
+    const d = (cuatro.getUTCDay() + 6) % 7;
+    return new Date(Date.UTC(a, 0, 4 - d + (w - 1) * 7));
+  };
+  const clave = (d) => {
+    const j = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    j.setUTCDate(j.getUTCDate() + 3 - ((j.getUTCDay() + 6) % 7));
+    const ene4 = new Date(Date.UTC(j.getUTCFullYear(), 0, 4));
+    const n = 1 + Math.round(((j - ene4) / 86400000 - 3 + ((ene4.getUTCDay() + 6) % 7)) / 7);
+    return j.getUTCFullYear() + '-W' + String(n).padStart(2, '0');
+  };
+  const out = []; const d = lunes(primera); const fin = lunes(ultima);
+  while (d <= fin && out.length < 400) { out.push(clave(d)); d.setUTCDate(d.getUTCDate() + 7); }
+  return out;
+}
+
 function pintarMatriz(filas) {
   const caja = document.querySelector('#matrix');
-  caja.textContent = '';
-  const visibles = new Set(filas.map((f) => f.fichero));
-  const prov = DATOS.matriz.proveedores
-    .map((p) => ({...p, celdas: Object.fromEntries(
-      Object.entries(p.celdas).filter(() => true))}))
-    .filter((p) => filas.some((f) => f.proveedor === p.proveedor));
+  // Borrar solo lo pintado: caja.textContent = '' se llevaba por delante el
+  // nodo .tip y el tooltip de la rejilla dejaba de funcionar tras el primer
+  // filtrado.
+  caja.querySelectorAll('.matrix-wrap,.mkey,.empty').forEach((n) => n.remove());
 
-  if (!DATOS.matriz.semanas.length || !prov.length) {
+  // La rejilla se recalcula sobre las filas filtradas. Consumir el agregado
+  // del servidor la dejaba mostrando el historico completo mientras las
+  // demas piezas obedecian al filtro, y el panel se contradecia.
+  const celdas = new Map();
+  const totales = new Map();
+  const conSemana = new Set();
+  for (const f of filas) {
+    const suyas = f.semanas_iso || [];
+    if (!suyas.length) continue;
+    const v = baseDe(f) || 0;
+    totales.set(f.proveedor, (totales.get(f.proveedor) || 0) + v);
+    const trozo = v / suyas.length;
+    for (const s of suyas) {
+      conSemana.add(s);
+      const k = f.proveedor + '\u0000' + s;
+      const c = celdas.get(k) || {importe: 0, n: 0, estado: 'ok'};
+      c.importe += trozo; c.n += 1;
+      if (f.estado === 'critico') c.estado = 'critico';
+      else if (f.estado === 'revisar' && c.estado === 'ok') c.estado = 'revisar';
+      celdas.set(k, c);
+    }
+  }
+
+  if (!conSemana.size) {
     const p = document.createElement('p');
     p.className = 'empty'; p.textContent = 'Sin semanas que mostrar con este filtro.';
     caja.append(p); return;
   }
 
-  const semanas = DATOS.matriz.semanas;
-  const max = DATOS.matriz.maximo || 1;
+  const todas = [...conSemana].sort();
+  const semanas = rangoSemanas(todas[0], todas[todas.length - 1]).slice(-18);
+  const prov = [...totales.entries()].sort((a, b) => b[1] - a[1])
+    .map(([proveedor, total]) => ({proveedor, total}));
+  const max = Math.max(...[...celdas.values()].map((c) => c.importe), 1);
   const nivel = (v) => (v <= 0 ? 0 : Math.min(5, Math.ceil((v / max) * 5)));
 
   const wrap = document.createElement('div'); wrap.className = 'matrix-wrap';
@@ -649,7 +716,7 @@ function pintarMatriz(filas) {
     tr.append(th);
     for (const s of semanas) {
       const td = document.createElement('td');
-      const c = p.celdas[s];
+      const c = celdas.get(p.proveedor + '\u0000' + s);
       const d = document.createElement('div');
       d.className = 'cell v' + (c ? nivel(c.importe) : 0);
       d.tabIndex = 0; d.setAttribute('role', 'button');
@@ -691,8 +758,12 @@ function pintarMatriz(filas) {
   key.append(document.createTextNode('menos a mas importe'));
   const dup = document.createElement('i');
   dup.style.boxShadow = 'inset 0 0 0 2px var(--critical)';
-  dup.style.background = 'var(--seq2)';
+  dup.style.background = 'var(--surface-2)';
   key.append(dup, document.createTextNode('dos o mas facturas esa semana'));
+  const rev = document.createElement('i');
+  rev.style.boxShadow = 'inset 0 0 0 2px var(--warning)';
+  rev.style.background = 'var(--surface-2)';
+  key.append(rev, document.createTextNode('con avisos'));
   caja.append(key);
 }
 
@@ -703,11 +774,21 @@ function exportarCSV() {
   const cab = ['Fichero', 'Fecha', 'Proveedor', 'Numero', 'Periodo', 'Semanas',
     'Ubicacion', 'Horas', 'Base', 'IVA', 'Total', 'Regimen', 'IBAN', 'Vence',
     'Estado', 'Motivos'];
-  const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  // Excel y LibreOffice ejecutan una celda que empieza por =, +, - o @. El
+  // texto de estas celdas sale de PDF de terceros, asi que se neutraliza con
+  // un apostrofe antes de entrecomillar.
+  const esc = (v) => {
+    let s = String(v == null ? '' : v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  };
+  // Coma decimal: con punto, Excel en espanol trata la columna como texto.
+  const dec = (v, d) => (v == null ? '' : num(v, d));
   const lineas = [cab.map(esc).join(';')];
   for (const f of filas) {
     lineas.push([f.fichero, f.fecha, f.proveedor, f.numero, f.periodo, f.semanas,
-      f.ubicaciones, f.horas, f.base, f.iva, f.total, REGIMEN[f.regimen] || f.regimen,
+      f.ubicaciones, dec(f.horas, 1), dec(f.base, 2), dec(f.iva, 2), dec(f.total, 2),
+      REGIMEN[f.regimen] || f.regimen,
       f.iban, f.vencimiento, f.estado, f.motivos.join(' | ')].map(esc).join(';'));
   }
   // Punto y coma y BOM: es lo que abre Excel en espanol sin pelearse.
