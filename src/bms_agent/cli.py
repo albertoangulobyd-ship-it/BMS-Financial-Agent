@@ -164,6 +164,31 @@ def _cmd_panel(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from .serve import servir
+
+    servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto)
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    from .dashboard import construir_datos
+
+    registros = load_records(args.out)
+    if not registros:
+        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
+        return 1
+
+    datos = construir_datos(registros)
+    destino = Path(args.file)
+    destino.write_text(
+        json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"{len(datos['filas'])} facturas exportadas a {destino}")
+    print(f"  {destino.stat().st_size:,} bytes")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -205,6 +230,19 @@ def main(argv: list[str] | None = None) -> int:
         "--file", default="panel.html", help="fichero de salida (por defecto: panel.html)"
     )
     p_panel.set_defaults(func=_cmd_panel)
+
+    p_export = sub.add_parser("export", help="exporta los datos del panel a JSON")
+    p_export.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_export.add_argument("--file", default="datos.json", help="fichero JSON de salida")
+    p_export.set_defaults(func=_cmd_export)
+
+    p_serve = sub.add_parser(
+        "serve", help="servidor local de desarrollo (solo 127.0.0.1)"
+    )
+    p_serve.add_argument("--facturas", default="facturas", help="carpeta con los PDF")
+    p_serve.add_argument("--out", default="out", help="carpeta de extracciones")
+    p_serve.add_argument("--puerto", type=int, default=8765, help="puerto (por defecto 8765)")
+    p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)
     return args.func(args)

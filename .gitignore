@@ -15,3 +15,4 @@ venv/
 .env
 /informe.html
 /panel.html
+/datos.json
