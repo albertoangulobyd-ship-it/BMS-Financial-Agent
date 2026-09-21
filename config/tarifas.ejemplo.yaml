@@ -1,0 +1,34 @@
+# Tabla de tarifas de venta. Copiar a config/tarifas.yaml y rellenar.
+#
+# Esto NO emite facturas. Produce una proyeccion de lo que se podria facturar
+# a cada cliente, calculada desde las horas que os han facturado los
+# autonomos. Cuando conectemos el programa de planificacion, la fuente de las
+# horas cambia y las cifras se moveran.
+
+# Margen sobre el coste del autonomo, cuando no hay una tarifa explicita.
+# 0.35 significa que una hora que os cuesta 40,00 se proyecta a 54,00.
+margen_por_defecto: 0.35
+
+# Las facturas de compra dicen la OBRA, no el cliente. Sin este mapeo la
+# proyeccion agrupa por obra y lo marca como aviso.
+obras:
+  Rijnhaven:
+    cliente: "Havenbedrijf Rotterdam BV"
+  Schiedam:
+    cliente: "Bouwgroep Schiedam VOF"
+  Waalhaven:
+    cliente: "Havenbedrijf Rotterdam BV"
+
+# Tarifa de venta por hora, cuando esta pactada. Gana sobre el margen.
+# Dejar "obra" vacio aplica esa tarifa al trabajo en cualquier obra.
+tarifas:
+  - {obra: Rijnhaven, trabajo: montagewerk,      tarifa: "62,00"}
+  - {obra: Rijnhaven, trabajo: timmerwerk,       tarifa: "56,00"}
+  - {obra: Schiedam,  trabajo: elektrawerk,      tarifa: "68,00"}
+  - {obra: Schiedam,  trabajo: loodgieterswerk,  tarifa: "61,00"}
+  - {obra: Waalhaven, trabajo: staalconstructie, tarifa: "74,00"}
+
+# Conceptos que se pagan al autonomo pero NO se refacturan al cliente.
+# Las horas de viaje son el caso tipico.
+no_facturable:
+  - reisuren

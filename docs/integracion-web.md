@@ -135,9 +135,46 @@ cambia con una nota en este fichero.
                       "celdas": {"2026-W21": {"importe", "n", "estado"}}} ],
     "maximo"                            // para escalar la rampa de color
   },
-  "alertas": [ {"severidad", "regla", "titulo", "detalle", "facturas": []} ]
+  "alertas": [ {"severidad", "regla", "titulo", "detalle", "facturas": []} ],
+
+  "facturacion": {                      // proyeccion de venta, NO facturas emitidas
+    "configurada",                      // false si no hay tabla de tarifas
+    "margen_por_defecto",
+    "propuestas": [ {
+      "cliente", "obra", "semana",      // agrupado por los tres
+      "lineas": [ {"trabajo", "horas", "coste", "venta",
+                   "tarifa_venta", "origen_tarifa"} ],   // tabla | margen
+      "horas", "coste", "venta", "margen", "margen_pct",
+      "facturas_origen": [], "proveedores": [],
+      "avisos": []                      // obra sin cliente, coste que varia...
+    } ],
+    "sin_mapear": [],                   // obras sin cliente en la tabla
+    "no_facturable": [ {"trabajo", "horas"} ],           // horas que no se refacturan
+    "totales": {"propuestas", "clientes", "horas", "coste", "venta", "margen", "margen_pct"}
+  }
 }
 ```
+
+### Sobre `facturacion`: es una proyección, no una factura
+
+Se calcula desde lo que **los autónomos os han facturado**, no desde las horas
+registradas en el planning. Tres cosas que la pantalla tiene que dejar claras:
+
+- Si un autónomo facturó de más o de menos, la proyección hereda el error. El
+  cruce contra el planning es lo que lo corrige, y llega en la fase 2.
+- Las horas que se pagan no son las que se facturan. Las de viaje son el caso
+  típico: van en `no_facturable`.
+- **Una obra no es un cliente.** Las facturas de compra dicen "Rijnhaven", no
+  de quién es. Ese mapeo está en `config/tarifas.yaml`, y lo que falte sale en
+  `sin_mapear` en vez de inventarse.
+
+`origen_tarifa` dice de dónde salió cada precio: `tabla` si estaba pactado,
+`margen` si se aplicó el porcentaje sobre el coste. Conviene que se vea en la
+pantalla, porque son dos niveles de confianza distintos.
+
+Con `configurada: false` no hay tabla puesta y todo sale sin mapear: es el
+estado por defecto y la pantalla debería invitar a rellenarla, no mostrar
+ceros.
 
 ### Tres cosas que conviene saber al construir contra esto
 

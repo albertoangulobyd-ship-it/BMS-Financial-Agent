@@ -149,9 +149,12 @@ def render_html(datos: dict[str, Any], generado: str) -> str:
 
 
 def escribir_panel(
-    registros: list[dict[str, Any]], destino: str | Path, generado: str | None = None
+    registros: list[dict[str, Any]],
+    destino: str | Path,
+    generado: str | None = None,
+    tarifas_path: str | None = "config/tarifas.yaml",
 ) -> Path:
-    datos = construir_datos(registros)
+    datos = construir_datos(registros, tarifas_path=tarifas_path)
     marca = generado or datetime.now().strftime("%d/%m/%Y %H:%M")
     destino = Path(destino)
     destino.write_text(render_html(datos, marca), encoding="utf-8")

@@ -39,7 +39,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 bms-agent extract facturas/    # deja los PDF ahí primero
 bms-agent score                # precisión contra respuestas escritas a mano
 bms-agent panel                # panel del historico: que esta pasando
-bms-agent export               # los mismos datos en JSON, para un sitio propio
+bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio
 bms-agent serve                # servidor local en 127.0.0.1 para desarrollar
 bms-agent report               # ficha detallada de cada factura
 ```

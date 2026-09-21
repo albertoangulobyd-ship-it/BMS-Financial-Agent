@@ -18,6 +18,7 @@ from typing import Any
 
 from .checks import run_checks
 from .checks import _euros
+from .facturacion import cargar_tarifas, proyectar
 from .parsing import ParseError, parse_amount, parse_iso_date
 
 VENTANA_DUPLICADO = timedelta(days=14)
@@ -731,7 +732,9 @@ def matriz_semanal(filas: list[Fila], maximo: int = 18) -> dict[str, Any]:
     }
 
 
-def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
+def construir_datos(
+    registros: list[dict[str, Any]], tarifas_path: str | None = "config/tarifas.yaml"
+) -> dict[str, Any]:
     """Todo lo que el panel necesita, listo para serializar a JSON."""
     filas = construir_filas(registros)
     alertas = construir_alertas(filas, registros)
@@ -781,6 +784,7 @@ def construir_datos(registros: list[dict[str, Any]]) -> dict[str, Any]:
             for p in por_proveedor(filas)
         ],
         "matriz": matriz_semanal(filas),
+        "facturacion": proyectar(registros, cargar_tarifas(tarifas_path)),
         "por_regimen": [
             {"clave": r["clave"], "etiqueta": r["etiqueta"],
              "facturas": r["facturas"], "total": _num(r["total"])}

@@ -147,10 +147,10 @@ def _cmd_panel(args: argparse.Namespace) -> int:
         print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
-    destino = escribir_panel(registros, args.file)
+    destino = escribir_panel(registros, args.file, tarifas_path=args.tarifas)
     from .dashboard import construir_datos
 
-    datos = construir_datos(registros)
+    datos = construir_datos(registros, tarifas_path=args.tarifas)
     t = datos["totales"]
     importe = f"{t['importe'] or 0:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
@@ -179,7 +179,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
-    datos = construir_datos(registros)
+    datos = construir_datos(registros, tarifas_path=args.tarifas)
     destino = Path(args.file)
     destino.write_text(
         json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -229,11 +229,18 @@ def main(argv: list[str] | None = None) -> int:
     p_panel.add_argument(
         "--file", default="panel.html", help="fichero de salida (por defecto: panel.html)"
     )
+    p_panel.add_argument(
+        "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de venta"
+    )
     p_panel.set_defaults(func=_cmd_panel)
 
     p_export = sub.add_parser("export", help="exporta los datos del panel a JSON")
     p_export.add_argument("--out", default="out", help="carpeta con las extracciones")
     p_export.add_argument("--file", default="datos.json", help="fichero JSON de salida")
+    p_export.add_argument(
+        "--tarifas", default="config/tarifas.yaml",
+        help="tabla de tarifas de venta (por defecto: config/tarifas.yaml)",
+    )
     p_export.set_defaults(func=_cmd_export)
 
     p_serve = sub.add_parser(
