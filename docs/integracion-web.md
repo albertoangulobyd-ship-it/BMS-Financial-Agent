@@ -216,3 +216,35 @@ de una tarifa pactada o del margen.
 Cuando el modelo esté decidido, esos números se escriben en
 `config/tarifas.yaml` y pasan a alimentar el bloque `facturacion` del contrato
 de datos.
+
+### Incrustado en vuestro panel
+
+```bash
+python scripts/incrustar_simulador.py panel-v4.html panel-con-simulador.html \
+  --extracciones out --tarifas config/tarifas.yaml
+```
+
+Escribe una **copia** del panel con el simulador dentro, como una sexta entrada
+del dock. No regenera nada: vuestro fichero queda byte a byte igual y solo se
+le añaden tres bloques (un `<style>` antes de `</head>`, la sección antes del
+pie y un `<script>` al final) más cuatro literales del paquete compilado:
+
+| Literal | Para qué |
+| --- | --- |
+| La lista de entradas del dock | Sin esto la sección existe pero no hay cómo llegar a ella: la barra de pestañas está oculta y quien navega es el dock |
+| `["agent","overview",…]` | Para que la transición deslice hacia el lado correcto |
+| El glosario `wl` | El título de la entrada, en inglés y neerlandés |
+| La lista de exclusiones del traductor | Vuestro traductor recorre cada nodo de texto del documento en **cada** cambio del DOM. Con la sección fuera, mover el margen cuesta 30 ms en vez de 130 |
+
+Ninguno de los cuatro toca lógica. Si un ancla no aparece exactamente una vez,
+el script se para en vez de adivinar.
+
+Los textos de la sección van en inglés y neerlandés y cambian con vuestro
+interruptor EN/NL, porque el traductor ya no entra ahí. El neerlandés es una
+primera pasada: se corrige en el diccionario `T` del script, no en el HTML.
+
+**Es un parche sobre un artefacto de compilación.** Sobrevive a volver a
+ejecutar el script con datos nuevos, no a recompilar el sitio. El sitio
+definitivo del simulador es el código fuente de vuestro proyecto: esta versión
+sirve para verlo funcionando y para decidir si el diseño de la pantalla es el
+que queréis antes de escribirla ahí.
