@@ -38,6 +38,7 @@ pytest
 export ANTHROPIC_API_KEY=sk-ant-...
 bms-agent extract facturas/    # deja los PDF ahí primero
 bms-agent score                # precisión contra respuestas escritas a mano
+bms-agent coste                # qué ha costado cada pasada; --estimar, la siguiente
 bms-agent panel                # panel del historico: que esta pasando
 bms-agent simulador            # simulador de tarifas, para decidir el modelo de precios
 bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio

@@ -61,6 +61,65 @@ vuestras:
 Con el volumen típico de una pyme, esto se mueve en unos pocos euros al mes.
 El número real sale de la primera ejecución.
 
+## Qué cuesta cada pasada
+
+```powershell
+.venv\Scripts\bms-agent coste
+```
+
+No llama a la API ni gasta nada: lee lo que cada extracción ya guardó. Tres
+bloques:
+
+- **Lo que ha costado**: total, media por documento, y cuál fue el más caro y
+  el más barato. Si hay varios modelos mezclados, lo dice.
+- **Por pasada**: una línea por ejecución, para ver cuánto costó cada una.
+  Se agrupa por la hora de cada fichero; dos extracciones separadas por más
+  de diez minutos cuentan como pasadas distintas.
+- **Volver a lanzar lo ya leído**: cero. La caché va por el hash de los bytes
+  del PDF.
+
+### Y qué costaría la siguiente, antes de pagarla
+
+```powershell
+.venv\Scripts\bms-agent coste --estimar facturas\
+```
+
+Separa los PDF en los que ya están en caché (cero) y los nuevos, y para los
+nuevos **cuenta los tokens de entrada exactos** con `messages.count_tokens`,
+que es la misma petición que se va a mandar y **no se cobra**.
+
+Los tokens de salida no se pueden saber sin generar, así que se estiman con
+la mediana de vuestro propio histórico y el resultado sale en horquilla. Con
+menos de tres extracciones guardadas no hay mediana, y entonces se usa un
+punto de partida declarado y se avisa de que no es una medida.
+
+```
+La proxima pasada
+----------------------------------------------------
+  ya leidos (cache)                 9   $0.0000
+  por leer                          3
+
+  tokens de entrada            21.043   contados, exacto
+  tokens de salida      2.544 a 3.180   mediana de vuestro historico
+
+  coste estimado       $0.1704 a $0.1863
+  por documento        $0.0568 a $0.0621
+```
+
+### La respuesta corta a "cuánto cuesta cada iteración"
+
+La primera pasada sobre unas facturas se paga. **Las siguientes sobre esas
+mismas facturas cuestan cero**, porque la caché reconoce los bytes. Lo que se
+paga es cada documento nuevo, una vez.
+
+Las dos excepciones, y conviene tenerlas claras:
+
+- Una **corrección** es otro fichero. Bytes distintos, documento distinto,
+  hay que leerlo para saber qué dice. Se paga.
+- `--force`, o cambiar de modelo o de versión de prompt, invalida lo
+  guardado a propósito: si estás midiendo si un modelo más barato aguanta,
+  reutilizar lo viejo escondería justo la diferencia que quieres ver.
+
 ## Palancas para bajarlo, en orden
 
 **1. Medir antes de tocar nada.** Ya está instrumentado. Una decisión de coste

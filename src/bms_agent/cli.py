@@ -5,6 +5,7 @@ Tres ordenes, ninguna escribe en ningun sistema de la empresa:
     bms-agent schema              muestra el esquema de extraccion
     bms-agent extract facturas/   extrae los PDF de una carpeta a out/
     bms-agent score               compara out/ con las respuestas a mano
+    bms-agent coste               que ha costado, y que costaria la proxima
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pathlib import Path
 from . import config
 from .cache import build_index
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
-from .extract import extract_invoice
+from .extract import build_request, extract_invoice
 from .panel import escribir_panel
 from .report import build_report, load_records, render_html
 from .pricing import format_cost_summary
@@ -204,6 +205,67 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_coste(args: argparse.Namespace) -> int:
+    from .coste import (
+        Estimacion, agrupar_en_pasadas, contar_entrada, formatear_estimacion,
+        formatear_gastado, formatear_pasadas, formatear_relanzar,
+        horquilla_de_salida, leer_documentos,
+    )
+
+    documentos = leer_documentos(load_records(args.out))
+    print(formatear_gastado(documentos))
+    if documentos:
+        print()
+        print(formatear_pasadas(agrupar_en_pasadas(documentos)))
+        print()
+        print(formatear_relanzar(documentos))
+
+    if not args.estimar:
+        if not documentos:
+            print("\nPara saber que costaria una pasada antes de pagarla:"
+                  "\n  bms-agent coste --estimar facturas/")
+        return 0
+
+    try:
+        import anthropic
+    except ImportError:
+        print("Falta el paquete anthropic. Instala con: pip install -e .", file=sys.stderr)
+        return 2
+
+    pdfs = list(iter_pdfs(args.estimar))
+    if not pdfs:
+        print(f"\nNo hay PDF en {args.estimar}", file=sys.stderr)
+        return 1
+
+    client = anthropic.Anthropic()
+    model = config.model_id()
+    cache = build_index(args.out)
+    bajo, alto, medida = horquilla_de_salida(documentos)
+
+    en_cache = entrada = nuevos = 0
+    for path in pdfs:
+        try:
+            doc = load_pdf(path)
+        except UnsupportedDocument as exc:
+            print(f"  omitido  {path.name}: {exc}")
+            continue
+        hit = cache.get(doc.sha256)
+        if hit is not None and hit.matches(
+            model, config.PROMPT_VERSION, config.SCHEMA_VERSION
+        ):
+            en_cache += 1
+            continue
+        nuevos += 1
+        entrada += contar_entrada(client, build_request(doc, model=model))
+
+    print()
+    print(formatear_estimacion(Estimacion(
+        modelo=model, en_cache=en_cache, nuevos=nuevos, entrada=entrada,
+        salida_baja=bajo * nuevos, salida_alta=alto * nuevos, salida_medida=medida,
+    )))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -267,6 +329,16 @@ def main(argv: list[str] | None = None) -> int:
         "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de partida"
     )
     p_sim.set_defaults(func=_cmd_simulador)
+
+    p_coste = sub.add_parser(
+        "coste", help="que ha costado cada pasada, y que costaria la siguiente"
+    )
+    p_coste.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_coste.add_argument(
+        "--estimar", metavar="CARPETA",
+        help="cuenta los tokens de esos PDF antes de pagarlos (contar no se cobra)",
+    )
+    p_coste.set_defaults(func=_cmd_coste)
 
     p_serve = sub.add_parser(
         "serve", help="servidor local de desarrollo (solo 127.0.0.1)"
