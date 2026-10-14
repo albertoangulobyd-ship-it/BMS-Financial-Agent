@@ -13,16 +13,78 @@ from __future__ import annotations
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
-__all__ = ["ParseError", "parse_amount", "parse_percentage", "parse_iso_date", "normalize_iban"]
+__all__ = [
+    "ParseError",
+    "detectar_moneda",
+    "es_unidad_hora",
+    "normalize_iban",
+    "parse_amount",
+    "parse_importe",
+    "parse_iso_date",
+    "parse_percentage",
+]
 
 
 class ParseError(ValueError):
     """El texto no representa un valor interpretable sin adivinar."""
 
 
-_CURRENCY = re.compile(r"[€$£]|\b(?:eur|euro|euros|usd)\b", re.IGNORECASE)
+_EURO = re.compile(r"€|\b(?:eur|euro|euros)\b", re.IGNORECASE)
 _SPACES = re.compile(r"[\s  ]+")
+
+# Marcadores de otras monedas. Van de mas a menos especifico: "C$" tiene que
+# leerse como dolar canadiense antes de que "$" lo lea como dolar a secas.
+_SIMBOLOS_MONEDA = (
+    ("us$", "USD"), ("c$", "CAD"), ("a$", "AUD"), ("nz$", "NZD"),
+    ("hk$", "HKD"), ("s$", "SGD"), ("$", "USD"), ("£", "GBP"), ("¥", "JPY"),
+    ("₹", "INR"), ("₺", "TRY"), ("₽", "RUB"), ("zł", "PLN"),
+)
+_CODIGOS_MONEDA = re.compile(
+    r"\b(usd|gbp|chf|pln|sek|nok|dkk|czk|huf|ron|bgn|try|jpy|cny|cad|aud|nzd"
+    r"|hkd|sgd|inr|zar|rub)\b",
+    re.IGNORECASE,
+)
+# "kr" sirve para la corona danesa, la noruega y la sueca: no se puede decir
+# cual, pero si que no es el euro, que es lo unico que importa aqui.
+_CORONA = re.compile(r"\bkr\b\.?", re.IGNORECASE)
+
+
+def detectar_moneda(raw: str | None) -> str | None:
+    """Moneda que declara un importe impreso, o None si no declara ninguna.
+
+    Devuelve el codigo ISO 4217 cuando el marcador lo determina ("$" a secas
+    se lee como USD), "KR" para la corona sin pais, "EUR" para el euro y None
+    si el literal no lleva marcador. Si conviven el euro y otra moneda, gana
+    la otra: un importe que dice dos monedas no puede sumarse como euros.
+
+    Existe por la regla X1. Antes, el simbolo del dolar se quitaba igual que
+    el del euro y una factura en dolares entraba en los totales como si fuera
+    en euros, sin que nada lo dijera.
+    """
+    if raw is None:
+        return None
+    texto = str(raw).lower()
+    for simbolo, codigo in _SIMBOLOS_MONEDA:
+        if simbolo in texto:
+            return codigo
+    if m := _CODIGOS_MONEDA.search(texto):
+        return m.group(1).upper()
+    if _CORONA.search(texto):
+        return "KR"
+    if _EURO.search(texto):
+        return "EUR"
+    return None
+
+
+def _quitar_monedas(texto: str) -> str:
+    """Quita del literal cualquier marcador de moneda reconocido."""
+    texto = _EURO.sub("", _CODIGOS_MONEDA.sub("", _CORONA.sub("", texto)))
+    for simbolo, _codigo in _SIMBOLOS_MONEDA:
+        texto = re.sub(re.escape(simbolo), "", texto, flags=re.IGNORECASE)
+    return texto
+
 
 
 def _join_thousands(text: str, sep: str, raw: str) -> str:
@@ -39,7 +101,7 @@ def _join_thousands(text: str, sep: str, raw: str) -> str:
 
 
 def parse_amount(raw: str) -> Decimal:
-    """Convierte un importe impreso en Decimal.
+    """Convierte un importe impreso EN EUROS en Decimal.
 
     Regla de separadores:
 
@@ -50,11 +112,35 @@ def parse_amount(raw: str) -> Decimal:
 
     Nunca devuelve un valor aproximado: si el texto es ambiguo, lanza
     ParseError y la factura se queda en la cola de revision.
+
+    Solo se quita el marcador del euro. Un importe en otra moneda lanza
+    ParseError: devolver 2500 por "$2,500.00" es sumar dolares como euros.
+    Quien necesite el importe y su moneda usa parse_importe.
     """
     if raw is None:
         raise ParseError("importe vacio")
 
-    text = _SPACES.sub("", _CURRENCY.sub("", str(raw)))
+    moneda = detectar_moneda(raw)
+    if moneda not in (None, "EUR"):
+        raise ParseError(f"importe en {moneda}, no en euros: {raw!r}")
+    return _parse_numero(_EURO.sub("", str(raw)), raw)
+
+
+def parse_importe(raw: str) -> tuple[Decimal, str | None]:
+    """Importe impreso y la moneda que declara, sin convertir nada.
+
+    La moneda es la de detectar_moneda: None si el literal no lleva marcador.
+    Sirve para comparar importes de cualquier moneda sin mezclarlas; para
+    sumar, el codigo tiene que mirar la moneda antes.
+    """
+    if raw is None:
+        raise ParseError("importe vacio")
+    return _parse_numero(_quitar_monedas(str(raw)), raw), detectar_moneda(raw)
+
+
+def _parse_numero(texto: str, raw: Any) -> Decimal:
+    """El numero de un importe que ya no lleva marcador de moneda."""
+    text = _SPACES.sub("", texto)
     if not text:
         raise ParseError("importe vacio")
 
@@ -142,3 +228,32 @@ def normalize_iban(raw: str) -> str:
     if raw is None:
         raise ParseError("IBAN vacio")
     return _SPACES.sub("", str(raw)).upper()
+
+
+# Unidades que son horas, en minusculas y sin puntuacion. Neerlandes, ingles y
+# las abreviaturas alemanas que aparecen en facturas de la frontera.
+_UNIDADES_HORA = frozenset({
+    "uur", "uren", "u", "manuur", "manuren", "werkuur", "werkuren",
+    "h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden",
+})
+
+
+def es_unidad_hora(unidad: str | None) -> bool:
+    """La unidad impresa en una linea es la hora.
+
+    Antes se miraba solo si empezaba por "uur", y una linea en "uren", "u" o
+    "hours" daba cero horas sin avisar: el panel, la proyeccion de venta y el
+    simulador perdian esas horas en silencio. Se sigue aceptando todo lo que
+    empieza por "uur" para no perder nada de lo que ya contaba.
+
+    Decide la primera palabra de la unidad ("u." es "u", "uren (avond)" es
+    "uren"). Una unidad desconocida no es hora: es mejor declararla aparte,
+    como hace el panel, que sumarla como lo que no es.
+    """
+    texto = str(unidad or "").strip().lower()
+    if not texto:
+        return False
+    if texto.startswith("uur"):
+        return True
+    palabra = next((p for p in re.split(r"[^a-z]+", texto) if p), "")
+    return palabra in _UNIDADES_HORA

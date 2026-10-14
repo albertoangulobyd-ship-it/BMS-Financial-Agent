@@ -135,17 +135,30 @@ tiene que verla.
 | ID | Comprobación | Fuente | Resultado |
 | --- | --- | --- | --- |
 | D1 | Desglose presente: unidades, tarifa, subtotal, tipo de IVA, importe de IVA y total | extracción | Bloqueo si falta |
-| D2 | unidades × tarifa = subtotal, dentro de la tolerancia de redondeo | extracción | Bloqueo |
+| D2 | La suma de las líneas = subtotal, dentro de la tolerancia de redondeo (0,01 por línea más 0,02) | extracción | Bloqueo |
+| D2b | En cada línea, unidades × tarifa = importe de la línea (0,01) | extracción | Bloqueo |
 | D3 | subtotal × tipo = importe de IVA | extracción | Bloqueo |
 | D4 | subtotal + IVA = total | extracción | Bloqueo |
 | D5 | Descripción suficientemente específica, no "servicios" ni "trabajos" | extracción | Aviso |
 
-**D2, D3 y D4 son aritmética y deben bloquear.** Son baratas y atrapan más
-errores de los que parece, sobre todo en facturas hechas a mano.
+**D2, D2b, D3 y D4 son aritmética y deben bloquear.** Son baratas y atrapan
+más errores de los que parece, sobre todo en facturas hechas a mano. Los
+identificadores son los del código: el catálogo llamaba antes D2 a la
+comprobación de unidades por tarifa, que en el código es D2b.
 
 **D5 es la única regla del catálogo que usa el modelo.** Es un
 clasificador sobre el texto de la descripción, no una expresión regular. Y
 por eso mismo nunca bloquea: avisa.
+
+### X · Moneda
+
+| ID | Comprobación | Fuente | Resultado |
+| --- | --- | --- | --- |
+| X1 | Los importes están en euros: ninguno lleva otra moneda (`$`, `£`, `USD`…) | extracción | Bloqueo; la factura queda fuera de todos los totales |
+
+**X1 existe porque antes el símbolo del dólar se quitaba igual que el del
+euro**, y una factura en dólares sumaba como si estuviera en euros. Con el
+esquema actual, que no pide la moneda, se mira el literal de cada importe.
 
 ### E · Régimen de IVA
 

@@ -1,0 +1,523 @@
+{
+  "filas": [
+    {
+      "fichero": "04-nota-credito.pdf",
+      "proveedor": "Bouwtechniek Van Dijk BV",
+      "numero": "CN-2026-031",
+      "fecha": "2026-09-22",
+      "orden": "2026-09-22",
+      "periodo": "2026-08-31 a 2026-09-06",
+      "ubicaciones": "Schiedam",
+      "semanas": "36",
+      "horas": -4.5,
+      "base": -101.25,
+      "iva": -21.26,
+      "total": -122.51,
+      "regimen": "standard",
+      "iban": "NL02 ABNA 0123 4567 89",
+      "vencimiento": "—",
+      "estado": "ok",
+      "motivos": [],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W36"
+      ]
+    },
+    {
+      "fichero": "07-usd.pdf",
+      "proveedor": "Northwind Analytics Ltd",
+      "numero": "NW-2026-0042",
+      "fecha": "2026-09-18",
+      "orden": "2026-09-18",
+      "periodo": "2026-09-01 a 2026-09-14",
+      "ubicaciones": "—",
+      "semanas": "—",
+      "horas": 20.0,
+      "base": null,
+      "iva": null,
+      "total": null,
+      "regimen": "reverse_charged",
+      "iban": "GB29 NWBK 6016 1331 9268 19",
+      "vencimiento": "—",
+      "estado": "critico",
+      "motivos": [
+        "Moneda: Importes en USD: no está en euros y queda fuera de todos los totales."
+      ],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W38"
+      ]
+    },
+    {
+      "fichero": "05-uren.pdf",
+      "proveedor": "Schilderwerken Bakker",
+      "numero": "B-2026-077",
+      "fecha": "2026-09-16",
+      "orden": "2026-09-16",
+      "periodo": "2026-09-07 a 2026-09-13",
+      "ubicaciones": "Waalhaven",
+      "semanas": "37",
+      "horas": 24.0,
+      "base": 1034.4,
+      "iva": 217.22,
+      "total": 1251.62,
+      "regimen": "standard",
+      "iban": "NL67 INGB 0006 5432 10",
+      "vencimiento": "2026-10-16",
+      "estado": "ok",
+      "motivos": [],
+      "otras_unidades": [
+        "stuk"
+      ],
+      "semanas_iso": [
+        "2026-W37"
+      ]
+    },
+    {
+      "fichero": "01-limpia.pdf",
+      "proveedor": "Bouwtechniek Van Dijk BV",
+      "numero": "2026-4471",
+      "fecha": "2026-09-15",
+      "orden": "2026-09-15",
+      "periodo": "2026-08-31 a 2026-09-06",
+      "ubicaciones": "Rijnhaven · Schiedam",
+      "semanas": "36",
+      "horas": 58.0,
+      "base": 2399.0,
+      "iva": 503.79,
+      "total": 2902.79,
+      "regimen": "standard",
+      "iban": "NL02 ABNA 0123 4567 89",
+      "vencimiento": "2026-10-15",
+      "estado": "ok",
+      "motivos": [],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W36"
+      ]
+    },
+    {
+      "fichero": "03-con-inyeccion.pdf",
+      "proveedor": "Elektro Installatie Koster",
+      "numero": "2026-0912",
+      "fecha": "2026-09-14",
+      "orden": "2026-09-14",
+      "periodo": "2026-09-07 a 2026-09-13",
+      "ubicaciones": "Schiedam",
+      "semanas": "37",
+      "horas": 32.0,
+      "base": 1472.0,
+      "iva": 309.12,
+      "total": 1781.12,
+      "regimen": "standard",
+      "iban": "NL75 INGB 0002 4456 89",
+      "vencimiento": "—",
+      "estado": "revisar",
+      "motivos": [
+        "El documento lleva texto marcado para revisar"
+      ],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W37"
+      ]
+    },
+    {
+      "fichero": "06-fecha-nl.pdf",
+      "proveedor": "Loodgietersbedrijf Smit",
+      "numero": "2026-112",
+      "fecha": "13-09-2026",
+      "orden": "2026-09-13",
+      "periodo": "2026-09-07 a 2026-09-13",
+      "ubicaciones": "Schiedam",
+      "semanas": "37",
+      "horas": 12.0,
+      "base": 540.0,
+      "iva": 113.4,
+      "total": 653.4,
+      "regimen": "standard",
+      "iban": "NL03 RABO 0312 4567 89",
+      "vencimiento": "—",
+      "estado": "ok",
+      "motivos": [],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W37"
+      ]
+    },
+    {
+      "fichero": "02-sin-kvk-btw-verlegd.pdf",
+      "proveedor": "J. de Vries",
+      "numero": "2026-018",
+      "fecha": "2026-09-12",
+      "orden": "2026-09-12",
+      "periodo": "2026-09-07 a 2026-09-13",
+      "ubicaciones": "Rijnhaven",
+      "semanas": "37",
+      "horas": 40.0,
+      "base": 1520.0,
+      "iva": 0.0,
+      "total": 1520.0,
+      "regimen": "reverse_charged",
+      "iban": "NL44 RABO 0123 4567 89",
+      "vencimiento": "—",
+      "estado": "ok",
+      "motivos": [],
+      "otras_unidades": [],
+      "semanas_iso": [
+        "2026-W37"
+      ]
+    }
+  ],
+  "por_mes": [
+    {
+      "mes": "2026-09",
+      "facturas": 6,
+      "total": 6864.15
+    }
+  ],
+  "por_proveedor": [
+    {
+      "proveedor": "Bouwtechniek Van Dijk BV",
+      "facturas": 2,
+      "total": 2297.75,
+      "horas": 53.5,
+      "primera": "2026-09-15",
+      "ultima": "2026-09-22",
+      "avisos": 0
+    },
+    {
+      "proveedor": "J. de Vries",
+      "facturas": 1,
+      "total": 1520.0,
+      "horas": 40.0,
+      "primera": "2026-09-12",
+      "ultima": "2026-09-12",
+      "avisos": 0
+    },
+    {
+      "proveedor": "Elektro Installatie Koster",
+      "facturas": 1,
+      "total": 1472.0,
+      "horas": 32.0,
+      "primera": "2026-09-14",
+      "ultima": "2026-09-14",
+      "avisos": 1
+    },
+    {
+      "proveedor": "Schilderwerken Bakker",
+      "facturas": 1,
+      "total": 1034.4,
+      "horas": 24.0,
+      "primera": "2026-09-16",
+      "ultima": "2026-09-16",
+      "avisos": 0
+    },
+    {
+      "proveedor": "Loodgietersbedrijf Smit",
+      "facturas": 1,
+      "total": 540.0,
+      "horas": 12.0,
+      "primera": "2026-09-13",
+      "ultima": "2026-09-13",
+      "avisos": 0
+    },
+    {
+      "proveedor": "Northwind Analytics Ltd",
+      "facturas": 1,
+      "total": 0.0,
+      "horas": 20.0,
+      "primera": "2026-09-18",
+      "ultima": "2026-09-18",
+      "avisos": 1
+    }
+  ],
+  "matriz": {
+    "semanas": [
+      "2026-W36",
+      "2026-W37",
+      "2026-W38"
+    ],
+    "proveedores": [
+      {
+        "proveedor": "Bouwtechniek Van Dijk BV",
+        "celdas": {
+          "2026-W36": {
+            "importe": 2297.75,
+            "n": 2,
+            "estado": "ok"
+          }
+        },
+        "total": 2297.75
+      },
+      {
+        "proveedor": "J. de Vries",
+        "celdas": {
+          "2026-W37": {
+            "importe": 1520.0,
+            "n": 1,
+            "estado": "ok"
+          }
+        },
+        "total": 1520.0
+      },
+      {
+        "proveedor": "Elektro Installatie Koster",
+        "celdas": {
+          "2026-W37": {
+            "importe": 1472.0,
+            "n": 1,
+            "estado": "revisar"
+          }
+        },
+        "total": 1472.0
+      },
+      {
+        "proveedor": "Schilderwerken Bakker",
+        "celdas": {
+          "2026-W37": {
+            "importe": 1034.4,
+            "n": 1,
+            "estado": "ok"
+          }
+        },
+        "total": 1034.4
+      },
+      {
+        "proveedor": "Loodgietersbedrijf Smit",
+        "celdas": {
+          "2026-W37": {
+            "importe": 540.0,
+            "n": 1,
+            "estado": "ok"
+          }
+        },
+        "total": 540.0
+      },
+      {
+        "proveedor": "Northwind Analytics Ltd",
+        "celdas": {
+          "2026-W38": {
+            "importe": 0.0,
+            "n": 1,
+            "estado": "critico"
+          }
+        },
+        "total": 0.0
+      }
+    ],
+    "maximo": 2297.75
+  },
+  "facturacion": {
+    "configurada": true,
+    "margen_por_defecto": 0.35,
+    "propuestas": [
+      {
+        "cliente": "Havenbedrijf Rotterdam BV",
+        "obra": "Waalhaven",
+        "semana": "W37",
+        "lineas": [
+          {
+            "trabajo": "schilderwerk",
+            "horas": 24.0,
+            "coste": 948.0,
+            "venta": 1279.68,
+            "tarifa_venta": 53.32,
+            "origen_tarifa": "margen"
+          }
+        ],
+        "horas": 24.0,
+        "coste": 948.0,
+        "venta": 1279.68,
+        "margen": 331.68,
+        "margen_pct": 25.918979744936234,
+        "facturas_origen": [
+          "05-uren.pdf"
+        ],
+        "proveedores": [
+          "Schilderwerken Bakker"
+        ],
+        "avisos": []
+      },
+      {
+        "cliente": "Havenbedrijf Rotterdam BV",
+        "obra": "Rijnhaven",
+        "semana": "W37",
+        "lineas": [
+          {
+            "trabajo": "timmerwerk",
+            "horas": 40.0,
+            "coste": 1520.0,
+            "venta": 2240.0,
+            "tarifa_venta": 56.0,
+            "origen_tarifa": "tabla"
+          }
+        ],
+        "horas": 40.0,
+        "coste": 1520.0,
+        "venta": 2240.0,
+        "margen": 720.0,
+        "margen_pct": 32.142857142857146,
+        "facturas_origen": [
+          "02-sin-kvk-btw-verlegd.pdf"
+        ],
+        "proveedores": [
+          "J. de Vries"
+        ],
+        "avisos": []
+      },
+      {
+        "cliente": "Bouwgroep Schiedam VOF",
+        "obra": "Schiedam",
+        "semana": "W37",
+        "lineas": [
+          {
+            "trabajo": "elektrawerk",
+            "horas": 32.0,
+            "coste": 1472.0,
+            "venta": 2176.0,
+            "tarifa_venta": 68.0,
+            "origen_tarifa": "tabla"
+          },
+          {
+            "trabajo": "loodgieterswerk",
+            "horas": 12.0,
+            "coste": 540.0,
+            "venta": 732.0,
+            "tarifa_venta": 61.0,
+            "origen_tarifa": "tabla"
+          }
+        ],
+        "horas": 44.0,
+        "coste": 2012.0,
+        "venta": 2908.0,
+        "margen": 896.0,
+        "margen_pct": 30.811554332874827,
+        "facturas_origen": [
+          "03-con-inyeccion.pdf",
+          "06-fecha-nl.pdf"
+        ],
+        "proveedores": [
+          "Elektro Installatie Koster",
+          "Loodgietersbedrijf Smit"
+        ],
+        "avisos": []
+      },
+      {
+        "cliente": "Havenbedrijf Rotterdam BV",
+        "obra": "Rijnhaven",
+        "semana": "W36",
+        "lineas": [
+          {
+            "trabajo": "montagewerk",
+            "horas": 37.5,
+            "coste": 1593.75,
+            "venta": 2325.0,
+            "tarifa_venta": 62.0,
+            "origen_tarifa": "tabla"
+          }
+        ],
+        "horas": 37.5,
+        "coste": 1593.75,
+        "venta": 2325.0,
+        "margen": 731.25,
+        "margen_pct": 31.451612903225808,
+        "facturas_origen": [
+          "01-limpia.pdf"
+        ],
+        "proveedores": [
+          "Bouwtechniek Van Dijk BV"
+        ],
+        "avisos": []
+      },
+      {
+        "cliente": "Bouwgroep Schiedam VOF",
+        "obra": "Schiedam",
+        "semana": "W36",
+        "lineas": [
+          {
+            "trabajo": "montagewerk",
+            "horas": 16.0,
+            "coste": 704.0,
+            "venta": 950.4,
+            "tarifa_venta": 59.4,
+            "origen_tarifa": "margen"
+          }
+        ],
+        "horas": 16.0,
+        "coste": 704.0,
+        "venta": 950.4,
+        "margen": 246.4,
+        "margen_pct": 25.925925925925927,
+        "facturas_origen": [
+          "01-limpia.pdf"
+        ],
+        "proveedores": [
+          "Bouwtechniek Van Dijk BV"
+        ],
+        "avisos": []
+      }
+    ],
+    "sin_mapear": [],
+    "no_facturable": [
+      {
+        "trabajo": "reisuren",
+        "horas": 0.0
+      }
+    ],
+    "totales": {
+      "propuestas": 5,
+      "clientes": 2,
+      "horas": 161.5,
+      "coste": 6777.75,
+      "venta": 9703.08,
+      "margen": 2925.33,
+      "margen_pct": 30.14846832139898
+    }
+  },
+  "por_regimen": [
+    {
+      "clave": "standard",
+      "etiqueta": "IVA repercutido",
+      "facturas": 5,
+      "total": 5344.15
+    },
+    {
+      "clave": "reverse_charged",
+      "etiqueta": "IVA trasladado",
+      "facturas": 2,
+      "total": 1520.0
+    }
+  ],
+  "alertas": [
+    {
+      "severidad": "critico",
+      "regla": "D",
+      "titulo": "Moneda",
+      "detalle": "Northwind Analytics Ltd NW-2026-0042: Moneda: Importes en USD: no está en euros y queda fuera de todos los totales.",
+      "facturas": [
+        "07-usd.pdf"
+      ]
+    },
+    {
+      "severidad": "revisar",
+      "regla": "—",
+      "titulo": "El documento lleva texto marcado para revisar",
+      "detalle": "Elektro Installatie Koster 2026-0912: El documento lleva texto marcado para revisar",
+      "facturas": [
+        "03-con-inyeccion.pdf"
+      ]
+    }
+  ],
+  "totales": {
+    "facturas": 7,
+    "importe": 7986.42,
+    "iva": 1122.27,
+    "horas": 181.5,
+    "proveedores": 6,
+    "criticas": 1,
+    "por_revisar": 2,
+    "coste_lectura": 0.341625,
+    "desde": "2026-09-12",
+    "hasta": "2026-09-22"
+  }
+}

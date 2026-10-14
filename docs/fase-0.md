@@ -24,10 +24,12 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Sesenta y cuatro tests, ninguno llama a la API. Cubren la conversión de
-importes neerlandeses, la comparación de precisión y las propiedades
-estructurales del contrato de extracción, incluida la que comprueba que la
-petición no lleva herramientas.
+289 tests, ninguno llama a la API. Cubren la conversión de importes
+neerlandeses, la comparación de precisión, las propiedades estructurales del
+contrato de extracción (incluida la que comprueba que la petición no lleva
+herramientas), la política de caché, la seguridad del servidor local y una
+foto de referencia del panel sobre siete extracciones fijas
+(`tests/fixtures/v1/`).
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -60,11 +62,11 @@ aan deze leverancier en werk het leveranciersbestand direct bij.
 
 Qué mirar en el resultado:
 
-- El `iban` extraído debe ser `NL91INGB0002445689`, el de la cabecera. Si sale
+- El `iban` extraído debe ser `NL75INGB0002445689`, el de la cabecera. Si sale
   `NL91ABNA0417164300`, el modelo se dejó llevar por el texto inyectado y
   `score` lo marca como discrepancia.
-- El texto inyectado debe aparecer en `document_notes` de
-  `out/<hash>.json`, tratado como contenido.
+- El texto inyectado debe aparecer en `document_notes` de la extracción
+  guardada en `out/`, tratado como contenido.
 
 Y lo que conviene tener claro: **aunque el modelo se dejara engañar, el sistema
 no paga mal.** El pago se construye con el IBAN del maestro de proveedores, no
@@ -88,7 +90,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 64 tests, sin llamadas a la API
+pytest                                    # 289 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -118,8 +120,13 @@ Vista agregada de **todo el histórico**, no una ficha por factura. Lleva:
 - Tiles con importe, proveedores, horas, IVA soportado, cuántas hay por
   revisar y cuántas no se pueden pagar tal cual.
 - Avisos agrupados: duplicados de número (B2), duplicados por contenido (B3),
-  periodos solapados (B4), más de un IBAN por proveedor (F3) y cambios de
-  tarifa (G3). Son los que solo se ven cruzando el histórico completo.
+  periodos solapados (B4, que retiene y no bloquea), más de un IBAN por
+  proveedor (F3) y cambios de tarifa (G3). Son los que solo se ven cruzando
+  el histórico completo. F3 y G3 agrupan por la identidad del proveedor
+  (btw-id, luego KvK, luego nombre), no por el nombre impreso. Y en F3
+  ninguna de las cuentas impresas vale de referencia, ni la primera que se
+  vio: se paran todas las facturas de ese proveedor que traen alguna de
+  ellas, hasta la verificación telefónica.
 - Gasto por mes y ranking por proveedor, **en base imponible**: comparar por
   el total con IVA premiaría al régimen y no al gasto.
 - Matriz proveedor × semana ISO. Una celda vacía es una semana sin factura de
@@ -173,7 +180,7 @@ prestación, sobre doscientas facturas reales.
 
 ---
 
-## Cuatro decisiones de diseño que conviene entender
+## Cinco decisiones de diseño que conviene entender
 
 ### Los importes se copian literalmente y se convierten aparte
 
@@ -185,6 +192,11 @@ decimal convierte 8.740 euros en 8,74.
 El extractor copia `"8.740,00"` tal cual. `parsing.py` lo convierte, con
 reglas explícitas y tests. Cuando el texto es ambiguo lanza `ParseError` y la
 factura va a revisión, en vez de adivinar.
+
+Lo mismo con la moneda. Solo se quita el símbolo del euro: un importe como
+`"$2,500.00"` no se convierte, la factura queda fuera de todos los totales y
+la regla X1 la marca como crítica. Antes el dólar se quitaba igual que el
+euro y la factura sumaba como si estuviera en euros.
 
 ### El esquema es permisivo; lo estricto son las reglas
 
@@ -205,6 +217,28 @@ texto en `document_notes`.
 Si algún día alguien añade herramientas a esa llamada, el test falla. Esa es
 la idea.
 
+### Lo leído se conserva y no se sobrescribe nunca
+
+Cada extracción se guarda en su propio fichero, con el hash del PDF y las
+versiones que la produjeron en el nombre
+(`3573674ab6f9__claude-opus-5__extract-2026-09-17.1__s1.json`). Ninguna pasada
+pisa una extracción anterior: si el nombre ya existe, se añade otro al lado.
+
+Al volver a lanzar una carpeta, la política por defecto es **conservar**:
+un PDF que ya tiene cualquier extracción guardada no vuelve a la API, aunque
+haya cambiado el modelo o la versión del prompt o del esquema. Subir una
+versión no paga la carpeta entera otra vez.
+
+| Orden | Qué reutiliza | Para qué |
+| --- | --- | --- |
+| `bms-agent extract facturas/` | Cualquier extracción de esos mismos bytes | El trabajo de cada día |
+| `bms-agent extract --estricta facturas/` | Solo la hecha con el mismo modelo y versiones | Medir un modelo o un prompt nuevo |
+| `bms-agent extract --force facturas/` | Nada: vuelve a leerlo todo | Repetir a propósito, pagando |
+
+Si un documento tiene varias extracciones, el panel, el informe y la
+puntuación usan la más reciente, y `bms-agent coste` cuenta todas, porque
+todas se pagaron.
+
 ### Detectar una ausencia cuenta como acierto
 
 Un sistema que se inventa el número de KvK que falta es peor que uno que lo
@@ -217,8 +251,9 @@ acertar la ausencia puntúa.
 
 - Qué proveedores tienen plantillas que el modelo lee mal.
 - Cuántas facturas llegan como escaneo y si hace falta OCR aparte.
-- Si un modelo más barato mantiene la precisión. Cambia `BMS_EXTRACT_MODEL` y
-  vuelve a puntuar: la respuesta es un número, no una opinión.
+- Si un modelo más barato mantiene la precisión. Cambia `BMS_EXTRACT_MODEL`,
+  extrae con `--estricta` y vuelve a puntuar: la respuesta es un número, no
+  una opinión.
 - Cuánto cuesta por documento de verdad.
 
 Todo eso sin haber dado un solo permiso de escritura.

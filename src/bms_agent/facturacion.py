@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from .parsing import ParseError, parse_amount
+from .parsing import ParseError, es_unidad_hora, parse_amount
 
 MARGEN_POR_DEFECTO = Decimal("0.35")
 
@@ -141,8 +141,7 @@ def proyectar(
         proveedor = x.get("supplier_name") or "(sin nombre)"
 
         for linea in x.get("lines") or []:
-            unidad = (linea.get("unit") or "").lower()
-            if not unidad.startswith("uur"):
+            if not es_unidad_hora(linea.get("unit")):
                 continue  # solo horas: dias y piezas no se proyectan asi
 
             horas = _dec(linea.get("quantity_raw"))
@@ -274,7 +273,7 @@ def lineas_para_simulador(
         proveedor = x.get("supplier_name") or "(sin nombre)"
         fecha = x.get("invoice_date") or ""
         for linea in x.get("lines") or []:
-            if not (linea.get("unit") or "").lower().startswith("uur"):
+            if not es_unidad_hora(linea.get("unit")):
                 continue
             horas = _dec(linea.get("quantity_raw"))
             coste = _dec(linea.get("unit_rate_raw"))

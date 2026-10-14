@@ -21,7 +21,7 @@ import yaml
 from .parsing import (
     ParseError,
     normalize_iban,
-    parse_amount,
+    parse_importe,
     parse_iso_date,
     parse_percentage,
 )
@@ -62,10 +62,18 @@ def _cmp_text(expected: str, actual: str) -> bool:
 
 
 def _cmp_amount(expected: str, actual: str) -> bool:
+    """Mismo valor y misma moneda.
+
+    Un literal sin marcador cuenta como euro, como hasta ahora. "$2,500.00"
+    contra "2.500,00" es un fallo de lectura: se ha perdido la moneda, que es
+    justo lo que decide si la factura entra en los totales.
+    """
     try:
-        return parse_amount(expected) == parse_amount(actual)
+        valor_e, moneda_e = parse_importe(expected)
+        valor_a, moneda_a = parse_importe(actual)
     except ParseError:
         return False
+    return valor_e == valor_a and (moneda_e or "EUR") == (moneda_a or "EUR")
 
 
 def _cmp_date(expected: str, actual: str) -> bool:

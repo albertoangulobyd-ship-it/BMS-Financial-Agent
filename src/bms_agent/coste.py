@@ -14,8 +14,9 @@ Dos preguntas distintas, y conviene no mezclarlas:
 
 La tercera cifra, la que mas tranquiliza: volver a lanzar una carpeta ya
 leida cuesta cero. La cache va por hash de los bytes del documento, asi que
-un reenvio no se vuelve a pagar. Una correccion si, porque es otro fichero y
-hay que leerlo para saber que dice.
+un reenvio no se vuelve a pagar, y por defecto tampoco un cambio de modelo o
+de version (politica CONSERVAR de cache.py). Una correccion si, porque es
+otro fichero y hay que leerlo para saber que dice.
 """
 
 from __future__ import annotations
@@ -261,6 +262,8 @@ def formatear_relanzar(documentos: list[Documento]) -> str:
         "  La cache va por el hash de los bytes del PDF. Un reenvio del",
         "  mismo fichero no se vuelve a pagar. Una correccion si: es otro",
         "  fichero y hay que leerlo para saber que dice.",
+        "  Cambiar de modelo o de version tampoco vuelve a pagar: lo leido",
+        "  se conserva. `--estricta` exige la misma version, para medir.",
         "  `--force` se salta la cache y vuelve a pagarlo todo.",
     ])
 

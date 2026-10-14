@@ -1,8 +1,8 @@
 """Primeras reglas del catalogo de validacion: las de aritmetica.
 
-Son las reglas D2, D3 y D4 de validacion-facturas.md, y son las unicas que
-se pueden aplicar hoy: no necesitan el planning ni el maestro de Exact, solo
-lo que pone la propia factura.
+Son las reglas D2, D2b, D3, D4, E3, E4, F1 y X1 de validacion-facturas.md, y
+son las unicas que se pueden aplicar hoy: no necesitan el planning ni el
+maestro de Exact, solo lo que pone la propia factura.
 
 Un dato que falta no es un fallo. Es un hallazgo distinto, y se distingue:
 una regla sin los datos para evaluarse queda como no evaluable, no como
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from .parsing import ParseError, parse_amount, parse_percentage
+from .parsing import ParseError, detectar_moneda, parse_amount, parse_percentage
 
 # Tolerancias de redondeo, en euros. Documentadas en validacion-facturas.md.
 TOLERANCE_LINE = Decimal("0.01")
@@ -85,7 +85,9 @@ def check_vat_amount(extraction: dict[str, Any]) -> CheckResult:
 
     Con IVA trasladado o con KOR no hay tipo que aplicar, y eso no es un dato
     que falte: es el estado correcto de la factura. Pero si en ese regimen
-    aparece una cuota distinta de cero, eso si es la regla E4 incumplida.
+    aparece una cuota distinta de cero, eso si es una regla incumplida, y no
+    la misma: E3 con la KOR, E4 con el IVA trasladado. Antes las dos salian
+    como E4, y el catalogo y el panel no hablaban de lo mismo.
     """
     regime = extraction.get("vat_regime")
     if regime in NO_VAT_REGIMES:
@@ -93,7 +95,7 @@ def check_vat_amount(extraction: dict[str, Any]) -> CheckResult:
         etiqueta = "IVA trasladado" if regime == "reverse_charged" else "KOR"
         if charged is not None and charged != 0:
             return CheckResult(
-                "E4", "Cuota de IVA", "fallo",
+                "E4" if regime == "reverse_charged" else "E3", "Cuota de IVA", "fallo",
                 f"Con {etiqueta} no debería repercutirse IVA y la factura cobra {_euros(charged)}.",
             )
         return CheckResult(
@@ -172,6 +174,7 @@ def run_checks(extraction: dict[str, Any]) -> list[CheckResult]:
         check_vat_amount(extraction),
         check_total(extraction),
         check_iban(extraction),
+        check_currency(extraction),
     ]
 
 
@@ -239,3 +242,35 @@ def check_line_arithmetic(extraction: dict[str, Any]) -> CheckResult:
         "D2b", "Aritmetica de linea", "ok",
         f"Las {evaluadas} lineas con datos completos cuadran.",
     )
+
+
+IMPORTES_CABECERA = ("subtotal_excl_vat_raw", "vat_amount_raw", "total_incl_vat_raw")
+IMPORTES_LINEA = ("unit_rate_raw", "line_total_raw")
+
+
+def _literales_de_importe(extraction: dict[str, Any]) -> list[str]:
+    literales = [extraction.get(c) for c in IMPORTES_CABECERA]
+    for linea in extraction.get("lines") or []:
+        literales += [linea.get(c) for c in IMPORTES_LINEA]
+    return [str(v) for v in literales if v not in (None, "")]
+
+
+def check_currency(extraction: dict[str, Any]) -> CheckResult:
+    """X1: la factura esta en euros.
+
+    El esquema v1 no pide la moneda, asi que se mira el literal de cada
+    importe con detectar_moneda. Un importe en otra moneda ya no se convierte
+    (parse_amount lo rechaza), de modo que la factura queda fuera de todos los
+    totales; esta regla es la que dice por que, en vez de dejar un hueco mudo.
+    """
+    literales = _literales_de_importe(extraction)
+    if not literales:
+        return CheckResult("X1", "Moneda", "sin datos", "La factura no trae importes.")
+    otras = sorted({m for m in map(detectar_moneda, literales) if m not in (None, "EUR")})
+    if otras:
+        return CheckResult(
+            "X1", "Moneda", "fallo",
+            f"Importes en {', '.join(otras)}: no está en euros y queda fuera de "
+            "todos los totales.",
+        )
+    return CheckResult("X1", "Moneda", "ok", "Importes en euros.")

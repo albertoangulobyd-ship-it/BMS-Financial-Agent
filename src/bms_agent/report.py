@@ -103,14 +103,48 @@ def build_view(record: dict[str, Any]) -> InvoiceView:
     )
 
 
-def load_records(out_dir: str | Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
+def load_records(out_dir: str | Path, todas: bool = False) -> list[dict[str, Any]]:
+    """Las extracciones guardadas, una por documento.
+
+    Como nada se sobrescribe, un documento puede tener varias extracciones
+    (otro modelo, otra version, un --force). El panel, el informe y la
+    puntuacion ven solo la vigente, que hasta que exista el almacen es la mas
+    reciente: es lo mismo que veian cuando la nueva pisaba a la vieja, pero
+    sin perder la vieja. Contarlas dos veces daria cada factura por duplicada.
+
+    `todas=True` devuelve cada extraccion, que es lo que hace falta para
+    saber lo gastado: cada una se pago.
+    """
+    leidos: list[dict[str, Any]] = []
     for path in sorted(Path(out_dir).glob("*.json")):
         try:
-            records.append(json.loads(path.read_text(encoding="utf-8")))
+            payload = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-    return records
+        if isinstance(payload, dict):
+            leidos.append(payload)
+    if todas:
+        return leidos
+
+    vigente: dict[str, int] = {}
+    for posicion, payload in enumerate(leidos):
+        sha256 = payload.get("source_sha256")
+        if not isinstance(sha256, str) or not sha256:
+            continue
+        anterior = vigente.get(sha256)
+        if anterior is None or _mas_reciente(payload, leidos[anterior]):
+            vigente[sha256] = posicion
+    elegidos = set(vigente.values())
+    return [
+        payload for posicion, payload in enumerate(leidos)
+        if posicion in elegidos or not isinstance(payload.get("source_sha256"), str)
+        or not payload.get("source_sha256")
+    ]
+
+
+def _mas_reciente(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """a se extrajo despues que b. En empate gana la que se leyo despues."""
+    return str(a.get("extracted_at") or "") >= str(b.get("extracted_at") or "")
 
 
 def _sort_key(view: InvoiceView) -> tuple[int, str, str]:

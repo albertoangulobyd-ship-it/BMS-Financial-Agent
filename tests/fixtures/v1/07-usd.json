@@ -1,0 +1,48 @@
+{
+  "source_sha256": "7bde40b37a76d85834048d2aaf866f3c9c2a7542f9389e17331120741c3dfb23",
+  "source_name": "07-usd.pdf",
+  "model": "claude-opus-5",
+  "prompt_version": "extract/2026-09-17.1",
+  "schema_version": "1",
+  "extracted_at": "2026-09-28T09:16:47+00:00",
+  "request_id": "req_fixture_07",
+  "usage": {
+    "input_tokens": 6150,
+    "output_tokens": 690
+  },
+  "extraction": {
+    "supplier_name": "Northwind Analytics Ltd",
+    "supplier_address": "1 Market Street, London EC1A 1AA, United Kingdom",
+    "kvk_number": null,
+    "vat_number": "GB123456789",
+    "invoice_number": "NW-2026-0042",
+    "invoice_date": "2026-09-18",
+    "service_period_start": "2026-09-01",
+    "service_period_end": "2026-09-14",
+    "lines": [
+      {
+        "description": "Data analysis consultancy",
+        "quantity_raw": "20",
+        "unit": "hours",
+        "unit_rate_raw": "$125.00",
+        "line_total_raw": "$2,500.00",
+        "location": null,
+        "week_number": null,
+        "period_start": null,
+        "period_end": null
+      }
+    ],
+    "subtotal_excl_vat_raw": "$2,500.00",
+    "vat_rate_raw": null,
+    "vat_amount_raw": "$0.00",
+    "total_incl_vat_raw": "$2,500.00",
+    "vat_regime": "reverse_charged",
+    "kor_mentioned": false,
+    "reverse_charge_mentioned": true,
+    "iban": "GB29 NWBK 6016 1331 9268 19",
+    "payment_reference": null,
+    "due_date": null,
+    "low_confidence_fields": [],
+    "document_notes": null
+  }
+}

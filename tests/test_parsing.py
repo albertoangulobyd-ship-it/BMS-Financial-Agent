@@ -9,8 +9,11 @@ import pytest
 
 from bms_agent.parsing import (
     ParseError,
+    detectar_moneda,
+    es_unidad_hora,
     normalize_iban,
     parse_amount,
+    parse_importe,
     parse_iso_date,
     parse_percentage,
 )
@@ -163,3 +166,112 @@ def test_la_aritmetica_de_linea_detecta_un_importe_mal() -> None:
     malo = check_line_arithmetic({"lines": [
         {"quantity_raw": "37,50", "unit_rate_raw": "42,50", "line_total_raw": "1.953,75"}]})
     assert malo.failed
+
+
+# --- moneda (X1) ---
+
+@pytest.mark.parametrize(
+    ("raw", "esperada"),
+    [
+        ("€ 8.740,00", "EUR"),
+        ("1.234,56 EUR", "EUR"),
+        ("2.500,00 euro", "EUR"),
+        ("8.740,00", None),
+        ("$2,500.00", "USD"),
+        ("US$ 2,500.00", "USD"),
+        ("USD 1,250.00", "USD"),
+        ("C$ 10.00", "CAD"),
+        ("£ 99.00", "GBP"),
+        ("1.234,56 CHF", "CHF"),
+        ("1.000,00 kr", "KR"),
+        ("EUR 100,00 ($ 108.00)", "USD"),   # dos monedas: gana la que no es euro
+        (None, None),
+    ],
+)
+def test_detectar_moneda(raw, esperada) -> None:
+    assert detectar_moneda(raw) == esperada
+
+
+@pytest.mark.parametrize("raw", ["$2,500.00", "USD 1.250,00", "£ 99.00", "1.000,00 kr"])
+def test_un_importe_en_otra_moneda_no_se_lee_como_euros(raw: str) -> None:
+    """Antes "$2,500.00" daba 2500 y la factura sumaba como si fueran euros."""
+    with pytest.raises(ParseError, match="no en euros"):
+        parse_amount(raw)
+
+
+def test_parse_importe_devuelve_el_valor_y_su_moneda() -> None:
+    assert parse_importe("$2,500.00") == (Decimal("2500.00"), "USD")
+    assert parse_importe("€ 8.740,00") == (Decimal("8740.00"), "EUR")
+    assert parse_importe("8.740,00") == (Decimal("8740.00"), None)
+    with pytest.raises(ParseError):
+        parse_importe("USD 1.2345")
+
+
+def test_la_puntuacion_no_da_por_bueno_un_importe_sin_su_moneda() -> None:
+    """Perder el "$" al copiar es perder lo que decide si suma en los totales."""
+    from bms_agent.scoring import score_document
+
+    def acierta(esperado, extraido):
+        return score_document("f.pdf", {"total_incl_vat_raw": extraido},
+                              {"total_incl_vat": esperado}).fields[0].ok
+
+    assert acierta("$2,500.00", "$2,500.00")
+    assert acierta("€ 1.234,56", "1.234,56")          # sin marcador cuenta como euro
+    assert not acierta("$2,500.00", "2.500,00")
+
+
+# --- horas ---
+
+@pytest.mark.parametrize(
+    "unidad", ["uur", "Uur", "uren", "UREN", "u", "u.", "uren (avond)", "manuren",
+               "h", "hrs", "hours", "Std.", "uurtarief"],
+)
+def test_es_unidad_hora(unidad: str) -> None:
+    assert es_unidad_hora(unidad)
+
+
+@pytest.mark.parametrize("unidad", ["dag", "dagen", "stuk", "km", "m2", "week", "", None])
+def test_lo_que_no_es_hora_no_cuenta_como_hora(unidad) -> None:
+    assert not es_unidad_hora(unidad)
+
+
+# --- etiquetas de IVA y moneda en las comprobaciones ---
+
+def test_cobrar_iva_con_kor_es_e3_no_e4() -> None:
+    """El catalogo llama E3 a la KOR con IVA; E4 es el traslado de la deuda."""
+    from bms_agent.checks import check_vat_amount
+
+    resultado = check_vat_amount({
+        "vat_regime": "kor_exempt", "vat_amount_raw": "319,20",
+        "subtotal_excl_vat_raw": "1.520,00", "vat_rate_raw": "21%",
+    })
+    assert resultado.failed
+    assert resultado.rule == "E3"
+
+
+def test_x1_marca_una_factura_en_dolares() -> None:
+    from bms_agent.checks import check_currency, run_checks
+
+    factura = {"subtotal_excl_vat_raw": "$2,500.00", "vat_amount_raw": "$0.00",
+               "total_incl_vat_raw": "$2,500.00",
+               "lines": [{"unit_rate_raw": "$125.00", "line_total_raw": "$2,500.00"}]}
+    resultado = check_currency(factura)
+    assert resultado.failed and resultado.rule == "X1"
+    assert "USD" in resultado.detail
+    assert "X1" in [c.rule for c in run_checks(factura) if c.failed]
+
+
+def test_x1_mira_tambien_las_lineas() -> None:
+    from bms_agent.checks import check_currency
+
+    factura = {"total_incl_vat_raw": "1.000,00",
+               "lines": [{"unit_rate_raw": "£ 50.00", "line_total_raw": "1.000,00"}]}
+    assert check_currency(factura).failed
+
+
+def test_x1_da_por_buena_una_factura_en_euros_y_no_evalua_sin_importes() -> None:
+    from bms_agent.checks import check_currency
+
+    assert check_currency({"total_incl_vat_raw": "€ 1.000,00", "lines": []}).status == "ok"
+    assert check_currency({"total_incl_vat_raw": "1.000,00"}).status == "ok"
+    assert check_currency({"lines": []}).status == "sin datos"

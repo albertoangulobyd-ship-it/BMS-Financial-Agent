@@ -136,3 +136,21 @@ def test_sin_registros_no_hay_propuestas() -> None:
     r = proyectar([], TARIFAS)
     assert r["propuestas"] == []
     assert r["totales"]["propuestas"] == 0
+
+
+def test_las_horas_en_uren_tambien_se_proyectan() -> None:
+    """Una linea en "uren" desaparecia de la proyeccion sin avisar."""
+    r = proyectar([compra("a.pdf", unidad="uren"), compra("b.pdf", unidad="u.")], TARIFAS)
+    assert r["totales"]["horas"] == 20.0
+
+
+def test_el_simulador_tambien_ve_las_horas_en_uren() -> None:
+    from bms_agent.facturacion import lineas_para_simulador
+
+    r = lineas_para_simulador([compra("a.pdf", unidad="uren"), compra("b.pdf", unidad="stuk")])
+    assert [l["fichero"] for l in r["lineas"]] == ["a.pdf"]
+
+
+def test_una_tarifa_en_dolares_no_se_proyecta_como_euros() -> None:
+    r = proyectar([compra("a.pdf", coste="$40.00", unidad="hours")], TARIFAS)
+    assert r["propuestas"] == []

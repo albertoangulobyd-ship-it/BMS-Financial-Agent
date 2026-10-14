@@ -90,13 +90,19 @@ def test_importes_distintos_no_se_marcan() -> None:
 
 # --- B4: periodo repetido ---
 
-def test_la_misma_semana_facturada_dos_veces_es_critico() -> None:
-    alertas = detectar_periodos_repetidos(construir_filas([
+def test_la_misma_semana_facturada_dos_veces_se_retiene() -> None:
+    """B4 es Retencion en el catalogo, no Bloqueo (spec V1, paso 0).
+
+    Dos periodos que se pisan son a menudo dos obras o una sustitucion: lo
+    decide una persona, y la fila queda en revisar, no en critico.
+    """
+    filas = construir_filas([
         factura("a.pdf", numero="2026-001", total="1.000,00"),
         factura("b.pdf", numero="2026-002", total="1.400,00"),
-    ]))
+    ])
+    alertas = detectar_periodos_repetidos(filas)
     assert len(alertas) == 1
-    assert alertas[0].regla == "B4" and alertas[0].severidad == "critico"
+    assert alertas[0].regla == "B4" and alertas[0].severidad == "revisar"
 
 
 def test_periodos_distintos_no_se_marcan() -> None:
@@ -199,7 +205,11 @@ def test_las_alertas_criticas_salen_antes_que_los_avisos() -> None:
     ]
     alertas = construir_alertas(construir_filas(registros), registros)
     assert alertas[0].severidad == "critico"
-    assert {a.regla for a in alertas if a.severidad == "critico"} >= {"B2", "B4", "F3"}
+    assert {a.regla for a in alertas if a.severidad == "critico"} >= {"B2", "F3"}
+    # B4 es retencion: sale, pero detras de las criticas.
+    assert "B4" in {a.regla for a in alertas if a.severidad == "revisar"}
+    severidades = [a.severidad for a in alertas]
+    assert severidades == sorted(severidades, key=["critico", "revisar", "aviso"].index)
 
 
 def test_un_historico_vacio_no_rompe_nada() -> None:
@@ -238,8 +248,13 @@ def test_una_factura_solo_con_lectura_dudosa_no_es_critica() -> None:
     assert fila.fallos == []
 
 
-def test_el_iban_habitual_no_convierte_todo_el_historico_en_sospechoso() -> None:
-    """Solo se verifica la factura con la cuenta rara, no las veinte anteriores."""
+def test_ninguna_cuenta_vista_en_documentos_hace_de_referencia() -> None:
+    """Sin cuenta verificada no hay cuenta "habitual" (spec V1, paso 0).
+
+    Antes solo se marcaba la factura con la cuenta rara y las otras cinco
+    pasaban por buenas porque su cuenta se vio antes. Pero verse antes no
+    verifica nada: hasta la llamada, ninguna de las seis se puede pagar.
+    """
     registros = [factura(f"h{i}.pdf", numero=str(i), iban="NL02ABNA0123456789")
                  for i in range(5)]
     registros.append(factura("rara.pdf", numero="99", iban="NL91ABNA0417164300"))
@@ -247,8 +262,10 @@ def test_el_iban_habitual_no_convierte_todo_el_historico_en_sospechoso() -> None
     alertas = detectar_ibanes(registros)
 
     assert len(alertas) == 1
-    assert alertas[0].facturas == ["rara.pdf"]
+    assert alertas[0].facturas == sorted(["rara.pdf"] + [f"h{i}.pdf" for i in range(5)])
     assert "NL02ABNA0123456789" in alertas[0].detalle
+    assert "NL91ABNA0417164300" in alertas[0].detalle
+    assert "habitual" not in alertas[0].detalle
 
 
 def test_una_factura_duplicada_no_sale_verde_en_la_tabla() -> None:
@@ -354,12 +371,13 @@ def test_la_matriz_marca_la_semana_con_dos_facturas() -> None:
     assert m["proveedores"][0]["celdas"]["2026-W37"]["n"] == 2
 
 
-def test_un_cambio_de_banco_real_no_acusa_al_historico_correcto() -> None:
-    """La cuenta de referencia es la mas antigua, no la mas repetida.
+def test_una_primera_factura_fraudulenta_no_se_convierte_en_referencia() -> None:
+    """Ni la cuenta mas antigua ni la mas repetida son de referencia.
 
-    Si un proveedor cambia de banco y luego manda veinte facturas con la
-    cuenta nueva, la frecuencia convertiria la nueva en "habitual" y marcaria
-    como sospechosas las antiguas, que son las correctas.
+    Con la mas antigua, una primera factura fraudulenta se volvia "habitual"
+    y las veinte buenas que llegaban despues quedaban como sospechosas; con la
+    mas repetida pasaba lo mismo al reves tras un cambio de banco real. Sin
+    cuenta verificada, se paran todas y la llamada decide cual es la buena.
     """
     viejas = [factura(f"v{i}.pdf", numero=f"v{i}", fecha=f"2026-0{i+1}-05",
                       iban="NL02ABNA0123456789") for i in range(2)]
@@ -369,8 +387,13 @@ def test_un_cambio_de_banco_real_no_acusa_al_historico_correcto() -> None:
     alertas = detectar_ibanes(viejas + nuevas)
 
     assert len(alertas) == 1
-    assert sorted(alertas[0].facturas) == ["n0.pdf", "n1.pdf", "n2.pdf", "n3.pdf"]
-    assert "NL02ABNA0123456789" in alertas[0].detalle
+    assert sorted(alertas[0].facturas) == [
+        "n0.pdf", "n1.pdf", "n2.pdf", "n3.pdf", "v0.pdf", "v1.pdf"]
+    assert "venia cobrando" not in alertas[0].detalle
+    # Las cuentas se listan por orden de aparicion, que ayuda a la llamada.
+    detalle = alertas[0].detalle
+    assert detalle.index("NL02ABNA0123456789") < detalle.index("NL91ABNA0417164300")
+    assert "desde 2026-01-05" in detalle and "desde 2026-05-05" in detalle
 
 
 def test_una_subida_de_tarifa_senala_las_nuevas_no_las_viejas() -> None:
@@ -472,3 +495,72 @@ def test_g3_vigila_tambien_las_lineas_sin_obra() -> None:
 
     alertas = detectar_cambios_de_tarifa([sin_obra("a.pdf", "40,00"), sin_obra("b.pdf", "55,00")])
     assert len(alertas) == 1 and alertas[0].regla == "G3"
+
+
+# --- correcciones del paso 0 de la V1 ---
+
+def test_g3_agrupa_por_identidad_del_proveedor_no_por_el_nombre_impreso() -> None:
+    """Quien cambia de nombre y de tarifa a la vez ya no se escapa de G3."""
+    a = factura("a.pdf", proveedor="J. de Vries", numero="1",
+                lineas=[linea("Montagewerk", "Schiedam", "42,00")])
+    b = factura("b.pdf", proveedor="De Vries Montage", numero="2",
+                lineas=[linea("Montagewerk", "Schiedam", "55,00")])
+    for r in (a, b):
+        r["extraction"]["vat_number"] = "NL002345678B01"
+
+    alertas = detectar_cambios_de_tarifa([a, b])
+
+    assert len(alertas) == 1 and alertas[0].regla == "G3"
+    assert alertas[0].facturas == ["b.pdf"]
+    assert "De Vries Montage" in alertas[0].detalle and "J. de Vries" in alertas[0].detalle
+
+
+def test_g3_no_mezcla_dos_proveedores_que_se_llaman_igual() -> None:
+    """Mismo nombre impreso, btw-id distinto: son dos proveedores y dos tarifas."""
+    a = factura("a.pdf", proveedor="Bakker", numero="1",
+                lineas=[linea("Schilderwerk", "Waalhaven", "38,00")])
+    b = factura("b.pdf", proveedor="Bakker", numero="2",
+                lineas=[linea("Schilderwerk", "Waalhaven", "45,00")])
+    a["extraction"]["vat_number"] = "NL004567891B01"
+    b["extraction"]["vat_number"] = "NL009999999B01"
+
+    assert detectar_cambios_de_tarifa([a, b]) == []
+
+
+def test_las_horas_en_uren_o_hours_cuentan_como_horas() -> None:
+    """Antes solo contaba lo que empezaba por "uur", y "uren" daba cero."""
+    reg = factura("a.pdf", lineas=[
+        {"description": "Schilderwerk", "location": "X", "unit": "uren",
+         "quantity_raw": "24,00", "unit_rate_raw": "39,50", "line_total_raw": "948,00"},
+        {"description": "Consultancy", "location": "X", "unit": "hours",
+         "quantity_raw": "2", "unit_rate_raw": "50,00", "line_total_raw": "100,00"},
+        {"description": "Materiaal", "location": "X", "unit": "stuk",
+         "quantity_raw": "1", "unit_rate_raw": "52,00", "line_total_raw": "52,00"},
+    ])
+    fila = construir_filas([reg])[0]
+    assert fila.horas == Decimal("26.00")
+    assert fila.otras_unidades == ["stuk"]
+
+
+def test_una_factura_en_dolares_no_entra_en_los_totales_en_euros() -> None:
+    from bms_agent.dashboard import construir_datos
+
+    euros = factura("a.pdf", numero="1", total="1.000,00")
+    dolares = factura("b.pdf", proveedor="Northwind", numero="2", total="$2,500.00")
+    datos = construir_datos([euros, dolares], tarifas_path=None)
+
+    fila = next(f for f in datos["filas"] if f["fichero"] == "b.pdf")
+    assert fila["total"] is None and fila["estado"] == "critico"
+    assert any("Moneda" in m for m in fila["motivos"])
+    assert datos["totales"]["importe"] == 1000.0
+
+
+def test_b4_marca_la_fila_para_revisar_no_como_critica() -> None:
+    from bms_agent.dashboard import construir_datos
+
+    datos = construir_datos([
+        factura("a.pdf", numero="1", total="1.000,00", iban=None),
+        factura("b.pdf", numero="2", total="1.400,00", iban=None),
+    ], tarifas_path=None)
+    assert {f["estado"] for f in datos["filas"]} == {"revisar"}
+    assert datos["totales"]["criticas"] == 0

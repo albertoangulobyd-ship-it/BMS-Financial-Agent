@@ -58,33 +58,57 @@ para tener un sitio funcionando, y sirve mientras el agente se ejecute a mano.
 
 ```bash
 bms-agent serve
+bms-agent serve --origen http://localhost:5173   # si el sitio va en otro puerto
 ```
 
 Levanta en `http://127.0.0.1:8765`:
 
 | Endpoint | Qué hace |
 | --- | --- |
+| `GET /` | Página local mínima con el botón de ejecutar y el estado de la pasada |
 | `GET /api/datos` | Los mismos datos que el export, siempre frescos |
 | `GET /api/ejecucion` | Estado de la última pasada |
-| `POST /api/ejecutar` | Lanza una pasada. Devuelve `409` si ya hay una |
+| `POST /api/ejecutar` | Lanza una pasada. Pide cabecera `X-BMS-Token` y cuerpo JSON. Devuelve `409` si ya hay una |
 
 **Escucha solo en `127.0.0.1`, a propósito.** No acepta una IP de red. Es un
 servidor de desarrollo para construir el sitio contra datos reales, no un paso
 hacia producción.
 
-Acepta peticiones desde `localhost` y `127.0.0.1` en cualquier puerto, así que
-un sitio servido con Vite, Next o lo que uses puede consumirlo directamente.
+Escuchar en `127.0.0.1` no basta: el navegador de quien tiene el servidor
+abierto también visita otras webs, y cualquiera de ellas podría intentar leer
+los datos (IBAN incluidos) o lanzar pasadas que se pagan. Por eso el servidor
+comprueba tres cosas en cada petición:
 
-Ejemplo de uso desde el sitio:
+| Comprobación | Qué cierra | Si falla |
+| --- | --- | --- |
+| **Host** exactamente `127.0.0.1:<puerto>` o `localhost:<puerto>` | Una web que hace rebotar su DNS hacia `127.0.0.1` (*DNS rebinding*) llega con su propio nombre en el Host | `421` |
+| **Origin** igual, entero, a uno de los admitidos: la propia página y los que se declaren con `--origen` (solo `localhost` o `127.0.0.1`) | Antes se comparaba por prefijo, y `http://localhost.attacker.example` o `http://127.0.0.1.nip.io` pasaban y recibían la cabecera CORS | `403`, sin cabecera CORS |
+| En `POST`, cabecera **`X-BMS-Token`** y cuerpo **`application/json`** | Un formulario de otra web no puede poner ninguna de las dos cosas, así que no puede lanzar una pasada | `403` sin token, `415` si no es JSON |
+
+El token es aleatorio en cada arranque. Se imprime al arrancar y va dentro de
+la página que sirve `GET /`, en `<meta name="bms-token">`. Esa página no se
+deja meter en un marco de otra web (`X-Frame-Options: DENY`), para que nadie
+pueda hacer pulsar el botón con un clic disfrazado.
+
+Ejemplo de uso desde un sitio en `http://localhost:5173`, arrancado con
+`bms-agent serve --origen http://localhost:5173` y con el token que imprimió
+al arrancar en la configuración del sitio:
 
 ```js
-const datos = await (await fetch('http://127.0.0.1:8765/api/datos')).json()
+const BMS = 'http://127.0.0.1:8765'
+const TOKEN = import.meta.env.VITE_BMS_TOKEN   // el que imprime `bms-agent serve`
+
+const datos = await (await fetch(`${BMS}/api/datos`)).json()
 
 async function ejecutar() {
-  const r = await fetch('http://127.0.0.1:8765/api/ejecutar', {method: 'POST'})
+  const r = await fetch(`${BMS}/api/ejecutar`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-BMS-Token': TOKEN},
+    body: '{}',
+  })
   if (r.status === 409) return   // ya hay una en curso
   const timer = setInterval(async () => {
-    const e = await (await fetch('http://127.0.0.1:8765/api/ejecucion')).json()
+    const e = await (await fetch(`${BMS}/api/ejecucion`)).json()
     pintarProgreso(e)                       // e.procesadas de e.total
     if (e.estado === 'terminado' || e.estado === 'error') {
       clearInterval(timer)
@@ -93,6 +117,10 @@ async function ejecutar() {
   }, 2000)
 }
 ```
+
+Una pasada lanzada desde aquí sigue la misma política de caché que
+`bms-agent extract`: lo ya leído se reutiliza aunque haya cambiado el modelo o
+la versión, y no se sobrescribe nada.
 
 ### Nivel 3 · API de verdad (cuando toque desplegar)
 
@@ -192,7 +220,12 @@ celdas que empiezan por `=`, `+`, `-` o `@`, que Excel las ejecuta.
 
 **`estado` ya viene cruzado con todo el histórico.** Una factura señalada por
 un duplicado o por un cambio de IBAN sale como `critico` aunque ella sola
-parezca correcta. No hay que recalcularlo en el cliente.
+parezca correcta; una con el periodo solapado con otra (B4) sale como
+`revisar`. No hay que recalcularlo en el cliente.
+
+**Una factura que no está en euros no suma.** Sus `base`, `iva` y `total`
+llegan como `null`, sale `critico` y el motivo dice la moneda (regla X1).
+Las horas sí cuentan: las líneas en «uur», «uren», «u» u «hours» son horas.
 
 
 ---

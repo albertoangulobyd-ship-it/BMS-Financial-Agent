@@ -1,0 +1,59 @@
+{
+  "source_sha256": "b44ad0962360dd19ccf908eeabb49ab897a6432eae1349867b4511c6b39ea8ae",
+  "source_name": "05-uren.pdf",
+  "model": "claude-opus-5",
+  "prompt_version": "extract/2026-09-17.1",
+  "schema_version": "1",
+  "extracted_at": "2026-09-28T09:15:40+00:00",
+  "request_id": "req_fixture_05",
+  "usage": {
+    "input_tokens": 6075,
+    "output_tokens": 760
+  },
+  "extraction": {
+    "supplier_name": "Schilderwerken Bakker",
+    "supplier_address": "Molenstraat 3, 2805 CD Gouda",
+    "kvk_number": "65432109",
+    "vat_number": "NL004567891B01",
+    "invoice_number": "B-2026-077",
+    "invoice_date": "2026-09-16",
+    "service_period_start": "2026-09-07",
+    "service_period_end": "2026-09-13",
+    "lines": [
+      {
+        "description": "Schilderwerk, locatie Waalhaven",
+        "quantity_raw": "24,00",
+        "unit": "uren",
+        "unit_rate_raw": "39,50",
+        "line_total_raw": "948,00",
+        "location": "Waalhaven",
+        "week_number": 37,
+        "period_start": null,
+        "period_end": null
+      },
+      {
+        "description": "Verfmateriaal, locatie Waalhaven",
+        "quantity_raw": "1",
+        "unit": "stuk",
+        "unit_rate_raw": "86,40",
+        "line_total_raw": "86,40",
+        "location": "Waalhaven",
+        "week_number": 37,
+        "period_start": null,
+        "period_end": null
+      }
+    ],
+    "subtotal_excl_vat_raw": "1.034,40",
+    "vat_rate_raw": "21%",
+    "vat_amount_raw": "217,22",
+    "total_incl_vat_raw": "1.251,62",
+    "vat_regime": "standard",
+    "kor_mentioned": false,
+    "reverse_charge_mentioned": false,
+    "iban": "NL67 INGB 0006 5432 10",
+    "payment_reference": null,
+    "due_date": "2026-10-16",
+    "low_confidence_fields": [],
+    "document_notes": null
+  }
+}

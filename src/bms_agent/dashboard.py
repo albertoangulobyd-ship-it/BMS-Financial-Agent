@@ -19,7 +19,7 @@ from typing import Any
 from .checks import run_checks
 from .checks import _euros
 from .facturacion import cargar_tarifas, proyectar
-from .parsing import ParseError, parse_amount, parse_iso_date
+from .parsing import ParseError, es_unidad_hora, parse_amount, parse_iso_date
 
 VENTANA_DUPLICADO = timedelta(days=14)
 
@@ -90,12 +90,13 @@ def _horas(extraction: dict[str, Any]) -> Decimal | None:
 
     Lo facturado en dias, piezas o kilometros no son horas y sumarlo daria un
     numero sin sentido. Lo que queda fuera se declara en _otras_unidades para
-    que no desaparezca en silencio.
+    que no desaparezca en silencio. Que es una hora lo decide es_unidad_hora:
+    "uren" o "hours" tambien lo son.
     """
     total = Decimal(0)
     visto = False
     for linea in extraction.get("lines") or []:
-        if (linea.get("unit") or "").lower().startswith("uur"):
+        if es_unidad_hora(linea.get("unit")):
             cantidad = _dec(linea.get("quantity_raw"))
             if cantidad is not None:
                 total += cantidad
@@ -108,7 +109,7 @@ def _otras_unidades(extraction: dict[str, Any]) -> list[str]:
     unidades: list[str] = []
     for linea in extraction.get("lines") or []:
         unidad = (linea.get("unit") or "").strip().lower()
-        if unidad and not unidad.startswith("uur") and unidad not in unidades:
+        if unidad and not es_unidad_hora(unidad) and unidad not in unidades:
             unidades.append(unidad)
     return unidades
 
@@ -386,8 +387,11 @@ def detectar_periodos_repetidos(filas: list[Fila]) -> list[Alerta]:
                 # mismo periodo que corrigen. Eso no es facturar dos veces.
                 if _es_correccion(fila_a, fila_b):
                     continue
+                # Retencion, no bloqueo, como dice el catalogo: dos periodos
+                # que se pisan son a menudo dos obras o una sustitucion, y eso
+                # lo decide una persona, no la aritmetica.
                 alertas.append(Alerta(
-                    "critico", "B4", "Periodo facturado dos veces",
+                    "revisar", "B4", "Periodo facturado dos veces",
                     f"{fila_a.proveedor}: {fila_a.numero} ({fila_a.periodo}) y "
                     f"{fila_b.numero} ({fila_b.periodo}) solapan {dias} dia(s).",
                     [fila_a.fichero, fila_b.fichero],
@@ -420,9 +424,16 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
     tarifas: dict[tuple[str, str, str], dict[Decimal, list[tuple[str, str]]]] = defaultdict(
         lambda: defaultdict(list)
     )
+    nombres: dict[str, list[str]] = defaultdict(list)
     for registro in registros:
         x = registro.get("extraction") or {}
-        proveedor = x.get("supplier_name") or "(sin nombre)"
+        # Se agrupa por la identidad del proveedor, no por el nombre impreso:
+        # quien cambia de nombre seguia cobrando otra tarifa sin que saltara
+        # nada, y dos proveedores que se llaman igual se mezclaban.
+        identidad = _identidad(x)
+        nombre = x.get("supplier_name") or "(sin nombre)"
+        if nombre not in nombres[identidad]:
+            nombres[identidad].append(nombre)
         fecha = x.get("invoice_date") or "0000-00-00"
         fichero = registro.get("source_name", "—")
         for linea in x.get("lines") or []:
@@ -432,11 +443,12 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
             # Una linea sin obra no se descarta: se agrupa aparte. Descartarla
             # dejaba sin vigilancia a los proveedores que no desglosan por obra.
             ubicacion = str(linea.get("location") or "(sin obra)")
-            clave = (proveedor, ubicacion, _tipo_de_trabajo(linea.get("description")))
+            clave = (identidad, ubicacion, _tipo_de_trabajo(linea.get("description")))
             tarifas[clave][tarifa].append((fecha, fichero))
 
-    alertas: list[Alerta] = []
-    for (proveedor, ubicacion, trabajo), por_tarifa in sorted(tarifas.items()):
+    encontradas: list[tuple[tuple[str, str, str, str], Alerta]] = []
+    for (identidad, ubicacion, trabajo), por_tarifa in tarifas.items():
+        proveedor = _nombre_de(nombres[identidad])
         if len(por_tarifa) < 2:
             continue
         # Solo cuenta si las tarifas distintas vienen de facturas distintas.
@@ -462,26 +474,46 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
             f for t in posteriores for f in ficheros_por_tarifa[t]
         )
         fechas_vistas = sorted(fecha for lista in por_tarifa.values() for fecha, _ in lista)
-        alertas.append(Alerta(
+        encontradas.append(((proveedor, ubicacion, trabajo, identidad), Alerta(
             "revisar", "G3", "Tarifa distinta por el mismo trabajo",
             f"{proveedor}, {trabajo} en {ubicacion}: venia a "
             f"{_euros(anterior)} y despues a " +
             " y ".join(_euros(t) for t in posteriores) +
             f", entre {fechas_vistas[0]} y {fechas_vistas[-1]}.",
             desviadas,
-        ))
-    return alertas
+        )))
+    # Orden por el nombre que se ensena, como antes de agrupar por identidad,
+    # para que el panel no cambie de orden sin motivo.
+    return [alerta for _clave, alerta in sorted(encontradas, key=lambda e: e[0])]
+
+
+def _nombre_de(nombres: list[str]) -> str:
+    """Nombre que se ensena de un proveedor que ha firmado de varias formas."""
+    return " / ".join(sorted(nombres)) if nombres else "(sin nombre)"
 
 
 def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
-    """Un proveedor con mas de un IBAN en el historico. Parada dura F3."""
+    """Un proveedor con mas de un IBAN en sus documentos. Parada dura F3.
+
+    Ninguna de las cuentas impresas es la de referencia. Antes lo era la que
+    se vio primero, y eso convertia una primera factura fraudulenta en la
+    cuenta "habitual" y acusaba a las buenas que llegaban despues. Una cuenta
+    solo vale cuando esta verificada fuera del documento (el registro de
+    cuentas llega con el maestro); mientras tanto, todas las facturas del
+    proveedor que traen alguno de esos IBAN se paran hasta la llamada.
+
+    Las cuentas se listan por la fecha en que aparecieron, porque eso ayuda a
+    la llamada, pero el orden no hace buena a ninguna.
+    """
     ibanes: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    nombres: dict[str, str] = {}
+    nombres: dict[str, list[str]] = defaultdict(list)
     fechas: dict[str, str] = {}
     for registro in registros:
         x = registro.get("extraction") or {}
         clave = _identidad(x)
-        nombres[clave] = x.get("supplier_name") or "(sin nombre)"
+        nombre = x.get("supplier_name") or "(sin nombre)"
+        if nombre not in nombres[clave]:
+            nombres[clave].append(nombre)
         fichero = registro.get("source_name", "—")
         parseada = _fecha(x.get("invoice_date"))
         fechas[fichero] = parseada.isoformat() if parseada else "9999-99-99"
@@ -491,28 +523,28 @@ def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
 
     alertas: list[Alerta] = []
     for clave, cuentas in sorted(ibanes.items()):
-        proveedor = nombres.get(clave, clave)
         if len(cuentas) < 2:
             continue
-        # La cuenta de referencia es la MAS ANTIGUA, no la mas repetida. Si un
-        # proveedor cambia de banco de verdad y luego manda veinte facturas
-        # con la cuenta nueva, la frecuencia convierte la nueva en "habitual"
-        # y acusa a todo el historico correcto: justo al reves.
+        proveedor = _nombre_de(nombres[clave])
         primera_de = {
             cuenta: min(fechas.get(f, "9999-99-99") for f in lista)
             for cuenta, lista in cuentas.items()
         }
-        habitual = min(cuentas, key=lambda c: (primera_de[c], c))
-        sospechosas = sorted(
-            f for cuenta, lista in cuentas.items() if cuenta != habitual for f in lista
+        orden = sorted(cuentas, key=lambda c: (primera_de[c], c))
+        resumen = "; ".join(
+            f"{c} en {len(cuentas[c])} factura(s) "
+            + ("de fecha desconocida" if primera_de[c] == "9999-99-99"
+               else f"desde {primera_de[c]}")
+            for c in orden
         )
-        otras = sorted(c for c in cuentas if c != habitual)
+        afectadas = sorted(f for lista in cuentas.values() for f in lista)
         alertas.append(Alerta(
             "critico", "F3", "Mas de un IBAN para el mismo proveedor",
-            f"{proveedor} venia cobrando en {habitual} y "
-            f"{len(sospechosas)} factura(s) posteriores traen " + ", ".join(otras) +
-            ". Verificacion telefonica al numero ya conocido antes de pagar.",
-            sospechosas,
+            f"{proveedor} trae {len(cuentas)} IBAN distintos en sus facturas: "
+            f"{resumen}. Ninguno vale de referencia por haberse visto antes: "
+            "verificacion telefonica al numero ya conocido antes de pagar "
+            "cualquiera de ellas.",
+            afectadas,
         ))
     return alertas
 

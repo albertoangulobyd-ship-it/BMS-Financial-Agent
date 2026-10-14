@@ -4,9 +4,10 @@ La fase 0 tiene que responder "cuanto cuesta esto al mes" con un numero
 medido, no con una suposicion. Cada extraccion ya guarda su consumo; aqui
 solo se le pone precio.
 
-Las tarifas son una instantanea de junio de 2026 y pueden cambiar. La
-referencia viva esta en anthropic.com/pricing. Si el modelo no esta en la
-tabla no se inventa un precio: se informa de que no hay estimacion.
+Las tarifas son una instantanea (la referencia de la API consultada el
+2026-10-06) y pueden cambiar. La referencia viva esta en
+anthropic.com/pricing. Si el modelo no esta en la tabla no se inventa un
+precio: se informa de que no hay estimacion.
 """
 
 from __future__ import annotations
@@ -15,12 +16,17 @@ from decimal import Decimal
 
 # Modelo -> (USD por millon de tokens de entrada, de salida).
 PRICES: dict[str, tuple[str, str]] = {
+    "claude-opus-5-5": ("4.00", "20.00"),
     "claude-opus-5": ("5.00", "25.00"),
     "claude-opus-4-8": ("5.00", "25.00"),
     "claude-opus-4-7": ("5.00", "25.00"),
     "claude-opus-4-6": ("5.00", "25.00"),
+    "claude-sonnet-5-5": ("2.00", "10.00"),
     "claude-sonnet-5": ("2.00", "10.00"),
     "claude-sonnet-4-6": ("3.00", "15.00"),
+    # Haiku 5.5 cobra 0,50/2,50 por encima de 100.000 tokens de entrada por
+    # peticion. Una factura no se acerca, asi que basta la tarifa de abajo.
+    "claude-haiku-5-5": ("0.10", "0.50"),
     "claude-haiku-4-5": ("1.00", "5.00"),
     "claude-fable-5-1": ("10.00", "50.00"),
     "claude-fable-5": ("10.00", "50.00"),

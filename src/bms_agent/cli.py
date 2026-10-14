@@ -1,11 +1,15 @@
 """Interfaz de linea de comandos de la fase 0.
 
-Tres ordenes, ninguna escribe en ningun sistema de la empresa:
+Ninguna orden escribe en ningun sistema de la empresa:
 
     bms-agent schema              muestra el esquema de extraccion
     bms-agent extract facturas/   extrae los PDF de una carpeta a out/
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
+
+`extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
+guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
+un modelo o un prompt nuevo hace falta pedirlo con --estricta.
 """
 
 from __future__ import annotations
@@ -16,9 +20,9 @@ import sys
 from pathlib import Path
 
 from . import config
-from .cache import build_index
+from .cache import CONSERVAR, ESTRICTA, indexar, reutilizable
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
-from .extract import build_request, extract_invoice
+from .extract import build_request, extraer_pasada
 from .panel import escribir_panel
 from .report import build_report, load_records, render_html
 from .pricing import format_cost_summary
@@ -29,6 +33,14 @@ from .scoring import Report, load_ground_truth, score_document, format_report
 def _cmd_schema(args: argparse.Namespace) -> int:
     print(json.dumps(InvoiceExtraction.model_json_schema(), indent=2, ensure_ascii=False))
     return 0
+
+
+_ETIQUETAS_PASO = {"omitido": "omitido", "cache": "cache", "error": "ERROR", "ok": "ok"}
+
+
+def _imprimir_paso(tipo: str, nombre: str, detalle: str) -> None:
+    separador = ": " if tipo in ("omitido", "error") else " -> "
+    print(f"  {_ETIQUETAS_PASO[tipo]:<8} {nombre}{separador}{detalle}")
 
 
 def _cmd_extract(args: argparse.Namespace) -> int:
@@ -43,53 +55,38 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         print(f"No hay PDF en {args.directory}", file=sys.stderr)
         return 1
 
-    client = anthropic.Anthropic()
-    out_dir = Path(args.out)
+    return extraer_carpeta(
+        anthropic.Anthropic(), pdfs, Path(args.out),
+        politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
+    )
+
+
+def extraer_carpeta(
+    client: object, pdfs: list[Path], out_dir: Path, *, politica: str, forzar: bool
+) -> int:
+    """El cuerpo de `extract`, con el cliente inyectado para poder probarlo."""
     model = config.model_id()
-    cache = {} if args.force else build_index(out_dir)
     print(f"Extrayendo {len(pdfs)} documentos con {model}")
-    if cache:
-        print(f"{len(cache)} extracciones previas en {out_dir}/ disponibles para reutilizar")
+    if forzar:
+        print("--force: se vuelven a leer todos, aunque ya esten leidos (gasta creditos)")
+    else:
+        guardadas = len(indexar(out_dir))
+        if guardadas:
+            modo = ("solo si coinciden modelo y versiones" if politica == ESTRICTA
+                    else "con cualquier modelo o version")
+            print(f"{guardadas} documentos ya leidos en {out_dir}/, se reutilizan {modo}")
     print()
 
-    failures = reused = 0
-    tokens_in = tokens_out = extracted = 0
-    for path in pdfs:
-        try:
-            doc = load_pdf(path)
-        except UnsupportedDocument as exc:
-            print(f"  omitido  {path.name}: {exc}")
-            failures += 1
-            continue
+    r = extraer_pasada(
+        client, pdfs, out_dir, model=model, politica=politica, forzar=forzar,
+        informar=_imprimir_paso,
+    )
 
-        hit = cache.get(doc.sha256)
-        if hit is not None and hit.matches(
-            model, config.PROMPT_VERSION, config.SCHEMA_VERSION
-        ):
-            print(f"  cache    {path.name} -> {hit.path.name}  (sin coste)")
-            reused += 1
-            continue
-
-        try:
-            record = extract_invoice(client, doc, model=model)
-        except Exception as exc:  # la fase 0 no se detiene por un documento
-            print(f"  ERROR    {path.name}: {type(exc).__name__}: {exc}")
-            failures += 1
-            continue
-
-        target = record.write_json(out_dir)
-        extracted += 1
-        tokens_in += record.usage.get("input_tokens") or 0
-        tokens_out += record.usage.get("output_tokens") or 0
-        flagged = record.extraction.low_confidence_fields
-        suffix = f"  (dudoso: {', '.join(flagged)})" if flagged else ""
-        print(f"  ok       {path.name} -> {target.name}{suffix}")
-
-    print(f"\nHecho. {extracted} extraidos, {reused} reutilizados, "
-          f"{failures} con problemas, de {len(pdfs)} documentos en {out_dir}/\n")
-    if extracted:
-        print(format_cost_summary(model, extracted, tokens_in, tokens_out))
-    return 1 if failures else 0
+    print(f"\nHecho. {r.extraidas} extraidos, {r.reutilizadas} reutilizados, "
+          f"{r.fallidas} con problemas, de {len(pdfs)} documentos en {out_dir}/\n")
+    if r.extraidas:
+        print(format_cost_summary(model, r.extraidas, r.tokens_entrada, r.tokens_salida))
+    return 1 if r.fallidas else 0
 
 
 def _cmd_score(args: argparse.Namespace) -> int:
@@ -98,10 +95,12 @@ def _cmd_score(args: argparse.Namespace) -> int:
         print(f"{args.ground_truth} esta vacio", file=sys.stderr)
         return 1
 
+    # Una extraccion por documento, la vigente: si hay varias versiones del
+    # mismo PDF, se puntua la mas reciente, que es la que se acaba de medir.
     by_name = {}
-    for json_path in sorted(Path(args.out).glob("*.json")):
-        payload = json.loads(json_path.read_text(encoding="utf-8"))
-        by_name[payload["source_name"]] = payload
+    for payload in load_records(args.out):
+        if "source_name" in payload:
+            by_name[payload["source_name"]] = payload
 
     scores = []
     missing = []
@@ -183,7 +182,12 @@ def _cmd_simulador(args: argparse.Namespace) -> int:
 def _cmd_serve(args: argparse.Namespace) -> int:
     from .serve import servir
 
-    servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto)
+    try:
+        servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto,
+               origenes_extra=args.origen)
+    except ValueError as exc:
+        print(f"No se arranca el servidor: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -212,13 +216,15 @@ def _cmd_coste(args: argparse.Namespace) -> int:
         horquilla_de_salida, leer_documentos,
     )
 
-    documentos = leer_documentos(load_records(args.out))
+    # Lo gastado cuenta cada extraccion pagada, tambien las que ya no son la
+    # vigente de su documento. Lo que costaria relanzar va por documento.
+    documentos = leer_documentos(load_records(args.out, todas=True))
     print(formatear_gastado(documentos))
     if documentos:
         print()
         print(formatear_pasadas(agrupar_en_pasadas(documentos)))
         print()
-        print(formatear_relanzar(documentos))
+        print(formatear_relanzar(leer_documentos(load_records(args.out))))
 
     if not args.estimar:
         if not documentos:
@@ -239,7 +245,8 @@ def _cmd_coste(args: argparse.Namespace) -> int:
 
     client = anthropic.Anthropic()
     model = config.model_id()
-    cache = build_index(args.out)
+    politica = ESTRICTA if args.estricta else CONSERVAR
+    indice = indexar(args.out)
     bajo, alto, medida = horquilla_de_salida(documentos)
 
     en_cache = entrada = nuevos = 0
@@ -249,10 +256,10 @@ def _cmd_coste(args: argparse.Namespace) -> int:
         except UnsupportedDocument as exc:
             print(f"  omitido  {path.name}: {exc}")
             continue
-        hit = cache.get(doc.sha256)
-        if hit is not None and hit.matches(
-            model, config.PROMPT_VERSION, config.SCHEMA_VERSION
-        ):
+        if reutilizable(
+            indice.get(doc.sha256), politica=politica, model=model,
+            prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
+        ) is not None:
             en_cache += 1
             continue
         nuevos += 1
@@ -282,6 +289,14 @@ def main(argv: list[str] | None = None) -> int:
         "--force",
         action="store_true",
         help="vuelve a extraer aunque ya exista el documento (gasta creditos)",
+    )
+    p_extract.add_argument(
+        "--estricta",
+        action="store_true",
+        help=(
+            "reutiliza solo lo leido con el mismo modelo y versiones; para medir "
+            "un modelo o un prompt nuevo (gasta creditos en lo demas)"
+        ),
     )
     p_extract.set_defaults(func=_cmd_extract)
 
@@ -338,6 +353,10 @@ def main(argv: list[str] | None = None) -> int:
         "--estimar", metavar="CARPETA",
         help="cuenta los tokens de esos PDF antes de pagarlos (contar no se cobra)",
     )
+    p_coste.add_argument(
+        "--estricta", action="store_true",
+        help="estima como `extract --estricta`: lo leido con otra version cuenta como nuevo",
+    )
     p_coste.set_defaults(func=_cmd_coste)
 
     p_serve = sub.add_parser(
@@ -346,6 +365,13 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--facturas", default="facturas", help="carpeta con los PDF")
     p_serve.add_argument("--out", default="out", help="carpeta de extracciones")
     p_serve.add_argument("--puerto", type=int, default=8765, help="puerto (por defecto 8765)")
+    p_serve.add_argument(
+        "--origen", action="append", default=[], metavar="URL",
+        help=(
+            "otro origen local que puede llamar al servidor, por ejemplo "
+            "http://localhost:5173; se puede repetir"
+        ),
+    )
     p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)

@@ -3,7 +3,7 @@
 Existe para que un sitio web propio pueda desarrollarse contra datos reales
 sin esperar a que haya base de datos ni API desplegada.
 
-DOS COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
+COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
 
 1. Escucha SOLO en 127.0.0.1. No acepta 0.0.0.0 ni una IP de red. Un
    endpoint que lanza al agente cuesta dinero en cada llamada: expuesto a
@@ -16,27 +16,116 @@ DOS COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
    devuelve un identificador y se consulta el estado. Y solo una a la vez:
    dos clics seguidos serian dos extracciones concurrentes sobre la misma
    carpeta, o sea el doble de gasto por nada.
+
+3. Escuchar en 127.0.0.1 no basta, porque el navegador de quien lo usa
+   tambien visita otras webs. Por eso:
+
+   - El Host tiene que ser 127.0.0.1:<puerto> o localhost:<puerto>. Una web
+     que hace rebotar su DNS hacia 127.0.0.1 llega con su propio Host y se
+     la rechaza: sin esto podria leer /api/datos, IBAN incluidos.
+   - El Origin se compara entero (esquema, host y puerto), nunca por prefijo:
+     "http://localhost.attacker.example" empieza por "http://localhost".
+   - Un POST necesita la cabecera X-BMS-Token y cuerpo JSON. Un formulario
+     de otra web no puede poner ninguna de las dos cosas, asi que no puede
+     lanzar pasadas que se pagan. El token es aleatorio en cada arranque, se
+     imprime al arrancar y va dentro de la pagina local que sirve "/".
 """
 
 from __future__ import annotations
 
+import hmac
+import html
 import json
+import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import config
-from .cache import build_index
+from .cache import CONSERVAR
 from .dashboard import construir_datos
-from .documents import UnsupportedDocument, iter_pdfs, load_pdf
-from .extract import extract_invoice
+from .documents import iter_pdfs
+from .extract import ResultadoPasada, extraer_pasada
 from .pricing import estimate_cost
 from .report import load_records
 
-ORIGENES_PERMITIDOS = ("http://localhost", "http://127.0.0.1")
+HOSTS_LOCALES = ("127.0.0.1", "localhost")
+CABECERA_TOKEN = "X-BMS-Token"
+# El unico POST que hay no necesita cuerpo; esto solo impide que alguien
+# tenga el hilo ocupado leyendo megas.
+MAX_CUERPO = 4096
+
+
+def nuevo_token() -> str:
+    """Token de esta ejecucion del servidor. Muere con el proceso."""
+    return secrets.token_urlsafe(32)
+
+
+def normalizar_origen(texto: str | None) -> str | None:
+    """Un Origin como 'esquema://host:puerto', o None si no es un origen valido.
+
+    El puerto se escribe siempre, aunque sea el de defecto, para que
+    "http://localhost" y "http://localhost:80" se comparen como lo que son,
+    el mismo origen. Un Origin con ruta, usuario o consulta no es un Origin.
+    """
+    if not texto:
+        return None
+    try:
+        partes = urlsplit(texto.strip())
+        puerto = partes.port
+    except ValueError:
+        return None
+    if partes.scheme not in ("http", "https") or not partes.hostname:
+        return None
+    if partes.username or partes.password or partes.path not in ("", "/"):
+        return None
+    if partes.query or partes.fragment:
+        return None
+    if puerto is None:
+        puerto = 443 if partes.scheme == "https" else 80
+    return f"{partes.scheme}://{partes.hostname.lower()}:{puerto}"
+
+
+def origenes_permitidos(puerto: int, extra: list[str] | tuple[str, ...] = ()) -> frozenset[str]:
+    """Los origenes que pueden leer y llamar: la propia pagina y los declarados.
+
+    Un origen extra tiene que ser local (127.0.0.1 o localhost). Uno remoto
+    permitiria a una web de fuera leer los datos del panel con el navegador
+    de quien tiene el servidor abierto, que es justo lo que se quiere evitar.
+    """
+    permitidos = {f"http://{host}:{puerto}" for host in HOSTS_LOCALES}
+    for crudo in extra:
+        origen = normalizar_origen(crudo)
+        if origen is None:
+            raise ValueError(f"origen no valido: {crudo!r}")
+        if urlsplit(origen).hostname not in HOSTS_LOCALES:
+            raise ValueError(f"solo se admiten origenes locales, no {crudo!r}")
+        permitidos.add(origen)
+    return frozenset(permitidos)
+
+
+def origen_permitido(origen: str | None, permitidos: frozenset[str]) -> bool:
+    """Coincidencia exacta tras normalizar. "null" y lo malformado no pasan."""
+    normalizado = normalizar_origen(origen)
+    return normalizado is not None and normalizado in permitidos
+
+
+def host_permitido(host: str | None, puerto: int) -> bool:
+    """El Host de la peticion es este servidor y no otro nombre que apunta aqui."""
+    if not host or any(c in host for c in "@/\\?#"):
+        return False
+    try:
+        partes = urlsplit("//" + host.strip())
+        puerto_pedido = partes.port
+    except ValueError:
+        return False
+    if (partes.hostname or "").lower() not in HOSTS_LOCALES:
+        return False
+    return (puerto_pedido if puerto_pedido is not None else 80) == puerto
 
 
 @dataclass
@@ -45,29 +134,25 @@ class Ejecucion:
 
     estado: str = "inactivo"  # inactivo | corriendo | terminado | error
     total: int = 0
-    procesadas: int = 0
-    reutilizadas: int = 0
-    fallidas: int = 0
-    tokens_entrada: int = 0
-    tokens_salida: int = 0
+    pasada: ResultadoPasada = field(default_factory=ResultadoPasada)
     mensaje: str = ""
     iniciada: str | None = None
     terminada: str | None = None
-    errores: list[str] = field(default_factory=list)
 
     def a_dict(self) -> dict[str, Any]:
-        coste = estimate_cost(config.model_id(), self.tokens_entrada, self.tokens_salida)
+        p = self.pasada
+        coste = estimate_cost(config.model_id(), p.tokens_entrada, p.tokens_salida)
         return {
             "estado": self.estado,
             "total": self.total,
-            "procesadas": self.procesadas,
-            "reutilizadas": self.reutilizadas,
-            "fallidas": self.fallidas,
+            "procesadas": p.extraidas,
+            "reutilizadas": p.reutilizadas,
+            "fallidas": p.fallidas,
             "coste": float(coste) if coste is not None else None,
             "mensaje": self.mensaje,
             "iniciada": self.iniciada,
             "terminada": self.terminada,
-            "errores": self.errores[-10:],
+            "errores": p.errores[-10:],
         }
 
 
@@ -102,9 +187,12 @@ class Agente:
         finally:
             self._cerrojo.release()
 
-    def _ejecutar(self) -> None:
+    def _cliente(self) -> Any:
         import anthropic
 
+        return anthropic.Anthropic()
+
+    def _ejecutar(self) -> None:
         pdfs = list(iter_pdfs(self.carpeta_pdf))
         self._estado = Ejecucion(
             estado="corriendo", total=len(pdfs), iniciada=_ahora(),
@@ -116,43 +204,24 @@ class Agente:
             self._estado.terminada = _ahora()
             return
 
-        cliente = anthropic.Anthropic()
-        cache = build_index(self.carpeta_salida)
-        modelo = config.model_id()
+        estado = self._estado
 
-        for ruta in pdfs:
-            try:
-                doc = load_pdf(ruta)
-            except UnsupportedDocument as exc:
-                self._estado.fallidas += 1
-                self._estado.errores.append(f"{ruta.name}: {exc}")
-                continue
+        def avance(_tipo: str, _nombre: str, _detalle: str) -> None:
+            estado.mensaje = f"{estado.pasada.total} de {estado.total}"
 
-            guardada = cache.get(doc.sha256)
-            if guardada is not None and guardada.matches(
-                modelo, config.PROMPT_VERSION, config.SCHEMA_VERSION
-            ):
-                self._estado.reutilizadas += 1
-                continue
+        # La misma politica que `extract`: lo ya leido no se vuelve a pagar
+        # aunque haya cambiado el modelo o la version.
+        extraer_pasada(
+            self._cliente(), pdfs, self.carpeta_salida, model=config.model_id(),
+            politica=CONSERVAR, informar=avance, resultado=estado.pasada,
+        )
 
-            try:
-                registro = extract_invoice(cliente, doc, model=modelo)
-            except Exception as exc:
-                self._estado.fallidas += 1
-                self._estado.errores.append(f"{ruta.name}: {type(exc).__name__}: {exc}")
-                continue
-
-            registro.write_json(self.carpeta_salida)
-            self._estado.procesadas += 1
-            self._estado.tokens_entrada += registro.usage.get("input_tokens") or 0
-            self._estado.tokens_salida += registro.usage.get("output_tokens") or 0
-            self._estado.mensaje = f"{self._estado.procesadas + self._estado.reutilizadas} de {len(pdfs)}"
-
-        self._estado.estado = "terminado"
-        self._estado.terminada = _ahora()
-        self._estado.mensaje = (
-            f"{self._estado.procesadas} leidas, {self._estado.reutilizadas} reutilizadas, "
-            f"{self._estado.fallidas} con problemas"
+        p = estado.pasada
+        estado.estado = "terminado"
+        estado.terminada = _ahora()
+        estado.mensaje = (
+            f"{p.extraidas} leidas, {p.reutilizadas} reutilizadas, "
+            f"{p.fallidas} con problemas"
         )
 
 
@@ -160,45 +229,168 @@ def _ahora() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+PAGINA_LOCAL = """<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="bms-token" content="{token}">
+<title>bms-agent local</title>
+<style>
+body{{font:15px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:42rem;padding:0 1rem;color:#141a23}}
+button{{font:inherit;padding:.5rem 1rem;cursor:pointer}}
+pre{{background:#f3f5f8;padding:1rem;overflow:auto}}
+</style>
+</head>
+<body>
+<h1>bms-agent, servidor local</h1>
+<p>Lanzar una pasada lee los PDF nuevos y <strong>gasta créditos de la API</strong>.
+Lo ya leído se reutiliza sin coste.</p>
+<p><button id="ejecutar" type="button">Lanzar una pasada</button></p>
+<pre id="estado">...</pre>
+<script>
+const token = document.querySelector('meta[name="bms-token"]').content;
+const salida = document.getElementById('estado');
+async function pintar() {{
+  const r = await fetch('/api/ejecucion');
+  salida.textContent = JSON.stringify(await r.json(), null, 2);
+}}
+document.getElementById('ejecutar').addEventListener('click', async () => {{
+  const r = await fetch('/api/ejecutar', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json', 'X-BMS-Token': token}},
+    body: '{{}}',
+  }});
+  salida.textContent = JSON.stringify(await r.json(), null, 2);
+}});
+pintar();
+setInterval(pintar, 2000);
+</script>
+</body>
+</html>
+"""
+
+
 class Manejador(BaseHTTPRequestHandler):
     agente: Agente
     carpeta_salida: Path
+    token: str
+    puerto: int
+    origenes: frozenset[str]
 
     def _cors(self) -> None:
-        origen = self.headers.get("Origin", "")
-        if origen.startswith(ORIGENES_PERMITIDOS):
+        origen = self.headers.get("Origin")
+        self.send_header("Vary", "Origin")
+        if origen_permitido(origen, self.origenes):
             self.send_header("Access-Control-Allow-Origin", origen)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", f"Content-Type, {CABECERA_TOKEN}")
 
-    def _json(self, codigo: int, cuerpo: dict[str, Any]) -> None:
-        datos = json.dumps(cuerpo, ensure_ascii=False).encode("utf-8")
+    def _enviar(self, codigo: int, datos: bytes, tipo: str, cors: bool = True) -> None:
         self.send_response(codigo)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(datos)))
         self.send_header("Cache-Control", "no-store")
-        self._cors()
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if cors:
+            self._cors()
         self.end_headers()
         self.wfile.write(datos)
 
+    def _json(self, codigo: int, cuerpo: dict[str, Any], cors: bool = True) -> None:
+        datos = json.dumps(cuerpo, ensure_ascii=False).encode("utf-8")
+        self._enviar(codigo, datos, "application/json; charset=utf-8", cors=cors)
+
+    def _rechazada(self) -> bool:
+        """Host y Origin, en toda peticion. True si ya se ha contestado que no.
+
+        Una peticion rechazada no lleva cabeceras CORS: el navegador de la web
+        que la hizo no puede leer ni la respuesta de error.
+        """
+        if not host_permitido(self.headers.get("Host"), self.puerto):
+            self._json(421, {"error": "host no permitido"}, cors=False)
+            return True
+        origen = self.headers.get("Origin")
+        if origen is not None and not origen_permitido(origen, self.origenes):
+            self._json(403, {"error": "origen no permitido"}, cors=False)
+            return True
+        return False
+
     def do_OPTIONS(self) -> None:  # noqa: N802
+        if self._rechazada():
+            return
         self.send_response(204)
         self._cors()
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") == "/api/datos":
+        if self._rechazada():
+            return
+        ruta = self.path.split("?", 1)[0].rstrip("/")
+        if ruta == "":
+            self._pagina()
+        elif ruta == "/api/datos":
             registros = load_records(self.carpeta_salida)
             self._json(200, construir_datos(registros))
-        elif self.path.rstrip("/") == "/api/ejecucion":
+        elif ruta == "/api/ejecucion":
             self._json(200, self.agente.estado)
         else:
             self._json(404, {"error": "no existe"})
 
+    def _pagina(self) -> None:
+        """La pagina local, con el token dentro. Solo la lee el mismo origen.
+
+        No puede ir dentro de un marco de otra web: alli un clic robado en el
+        boton lanzaria una pasada que se paga.
+        """
+        datos = PAGINA_LOCAL.format(token=html.escape(self.token)).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(datos)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        )
+        self.end_headers()
+        self.wfile.write(datos)
+
     def do_POST(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") != "/api/ejecutar":
+        if self._rechazada():
+            return
+        if self.path.split("?", 1)[0].rstrip("/") != "/api/ejecutar":
             self._json(404, {"error": "no existe"})
             return
+        if not hmac.compare_digest(
+            self.headers.get(CABECERA_TOKEN, "").encode("utf-8"), self.token.encode("utf-8")
+        ):
+            self._json(403, {"error": f"falta la cabecera {CABECERA_TOKEN} o no es valida"})
+            return
+        if self.headers.get_content_type() != "application/json":
+            self._json(415, {"error": "el cuerpo tiene que ser application/json"})
+            return
+        try:
+            largo = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._json(400, {"error": "Content-Length no valido"})
+            return
+        if largo < 0 or largo > MAX_CUERPO:
+            self._json(413, {"error": "cuerpo demasiado grande"})
+            return
+        crudo = self.rfile.read(largo) if largo else b""
+        try:
+            cuerpo = json.loads(crudo or b"{}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            cuerpo = None
+        if not isinstance(cuerpo, dict):
+            self._json(400, {"error": "el cuerpo tiene que ser un objeto JSON"})
+            return
+
         lanzada, mensaje = self.agente.lanzar()
         self._json(202 if lanzada else 409, {"lanzada": lanzada, "mensaje": mensaje})
 
@@ -206,23 +398,56 @@ class Manejador(BaseHTTPRequestHandler):
         print(f"  {self.address_string()} {formato % args}")
 
 
+def crear_servidor(
+    carpeta_pdf: str | Path = "facturas",
+    carpeta_salida: str | Path = "out",
+    puerto: int = 8765,
+    *,
+    origenes_extra: list[str] | tuple[str, ...] = (),
+    token: str | None = None,
+    agente: Agente | None = None,
+) -> ThreadingHTTPServer:
+    """Crea el servidor ya escuchando en 127.0.0.1, sin atender todavia.
+
+    Con puerto 0 el sistema elige uno libre; el Host y los origenes se
+    calculan con el puerto real. Los tests lo usan asi, con un agente falso.
+    """
+    agente = agente or Agente(Path(carpeta_pdf), Path(carpeta_salida))
+    servidor = ThreadingHTTPServer(("127.0.0.1", puerto), Manejador)
+    puerto_real = servidor.server_address[1]
+    try:
+        permitidos = origenes_permitidos(puerto_real, list(origenes_extra))
+    except ValueError:
+        servidor.server_close()
+        raise
+    servidor.RequestHandlerClass = type("ManejadorConfigurado", (Manejador,), {
+        "agente": agente,
+        "carpeta_salida": Path(carpeta_salida),
+        "token": token or nuevo_token(),
+        "puerto": puerto_real,
+        "origenes": permitidos,
+    })
+    return servidor
+
+
 def servir(
     carpeta_pdf: str | Path = "facturas",
     carpeta_salida: str | Path = "out",
     puerto: int = 8765,
+    origenes_extra: list[str] | tuple[str, ...] = (),
 ) -> None:
     """Arranca el servidor local. Solo 127.0.0.1, a proposito."""
-    agente = Agente(Path(carpeta_pdf), Path(carpeta_salida))
-
-    manejador = type("ManejadorConfigurado", (Manejador,), {
-        "agente": agente, "carpeta_salida": Path(carpeta_salida),
-    })
-
-    servidor = ThreadingHTTPServer(("127.0.0.1", puerto), manejador)
-    print(f"Servidor de desarrollo en http://127.0.0.1:{puerto}")
-    print(f"  GET  /api/datos       datos del panel")
-    print(f"  GET  /api/ejecucion   estado de la ultima pasada")
-    print(f"  POST /api/ejecutar    lanza una pasada del agente")
+    servidor = crear_servidor(carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra)
+    manejador = servidor.RequestHandlerClass
+    puerto_real = servidor.server_address[1]
+    print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
+    print("  GET  /                pagina local con el boton de ejecutar")
+    print("  GET  /api/datos       datos del panel")
+    print("  GET  /api/ejecucion   estado de la ultima pasada")
+    print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
+    print(f"\n{CABECERA_TOKEN}: {manejador.token}")
+    print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")
+    print("\nOrigenes admitidos: " + ", ".join(sorted(manejador.origenes)))
     print(f"\nLee PDF de {carpeta_pdf}/ y guarda extracciones en {carpeta_salida}/")
     print("Solo escucha en 127.0.0.1. No es un servidor de produccion.\n")
     try:
@@ -230,3 +455,5 @@ def servir(
     except KeyboardInterrupt:
         print("\nParado.")
         servidor.shutdown()
+    finally:
+        servidor.server_close()

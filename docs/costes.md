@@ -112,13 +112,24 @@ La primera pasada sobre unas facturas se paga. **Las siguientes sobre esas
 mismas facturas cuestan cero**, porque la caché reconoce los bytes. Lo que se
 paga es cada documento nuevo, una vez.
 
-Las dos excepciones, y conviene tenerlas claras:
+Cambiar de modelo o subir la versión del prompt o del esquema **tampoco
+vuelve a pagar**: por defecto se conserva cualquier extracción ya hecha de
+esos mismos bytes, la hiciera quien la hiciera. Antes no era así, y una
+subida de versión volvía a pagar la carpeta entera sin avisar.
+
+Lo que sí se paga, y conviene tenerlo claro:
 
 - Una **corrección** es otro fichero. Bytes distintos, documento distinto,
   hay que leerlo para saber qué dice. Se paga.
-- `--force`, o cambiar de modelo o de versión de prompt, invalida lo
-  guardado a propósito: si estás midiendo si un modelo más barato aguanta,
-  reutilizar lo viejo escondería justo la diferencia que quieres ver.
+- `--estricta` solo reutiliza lo leído con el mismo modelo y las mismas
+  versiones. Es la opción de medir: si estás comprobando si un modelo más
+  barato aguanta, reutilizar lo viejo escondería justo la diferencia que
+  quieres ver. Lo que no coincide se paga.
+- `--force` vuelve a leerlo todo, a propósito.
+
+En los tres casos la extracción anterior se queda donde estaba: nada se
+sobrescribe. `bms-agent coste --estimar` sigue la misma política, y con
+`--estricta` estima la pasada estricta.
 
 ## Palancas para bajarlo, en orden
 
@@ -129,9 +140,13 @@ sin el número delante es una corazonada.
 
 ```powershell
 $env:BMS_EXTRACT_MODEL = "claude-sonnet-5"
-.venv\Scripts\bms-agent extract facturas\
+.venv\Scripts\bms-agent coste --estimar facturas\ --estricta
+.venv\Scripts\bms-agent extract --estricta facturas\
 .venv\Scripts\bms-agent score
 ```
+
+Sin `--estricta`, `extract` reutilizaría las extracciones del modelo anterior
+y `score` puntuaría lo mismo de antes.
 
 Si la precisión aguanta el 98 por ciento, te quedas el ahorro. Si no, no.
 Esto es exactamente por lo que el modelo es configurable: la respuesta es un
