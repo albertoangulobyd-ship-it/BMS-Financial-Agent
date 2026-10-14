@@ -1,0 +1,1726 @@
+> Instantánea del análisis de huecos de la lista de funciones contra el código, verificada punto por punto. Las referencias `fichero:línea` son del commit 9560fac y envejecen con cada cambio.
+
+# Gap analysis of the V1 feature list (verified)
+
+
+## Sections 1 (Incoming Invoices: fields, lines/allocation, status, checks) and 9 (Invoice Relationships)
+
+Notes: CROSS-CUTTING / HIDDEN COUPLING
+1) No persistence. Every status (Outstanding/Overdue/Paid/Credited), every relationship and every human verification needs a database with an append-only audit table (arquitectura.md rule 10, §11 Postgres). Today everything is recomputed from loose out/*.json on each run (report.py:106-113, dashboard.py:735-741), so an IBAN verification or an alert resolution cannot be recorded and the alert re-fires forever.
+2) Document identity. Rows and alerts refer to documents by source_name, a filename (dashboard.py:586), not by sha256. Two different PDFs with the same filename collide. Relationships and statuses must key by hash.
+3) Provider identity is inconsistent. The rules use btw-id, then KvK, then name (dashboard.py:116-130), while por_proveedor, matriz_semanal and G3 group by printed name (dashboard.py:251, 716, 425). The guard startswith('nom:(sin') at dashboard.py:321,336,375 is dead code, because a nameless invoice's identity is 'nom:'. As a result, unrelated nameless providers raise B2/F3 against each other (verified). Conversely, dropping or changing the btw-id while keeping the name evades F3 (verified). Section 3 (Provider Overview) inherits all of this until a provider master ID exists.
+4) Hours detection matches startswith('uur') only (dashboard.py:98,111; facturacion.py:145,277). 'uren', 'u' and 'hours' give zero hours (verified), which silently empties the hours KPIs and the sales projection.
+5) Severity drift from the catalogue. B4 is 'critico' in code (dashboard.py:390) but 'Retención' in validacion-facturas.md:113. The code has no Bloqueo/Retención/Aviso tri-state. Every per-invoice failure, including F1 and missing fields, is relabelled rule 'D' (dashboard.py:535), losing rule IDs that the Priority inputs (section 16) will need.
+6) EUR-only (V1). parsing.py:24 silently strips $, GBP and USD, so it should detect and flag non-EUR instead.
+7) Schema changes (contact, terms, PO, employee, document_type, referenced invoice, currency) require bumping PROMPT_VERSION/SCHEMA_VERSION (config.py:14-15). That invalidates the hash cache (cache.py) and forces paid re-extraction of the whole archive.
+8) Self-billing (sistemas.md:297-312). If TRNSPRNT generates the provider invoices, most section-1 fields and the planning checks come structured from TRNSPRNT rather than from extraction. Resolve this before building the extraction-side fields.
+9) Unused extracted fields: kor_mentioned and reverse_charge_mentioned (schema.py:105-110) and payment_reference (schema.py:113) are read by no rule or view.
+
+CONFLICTS WITH docs/arquitectura.md
+- IBAN (rule 1, F2). The list treats 'IBAN' as an invoice field and asks for 'IBAN <-> historically verified IBAN'. The document IBAN may only be compared; the payee IBAN must come from the Exact master. The current F3 baseline (the oldest document IBAN) is NOT 'verified': the first invoice could already be fraudulent. 'Human verification for changed bank details' must record a named person, date, and a call to the number already on file (not the invoice's). The agent must never write bank data. The 'Confirm changed bank details' permission (section 19) should be separated from preparing or approving payments (rule 7).
+- Paid/Outstanding/Overdue require payment data, but arquitectura.md §6 says 'Banco: sin acceso de ningún tipo, ni de lectura' and rule 2 says no bank credentials at all. Acceptable sources are Exact open items/payments via the read-only Exact user, or a statement file (CAMT.053) that a person uploads. A bank API is not acceptable.
+- Contact person and payment reference taken from the document are untrusted. A contact may never become an e-mail recipient (rule 4 whitelist) or the callback number for IBAN verification (rule 1). A payment reference must be validated before any SEPA use, and approval screens must be drawn from the structured record (rule 3).
+- Original invoice file: if exposed, serve it only to authorised roles through short-lived signed URLs, with every access logged (portal-consulta.md). serve.py is 127.0.0.1-only and unauthenticated (serve.py:6-12), so it is fine for development but not for this.
+- Employee/resource and contact person are personal data: AVG minimisation and retention apply (arquitectura.md §9).
+
+AMBIGUITIES IN THE FEATURE LIST
+- 'Related PO(s)' on INCOMING invoices: is it a BMS-to-provider purchase order (TRNSPRNT inkoop?) or the client PO the work falls under? Section 6 says 'Client / provider', which suggests both.
+- 'Date received': e-mail receipt, upload time, or Exact booking date?
+- 'Payment deadline' vs 'Payment terms': which wins when the printed due date contradicts the agreed terms?
+- 'Rate <-> agreed rate': where the agreed purchase rate lives (TRNSPRNT assignment, contract, Exact) and at what granularity (object, shift type, night/weekend surcharge, validity dates).
+- 'Hours': paid vs billable (reisuren), and how surcharge hours count.
+- 'Duplicate hours' vs 'Overlapping charge periods' vs 'Duplicate invoice': the grouping key is undefined (provider, object, employee or day). With a provider-only key, normal per-object invoicing raises critical false positives.
+- 'Cancelled / Credited' merges two states. A partial credit note's effect is undefined, and so is the status of a partially paid invoice (V1 excludes a partial-payment workflow). There is no 'Rejected/On hold/Disputed' status, although the rule catalogue produces Bloqueo/Retención.
+- Section 9: Cancelled vs Credited (Dutch practice cancels by full credit note). 'Corrected' vs 'Replacement' are undefined, including whether a replacement may reuse the original number (today a B2 critical block). 'Related to' has no semantics. Relationships must be M:N with amounts (one credit note can cover several invoices).
+- 'Provider details <-> historical data': which fields (name, address, KvK, btw-id, VAT regime, rate)? 'Unusual invoice amount': no threshold or baseline is defined.
+- Nothing in sections 1 or 9 is explicitly excluded by section 21, so no item is out_of_scope_v1. 'No partial-payment workflow' constrains the semantics of Outstanding/Paid but does not remove them.
+
+- [implemented] 1. Incoming Invoices / Fields :: Invoice number
+  - evidence: src/bms_agent/schema.py:72 (invoice_number, literal); src/bms_agent/checks.py:145-163 (required-field check, run by run_checks 166-175); src/bms_agent/scoring.py:30-38 (critical field in accuracy metric); src/bms_agent/dashboard.py:187,763 (row + data contract); src/bms_agent/report.py:219
+  - gap: Extracted and checked for presence. Stored only as a literal string in loose JSON (out/<sha12>.json, extract.py:55). Nothing normalises it before B2 compares numbers ('F-2026-001' and '2026001' count as different numbers), and no persistent unique key (provider_id, number) exists.
+  - external: none
+- [partial] 1. Incoming Invoices / Fields :: Provider company
+  - evidence: src/bms_agent/schema.py:63-70 (supplier_name, supplier_address, kvk_number, vat_number); src/bms_agent/dashboard.py:116-130 (_identidad: key from btw-id, then KvK, then name); src/bms_agent/report.py:218,231-232
+  - gap: Only free text from the document plus a heuristic identity key. Missing: a provider master record/ID; matching to the Exact creditor (rule A2); KvK format check (A3); btw-id format check (A5); VIES check (A6). por_proveedor (dashboard.py:248-269) and matriz_semanal (dashboard.py:684-716) group by the PRINTED NAME, while the anomaly rules group by identity, so one provider with two spellings splits into two. To build: a daily read-only mirror of Exact creditors (sistemas.md 'espejo de datos maestros'), a deterministic matcher (btw-id/KvK to creditor), and a manual queue for unmatched providers.
+  - external: Exact Online creditor master (Accounts); optionally the TRNSPRNT provider/zzp'er list; KvK/VIES registers
+- [missing] 1. Incoming Invoices / Fields :: Contact person
+  - evidence: none (schema.py:60-128 has no contact field)
+  - gap: Add contact_name (optionally email/phone) to InvoiceExtraction and the prompt, and bump PROMPT_VERSION/SCHEMA_VERSION (config.py:14-15). The bump invalidates the cache (cache.py:34-45), so every document is re-extracted at a cost. The authoritative contact must come from master data. A contact read from the document is display-only (see security notes).
+  - external: Exact Online creditor contacts / provider database
+- [implemented] 1. Incoming Invoices / Fields :: Invoice date
+  - evidence: src/bms_agent/schema.py:73; src/bms_agent/prompts.py:30 (normalise to ISO); src/bms_agent/parsing.py:115-137 (parse_iso_date, rejects ambiguous M/D/Y); src/bms_agent/dashboard.py:181-191 (normalised fecha_orden); src/bms_agent/checks.py:148 (required); src/bms_agent/scoring.py:30-38 (critical)
+  - gap: The field works. The related date checks C1 (date not in the future) and C3 (invoice date vs end of period) are not implemented.
+  - external: none
+- [missing] 1. Incoming Invoices / Fields :: Date received
+  - evidence: none. The nearest value is extract.py:34,110 extracted_at, the moment the LLM read the file. It is not a receipt date and changes on re-extraction with --force.
+  - gap: Needs an ingestion layer that records the receipt timestamp immutably with the document hash (arquitectura.md §5 'Documento ... fecha de recepción'). The source is the email Received header/message-id, or the upload time for manual drops.
+  - external: Mailbox ingestion (M365/Gmail read-only) or an upload channel; alternatively the Exact booking date
+- [implemented] 1. Incoming Invoices / Fields :: Period of charge
+  - evidence: src/bms_agent/schema.py:74-79 (header period), 52-57 (line periods); src/bms_agent/dashboard.py:142-159 (_periodo_de falls back to the min/max of line periods); src/bms_agent/scoring.py:30-38 (critical)
+  - gap: Rule C2 (block if the period is missing) is not enforced: checks.py:145-150 CRITICAL_FIELDS leaves the period out. An invoice that only states week_number (no dates) produces no period for B4; only the weekly matrix uses it.
+  - external: none
+- [partial] 1. Incoming Invoices / Fields :: Payment deadline
+  - evidence: src/bms_agent/schema.py:114 (due_date); src/bms_agent/dashboard.py:60,205,768 (vencimiento, kept as a string); src/bms_agent/report.py:234; src/bms_agent/panel_assets.py:542 ('Vence' column); src/bms_agent/scoring.py:56
+  - gap: Only the printed due date, kept as an unparsed string. It is never compared with today. When the invoice prints no due date, nothing derives one from invoice_date + payment terms. To build: a deterministic due-date resolver (printed date vs agreed terms, with an explicit rule for conflicts) and a provenance flag (extracted vs calculated).
+  - external: Exact creditor payment condition, or provider contract terms
+- [missing] 1. Incoming Invoices / Fields :: Payment terms
+  - evidence: none
+  - gap: Add a payment_terms_raw schema field (e.g. 'betaling binnen 14 dagen'), a deterministic parser to days, and default terms per provider from master data, which feed the due-date resolver.
+  - external: Exact Online payment conditions / provider contracts
+- [implemented] 1. Incoming Invoices / Fields :: Amount before VAT
+  - evidence: src/bms_agent/schema.py:85 (subtotal_excl_vat_raw); src/bms_agent/parsing.py:41-95 (parse_amount, rejects ambiguous separators); src/bms_agent/checks.py:50-77 (D2); src/bms_agent/dashboard.py:200,215-245
+  - gap: Works. Currency is not captured: parsing.py:24 silently strips $, GBP and USD as well as EUR, so a non-EUR invoice would be read as EUR. V1 is 'EUR only', so the currency should be detected and flagged, not stripped.
+  - external: none
+- [partial] 1. Incoming Invoices / Fields :: VAT rate / treatment
+  - evidence: src/bms_agent/schema.py:23-29 (VatRegime: standard/reverse_charged/kor_exempt/unknown), 88-110 (vat_rate_raw, vat_regime, kor_mentioned, reverse_charge_mentioned); src/bms_agent/checks.py:80-124; src/bms_agent/dashboard.py:272-290 (por_regimen)
+  - gap: Only one invoice-level rate: no per-rate breakdown for mixed 9%/21% invoices and no per-line VAT. No 0%/exempt/intra-EU/export treatments. Not implemented: E1 (vs the regime registered in master), E2 (regime change vs the previous invoice), E3 (KOR mention; kor_mentioned is extracted but never read), E5 (KOR threshold). No mapping to Exact VAT codes.
+  - external: Exact VAT codes and creditor VAT regime; accountant confirmation of group E (validacion-facturas.md:10-12)
+- [implemented] 1. Incoming Invoices / Fields :: VAT amount
+  - evidence: src/bms_agent/schema.py:91 (vat_amount_raw); src/bms_agent/checks.py:83-124 (D3/E4); src/bms_agent/dashboard.py:201; src/bms_agent/scoring.py:30-38 (critical)
+  - gap: Single-rate only (see VAT rate). Nothing persisted.
+  - external: none
+- [implemented] 1. Incoming Invoices / Fields :: Amount after VAT
+  - evidence: src/bms_agent/schema.py:94 (total_incl_vat_raw); src/bms_agent/checks.py:127-142 (D4), 149 (required); src/bms_agent/dashboard.py:202; src/bms_agent/report.py:222
+  - gap: none for the field itself
+  - external: none
+- [partial] 1. Incoming Invoices / Fields :: Payment reference
+  - evidence: src/bms_agent/schema.py:113 (extracted into out/*.json only)
+  - gap: Extracted but used nowhere. It is absent from the report (report.py:228-244), the panel/data contract (dashboard.py:760-810) and scoring (scoring.py:41-57). No validation (e.g. check digit of a 16-digit Dutch betalingskenmerk). Not usable for payment matching until bank/payment data exists. Text from the document is untrusted: validate it before it ever reaches a SEPA remittance field.
+  - external: Bank statements or Exact payments (for matching)
+- [partial] 1. Incoming Invoices / Fields :: IBAN
+  - evidence: src/bms_agent/schema.py:112 (printed IBAN); src/bms_agent/checks.py:178-206 (F1 mod-97); src/bms_agent/dashboard.py:204, 476-517 (F3); src/bms_agent/report.py:233
+  - gap: Only the document IBAN exists, and it is untrusted. Missing: a separate payee-IBAN field sourced from the Exact master, and rule F2 (document IBAN == master IBAN). Per arquitectura.md:129 the document IBAN may only be compared, never used for payment.
+  - external: Exact Online creditor bank accounts (read-only mirror)
+- [missing] 1. Incoming Invoices / Fields :: Related PO(s)
+  - evidence: none (no PO field in schema.py, no PO entity anywhere)
+  - gap: Schema fields for PO references printed on the header and lines, a PO entity, a deterministic PO matcher and the PO checks of section 6.
+  - external: PO data source (unknown: BMS purchase orders, possibly the TRNSPRNT inkoop module, vs client POs)
+- [partial] 1. Incoming Invoices / Fields :: Related credit note / corrected / replacement invoice
+  - evidence: src/bms_agent/dashboard.py:307-311 (_es_correccion: negative or exactly negated totals), used only to skip B4 at dashboard.py:385-388; src/bms_agent/parsing.py:62-66 (negative amounts); tests/test_dashboard.py:409-412
+  - gap: No document-type field (factuur/creditnota) and no 'referenced invoice number' field in the schema. No relationship is stored or shown; the heuristic only suppresses one false positive. See section 9.
+  - external: none (document); Exact for credit notes already booked
+- [partial] 1. Incoming Invoices / Fields :: Original invoice file
+  - evidence: src/bms_agent/extract.py:29-30,52-59 (record keeps source_sha256 + source_name; JSON named by hash prefix); src/bms_agent/documents.py:36-52 (sha256 of the bytes); src/bms_agent/report.py:249-256 (provenance footer: file, hash, model, prompt version)
+  - gap: The system does not retain the PDF. It stays wherever the user dropped it (facturas/, gitignored), and no path is stored. No immutable/versioned storage (arquitectura.md §2, §11). The PDF cannot be opened from the panel, and serve.py:189-196 serves only JSON. Re-extraction with --force overwrites the JSON for the same hash (extract.py:55), losing the earlier extraction.
+  - external: Versioned object storage; mailbox ingestion
+- [partial] 1. Incoming Invoices / Invoice Line / Allocation :: Object
+  - evidence: src/bms_agent/schema.py:46-48 (line.location, free text 'obra, ubicacion o proyecto'); src/bms_agent/prompts.py:40; src/bms_agent/dashboard.py:196,434-435; src/bms_agent/facturacion.py:45,53-54,150-162 (obra-to-client map from config/tarifas.ejemplo.yaml:14-20)
+  - gap: Free text, not resolved to a TRNSPRNT object ID. No object master, no alias/fuzzy resolution, no manual allocation. Lines without a location are dropped from the projection (facturacion.py:151) and lumped together as '(sin obra)' in G3.
+  - external: TRNSPRNT object list (format/API unknown)
+- [missing] 1. Incoming Invoices / Invoice Line / Allocation :: Employee / resource
+  - evidence: none (InvoiceLine, schema.py:32-57, has no worker field)
+  - gap: A line field for the employee as printed, a mapping to the TRNSPRNT employee/zzp'er ID, and personal-data handling (AVG minimisation and retention, arquitectura.md §9). The duplicate-hours check needs it.
+  - external: TRNSPRNT employee/resource list
+- [implemented] 1. Incoming Invoices / Invoice Line / Allocation :: Description
+  - evidence: src/bms_agent/schema.py:33-35; src/bms_agent/report.py:152; src/bms_agent/dashboard.py:398-407 (_tipo_de_trabajo)
+  - gap: Rule D5 (description specific enough) is not implemented.
+  - external: none
+- [implemented] 1. Incoming Invoices / Invoice Line / Allocation :: Work period
+  - evidence: src/bms_agent/schema.py:49-57 (week_number, period_start, period_end); src/bms_agent/dashboard.py:628-673 (ISO-year resolution of the declared week, e.g. week 52 invoiced in January); tests/test_dashboard.py:427-448
+  - gap: No per-day/per-shift date. TRNSPRNT works per dienst, and sistemas.md:319-327 says reconciliation must go per shift and date, so a line-date field will be needed.
+  - external: none for extraction
+- [partial] 1. Incoming Invoices / Invoice Line / Allocation :: Hours
+  - evidence: src/bms_agent/schema.py:36-39 (quantity_raw + unit); src/bms_agent/dashboard.py:88-103 (_horas sums lines whose unit startswith('uur')); src/bms_agent/facturacion.py:145,277
+  - gap: Unit matching is fragile. 'uren', 'u', 'hours' and 'hrs' do not match 'uur': a line with unit 'uren' yields hours=None (verified), so real invoices can show zero hours. No dedicated hours field and no unit normalisation table. No classification of surcharge/shift-type hours (toeslagen, rule G6) or of non-billable hours apart from the reisuren config.
+  - external: none for extraction; TRNSPRNT for validation
+- [implemented] 1. Incoming Invoices / Invoice Line / Allocation :: Hourly rate
+  - evidence: src/bms_agent/schema.py:40-42 (unit_rate_raw); src/bms_agent/checks.py:209-241 (D2b qty x rate = amount); src/bms_agent/dashboard.py:429
+  - gap: This is the rate per printed unit. Whether it is an hourly rate depends on the fragile unit match (see Hours). Percentage surcharge lines (e.g. +25% night) are not modelled.
+  - external: none
+- [implemented] 1. Incoming Invoices / Invoice Line / Allocation :: Amount
+  - evidence: src/bms_agent/schema.py:43-45 (line_total_raw); src/bms_agent/checks.py:50-77 (D2), 209-241 (D2b)
+  - gap: none for the field
+  - external: none
+- [missing] 1. Incoming Invoices / Invoice Line / Allocation :: PO
+  - evidence: none
+  - gap: A line-level PO reference field, plus PO allocation and matching (section 6).
+  - external: PO data source
+- [missing] 1. Incoming Invoices / Status :: Outstanding
+  - evidence: none. dashboard.py:61 'estado' (ok/revisar/critico) is a validation state, not a payment status.
+  - gap: A persistent invoice lifecycle (status field and audited transitions, needs a DB), a definition (booked and approved but not fully paid) and payment matching. The code recomputes everything from loose JSON on each run (report.py:106-113, dashboard.py:735-741), so it cannot hold status.
+  - external: Exact Online payables/open items (read-only), or a bank statement file (CAMT.053/MT940) uploaded by a person; a database
+- [missing] 1. Incoming Invoices / Status :: Overdue
+  - evidence: none (due_date at schema.py:114 is never compared with today)
+  - gap: Needs Outstanding plus a resolved due date (printed or calculated from terms) plus a date clock.
+  - external: Exact open items / bank statements; payment terms
+- [missing] 1. Incoming Invoices / Status :: Paid
+  - evidence: none
+  - gap: Payment matching from Exact payments/bank reconciliation or an imported statement file, using the payment reference/end-to-end ID (arquitectura.md §8 says to store the end-to-end ID in Exact).
+  - external: Exact Online payments or a bank statement file (conflicts with arquitectura.md §6 'Banco: sin acceso ... ni de lectura')
+- [missing] 1. Incoming Invoices / Status :: Cancelled / Credited
+  - evidence: none (only the B4-suppression heuristic at dashboard.py:307-311, which sets no status)
+  - gap: A status set from confirmed section-9 relationships (full credit = Credited/Cancelled; partial credit = reduced outstanding), stored and audited.
+  - external: none (documents + human confirmation); Exact for booked credit notes
+- [missing] 1. Incoming Invoices / Checks :: Hours <-> Planning App
+  - evidence: none. dashboard.py:676-732 (matriz_semanal) only shows which weeks were invoiced, explicitly 'sin el planning' (dashboard.py:680-682).
+  - gap: Rule G2: TRNSPRNT read-only export ingested into staging (arquitectura.md §6), a shift model (arquitectura.md §5 'Turno'), a matching key (provider/employee, object, date/ISO week), a tolerance policy as versioned config (validacion-facturas.md:203-206, 235-240), and a per-line result kept with the compared values.
+  - external: TRNSPRNT planning (API or export; unknown)
+- [missing] 1. Incoming Invoices / Checks :: Object <-> Planning App
+  - evidence: none
+  - gap: Rules G4/G1: an object master from TRNSPRNT, a resolver from printed location to object ID, and a check that the provider has an active assignment on that object in the period.
+  - external: TRNSPRNT objects + assignments
+- [missing] 1. Incoming Invoices / Checks :: Period <-> Planning App
+  - evidence: none. The prerequisite exists: ISO-week resolution at dashboard.py:628-673 and the period fallback at dashboard.py:142-159.
+  - gap: Rules G1/G5: compare the invoiced period/ISO week with the planned shifts of that provider/object.
+  - external: TRNSPRNT shifts
+- [partial] 1. Incoming Invoices / Checks :: Rate <-> agreed rate
+  - evidence: src/bms_agent/dashboard.py:410-473 (detectar_cambios_de_tarifa: same supplier_name + location + work type at a different rate across invoices; baseline = first rate seen); tests/test_dashboard.py:131-171, 376-389, 467-474
+  - gap: Compares only against the provider's own rate history, never against an agreed rate. config/tarifas.yaml (facturacion.py:40-64) holds client SALE rates, not provider purchase rates. To build: an agreed purchase-rate table per assignment (provider x object x shift type x surcharge, with validity dates), then G3 proper: hold on any difference, block above a configured excess. G3 also keys on supplier_name, not identity (dashboard.py:425).
+  - external: TRNSPRNT assignment/inkoop rates or provider contracts
+- [implemented] 1. Incoming Invoices / Checks :: Invoice total <-> invoice lines
+  - evidence: src/bms_agent/checks.py:50-77 (D2 lines sum = subtotal), 209-241 (D2b qty x rate = line), 127-142 (D4 subtotal + VAT = total), 21-22 (tolerances); tests/test_parsing.py:156-165; tests/test_report.py:85-92; tests/test_dashboard.py:211-230
+  - gap: Results are recomputed on every run and never persisted against the invoice, although validacion-facturas.md:70-72 requires storing each evaluation. An invoice without lines (lump sum) returns 'sin datos'.
+  - external: none
+- [implemented] 1. Incoming Invoices / Checks :: VAT calculation
+  - evidence: src/bms_agent/checks.py:83-124 (D3 base x rate = VAT; E4 flags VAT charged under verlegd/KOR); tests/test_parsing.py:113-134
+  - gap: Single rate only: a mixed-rate invoice would fail falsely. Not implemented: E1 (vs master regime), E2 (regime change), E3 (KOR mention required; kor_mentioned at schema.py:105 is never read), E4's check that the 'btw verlegd' wording and BMS's btw-id are present (reverse_charge_mentioned is unused).
+  - external: Exact creditor VAT regime (for E1)
+- [implemented] 1. Incoming Invoices / Checks :: Duplicate invoice
+  - evidence: src/bms_agent/dashboard.py:314-359 (B2 same identity + number = critico; B3 same amount within 14 days with overlapping periods = revisar); src/bms_agent/cache.py:48-75 (identical bytes not re-extracted); tests/test_dashboard.py:49-88, 254-262, 392-406
+  - gap: History covers only what is in out/, not invoices already booked in Exact. Numbers are compared literally. The guard startswith('nom:(sin') at dashboard.py:321,336,375 is dead code: a nameless invoice gets identity 'nom:' (dashboard.py:130), so unrelated providers without name/btw/KvK are grouped (verified: B2 critico and F3 between two unrelated nameless invoices). B2 flags a legitimate corrected invoice re-issued under the same number as critico (verified), because it does not know about relationships.
+  - external: Exact purchase-entry history (for full coverage)
+- [partial] 1. Incoming Invoices / Checks :: Duplicate hours
+  - evidence: src/bms_agent/dashboard.py:362-395 (B4 overlapping periods per provider); src/bms_agent/dashboard.py:676-732 (matrix cells with n>=2); tests/test_dashboard.py:344-354
+  - gap: Detection works only at invoice/period level. Not detectable today: the same employee + object + day billed twice, within one invoice, across invoices, or by two different providers. There is no employee field and no per-day line date. Authoritative detection needs planning shift IDs.
+  - external: TRNSPRNT shifts; employee on the invoice line
+- [partial] 1. Incoming Invoices / Checks :: Overlapping charge periods
+  - evidence: src/bms_agent/dashboard.py:362-395 (range overlap per provider identity), 142-159 (line-level period fallback), 385-388 (credit-note skip); tests/test_dashboard.py:93-106, 265-280, 409-412, 451-464
+  - gap: The overlap logic works, but the grouping key is provider only. A provider invoicing two different OBJECTS for the same week on separate invoices, which is normal in the TRNSPRNT object model, is flagged B4 critico (verified). The key needs object (and employee). It must also respect relationships: a replacement invoice with a new number covering the same period is flagged critico (verified). Severity is 'critico' in code but 'Retención' in the catalogue (validacion-facturas.md:113).
+  - external: none (object from extraction); TRNSPRNT object IDs to make it reliable
+- [partial] 1. Incoming Invoices / Checks :: Provider details <-> historical data
+  - evidence: src/bms_agent/dashboard.py:476-517 (only the IBAN is compared across history); src/bms_agent/dashboard.py:116-130 (identity key)
+  - gap: Name, address, KvK, btw-id and VAT regime are not compared with earlier invoices or the master (A2, E2). The identity key creates a blind spot: an invoice that keeps the provider's name but drops or changes the btw-id/KvK gets a new identity and escapes F3 and B2-B4 (verified: same name, btw dropped, new IBAN gives 0 F3 alerts). To build: a provider-master link, a field-by-field diff against master and recent invoices, and a flag when the identity key itself changes for a known name.
+  - external: Exact creditor master; KvK/VIES optional
+- [partial] 1. Incoming Invoices / Checks :: IBAN <-> historically verified IBAN
+  - evidence: src/bms_agent/dashboard.py:476-517 (F3; baseline = earliest IBAN seen in extracted documents, 497-505); tests/test_dashboard.py:241-251, 357-373
+  - gap: The baseline comes from unverified documents: the first invoice ever read could already carry a fraudulent IBAN. 'Verified' requires a master IBAN with verifier name and date (arquitectura.md:129 and §5 'Proveedor: IBAN, fecha y autor de la última verificación'). Rule F2 is missing.
+  - external: Exact creditor bank accounts + a human verification log
+- [partial] 1. Incoming Invoices / Checks :: Changed IBAN
+  - evidence: src/bms_agent/dashboard.py:476-517 (F3 critico, with the phone-verification instruction at 514); dashboard.py:578-603 (propagated to rows); tests/test_dashboard.py:111-126, 283-296
+  - gap: (a) Evasion through the identity key (see Provider details). (b) A human verification cannot be recorded and the alert cannot be closed: state is recomputed from JSON, so it re-fires forever. (c) It compares document with document, not with master. (d) The confirmation workflow must be human-only, record a named person, date and call to the already-known number, and the agent must never write the new IBAN (rule 1).
+  - external: Exact master bank accounts; a database for the verification record
+- [missing] 1. Incoming Invoices / Checks :: Unusual invoice amount
+  - evidence: none (por_proveedor at dashboard.py:248-269 aggregates totals but flags nothing)
+  - gap: An outlier rule: per-provider (and per-object) baseline on the base amount from history (median/MAD or % deviation from trailing N invoices), a configurable threshold, warning severity, and a minimum history before it fires.
+  - external: none (own history); better with Exact history
+- [missing] 9. Invoice Relationships :: Original invoice
+  - evidence: none
+  - gap: A relationship store (from_doc, to_doc, type, amount, source extracted|manual, confirmed_by/at) keyed by document sha256, not by filename (rows and alerts are keyed by source_name, dashboard.py:586). It must propagate status to the original (credited/cancelled/replaced) and be audited.
+  - external: none (documents + human confirmation); Exact entry IDs for booked originals
+- [partial] 9. Invoice Relationships :: Credit note
+  - evidence: src/bms_agent/parsing.py:62-66 (negative amounts parsed); src/bms_agent/dashboard.py:307-311 (_es_correccion), 385-388 (B4 skip); tests/test_dashboard.py:409-412
+  - gap: Recognised only by a negative total; the schema has no document_type and no 'credits invoice X' field. The heuristic 'a.total<0 or b.total<0' exempts ANY overlapping pair that contains a negative document, not the matched original (verified: a partial credit of -200 against an invoice of 1000 suppresses B4). Credit notes are never linked or netted against their original.
+  - external: none
+- [missing] 9. Invoice Relationships :: Cancelled invoice
+  - evidence: none
+  - gap: A status plus a link to the cancelling document. Definition needed: under Dutch invoicing practice an issued invoice is cancelled by a full credit note.
+  - external: none
+- [missing] 9. Invoice Relationships :: Corrected invoice
+  - evidence: none (a corrected invoice is flagged B2 critico when it reuses the number, B4 critico when it has a new number; both verified)
+  - gap: Extract the referenced original number, propose a link (deterministic match on provider identity + referenced number), have a person confirm it, then make B2/B3/B4 skip confirmed corrections and net the amounts.
+  - external: none
+- [missing] 9. Invoice Relationships :: Replacement invoice
+  - evidence: none (same false positives as Corrected invoice)
+  - gap: Same as Corrected invoice, plus a rule on whether a replacement may reuse the original number (today that is a B2 block) and on the state of the replaced original (void/credited).
+  - external: none
+- [missing] 9. Invoice Relationships / Relationship Types :: Credits
+  - evidence: none (the B4 heuristic at dashboard.py:307-311 never pairs documents or stores a link)
+  - gap: A relationship type: credit note to original, with the credited amount (partial or full), M:N support (one credit note for several invoices), and netting in aggregates and outstanding.
+  - external: none
+- [missing] 9. Invoice Relationships / Relationship Types :: Cancels
+  - evidence: none
+  - gap: A relationship type that sets the target to Cancelled/Credited and removes it from outstanding and from the duplicate/overlap rules.
+  - external: none
+- [missing] 9. Invoice Relationships / Relationship Types :: Corrects
+  - evidence: none
+  - gap: A relationship type: the new document supersedes the original's values; the original stays in the audit trail; the duplicate rules are suppressed for the pair.
+  - external: none
+- [missing] 9. Invoice Relationships / Relationship Types :: Replaces
+  - evidence: none
+  - gap: A relationship type: the new document replaces the original (allowed only if the original was not booked/paid, or together with a credit note); B2/B4 aware.
+  - external: none
+- [missing] 9. Invoice Relationships / Relationship Types :: Related to
+  - evidence: none
+  - gap: A generic informational link, with no effect on amounts or status; it needs defined semantics so it does not become a way to silence duplicate alerts.
+  - external: none
+
+## Sections 2 (Outgoing Invoices) and 4 (Client Overview)
+
+Notes: Bottom line: sections 2 and 4 are essentially not built. Out of 51 items, 0 are implemented, 21 are partial and 30 are missing. Every partial item rests on the same thing: the sales projection in facturacion.py and its simulator. It estimates client billing from PURCHASE invoices (hours x a configured or margin-derived sale rate). No outgoing invoice, client master, payment or PO data exists in the repo. None of the 51 items is explicitly excluded by section 21, so none is marked out_of_scope_v1.
+
+Hidden coupling:
+1. Everything in out/ is assumed to be a purchase invoice. report.py:106-113 loads every *.json, dashboard.py:161-212 turns each one into a provider row, and proyectar() (dashboard.py:787) reads the same lines as cost. If outgoing invoices were dropped into out/ in the same format, they would be counted as provider spend, fed into the projection as cost, and run through supplier-keyed B2/B3/B4/F3/G3. A direction/document-type discriminator and a separate store are needed before any outgoing data enters.
+2. The extractor is supplier-specific. The prompt says "facturas de proveedores autonomos" (prompts.py:11), there is no buyer/customer field (schema.py:60-128), and scoring and ground truth are supplier-only. Outgoing invoices are generated by BMS itself, so they should be imported as structured data from Exact (sales journal, type 10) or TRNSPRNT (facturatie module), not read with the LLM (sistemas.md:53-54). Which of the two systems is the source of truth for sales invoices is undecided.
+3. The pipeline is stateless. The panel and API are regenerated from JSON on every run (panel.py:182-192, serve.py:189-192) and there is no as-of date. Statuses (Outstanding/Overdue/Paid/Credited), payment history, relationships and warning state cannot exist without the Postgres store and append-only audit table (arquitectura.md:138, :386-389). due_date is kept as an unparsed string (dashboard.py:205).
+4. Exact rate limits (60 calls/min, 5000/day, single refresh-token owner; sistemas.md:83-111) force a daily read-only mirror of sales invoices, receivables and customers, not per-invoice live calls.
+5. Problems in the projection if it is reused as the baseline for unbilled work or missing billing period:
+   - The week key has no ISO year (facturacion.py:165), so weeks from different years merge.
+   - Non-hour units are dropped (facturacion.py:145-146).
+   - 'trabajo' is the text before the first comma (facturacion.py:112-114). That assumes construction trades, while TRNSPRNT is shift/surcharge based (sistemas.md:56-69).
+   - The margin-derived rate (facturacion.py:166-173) is a guess.
+   - The object->client mapping lives in config/tarifas.yaml, which is gitignored. That contradicts "Editable, versionable" (facturacion.py:42) and the versioned-config rule (validacion-facturas.md:364-366).
+   - The baseline is provider-invoiced hours, not planning hours.
+6. EUR-only V1: parse_amount silently strips $, £ and USD (parsing.py:24, :57), so a non-EUR amount would be read as EUR. A currency field plus a reject/flag rule is needed.
+7. _es_correccion (dashboard.py:307-311) treats any negative total as a correction. Outgoing credit notes need explicit relationships instead.
+
+Conflicts with the security architecture:
+- Payment data. Rule 2 says no bank credentials, not even read-only (arquitectura.md:130), and the bank section says no access of any kind, file only (arquitectura.md:234). So Paid / Received / payment time / Lifetime received must come from Exact's bank-reconciled receivables or a human-uploaded statement file (CAMT.053/MT940). The "Bank / payment data" integration in section 20 cannot be a bank API. "Mark invoice paid" (section 19) must be a human action with an audit trail.
+- V1 scope vs the phased plan. Section 21 says "No invoice creation; No draft invoices". That contradicts arquitectura.md:157 and :268-275 (phase 2: draft sales invoices from planning, then automatic sending). The simulator labels its output "Propuestas de factura... Es lo que se emitiría" (simulador_assets.py:222-223). In V1 that output must be reframed as expected-billing / unbilled-work detection, not drafts, and the architecture doc should be updated. The rule 9 snapshot (arquitectura.md:137) is still needed to freeze planning hours when an imported invoice is reconciled.
+- Contacts and master data. Contact persons must come from master data, which also serves as the outgoing-mail whitelist (rule 4, arquitectura.md:132). Section 10's "Correct client/provider/contact information" clashes with "the agent never changes master data" (sistemas.md:105). Edits must be human-made local overlays with provenance, or be made in Exact by a person.
+- Personal data. "Employee / resource" on client lines is personal data (arquitectura.md:345-361). The Client Overview is an internal admin view; the client portal role sees only its own invoices, and the read model never holds an IBAN (portal-consulta.md:329-340).
+- IBAN rule. It is not directly triggered by sections 2 and 4, because receipts carry no outbound IBAN risk. But client bank details should not be read from documents either.
+
+Ambiguities in the feature list:
+- "Missing billable hours", "Potential unbilled work" and "Missing billing period" overlap. They need precise definitions and a declared baseline: planned, approved, or provider-invoiced hours. Section 5 lists Planned, Provider and Client-billed hours separately.
+- "Date sent" has no defined source.
+- "Billing rate <-> agreed rate": where agreed client rates live (contract, TRNSPRNT, Exact price list), how surcharges are handled, and the validity dates are all undefined.
+- "PO validity" has no criteria. "PO remaining value" does not say whether it is net or gross of VAT.
+- Outstanding/Overdue when a partial receipt arrives, given that V1 excludes a partial-payment workflow.
+- Whether "Cancelled / Credited" covers partially credited invoices, and how it maps to the section 9 relationship types.
+- YTD: calendar or fiscal year. Revenue: net of VAT (consistent with integracion-web.md:181-185) or gross.
+- "Average / typical payment time": mean or median, measured from invoice date or due date.
+- "Lifetime" is bounded by how much history is imported.
+- Client identity: Exact account vs TRNSPRNT client, and how many Exact divisions exist (sistemas.md:132).
+- Section 2 checks omit a VAT-calculation check and outgoing VAT treatment (for example verlegd for staffing in construction), which section 8 BTW will need. Outgoing reverse-charged supplies go in a different rubric than the received 2a listed at arquitectura.md:327; confirm with the accountant.
+- The terminology differs: the code says 'obra'/'location' (free text from provider PDFs), while the feature list and TRNSPRNT say 'Object'. An object master with IDs is a hard prerequisite for every client- and object-level metric.
+
+- [missing] 2. Outgoing Invoices / Fields :: Invoice number
+  - evidence: No sales-invoice entity exists anywhere. schema.py:72 invoice_number belongs to the supplier-invoice schema only. The extractor is scoped to provider invoices (prompts.py:11). report.py:106-113 load_records reads every out/*.json as a purchase invoice, and dashboard.py:161-212 does the same.
+  - gap: Build an outgoing (sales) invoice entity with its own import path and a unique key per BMS sales journal/division. Every stored record also needs a direction/document-type discriminator. Without it, any outgoing JSON placed in out/ would be counted as provider spend and fed into proyectar() as cost.
+  - external: Exact Online sales invoices/entries (sales journal, type 10 per docs/sistemas.md:94) or the TRNSPRNT facturatie module export. Which one is the source of truth is still undecided.
+- [partial] 2. Outgoing Invoices / Fields :: Client
+  - evidence: facturacion.py:45 and :53-54 (Tarifas.obras: obra -> client-name string). facturacion.py:82-87 loads it from YAML. config/tarifas.ejemplo.yaml:14-20. facturacion.py:159-162 and :242 flag obras that have no client.
+  - gap: What exists is a free-text client name per obra in a gitignored config/tarifas.yaml, used only by the projection. There is no client master (no ID or Exact account code, KvK, btw-id, address or payment terms) and no client attached to any real invoice. Needed: a read-only client master mirror (daily copy, per sistemas.md:99-105), a client FK on every outgoing invoice, and an object->client relation from master data instead of YAML.
+  - external: Exact Online customer accounts (client database), plus the TRNSPRNT object->client relation
+- [missing] 2. Outgoing Invoices / Fields :: Contact person
+  - evidence: none. schema.py:60-128 has no contact field in either direction.
+  - gap: Add a contact on the invoice header and a client-contacts master. The contact must come from master data, never from inbound mail: arquitectura.md:132 (rule 4) makes master data the outgoing-mail whitelist.
+  - external: Exact Online contacts / client database
+- [missing] 2. Outgoing Invoices / Fields :: Invoice date
+  - evidence: schema.py:73 exists for supplier invoices only. The projection never reads a date (facturacion.py:130-256 has no use of invoice_date).
+  - gap: Import the outgoing invoice date as a parsed date. YTD, overdue and payment-time metrics all depend on it.
+  - external: Exact Online sales invoices or TRNSPRNT export
+- [missing] 2. Outgoing Invoices / Fields :: Date sent
+  - evidence: none
+  - gap: Store a send timestamp per outgoing invoice. The source is undefined: Exact only knows it if invoices are sent from Exact, and the mailbox access in arquitectura.md:217-223 is read-only for the inbound admin mailbox. Fallback: manual entry with provenance.
+  - external: Exact Online send status/log or TRNSPRNT, otherwise manual entry
+- [partial] 2. Outgoing Invoices / Fields :: Period of charge
+  - evidence: facturacion.py:164-165 and :175-177: the projection groups by an ISO week number taken from provider lines, keyed as "Wnn" without a year. dashboard.py:142-159 _periodo_de does this for purchase invoices only.
+  - gap: No real outgoing period exists. Import period start/end per outgoing invoice (weekly, 4-weekly or monthly). Bug to fix before reuse: the week key in facturacion.py:165 has no ISO year, so W37 of 2025 and W37 of 2026 merge. Reuse dashboard.py:628-673 (_ano_de_semana/_semanas_de) to fix it.
+  - external: Exact Online / TRNSPRNT outgoing invoices
+- [missing] 2. Outgoing Invoices / Fields :: Payment deadline
+  - evidence: schema.py:114 due_date is supplier-only, and it is kept as an unparsed string (dashboard.py:60 and :205).
+  - gap: Add a parsed due date per outgoing invoice. Take it from the import, or derive it as invoice date + client payment terms when it is missing. Overdue depends on it.
+  - external: Exact Online sales invoice / receivable due date, client master payment terms
+- [missing] 2. Outgoing Invoices / Fields :: Payment terms
+  - evidence: none. Not in schema.py for either direction.
+  - gap: Add payment terms to the client master (default) and to each invoice (override). They drive due-date derivation and late-payment metrics.
+  - external: Exact Online customer payment condition / client database
+- [partial] 2. Outgoing Invoices / Fields :: Amount before VAT
+  - evidence: facturacion.py:188-190 and :220-226: projected net 'venta' per client/obra/week. It is exposed through dashboard.py:787 and served by serve.py:190-192.
+  - gap: This is a projection: purchase-invoice hours x sale rate. It is not the amount of an issued invoice. Import the actual net amount of each outgoing invoice as a Decimal.
+  - external: Exact Online / TRNSPRNT outgoing invoices
+- [missing] 2. Outgoing Invoices / Fields :: VAT rate / treatment
+  - evidence: schema.py:23-29 VatRegime and checks.py:80-124 exist for supplier invoices only. The projection ignores VAT entirely (facturacion.py:130-256).
+  - gap: Add a VAT code per outgoing invoice/line (21%, reverse charge/verlegd, 0%), mapped from Exact VAT codes. Add a consistency rule per client/object (verlegd for staffing in construction, see validacion-facturas.md:299-303). Note that BMS's own reverse-charged supplies go in a different BTW rubric than the received ones listed at arquitectura.md:327. Confirm the mapping with the accountant.
+  - external: Exact Online VAT codes and sales invoice lines
+- [missing] 2. Outgoing Invoices / Fields :: VAT amount
+  - evidence: schema.py:91 is supplier-only. The reusable D3 logic is in checks.py:83-124.
+  - gap: Import the VAT amount per outgoing invoice. D3 can be reused once outgoing records exist.
+  - external: Exact Online / TRNSPRNT outgoing invoices
+- [missing] 2. Outgoing Invoices / Fields :: Amount after VAT
+  - evidence: schema.py:94 is supplier-only. The reusable D4 logic is in checks.py:127-142.
+  - gap: Import the gross amount. It is the base for receivables, outstanding and overdue.
+  - external: Exact Online / TRNSPRNT outgoing invoices
+- [missing] 2. Outgoing Invoices / Fields :: PO number(s)
+  - evidence: none. There is no PO concept anywhere in src/bms_agent.
+  - gap: Build a PO entity (number, client, objects, dates, original/amended value) and a many-to-many invoice<->PO link stored at header level.
+  - external: PO data source, unknown today: client POs by email/portal, possibly a customer-reference field on Exact sales invoices or TRNSPRNT (to verify)
+- [missing] 2. Outgoing Invoices / Fields :: Related credit note / corrected / replacement invoice
+  - evidence: dashboard.py:307-311 _es_correccion is a purchase-side heuristic only: it treats any negative or opposite total as a correction, and only to suppress B4. No link is stored.
+  - gap: Add an invoice-relationship table (credits/cancels/corrects/replaces/related to) between outgoing invoices, populated from the Exact credit-note reference or set by a human. Replace the amount heuristic.
+  - external: Exact Online (credit notes referencing the original)
+- [missing] 2. Outgoing Invoices / Fields :: Original invoice file
+  - evidence: documents.py:36-50 hashes incoming PDFs and extract.py:29-30 stores source_sha256/source_name, for incoming only. The PDF itself is not retained by the system: it stays in the gitignored facturas/ folder.
+  - gap: Build an immutable, versioned document store (arquitectura.md:386-387) holding the outgoing PDF plus its hash, linked to the invoice. Fetch it from Exact attachments or a TRNSPRNT export, and serve it via short-lived signed URLs (portal-consulta.md:379-381).
+  - external: Exact Online documents/attachments (sistemas.md:93-95, 113-115) or TRNSPRNT PDF export
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Object
+  - evidence: schema.py:46-48 (free-text location on purchase lines). facturacion.py:150 and :175-177 key the projection by obra. dashboard.py:196.
+  - gap: The object today is free text copied from provider PDFs, with no object master or ID, and it never appears on an outgoing line. Needed: an object master and an object ID on every outgoing line, plus name normalisation/mapping (provider text -> object ID).
+  - external: TRNSPRNT object data, plus Exact project/cost-centre if used on sales lines
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Employee / resource
+  - evidence: facturacion.py:180 and :228: a 'proveedores' set per projected group (provider company names, not people).
+  - gap: No employee/guard identity exists anywhere, and a provider company is not a resource. Needed: a resource ID per outgoing line linked to planning shifts, with GDPR minimisation (arquitectura.md:345-361).
+  - external: TRNSPRNT (employees / zzp'ers per shift), Exact sales line descriptions
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Description
+  - evidence: facturacion.py:112-114: 'trabajo' is the purchase-line description up to the first comma. Used at facturacion.py:153 and :182-187.
+  - gap: This is a derived label from purchase lines, not an outgoing line description. Import the description as-is. Model-drafted descriptions (arquitectura.md:157) belong to invoice creation, which V1 excludes.
+  - external: Exact Online / TRNSPRNT outgoing invoice lines
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Work period
+  - evidence: schema.py:49-57 (week_number/period_start/period_end on purchase lines). facturacion.py:164-165 (projected week, without a year).
+  - gap: Import the line period from outgoing invoices as dates or ISO year-week. Fix the year-less week key before the projection is used as a baseline.
+  - external: Exact Online / TRNSPRNT outgoing invoice lines
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Hours
+  - evidence: facturacion.py:144-151 and :188: projected billable hours = provider hours with unit 'uur', minus no_facturable (facturacion.py:63-64, :154-157).
+  - gap: Import the actual billed quantity and unit per outgoing line. The projection silently drops non-hour units such as shifts, days or flat fees (facturacion.py:145-146).
+  - external: Exact Online / TRNSPRNT outgoing invoice lines
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Billing rate
+  - evidence: facturacion.py:56-61 and :166-173: sale rate from the config table, otherwise cost x (1 + 35% margin), with origen_tarifa = tabla|margen. config/tarifas.ejemplo.yaml:22-29.
+  - gap: No actual unit price from an issued invoice is stored. The margin-derived rate is a guess and must never be shown as the agreed rate. The rate model is keyed by obra+trade, but TRNSPRNT works with shift types and night/weekend/holiday surcharges (toeslagen) (sistemas.md:56-69).
+  - external: Exact Online / TRNSPRNT outgoing invoice lines, plus agreed client rates (contracts / TRNSPRNT tariffs)
+- [partial] 2. Outgoing Invoices / Invoice Line / Allocation :: Amount
+  - evidence: facturacion.py:190 (projected line venta = hours x sale rate). facturacion.py:212-215 serialises it.
+  - gap: Projected only. Import actual line totals. The D2b line-arithmetic check (checks.py:209-241) can then be applied to them.
+  - external: Exact Online / TRNSPRNT outgoing invoice lines
+- [missing] 2. Outgoing Invoices / Invoice Line / Allocation :: PO
+  - evidence: none
+  - gap: Allocate each outgoing line to a PO (FK to the PO entity) so that consumption can be computed per PO and per object.
+  - external: PO data source (unknown) plus outgoing invoice lines
+- [missing] 2. Outgoing Invoices / Status :: Outstanding
+  - evidence: none. dashboard.py:61 'estado' (ok|revisar|critico) is a validation status, not a payment status.
+  - gap: Add a persisted payment status per outgoing invoice, derived from receivables, with history. This needs a database, because today the data is regenerated from JSON on every run (panel.py:182-192, serve.py:189-192).
+  - external: Exact Online receivables / open items (bank-reconciled in Exact), or a human-uploaded bank statement file (CAMT.053/MT940). No bank API (arquitectura.md:130, :234).
+- [missing] 2. Outgoing Invoices / Status :: Overdue
+  - evidence: none. The aggregation has no as-of date (dashboard.py:735-810 is a pure function over the records).
+  - gap: Compute status = unpaid and due date < as-of date. Needs parsed due dates, payment terms and a reference date passed into the aggregation.
+  - external: Exact Online receivables / bank statements, client payment terms
+- [missing] 2. Outgoing Invoices / Status :: Paid
+  - evidence: none
+  - gap: Match payments to invoices (amount, payment reference, date). Allow a manual 'Mark invoice paid' with an audit trail (sections 12 and 19). Define how a partial receipt is shown, since V1 excludes a partial-payment workflow.
+  - external: Exact Online receivables/payments or bank statement file import
+- [missing] 2. Outgoing Invoices / Status :: Cancelled / Credited
+  - evidence: Only the purchase-side heuristic at dashboard.py:307-311.
+  - gap: Derive the status from explicit relationships (a credit note credits or cancels the original), imported from Exact or set by a human. Define what a partially credited invoice is.
+  - external: Exact Online credit notes
+- [missing] 2. Outgoing Invoices / Checks :: Hours <-> Planning App
+  - evidence: none. checks.py:166-175 run_checks has no planning rules. G2 (validacion-facturas.md:318-339) is defined for purchase invoices only and is unimplemented.
+  - gap: Build read-only TRNSPRNT ingestion (API or scheduled export), a shift model and an hours snapshot (arquitectura.md:137 rule 9, :195-200). Add a versioned tolerance config (validacion-facturas.md:362-379). Compare billed hours per object/period/resource with approved planned hours.
+  - external: TRNSPRNT (planning app; API vs. export still unknown)
+- [missing] 2. Outgoing Invoices / Checks :: Object <-> Planning App
+  - evidence: none (G4 in validacion-facturas.md:327 is purchase-side and unimplemented)
+  - gap: Match each outgoing line's object ID to the planning object, and verify that the object belongs to the invoiced client.
+  - external: TRNSPRNT object data
+- [missing] 2. Outgoing Invoices / Checks :: Period <-> Planning App
+  - evidence: none (G5 in validacion-facturas.md:328 is purchase-side and unimplemented)
+  - gap: Compare the invoiced period or ISO year-week with the planning shift dates for that object/client.
+  - external: TRNSPRNT
+- [partial] 2. Outgoing Invoices / Checks :: Billing rate <-> agreed rate
+  - evidence: facturacion.py:56-61 (agreed sale-rate lookup by obra+trade). config/tarifas.ejemplo.yaml:22-29. dashboard.py:410-473: G3 only compares a provider's own rates across purchase invoices.
+  - gap: Only the agreed-rate table exists, as a gitignored YAML. Nothing compares an actual outgoing rate with it. Needed: an agreed-rate master with validity dates per client/object/shift type/surcharge, a versioned config, and a rule with a tolerance.
+  - external: Outgoing invoices (Exact/TRNSPRNT), plus agreed client rates (contracts / TRNSPRNT tariffs)
+- [partial] 2. Outgoing Invoices / Checks :: Missing billable hours
+  - evidence: facturacion.py:130-256 computes billable hours per client/obra/week from purchase invoices, excluding no_facturable (facturacion.py:63-64, :154-157).
+  - gap: There is an 'expected' side (provider-invoiced, not planning) but nothing to compare it with. Compute expected billable hours (planned/approved, or provider-invoiced) minus client-billed hours per object/period, beyond a tolerance.
+  - external: TRNSPRNT plus outgoing invoices (Exact)
+- [partial] 2. Outgoing Invoices / Checks :: Potential unbilled work
+  - evidence: facturacion.py:130-256 (projection). facturacion.py:161 and :242 sin_mapear lists obras that cannot be billed to anyone.
+  - gap: Diff the projection with actual outgoing invoices per (client, object, ISO year-week), as in arquitectura.md:175-178. Use planning hours as the baseline instead of provider invoices.
+  - external: TRNSPRNT plus Exact outgoing invoices
+- [partial] 2. Outgoing Invoices / Checks :: Duplicate billing
+  - evidence: dashboard.py:314-359 (B2/B3) and :362-395 (B4) cover purchase invoices only, keyed by supplier identity (dashboard.py:116-130).
+  - gap: Port the rules to sales, keyed by client + object + period/resource: the same number twice in the sales journal, or the same client/object/period on two invoices. Exclude credit/replacement pairs via explicit relationships, not the amount heuristic (dashboard.py:307-311).
+  - external: Exact Online outgoing invoices
+- [partial] 2. Outgoing Invoices / Checks :: Missing billing period
+  - evidence: dashboard.py:676-732 matriz_semanal: a provider x ISO-week gap grid, purchase side only. facturacion.py:175: projected client/obra/week groups.
+  - gap: Build a client x object x period grid over actual outgoing invoices, checked against the expected billing cadence per client (weekly/4-weekly/monthly) and planned hours.
+  - external: Exact outgoing invoices, TRNSPRNT, billing cadence in the client master
+- [partial] 2. Outgoing Invoices / Checks :: Invoice total <-> invoice lines
+  - evidence: checks.py:50-77 (D2), :209-241 (D2b), :83-124 (D3), :127-142 (D4). The logic is direction-agnostic but is only invoked on supplier extractions (dashboard.py:165, report.py).
+  - gap: Run the checks on imported outgoing invoices. Adapt CRITICAL_FIELDS (checks.py:145-150 requires supplier_name). If invoices arrive structured from Exact, totals mostly reconcile by construction, but the checks still matter for PDF/TRNSPRNT exports.
+  - external: Outgoing invoices (Exact/TRNSPRNT)
+- [missing] 2. Outgoing Invoices / Checks :: PO validity
+  - evidence: none
+  - gap: Requires a PO master. Rule: the PO exists, belongs to the client, covers the object, invoice/work dates fall inside the start/end, and it is not expired or fully consumed. The criteria need defining.
+  - external: PO data source (unknown)
+- [missing] 2. Outgoing Invoices / Checks :: PO remaining value
+  - evidence: none
+  - gap: Remaining = current (amended) PO value minus the sum of linked invoice amounts, with credit notes netted. Decide whether this is net or gross of VAT. Add threshold alerts.
+  - external: PO data plus Exact outgoing invoices
+- [missing] 4. Client Overview :: Outstanding amount
+  - evidence: none
+  - gap: Sum of open receivables per client ID. Needs the outgoing invoices, payment status and client master listed above, plus persisted state.
+  - external: Exact Online receivables / bank statement files, client master
+- [missing] 4. Client Overview :: Overdue amount
+  - evidence: none
+  - gap: Sum of open receivables past their due date as of a reference date. Needs due dates, payment terms and an as-of parameter.
+  - external: Exact Online receivables, client payment terms
+- [missing] 4. Client Overview :: YTD invoiced
+  - evidence: none. The projection has no date dimension (facturacion.py:130-256 never reads invoice_date).
+  - gap: Sum of outgoing invoice amounts per client for the current year, with credit notes negative. Define calendar vs fiscal year and net vs gross.
+  - external: Exact Online outgoing invoices
+- [missing] 4. Client Overview :: YTD received
+  - evidence: none
+  - gap: Sum of matched receipts per client in the current year.
+  - external: Exact Online payments / bank statement files
+- [partial] 4. Client Overview :: Lifetime invoiced
+  - evidence: simulador_assets.py:296-307: per-client projected sale total over all loaded purchase records, computed in browser JS only. facturacion.py:220-226: per-proposal venta.
+  - gap: Projected only, not invoiced. Needed: the sum of actual outgoing invoices per client ID, bounded by the history imported from Exact.
+  - external: Exact Online outgoing invoices
+- [missing] 4. Client Overview :: Lifetime received
+  - evidence: none
+  - gap: Sum of all matched receipts per client.
+  - external: Exact Online payments / bank statement files
+- [partial] 4. Client Overview :: Revenue by Object
+  - evidence: facturacion.py:175-228 (projected venta per client/obra/week). simulador_assets.py:259-309.
+  - gap: Projected from purchase invoices, keyed by free-text obra. Needed: actual net revenue per object ID from outgoing lines.
+  - external: Exact/TRNSPRNT outgoing invoice lines, TRNSPRNT object data
+- [missing] 4. Client Overview :: Invoice history
+  - evidence: none
+  - gap: A list of outgoing invoices per client with status, relationships and a link to the original file, read from a persisted store.
+  - external: Exact Online outgoing invoices
+- [missing] 4. Client Overview :: Payment history
+  - evidence: none
+  - gap: Receipts per client with date, amount and matched invoice(s).
+  - external: Exact Online payments / bank statement files
+- [missing] 4. Client Overview :: Average / typical payment time
+  - evidence: none
+  - gap: Per paid invoice: days from invoice date (or due date) to payment date, aggregated per client. Mean vs median needs defining.
+  - external: Exact Online receivables/payments or bank statements
+- [missing] 4. Client Overview :: Late-payment history
+  - evidence: none
+  - gap: Count, amount and days late of invoices paid after their due date, per client, over time.
+  - external: Exact Online receivables/payments or bank statements, payment terms
+- [partial] 4. Client Overview :: Potential unbilled work
+  - evidence: facturacion.py:130-256: projected billable per client, with the client in the group key at facturacion.py:175. sin_mapear at facturacion.py:242.
+  - gap: Same gap as the section 2 check of the same name, aggregated per client. No diff against actual billing exists.
+  - external: TRNSPRNT plus Exact outgoing invoices
+- [partial] 4. Client Overview :: Active warnings / discrepancies
+  - evidence: facturacion.py:197-218: per-proposal warnings (obra without client, varying provider cost). dashboard.py:520-566: an alert engine that is supplier-only.
+  - gap: No client-level aggregation, no outgoing checks feeding it, and no persisted open/resolved warning state (section 15). Alerts are recomputed from scratch on every run.
+  - external: Outputs of the outgoing checks (Exact, TRNSPRNT, PO data)
+
+## Sections 3 (Provider Overview), 5 (Object Overview) and 6 (Purchase Orders)
+
+Notes: Result: 56 items checked (13 provider overview, 20 object overview, 23 PO). None is out_of_scope_v1, because section 21 explicitly keeps PO monitoring, object allocation, planning reconciliation and cash flow in scope. Section 6 is entirely missing: there is no PO concept anywhere in the repo.
+
+HIDDEN COUPLING AND DEFECTS TO FIX BEFORE BUILDING THESE VIEWS
+(1) Provider key mismatch. These key on the printed supplier_name:
+- por_proveedor (dashboard.py:252)
+- the weekly matrix (dashboard.py:692-699)
+- the panel provider filter and dropdown (panel_assets.py:241, 820)
+- G3 (dashboard.py:425)
+- the projection (facturacion.py:141)
+B2/B3/B4/F3 key on _identidad (btw -> kvk -> name, dashboard.py:116-130). I checked this: the same btw-id under two printed names shows as two providers in por_proveedor. A Provider Overview built on it would split totals and hide the name-change-plus-IBAN-change pattern that _identidad exists to catch. The fix is a provider master ID (an Exact creditor code) as the single join key.
+
+(2) An Object is LLM free text. It is called 'Obra, ubicacion o proyecto', which is construction vocabulary (schema.py:46-48; prompts.py:40), while TRNSPRNT works with objects and shifts (sistemas.md:61-69). There is no normalisation: grouping is case-sensitive (facturacion.py:150, 175) but the client map is lower-cased (facturacion.py:54). Line-level location accuracy is not measured at all, since scoring.py:40-56 covers header fields only. Needs an object master, a mapping table, and manual allocation with provenance.
+
+(3) The projection's week key has no year: 'W37' (facturacion.py:165, 293). The dashboard resolves ISO years correctly (dashboard.py:628-673). Weeks from different years merge, which breaks any YTD or lifetime object metric that reuses proyectar.
+
+(4) The projection drops paid costs: non-hour units, lines without location or rate, and non-rebillable travel. Object costs are understated and margins overstated.
+
+(5) No as-of-date logic exists. Nothing uses today's date, and the panel period filter anchors on the newest invoice (panel_assets.py:824-834). Overdue, YTD and PO expiration all need an explicit as-of date.
+
+(6) No persistence. Extractions are loose JSON (extract.py:52-59) and everything is recomputed on each run (dashboard.py:735-741). These all need a database with append-only audit (arquitectura.md:138, 182-207):
+- PO registers and amendments
+- allocations
+- warning lifecycle ('active' warnings)
+- payment status
+
+(7) Schema change cascade. Adding po_number, object_id, employee, contact person or payment terms to InvoiceExtraction means bumping SCHEMA_VERSION/PROMPT_VERSION (config.py:14-15). That invalidates every cached extraction (cache.py:34-45) and forces a paid re-extraction of all historic PDFs. Batch all schema additions into one bump, and estimate first with `bms-agent coste --estimar`. The scoring map and ground truth must be extended too.
+
+(8) The facturacion block is in the data contract (integracion-web.md:140) but is never rendered in the panel. If reused, it must stay labelled as a projection.
+
+(9) Self-billing (sistemas.md:39-51). If TRNSPRNT generates provider invoices, the overviews should be built on a source-agnostic invoice model, not on the LLM extraction shape.
+
+CONFLICTS WITH THE SECURITY ARCHITECTURE
+(a) Payment data. Rule 2 says the system has no bank credentials, not even read (arquitectura.md:130), and the bank section says 'Banco: sin acceso de ningun tipo... Solo fichero' (arquitectura.md:234). So outstanding, overdue, paid and payment history must come from Exact Online (daily read-only mirror, sistemas.md:99-105, within 60 calls/min and 5,000/day) or from statement files uploaded by a person. Section 20's 'Bank / payment data' must not become a bank API integration. Expect daily, not live, freshness.
+
+(b) 'Historical / verified IBAN' mixes two trust levels. The repo's 'habitual' IBAN is the oldest IBAN seen on a document (dashboard.py:497-505), which is untrusted and only good for alerting. The verified IBAN must be the Exact master IBAN with the verifier's name and date (rule 1, arquitectura.md:129, 201-202). They must be separate, labelled fields. The agent never writes bank details, and 'Confirm changed bank details' must be a human action outside the agent's write path. A TRNSPRNT-vs-Exact IBAN mismatch is itself an F3-class alert, and which system wins must be decided (sistemas.md:117-121).
+
+(c) Full IBANs are shown in the panel table and CSV (panel_assets.py:541, 792; dashboard.py:767). That is acceptable for a local file, but a deployed overview must mask to the last 4 characters in the read model (portal-consulta.md:65, 88) unless it lives in the internal operational tool.
+
+(d) AVG/GDPR. Hours by object per zzp'er is location-plus-hours personal data (arquitectura.md:345-361), so it needs role-restricted access.
+
+(e) PO documents are third-party content. If an LLM reads them, it must run in the tool-less extraction zone (rule 6, arquitectura.md:134), and PO values and dates should be human-confirmed before they drive alerts. PO alerts must never auto-approve or auto-block payments (section 21: no automatic payment approval).
+
+(f) The phased plan conflicts with V1 scope. arquitectura.md phase 2 (lines 268-275) plans issuing sales invoices from the planning, but V1 excludes invoice creation and drafts. Revenue, client-billed hours and PO consumption must therefore come from IMPORTED outgoing invoices, which the repo does not have at all.
+
+AMBIGUITIES IN THE FEATURE LIST
+- Object 'Expected incoming/outgoing' has an unclear direction: in section 1, 'incoming invoices' are provider invoices (money out), but in section 7, 'expected incoming' is money in.
+- 'Revenue' and 'Provider costs' have no period, unlike the separate YTD and Lifetime items.
+- The basis date is undefined (invoice date, service period or Exact booking date).
+- The VAT basis is undefined. The repo uses base excl. VAT but falls back to the total incl. VAT when the base is missing (dashboard.py:224, 257), which is inconsistent.
+- Does gross margin include non-rebillable provider costs (travel)?
+- 'Unbilled hours' could be planned minus billed or provider minus billed. 'Hours discrepancy' does not say which pair is compared, the tolerance, or per shift vs per week.
+- 'Lifetime' could mean since the agent started, or include an Exact history import.
+- 'Average / typical' could be mean or median.
+- 'Active warnings' needs the section 15 lifecycle, which does not exist.
+- 'No partial-payment workflow' still leaves partial payments in Exact. How do they show in Outstanding?
+- PO questions:
+  - Does 'PO total value' mean the original or the current/amended value?
+  - 'Client / provider': do both client POs to BMS and BMS POs to providers exist?
+  - How is consumption split across a multi-object PO, and is it excl. or incl. VAT?
+  - How are credit notes treated?
+  - The 'approaching' thresholds (percent and days) are not set.
+  - 'Planned work exceeds remaining PO', 'Forecast PO exhaustion' and 'Expected amount over PO' overlap.
+  - 'Missing PO' needs a per-client/object 'PO required' rule.
+  - The PO data source itself is unknown.
+
+- [missing] 3. Provider Overview :: Outstanding amount
+  - evidence: none. No payment status exists anywhere in src/. The only inputs present are the extracted total (schema.py:94-96) and due_date (schema.py:114).
+  - gap: Build a per-invoice status model (outstanding/paid/cancelled-credited) in a persistent store. Today everything is recomputed from loose out/*.json (extract.py:52-59, report.py:106-113). Feed it with open-item/payment data and net credit notes against their originals; only the heuristic _es_correccion exists (dashboard.py:307-311). Then sum the open amount incl. VAT per canonical provider ID.
+  - external: Exact Online purchase-ledger open items/payments (daily read-only mirror, sistemas.md:99-105) or bank statement files (CAMT.053/MT940) uploaded by a person. Never a bank API (arquitectura.md:130,234).
+- [missing] 3. Provider Overview :: Overdue amount
+  - evidence: none. due_date is extracted (schema.py:114) and shown as 'vencimiento' (dashboard.py:205, panel_assets.py:542), but nothing compares it to an as-of date or a payment status. No aggregate uses today's date.
+  - gap: Needs the outstanding status above, plus an effective due date (due_date, or invoice_date + payment terms; payment terms are neither extracted nor in any master), plus as-of-today logic. Then sum per provider with days overdue.
+  - external: Exact Online open items and supplier payment terms; bank/payment data (file or Exact).
+- [partial] 3. Provider Overview :: YTD invoiced / costs
+  - evidence: por_proveedor sums base imponible per provider over the whole loaded history (dashboard.py:248-269, exported at dashboard.py:778-785). The panel has a provider filter (panel_assets.py:241), a base-sum tile (panel_assets.py:260-277) and a period filter that is a rolling N days back from the NEWEST invoice date (panel_assets.py:824-834).
+  - gap: No calendar YTD: rolling 365 days anchored on the latest invoice is not YTD. Totals are keyed by the printed supplier_name (dashboard.py:252), not the canonical _identidad btw/kvk key (dashboard.py:116-130). I checked this: two invoices with the same btw-id but different printed names come out as two providers. Totals fall back to total incl. VAT when base is missing (dashboard.py:257). Only extracted PDFs are covered, and the basis date (invoice date, service period or Exact booking date) is undefined. Needs a provider-master-ID key and a fiscal-year aggregate as of today.
+  - external: Provider master (Exact Online creditors) for identity; Exact Online for invoices booked before the agent existed.
+- [missing] 3. Provider Overview :: YTD paid
+  - evidence: none
+  - gap: Payment records (date, amount, link to invoice) per provider, summed by payment date within the fiscal year.
+  - external: Exact Online payments/reconciled open items, or manually uploaded bank statement files (no bank API).
+- [partial] 3. Provider Overview :: Lifetime invoiced / costs
+  - evidence: por_proveedor returns total, invoice count and first/last date per provider (dashboard.py:248-269, 778-785). The panel ranks providers by base (panel_assets.py:395-449).
+  - gap: 'Lifetime' only covers documents present in out/. Keyed by printed name, not identity (dashboard.py:252). No import of earlier history. Credit notes net only by sign. Needs aggregation keyed by provider ID and a historical import.
+  - external: Exact Online historical purchase invoices; provider master.
+- [missing] 3. Provider Overview :: Lifetime paid
+  - evidence: none
+  - gap: Full payment history per provider, including payments before the agent existed.
+  - external: Exact Online payments, or bank statement files (manual upload).
+- [partial] 3. Provider Overview :: Spend by Object
+  - evidence: Line-level object is captured as LLM free-text 'location' (schema.py:46-48; prompts.py:40). Invoice rows carry a joined location string (dashboard.py:196). Per-object cost exists only in the sales projection grouped by (cliente, obra, semana), with providers merged into a set (facturacion.py:175-191, 227-228). Raw lines with proveedor/obra/horas/coste_hora are exported for the simulator (facturacion.py:259-297).
+  - gap: No provider x object aggregation exists. The projection understates spend: it drops non-'uur' units (facturacion.py:144-146), lines without location or rate (150-152), and non-rebillable work such as travel hours (155-157), which is still paid. It also recomputes horas x rate instead of using line_total_raw. Needs an invoice_line -> object_id allocation table with manual override (section 10) and an 'unallocated' bucket. Then sum line amounts excl. VAT per provider per object.
+  - external: Object master data (TRNSPRNT objects) to normalise free-text locations.
+- [partial] 3. Provider Overview :: Hours by Object
+  - evidence: Per-provider total hours for 'uur' lines only (dashboard.py:88-103, 260-261). Per-object hours exist only in the projection, merged across providers and excluding non-billable hours (facturacion.py:148-157, 188).
+  - gap: Needs provider x object hour aggregation over all hour lines. Other units (dag/dienst, listed at dashboard.py:106-113) need conversion rules or a separate column. Also needs object normalisation via an object ID.
+  - external: TRNSPRNT object master; TRNSPRNT hours if invoices are self-billed (sistemas.md:39-51).
+- [partial] 3. Provider Overview :: Invoice history
+  - evidence: Every invoice is flattened into a row with date, number, period, objects, hours, base, VAT, total, IBAN, due date, status and reasons (dashboard.py:161-212, 760-772). The panel table can be filtered by provider (panel_assets.py:236-251, 529-543, 818-821). Per-invoice detail cards exist (report.py:181-258).
+  - gap: No provider-scoped view. The filter is exact match on the printed name (panel_assets.py:241, 820), so name variants split one provider's history. No payment-status or paid-date column. The original PDF is not linked or served, only the filename. Needs a provider page keyed by provider ID.
+  - external: Provider master; payment data for the status column.
+- [missing] 3. Provider Overview :: Payment history
+  - evidence: none
+  - gap: Payment ledger per provider (date, amount, invoice(s) settled, end-to-end ID per arquitectura.md:316-317).
+  - external: Exact Online payments, or bank statement files (no bank credentials allowed, arquitectura.md:130).
+- [partial] 3. Provider Overview :: Historical / verified IBAN
+  - evidence: detectar_ibanes builds a per-identity history of IBANs seen ON DOCUMENTS and takes the oldest as 'habitual' (dashboard.py:476-517, reference choice at 497-505). F1 mod-97 check exists (checks.py:178-206). The current document IBAN is shown per row (dashboard.py:767; panel_assets.py:541).
+  - gap: Only document-derived history exists, and only as alert text. It is not exported as a per-provider IBAN list with first-seen/last-seen dates. 'Verified IBAN' does not exist: per the architecture it is the Exact supplier-master IBAN with the verifier's name and date (arquitectura.md:129, 201-202). Needs a read-only mirror of Exact supplier bank accounts, a human-recorded verification log, and two separately labelled fields: document history (untrusted) and master/verified (trusted).
+  - external: Exact Online supplier master (bank accounts), daily mirror; TRNSPRNT if it also stores IBANs (sistemas.md:117-121).
+- [partial] 3. Provider Overview :: Average / typical invoice amount
+  - evidence: Total and invoice count are exported per provider (dashboard.py:253-259, 778-785), so a mean can be derived client-side, but nothing computes it.
+  - gap: Compute mean and median (or a typical band) per provider ID, excluding or netting credit notes. This baseline is also what the 'Unusual invoice amount' check in section 1 needs, and that check does not exist either.
+  - external: none (historical import from Exact improves the baseline).
+- [partial] 3. Provider Overview :: Active warnings / discrepancies
+  - evidence: Alerts carry severity, rule and invoices (dashboard.py:29-35, 520-566) and are propagated to rows (dashboard.py:578-603). Count of non-ok invoices per provider (dashboard.py:262-263). The panel shows alerts limited to the visible (provider-filtered) rows (panel_assets.py:486-489).
+  - gap: Warnings are recomputed on every run with no identity and no lifecycle (open, assigned, resolved, overridden; section 15). 'Active' cannot be distinguished from 'resolved'. Provider attribution is by name. Needs persisted exception records keyed by a deterministic hash, with resolution history (audit).
+  - external: none (needs a database).
+- [partial] 5. Object Overview :: Revenue
+  - evidence: Only a PROJECTED sale value per (cliente, obra, week): facturacion.py:130-256 (venta at 190, 224). It is exposed via construir_datos['facturacion'] (dashboard.py:787; integracion-web.md:140) and the simulator (facturacion.py:259-314). It is not rendered in panel.py/panel_assets.py. The module says it is a projection, not issued invoices (facturacion.py:7-22).
+  - gap: There are no outgoing invoices in the repo, so there is no actual revenue. Needs import of outgoing invoices with line -> object allocation; revenue is the sum of outgoing line amounts excl. VAT, net of credit notes, per object and period. Keep the projection separately as 'expected/unbilled'.
+  - external: Outgoing invoices from Exact Online (sales entries, sistemas.md:93-95) or the TRNSPRNT invoicing module; object master (TRNSPRNT).
+- [partial] 5. Object Overview :: Provider costs
+  - evidence: Projection 'coste' per (cliente, obra, week) = hours x provider unit rate (facturacion.py:148-191, 224).
+  - gap: Understated. It drops non-'uur' units (144-146), lines without location or rate (150-152), non-rebillable but paid work such as travel (155-157), and invoices without lines. Object grouping is case-sensitive (150, 175) while the client map is lower-cased (54). Needs every incoming line amount excl. VAT allocated to an object_id, plus an 'unallocated' bucket.
+  - external: Object master (TRNSPRNT).
+- [partial] 5. Object Overview :: Gross margin EUR
+  - evidence: Projected margin = venta - coste (facturacion.py:220-225, totals at 252).
+  - gap: Both sides are projections and costs are understated, so the margin is overstated (travel and non-hour costs are excluded). Needs actual revenue minus actual allocated provider cost per object and period.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT); object master.
+- [partial] 5. Object Overview :: Gross margin %
+  - evidence: margen_pct = margen / venta x 100, None when venta is 0 (facturacion.py:226, 253-254).
+  - gap: Same limits as Gross margin EUR: it must be recomputed on actuals per object and period.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT).
+- [missing] 5. Object Overview :: YTD revenue
+  - evidence: none. The projection keys weeks WITHOUT the ISO year (facturacion.py:164-165, also 293) and carries no date, so it cannot even be cut by year.
+  - gap: Imported actual revenue per object with a fiscal-year as-of-today filter. Fix the year-less week key before reusing proyectar.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT).
+- [missing] 5. Object Overview :: YTD costs
+  - evidence: No object-level cost has a date dimension. The only approximation is the panel's free-text search over locations plus the rolling-period filter, which sums whole-invoice base (panel_assets.py:245, 260-277, 824-834). That mis-attributes multi-object invoices and also matches provider names and IBANs.
+  - gap: Object-allocated cost lines with a defined basis date (invoice date or service period) and a calendar YTD aggregate as of today.
+  - external: Object master (TRNSPRNT).
+- [partial] 5. Object Overview :: Lifetime revenue
+  - evidence: Projected venta over all loaded history per (cliente, obra, week), which can be summed per obra (facturacion.py:193-236).
+  - gap: A projection, not revenue. The year-less week key merges years (facturacion.py:165). Needs imported outgoing invoices, including history from before the agent existed.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT).
+- [partial] 5. Object Overview :: Lifetime costs
+  - evidence: Projected coste over all loaded history (facturacion.py:189, 224, 234).
+  - gap: Understated (see Provider costs) and limited to extracted PDFs. Needs full line-to-object allocation and a historical import.
+  - external: Exact Online historical purchase invoices; object master.
+- [missing] 5. Object Overview :: Planned hours
+  - evidence: none. The code itself says the planning cross-check is future work (checks.py:1-10, facturacion.py:13-14).
+  - gap: Ingest TRNSPRNT shifts (worker, object, date, ISO week, hours, shift type/surcharge) into a read-only store (arquitectura.md:195-196, 231-232) and aggregate per object and period.
+  - external: TRNSPRNT planning export/API (format unknown).
+- [partial] 5. Object Overview :: Provider hours
+  - evidence: Hours from incoming 'uur' lines per (cliente, obra, week) in the projection (facturacion.py:144-157, 188, 224); total hours per invoice (dashboard.py:88-103).
+  - gap: Non-billable hours are removed from per-object figures and reported only per work type, not per object (facturacion.py:156, 243-245). Day/shift units are ignored. Needs all provider hours per object ID, with non-billable hours flagged rather than dropped.
+  - external: Object master (TRNSPRNT); TRNSPRNT hours if invoices are self-billed.
+- [missing] 5. Object Overview :: Client-billed hours
+  - evidence: none
+  - gap: Hours on outgoing invoice lines, allocated per object and period.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT).
+- [missing] 5. Object Overview :: Unbilled hours
+  - evidence: none. The projection computes what COULD be billed but never compares it with what WAS billed (facturacion.py:1-22).
+  - gap: Needs a definition first: planned hours or provider hours, minus client-billed hours, per object and week, excluding non-rebillable work. The no_facturable list (facturacion.py:47, 102-104) can be reused.
+  - external: Outgoing invoices; TRNSPRNT planning.
+- [missing] 5. Object Overview :: Hours discrepancy
+  - evidence: none. G2 (validacion-facturas.md:192) is not implemented. The closest piece is the provider x week invoice grid showing gaps and doubles without planning or object (dashboard.py:676-732).
+  - gap: Three-way comparison of planned vs provider-invoiced vs client-billed hours per object and week (or per shift, sistemas.md:61-69), with a versioned tolerance (validacion-facturas.md:203-206, 238).
+  - external: TRNSPRNT planning; outgoing invoices.
+- [missing] 5. Object Overview :: Expected incoming
+  - evidence: none
+  - gap: Ambiguous direction, so needs a definition. It could mean (a) expected client receipts: open outgoing invoices by due date plus unbilled work x billing rate; or (b) expected provider invoices: planned or worked hours not yet invoiced. Neither exists. Projected venta (facturacion.py:190) could seed the 'not yet billed' part.
+  - external: Outgoing invoices and payment data (Exact Online); TRNSPRNT planning.
+- [missing] 5. Object Overview :: Expected outgoing
+  - evidence: none. Incoming due_date exists (schema.py:114) but there is no paid status and no per-object allocation.
+  - gap: Open incoming invoices allocated to the object by due date, plus expected provider invoices for planned or worked but not yet invoiced hours x provider rate.
+  - external: Exact Online open items or bank files; TRNSPRNT planning.
+- [partial] 5. Object Overview :: Related incoming invoices
+  - evidence: Rows carry the joined line locations (dashboard.py:196) and the panel search matches them (panel_assets.py:245). The projection lists source files per obra and week (facturacion.py:179, 227).
+  - gap: Substring text match with no object ID. Free-text variants and casing split or merge objects. No object page. Needs per-line object_id allocation with manual override and provenance.
+  - external: Object master (TRNSPRNT).
+- [missing] 5. Object Overview :: Related outgoing invoices
+  - evidence: none
+  - gap: Imported outgoing invoices linked to an object ID at line level.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT); object master.
+- [missing] 5. Object Overview :: Related PO(s)
+  - evidence: none. No PO concept anywhere in src/, tests/ or docs/ (grep for PO/purchase order/inkooporder/bestelnummer finds nothing).
+  - gap: PO register with a many-to-many PO <-> object link.
+  - external: PO source (unknown: client PO documents, Exact Online orders, or the TRNSPRNT inkoop module).
+- [missing] 5. Object Overview :: PO consumed
+  - evidence: none
+  - gap: Sum of invoice lines allocated to POs that cover this object. Needs a rule for splitting a multi-object PO.
+  - external: PO source; outgoing invoices (for client POs).
+- [missing] 5. Object Overview :: PO remaining
+  - evidence: none
+  - gap: PO current value minus consumed, viewed per object (same allocation rule as above).
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - Fields :: PO number
+  - evidence: none. There is no PO field in InvoiceExtraction or InvoiceLine (schema.py:32-128) and no PO entity anywhere.
+  - gap: Persistent PO entity (number, direction client/provider, counterparty ID, object IDs, dates, values, status, source, version history). Add a po_number/order reference to the incoming-invoice header and lines (schema change) and to imported outgoing invoices. Normalise PO formats per client.
+  - external: PO source (unknown: client PO PDFs/emails, Exact Online orders, TRNSPRNT).
+- [missing] 6. Purchase Orders - Fields :: Client / provider
+  - evidence: none. No client master exists; the only client data is an obra -> client free-text map in a sample config (facturacion.py:45, 83-87; config/tarifas.ejemplo.yaml:14-21). Provider identity is derived from document btw/kvk/name (dashboard.py:116-130).
+  - gap: Link the counterparty to client and provider master records by stable ID (Exact account code/KvK).
+  - external: Exact Online accounts (clients/creditors); PO source.
+- [missing] 6. Purchase Orders - Fields :: Object(s)
+  - evidence: none. An object today is only extracted free text (schema.py:46-48).
+  - gap: Many-to-many PO <-> object_id, plus a rule for distributing consumption across objects.
+  - external: TRNSPRNT object master; PO source.
+- [missing] 6. Purchase Orders - Fields :: Issue date
+  - evidence: none
+  - gap: Date field on the PO entity, with provenance.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Fields :: Start date
+  - evidence: none
+  - gap: Validity start, used to reject or flag invoice work periods before the PO starts.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Fields :: End / expiry date
+  - evidence: none
+  - gap: Validity end, used by the expiration alert and the out-of-validity invoice check.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Fields :: Original PO value
+  - evidence: none
+  - gap: Immutable EUR value with a declared VAT basis (excl./incl.), captured once and human-confirmed if read from a document.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Fields :: Current / amended PO value
+  - evidence: none
+  - gap: Amendment records (new value, effective date, who, reason, source document) in append-only history (arquitectura.md:138, rule 10). The current value is the latest amendment.
+  - external: PO source (amendments); needs a database.
+- [missing] 6. Purchase Orders - Fields :: Related invoices
+  - evidence: none
+  - gap: Invoice-line <-> PO allocation table, auto-matched on the extracted or imported PO number, with manual allocation/correction (section 10 'Add / correct PO') and provenance.
+  - external: PO source; outgoing invoices (Exact Online/TRNSPRNT); incoming invoices (existing extractor plus a new field).
+- [missing] 6. Purchase Orders - PO Spend :: PO total value
+  - evidence: none
+  - gap: Computed field. It must be defined (presumably the current amended value) to avoid ambiguity with the Original/Current fields.
+  - external: PO source.
+- [missing] 6. Purchase Orders - PO Spend :: Amount invoiced
+  - evidence: none
+  - gap: Sum of allocated invoice line amounts (excl. VAT, net of credit notes) per PO. Client POs are consumed by OUTGOING invoices, which must be imported because V1 excludes invoice creation (section 21), and the repo has none.
+  - external: Outgoing invoices (Exact Online/TRNSPRNT); incoming invoices for provider POs; PO source.
+- [missing] 6. Purchase Orders - PO Spend :: Remaining PO value
+  - evidence: none
+  - gap: Total value minus amount invoiced, recalculated after allocation edits (section 10).
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - PO Spend :: % consumed
+  - evidence: none
+  - gap: Amount invoiced / total value, guarding against a zero or unknown value.
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - PO Spend :: % remaining
+  - evidence: none
+  - gap: 100% minus % consumed (can be negative when overspent; that must be displayed).
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - Checks / Alerts :: PO approaching spending limit
+  - evidence: none. The generic alert container is reusable (dashboard.py:29-35, 520-566).
+  - gap: Rule: % consumed >= a threshold held as versioned config (validacion-facturas.md:229-246), emitted as a persisted exception with lifecycle.
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - Checks / Alerts :: PO fully consumed
+  - evidence: none
+  - gap: Rule: remaining <= 0 within tolerance gives an alert, and further allocations to the PO are held for review.
+  - external: PO source; outgoing invoices.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Invoice exceeds remaining PO
+  - evidence: none
+  - gap: Per-invoice check at intake or allocation: invoice amount > remaining before that invoice. Needs a deterministic ordering (invoice date, then number) so the result is reproducible.
+  - external: PO source; outgoing/incoming invoices with a PO reference.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Missing PO
+  - evidence: none
+  - gap: Per-client/object 'PO required' flag in master/config, plus the PO reference field on invoices; alert when it is required and absent.
+  - external: Client/object master (Exact/TRNSPRNT) or PO policy config; PO source.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Unknown / incorrect PO
+  - evidence: none
+  - gap: Look up the referenced PO number in the register. Flag when it is not found, or when its client/provider, object or validity window does not match the invoice.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Checks / Alerts :: PO approaching expiration
+  - evidence: none. No aggregate uses today's date; the panel anchors on the newest invoice date (panel_assets.py:824-834).
+  - gap: Rule: end date - as-of date <= N days (versioned config). Needs explicit as-of-date logic.
+  - external: PO source.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Planned work exceeds remaining PO
+  - evidence: none. A billing-rate table exists only as provisional simulator config (facturacion.py:46, 56-61; config/tarifas.ejemplo.yaml:23-29).
+  - gap: Planned hours for the PO's objects and validity period x agreed billing rate, compared with remaining value. Needs a real agreed-rate master, not the simulator config.
+  - external: TRNSPRNT planning; agreed client rates (TRNSPRNT/contract); PO source.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Forecast PO exhaustion
+  - evidence: none
+  - gap: Burn rate from the PO's invoiced history (per week/month) plus planned work gives a projected exhaustion date, compared with the PO end date.
+  - external: PO source; outgoing invoices; TRNSPRNT planning.
+- [missing] 6. Purchase Orders - Checks / Alerts :: Expected amount over PO
+  - evidence: none
+  - gap: Expected total = invoiced + unbilled work (worked but not billed) + planned remaining x rate; alert when it exceeds the PO value. It overlaps the two previous rules, so the definitions need to be separated.
+  - external: PO source; outgoing invoices; TRNSPRNT planning; provider invoices for worked-not-billed.
+
+## Sections 7 (Cash Flow), 8 (VAT / BTW), 17 (Main Dashboard) and 18 (Search / Filters)
+
+Notes: CONFLICTS WITH docs/arquitectura.md
+(1) Bank data. Actual received/paid, Paid/Outstanding/Overdue status and integration 20 'Bank / payment data' clash with rule 2 (arquitectura.md:130, 'no tiene credenciales bancarias, ni de lectura') and section 6 (:236, 'Banco. Sin acceso de ningun tipo, ni de lectura. Solo fichero'). There are two compatible routes, and the rule's wording has to be amended explicitly either way:
+- payment status read from Exact through the read-only Exact user (Exact already reconciles the bank);
+- bank statement files (CAMT.053/MT940) that a person uploads, parsed deterministically without the LLM.
+(2) IBAN shown next to amounts due. The panel shows the IBAN printed on the document (dashboard.py:204; panel_assets.py:541). A 'due this week' list built on that IBAN reads like a payment instruction and contradicts rule 1 (:129). Cash-out views must show the master IBAN and flag any mismatch. 'Changed IBAN' today is history-based (oldest IBAN seen), not master-based, and has no human-confirmation step (needed by section 19 'Confirm changed bank details' and section 21).
+(3) No payment action from cash-flow views. Rule 2 and section 21 exclude automatic payment execution and approval. 'Due' lists must not grow a pay/approve button outside the signed SEPA gate (rules 3 and 7).
+(4) VAT filing. Rule 5 (:133) is consistent with 'No automatic BTW filing'. 'Filed' must be a human-recorded, audited status (rule 10), with no Belastingdienst integration. The rubric mapping must be versioned config confirmed by the accountant (:338-339; validacion-facturas.md:10-12).
+(5) Multi-user dashboard. The current panel embeds all data, including full IBANs, in a static HTML file (panel.py:1-13), and serve.py is unauthenticated and localhost-only. A multi-user dashboard with filters and permissions (section 19) needs the authenticated, role-scoped API described in portal-consulta.md:324-346: never a full IBAN, zero data in the bundle.
+(6) Persistence. Every status item in sections 7, 8, 17 and 18 (paid, BTW status, review, manual edits, priority) needs persistent mutable state. Today there is none: extractions are loose files in out/. The DB plus append-only audit of rule 10 has to come first.
+
+HIDDEN COUPLING / LATENT BUGS RELEVANT TO THESE SECTIONS
+(a) EUR only. parse_amount silently strips $, £ and USD (parsing.py:24, 57) and the schema has no currency field. A non-EUR invoice would be summed as EUR into cash flow and VAT. Add currency extraction plus a blocking check.
+(b) Mixed amount bases. Aggregates fall back from base to gross total when base is missing (dashboard.py:224, 257, 287; panel_assets.py:256), which is wrong for both VAT and cash.
+(c) Duplicates in totals. Totals and tiles include B2 duplicates and blocked invoices (dashboard.py:756-758), so input VAT and costs would be double-counted.
+(d) Green without checks. 'ok' is shown green even when the checks were not evaluable (dashboard.py:165-175), against brief-diseno.md:145-147.
+(e) One status for everything. A single 'estado' field drives the table colour, the matrix, the filter and the tile counts (dashboard.py:175, 578-603; panel_assets.py:242-243, 263-276). Review status, data quality and priority (sections 14-16, 18) all need it split.
+(f) Provider identity. The provider filter and per-provider totals group by printed name, while B2/B3/B4/F3 use the btw/kvk identity (dashboard.py:116-130 vs 186, 250-252).
+(g) No 'today'. No code uses today's date. The period filter is anchored to the latest invoice date (panel_assets.py:828), and a static HTML snapshot freezes 'today' at generation time, so overdue logic needs a server or an evaluation at view time.
+(h) Projection in the contract. dashboard.construir_datos embeds facturacion.proyectar in the data contract (dashboard.py:787). It is a margin projection from purchase invoices; it must not be reused as revenue, expected incoming or VAT basis. It also cannot see work by BMS's own employees, who never appear on provider invoices.
+(i) Reverse charge. btw verlegd is treated as 'no VAT' (checks.py:80, 91-102), so self-assessed 2a/5b VAT is invisible. The construction default may not apply to security/facility services (sistemas.md:56-72).
+(j) External panel. scripts/incrustar_simulador.py patches an external compiled React panel (panel-v4.html, not in the repo) with sections agent/overview/analysis/invoices/'Reviewed invoices'. What it implements, for example review state, cannot be verified from this repo.
+
+AMBIGUITIES IN THE FEATURE LIST
+(a) 'Incoming/outgoing' changes meaning. In section 1, 'Incoming invoices' means provider invoices (money out), but in section 7 'Expected Incoming' means money in. So '17 Attention Required: Overdue incoming invoices' is ambiguous.
+(b) Time buckets. Is 'This week' the ISO week or a rolling 7 days? Is 'This month' the calendar month or the rest of the month, and does it overlap 'Next 30 days'? Are overdue amounts included in 'expected this week'?
+(c) Scope of 'expected'. Does expected incoming/outgoing cover only issued, open invoices, or also forecast work: accruals for planned shifts not yet invoiced, and payroll, wage tax and VAT payments, which are large cash items for a staffing company and are not listed?
+(d) Missing due dates. The fallback for an invoice without a due date is undefined. 'Payment terms' are listed as a field, but it is not said whether they come from the document or the master; they are not extracted today.
+(e) Partial payments. 'No partial-payment workflow' conflicts with real bank data, which will contain partial payments. What is shown as outstanding then?
+(f) VAT basis. Invoice basis (factuurstelsel) or cash basis? Quarterly or monthly filing? 'BTW filing deadline' and 'BTW payment deadline' are the same date for normal NL filers. Section 8 lists payable and receivable as two items; section 17 merges them into one.
+(g) Overlapping categories. 'Invoices requiring VAT review', 'VAT issues' and the three VAT checks overlap. Review status, data quality and priority are three overlapping status dimensions with no mapping; for example, is current 'critico' ('no pagar sin revisar') the same as 'Blocked'?
+(h) Filters. 'Period' does not say which date it filters: invoice date, period of charge, due date or VAT quarter. 'Outstanding/Overdue/Paid/Cancelled' duplicates the 'Payment status' filter. 'Object' and 'Client' assume canonical TRNSPRNT object IDs and an object-to-client mapping that do not exist yet; locations are free text from the PDF.
+(i) 'Missing billing periods' (17) could mean client billing gaps, provider invoice gaps, or both. Only provider gaps are partly visible, through the matrix.
+
+- [missing] 7. Cash Flow / Expected Incoming :: Total expected incoming
+  - evidence: none. The schema only models supplier invoices (src/bms_agent/schema.py:60-128). facturacion.proyectar (src/bms_agent/facturacion.py:130-256) is a margin projection of billable purchased hours, explicitly 'NO facturas emitidas' (facturacion.py:7-22). It has no dates, payment terms or receipts, so it is not expected cash.
+  - gap: Need an outgoing-invoice entity (number, client, invoice date, due date or payment terms, gross total, open amount) stored in a DB, plus a payment status per invoice. Expected incoming = sum of open receivable amounts. Decide whether not-yet-invoiced forecast work is included; if so it must come from planned hours x agreed client rates, not from the current margin projection.
+  - external: Outgoing invoices (Exact Online sales journal, or TRNSPRNT facturatie export); open items or paid status (Exact receivables, or bank statements); client master for payment terms
+- [missing] 7. Cash Flow / Expected Incoming :: This week
+  - evidence: none. No code anywhere compares a date to today (the only datetime.now() calls are page timestamps at panel.py:158 and report.py:131).
+  - gap: Bucket open receivables by expected date (due date, or invoice date + client payment terms) inside the current ISO week (define Mon-Sun, Europe/Amsterdam). 'Today' has to be evaluated when the page is viewed, not frozen when the static HTML is generated.
+  - external: Outgoing invoices + receivable status (Exact/bank); client payment terms (client database / Exact)
+- [missing] 7. Cash Flow / Expected Incoming :: This month
+  - evidence: none
+  - gap: Same bucket logic for the calendar month. Decide whether 'this month' includes items already overdue and whether it overlaps 'next 30 days'.
+  - external: Outgoing invoices + receivable status (Exact/bank); client payment terms
+- [missing] 7. Cash Flow / Expected Incoming :: Next 30 days
+  - evidence: none
+  - gap: Rolling window today..today+30 on expected receipt date of open receivables.
+  - external: Outgoing invoices + receivable status (Exact/bank); client payment terms
+- [missing] 7. Cash Flow / Expected Incoming :: Custom period
+  - evidence: none for cash flow. The only date filter is the panel's invoice-date preset selector (src/bms_agent/panel.py:70-76; src/bms_agent/panel_assets.py:823-834). It offers 30/90/180/365 days counted back from the LATEST invoice date (panel_assets.py:828), not from today, and has no free from/to range.
+  - gap: A from/to date-range control applied to the expected receipt date of open receivables, plus server-side aggregation.
+  - external: Outgoing invoices + receivable status (Exact/bank)
+- [missing] 7. Cash Flow / Expected Incoming :: Overdue incoming
+  - evidence: none
+  - gap: Open receivables with due date < today, with days overdue and the amount. Needs paid status per outgoing invoice and a due-date fallback rule.
+  - external: Outgoing invoices; receivable/paid status (Exact receivables or bank statements)
+- [partial] 7. Cash Flow / Expected Outgoing :: Total expected outgoing
+  - evidence: Per provider invoice, the gross total (src/bms_agent/dashboard.py:202) and due date (src/bms_agent/schema.py:114; dashboard.py:205) are extracted. construir_datos sums gross totals of ALL extracted invoices into totales.importe (dashboard.py:756, 800), which is exported through the JSON contract (cli.py _cmd_export; serve.py:189-192).
+  - gap: There is no paid/cancelled status, so this sum equals lifetime invoiced, not what is still owed. It also includes B2 duplicates and blocked invoices, and credit notes only net out by sign. Need: a payment status per invoice (DB), payable amount = gross total minus linked credit notes, excluding cancelled invoices, aggregated by due date. The panel tile shows base excl. VAT (panel_assets.py:268), which is the wrong basis for cash.
+  - external: Paid status for provider invoices (Exact payables/open items, or bank statements); provider payment terms (Exact provider master)
+- [missing] 7. Cash Flow / Expected Outgoing :: This week
+  - evidence: none. The due date is kept as the raw extracted string (src/bms_agent/dashboard.py:205) and is never parsed or compared with today. It only appears as a sortable 'Vence' column (src/bms_agent/panel_assets.py:542, 545-554) and in the CSV export (panel_assets.py:792).
+  - gap: Parse the due date (parse_iso_date). When it is missing, fall back to invoice date + payment terms; payment terms are not extracted at all (no field in schema.py). Bucket unpaid invoices by ISO week.
+  - external: Paid status (Exact payables/bank); provider payment terms (Exact provider master/contracts)
+- [missing] 7. Cash Flow / Expected Outgoing :: This month
+  - evidence: none (raw due date only: dashboard.py:205, panel_assets.py:542)
+  - gap: Same as This week, bucketed by calendar month.
+  - external: Paid status (Exact payables/bank); provider payment terms
+- [missing] 7. Cash Flow / Expected Outgoing :: Next 30 days
+  - evidence: none (raw due date only: dashboard.py:205)
+  - gap: Rolling 30-day window on the parsed due date of unpaid, non-blocked provider invoices.
+  - external: Paid status (Exact payables/bank); provider payment terms
+- [missing] 7. Cash Flow / Expected Outgoing :: Custom period
+  - evidence: none. The panel period presets filter on invoice date, not due date (panel_assets.py:239-240, 823-834).
+  - gap: A from/to range on the due date of unpaid provider invoices.
+  - external: Paid status (Exact payables/bank)
+- [missing] 7. Cash Flow / Expected Outgoing :: Overdue outgoing
+  - evidence: none
+  - gap: Unpaid provider invoices with due date < today, with days overdue. Needs paid status and a today reference.
+  - external: Paid status (Exact payables or bank statements)
+- [missing] 7. Cash Flow / Net :: Expected incoming
+  - evidence: none (see 7 Expected Incoming / Total expected incoming)
+  - gap: Same as Total expected incoming.
+  - external: Outgoing invoices; receivable status (Exact/bank)
+- [partial] 7. Cash Flow / Net :: Expected outgoing
+  - evidence: Same ingredients as Total expected outgoing: dashboard.py:202, 205, 756, 800
+  - gap: Same as Total expected outgoing: no paid status, so the sum is lifetime gross invoiced.
+  - external: Paid status (Exact payables/bank); provider payment terms
+- [missing] 7. Cash Flow / Net :: Net expected cash flow
+  - evidence: none
+  - gap: Expected incoming minus expected outgoing per horizon. Also needs a decision on whether payroll for BMS's own employees (TRNSPRNT verloning), wage taxes and the VAT payment itself count as cash out; none of them are in the list.
+  - external: Everything above, plus possibly payroll/wage-tax data and the VAT position
+- [missing] 7. Cash Flow / Net :: Actual received
+  - evidence: none. The architecture forbids bank access: docs/arquitectura.md:130 (rule 2, no bank credentials 'ni de lectura') and :236 ('Banco. Sin acceso de ningun tipo, ni de lectura. Solo fichero.').
+  - gap: Import receipts and match them to outgoing invoices: payment reference/amount matching, unmatched-receipt queue. Partial payments have to be represented even though a partial-payment workflow is excluded.
+  - external: Bank statements (CAMT.053/MT940 file uploaded by a person) or Exact bank entries/receivables. This conflicts with arquitectura.md rule 2 wording and needs an explicit amendment.
+- [missing] 7. Cash Flow / Net :: Actual paid
+  - evidence: none. The SEPA batch generator (phase 3, arquitectura.md:277-283) is not built, and a SEPA file is a proposal, not proof of payment.
+  - gap: Import debits and match them to provider invoices / SEPA end-to-end IDs (arquitectura.md:316-317).
+  - external: Bank statements (file import) or Exact payables/bank entries. Same conflict with rule 2.
+- [missing] 8. VAT / BTW :: Current-quarter revenue before VAT
+  - evidence: none. facturacion.proyectar 'venta' (src/bms_agent/facturacion.py:220-255) is a projection at margin and must not feed VAT.
+  - gap: Sum outgoing invoices excl. VAT by invoice date within the quarter, split by rate/rubric (1a/1b/3x), reconciled with the ledger.
+  - external: Outgoing invoices (Exact sales journal / TRNSPRNT); Exact VAT codes
+- [missing] 8. VAT / BTW :: Current-quarter outgoing VAT
+  - evidence: none. Received btw-verlegd invoices are treated as 'no VAT' (src/bms_agent/checks.py:80, 91-102), so the reverse-charge VAT BMS must self-assess (rubric 2a) is never computed.
+  - gap: Output VAT from outgoing invoices per rate, plus self-assessed VAT on reverse-charged purchases (2a), per quarter.
+  - external: Outgoing invoices; Exact VAT codes; accountant-confirmed rubric mapping (arquitectura.md:338-339)
+- [partial] 8. VAT / BTW :: Current-quarter incoming costs before VAT
+  - evidence: Base excl. VAT per provider invoice (src/bms_agent/dashboard.py:200); monthly series por_mes (dashboard.py:215-245); 'Base imponible EUR' tile over filtered rows (src/bms_agent/panel_assets.py:268-269); breakdown by VAT regime (dashboard.py:272-290; panel.py:115-121; panel_assets.py:453-482); test tests/test_dashboard.py:299-310
+  - gap: No calendar-quarter aggregation: the period filter is 30/90/180/365 days back from the latest invoice (panel_assets.py:823-834). When base is missing the code silently falls back to the gross total (dashboard.py:224, 257, 287; panel_assets.py:256). B2 duplicates and blocked invoices are included. Date received is not captured. Not reconciled with the booked purchase journal. Need quarter grouping on invoice date, exclusion of duplicates, no gross fallback, and reconciliation with Exact.
+  - external: None for an estimate; Exact purchase journal/VAT codes for a reliable figure
+- [partial] 8. VAT / BTW :: Deductible input VAT
+  - evidence: VAT amount per invoice (src/bms_agent/dashboard.py:201); totales.iva (dashboard.py:758, 801); 'IVA soportado EUR' tile (src/bms_agent/panel_assets.py:272)
+  - gap: This is a sum of printed VAT, not deductible VAT. It is not per quarter, includes duplicates and failed invoices, has no non-deductibility rules, and omits the 5b counterpart of self-assessed reverse-charge VAT. The schema has a single rate per invoice (schema.py:88-93), so a mixed 9%/21% invoice cannot be split.
+  - external: Exact VAT codes; accountant-confirmed rubric mapping
+- [missing] 8. VAT / BTW :: Estimated VAT payable
+  - evidence: none
+  - gap: Per period: output VAT (1a/1b + 2a) minus deductible input VAT (5b), with the rubric mapping held as versioned config (arquitectura.md:323-339).
+  - external: Outgoing invoices; Exact VAT codes; accountant confirmation (validacion-facturas.md:10-12)
+- [missing] 8. VAT / BTW :: Estimated VAT receivable
+  - evidence: none
+  - gap: Same computation; shown when the net is negative.
+  - external: Outgoing invoices; Exact VAT codes
+- [missing] 8. VAT / BTW :: Current quarter
+  - evidence: none. 'Trimestral' appears only in hint text (src/bms_agent/panel.py:117); there is no quarter computation.
+  - gap: Quarter selector and aggregation (or month, if BMS files monthly), with filing frequency as config.
+  - external: None (config); filing frequency confirmed with the accountant
+- [missing] 8. VAT / BTW :: Previous quarters
+  - evidence: none
+  - gap: Historical per-period figures, frozen once filed. Rule C4 (a late invoice landing in an already-declared quarter, validacion-facturas.md:127-131) needs the persisted BTW status per period.
+  - external: DB persistence; Exact for the booked figures
+- [missing] 8. VAT / BTW :: YTD
+  - evidence: none. 'Ultimo ano' means 365 days back from the latest invoice (src/bms_agent/panel.py:75; panel_assets.py:828-831), not year-to-date.
+  - gap: Jan 1..today aggregation of the VAT figures.
+  - external: Same as the quarterly figures
+- [partial] 8. VAT / BTW :: Missing VAT information
+  - evidence: check_vat_amount returns 'sin datos' when base/rate/amount is missing (src/bms_agent/checks.py:115-116), visible per invoice in the report card (src/bms_agent/report.py:168-178). vat_regime 'unknown' shows as 'Sin determinar' in the regime bar (dashboard.py:277; panel_assets.py:466).
+  - gap: 'sin datos' is not surfaced as an alert or row status in the panel (dashboard.py:165-175 only counts failed checks), so such invoices show green 'ok'. No A5 check of btw-id presence/format: vat_number is extracted (schema.py:68-70) but never checked. No check that a reverse-charge invoice carries BMS's own btw-id (E4).
+  - external: None for A5 and for surfacing it; VIES for A6
+- [partial] 8. VAT / BTW :: Incorrect VAT calculation
+  - evidence: D3 base x rate = VAT within EUR 0.02 (src/bms_agent/checks.py:83-124, tolerance :22); D4 base + VAT = total (checks.py:127-142); E4 VAT charged under reverse charge/KOR (checks.py:91-98). Failures become critical rows and grouped alerts (dashboard.py:165-175, 532-562). Tests: tests/test_parsing.py:113-135, tests/test_report.py:85-92.
+  - gap: Incoming invoices only; there are no outgoing invoices. A single VAT rate per invoice (schema.py:88-93) makes mixed-rate invoices unevaluable or false failures. No per-line VAT. No dedicated failing-case test for D3.
+  - external: Outgoing invoices for the output side
+- [partial] 8. VAT / BTW :: Unusual VAT treatment/rate
+  - evidence: E4 (src/bms_agent/checks.py:91-98); regime breakdown (dashboard.py:272-290)
+  - gap: Missing: E1 (rate vs the provider's registered regime), E2 (regime change vs the provider's previous invoice, which is feasible today from history alone), E3 (explicit KOR mention), E5 (KOR threshold), and a whitelist of NL rates: any 0-100% is accepted (parsing.py:98-108). The VatRegime enum has no intra-EU/export/exempt value (schema.py:23-29). The reverse-charge default assumes construction; BMS is in security/facility services (sistemas.md:56-72; validacion-facturas.md:166-170).
+  - external: Exact provider master (registered VAT regime); accountant confirmation
+- [partial] 8. VAT / BTW :: Invoices requiring VAT review
+  - evidence: D3/E4 failures become critical rows and are grouped into one alert titled 'Cuota de IVA' (src/bms_agent/dashboard.py:166, 532-562), filterable with 'Solo criticas' (panel.py:80-84; panel_assets.py:243).
+  - gap: There is no dedicated per-quarter VAT exception list (arquitectura.md:330-333: no identifiable VAT, invalid btw-id, ledger vs return differences, late invoices). Grouped per-invoice alerts are all labelled rule 'D', even E4 (dashboard.py:535). No review state is stored.
+  - external: Exact (ledger vs return); DB for review/BTW state
+- [missing] 8. VAT / BTW :: BTW filing deadline
+  - evidence: none (the rule is only documented: arquitectura.md:325)
+  - gap: Deterministic calendar: last day of the month after the period end, with configurable filing frequency and exceptions.
+  - external: None (config); filing frequency confirmed with the accountant
+- [missing] 8. VAT / BTW :: BTW payment deadline
+  - evidence: none
+  - gap: For regular NL filers this is the same date as the filing deadline; config.
+  - external: None (config)
+- [missing] 8. VAT / BTW — BTW Status :: Open
+  - evidence: none. There is no persistence: extractions are loose JSON files (src/bms_agent/extract.py:52-59).
+  - gap: A per-period status record in a DB, with audit (arquitectura.md:138).
+  - external: DB (none exists)
+- [missing] 8. VAT / BTW — BTW Status :: Ready for Review
+  - evidence: none
+  - gap: Generate the worksheet (rubric breakdown + exception list, arquitectura.md:323-339, phase 4); a person moves the status.
+  - external: DB; outgoing invoices; Exact VAT codes
+- [missing] 8. VAT / BTW — BTW Status :: Filed
+  - evidence: none
+  - gap: Set by a person (name, date, reference) and audited. Never automatic: rule 5 (arquitectura.md:133) and section 21. Only automatic filing is out of scope; recording the status is in scope.
+  - external: DB; human action
+- [missing] 17. Main Dashboard / Money In :: Outstanding
+  - evidence: none (no outgoing invoices)
+  - gap: Sum of open receivables.
+  - external: Outgoing invoices; receivable status (Exact/bank)
+- [missing] 17. Main Dashboard / Money In :: Overdue
+  - evidence: none
+  - gap: Open receivables past due as of today.
+  - external: Outgoing invoices; receivable status; client payment terms
+- [missing] 17. Main Dashboard / Money In :: Expected this week
+  - evidence: none
+  - gap: Bucket of open receivables by expected date.
+  - external: Outgoing invoices; receivable status; client payment terms
+- [missing] 17. Main Dashboard / Money In :: Expected this month
+  - evidence: none
+  - gap: Same as above, by calendar month.
+  - external: Same
+- [missing] 17. Main Dashboard / Money In :: Expected next 30 days
+  - evidence: none
+  - gap: Rolling 30-day window.
+  - external: Same
+- [partial] 17. Main Dashboard / Money Out :: Outstanding
+  - evidence: totales.importe = gross sum of all extracted provider invoices (src/bms_agent/dashboard.py:756, 800), printed by `bms-agent panel` (cli.py _cmd_panel). The panel tile shows the base excl. VAT (panel_assets.py:268-269).
+  - gap: No paid status, so the figure is lifetime invoiced, not outstanding. It includes duplicates and blocked invoices. Needs payment status and credit-note netting.
+  - external: Paid status (Exact payables/bank)
+- [missing] 17. Main Dashboard / Money Out :: Overdue
+  - evidence: none (raw due date only: dashboard.py:205)
+  - gap: Parse the due date, compare with today, exclude paid invoices.
+  - external: Paid status (Exact payables/bank)
+- [missing] 17. Main Dashboard / Money Out :: Due this week
+  - evidence: none (raw due date only: dashboard.py:205; panel_assets.py:542)
+  - gap: ISO-week bucket of unpaid invoices by due date or payment-terms fallback.
+  - external: Paid status; provider payment terms (Exact master)
+- [missing] 17. Main Dashboard / Money Out :: Due this month
+  - evidence: none
+  - gap: Calendar-month bucket.
+  - external: Same
+- [missing] 17. Main Dashboard / Money Out :: Due next 30 days
+  - evidence: none
+  - gap: Rolling 30-day bucket.
+  - external: Same
+- [missing] 17. Main Dashboard / Cash Position :: Expected incoming
+  - evidence: none
+  - gap: See 7 / Expected incoming.
+  - external: Outgoing invoices; receivable status
+- [partial] 17. Main Dashboard / Cash Position :: Expected outgoing
+  - evidence: dashboard.py:202, 205, 756, 800 (gross totals and raw due dates only)
+  - gap: See 7 / Total expected outgoing.
+  - external: Paid status (Exact payables/bank)
+- [missing] 17. Main Dashboard / Cash Position :: Net expected cash flow
+  - evidence: none
+  - gap: Incoming minus outgoing.
+  - external: All of the above
+- [partial] 17. Main Dashboard / Billing :: Potential unbilled work
+  - evidence: facturacion.proyectar groups billable purchased hours by client/object/week and prices them from the tarifas.yaml rate or a default 35% margin (src/bms_agent/facturacion.py:130-256). It excludes non-billable work (facturacion.py:155-157), is part of the dashboard data contract (dashboard.py:787), and is shown in the simulator (simulador.py:21-31; simulador_assets.py:259-312). Tests: tests/test_facturacion.py.
+  - gap: It shows what could be billed, not what is unbilled: there are no outgoing invoices to net against. It is derived from provider invoices, so it inherits their errors (facturacion.py:13-14) and never sees work done by BMS's own employees. The in-repo panel does not render it (panel_assets.py never reads DATOS.facturacion). Object-to-client mapping is manual config (config/tarifas.ejemplo.yaml). Need: TRNSPRNT approved hours per client/object/period minus hours on outgoing invoices.
+  - external: TRNSPRNT planning/hours export; outgoing invoices; agreed client rates; object-to-client data
+- [missing] 17. Main Dashboard / Billing :: Missing billing periods
+  - evidence: none for client billing. The closest piece is the provider x ISO-week matrix, which shows weeks without a PROVIDER invoice as gaps (src/bms_agent/dashboard.py:676-732; panel.py:123-130; panel_assets.py:657-768; tests/test_dashboard.py:325-356). It is visual only, with no count or alert.
+  - gap: Expectation calendar per client/object (from planning or contracts) vs outgoing invoices per period, as a count, tile and alert. The matrix logic could be reused.
+  - external: TRNSPRNT; outgoing invoices; client/object contracts
+- [missing] 17. Main Dashboard / Billing :: Planning <-> invoice discrepancies
+  - evidence: none. G1-G6 are not implemented. The 'G3' at dashboard.py:410-473 compares a provider's rates across its own invoices, not against planning.
+  - gap: Hours/object/period/rate comparison per shift and date against TRNSPRNT, with a tolerance policy as config (validacion-facturas.md:185-206).
+  - external: TRNSPRNT (API vs export still unknown, sistemas.md:34-37)
+- [missing] 17. Main Dashboard / PO :: Active PO value
+  - evidence: none (no PO concept anywhere; no PO field in schema.py)
+  - gap: PO entity (number, party, objects, dates, original/amended value), PO reference on invoice lines, aggregation of active POs.
+  - external: PO source (unknown: client POs by email/PDF, Exact, TRNSPRNT?)
+- [missing] 17. Main Dashboard / PO :: PO spent
+  - evidence: none
+  - gap: Sum of invoiced amounts linked to each PO.
+  - external: PO data; outgoing/incoming invoices with PO references
+- [missing] 17. Main Dashboard / PO :: PO remaining
+  - evidence: none
+  - gap: Current value minus spent.
+  - external: PO data
+- [missing] 17. Main Dashboard / PO :: POs approaching limit
+  - evidence: none
+  - gap: Configurable % consumed threshold.
+  - external: PO data
+- [missing] 17. Main Dashboard / PO :: POs approaching expiration
+  - evidence: none
+  - gap: End date within N days of today.
+  - external: PO data
+- [missing] 17. Main Dashboard / PO :: Forecast PO shortages
+  - evidence: none
+  - gap: Planned hours x rate vs remaining PO value.
+  - external: PO data; TRNSPRNT planned hours; agreed rates
+- [missing] 17. Main Dashboard / VAT / BTW :: Current-quarter revenue
+  - evidence: none
+  - gap: See 8 / Current-quarter revenue before VAT.
+  - external: Outgoing invoices; Exact VAT codes
+- [missing] 17. Main Dashboard / VAT / BTW :: Output VAT
+  - evidence: none
+  - gap: See 8 / Current-quarter outgoing VAT, including 2a reverse charge.
+  - external: Outgoing invoices; Exact VAT codes
+- [partial] 17. Main Dashboard / VAT / BTW :: Input VAT
+  - evidence: 'IVA soportado EUR' tile (src/bms_agent/panel_assets.py:272); totales.iva (dashboard.py:758, 801)
+  - gap: Not per quarter, not 'deductible', includes duplicates, omits self-assessed reverse charge. See 8 / Deductible input VAT.
+  - external: Exact VAT codes; accountant rubric mapping
+- [missing] 17. Main Dashboard / VAT / BTW :: Estimated VAT payable / receivable
+  - evidence: none
+  - gap: Net of output and input VAT per period.
+  - external: Outgoing invoices; Exact VAT codes
+- [missing] 17. Main Dashboard / VAT / BTW :: BTW deadline
+  - evidence: none
+  - gap: Calendar rule from config (arquitectura.md:325).
+  - external: None (config)
+- [missing] 17. Main Dashboard / VAT / BTW :: BTW status
+  - evidence: none
+  - gap: Persisted Open/Ready for Review/Filed per period, set by a person.
+  - external: DB
+- [missing] 17. Main Dashboard / Attention Required :: Overdue incoming invoices
+  - evidence: none. The due date is extracted (schema.py:114) but never compared with today.
+  - gap: Provider invoices past due and unpaid (if 'incoming' follows section 1 terminology). Needs paid status and today evaluation.
+  - external: Paid status (Exact payables/bank)
+- [missing] 17. Main Dashboard / Attention Required :: Overdue outgoing invoices
+  - evidence: none
+  - gap: Client invoices past due and unpaid.
+  - external: Outgoing invoices; receivable status
+- [partial] 17. Main Dashboard / Attention Required :: Changed IBAN
+  - evidence: detectar_ibanes F3, with the oldest IBAN seen as reference (src/bms_agent/dashboard.py:476-517, 497-505); propagated to rows as critical (dashboard.py:578-603); shown in alerts (panel_assets.py:486-525). Tests: tests/test_dashboard.py:111-129, 241-252, 283-297, 357-374.
+  - gap: The reference is the oldest IBAN in extracted PDFs, not the verified IBAN in the Exact master (arquitectura.md:129; validacion-facturas.md:174-183, F2/F3 source 'maestro'). A new provider, or one whose first document is already fraudulent, passes. There is no confirmation workflow, so after a phone-verified legitimate change every later invoice stays critical forever. Identity falls back to the printed name when btw/kvk are absent (dashboard.py:116-130).
+  - external: Exact provider bank-account mirror (sistemas.md:99-105); possibly TRNSPRNT bank data (sistemas.md:117-121)
+- [implemented] 17. Main Dashboard / Attention Required :: Potential duplicates
+  - evidence: B2 same provider and number (src/bms_agent/dashboard.py:318-330); B3 same amount within 14 days with overlapping periods (dashboard.py:332-358); B4 overlapping charge periods with a credit-note exclusion (dashboard.py:362-395, 307-311); propagated to rows (dashboard.py:578-603); alerts panel (panel_assets.py:486-525); double-cell flag in the matrix (panel_assets.py:723). Tests: tests/test_dashboard.py:49-110, 254-282, 392-414, 451-466.
+  - gap: Incoming invoices only; duplicate billing on outgoing invoices is missing. The comparison is only against out/ JSON, not against invoices already booked in Exact (B2 says 'ya contabilizado'). There is no dismiss/resolve state.
+  - external: Exact purchase journal for B2 against booked invoices (optional); outgoing invoices for the sales side
+- [partial] 17. Main Dashboard / Attention Required :: Missing data
+  - evidence: check_required_fields (supplier name, number, date, total) gives a failure and a critical row (src/bms_agent/checks.py:145-163; dashboard.py:165-175). Per-check 'sin datos' is visible per invoice in the report (report.py:168-178).
+  - gap: 'sin datos' is never surfaced in the panel or alerts, so an invoice whose other checks are all not-evaluable shows green 'ok' (contradicts brief-diseno.md:145-147). No checks for A1 address, A5 btw-id, C2 period (blocking per catalogue), D1 breakdown, due date or absent IBAN. No missing-data count or tile.
+  - external: None
+- [implemented] 17. Main Dashboard / Attention Required :: Uncertain extractions
+  - evidence: low_confidence_fields (src/bms_agent/schema.py:116-121) and document_notes produce a warning and 'revisar' status (dashboard.py:168-175), grouped alerts (dashboard.py:532-562), filter 'Solo con avisos' (panel.py:80-84; panel_assets.py:242), report flags (report.py:54-63). Tests: tests/test_dashboard.py:211-239.
+  - gap: Relies on the model's self-reported confidence. No per-field indicator in the table, no resolution state.
+  - external: None
+- [missing] 17. Main Dashboard / Attention Required :: Planning discrepancies
+  - evidence: none
+  - gap: G1-G6 against TRNSPRNT.
+  - external: TRNSPRNT
+- [partial] 17. Main Dashboard / Attention Required :: Unbilled work
+  - evidence: Projection data only (src/bms_agent/facturacion.py:130-256; dashboard.py:787). Its warnings (object without client, varying cost) sit inside the projection (facturacion.py:197-218), not in the alerts list.
+  - gap: Not an attention item today. Needs planning hours vs outgoing invoices, emitted as alerts.
+  - external: TRNSPRNT; outgoing invoices
+- [missing] 17. Main Dashboard / Attention Required :: PO issues
+  - evidence: none
+  - gap: PO entity and PO checks (section 6).
+  - external: PO data source
+- [partial] 17. Main Dashboard / Attention Required :: VAT issues
+  - evidence: D3/D4/E4 failures as critical grouped alerts (src/bms_agent/checks.py:83-142; dashboard.py:532-562)
+  - gap: Missing A5/E1/E2/E3/E5/C4, mixed rates and the outgoing side; alerts mislabelled as rule 'D' (dashboard.py:535).
+  - external: Exact master (regime); outgoing invoices
+- [implemented] 18. Search / Filters :: Invoice number
+  - evidence: Free-text search over number/provider/file/location/IBAN/period/weeks (src/bms_agent/panel.py:85-86; panel_assets.py:244-247, 837-838)
+  - gap: Provider invoices only. Substring match on a joined string, client-side over an embedded snapshot. No server-side query (serve.py:189-196 has no parameters).
+  - external: None (outgoing invoices for that side)
+- [implemented] 18. Search / Filters :: Provider
+  - evidence: Provider dropdown + free text (src/bms_agent/panel.py:77-79; panel_assets.py:241, 819-822, 835)
+  - gap: Groups by printed name (dashboard.py:186), whereas the anomaly rules use the btw/kvk identity (dashboard.py:116-130). Name variants of one provider appear as separate options, and different providers with the same name merge. No provider master.
+  - external: Exact provider master for a canonical provider ID (optional)
+- [missing] 18. Search / Filters :: Client
+  - evidence: none. Rows carry no client; the object-to-client mapping lives only in tarifas config for the projection (src/bms_agent/facturacion.py:45, 53-54).
+  - gap: A client attribute on outgoing invoices, derived for incoming lines via object-to-client, plus a filter.
+  - external: Client database / TRNSPRNT object-client data; outgoing invoices
+- [partial] 18. Search / Filters :: Object
+  - evidence: The line location is extracted (src/bms_agent/schema.py:46-48), joined into 'ubicaciones' (dashboard.py:196), shown as a column (panel_assets.py:535) and matched by free-text search (panel_assets.py:245-246).
+  - gap: No dedicated object filter. Printed text is not mapped to TRNSPRNT object IDs, and the substring search also matches other fields.
+  - external: TRNSPRNT object master
+- [missing] 18. Search / Filters :: PO
+  - evidence: none
+  - gap: PO field and filter.
+  - external: PO data source
+- [partial] 18. Search / Filters :: Period
+  - evidence: Invoice-date presets 30/90/180/365 days (src/bms_agent/panel.py:70-76; panel_assets.py:239-240, 823-834); free text matches the period string and week numbers (panel_assets.py:246).
+  - gap: No explicit from/to range. No filter on period of charge, ISO week or VAT quarter. The anchor is the latest invoice date, not today (panel_assets.py:828).
+  - external: None
+- [partial] 18. Search / Filters :: Due date
+  - evidence: Sortable 'Vence' column (src/bms_agent/panel_assets.py:542, 545-554); CSV (panel_assets.py:792)
+  - gap: No due-date filter or range. The value is a raw unparsed string (dashboard.py:205), so lexical sort only works for ISO dates.
+  - external: None
+- [missing] 18. Search / Filters :: Payment status
+  - evidence: none
+  - gap: Payment status per invoice (DB) and a filter.
+  - external: Exact payables/receivables or bank statements; manual 'mark paid'
+- [partial] 18. Search / Filters :: Review status
+  - evidence: The 'Estado' filter 'Solo con avisos' shows rows with automatic status other than ok (src/bms_agent/panel.py:80-84; panel_assets.py:242). That is an automatic 'needs review' only.
+  - gap: No human Unreviewed/Reviewed state, no reviewer, nothing persisted (out/ JSON is extraction output, extract.py:52-59). An external compiled panel referenced by scripts/incrustar_simulador.py has a 'Reviewed invoices' section, but it is not in the repo and cannot be assessed.
+  - external: DB; user identity
+- [missing] 18. Search / Filters :: Priority
+  - evidence: none. The alert severity critico/revisar/aviso (src/bms_agent/dashboard.py:26, 31) is a validation severity, not a priority derived from deadline, amount or overdue days.
+  - gap: A priority model (Normal/Attention/Urgent/Blocked) computed from the section 16 inputs, plus a filter.
+  - external: Paid status and due dates; other inputs per section 16
+- [partial] 18. Search / Filters :: Data-quality status
+  - evidence: Row status ok/revisar/critico (src/bms_agent/dashboard.py:175, 578-603), filterable (panel_assets.py:242-243)
+  - gap: Collapses Missing, Uncertain, Discrepancy and Anomaly into 3 levels. 'ok' includes not-evaluable checks. No 'Verified' state and no per-field status.
+  - external: None for derivation; DB for 'Verified'
+- [missing] 18. Search / Filters :: Manual edits
+  - evidence: none (no edit capability; extractions are immutable JSON files)
+  - gap: Edit layer with provenance and audit, plus a filter.
+  - external: DB; user identity
+- [missing] 18. Search / Filters :: Outstanding
+  - evidence: none
+  - gap: Requires payment status.
+  - external: Exact payables/receivables or bank statements
+- [missing] 18. Search / Filters :: Overdue
+  - evidence: none
+  - gap: Requires payment status + parsed due date + today.
+  - external: Same
+- [missing] 18. Search / Filters :: Paid
+  - evidence: none
+  - gap: Requires payment status.
+  - external: Same
+- [missing] 18. Search / Filters :: Cancelled / credited
+  - evidence: none. The only related code is a negative-total heuristic that suppresses B4 (src/bms_agent/dashboard.py:307-311, 387).
+  - gap: Invoice relationship model (credits/cancels/replaces) and status, plus a filter.
+  - external: Credit-note data (extraction of references; Exact)
+
+## Sections 10 (Manual Data / Admin Editing), 11 (Manual Edit Visibility), 12 (Audit Trail), 13 (Data Source / Provenance) and 14 (Data Quality)
+
+Notes: CROSS-CUTTING
+1) There is no foundation for sections 10-12. The repo has no database, no identities and no write path. The panel and report are static files (panel.py:1-17); serve.py only reads data and launches extraction (serve.py:189-203). About 30 of the 45 items come from one shared design: immutable document store; versioned, never-overwritten extractions; an override/assertion table keyed by (invoice, field path incl. line index) with kind, source, user, time and reason; an effective-value resolver that checks, panel and aggregates all read instead of record['extraction']; persisted check results and alerts with deterministic IDs; and an append-only audit log in Postgres with UPDATE/DELETE blocked (arquitectura rule 10, docs/arquitectura.md:138).
+2) Fix the overwrite before adding edits. out/<sha12>.json is rewritten on --force (cli.py:49) or on any model/prompt/schema change (serve.py:131-145; extract.py:52-58), so today the only 'correction' path destroys the original. Hand edits to out/*.json are also loaded silently (report.py:106-113), with no integrity hash, which makes invisible manual edits possible right now.
+3) Two verified data-quality bugs (run directly with Python). (a) An unparseable amount ('12.34,567') becomes None silently and the row stays 'ok'. (b) An invoice where every check is 'sin datos' is 'ok' with the green 'Sin avisos' dot. Both contradict parsing.py:52 and docs/brief-diseno.md:145-147, and estado=ok must never be mapped to 14 'Verified'.
+4) The manual-correction log is a hard dependency for the phase-1 exit metric (human correction rate under 5%, docs/arquitectura.md:265) and for 'tasa de anulacion humana' (arquitectura.md:296). The scoring.py comparators (scoring.py:60-105) should decide value equality so reformatting is not counted as a correction.
+
+CONFLICTS WITH THE SECURITY ARCHITECTURE
+a) IBAN. 'Correct extracted information' and 'Correct provider information' must never set or change a payment IBAN. Rule 1 (arquitectura.md:129): payments use the Exact master IBAN; the agent cannot change bank data; a new IBAN needs phone verification by a named person. The local master mirror is read-only (sistemas.md:99-105). Bank changes go only through section 19 'Confirm changed bank details', executed in Exact. F1-F4 must keep evaluating the ORIGINAL extracted IBAN whatever the overrides say, otherwise 'correcting' the IBAN to the known one makes an F3 alert disappear. Today's F3 reference is the earliest IBAN seen in documents (dashboard.py:497-505): that is history, not 'verified'.
+b) Overriding amounts, VAT, hours or period can make D2-D4 and B2-B4 pass. Overriding a value must not auto-resolve the warning (the list itself separates Resolve and Override in section 19). Checks should run on both original and effective values. Rule 7 (separation of duties): the person who corrects a payment-relevant field is not the one who approves the payment.
+c) Rule 9 (immutable snapshot) and BTW 'Filed'. Recalculating after an edit must not silently change a filed quarter or an issued outgoing invoice; it should create an exception or correction. Corrections to issued sales invoices are credit notes in Exact (V1: no invoice creation).
+d) Trust zones. document_notes (schema.py:122-128) is untrusted PDF text; 'Internal notes' and reasons are human text. Keep them as separate fields with separate rendering, and treat both as data if they are ever fed to an LLM.
+e) Write surface. The portal must never gain a write button (portal-consulta.md:160-163); editing belongs in an internal console behind Entra ID with 2FA, never a homemade login. Do not add edit endpoints to serve.py as it stands. It has no auth; its CORS check is a prefix match (serve.py:39, 169), so 'http://localhost.evil.example' passes (verified); and do_POST never checks Origin (serve.py:198-203), so a cross-site page could trigger paid runs and any future edit endpoint. I tried to queue this as a separate task, but the call timed out; it needs raising by hand.
+f) Who changed or viewed what is itself personal data subject to AVG and must be logged (portal-consulta.md:164).
+
+DOCS THAT OVERSTATE THE CODE
+- portal-consulta.md:133 and 175 say phase 0 keeps provenance 'linea a turno'. It doesn't: no shifts or planning data exist.
+- arquitectura.md:100-101 promises 'confianza por campo'. The code has an unvalidated list of field names.
+- validacion-facturas.md:70-72 says every evaluation is stored. Checks are recomputed and thrown away.
+
+AMBIGUITIES IN THE FEATURE LIST
+- Supplemented vs corrected (section 11) and Manually entered vs Manually corrected (section 13) need one definition. Proposed: supplemented = extracted value was null; corrected = extracted value non-null and differs by value. Also unclear whether fields with no extraction slot (PO, contact, date received) count as 'entered'.
+- 13 'Historical/master data' merges untrusted document history with trusted Exact master. It must be split, at least for IBAN.
+- 13 'Imported from system' overlaps 'Planning App'; the list doesn't say which systems count (Exact, bank, PO source).
+- 14 statuses: per field or per invoice? Mutually exclusive? (A field can be both Uncertain and Discrepancy.) Who sets Verified, a human or a rule? It also overlaps section 15 'Reviewed'.
+- 12 'Source of value' duplicates section 13; 12 'Date/time' doesn't say whether it means extraction, change or review time.
+- 10 'Re-run checks': automatic on save or manual? Does a passing re-run resolve the warning?
+- 10 'Change Object allocation': per invoice or per line, and can a line be split? There is no Object ID; location is free text from the PDF (schema.py:46-48).
+- 10 'Correct client/provider/contact': the invoice's link to a party, or the party's master record? The latter conflicts with Exact being the master.
+- 11 'Unresolved manual changes' is undefined (pending second approval?).
+- 12 'Document retained': retention period (7 years, arquitectura.md:356) vs AVG minimisation.
+- Outgoing invoices (section 2) don't exist in the repo, so every item in sections 10-14 applies to incoming invoices only today.
+
+- [missing] 10. Manual Data / Admin Editing :: Add missing information
+  - evidence: none. Every surface is read-only: panel is a static HTML with embedded JSON (panel.py:1-17, 402-504); serve.py exposes only GET /api/datos, GET /api/ejecucion and POST /api/ejecutar (serve.py:189-203); report.py renders a missing field as 'sin dato' (report.py:139-142) but offers no way to fill it. Closest relatives, neither of which supplements an invoice: ground_truth/respuestas.yaml holds hand-typed values used only for scoring (scoring.py:158-186); config/tarifas.yaml lets a human add an obra-to-client mapping (facturacion.py:67-109).
+  - gap: Needs an operational DB (none exists; extractions are loose JSON in out/), an override table keyed by (invoice_id, field_path incl. line index) with kind='supplemented' (extracted value null), value, user, timestamp and reason. Also needs an effective-value resolver (override > imported > extracted > calculated) that checks, panel and aggregates read instead of record['extraction'] (today read directly at dashboard.py:164, report.py:88, facturacion.py:139). Plus an authenticated internal edit UI and API. Fields with no slot in the extraction schema (PO, contact person, date received) need their own storage.
+  - external: none for the mechanism (human input). Needs a database and an identity provider (Entra ID per docs/portal-consulta.md:105), neither of which exists yet.
+- [missing] 10. Manual Data / Admin Editing :: Correct incorrectly extracted information
+  - evidence: none as a feature. The only paths today are destructive or invisible. (a) `bms-agent extract --force` (cli.py:49, 282) or a model/prompt/schema version change (serve.py:131-145) re-extracts and overwrites out/<sha12>.json (extract.py:52-58). (b) Hand-editing out/*.json, which load_records picks up with no integrity check or marker (report.py:106-113).
+  - gap: Same override layer as the previous item, with kind='corrected' (extracted value non-null and different by value, not by text). Reuse the scoring.py comparators (scoring.py:60-105) so '8.740,00' to '8740,00' is not counted as a correction. Extractions must become versioned and immutable before this is built, or a correction can be wiped by the next re-extraction. A hash of each stored record should detect out-of-band JSON edits.
+  - external: none (human input); needs a DB and an identity provider
+- [missing] 10. Manual Data / Admin Editing :: Change Object allocation
+  - evidence: none. The Object is only the free-text InvoiceLine.location copied from the PDF (schema.py:46-48), used as-is (dashboard.py:196, 434; facturacion.py:150). There is no Object entity or ID. Tangential: obra-to-client mapping in config/tarifas.yaml (facturacion.py:83-87) and in-memory obra-to-client edits in the simulator (simulador_assets.py:252), which are not persisted. Both change which client an object belongs to, not which object a line is allocated to.
+  - gap: Object master table (ID, name, client, aliases), a mapping from extracted location text to object_id, and a per-line allocation override (decide whether a line can be split across Objects). Recompute object, client and PO aggregates from the effective allocation.
+  - external: TRNSPRNT object list (planning export/API, format unknown per docs/sistemas.md:31-37)
+- [missing] 10. Manual Data / Admin Editing :: Add / correct PO
+  - evidence: none. There is no PO field anywhere in schema.py (InvoiceExtraction schema.py:60-128, InvoiceLine schema.py:32-57) and no PO entity.
+  - gap: PO entity (number, party, objects, dates, values); a PO reference at invoice and line level (extracted plus manual); a PO-allocation override with audit; and validation that the entered PO exists and belongs to the client/object.
+  - external: PO source (unknown system: client POs by email/PDF, Exact, or TRNSPRNT)
+- [missing] 10. Manual Data / Admin Editing :: Correct period of charge
+  - evidence: none as an edit. The period is extracted (schema.py:74-79, line-level 52-57) and filled in from line dates when the header has none (dashboard.py:142-159), with no edit path.
+  - gap: Override on service_period_start/end (header and per line), with the derived-from-lines value tagged 'system calculated'. B4/B3 (dashboard.py:293-395) and the ISO-week mapping (dashboard.py:643-673) must use the effective period, and keep the original for audit.
+  - external: none (TRNSPRNT needed only to check the corrected period)
+- [missing] 10. Manual Data / Admin Editing :: Correct client/provider/contact information
+  - evidence: none. Provider data is extracted only (supplier_name, address, kvk, vat_number at schema.py:63-70). There is no client entity (outgoing invoices don't exist), no contact-person field in the schema, and provider identity is derived on the fly from btw/kvk/name (dashboard.py:116-130).
+  - gap: Provider and client master tables mirrored read-only from Exact (docs/sistemas.md:99-105: 'el agente nunca cambia un dato maestro'), plus an invoice-level override that re-links the invoice to the right party or fixes its extracted name/address. Corrections to the party itself must happen in Exact. Bank details must be excluded from this path (arquitectura rule 1); see notes.
+  - external: Exact Online relations master (provider and client database, contact persons)
+- [missing] 10. Manual Data / Admin Editing :: Correct extracted hours
+  - evidence: none. Hours are read from line quantity_raw where unit starts with 'uur' (dashboard.py:88-103; facturacion.py:144-148). Read-only.
+  - gap: Line-level override on quantity, with original kept. Re-run D2b/D2 (checks.py:209-241, 50-77) and hours aggregates on the effective value. Show the planning hours next to it once G2 exists.
+  - external: TRNSPRNT planning export, to validate the corrected hours
+- [missing] 10. Manual Data / Admin Editing :: Correct extracted rates
+  - evidence: none for extracted cost rates (unit_rate_raw, schema.py:40-42). The simulator lets a user type SALE rates in browser memory only (simulador_assets.py:253, 277); config/tarifas.yaml holds agreed SALE rates (facturacion.py:89-100). Neither corrects the provider rate on an invoice.
+  - gap: Line-level override on unit_rate, with audit. G3 (dashboard.py:410-473) and D2b must evaluate both original and effective rates, plus an agreed-cost-rate master to compare against.
+  - external: agreed provider rate source (TRNSPRNT assignment rates or contracts); none for the mechanism itself
+- [missing] 10. Manual Data / Admin Editing :: Internal notes
+  - evidence: none. The only note-like field is document_notes (schema.py:122-128): UNTRUSTED text the LLM transcribed from the PDF, shown framed as document content (report.py:194-202; dashboard.py:172-173). It is not an internal note.
+  - gap: Separate internal_notes (invoice and optionally field/alert level), with author, timestamp and append-only history. Render visually distinct from document_notes, never merged into the same field.
+  - external: none (needs a DB and an identity provider)
+- [partial] 10. Manual Data / Admin Editing :: Re-run checks after changes
+  - evidence: Checks are pure functions recomputed from stored data on every build: construir_filas runs run_checks per record (dashboard.py:161-166); construir_datos rebuilds rows, cross-history alerts and propagation on every call (dashboard.py:735-741); GET /api/datos reloads out/ and recomputes per request (serve.py:189-192); the report runs run_checks per view (report.py:87-97). Any change to stored data is therefore reflected on the next build.
+  - gap: There is no change mechanism to trigger on, and checks read record['extraction'] directly rather than effective values. Results are ephemeral (CheckResult is in-memory, checks.py:25-34), although docs/validacion-facturas.md:70-72 requires each evaluation to be stored with rule, result and compared values. Needed: persisted check_result rows per evaluation run (inputs, original vs effective), re-run on save, and no automatic resolution of the warning when an edit makes a check pass.
+  - external: none for the mechanism. Planning and master checks (G1-G6, A2, E1, F2) need TRNSPRNT and Exact.
+- [partial] 10. Manual Data / Admin Editing :: Recalculate affected values after changes
+  - evidence: All derived values are recomputed from scratch on each build: por_mes, por_proveedor, matriz, por_regimen and totales (dashboard.py:735-810), the sales projection (facturacion.py:130-256), and in-browser re-aggregation on filter (panel_assets.py:236-250).
+  - gap: Nothing feeds it edits (no effective-value layer). Values the feature list cares about (cash flow, BTW quarter, PO consumption, object margin) don't exist yet. A recalculation must not silently change a BTW quarter with status 'Filed' or an issued outgoing invoice (arquitectura rule 9); it should create an exception or correction entry instead.
+  - external: none for the mechanism. Affected values depend on Exact, bank statements, the PO source and outgoing invoices.
+- [missing] 11. Manual Edit Visibility :: Invoice-level manual-edit indicator
+  - evidence: none. Panel row fields (dashboard.py:760-772) and contract (docs/integracion-web.md:116-128) have no edit flag.
+  - gap: has_manual_edits / edit_count derived from the override table, exported in the data contract and shown as a badge in panel and report.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Field-level manual-edit indicator
+  - evidence: none. report.py _field renders value or 'sin dato' only (report.py:139-142).
+  - gap: Per-field marker driven by override rows (field_path incl. line index), with a hover showing original value, editor, time and reason. Exported per field in the contract.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Manually supplemented indicator
+  - evidence: none
+  - gap: Marker for kind='supplemented' (extracted value null, human value added). The feature list needs a precise definition; see notes.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Manually corrected indicator
+  - evidence: none
+  - gap: Marker for kind='corrected' (extracted value non-null and different by value). Use the scoring.py comparators (scoring.py:93-103) for value equality.
+  - external: none
+- [partial] 11. Manual Edit Visibility :: Unresolved discrepancy indicator
+  - evidence: Per-invoice discrepancy flag exists: estado ok|revisar|critico with fallos/avisos (dashboard.py:61-63, 166-175) and cross-history alerts pushed back onto rows (dashboard.py:578-603). The panel shows a status dot with the reasons as tooltip (panel_assets.py:583-587), a reasons row (panel_assets.py:600-610) and a 'Solo con avisos' / 'Solo criticas' filter (panel_assets.py:242-243; panel.py:80).
+  - gap: There is no resolved state, so 'unresolved' cannot be told apart: every discrepancy reappears on every rebuild. Alerts have no stable ID (Alerta, dashboard.py:29-35) to hang a resolution on. Not tied to manual edits (e.g. an edit leaving original and effective values in conflict). Also 'ok' is assigned when checks were merely not evaluable; see notes. Needed: deterministic alert IDs (hash of rule + invoice set + compared values), an exception/resolution table, and an indicator computed from open exceptions.
+  - external: none
+- [partial] 11. Manual Edit Visibility :: Original value
+  - evidence: The extracted literal is stored (amounts kept as printed: schema.py:36-45, 85-96; record extract.py:26-50) and shown raw in the report (report.py:228-243). Today it is the only value, so original and current are the same.
+  - gap: No original-vs-current display, because there are no edits. The stored original is not durable: re-extraction overwrites the same file (extract.py:52-58; cli.py:49; serve.py:131-145). Needs immutable, versioned extractions and a UI that shows the original next to the override.
+  - external: none
+- [partial] 11. Manual Edit Visibility :: Current value
+  - evidence: Panel and report show the value in use (Fila built straight from the extraction at dashboard.py:183-208; report.py:228-243). It is always the extracted value.
+  - gap: No effective/current-value resolution (override > imported > extracted > calculated) and no paired display with the original.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Changed by
+  - evidence: none. No users, authentication or roles exist in code. serve.py has no auth (serve.py:163-203); the panel is a local file.
+  - gap: Authenticated identity (Entra ID OIDC, never a homemade login, per docs/portal-consulta.md:105-111) recorded on every override, review and resolution row. Separation of duties (arquitectura rule 7) needs this identity too.
+  - external: identity provider (Entra ID / M365)
+- [missing] 11. Manual Edit Visibility :: Date/time changed
+  - evidence: none for changes. Only the extraction timestamp exists (extracted_at, extract.py:34, 110).
+  - gap: UTC timestamp on each override and audit row, shown per field.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Reason/comment
+  - evidence: none
+  - gap: Mandatory reason on every override (at least for amounts, VAT, IBAN-adjacent, PO and Object fields), stored with the override and shown in the field hover and history.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Filter manually edited invoices
+  - evidence: none. Existing filters are period, provider, status and free text only (panel.py:69-86; panel_assets.py:231-250).
+  - gap: Filter on has_manual_edits in the panel/console and the export contract.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Filter manually supplemented invoices
+  - evidence: none (filters at panel_assets.py:236-250)
+  - gap: Filter on the existence of overrides with kind='supplemented'.
+  - external: none
+- [missing] 11. Manual Edit Visibility :: Filter unresolved manual changes
+  - evidence: none
+  - gap: Requires an override review state (e.g. pending second-person confirmation for payment-relevant fields) plus a filter on it. The feature list does not define what makes a manual change 'unresolved'.
+  - external: none
+- [partial] 12. Audit Trail :: Original extracted value
+  - evidence: Each extraction is stored with the literal values and provenance: source_sha256, source_name, model, prompt_version, schema_version, extracted_at, request_id and usage (extract.py:26-50, 52-58); versions in config.py:14-15.
+  - gap: Not immutable. The file name is derived from the document hash (extract.py:55), so a --force run (cli.py:49) or a model/prompt/schema change (serve.py:131-145) overwrites the previous extraction. out/ is gitignored loose JSON that anyone can edit or delete (.gitignore:4), against arquitectura rule 10 (append-only, Postgres trigger blocking UPDATE/DELETE, docs/arquitectura.md:138). Needed: an extraction table keyed by (document_sha, model, prompt_version, schema_version, run_id), never overwritten, plus a content hash per record.
+  - external: none
+- [partial] 12. Audit Trail :: Current value
+  - evidence: Only one value exists per field: the extracted one, shown in panel and report (dashboard.py:183-208; report.py:228-243).
+  - gap: Effective-value resolver over extraction, imports and overrides; the audit row stores old and new effective value for every change.
+  - external: none
+- [partial] 12. Audit Trail :: Source of value
+  - evidence: Record-level provenance only (extract.py:26-50), shown in the report footer: file, sha, model, prompt version, tokens (report.py:249-256). One per-value source tag exists: origen_tarifa tabla|margen on projected sale rates (facturacion.py:167-173, 185, 214), shown as a pill in the simulator (simulador_assets.py:277, 417) and documented as two confidence levels (docs/integracion-web.md:171-173).
+  - gap: Per-field source enum (see section 13) on every effective value, recorded in each audit row. Generalise the origen_tarifa pattern to all fields.
+  - external: none
+- [missing] 12. Audit Trail :: User who changed value
+  - evidence: none. No identity anywhere in src/bms_agent.
+  - gap: Authenticated user ID on every audit row; editor is not the same person as the payment approver (arquitectura rule 7, docs/arquitectura.md:135).
+  - external: identity provider (Entra ID)
+- [partial] 12. Audit Trail :: Date/time
+  - evidence: extracted_at UTC on each extraction (extract.py:34, 110), also used to group runs (coste.py:71-78). Run start/end exist in memory only (serve.py:54-55, 109-116).
+  - gap: Timestamps for every change, review and resolution event in an append-only audit table. Persist run records instead of in-memory state.
+  - external: none
+- [missing] 12. Audit Trail :: Change history
+  - evidence: none. Overwrite semantics (extract.py:55-58); no history table; out/ not versioned (.gitignore:4).
+  - gap: Append-only audit_event table (entity, field_path, old, new, source, user, ts, reason, hash-chained), with a per-invoice history view.
+  - external: none
+- [missing] 12. Audit Trail :: Review history
+  - evidence: none. No review state exists (estado is computed, dashboard.py:175).
+  - gap: Review events (Unreviewed / Needs Review / Reviewed per section 15) with user, time and comment, written to the audit log.
+  - external: none (identity provider)
+- [missing] 12. Audit Trail :: Warning resolution history
+  - evidence: none. Alerts are rebuilt on every call (dashboard.py:520-566) with no ID, status or persistence (dashboard.py:29-35).
+  - gap: Deterministic alert/exception IDs, an exception table (status, owner, resolution, notes per section 15), and resolution and override events in the audit log, linked to the values compared when the alert was raised.
+  - external: none
+- [partial] 12. Audit Trail :: Original invoice/document retained
+  - evidence: Documents are identified by SHA-256 of their bytes after a %PDF- check (documents.py:36-52). Hash and file name are stored in each record (extract.py:29-30) and shown in the report (report.py:249-251). The hash makes it possible to verify a retained PDF later.
+  - gap: The PDF is not copied anywhere: it stays in the user's facturas/ folder (gitignored, .gitignore:3) and can be moved, renamed or deleted, leaving source_name stale. No email message-id or date received (required by docs/arquitectura.md:93-95, 190-191), no link from panel to PDF, no versioned/encrypted object storage (arquitectura.md:386-387), no retention policy (7 years, arquitectura.md:356-357).
+  - external: mail ingestion (M365/Gmail admin mailbox) for message-id and date received; object storage; optionally Exact document attachments (docs/sistemas.md:113-115)
+- [partial] 13. Data Source / Provenance (per field) :: Extracted from invoice
+  - evidence: The whole record is an extraction, with record-level provenance (extract.py:26-50) and per-field LLM confidence via low_confidence_fields (schema.py:116-121).
+  - gap: No per-field source tag. Derived values are mixed in untagged: the period filled in from line dates (dashboard.py:142-159), Decimals parsed from raw text (dashboard.py:70-85), the provider identity key (dashboard.py:116-130). Needs source='extracted' plus a reference to the extraction version on each field.
+  - external: none
+- [missing] 13. Data Source / Provenance (per field) :: Imported from system
+  - evidence: none. No adapter to any company system; phase 0 has no credentials (README.md 'Estado'; docs/fase-0.md:6-8).
+  - gap: Import adapters (read-only mirror per docs/sistemas.md:99-105) with source='imported:<system>', import run ID and timestamp per value.
+  - external: Exact Online API (relations, bank accounts, GL, VAT codes, outgoing invoices, payment status); bank statements (CAMT.053/MT940 as files; arquitectura forbids bank API access, docs/arquitectura.md:234)
+- [missing] 13. Data Source / Provenance (per field) :: Planning App
+  - evidence: none. G-group checks don't exist; the 'G3' in dashboard.py:410-419 is a history-only rate-change rule that its own docstring says cannot check against the planning. No shifts are stored, contrary to docs/portal-consulta.md:175.
+  - gap: TRNSPRNT ingestion (export to staging, read-only), a shift/hours snapshot model (arquitectura rule 9 and §5), and source='planning' with snapshot hash on hours, period and object values.
+  - external: TRNSPRNT export/API (unknown format, docs/sistemas.md:31-37)
+- [partial] 13. Data Source / Provenance (per field) :: Historical/master data
+  - evidence: History-derived reference values exist: the earliest-seen IBAN per provider as 'habitual' (dashboard.py:476-517, esp. 497-505) and the earliest-seen rate as reference for G3 (dashboard.py:455-459). A human-maintained master exists in config/tarifas.yaml (obra-to-client and agreed sale rates, facturacion.py:67-109), tagged 'tabla' when used (facturacion.py:167-170).
+  - gap: No Exact master-data mirror and no per-field tag. History (derived from earlier, untrusted documents) and master (trusted, verified) must be separate provenance values, especially for IBAN; see notes.
+  - external: Exact Online provider/client master (IBAN of record with verifier and date, VAT regime, KvK); TRNSPRNT objects
+- [missing] 13. Data Source / Provenance (per field) :: Manually entered
+  - evidence: none for invoice fields. Only config/tarifas.yaml and ground_truth YAML are hand-typed, and neither feeds invoice field values (scoring.py:150-155).
+  - gap: source='manual_entered' on supplemented overrides, with user, time and reason.
+  - external: none
+- [missing] 13. Data Source / Provenance (per field) :: Manually corrected
+  - evidence: none
+  - gap: source='manual_corrected' on correcting overrides, keeping a pointer to the superseded value and its source.
+  - external: none
+- [partial] 13. Data Source / Provenance (per field) :: System calculated
+  - evidence: Many calculated values exist: parsed amounts (parsing.py:41-95), hours sums (dashboard.py:88-103), derived period (dashboard.py:142-159), ISO weeks (dashboard.py:643-673), expected VAT (checks.py:118), margin-based sale rate (facturacion.py:171-173). Only the last one is tagged ('margen', facturacion.py:173, 214).
+  - gap: source='calculated' plus the formula/rule ID and its inputs' sources on every derived field. Flag in particular the period derived from lines, which today looks identical to an extracted header period.
+  - external: none
+- [partial] 14. Data Quality :: Missing
+  - evidence: Checks separate 'sin datos' (not evaluable) from 'fallo' (checks.py:7-9, 29; plus 'no aplica' at checks.py:100). Missing critical fields (supplier, number, date, total) fail (checks.py:145-163). The report shows 'sin dato' per field and lists 'sin datos' checks (report.py:139-142, 168-178).
+  - gap: Only 4 fields are covered, not the feature-list set (payment deadline, VAT ID per A5, period per C2, PO, contact). 'sin datos' never reaches the panel, because only failed checks are collected (dashboard.py:166). Verified: an invoice with no lines, VAT data or IBAN gets estado 'ok' with no reasons. Needs a per-field quality status, required-field rules per invoice type, and panel/contract exposure.
+  - external: none (outgoing invoices and the PO source for their fields)
+- [partial] 14. Data Quality :: Uncertain
+  - evidence: The LLM self-reports low_confidence_fields (schema.py:116-121; prompts.py:37-38). It surfaces as a 'Lectura dudosa' warning setting estado 'revisar' (dashboard.py:169-175; report.py:59-61), tested in tests/test_dashboard.py:211-238.
+  - gap: (a) Self-reported by the untrusted zone, as free strings never checked against schema field names. (b) Parse ambiguity is not flagged: ParseError becomes None silently (dashboard.py:70-85). Verified: total '12.34,567' gives total=None and estado 'ok', contradicting parsing.py:52 ('la factura se queda en la cola de revision'). Needs deterministic uncertainty (parse failure, field-name validation) as a per-field status.
+  - external: none
+- [partial] 14. Data Quality :: Discrepancy
+  - evidence: Arithmetic checks: D2 (checks.py:50-77), D2b (checks.py:209-241), D3/E4 (checks.py:83-124), D4 (checks.py:127-142), F1 (checks.py:195-206). Cross-history: B2 (dashboard.py:318-330), F3 (dashboard.py:476-517), G3 history-only (dashboard.py:410-473). Results go into fallos/avisos and estado.
+  - gap: No checks against planning (G1-G6), master (A2, E1, F2), PO or VIES/KvK (A4, A6). Discrepancies are free-text reasons per invoice (dashboard.py:166), not structured per-field statuses with compared values (required by docs/validacion-facturas.md:70-72).
+  - external: TRNSPRNT; Exact master; PO source; VIES/KvK
+- [partial] 14. Data Quality :: Anomaly
+  - evidence: Cross-history anomaly rules: B3 content duplicate (dashboard.py:332-358), B4 overlapping periods (dashboard.py:362-395), F3 multiple IBANs (dashboard.py:476-517), G3 rate change (dashboard.py:410-473), all tested in tests/test_dashboard.py.
+  - gap: No unusual-amount rule, E2 regime change, E5 KOR accumulation or H1 dependency pattern. No anomaly category separate from discrepancy: everything collapses into severity critico/revisar ('aviso' is defined at dashboard.py:26 but never emitted).
+  - external: none for history-based rules; TRNSPRNT for H1
+- [missing] 14. Data Quality :: Verified
+  - evidence: none. estado 'ok' (dashboard.py:175) means only 'no failed check' and is shown as 'Sin avisos' (panel_assets.py:587). Verified case: when every check is 'sin datos', the row is still 'ok', contradicting docs/brief-diseno.md:145-147.
+  - gap: A Verified status set only by human review (who and when) or by a deterministic match against a trusted source (master IBAN, planning hours). Never map estado=ok to Verified. Add a separate 'not evaluable' state.
+  - external: Exact master and TRNSPRNT for system verification; identity provider for human verification
+
+## Sections 15 (Review / Exception Management), 16 (Priority / Criticality), 19 (Permissions), 20 (Integrations / Data Sources) and 21 (V1 Scope)
+
+Notes: Scope and method: I read every module in src/bms_agent, all tests and all docs. I could not run the suite because pytest is not installed in this environment. Nothing in the repo was modified.
+
+1. Foundation every gap depends on. Sections 15, 16 and 19 all need three things the repo does not have:
+(a) Persistence. All state is recomputed from out/*.json on every run (report.py:106-113 -> dashboard.py:735-741).
+(b) Stable identifiers. Invoices and alerts are keyed by source_name (dashboard.py:185, 329), not by sha256 or the arch rule-8 content hash, so renaming a PDF would orphan any stored review or exception.
+(c) User identity.
+Suggested build order: DB with stable ids and users -> exception entity with deterministic ids -> review states -> priority engine -> permissions.
+
+2. Machine status vs human state. _propagar_alertas_a_filas mutates Fila.estado in place (dashboard.py:578-603). Review and exception state must live in separate fields and never overwrite the machine finding. 'Reviewed' and 'Resolved' must be invalidated when the evaluated values or the rule, prompt or schema versions change.
+
+3. 'ok' is not 'verified'. Rules that return 'sin datos' do not count as failed, so an invoice with no IBAN, VAT or period still gets estado 'ok' and a green 'Sin avisos' dot (dashboard.py:166, 175; panel_assets.py:587). That contradicts brief-diseno.md:145-147, and it matters both for mapping to 'Normal' and for the Data Quality 'Verified' state.
+
+4. Three inconsistent severity scales.
+- Catalogue: Bloqueo / Retencion / Aviso (validacion-facturas.md:64-68).
+- Code: critico / revisar, with 'aviso' declared but never emitted (dashboard.py:26).
+- Feature list: Normal / Attention / Urgent / Blocked.
+B4 is 'Retencion' in the catalogue but critico in code (dashboard.py:390). The feature list mixes criticality (rule outcome, which gates actions) with priority (urgency from deadline, amount and age). Recommendation: keep two fields, a gate {Blocked, Hold, Clear} driven by rules and a priority {Normal, Attention, Urgent} computed deterministically, each with its list of reasons.
+
+5. Conflicts with the security architecture.
+- Verified IBAN. F3 uses the oldest IBAN found in documents as its reference (dashboard.py:497-505). That is document-sourced, contrary to rule 1 (arquitectura.md:129): a fraudulent first invoice becomes the reference. A genuine change stays critical forever (test_dashboard.py:357-373), because no verification can be recorded. The feature list's 'Historical / verified IBAN' must mean the Exact master plus a human verification record, not extraction history.
+- 'Confirm changed bank details' can only record a verification. The agent must never write bank data to Exact or to its mirror (arquitectura.md:129; sistemas.md:104-105).
+- 'Override warning' cannot apply to the PARADA IBAN rules F1-F4 (validacion-facturas.md:181-183).
+- 'Bank / payment data' conflicts with arquitectura.md:130 and 234 (no bank access, not even read). Payment status must come from Exact or from statement files a person uploads.
+- 'Mark invoice paid', 'Resolve' and 'Override' must never amount to payment approval, and need separation of duties (rule 7).
+- 'Waiting External' follow-ups may only produce drafts to whitelisted master-data addresses (rule 4).
+- Admins must not be able to bypass the append-only audit log (rule 10) or disable PARADA rules.
+- The static panel embeds full IBANs (panel.py:146). Role-based viewing needs filtering on the server (portal-consulta.md:88-90).
+- Do not add write endpoints to serve.py:
+  - No authentication.
+  - The prefix-match CORS check (serve.py:39, 169) accepts http://localhost.attacker.example; I verified this.
+  - No Host-header check, so DNS rebinding is possible.
+  - POST /api/ejecutar is a simple request any website can fire (CSRF), which triggers paid extraction of any new PDFs.
+  Edits and approvals belong in an internal tool authenticated with Entra ID, never in the portal (portal-consulta.md:160-163).
+
+6. Roadmap vs V1 scope. arquitectura.md phases 1-3 include writing bookings into Exact, sales-invoice drafts with later automatic sending, and SEPA payment files. V1 excludes invoice creation, drafts and payment execution, and the feature list does not say whether V1 writes anything to Exact (arch phase 1). This needs a decision, and arquitectura.md section 7 and README.md:3-6 need updating.
+
+7. Hidden couplings.
+- Adding schema fields (PO, currency, contact, payment terms, date received) bumps SCHEMA_VERSION (config.py:15), which invalidates the cache (cache.py:34-45) and forces a paid re-extraction of every document. Batch schema changes together.
+- parse_amount silently strips the dollar and pound symbols and 'usd' (parsing.py:24, 57), so 'EUR only' is not enforced.
+- Every current aggregate excludes VAT (integracion-web.md:181-185), but cash flow needs totals including VAT.
+- The 'IVA soportado' tile under-counts reverse-charged input VAT.
+- If TRNSPRNT self-bills provider invoices (sistemas.md:39-54), incoming invoices for those providers should be imported as structured data rather than read by the LLM, and the hours/planning check is met by construction.
+
+8. Ambiguities in the feature list.
+- Review status: is it per invoice or per exception? Can an invoice be 'Reviewed' while exceptions are still open?
+- 'Waiting External': waiting on whom (provider, client, accountant)?
+- The difference between 'Resolve' and 'Override', and which warnings can be overridden.
+- 'Admin permissions' is not defined.
+- 'Cancel / credit invoice' vs 'No invoice creation': does it only link an existing credit note?
+- 'Automated reconciliation': reconciled against what (planning, bank, PO, Exact)?
+- With 'No partial-payment workflow', how is a partially paid invoice displayed?
+- PO source and type: client-issued POs vs provider POs.
+- Which system is master for client and provider data, Exact or TRNSPRNT (sistemas.md:117-121)?
+- 'Object' (TRNSPRNT site id) vs the current free-text 'obra/location'.
+- What counts as evidence for 'Human verification' (arch says a phone call-back to the number already on file).
+- Precedence of 'Mark invoice paid' over imported payment status.
+- 'Priority' appears both as an exception field (section 15) and as an invoice-level scale (section 16) without saying how the two relate.
+
+- [missing] 15 Review / Exception Management - Review Status :: Unreviewed
+  - evidence: none. The closest thing is the computed per-run status Fila.estado ok|revisar|critico (src/bms_agent/dashboard.py:61, 175), which describes machine findings, not human review. No per-invoice state is persisted: records are reloaded from out/*.json on every run (src/bms_agent/report.py:106-113 -> src/bms_agent/dashboard.py:735-741).
+  - gap: Needs a persistent invoice record (a DB; today there are only loose JSON files) with review_status defaulting to Unreviewed at ingest. It must be keyed by a stable id (sha256 plus the arch rule-8 content hash), not by source_name as today (dashboard.py:185). It must be stored apart from the machine status so 'ok' (no findings) is never read as reviewed. Re-extraction (--force, src/bms_agent/cli.py:49) or a manual edit must reset it.
+  - external: none (internal persistence, e.g. Postgres per docs/arquitectura.md:384-389)
+- [partial] 15 Review / Exception Management - Review Status :: Needs Review
+  - evidence: Derived flag only. src/bms_agent/dashboard.py:166-175 sets estado='revisar' (low_confidence_fields, document_notes) or 'critico' (failed checks). dashboard.py:578-603 propagates the cross-history alerts B2/B3/B4/F3/G3 into the row. Panel filters 'Solo con avisos'/'Solo criticas': src/bms_agent/panel.py:80-84 and src/bms_agent/panel_assets.py:242-243. Tile 'Por revisar': panel_assets.py:263-276. totales.por_revisar: dashboard.py:805. Tests: tests/test_dashboard.py:211-262.
+  - gap: Recomputed statelessly on every run. A human cannot set it (e.g. 'client disputes hours'), no review can clear it, and it keeps no history. Needs a stored review_status that moves Unreviewed -> Needs Review (set by rules or by hand) -> Reviewed, and re-opens on its own when new findings appear or data changes.
+  - external: none
+- [missing] 15 Review / Exception Management - Review Status :: Reviewed
+  - evidence: none. serve.py has only GET /api/datos, GET /api/ejecucion and POST /api/ejecutar (src/bms_agent/serve.py:189-203). The panel is a static file with the data embedded (src/bms_agent/panel.py:146). There is no user identity anywhere.
+  - gap: Needs a write path in an authenticated internal tool (not serve.py, and not the read-only portal: docs/portal-consulta.md:160-163) to mark an invoice Reviewed. Each review stores reviewer, timestamp and a hash of the data and rule versions it covered, so any later change invalidates it. Depends on users (section 19) and an append-only audit log (docs/arquitectura.md:138, rule 10).
+  - external: Identity provider for reviewer identity (Microsoft Entra ID via OIDC, docs/portal-consulta.md:103-115)
+- [partial] 15 Review / Exception Management - Exception Status :: Open
+  - evidence: Alerta dataclass (severidad, regla, titulo, detalle, facturas) in src/bms_agent/dashboard.py:29-35, built by construir_alertas (dashboard.py:520-566), serialized as 'alertas' (dashboard.py:793-797) and drawn in the panel's 'Revisar' block (src/bms_agent/panel_assets.py:486-528).
+  - gap: Every alert is open by default, but it is a temporary finding regenerated each run: no stable id, no status field, no persistence, no timestamps. Needs an Exception entity (docs/arquitectura.md:205-206: tipo, gravedad, a que se refiere, quien la resolvio). Its id should be deterministic (rule + affected invoice ids + compared values), so re-running checks updates the same exception instead of duplicating it. Status starts at Open.
+  - external: none
+- [missing] 15 Review / Exception Management - Exception Status :: Assigned
+  - evidence: none
+  - gap: Needs an owner (user id), assigned_at and the Assigned status on the persisted exception. Requires a user directory and the exception entity.
+  - external: Identity provider / user directory (Entra ID)
+- [missing] 15 Review / Exception Management - Exception Status :: Waiting External
+  - evidence: none
+  - gap: Needs the status, a record of who is being waited on (provider, client, accountant, TRNSPRNT), and a follow-up date. Any 'ask the provider' action may only create an email draft to an address from master data. It must never send automatically or reply to the address in the inbound mail (docs/arquitectura.md:132, rule 4).
+  - external: Provider/client contact addresses from master data (Exact Online accounts/contacts) for the whitelist
+- [missing] 15 Review / Exception Management - Exception Status :: Resolved
+  - evidence: none. An alert only disappears if the underlying JSON changes. After a genuine bank change, every later invoice stays critical forever: tests/test_dashboard.py:357-373 asserts n0..n3 are all flagged, and src/bms_agent/dashboard.py:497-505 always takes the oldest IBAN as the reference.
+  - gap: Needs resolution records (resolved_by, resolved_at, resolution type, notes). A resolution suppresses one exception instance (by its deterministic id) without deleting it, and re-opens if the facts change (e.g. a third IBAN appears). For the F (IBAN) rules, resolving requires the bank-detail verification record from section 19, not just a click.
+  - external: none (for F3: Exact Online supplier bank-account master)
+- [partial] 15 Review / Exception Management - Exception Fields :: Issue
+  - evidence: Alerta.regla/titulo/detalle: src/bms_agent/dashboard.py:31-34. Per-invoice fallos/avisos/motivos: dashboard.py:62-67, 166-173. Rule outputs: B2 dashboard.py:326-330, B3 352-358, B4 389-394, G3 465-472, F3 510-516. CheckResult(rule,label,status,detail): src/bms_agent/checks.py:26-34.
+  - gap: The issue is free Spanish text plus a rule code. Per-invoice failures are regrouped under regla 'D', and warnings under '-' (dashboard.py:535-536), so the real rule id (D2/D2b/D3/D4/E4/F1/A-B-C) is lost. Needs an issue_type enum per catalogue rule, the compared values stored as structured data (docs/validacion-facturas.md:70-72), and links to invoices by stable id rather than file name.
+  - external: none
+- [partial] 15 Review / Exception Management - Exception Fields :: Priority
+  - evidence: Alerta.severidad critico|revisar|aviso: src/bms_agent/dashboard.py:26, 31. Sorted by severity: dashboard.py:564-565. 'aviso' is declared but never produced; only 'critico' and 'revisar' are emitted (dashboard.py:327, 353, 390, 466, 511, 535-536).
+  - gap: Severity is hard-wired per rule. There is no priority field on an exception, no mapping to Normal/Attention/Urgent/Blocked, and no manual override. See section 16.
+  - external: none
+- [missing] 15 Review / Exception Management - Exception Fields :: Owner
+  - evidence: none
+  - gap: Needs an owner field linked to a user directory, plus reassignment history in the audit log.
+  - external: Identity provider / user directory (Entra ID)
+- [missing] 15 Review / Exception Management - Exception Fields :: Date created
+  - evidence: none for exceptions. The extraction does carry ExtractionRecord.extracted_at (src/bms_agent/extract.py:34, 110), which could seed a first-detected date.
+  - gap: Needs created_at (first detection) and last_seen_at on the persisted exception. Not possible while alerts are recomputed from scratch each run.
+  - external: none
+- [missing] 15 Review / Exception Management - Exception Fields :: Follow-up date
+  - evidence: none
+  - gap: Needs a follow_up_at field and a scheduled job that brings due follow-ups into 'Attention Required'. Notifications should go only through a low-risk channel kept outside the money path (docs/mcp-setup.md:258-277).
+  - external: none
+- [missing] 15 Review / Exception Management - Exception Fields :: Resolution
+  - evidence: none
+  - gap: Needs a resolution enum (corrected / credit note received / confirmed legitimate / false positive / overridden), plus resolved_by and resolved_at. Override must be limited to rules that can be overridden (see 19 'Override warning').
+  - external: none
+- [missing] 15 Review / Exception Management - Exception Fields :: Resolution notes
+  - evidence: none
+  - gap: Needs free-text notes stored append-only, rendered as escaped text like other untrusted text (src/bms_agent/panel.py:10-12 pattern), and never fed into the LLM extraction context.
+  - external: none
+- [partial] 16 Priority / Criticality :: Normal
+  - evidence: Fila.estado 'ok' (src/bms_agent/dashboard.py:61, 175), shown as a green dot with 'Sin avisos' (src/bms_agent/panel_assets.py:583-587).
+  - gap: 'ok' only means no machine finding. A rule that returns 'sin datos' does not count as failed (dashboard.py:166), so an invoice with no IBAN, VAT or period can be 'ok'. That contradicts docs/brief-diseno.md:145-147 ('nada verde que no se haya comprobado'). Needs a separate priority field, and Normal should require the gating rules to have actually been evaluated.
+  - external: none
+- [partial] 16 Priority / Criticality :: Attention
+  - evidence: estado/severidad 'revisar': src/bms_agent/dashboard.py:175 (low confidence, document_notes), B3 dashboard.py:353, G3 dashboard.py:466, propagated in dashboard.py:599-603.
+  - gap: This is a rule severity, not a priority. It takes no time, amount or planning inputs. A mapping from rule outcome to priority is needed.
+  - external: none
+- [missing] 16 Priority / Criticality :: Urgent
+  - evidence: none. Nothing compares today's date with due_date; 'vencimiento' is only displayed (src/bms_agent/dashboard.py:205, src/bms_agent/panel_assets.py:542).
+  - gap: Needs a deterministic priority engine with thresholds held as versioned config (docs/validacion-facturas.md:231-233). Example triggers: due within N days with an unresolved exception, overdue by more than X days, changed IBAN on an invoice due soon, amount above the double-signature threshold (docs/arquitectura.md:135, rule 7).
+  - external: Payment status (Exact Online outstanding payables/receivables) to know whether a due invoice is still unpaid
+- [partial] 16 Priority / Criticality :: Blocked
+  - evidence: 'critico' means 'no pagar sin revisar' (src/bms_agent/panel_assets.py:276; src/bms_agent/dashboard.py:62). It is emitted for failed D/E4/F1/required-field checks (dashboard.py:166, 175, 535) and for B2/B4/F3 (dashboard.py:327, 390, 511). Tests: tests/test_dashboard.py:195-203, 254-262.
+  - gap: A label only: nothing is actually blocked, because no payment or booking path exists. The mapping also differs from the catalogue. B4 is 'Retencion' (docs/validacion-facturas.md:113) but is emitted as critico. The 'Bloqueo' rules C2, D1, A5 and F2 are not implemented, so an invoice with no period or no matching master IBAN is not Blocked. Needs a gate state, separate from priority, that any future payment proposal or Exact booking must consume, using the catalogue's Bloqueo/Retencion/Aviso per rule.
+  - external: Exact Online supplier master (for F2)
+- [partial] 16 Priority / Criticality - Priority Inputs :: Payment deadline
+  - evidence: due_date is extracted (src/bms_agent/schema.py:114), carried to Fila.vencimiento (src/bms_agent/dashboard.py:60, 205) and exported (dashboard.py:768). Shown in the 'Vence' column (src/bms_agent/panel_assets.py:542).
+  - gap: Kept as a raw string: never parsed or used in any calculation. There is no payment-terms field (schema.py:60-128), so no fallback from invoice_date + terms. The due date printed on the document should be treated as untrusted (an unusually short deadline is a pressure tactic); the authoritative due date comes from the Exact entry or supplier payment condition. Nothing exists for outgoing invoices.
+  - external: Exact Online (purchase entry due date / supplier payment condition; sales invoice due date)
+- [missing] 16 Priority / Criticality - Priority Inputs :: Days overdue
+  - evidence: none
+  - gap: Needs a parsed due date, a paid/outstanding status and an as-of date. Paid status cannot come from a bank connection (docs/arquitectura.md:130, 234). It must come from Exact outstanding items or a bank statement file uploaded by a person.
+  - external: Exact Online payables/receivables, or a human-uploaded bank statement (CAMT.053/MT940)
+- [partial] 16 Priority / Criticality - Priority Inputs :: Invoice amount
+  - evidence: total/base/iva are parsed to Decimal (src/bms_agent/dashboard.py:200-202; src/bms_agent/parsing.py:41-95). Used only for the B3 equality test (dashboard.py:342) and for aggregates.
+  - gap: No amount threshold affects severity or priority. There is no 'unusual amount' check against the provider's typical amount, and no double-signature threshold (rule 7; the value is still open, docs/arquitectura.md:408). Needs configurable thresholds and a per-provider baseline (e.g. median/IQR of base).
+  - external: none (threshold is a business decision)
+- [missing] 16 Priority / Criticality - Priority Inputs :: Planning discrepancy
+  - evidence: none. Rules G1-G6 (docs/validacion-facturas.md:185-206) are not implemented. G3 exists only as a rate change between invoices, without planning data (src/bms_agent/dashboard.py:410-473). The week matrix says explicitly that it works without planning (dashboard.py:676-683).
+  - gap: Needs a planning import (shift: worker, object, date, ISO week, hours, rate, surcharge), matching of invoice lines to shifts, a tolerance policy as config (docs/validacion-facturas.md:203-206, 235-242), and G1/G2/G4/G5/G6 results feeding priority.
+  - external: TRNSPRNT export/API (format unknown, docs/sistemas.md:31-37)
+- [partial] 16 Priority / Criticality - Priority Inputs :: Changed IBAN
+  - evidence: F3 detectar_ibanes in src/bms_agent/dashboard.py:476-517 (critico, propagated in dashboard.py:578-603). F1 mod-97 in src/bms_agent/checks.py:178-206. Tests: tests/test_dashboard.py:111-129, 241-252, 283-297, 357-373.
+  - gap: The reference is the oldest IBAN seen in extracted documents, so it comes from documents. That is contrary to docs/arquitectura.md:129 (rule 1: compare against the Exact supplier master). If the first invoice ever received was fraudulent, the fraud becomes the reference. F2 (match master) and F4 (third party/factoring) are missing, and a verified change can never be cleared. Needs a master mirror of supplier bank accounts, F2/F3 against it, and a verification record.
+  - external: Exact Online supplier accounts and bank accounts (daily read-only mirror, docs/sistemas.md:99-105); possibly TRNSPRNT zzp bank data (docs/sistemas.md:117-121)
+- [implemented] 16 Priority / Criticality - Priority Inputs :: Duplicate invoice
+  - evidence: B2 in src/bms_agent/dashboard.py:318-330 (critico). B3 in dashboard.py:332-358 (revisar; 14-day window dashboard.py:24; period-overlap guard dashboard.py:293-304). Both feed row status via dashboard.py:578-603. Byte-identical resends are deduplicated by sha256 (src/bms_agent/cache.py:48-75). Tests: tests/test_dashboard.py:49-90, 254-262, 392-407.
+  - gap: Works only over the documents in out/, and only feeds the 2-level severity, not a priority score. Still missing: duplicates against invoices already booked in Exact (the catalogue's 'historial', docs/validacion-facturas.md:84, 111); duplicates across identity keys (the same supplier keyed once by btw-id and once by name, dashboard.py:116-130); and the arch rule-8 content hash.
+  - external: Exact Online purchase entries (to check duplicates against booked history)
+- [missing] 16 Priority / Criticality - Priority Inputs :: Missing billing
+  - evidence: none. The provider x ISO-week matrix (src/bms_agent/dashboard.py:676-732) shows weeks with no incoming provider invoice, which is not the same as missing client billing.
+  - gap: Needs outgoing invoices plus planned or realised hours per client/object/period. Rule: hours exist in a period with no outgoing invoice line covering them (docs/arquitectura.md:172-178).
+  - external: TRNSPRNT (realised hours) and Exact Online sales invoices
+- [missing] 16 Priority / Criticality - Priority Inputs :: Unbilled work
+  - evidence: facturacion.proyectar (src/bms_agent/facturacion.py:130-256) projects billable value from purchase invoices. It is explicitly a projection (facturacion.py:7-22), is never compared with issued invoices, and does not feed severity.
+  - gap: Needs a comparison per object/period of planned (or provider-invoiced) hours against client-billed hours, excluding non-billable concepts (facturacion.py:63-64). The result should be an exception that feeds priority.
+  - external: TRNSPRNT and Exact Online sales invoices
+- [missing] 16 Priority / Criticality - Priority Inputs :: PO limit
+  - evidence: none. The schema has no PO or order-reference field (src/bms_agent/schema.py:60-128).
+  - gap: Needs a PO entity with value and consumption, linking of invoices to POs, and a threshold rule (e.g. 80/100%) that feeds priority.
+  - external: PO source (undefined: client-issued POs, TRNSPRNT inkoop module, or Exact)
+- [missing] 16 Priority / Criticality - Priority Inputs :: PO expiration
+  - evidence: none
+  - gap: Needs PO start/end dates and a 'days to expiry' rule that feeds priority.
+  - external: PO source (undefined)
+- [partial] 16 Priority / Criticality - Priority Inputs :: VAT discrepancy
+  - evidence: D3 (VAT amount vs base x rate) and E4 (VAT charged under reverse charge or KOR) in src/bms_agent/checks.py:83-124 (E4 branch checks.py:91-102). Failures become critico via src/bms_agent/dashboard.py:166, 175. Tests: tests/test_parsing.py:113-135.
+  - gap: Not implemented: E1 (rate vs the provider's registered regime, needs master), E2 (regime changed since the previous invoice, computable from history today), E3, E5 (KOR threshold) and A5 (btw-id format). vat_regime 'unknown' is not flagged. Invoices with several VAT rates cannot be represented (single vat_rate_raw, schema.py:88-90). Nothing exists on the output-VAT side.
+  - external: Exact Online VAT codes and supplier VAT regime (for E1); accountant confirmation of the E rules (docs/validacion-facturas.md:10-12)
+- [implemented] 16 Priority / Criticality - Priority Inputs :: Other anomaly
+  - evidence: These feed row status today: G3 rate change (src/bms_agent/dashboard.py:410-473), B4 overlapping periods (dashboard.py:362-395), F1 invalid IBAN (src/bms_agent/checks.py:195-206), D2/D2b/D4 arithmetic (checks.py:50-77, 127-142, 209-241), low-confidence fields and injected document text (dashboard.py:168-173). Tests: tests/test_dashboard.py:93-174, 451-474.
+  - gap: They only feed the 2-level severity, with weights fixed in code. Missing: the 'unusual invoice amount' anomaly and any configurable weighting into a priority score.
+  - external: none
+- [implemented] 16 Priority / Criticality - Priority Inputs :: Reason for priority
+  - evidence: Fila.motivos = fallos + avisos (src/bms_agent/dashboard.py:62-67, 166-173). Propagated cross-history reasons carry the rule code (dashboard.py:594-603). Exported as 'motivos' (dashboard.py:768; data contract docs/integracion-web.md:125-126). Shown in the row tooltip and sub-row (src/bms_agent/panel_assets.py:587, 609) and in the CSV (panel_assets.py:792).
+  - gap: It explains the current 2-level status only. Once priority takes time/amount/planning/PO inputs, each contributing factor must be listed with its value (e.g. 'due in 2 days', 'amount > threshold'). The reasons include third-party text, so keep rendering them with textContent.
+  - external: none
+- [missing] 19 Permissions :: View invoices
+  - evidence: No authentication or authorization anywhere. src/bms_agent/serve.py:221 binds to 127.0.0.1, then returns everything, including full document IBANs, to any caller (serve.py:189-192). The CORS check is a prefix match, origen.startswith(('http://localhost','http://127.0.0.1')) (serve.py:39, 167-172). I verified that 'http://localhost.attacker.example' passes it, so such a page can read /api/datos from the admin's browser. There is no Host-header check either (DNS rebinding). The panel and report embed all data in local files (src/bms_agent/panel.py:146; src/bms_agent/report.py:261-388).
+  - gap: Needs an authenticated internal app with roles (docs/portal-consulta.md:79-86), filtering on the server (masking in the browser is not masking, portal-consulta.md:88-90), logging of every read (portal-consulta.md:164-165), and short-lived signed URLs for original PDFs (portal-consulta.md:129-131). Even for dev, serve.py's origin check should match scheme://host:port exactly and check the Host header.
+  - external: Identity provider (Microsoft Entra ID via OIDC, docs/portal-consulta.md:103-115)
+- [missing] 19 Permissions :: Edit extracted information
+  - evidence: none. The extraction JSON is written once per sha256 (src/bms_agent/extract.py:52-59) and silently overwritten on --force (src/bms_agent/cli.py:49), which loses the previous version.
+  - gap: Needs an overlay model: the original extracted value stays immutable, alongside the current value, provenance, editor and reason, all behind a permission check. An edit re-runs the checks. An edited IBAN must never feed a payment (rule 1: the payment IBAN comes only from master). Edits to provider data must not write to the Exact master (docs/sistemas.md:104-105).
+  - external: Identity provider
+- [missing] 19 Permissions :: Add missing information
+  - evidence: none (fields are nullable by design, src/bms_agent/schema.py:1-10, but nothing can fill them afterwards)
+  - gap: Same overlay as for edits, with provenance 'manually supplemented' kept distinct from 'manually corrected', and a permission separate from editing. Adding a value must trigger re-evaluation of rules that were 'sin datos'.
+  - external: Identity provider
+- [missing] 19 Permissions :: Change Object allocation
+  - evidence: The object is only the free-text line 'location' (src/bms_agent/schema.py:46-48). The object-to-client mapping is edited by hand in config/tarifas.yaml (src/bms_agent/facturacion.py:67-109; config/tarifas.ejemplo.yaml:12-20) by anyone with file access. Lines cannot be reallocated individually.
+  - gap: Needs an object master, a per-line allocation record (original vs current, by whom, why), a permission check, and recalculation of per-object costs and margins.
+  - external: TRNSPRNT object list (to validate allocations); identity provider
+- [missing] 19 Permissions :: Change PO allocation
+  - evidence: none (no PO concept in the schema, src/bms_agent/schema.py:60-128)
+  - gap: Needs a PO entity, invoice/line-to-PO links, a permission check, and recalculation of PO consumption.
+  - external: PO source (undefined); identity provider
+- [missing] 19 Permissions :: Mark invoice paid
+  - evidence: none (no payment status exists)
+  - gap: Needs the status, a permission, and an audit record with evidence (date, amount, reference). Precedence against status imported from Exact or a statement must be defined. A manual 'paid' hides the invoice from overdue lists, so it must not count as, or imply, a payment approval (rule 7).
+  - external: Exact Online payment status (for reconciliation with manual marks); identity provider
+- [missing] 19 Permissions :: Cancel / credit invoice
+  - evidence: Only a heuristic that treats a negative or mirror-amount invoice as a correction, used to suppress B4 (src/bms_agent/dashboard.py:307-311, 387-388; tests/test_dashboard.py:409-412).
+  - gap: Needs invoice relationship records (credits/cancels/corrects/replaces) and the Cancelled/Credited status. Under V1 'No invoice creation', this permission can only link or mark an existing, imported credit note; it can never issue one.
+  - external: Exact Online (credit notes as booked); identity provider
+- [missing] 19 Permissions :: Resolve warning
+  - evidence: none (no exception persistence; see 15 'Resolved')
+  - gap: Needs a permission-gated resolution with a reason, recorded append-only, that re-opens when the facts change.
+  - external: Identity provider
+- [missing] 19 Permissions :: Override warning
+  - evidence: none
+  - gap: Needs a permission-gated override with a mandatory reason and a named user, under separation of duties (docs/arquitectura.md:135, rule 7). Rules marked PARADA must be excluded: the IBAN rules F1-F4 'no admite excepcion operativa' (docs/validacion-facturas.md:181-183; docs/arquitectura.md:129). For those, the only route is the bank-detail verification.
+  - external: Identity provider
+- [missing] 19 Permissions :: Confirm changed bank details
+  - evidence: The F3 alert tells the user to verify by phone at the number already on file (src/bms_agent/dashboard.py:511-515), but nothing can record that verification.
+  - gap: Needs a verification record: provider, old and new IBAN, the phone number called (taken from master, never from the invoice), verifier, timestamp and outcome. A second person confirming (four-eyes) is recommended. The agent must never write the new IBAN to Exact or to its mirror (docs/arquitectura.md:129; docs/sistemas.md:104-105). A person changes it in Exact, the mirror picks it up, and the verification record lets F3/F2 clear.
+  - external: Exact Online supplier bank accounts and known contact phone number; identity provider
+- [missing] 19 Permissions :: Admin permissions
+  - evidence: none
+  - gap: Needs role and user management. Admins must still be unable to alter or delete audit rows (rule 10: append-only, Postgres trigger, docs/arquitectura.md:138), disable PARADA rules, or approve their own changes.
+  - external: Identity provider (Entra ID groups)
+- [partial] 20 Integrations / Data Sources :: Incoming invoices
+  - evidence: PDF folder ingestion: iter_pdfs (src/bms_agent/documents.py:55-57) with a %PDF- magic check and SHA-256 identity (documents.py:36-52). Extraction by an LLM with no tools into a strict schema (src/bms_agent/extract.py:62-119; src/bms_agent/schema.py:60-128; tests/test_extraction_contract.py:31-41). Hash cache: src/bms_agent/cache.py:48-75. Entry points: CLI src/bms_agent/cli.py:34-92 and the serve job src/bms_agent/serve.py:105-156.
+  - gap: No mailbox connector (read-only, single mailbox, docs/arquitectura.md:217-223). No capture of message-id, date received or sender. Originals are not retained under system control: only sha256 and file name are kept (extract.py:29-30), and the PDF stays in a folder the user manages. PDF only: no UBL/e-invoice XML and no images. No structured import of invoices self-billed in TRNSPRNT (docs/sistemas.md:39-54).
+  - external: Admin mailbox (Microsoft 365 or Google, read-only); TRNSPRNT purchase/self-billing export; optionally Exact purchase entries
+- [missing] 20 Integrations / Data Sources :: Outgoing invoices
+  - evidence: none. src/bms_agent/facturacion.py is a projection from purchase invoices, 'no una factura emitida' (facturacion.py:7-22).
+  - gap: Needs a read-only import of issued sales invoices: header, lines, object, PO, due date, status and links to credit notes. V1 forbids creating invoices, so they must come from the system that issues them.
+  - external: Exact Online sales invoices, or TRNSPRNT invoicing module export
+- [missing] 20 Integrations / Data Sources :: Planning App
+  - evidence: none in code. docs/sistemas.md:14-37 lists the open questions (API vs CSV/Excel export; self-billing).
+  - gap: Needs a read-only adapter; without an API, a scheduled export into a staging store (docs/arquitectura.md:231-232). Needs a shift model (worker, client, object, date, ISO week, hours, rate, surcharge type: docs/arquitectura.md:195-198, docs/sistemas.md:60-69) and immutable hours snapshots (rule 9, docs/arquitectura.md:137).
+  - external: TRNSPRNT
+- [missing] 20 Integrations / Data Sources :: Bank / payment data
+  - evidence: none
+  - gap: Conflicts with docs/arquitectura.md:130 (rule 2: no bank credentials, not even read) and :234 ('Banco. Sin acceso de ningun tipo, ni de lectura. Solo fichero'). Payment status in V1 must therefore come from Exact Online, which reconciles the bank feed, or from a statement file a person uploads (CAMT.053/MT940), parsed deterministically. No PSD2 or bank API.
+  - external: Exact Online outstanding/paid items, or human-uploaded bank statement files
+- [partial] 20 Integrations / Data Sources :: Client database
+  - evidence: Only an object-to-client-name mapping in config/tarifas.yaml (src/bms_agent/facturacion.py:45, 53-54, 83-87; config/tarifas.ejemplo.yaml:12-20). Unmapped objects are reported rather than guessed (facturacion.py:159-162, 217-218).
+  - gap: No client entity: no id, KvK/VAT number, contacts, payment terms, Exact account code or whitelisted email. Needs a read-only mirror of Exact customer accounts joined to TRNSPRNT clients and objects.
+  - external: Exact Online accounts (customers); TRNSPRNT clients
+- [missing] 20 Integrations / Data Sources :: Provider database
+  - evidence: none. Provider identity is derived from each document's btw-id, KvK or name (src/bms_agent/dashboard.py:116-130).
+  - gap: Needs a daily read-only mirror of Exact suppliers, bank accounts, VAT regime and payment terms (docs/sistemas.md:99-105), with IBAN verification history (docs/arquitectura.md:201-202). Sync must have a single token owner and respect rate limits (docs/sistemas.md:83-111). Someone must decide which system is master when TRNSPRNT also holds zzp bank data (docs/sistemas.md:117-121).
+  - external: Exact Online; TRNSPRNT
+- [partial] 20 Integrations / Data Sources :: Object data
+  - evidence: Free-text line location is extracted (src/bms_agent/schema.py:46-48; src/bms_agent/prompts.py:40-43). It is used for G3 grouping (src/bms_agent/dashboard.py:434-435), projection grouping (src/bms_agent/facturacion.py:150, 175) and the object-to-client mapping (facturacion.py:53-54).
+  - gap: No object master (id, name, client, active period, POs, agreed rates). Location strings are not normalised beyond lower-casing, so spelling variants become separate objects. Needs matching to TRNSPRNT object ids.
+  - external: TRNSPRNT objects
+- [missing] 20 Integrations / Data Sources :: PO data
+  - evidence: none. There is no PO field in the extraction schema (src/bms_agent/schema.py:60-128), so even a PO number printed on an invoice is not captured.
+  - gap: Needs a PO entity and a source. Adding po_reference to the schema (header and line) means bumping SCHEMA_VERSION (src/bms_agent/config.py:15), which invalidates the cache (src/bms_agent/cache.py:34-45) and forces a paid re-extraction of every document.
+  - external: PO source (undefined: client-issued POs, TRNSPRNT inkoop module, or Exact purchase orders)
+- [partial] 21 V1 Scope :: EUR only
+  - evidence: Everything is labelled EUR (src/bms_agent/report.py:222, 376; src/bms_agent/cli.py:138, 160). But the schema has no currency field (src/bms_agent/schema.py:60-128), and parse_amount strips the symbols for euro, dollar and pound and the word 'usd' alike (src/bms_agent/parsing.py:24, 57). I verified that '$ 1,250.00' parses to 1250.00 and is then summed as euros.
+  - gap: Add a currency field to the schema and to imported Exact/TRNSPRNT data, add a blocking check for non-EUR, and stop parsing.py from silently dropping non-EUR symbols.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No invoice creation
+  - evidence: Honoured today. No code issues invoices: src/bms_agent/facturacion.py:9 ('Es una PROYECCION, no una factura emitida') and :22 ('Nada de aqui emite nada ni escribe en ningun sistema'); src/bms_agent/cli.py:3.
+  - gap: Nothing to build; keep it enforced. It conflicts with the roadmap in docs/arquitectura.md:157, 268-275 (phase 2: invoicing from planning, later sent automatically) and README.md:3-6, which need updating. Label the 'facturacion' projection and simulator clearly so they are not taken for invoices.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No draft invoices
+  - evidence: No draft objects exist. The projections in src/bms_agent/facturacion.py:130-256 are only aggregates per cliente/obra/semana.
+  - gap: Nothing to build. Conflicts with docs/arquitectura.md:270 ('borrador de factura y revision humana de todas'): either the phase plan is revised or V1 is scoped as monitoring only.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No partial-payment workflow
+  - evidence: There is no payment code at all.
+  - gap: Nothing to build. The status logic must still decide what an invoice shows when Exact or bank data reports a partial payment (e.g. Outstanding with the remaining amount, plus an exception for manual handling). The feature list does not define this.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No automatic payment execution
+  - evidence: No bank credentials and no payment code. Consistent with rule 2 (docs/arquitectura.md:130). The extraction call has no tools (src/bms_agent/extract.py:62-85; tests/test_extraction_contract.py:31-41).
+  - gap: Nothing to build; this matches the architecture. Note that phase 3, SEPA file generation (docs/arquitectura.md:277-283, 305-321), is not in V1; confirm that.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No automatic payment approval
+  - evidence: No approval code exists. Consistent with rule 7 (docs/arquitectura.md:135).
+  - gap: Nothing to build. Make sure that resolving or overriding a warning, or marking an invoice paid, can never act as payment approval.
+  - external: none
+- [out_of_scope_v1] 21 V1 Scope :: No automatic BTW filing
+  - evidence: No filing code exists. Consistent with rule 5 (docs/arquitectura.md:133).
+  - gap: Nothing to build. 'BTW Status: Filed' (section 8) must be a manual flag set by a named person, never an integration with the Belastingdienst.
+  - external: none
+- [partial] 21 V1 Scope :: Human verification for changed bank details
+  - evidence: F3 detection with the instruction 'Verificacion telefonica al numero ya conocido antes de pagar' (src/bms_agent/dashboard.py:476-517). F1 mod-97 (src/bms_agent/checks.py:178-206). The report flags injected text and states that payment uses the master IBAN (src/bms_agent/report.py:194-202).
+  - gap: Only detection exists, and it is against document history rather than the verified master (F2 missing). Missing: a record of the verification (who, when, phone number from master, outcome), clearing once verified (today the flag stays forever, tests/test_dashboard.py:357-373), and a hard hold until verified. See 19 'Confirm changed bank details'.
+  - external: Exact Online supplier bank-account master
+- [partial] 21 V1 Scope :: Invoice monitoring
+  - evidence: Incoming PDF -> extraction -> per-invoice checks (src/bms_agent/checks.py:166-175) -> cross-history alerts (src/bms_agent/dashboard.py:520-566) -> panel, report, export and serve (src/bms_agent/panel.py:151-161; src/bms_agent/report.py:127-132; src/bms_agent/cli.py:190-205; src/bms_agent/serve.py:189-196).
+  - gap: Incoming invoices only. Missing: outgoing invoices, lifecycle status (Outstanding/Overdue/Paid/Cancelled), persistence, scheduled runs (runs are manual via CLI or button), and mailbox ingestion.
+  - external: Admin mailbox; Exact Online; TRNSPRNT
+- [missing] 21 V1 Scope :: Payment monitoring
+  - evidence: none. due_date is only displayed (src/bms_agent/dashboard.py:205; src/bms_agent/panel_assets.py:542).
+  - gap: Needs paid/outstanding status for incoming and outgoing invoices from an allowed source, overdue calculation, and actual received/paid figures.
+  - external: Exact Online payment status, or human-uploaded bank statement files (no bank API, docs/arquitectura.md:234)
+- [missing] 21 V1 Scope :: Planning reconciliation
+  - evidence: No planning data. Only proxies that work without planning: the G3 cross-invoice rate change (src/bms_agent/dashboard.py:410-473) and the provider x week matrix (dashboard.py:676-732).
+  - gap: Needs the TRNSPRNT import and rules G1-G6 (docs/validacion-facturas.md:185-206) for both incoming and outgoing invoices, with the tolerance policy as config. Matching must be per shift and date, not per week (docs/sistemas.md:68-69).
+  - external: TRNSPRNT
+- [partial] 21 V1 Scope :: Object allocation
+  - evidence: Line location (src/bms_agent/schema.py:46-48), object-to-client config (src/bms_agent/facturacion.py:53-54) and grouping by obra (facturacion.py:175-180).
+  - gap: No object master, no validation of allocations against TRNSPRNT, no manual reallocation, and no per-object revenue, cost or margin view.
+  - external: TRNSPRNT objects
+- [missing] 21 V1 Scope :: PO monitoring
+  - evidence: none
+  - gap: Needs a PO entity, consumption from linked invoices, and alerts for limit, expiry, forecast exhaustion and missing/unknown PO.
+  - external: PO source (undefined)
+- [missing] 21 V1 Scope :: Cash-flow overview
+  - evidence: none. por_mes aggregates spend by invoice month, excluding VAT (src/bms_agent/dashboard.py:215-245), which is not cash flow.
+  - gap: Needs expected incoming/outgoing by due date from outgoing and incoming invoices, plus actuals from payment data. Cash must use totals including VAT, whereas every current aggregate is deliberately excluding VAT (docs/integracion-web.md:181-185).
+  - external: Exact Online (sales and purchase invoices, payment status)
+- [partial] 21 V1 Scope :: VAT / BTW overview
+  - evidence: VAT amounts are parsed (src/bms_agent/dashboard.py:201). Split by regime in por_regimen (dashboard.py:272-290) with a stacked bar in the panel (src/bms_agent/panel.py:115-121). Tile 'IVA soportado EUR' (src/bms_agent/panel_assets.py:272). D3/E4 checks (src/bms_agent/checks.py:83-124).
+  - gap: Input VAT only, summed over the filtered period rather than by VAT quarter. The 'IVA soportado' tile adds up the VAT printed on invoices, so reverse-charged invoices count as 0 even though BMS must self-assess them (rubric 2a/5b). Missing: output VAT (no sales invoices), deductibility, rubric mapping (docs/arquitectura.md:323-339), C4, deadlines and BTW status.
+  - external: Exact Online VAT codes and sales invoices; the accountant's rubric mapping
+- [partial] 21 V1 Scope :: Automated reconciliation
+  - evidence: Arithmetic within an invoice: D2 lines vs subtotal (src/bms_agent/checks.py:50-77), D2b quantity x rate (checks.py:209-241), D3 (checks.py:83-124), D4 (checks.py:127-142). Duplicate and period checks across history (src/bms_agent/dashboard.py:314-395).
+  - gap: Nothing is reconciled against an outside source: planning (G rules), Exact booked entries, bank/payment data, POs, or incoming vs outgoing per object. The feature list does not say which of these reconciliations it means.
+  - external: TRNSPRNT; Exact Online; PO source; payment data
+- [partial] 21 V1 Scope :: Exception / anomaly detection
+  - evidence: B2, B3, B4, F3, G3 (src/bms_agent/dashboard.py:314-517). D2/D2b/D3/D4/E4/F1/required-field checks (src/bms_agent/checks.py:50-241). Low-confidence and injected-text flags (dashboard.py:168-173). Grouping to avoid alert floods (dashboard.py:529-562). Tests: tests/test_dashboard.py (~40 tests).
+  - gap: Incoming invoices only, and only rules that need no outside data. Missing: A2-A6, C1-C4, D1/D5, E1-E3/E5, F2/F4, G1-G6, H1-H3, unusual amount, and all outgoing/PO/cash/VAT rules. There is no exception management (section 15).
+  - external: TRNSPRNT; Exact Online; KvK/VIES for A4/A6
+- [partial] 21 V1 Scope :: Human review / approval
+  - evidence: Only a computed review queue: estado revisar/critico (src/bms_agent/dashboard.py:175, 578-603), filters (src/bms_agent/panel.py:80-84), 'Por revisar' tile (src/bms_agent/panel_assets.py:263-276). Injected document text is shown marked as unverified content (src/bms_agent/report.py:194-202).
+  - gap: A human cannot record a review, an approval or a decision. There are no users and no policy/signature gate (docs/arquitectura.md:111-116). Needs an authenticated internal tool, persistence and an audit log.
+  - external: Identity provider (Entra ID)
+- [partial] 21 V1 Scope :: Audit trail
+  - evidence: Extraction provenance is stored per document: source_sha256, source_name, model, prompt_version, schema_version, extracted_at, request_id, usage (src/bms_agent/extract.py:25-50; src/bms_agent/config.py:14-15). Shown in the report footer (src/bms_agent/report.py:249-256).
+  - gap: No change history: re-extraction overwrites out/<sha12>.json (extract.py:55-58; src/bms_agent/cli.py:49). Check results over time are not kept, and nothing records who viewed, changed, reviewed or resolved what. No append-only store (rule 10, docs/arquitectura.md:138), originals are not under system control, and there is no user identity.
+  - external: Identity provider; object storage for originals (internal)
