@@ -2,6 +2,8 @@
 /facturas/
 /facturas-ejemplo/
 /out/
+# El almacen: base SQLite y originales de documentos.
+/datos/
 /ground_truth/*.yaml
 !/ground_truth/_ejemplo.yaml
 

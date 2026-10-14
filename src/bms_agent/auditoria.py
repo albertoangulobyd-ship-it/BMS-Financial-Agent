@@ -1,0 +1,274 @@
+"""Registro de auditoria: eventos encadenados por hash.
+
+Cada evento guarda el hash del anterior y el suyo, calculado sobre el JSON
+canonico de la fila entera y de los cambio_campo que cuelgan de el. Los
+disparadores de la base abortan UPDATE y DELETE, pero los disparadores se
+pueden borrar con una conexion directa al fichero. La cadena es lo que queda
+entonces: editar una fila cambia su hash, que ya no coincide con el guardado
+ni con el hash_anterior del siguiente. `verificar_cadena()` lo encuentra.
+
+Lo que la cadena sola no detecta es que alguien reescriba el final entero
+(o lo corte) y recalcule los hashes. Para eso estan las anclas: `anclar()`
+apunta el ultimo id y su hash fuera de la base (out/anclas.log; despues, en
+el informe diario), y la verificacion comprueba que la cadena sigue
+conteniendo cada evento anclado tal cual.
+
+Un evento solo se escribe dentro de una transaccion: se confirma o se
+deshace con el cambio que describe, nunca por separado.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from .almacen import reloj_de
+from .almacen.unidades import json_canonico, sha256_texto
+from .reloj import marca
+
+HASH_INICIAL = "0" * 64
+RESULTADOS = ("ok", "denegado", "error")
+
+_COLUMNAS_EVENTO = (
+    "id", "en", "usuario_id", "actor", "tipo", "resultado", "tabla", "fila_id",
+    "factura_id", "motivo", "datos_json", "peticion_id", "hash_anterior",
+)
+_COLUMNAS_CAMBIO = (
+    "tabla", "fila_id", "factura_id", "campo", "rev", "valor_anterior", "valor_nuevo",
+    "fuente_anterior", "fuente_nueva", "motivo",
+)
+
+
+@dataclass(frozen=True)
+class Cambio:
+    """Un campo que cambia dentro de una orden. Los valores van en JSON canonico."""
+
+    tabla: str
+    fila_id: int
+    campo: str
+    rev: int
+    valor_anterior: Any
+    valor_nuevo: Any
+    fuente_nueva: str
+    fuente_anterior: str | None = None
+    motivo: str | None = None
+    factura_id: int | None = None
+
+    def fila(self) -> dict[str, Any]:
+        return {
+            "tabla": self.tabla, "fila_id": self.fila_id, "factura_id": self.factura_id,
+            "campo": self.campo, "rev": self.rev,
+            "valor_anterior": json_canonico(self.valor_anterior),
+            "valor_nuevo": json_canonico(self.valor_nuevo),
+            "fuente_anterior": self.fuente_anterior, "fuente_nueva": self.fuente_nueva,
+            "motivo": self.motivo,
+        }
+
+
+def calcular_hash(evento: Mapping[str, Any], cambios: Sequence[Mapping[str, Any]]) -> str:
+    """El hash de un evento: sus columnas (menos el propio hash) y sus cambios, en orden."""
+    contenido = {columna: evento[columna] for columna in _COLUMNAS_EVENTO}
+    contenido["cambios"] = [{c: cambio[c] for c in _COLUMNAS_CAMBIO} for cambio in cambios]
+    return sha256_texto(json_canonico(contenido))
+
+
+def registrar(
+    conn: sqlite3.Connection,
+    *,
+    tipo: str,
+    actor: int,
+    usuario_id: int | None = None,
+    resultado: str = "ok",
+    tabla: str | None = None,
+    fila_id: int | None = None,
+    factura_id: int | None = None,
+    motivo: str | None = None,
+    datos: Mapping[str, Any] | None = None,
+    peticion_id: str | None = None,
+    cambios: Iterable[Cambio] = (),
+) -> int:
+    """Escribe un evento al final de la cadena, con sus cambios. Devuelve su id.
+
+    El id se fija aqui (el ultimo mas uno) porque entra en el hash. Es seguro
+    porque la transaccion es BEGIN IMMEDIATE: nadie mas escribe hasta el
+    COMMIT. Si aun asi otro evento se colara, el disparador
+    evento_encadenado lo rechaza.
+    """
+    if not conn.in_transaction:
+        raise RuntimeError(
+            "un evento se escribe dentro de la transaccion de la orden que describe"
+        )
+    if resultado not in RESULTADOS:
+        raise ValueError(f"resultado desconocido: {resultado!r}")
+
+    ultimo = conn.execute("SELECT id, hash FROM evento ORDER BY id DESC LIMIT 1").fetchone()
+    filas_cambio = [c.fila() for c in cambios]
+    evento = {
+        "id": (ultimo["id"] if ultimo else 0) + 1,
+        "en": marca(reloj_de(conn).ahora()),
+        "usuario_id": usuario_id,
+        "actor": actor,
+        "tipo": tipo,
+        "resultado": resultado,
+        "tabla": tabla,
+        "fila_id": fila_id,
+        "factura_id": factura_id,
+        "motivo": motivo,
+        "datos_json": json_canonico(dict(datos)) if datos is not None else None,
+        "peticion_id": peticion_id,
+        "hash_anterior": ultimo["hash"] if ultimo else HASH_INICIAL,
+    }
+    evento["hash"] = calcular_hash(evento, filas_cambio)
+
+    columnas = (*_COLUMNAS_EVENTO, "hash")
+    conn.execute(
+        f"INSERT INTO evento ({', '.join(columnas)}) VALUES ({', '.join('?' * len(columnas))})",
+        tuple(evento[c] for c in columnas),
+    )
+    for fila in filas_cambio:
+        conn.execute(
+            f"INSERT INTO cambio_campo (evento_id, {', '.join(_COLUMNAS_CAMBIO)}) "
+            f"VALUES (?, {', '.join('?' * len(_COLUMNAS_CAMBIO))})",
+            (evento["id"], *(fila[c] for c in _COLUMNAS_CAMBIO)),
+        )
+    return evento["id"]
+
+
+@dataclass(frozen=True)
+class Ancla:
+    id: int
+    hash: str
+
+
+@dataclass
+class ResultadoCadena:
+    eventos: int = 0
+    cabeza: Ancla | None = None
+    anclas: int = 0
+    problemas: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.problemas
+
+
+def _cambios_por_evento(conn: sqlite3.Connection) -> dict[int, list[sqlite3.Row]]:
+    por_evento: dict[int, list[sqlite3.Row]] = {}
+    for fila in conn.execute("SELECT * FROM cambio_campo ORDER BY evento_id, id"):
+        por_evento.setdefault(fila["evento_id"], []).append(fila)
+    return por_evento
+
+
+def verificar_cadena(
+    conn: sqlite3.Connection, anclas: Iterable[Ancla] = ()
+) -> ResultadoCadena:
+    """Recorre la cadena entera y dice donde no cuadra.
+
+    No para en el primer fallo: cada evento se compara con su propio hash y
+    con el anterior, asi el informe senala la fila tocada y no solo "a
+    partir de aqui". No se fia de los disparadores: puede que ya no existan.
+    """
+    resultado = ResultadoCadena()
+    cambios = _cambios_por_evento(conn)
+    hashes: dict[int, str] = {}
+    esperado_id, anterior = 1, HASH_INICIAL
+
+    for fila in conn.execute("SELECT * FROM evento ORDER BY id"):
+        resultado.eventos += 1
+        evento_id = fila["id"]
+        if evento_id != esperado_id:
+            faltan = (f"el evento {esperado_id}" if evento_id == esperado_id + 1
+                      else f"los eventos {esperado_id} a {evento_id - 1}")
+            resultado.problemas.append(f"falta {faltan}: se ha borrado algo de la cadena")
+        if fila["hash_anterior"] != anterior:
+            resultado.problemas.append(
+                f"el evento {evento_id} no cuelga del anterior (hash_anterior no coincide)"
+            )
+        if calcular_hash(fila, cambios.pop(evento_id, [])) != fila["hash"]:
+            resultado.problemas.append(
+                f"el evento {evento_id} o sus cambio_campo se han modificado (el hash no coincide)"
+            )
+        hashes[evento_id] = fila["hash"]
+        esperado_id, anterior = evento_id + 1, fila["hash"]
+        resultado.cabeza = Ancla(evento_id, fila["hash"])
+
+    for evento_id in sorted(cambios):
+        resultado.problemas.append(f"hay cambio_campo del evento {evento_id}, que no existe")
+
+    for ancla in anclas:
+        resultado.anclas += 1
+        guardado = hashes.get(ancla.id)
+        if guardado is None:
+            resultado.problemas.append(
+                f"la cadena ya no llega al evento anclado {ancla.id}: se ha cortado"
+            )
+        elif guardado != ancla.hash:
+            resultado.problemas.append(
+                f"el evento anclado {ancla.id} ya no es el que se anclo: se ha reescrito"
+            )
+    return resultado
+
+
+def cabeza(conn: sqlite3.Connection) -> Ancla | None:
+    fila = conn.execute("SELECT id, hash FROM evento ORDER BY id DESC LIMIT 1").fetchone()
+    return Ancla(fila["id"], fila["hash"]) if fila else None
+
+
+def leer_anclas(ruta: str | Path) -> tuple[list[Ancla], list[str]]:
+    """Las anclas de un fichero, y las lineas que no se entienden (tambien son un aviso)."""
+    ruta = Path(ruta)
+    if not ruta.exists():
+        return [], []
+    anclas, malas = [], []
+    for numero, linea in enumerate(ruta.read_text(encoding="utf-8").splitlines(), start=1):
+        if not linea.strip():
+            continue
+        partes = linea.split("\t")
+        try:
+            _cuando, evento_id, hash_ = partes
+            anclas.append(Ancla(int(evento_id), hash_.strip()))
+        except ValueError:
+            malas.append(f"linea {numero} de {ruta.name} no es un ancla: {linea[:60]!r}")
+    return anclas, malas
+
+
+def anclar(conn: sqlite3.Connection, ruta: str | Path) -> Ancla | None:
+    """Apunta la cabeza de la cadena al final del fichero, si ha cambiado.
+
+    El fichero solo crece. Si la ultima ancla ya es la cabeza, no se repite.
+    """
+    actual = cabeza(conn)
+    if actual is None:
+        return None
+    ruta = Path(ruta)
+    anclas, _malas = leer_anclas(ruta)
+    if anclas and anclas[-1] == actual:
+        return actual
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    with ruta.open("a", encoding="utf-8") as fichero:
+        fichero.write(f"{marca(reloj_de(conn).ahora())}\t{actual.id}\t{actual.hash}\n")
+    return actual
+
+
+def historial(conn: sqlite3.Connection, tabla: str, fila_id: int) -> list[dict[str, Any]]:
+    """Lo que ha pasado con una fila: sus eventos, en orden, cada uno con sus cambios."""
+    eventos: dict[int, dict[str, Any]] = {}
+    for fila in conn.execute(
+        "SELECT * FROM evento WHERE tabla = ? AND fila_id = ? "
+        "UNION SELECT e.* FROM evento AS e JOIN cambio_campo AS c ON c.evento_id = e.id "
+        "WHERE c.tabla = ? AND c.fila_id = ? ORDER BY id",
+        (tabla, fila_id, tabla, fila_id),
+    ):
+        eventos[fila["id"]] = {**dict(fila), "cambios": []}
+    if eventos:
+        marcas = ", ".join("?" * len(eventos))
+        for cambio in conn.execute(
+            f"SELECT * FROM cambio_campo WHERE evento_id IN ({marcas}) "
+            "AND tabla = ? AND fila_id = ? ORDER BY id",
+            (*eventos, tabla, fila_id),
+        ):
+            eventos[cambio["evento_id"]]["cambios"].append(dict(cambio))
+    return list(eventos.values())

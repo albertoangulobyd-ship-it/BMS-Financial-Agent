@@ -24,12 +24,12 @@ pip install -e ".[dev]"
 pytest
 ```
 
-314 tests, ninguno llama a la API. Cubren la conversión de importes
+388 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
-herramientas), la política de caché, la seguridad del servidor local y una
-foto de referencia del panel sobre siete extracciones fijas
-(`tests/fixtures/v1/`).
+herramientas), la política de caché, la seguridad del servidor local, el
+almacén con su cadena de auditoría y una foto de referencia del panel sobre
+siete extracciones fijas (`tests/fixtures/v1/`).
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -90,7 +90,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 314 tests, sin llamadas a la API
+pytest                                    # 388 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -242,6 +242,24 @@ versión no paga la carpeta entera otra vez.
 Si un documento tiene varias extracciones, el panel, el informe y la
 puntuación usan la más reciente, y `bms-agent coste` cuenta todas, porque
 todas se pagaron.
+
+### El almacén
+
+Desde el paso 1 de la V1, `extract` y `serve` guardan además cada documento
+en un almacén: una base SQLite en `datos/bms.sqlite3` (o donde diga `--db` o
+la variable `BMS_DB`) y los PDF originales en `datos/documentos/`, nombrados
+por su hash y de solo lectura. La extracción se guarda con el mismo texto que
+el fichero de `out/`, y cada paso queda en un registro de auditoría
+encadenado por hash que la base no deja modificar ni borrar.
+
+| Orden | Qué hace |
+| --- | --- |
+| `bms-agent db init` | Crea el almacén y aplica las migraciones |
+| `bms-agent importar-out --pdfs facturas` | Lleva lo que ya hay en `out/` al almacén, sin ninguna llamada a la API. Busca cada PDF por su hash; si no lo encuentra, el documento queda sin original y se puede añadir después. Repetirla no duplica nada |
+| `bms-agent db verificar` | Comprueba la base, las migraciones, la cadena de auditoría (con las anclas de `out/anclas.log`) y el hash de cada original |
+
+`datos/` no entra en git, igual que `out/` y `facturas/`. El panel, el
+informe y la puntuación siguen leyendo de `out/` hasta el paso 2.
 
 ### Detectar una ausencia cuenta como acierto
 

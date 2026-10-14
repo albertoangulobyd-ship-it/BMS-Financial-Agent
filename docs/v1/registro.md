@@ -278,3 +278,209 @@ afectadas no cambia.
     la tabla (`facturas`, `proveedores`, `criticas`, `por_revisar`) la
     cuentan, porque la fila está ahí y hay que resolverla.
 
+
+## Paso 1
+
+Almacén, evidencia y auditoría, con la migración de `out/` sin una sola
+llamada a la API. **388 tests pasan** (275 funciones de test; eran 314 y
+207), ninguno llama a la API y ninguno escribe fuera de una carpeta temporal.
+
+### Qué se construyó
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `almacen/__init__.py` | `abrir()` (claves foráneas, WAL, `busy_timeout=5000`, `sqlite3.Row`, se niega a correr en SQLite < 3.37), `transaccion()` (`BEGIN IMMEDIATE`; dentro de otra, un `SAVEPOINT` que deshace solo lo suyo), `preparar()` (abre, migra y devuelve un `Almacen` = conexión + carpeta de documentos), `usuario_sistema()`, `ruta_por_defecto()` (`BMS_DB` o `datos/bms.sqlite3`). La conexión lleva su reloj: `conn.reloj` |
+| `almacen/migrar.py` + `almacen/sql/0001_almacen.sql` | Migraciones `NNNN_nombre.sql`, de una en una, cada una en su transacción con su fila en `migracion` (sha256) y su evento `migracion_aplicada`. Una migración aplicada que cambia, o que falta, detiene todo (`MigracionAlterada`) |
+| `almacen/unidades.py` | `a_cent`, `a_mil`, `a_e4`, `a_pb` y sus inversas: solo `Decimal` o `int`, nunca `float`, y `PerdidaDePrecision` en vez de redondear. `json_canonico()` (claves ordenadas, sin espacios, rechaza floats) y los hash |
+| `almacen/documentos.py` | `AlmacenDocumentos`: `datos/documentos/<sha[:2]>/<sha256>.<ext>`, 0444, escritura a un temporal que se enlaza con `os.link` (no pisa nunca; un original alterado hace fallar `guardar` en vez de repararse en silencio). `registrar_documento()`, `abrir()` (cada apertura es un evento, también la que falla), `verificar()` (vuelve a calcular cada hash; un fichero que nadie apunta es un aviso) |
+| `almacen/extracciones.py` | `leer_registro()` (el texto tal cual y sus columnas) y `registrar_extraccion()` (única por documento, modelo, versiones y hash del contenido) |
+| `auditoria.py` | `registrar()` (evento encadenado, con sus `cambio_campo` dentro del hash), `verificar_cadena()`, `anclar()`, `leer_anclas()`, `historial()` |
+| `importadores/extracciones.py` | `importar_out()`: cada `out/*.json` al almacén, tal cual, con su PDF si se encuentra por hash |
+| `legado.py` | `registros_legado(conn)`: los diccionarios de siempre, sacados de la extracción vigente de cada documento |
+| `reloj.py` | `Reloj` (`ahora()` en UTC, `hoy()` en Amsterdam), `RelojFijo`, `marca()` |
+
+**Tablas** (migración 0001): `migracion`, `usuario` (con los cuatro de sistema
+sembrados), `permiso` (los 14), `rol`, `rol_permiso`, `usuario_rol`,
+`politica_version`, `evento`, `cambio_campo`, `documento`, `extraccion`,
+`importacion`, y la vista `v_extraccion_vigente`. Todas STRICT, con clave
+`INTEGER PRIMARY KEY`, sin ninguna columna REAL.
+
+| Tabla | Qué no se puede hacer |
+| --- | --- |
+| `migracion`, `politica_version`, `evento`, `cambio_campo`, `extraccion` | `UPDATE` ni `DELETE`, nunca |
+| `documento` | `UPDATE` ni `DELETE`, salvo apuntar el original una vez (ver desviaciones) |
+| `importacion` | Modificarla después de cerrarla, cambiar de fichero, borrarla |
+| `usuario` | Borrarlo; cambiar si es de sistema; renombrar uno de sistema; darle token a uno de sistema |
+| `usuario_rol` | Dar un rol a un usuario de sistema; tocar una asignación salvo cerrarla, una vez; borrarla |
+| `evento` | Entrar con un id o un `hash_anterior` que no siguen al último; poner un usuario de sistema en `usuario_id` |
+| `cambio_campo` | Colgarse de un evento que no es el último (el de la orden en curso); una `manual_correccion` sin motivo |
+
+**Órdenes**
+
+- `bms-agent db init` crea el almacén y migra; `db migrar` migra uno que ya
+  existe (y se niega si no existe, para no crear una base en el sitio
+  equivocado); `db verificar [--anclas out/anclas.log]` comprueba
+  `integrity_check`, `foreign_key_check`, el hash de cada migración, la cadena
+  de auditoría con sus anclas y el hash de cada original. Sale con 1 si algo
+  no cuadra.
+- `bms-agent importar-out [--out out] [--pdfs facturas] [--db …]`. Una
+  transacción para toda la orden. Cada fichero bueno da un `documento` (si no
+  estaba), una `extraccion` con `via = 'out_v1'` y una `importacion`
+  aceptada; cada fichero malo, una `importacion` rechazada con su motivo.
+  Repetirla no añade filas (solo un evento por cada original que aparece
+  después con `--pdfs`). Al final ancla la cabeza en `out/anclas.log`.
+- `extract` y `serve` (y la página local) abren el almacén **antes** de
+  gastar nada, escriben cada documento en `out/` y en el almacén con el mismo
+  texto, y anclan al terminar. Las dos aceptan `--db`.
+
+**Documentación**: README (órdenes nuevas), `docs/fase-0.md` (apartado «El
+almacén»), el recuento de tests en README, `fase-0.md`,
+`instalacion-windows.md` y `brief-diseno.md`, `.gitignore` (`/datos/`),
+`.gitattributes` (las migraciones siempre con LF) y `pyproject.toml` (los
+`.sql` como datos del paquete y `tzdata` solo en Windows).
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| `UPDATE` y `DELETE` abortan en cada tabla de solo escritura | `test_almacen.py::test_update_y_delete_abortan_en_cada_tabla_de_solo_escritura` (las siete tablas, con un `UPDATE` que no cambia nada, uno que sí y un `DELETE`; el mensaje prueba que es el disparador) y `test_la_lista_de_tablas_de_solo_escritura_esta_completa` (toda tabla con disparador `<tabla>_sin_delete` tiene que estar en la prueba) |
+| La cadena encuentra una fila editada por una conexión directa después de borrar los disparadores | `test_auditoria.py::test_la_cadena_encuentra_una_fila_editada_sin_disparadores`, y además: el hash rehecho (`..._rompe_el_enlace_con_la_siguiente`), un `cambio_campo` editado, un evento borrado por en medio, el final cortado y el final reescrito (los dos últimos solo con anclas), y por la CLI `test_migracion_out.py::test_db_verificar_encuentra_un_evento_tocado_por_detras` |
+| El almacén de documentos no sobrescribe y detecta un hash que no cuadra | `test_almacen.py::test_guardar_es_de_una_vez_y_de_solo_lectura`, `test_el_almacen_no_sobrescribe_un_original_alterado`, `test_verificar_vuelve_a_calcular_cada_hash`, `test_abrir_un_documento_queda_auditado_tambien_si_falla`, y `db verificar` en `test_db_init_migrar_y_verificar` |
+| `importar-out` dos veces da los mismos recuentos y lo guardado es byte a byte el fichero | `test_migracion_out.py::test_importar_dos_veces_da_los_mismos_recuentos`, `test_lo_guardado_es_byte_a_byte_el_fichero`, `test_la_orden_de_la_cli_no_llama_a_la_api` (por la CLI) |
+| Un PDF que no está deja `ruta_cas` NULL | `test_un_pdf_que_no_esta_deja_ruta_cas_vacia` (las 04 a 07 no tienen PDF), `test_sin_carpeta_de_pdf_todo_queda_sin_original_y_se_anade_despues` |
+| `import anthropic` parcheado para lanzar: cero llamadas | `test_la_orden_de_la_cli_no_llama_a_la_api` (fixture `sin_api`: `anthropic` y sus submódulos a `None` en `sys.modules`) |
+| `construir_datos(registros_legado(db))` es `construir_datos(load_records(out))` | `test_equivalencia_legado.py::test_el_panel_desde_el_almacen_es_el_panel_desde_out` (y las dos son la foto de referencia byte a byte), `test_los_registros_son_los_mismos_diccionarios`, `test_con_varias_extracciones_vale_la_misma_vigente_que_en_out` |
+| `extract` y `serve` escriben en el almacén y en `out/` | `test_almacen_extraccion.py` (nueva, reutilizada, fallo del almacén, CLI, servidor) |
+
+### Desviaciones de la especificación, y por qué
+
+1. **`evento` no se sella con un `UPDATE`.** El id se fija antes de insertar
+   (el último más uno, seguro dentro de `BEGIN IMMEDIATE`) y el hash se
+   calcula antes del `INSERT`, así que `evento` no admite ningún `UPDATE`. Es
+   más estricto que la excepción que la especificación permitía. El
+   disparador `evento_encadenado` rechaza además un evento cuyo id o
+   `hash_anterior` no siguen al último; que el hash sea el correcto solo lo
+   puede comprobar `verificar_cadena()` (SQLite no calcula sha256).
+2. **El hash del evento cubre sus `cambio_campo`.** Sin eso, borrar los
+   disparadores y editar un `valor_anterior` no dejaría rastro. Por eso un
+   `cambio_campo` solo se puede colgar del último evento, y solo se escribe a
+   través de `auditoria.registrar(..., cambios=[Cambio(...)])`.
+3. **`usuario_id` y `actor`.** En `evento`, `usuario_id` es la persona que
+   pidió la acción (un disparador impide poner ahí un usuario de sistema) y
+   `actor` es una clave foránea a `usuario`: quien la ejecutó, de sistema o la
+   propia persona. Igual en `importacion` (`iniciada_por`, `actor`). En el
+   paso 1 no hay personas: la CLI y el servidor dejan `usuario_id` y
+   `iniciada_por` a NULL y actúan como `extractor` o `importador`.
+4. **`factura_id` sin clave foránea** en `evento` y `cambio_campo`. SQLite
+   no deja declarar una clave foránea hacia una tabla que no existe: con
+   `foreign_keys=ON` falla hasta el `INSERT` con NULL (comprobado en 3.45.1).
+   La tabla `factura` llega en la 0002.
+5. **`documento` admite una sola modificación**: apuntar el original cuando
+   llega después (`ruta_cas` de NULL a su ruta, y `bytes` de NULL a su
+   tamaño), y nada más. Sin ella, una extracción importada sin su PDF
+   quedaría sin original para siempre. Un `CHECK` obliga a que `ruta_cas` sea
+   `<sha[:2]>/<sha256>.<ext>` de su propio hash.
+6. **Tabla `permiso`** (no está en la lista de la especificación) en vez de
+   un `CHECK` en `rol_permiso`: la pregunta 9 del §12 puede cambiar la lista,
+   y en SQLite cambiar un `CHECK` obliga a reconstruir la tabla. Se siembran
+   los 11 del §19 más los 3 propuestos.
+7. **`usuario.nombre` es UNIQUE** (los de sistema se buscan por nombre y una
+   persona necesita un identificador para la CLI) y un usuario de sistema no
+   puede tener token.
+8. **`importacion` por fichero.** Cada `out/*.json` es una importación
+   (`fuente 'extracciones'`, `tipo 'extraccion'`, `formato
+   'json:extraccion-s<versión>'`, una fila leída). Su `documento_id` apunta
+   al PDF del que habla la extracción: el JSON no se guarda también como
+   documento porque su texto ya está, entero, en `extraccion.contenido_json`.
+   Columnas añadidas: `iniciada_en` y `terminada_en`; los recuentos son
+   `filas_leidas`, `filas_aceptadas` y `filas_rechazadas`. `fuente` y `tipo`
+   no llevan una lista cerrada en un `CHECK` porque crecerán en el paso 5.
+9. **`extraccion.registrada_en`** (columna añadida: cuándo entró en el
+   almacén, que no es cuándo se extrajo). `extraido_en` queda NULL si el
+   `extracted_at` del registro no es un instante ISO; el texto original sigue
+   en `contenido_json`.
+10. **La extracción vigente es una vista**, `v_extraccion_vigente`, con la
+    regla de `load_records`: la de `extraido_en` mayor y, en empate, la que
+    entró después. `factura.extraccion_vigente_id` es del paso 2, porque
+    `factura` también. «Entró después» es el orden de los ficheros en una
+    misma pasada de `importar-out`, igual que en `out/`; solo difiere si un
+    fichero con el mismo `extracted_at` se importa en una pasada posterior y
+    va antes por nombre (gana el que entró después).
+11. **Lo que `importar-out` rechaza no sale en `registros_legado`**: un JSON
+    sin `source_sha256` válido, o sin `model`, `prompt_version` o
+    `schema_version`, no se puede atar a un documento. `load_records` sí lo
+    devolvía. Con un `out/` escrito por el extractor no hay ninguno.
+12. **`extract` hace una transacción por documento**, no una por orden: cada
+    documento es una llamada pagada, y un fallo en el 40 no tiene que
+    deshacer los 39 anteriores. Si el almacén falla, la pasada sigue (la
+    extracción ya está en `out/`), lo cuenta en `sin_almacen`, lo avisa y sale
+    con 1. Los documentos que se reutilizan de `out/` también entran en el
+    almacén (`via 'out_v1'`), así que el siguiente `extract` arregla lo que
+    faltó sin pagar.
+13. **Las migraciones se aplican solas** al abrir el almacén desde `extract`,
+    `serve` e `importar-out` (`preparar()`): cada una está fijada por su hash,
+    así que aplicarla es determinista. El hash se calcula con los finales de
+    línea en LF, para que un checkout de Windows no parezca una migración
+    editada.
+14. **`reloj.py` llega ya**, mínimo (`ahora`, `hoy` en Amsterdam,
+    `RelojFijo`, `marca`), porque todo lo que escribe una hora la necesita
+    inyectable. Las semanas ISO siguen en `dashboard.py`. Los usuarios
+    sembrados por la migración llevan la hora de SQLite, no la del reloj.
+15. **Anclas**: no hay informe diario todavía, así que `anclar()` escribe en
+    `out/anclas.log` al final de `importar-out`, de `extract` y de cada pasada
+    del servidor, solo si la cabeza ha cambiado. `db verificar` las comprueba.
+16. **`politica_version`** es única por `(fichero, sha256, vigente_desde)`
+    (volver a una política anterior es otra fila) y `vigente_desde` es una
+    fecha. No hay cargador: `politica.py` es de un paso posterior.
+17. **No se usa `tzdata`**, pero se declara en `pyproject.toml` solo para
+    Windows, que es donde falta la base de zonas horarias que necesita
+    `hoy()`. Aquí no se puede instalar nada; en Linux no hace falta.
+
+### Lo que deben saber los pasos siguientes
+
+- **Fixtures** (`tests/conftest.py`): `db` (en memoria, migrada, con el reloj
+  fijo del 2026-10-14 09:30 UTC), `reloj` (`RelojFijo`, `avanzar(hours=…)`),
+  `almacen` (`db` + carpeta de documentos temporal), `pdfs_ejemplo` (los tres
+  PDF del generador), `out_v1` (copia de las siete extracciones v1) y las
+  constantes `RAIZ`, `FIXTURES_V1`, `TARIFAS_V1`, `GOLDEN`. Una fixture
+  automática apunta `BMS_DB` a una carpeta temporal en **todos** los tests:
+  `extract` y el servidor escriben en el almacén y, sin ella, lo harían en
+  `datos/` del repositorio.
+- **Escribir**: dentro de `with transaccion(conn):`, y el evento con
+  `auditoria.registrar(conn, tipo=…, actor=…, cambios=[Cambio(...)])`.
+  `registrar` lanza si no hay transacción abierta. `campos.py` (paso 2) tiene
+  que escribir sus `cambio_campo` así, no con `INSERT` propios: el disparador
+  solo los deja colgar del último evento y la verificación los incluye en el
+  hash. Los valores de `Cambio` se guardan en JSON canónico (un `float` lanza).
+- **Una tabla nueva de solo escritura** lleva los disparadores
+  `<tabla>_sin_update` y `<tabla>_sin_delete`, una fila en `_poblar` y su
+  nombre en `SOLO_ESCRITURA` de `tests/test_almacen.py`: el test de la lista
+  completa falla si no.
+- **Migraciones**: la 0002 es un fichero nuevo; la 0001 no se toca nunca
+  (cambiar un byte que no sea un final de línea la da por alterada). Para
+  validar `factura_id` en `evento` y `cambio_campo` hará falta un disparador
+  `BEFORE INSERT` (o reconstruir las tablas, que rompe la regla de no
+  tocar la evidencia: mejor el disparador).
+- **La vigente**: `v_extraccion_vigente` es provisional. El paso 2 la
+  sustituye por `factura.extraccion_vigente_id` y `registros_resueltos()`;
+  `registros_legado` puede seguir leyendo la vista.
+- **Quién lee qué**: el panel, el informe, `export`, `score`, `coste`,
+  `simulador` y `/api/datos` siguen leyendo `out/` (son del paso 2). La foto
+  de referencia no ha cambiado.
+- **Documentos**: `documento.ruta_cas` NULL es el caso Q4 (sin original); en
+  las fixtures, las 04 a 07. `ruta_declarada` la pone la vía de entrada:
+  `extract`, `serve` e `importar-out` ponen `entrante`. `origen` es
+  `carpeta` para `extract` y `serve`, `out_v1` para `importar-out`.
+  `recibido_fuente` es `mtime` cuando se tiene el PDF y `desconocido` cuando
+  no.
+- **Usuarios de sistema**: `usuario_sistema(conn, "sistema" | "extractor" |
+  "importador" | "motor")`. No hay roles sembrados ni personas: los crea el
+  paso 2 (`permisos.py`). Los permisos están en la tabla `permiso`.
+- **Horas**: `conn.reloj.ahora()` (o `reloj_de(conn)` para una conexión que
+  no salió de `abrir()`); `reloj.marca()` da el formato del almacén
+  (`2026-10-14T09:30:00+00:00`). Los `CHECK` de instante solo exigen que
+  `datetime()` lo entienda.
+- **Importes**: `almacen.unidades` es el único conversor a enteros; el paso
+  2 lo usa al tipar las facturas.

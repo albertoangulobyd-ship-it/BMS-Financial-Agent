@@ -11,23 +11,32 @@ Lo que se extrae no se sobrescribe nunca. Cada extraccion va a su propio
 fichero, nombrado por el hash del documento y por las versiones que la
 produjeron, y si ese nombre ya existe se anade otro al lado. Es la evidencia
 de lo que se leyo: una pasada nueva no puede borrar la anterior.
+
+Con un almacen, cada documento de la pasada entra tambien alli: el PDF en el
+almacen de documentos y la extraccion (nueva o reutilizada de out/) con el
+mismo texto que el fichero. out/ sigue escribiendose igual, porque el panel,
+el informe y la puntuacion aun leen de ahi.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import config
 from .cache import CONSERVAR, CachedExtraction, indexar, reutilizable
 from .documents import SourceDocument, UnsupportedDocument, load_pdf
 from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_USER_TEXT
 from .schema import InvoiceExtraction
+
+if TYPE_CHECKING:
+    from .almacen import Almacen
 
 
 @dataclass
@@ -57,6 +66,10 @@ class ExtractionRecord:
             "extraction": self.extraction.model_dump(mode="json"),
         }
 
+    def contenido(self) -> str:
+        """El texto exacto que se guarda, en out/ y en el almacen: el mismo en los dos."""
+        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+
     def write_json(self, out_dir: str | Path) -> Path:
         """Guarda la extraccion sin pisar ninguna otra.
 
@@ -68,7 +81,7 @@ class ExtractionRecord:
         """
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        contenido = json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+        contenido = self.contenido()
         base = nombre_fichero(
             self.source_sha256, self.model, self.prompt_version, self.schema_version
         )
@@ -183,6 +196,9 @@ class ResultadoPasada:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     errores: list[str] = field(default_factory=list)
+    # Con almacen: documentos guardados alli, y los que no se pudo (estan en out/).
+    almacenadas: int = 0
+    sin_almacen: int = 0
 
 
 # Avisos de progreso: (tipo, nombre del PDF, detalle). tipo es "omitido",
@@ -200,6 +216,7 @@ def extraer_pasada(
     forzar: bool = False,
     informar: Informar | None = None,
     resultado: ResultadoPasada | None = None,
+    almacen: Almacen | None = None,
 ) -> ResultadoPasada:
     """Extrae los PDF que no tengan ya una extraccion reutilizable.
 
@@ -213,6 +230,10 @@ def extraer_pasada(
 
     Si se pasa `resultado`, se rellena sobre la marcha: el servidor lo lee
     desde otro hilo para ensenar el progreso y el coste mientras corre.
+
+    Con `almacen`, cada documento leido o reutilizado entra tambien en el
+    almacen (ver _al_almacen). Si eso falla, la pasada sigue: la extraccion
+    ya esta en out/ y `importar-out` la recupera; no se vuelve a pagar.
     """
     model = model or config.model_id()
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
@@ -237,6 +258,8 @@ def extraer_pasada(
         if guardada is not None:
             resultado.reutilizadas += 1
             avisar("cache", ruta.name, _detalle_cache(guardada, model))
+            if almacen is not None:
+                _al_almacen(almacen, doc, ruta, guardada.path, "out_v1", resultado, avisar)
             continue
 
         try:
@@ -248,6 +271,8 @@ def extraer_pasada(
             continue
 
         target = record.write_json(out_dir)
+        if almacen is not None:
+            _al_almacen(almacen, doc, ruta, record.contenido(), "api", resultado, avisar)
         # Si el mismo PDF viene dos veces en la carpeta, la segunda ya no paga.
         indice.setdefault(doc.sha256, []).insert(0, CachedExtraction(
             path=target, sha256=doc.sha256, model=record.model,
@@ -262,6 +287,49 @@ def extraer_pasada(
         avisar("ok", ruta.name, f"{target.name}{sufijo}")
 
     return resultado
+
+
+def _al_almacen(
+    almacen: Almacen,
+    doc: SourceDocument,
+    ruta: Path,
+    extraccion: str | Path,
+    via: str,
+    resultado: ResultadoPasada,
+    avisar: Informar,
+) -> None:
+    """Guarda el PDF y su extraccion en el almacen, en una transaccion por documento.
+
+    Una por documento y no una por pasada: cada documento es una llamada
+    pagada, y un fallo en el documento 40 no tiene que deshacer los 39
+    anteriores. `extraccion` es el texto del registro, o la ruta del fichero
+    de out/ que se reutiliza (su texto entra tal cual, como en importar-out).
+    """
+    from .almacen import transaccion, usuario_sistema
+    from .almacen.documentos import instante_de_fichero, registrar_documento
+    from .almacen.extracciones import leer_registro, registrar_extraccion
+
+    try:
+        texto = extraccion if isinstance(extraccion, str) else (
+            Path(extraccion).read_text(encoding="utf-8"))
+        with transaccion(almacen.conn):
+            actor = usuario_sistema(almacen.conn, "extractor")
+            documento = registrar_documento(
+                almacen, sha256=doc.sha256, contenido=base64.b64decode(doc.data_b64),
+                nombre_original=ruta.name, tipo_mime=doc.media_type, origen="carpeta",
+                ruta_declarada="entrante", recibido_en=instante_de_fichero(ruta),
+                recibido_fuente="mtime", actor=actor,
+            )
+            registrar_extraccion(
+                almacen.conn, leer_registro(texto), documento_id=documento.id,
+                via=via, actor=actor,
+            )
+        resultado.almacenadas += 1
+    except Exception as exc:  # la extraccion ya esta en out/: no se pierde nada pagado
+        resultado.sin_almacen += 1
+        detalle = f"almacen: {type(exc).__name__}: {exc}"
+        resultado.errores.append(f"{ruta.name}: {detalle}")
+        avisar("error", ruta.name, f"{detalle} (esta en out/; `bms-agent importar-out` la recupera)")
 
 
 def _detalle_cache(guardada: CachedExtraction, model: str) -> str:

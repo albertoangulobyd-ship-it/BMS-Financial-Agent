@@ -46,6 +46,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from . import config
+from .almacen import preparar, ruta_por_defecto
+from .auditoria import anclar
 from .cache import CONSERVAR
 from .dashboard import construir_datos
 from .documents import iter_pdfs
@@ -157,11 +159,19 @@ class Ejecucion:
 
 
 class Agente:
-    """Encapsula la ejecucion, con cerrojo para que no haya dos a la vez."""
+    """Encapsula la ejecucion, con cerrojo para que no haya dos a la vez.
 
-    def __init__(self, carpeta_pdf: Path, carpeta_salida: Path) -> None:
+    Cada pasada escribe en out/ y en el almacen, como `extract`. La conexion
+    al almacen se abre dentro del hilo de la pasada y se cierra al acabar:
+    una conexion de sqlite3 no se comparte entre hilos.
+    """
+
+    def __init__(
+        self, carpeta_pdf: Path, carpeta_salida: Path, ruta_db: Path | None = None
+    ) -> None:
         self.carpeta_pdf = carpeta_pdf
         self.carpeta_salida = carpeta_salida
+        self.ruta_db = ruta_db
         self._cerrojo = threading.Lock()
         self._estado = Ejecucion()
 
@@ -210,11 +220,15 @@ class Agente:
             estado.mensaje = f"{estado.pasada.total} de {estado.total}"
 
         # La misma politica que `extract`: lo ya leido no se vuelve a pagar
-        # aunque haya cambiado el modelo o la version.
-        extraer_pasada(
-            self._cliente(), pdfs, self.carpeta_salida, model=config.model_id(),
-            politica=CONSERVAR, informar=avance, resultado=estado.pasada,
-        )
+        # aunque haya cambiado el modelo o la version. El almacen se abre
+        # antes de llamar a nadie: si no se puede, la pasada no gasta nada.
+        with preparar(self.ruta_db) as almacen:
+            extraer_pasada(
+                self._cliente(), pdfs, self.carpeta_salida, model=config.model_id(),
+                politica=CONSERVAR, informar=avance, resultado=estado.pasada,
+                almacen=almacen,
+            )
+            anclar(almacen.conn, Path(self.carpeta_salida) / "anclas.log")
 
         p = estado.pasada
         estado.estado = "terminado"
@@ -223,6 +237,8 @@ class Agente:
             f"{p.extraidas} leidas, {p.reutilizadas} reutilizadas, "
             f"{p.fallidas} con problemas"
         )
+        if p.sin_almacen:
+            estado.mensaje += f", {p.sin_almacen} sin guardar en el almacen (estan en out/)"
 
 
 def _ahora() -> str:
@@ -406,13 +422,16 @@ def crear_servidor(
     origenes_extra: list[str] | tuple[str, ...] = (),
     token: str | None = None,
     agente: Agente | None = None,
+    ruta_db: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     """Crea el servidor ya escuchando en 127.0.0.1, sin atender todavia.
 
     Con puerto 0 el sistema elige uno libre; el Host y los origenes se
     calculan con el puerto real. Los tests lo usan asi, con un agente falso.
     """
-    agente = agente or Agente(Path(carpeta_pdf), Path(carpeta_salida))
+    agente = agente or Agente(
+        Path(carpeta_pdf), Path(carpeta_salida), Path(ruta_db) if ruta_db else None
+    )
     servidor = ThreadingHTTPServer(("127.0.0.1", puerto), Manejador)
     puerto_real = servidor.server_address[1]
     try:
@@ -435,9 +454,12 @@ def servir(
     carpeta_salida: str | Path = "out",
     puerto: int = 8765,
     origenes_extra: list[str] | tuple[str, ...] = (),
+    ruta_db: str | Path | None = None,
 ) -> None:
     """Arranca el servidor local. Solo 127.0.0.1, a proposito."""
-    servidor = crear_servidor(carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra)
+    servidor = crear_servidor(
+        carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra, ruta_db=ruta_db
+    )
     manejador = servidor.RequestHandlerClass
     puerto_real = servidor.server_address[1]
     print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
@@ -448,7 +470,8 @@ def servir(
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")
     print("\nOrigenes admitidos: " + ", ".join(sorted(manejador.origenes)))
-    print(f"\nLee PDF de {carpeta_pdf}/ y guarda extracciones en {carpeta_salida}/")
+    print(f"\nLee PDF de {carpeta_pdf}/ y guarda extracciones en {carpeta_salida}/"
+          f" y en el almacen {ruta_db or ruta_por_defecto()}")
     print("Solo escucha en 127.0.0.1. No es un servidor de produccion.\n")
     try:
         servidor.serve_forever()

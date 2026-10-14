@@ -1,0 +1,2 @@
+# Las migraciones se fijan por su hash: siempre con LF.
+src/bms_agent/almacen/sql/*.sql text eol=lf

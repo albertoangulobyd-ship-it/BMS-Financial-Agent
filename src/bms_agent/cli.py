@@ -3,13 +3,18 @@
 Ninguna orden escribe en ningun sistema de la empresa:
 
     bms-agent schema              muestra el esquema de extraccion
-    bms-agent extract facturas/   extrae los PDF de una carpeta a out/
+    bms-agent extract facturas/   extrae los PDF de una carpeta a out/ y al almacen
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
+    bms-agent db init|migrar|verificar   el almacen (datos/bms.sqlite3)
+    bms-agent importar-out        lleva out/*.json al almacen, sin llamar a la API
 
 `extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
 guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
 un modelo o un prompt nuevo hace falta pedirlo con --estricta.
+
+El almacen esta en datos/bms.sqlite3, o donde diga --db o la variable BMS_DB;
+los originales, en la carpeta documentos/ de al lado.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ import sys
 from pathlib import Path
 
 from . import config
+from .almacen import ruta_por_defecto
 from .cache import CONSERVAR, ESTRICTA, indexar, reutilizable
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import build_request, extraer_pasada
@@ -34,6 +40,8 @@ def _cmd_schema(args: argparse.Namespace) -> int:
     print(json.dumps(InvoiceExtraction.model_json_schema(), indent=2, ensure_ascii=False))
     return 0
 
+
+_AYUDA_DB = "almacen SQLite (por defecto: BMS_DB o datos/bms.sqlite3)"
 
 _ETIQUETAS_PASO = {"omitido": "omitido", "cache": "cache", "error": "ERROR", "ok": "ok"}
 
@@ -55,14 +63,42 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         print(f"No hay PDF en {args.directory}", file=sys.stderr)
         return 1
 
-    return extraer_carpeta(
-        anthropic.Anthropic(), pdfs, Path(args.out),
-        politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
-    )
+    # El almacen se abre antes de gastar nada: si no se puede, no se paga.
+    try:
+        almacen = _abrir_almacen(args.db)
+    except Exception as exc:
+        print(f"No se puede abrir el almacen: {exc}", file=sys.stderr)
+        return 2
+    with almacen:
+        codigo = extraer_carpeta(
+            anthropic.Anthropic(), pdfs, Path(args.out),
+            politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
+            almacen=almacen,
+        )
+        _anclar(almacen, Path(args.out))
+    return codigo
+
+
+def _ruta_db(valor: str | None) -> Path:
+    return Path(valor) if valor else ruta_por_defecto()
+
+
+def _abrir_almacen(valor: str | None):
+    from .almacen import preparar
+
+    return preparar(_ruta_db(valor))
+
+
+def _anclar(almacen, out_dir: Path) -> None:
+    """Apunta la cabeza de la auditoria en out/anclas.log (ver auditoria.anclar)."""
+    from .auditoria import anclar
+
+    anclar(almacen.conn, out_dir / "anclas.log")
 
 
 def extraer_carpeta(
-    client: object, pdfs: list[Path], out_dir: Path, *, politica: str, forzar: bool
+    client: object, pdfs: list[Path], out_dir: Path, *, politica: str, forzar: bool,
+    almacen=None,
 ) -> int:
     """El cuerpo de `extract`, con el cliente inyectado para poder probarlo."""
     model = config.model_id()
@@ -79,14 +115,20 @@ def extraer_carpeta(
 
     r = extraer_pasada(
         client, pdfs, out_dir, model=model, politica=politica, forzar=forzar,
-        informar=_imprimir_paso,
+        informar=_imprimir_paso, almacen=almacen,
     )
 
     print(f"\nHecho. {r.extraidas} extraidos, {r.reutilizadas} reutilizados, "
           f"{r.fallidas} con problemas, de {len(pdfs)} documentos en {out_dir}/\n")
+    if almacen is not None:
+        print(f"Almacen: {r.almacenadas} documentos guardados con su extraccion")
+        if r.sin_almacen:
+            print(f"  {r.sin_almacen} no se pudieron guardar; estan en {out_dir}/ y "
+                  "`bms-agent importar-out` los recupera sin pagar")
+        print()
     if r.extraidas:
         print(format_cost_summary(model, r.extraidas, r.tokens_entrada, r.tokens_salida))
-    return 1 if r.fallidas else 0
+    return 1 if r.fallidas or r.sin_almacen else 0
 
 
 def _cmd_score(args: argparse.Namespace) -> int:
@@ -184,7 +226,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     try:
         servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto,
-               origenes_extra=args.origen)
+               origenes_extra=args.origen, ruta_db=_ruta_db(args.db))
     except ValueError as exc:
         print(f"No se arranca el servidor: {exc}", file=sys.stderr)
         return 2
@@ -273,6 +315,122 @@ def _cmd_coste(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_db(args: argparse.Namespace) -> int:
+    from .almacen import abrir
+    from .almacen.migrar import MigracionAlterada, migrar, pendientes
+
+    ruta = _ruta_db(args.db)
+    if args.accion != "init" and not ruta.exists():
+        print(f"No existe el almacen {ruta}. Crealo con: bms-agent db init", file=sys.stderr)
+        return 1
+    if args.accion == "verificar":
+        return _verificar_db(ruta, Path(args.anclas))
+
+    existia = ruta.exists()
+    conn = abrir(ruta)
+    try:
+        if args.accion == "migrar" and not pendientes(conn):
+            print(f"{ruta}: no hay migraciones pendientes")
+        hechas = migrar(conn)
+    except MigracionAlterada as exc:
+        print(f"No se migra: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if args.accion == "init":
+        print(f"Almacen {'abierto' if existia else 'creado'} en {ruta}")
+    for migracion in hechas:
+        print(f"  aplicada {migracion.nombre}  ({migracion.sha256[:12]})")
+    return 0
+
+
+def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
+    """Integridad de SQLite, migraciones, cadena de auditoria, anclas y originales."""
+    from .almacen import Almacen, abrir, raiz_documentos_de
+    from .almacen.documentos import AlmacenDocumentos, verificar
+    from .almacen.migrar import comprobar, pendientes
+    from .auditoria import leer_anclas, verificar_cadena
+
+    conn = abrir(ruta)
+    almacen = Almacen(conn, AlmacenDocumentos(raiz_documentos_de(ruta)))
+    errores: list[str] = []
+    avisos: list[str] = []
+    try:
+        integridad = [fila[0] for fila in conn.execute("PRAGMA integrity_check")]
+        if integridad != ["ok"]:
+            errores.extend(f"SQLite: {linea}" for linea in integridad)
+        for fila in conn.execute("PRAGMA foreign_key_check"):
+            errores.append(f"clave foranea rota en {fila[0]}, fila {fila[1]} -> {fila[2]}")
+        errores.extend(comprobar(conn))
+        sin_aplicar = pendientes(conn)
+        if sin_aplicar:
+            avisos.append("migraciones pendientes: " + ", ".join(m.nombre for m in sin_aplicar))
+
+        anclas, malas = leer_anclas(anclas_ruta)
+        errores.extend(malas)
+        cadena = verificar_cadena(conn, anclas)
+        errores.extend(cadena.problemas)
+
+        problemas_doc = verificar(almacen)
+        errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
+        avisos.extend(p.detalle for p in problemas_doc if p.gravedad == "aviso")
+        documentos = conn.execute(
+            "SELECT count(*), count(ruta_cas) FROM documento"
+        ).fetchone()
+        extracciones = conn.execute("SELECT count(*) FROM extraccion").fetchone()[0]
+    finally:
+        conn.close()
+
+    print(f"Almacen {ruta}")
+    print(f"  eventos de auditoria  {cadena.eventos}"
+          + (f"  (cabeza {cadena.cabeza.id} {cadena.cabeza.hash[:12]})" if cadena.cabeza else ""))
+    print(f"  anclas comprobadas    {cadena.anclas}"
+          + ("" if anclas_ruta.exists() else f"  (no hay {anclas_ruta})"))
+    print(f"  documentos            {documentos[0]}  ({documentos[1]} con el original)")
+    print(f"  extracciones          {extracciones}")
+    for aviso in avisos:
+        print(f"  aviso: {aviso}")
+    if errores:
+        print(f"\n{len(errores)} problemas:")
+        for error in errores:
+            print(f"  - {error}")
+        return 1
+    print("\nTodo cuadra.")
+    return 0
+
+
+def _cmd_importar_out(args: argparse.Namespace) -> int:
+    from .importadores.extracciones import importar_out
+
+    out_dir = Path(args.out)
+    if not out_dir.is_dir():
+        print(f"No existe la carpeta {out_dir}", file=sys.stderr)
+        return 1
+    pdfs = Path(args.pdfs) if args.pdfs else None
+    try:
+        almacen = _abrir_almacen(args.db)
+    except Exception as exc:
+        print(f"No se puede abrir el almacen: {exc}", file=sys.stderr)
+        return 2
+    with almacen:
+        r = importar_out(almacen, out_dir, pdfs)
+        _anclar(almacen, out_dir)
+
+    print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
+    print(f"  importados          {r.importadas}")
+    print(f"  ya estaban          {r.ya_estaban}")
+    print(f"  rechazados          {r.rechazadas}")
+    print(f"  documentos nuevos   {r.documentos_nuevos}")
+    print(f"  originales copiados {r.originales_guardados}")
+    if r.sin_original:
+        donde = f"en {pdfs}/" if pdfs and pdfs.is_dir() else "porque no hay carpeta de PDF"
+        print(f"  sin original        {r.sin_original}  (no se encontro su PDF {donde}; "
+              "se puede anadir despues con --pdfs)")
+    for nombre, motivo in r.rechazos:
+        print(f"  rechazado {nombre}: {motivo}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -298,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             "un modelo o un prompt nuevo (gasta creditos en lo demas)"
         ),
     )
+    p_extract.add_argument("--db", help=_AYUDA_DB)
     p_extract.set_defaults(func=_cmd_extract)
 
     p_score = sub.add_parser("score", help="compara las extracciones con las respuestas")
@@ -372,7 +531,35 @@ def main(argv: list[str] | None = None) -> int:
             "http://localhost:5173; se puede repetir"
         ),
     )
+    p_serve.add_argument("--db", help=_AYUDA_DB)
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_db = sub.add_parser("db", help="el almacen: crear, migrar y verificar")
+    sub_db = p_db.add_subparsers(dest="accion", required=True)
+    for accion, ayuda in (
+        ("init", "crea el almacen y aplica las migraciones"),
+        ("migrar", "aplica las migraciones pendientes a un almacen que ya existe"),
+        ("verificar", "comprueba la cadena de auditoria, las migraciones y cada original"),
+    ):
+        p_accion = sub_db.add_parser(accion, help=ayuda)
+        p_accion.add_argument("--db", help=_AYUDA_DB)
+        if accion == "verificar":
+            p_accion.add_argument(
+                "--anclas", default="out/anclas.log",
+                help="fichero de anclas de la auditoria (por defecto: out/anclas.log)",
+            )
+    p_db.set_defaults(func=_cmd_db)
+
+    p_importar = sub.add_parser(
+        "importar-out", help="lleva las extracciones de out/ al almacen (no llama a la API)"
+    )
+    p_importar.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_importar.add_argument(
+        "--pdfs", default="facturas",
+        help="carpeta donde buscar cada PDF por su hash (por defecto: facturas)",
+    )
+    p_importar.add_argument("--db", help=_AYUDA_DB)
+    p_importar.set_defaults(func=_cmd_importar_out)
 
     args = parser.parse_args(argv)
     return args.func(args)
