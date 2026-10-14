@@ -42,6 +42,13 @@ class InvoiceView:
 
     @property
     def total(self) -> Decimal | None:
+        """Total en euros, o None si no se puede sumar como tal.
+
+        Una factura que X1 da por no-euro no tiene total en euros aunque el
+        literal del total haya perdido el "$": la moneda es de la factura.
+        """
+        if any(c.rule == "X1" and c.failed for c in self.checks):
+            return None
         raw = self.extraction.get("total_incl_vat_raw")
         if raw is None:
             return None

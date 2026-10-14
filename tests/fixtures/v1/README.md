@@ -17,7 +17,7 @@ documento y se validan contra `InvoiceExtraction` en los tests.
 | `04-nota-credito.json` | Abono parcial de la 01, mismo periodo, importes negativos | No |
 | `05-uren.json` | Una línea con la unidad «uren» y otra en «stuk» | **Sí**: las 24 horas ya cuentan, en el panel y en la proyección |
 | `06-fecha-nl.json` | Fecha de factura copiada como `13-09-2026` | No |
-| `07-usd.json` | Factura en dólares, con la unidad «hours» | **Sí**: ya no suma como euros, sale crítica por X1 y sus 20 horas cuentan |
+| `07-usd.json` | Factura en dólares, con la unidad «hours» | **Sí**: ya no suma como euros, sale crítica por X1 y queda fuera de todos los agregados, horas incluidas (sale solo como fila y alerta) |
 
 Los tres primeros son las facturas de `scripts/generar_facturas_ejemplo.py`:
 su `source_sha256` es el de los PDF que escribe el generador, y hay un test que

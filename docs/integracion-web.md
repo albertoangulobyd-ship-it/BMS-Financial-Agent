@@ -225,7 +225,14 @@ parezca correcta; una con el periodo solapado con otra (B4) sale como
 
 **Una factura que no está en euros no suma.** Sus `base`, `iva` y `total`
 llegan como `null`, sale `critico` y el motivo dice la moneda (regla X1).
-Las horas sí cuentan: las líneas en «uur», «uren», «u» u «hours» son horas.
+Basta con que un importe lleve otra moneda: los que no llevan marcador
+tampoco cuentan como euros. Sale en `filas` con sus `horas`, y cuenta en
+`totales.facturas`, `proveedores`, `criticas` y `por_revisar`, que son
+recuentos de la tabla; no entra en ninguna suma: ni `totales.importe`,
+`iva` u `horas`, ni `por_mes`, `por_proveedor`, `por_regimen`, `matriz` o
+`facturacion`.
+
+Las líneas en «uur», «uren», «u» u «hours» son horas.
 
 
 ---

@@ -158,7 +158,11 @@ por eso mismo nunca bloquea: avisa.
 
 **X1 existe porque antes el símbolo del dólar se quitaba igual que el del
 euro**, y una factura en dólares sumaba como si estuviera en euros. Con el
-esquema actual, que no pide la moneda, se mira el literal de cada importe.
+esquema actual, que no pide la moneda, se mira el literal de cada importe,
+pero la decisión es de la factura entera: un modelo copia el `$` en unos
+campos y lo pierde en otros, y el importe que lo perdió no son euros. Si
+ningún importe se puede leer y ninguno lleva marcador, X1 queda sin datos en
+vez de dar por buenos unos euros que nadie ha visto.
 
 ### E · Régimen de IVA
 

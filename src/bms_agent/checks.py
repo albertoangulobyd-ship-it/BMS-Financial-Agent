@@ -259,18 +259,41 @@ def check_currency(extraction: dict[str, Any]) -> CheckResult:
     """X1: la factura esta en euros.
 
     El esquema v1 no pide la moneda, asi que se mira el literal de cada
-    importe con detectar_moneda. Un importe en otra moneda ya no se convierte
-    (parse_amount lo rechaza), de modo que la factura queda fuera de todos los
-    totales; esta regla es la que dice por que, en vez de dejar un hueco mudo.
+    importe con detectar_moneda. La moneda se decide para la factura entera,
+    no importe a importe: un modelo copia el "$" en unos campos y lo pierde en
+    otros, y el importe que lo perdio no es por eso un importe en euros. Por
+    eso quien suma (panel, informe, proyeccion, simulador) mira en_euros y
+    deja fuera la factura entera, no solo los literales con el marcador.
+
+    Solo se da por buena cuando algun importe se lee como euro (con su
+    marcador o sin ninguno, que es como imprime una factura neerlandesa). Si
+    ningun literal se puede leer, no se sabe en que moneda esta: "sin datos",
+    no un "ok" que nadie ha comprobado.
     """
     literales = _literales_de_importe(extraction)
     if not literales:
         return CheckResult("X1", "Moneda", "sin datos", "La factura no trae importes.")
-    otras = sorted({m for m in map(detectar_moneda, literales) if m not in (None, "EUR")})
+    monedas = [detectar_moneda(v) for v in literales]
+    otras = sorted({m for m in monedas if m not in (None, "EUR")})
     if otras:
         return CheckResult(
             "X1", "Moneda", "fallo",
             f"Importes en {', '.join(otras)}: no está en euros y queda fuera de "
             "todos los totales.",
         )
+    if "EUR" not in monedas and all(_amount(v) is None for v in literales):
+        return CheckResult(
+            "X1", "Moneda", "sin datos",
+            "Ningún importe es legible: no se puede decir en qué moneda está.",
+        )
     return CheckResult("X1", "Moneda", "ok", "Importes en euros.")
+
+
+def en_euros(extraction: dict[str, Any]) -> bool:
+    """La factura puede entrar en una suma en euros: X1 no falla.
+
+    Es el unico predicado que deben usar los agregados. Un literal sin
+    marcador en una factura cuyo total dice "$" son dolares, no euros, y
+    parse_amount, que solo ve un literal, no puede saberlo.
+    """
+    return not check_currency(extraction).failed

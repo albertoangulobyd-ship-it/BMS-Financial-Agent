@@ -186,13 +186,25 @@ def test_la_aritmetica_de_linea_detecta_un_importe_mal() -> None:
         ("1.000,00 kr", "KR"),
         ("EUR 100,00 ($ 108.00)", "USD"),   # dos monedas: gana la que no es euro
         (None, None),
+        # El codigo pegado a los digitos: con \b no habia limite de palabra.
+        ("USD2,500.00", "USD"),
+        ("2,500.00USD", "USD"),
+        ("GBP99.00", "GBP"),
+        ("CHF100.00", "CHF"),
+        ("2.500,00EUR", "EUR"),
+        # El prefijo del "$" decide el pais; uno desconocido no es USD.
+        ("R$ 100", "BRL"),
+        ("CAD$100", "CAD"),
+        ("MX$ 5,00", "MXN"),
+        ("XY$ 3.00", "$"),
     ],
 )
 def test_detectar_moneda(raw, esperada) -> None:
     assert detectar_moneda(raw) == esperada
 
 
-@pytest.mark.parametrize("raw", ["$2,500.00", "USD 1.250,00", "£ 99.00", "1.000,00 kr"])
+@pytest.mark.parametrize("raw", ["$2,500.00", "USD 1.250,00", "£ 99.00", "1.000,00 kr",
+                                 "USD2,500.00", "2,500.00USD", "CHF100.00", "R$ 100"])
 def test_un_importe_en_otra_moneda_no_se_lee_como_euros(raw: str) -> None:
     """Antes "$2,500.00" daba 2500 y la factura sumaba como si fueran euros."""
     with pytest.raises(ParseError, match="no en euros"):
@@ -205,6 +217,17 @@ def test_parse_importe_devuelve_el_valor_y_su_moneda() -> None:
     assert parse_importe("8.740,00") == (Decimal("8740.00"), None)
     with pytest.raises(ParseError):
         parse_importe("USD 1.2345")
+
+
+def test_el_euro_pegado_a_los_digitos_se_lee() -> None:
+    assert parse_amount("2.500,00EUR") == Decimal("2500.00")
+    assert parse_amount("EUR2.500,00") == Decimal("2500.00")
+
+
+def test_parse_importe_lee_los_dolares_con_prefijo() -> None:
+    """Antes "R$ 100" no se podia leer y la puntuacion no comparaba un BRL."""
+    assert parse_importe("R$ 100") == (Decimal("100"), "BRL")
+    assert parse_importe("CAD$100") == (Decimal("100"), "CAD")
 
 
 def test_la_puntuacion_no_da_por_bueno_un_importe_sin_su_moneda() -> None:
@@ -275,3 +298,24 @@ def test_x1_da_por_buena_una_factura_en_euros_y_no_evalua_sin_importes() -> None
     assert check_currency({"total_incl_vat_raw": "€ 1.000,00", "lines": []}).status == "ok"
     assert check_currency({"total_incl_vat_raw": "1.000,00"}).status == "ok"
     assert check_currency({"lines": []}).status == "sin datos"
+
+
+def test_x1_marca_el_codigo_pegado_a_los_digitos() -> None:
+    """Con "USD2,500.00" en todos los importes, X1 decia "ok: Importes en euros"."""
+    from bms_agent.checks import check_currency
+
+    for literal in ("USD2,500.00", "2,500.00USD", "CHF100.00"):
+        factura = {"total_incl_vat_raw": literal,
+                   "lines": [{"unit_rate_raw": literal, "line_total_raw": literal}]}
+        resultado = check_currency(factura)
+        assert resultado.failed, literal
+
+
+def test_x1_no_da_por_euros_lo_que_no_ha_podido_leer() -> None:
+    """Sin marcador y sin ningun importe legible, la moneda no se sabe."""
+    from bms_agent.checks import check_currency
+
+    resultado = check_currency({"total_incl_vat_raw": "Fr. 2'500.00",
+                                "lines": [{"line_total_raw": "Fr. 2'500.00"}]})
+    assert resultado.status == "sin datos"
+    assert check_currency({"total_incl_vat_raw": "€ 2.500,00x"}).status == "ok"

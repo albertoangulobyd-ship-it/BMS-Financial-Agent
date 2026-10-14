@@ -57,5 +57,5 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 289 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 314 tests sin
 llamar a la API.

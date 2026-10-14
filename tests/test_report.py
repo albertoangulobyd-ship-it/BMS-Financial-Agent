@@ -156,3 +156,14 @@ def test_un_comentario_html_incrustado_no_rompe_el_bloque_script() -> None:
     cuerpo = salida.split("const DATOS = ", 1)[1]
     assert "<!--" not in cuerpo
     assert "</script>" not in cuerpo.split("\n</script>")[0]
+
+
+def test_el_total_de_una_factura_en_dolares_no_entra_aunque_pierda_el_marcador() -> None:
+    """La moneda es de la factura: un total sin "$" no la hace de euros."""
+    euros = {"source_name": "a.pdf", "extraction": {"total_incl_vat_raw": "1.000,00"}}
+    dolares = {"source_name": "b.pdf", "extraction": {
+        "total_incl_vat_raw": "2.500,00", "subtotal_excl_vat_raw": "2.500,00",
+        "lines": [{"unit_rate_raw": "$125.00", "line_total_raw": "$2,500.00"}]}}
+    data = build_report([euros, dolares])
+    assert data.total_amount == Decimal("1000.00")
+    assert next(v for v in data.invoices if v.source_name == "b.pdf").total is None

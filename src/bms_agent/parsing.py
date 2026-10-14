@@ -31,33 +31,52 @@ class ParseError(ValueError):
     """El texto no representa un valor interpretable sin adivinar."""
 
 
-_EURO = re.compile(r"€|\b(?:eur|euro|euros)\b", re.IGNORECASE)
+# Los marcadores se acotan por letras, no con \b: entre "USD" y "2" no hay
+# limite de palabra (letras y digitos son los dos caracteres de palabra), y
+# con \b un "USD2,500.00" o un "2.500,00EUR" pasaban sin marcador.
+_EURO = re.compile(r"€|(?<![a-z])(?:eur|euro|euros)(?![a-z])", re.IGNORECASE)
 _SPACES = re.compile(r"[\s  ]+")
 
-# Marcadores de otras monedas. Van de mas a menos especifico: "C$" tiene que
-# leerse como dolar canadiense antes de que "$" lo lea como dolar a secas.
+# Un "$" con las letras que lleva pegadas delante: "US$", "C$", "R$", "CAD$".
+# Se mira el prefijo entero porque buscar "c$" dentro de "cad$" no lo
+# encontraba y el "$" a secas lo leia como dolar estadounidense.
+_DOLAR = re.compile(r"([a-z]*)\$", re.IGNORECASE)
+_PREFIJOS_DOLAR = {
+    "": "USD", "us": "USD", "usd": "USD",
+    "c": "CAD", "ca": "CAD", "cad": "CAD",
+    "a": "AUD", "au": "AUD", "aud": "AUD",
+    "nz": "NZD", "nzd": "NZD",
+    "hk": "HKD", "hkd": "HKD",
+    "s": "SGD", "sg": "SGD", "sgd": "SGD",
+    "r": "BRL", "brl": "BRL",
+    "mx": "MXN", "mxn": "MXN",
+}
+# Moneda con "$" de prefijo desconocido. No es un codigo ISO, como "KR": no se
+# sabe cual es, pero si que no es el euro, que es lo unico que decide aqui.
+DOLAR_SIN_PAIS = "$"
+
 _SIMBOLOS_MONEDA = (
-    ("us$", "USD"), ("c$", "CAD"), ("a$", "AUD"), ("nz$", "NZD"),
-    ("hk$", "HKD"), ("s$", "SGD"), ("$", "USD"), ("£", "GBP"), ("¥", "JPY"),
-    ("₹", "INR"), ("₺", "TRY"), ("₽", "RUB"), ("zł", "PLN"),
+    ("£", "GBP"), ("¥", "JPY"), ("₹", "INR"), ("₺", "TRY"), ("₽", "RUB"),
+    ("zł", "PLN"),
 )
 _CODIGOS_MONEDA = re.compile(
-    r"\b(usd|gbp|chf|pln|sek|nok|dkk|czk|huf|ron|bgn|try|jpy|cny|cad|aud|nzd"
-    r"|hkd|sgd|inr|zar|rub)\b",
+    r"(?<![a-z])(usd|gbp|chf|pln|sek|nok|dkk|czk|huf|ron|bgn|try|jpy|cny|cad|aud"
+    r"|nzd|hkd|sgd|inr|zar|rub|brl|mxn)(?![a-z])",
     re.IGNORECASE,
 )
 # "kr" sirve para la corona danesa, la noruega y la sueca: no se puede decir
 # cual, pero si que no es el euro, que es lo unico que importa aqui.
-_CORONA = re.compile(r"\bkr\b\.?", re.IGNORECASE)
+_CORONA = re.compile(r"(?<![a-z])kr(?![a-z])\.?", re.IGNORECASE)
 
 
 def detectar_moneda(raw: str | None) -> str | None:
     """Moneda que declara un importe impreso, o None si no declara ninguna.
 
     Devuelve el codigo ISO 4217 cuando el marcador lo determina ("$" a secas
-    se lee como USD), "KR" para la corona sin pais, "EUR" para el euro y None
-    si el literal no lleva marcador. Si conviven el euro y otra moneda, gana
-    la otra: un importe que dice dos monedas no puede sumarse como euros.
+    se lee como USD, "R$" como BRL), "$" para un dolar de prefijo desconocido,
+    "KR" para la corona sin pais, "EUR" para el euro y None si el literal no
+    lleva marcador. Si conviven el euro y otra moneda, gana la otra: un
+    importe que dice dos monedas no puede sumarse como euros.
 
     Existe por la regla X1. Antes, el simbolo del dolar se quitaba igual que
     el del euro y una factura en dolares entraba en los totales como si fuera
@@ -66,6 +85,8 @@ def detectar_moneda(raw: str | None) -> str | None:
     if raw is None:
         return None
     texto = str(raw).lower()
+    if m := _DOLAR.search(texto):
+        return _PREFIJOS_DOLAR.get(m.group(1), DOLAR_SIN_PAIS)
     for simbolo, codigo in _SIMBOLOS_MONEDA:
         if simbolo in texto:
             return codigo
@@ -80,11 +101,11 @@ def detectar_moneda(raw: str | None) -> str | None:
 
 def _quitar_monedas(texto: str) -> str:
     """Quita del literal cualquier marcador de moneda reconocido."""
+    texto = _DOLAR.sub("", texto)
     texto = _EURO.sub("", _CODIGOS_MONEDA.sub("", _CORONA.sub("", texto)))
     for simbolo, _codigo in _SIMBOLOS_MONEDA:
         texto = re.sub(re.escape(simbolo), "", texto, flags=re.IGNORECASE)
     return texto
-
 
 
 def _join_thousands(text: str, sep: str, raw: str) -> str:

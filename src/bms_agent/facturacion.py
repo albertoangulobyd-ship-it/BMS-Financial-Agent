@@ -32,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from .checks import en_euros
 from .parsing import ParseError, es_unidad_hora, parse_amount
 
 MARGEN_POR_DEFECTO = Decimal("0.35")
@@ -130,13 +131,20 @@ def _num(v: Decimal | None) -> float | None:
 def proyectar(
     registros: list[dict[str, Any]], tarifas: Tarifas
 ) -> dict[str, Any]:
-    """Agrupa las horas compradas por cliente, obra y semana, y les pone precio."""
+    """Agrupa las horas compradas por cliente, obra y semana, y les pone precio.
+
+    Una factura que no esta en euros (X1) no entra entera: su tarifa sin
+    marcador son dolares aunque parse_amount la lea como euros, y proyectarla
+    proponia una venta en euros a partir de un coste en dolares.
+    """
     grupos: dict[tuple[str, str, str], dict[str, Any]] = {}
     sin_mapear: set[str] = set()
     descartadas: dict[str, Decimal] = defaultdict(Decimal)
 
     for registro in registros:
         x = registro.get("extraction") or {}
+        if not en_euros(x):
+            continue
         fichero = registro.get("source_name", "—")
         proveedor = x.get("supplier_name") or "(sin nombre)"
 
@@ -262,6 +270,7 @@ def lineas_para_simulador(
 
     El simulador recalcula en vivo cuando se toca una tarifa, asi que necesita
     las lineas sin agrupar. La agrupacion y el precio los hace el cliente.
+    Como en proyectar, una factura que no esta en euros no entra.
     """
     tarifas = tarifas or Tarifas()
     lineas: list[dict[str, Any]] = []
@@ -270,6 +279,8 @@ def lineas_para_simulador(
 
     for registro in registros:
         x = registro.get("extraction") or {}
+        if not en_euros(x):
+            continue
         proveedor = x.get("supplier_name") or "(sin nombre)"
         fecha = x.get("invoice_date") or ""
         for linea in x.get("lines") or []:

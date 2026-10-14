@@ -211,6 +211,22 @@ def test_el_mismo_pdf_dos_veces_en_la_carpeta_se_paga_una_vez(carpeta) -> None:
     assert (r.extraidas, r.reutilizadas) == (1, 1)
 
 
+def test_con_force_el_mismo_pdf_dos_veces_en_la_pasada_se_paga_una_vez(carpeta) -> None:
+    """--force vuelve a leer lo de antes, no lo que esta misma pasada ya leyo."""
+    rutas, out = carpeta
+    extraer_pasada(ClienteFalso(), rutas, out, model="claude-opus-5")
+    copia = rutas[0].parent / "a-reenviada.pdf"
+    copia.write_bytes(PDF)
+
+    cliente = ClienteFalso()
+    r = extraer_pasada(cliente, [rutas[0], copia, rutas[0]], out,
+                       model="claude-opus-5", forzar=True)
+
+    assert cliente.llamadas == 1
+    assert (r.extraidas, r.reutilizadas) == (1, 2)
+    assert len(_ficheros(out)) == 2
+
+
 def test_un_fichero_que_no_es_pdf_no_llega_a_la_api(tmp_path) -> None:
     falso = tmp_path / "x.pdf"
     falso.write_bytes(b"no soy un pdf")

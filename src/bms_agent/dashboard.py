@@ -10,13 +10,14 @@ ver: un duplicado, un periodo repetido o una tarifa que cambio.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from .checks import run_checks
+from .checks import en_euros, run_checks
 from .checks import _euros
 from .facturacion import cargar_tarifas, proyectar
 from .parsing import ParseError, es_unidad_hora, parse_amount, parse_iso_date
@@ -61,6 +62,9 @@ class Fila:
     estado: str  # ok | revisar | critico
     fallos: list[str]   # reglas incumplidas: no se paga sin resolver
     avisos: list[str]   # cosas que mirar, pero no bloquean
+    # X1: la factura no esta en euros. Sale en la tabla y en las alertas, pero
+    # ningun agregado la suma (ni importes ni horas): ver _sumables.
+    en_euros: bool = True
 
     @property
     def motivos(self) -> list[str]:
@@ -165,6 +169,10 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
         x = registro.get("extraction") or {}
         comprobaciones = run_checks(x)
         fallos = [f"{c.label}: {c.detail}" for c in comprobaciones if c.failed]
+        # La moneda se decide una vez por factura. Un literal sin marcador en
+        # una factura con "$" en el total no son euros, aunque parse_amount,
+        # que solo ve ese literal, lo lea como tales.
+        euros = not any(c.rule == "X1" and c.failed for c in comprobaciones)
 
         avisos: list[str] = []
         dudosos = x.get("low_confidence_fields") or []
@@ -198,19 +206,31 @@ def construir_filas(registros: list[dict[str, Any]]) -> list[Fila]:
                 semanas=_unicos([l.get("week_number") for l in lineas]),
                 horas=_horas(x),
                 otras_unidades=_otras_unidades(x),
-                base=_dec(x.get("subtotal_excl_vat_raw")),
-                iva=_dec(x.get("vat_amount_raw")),
-                total=_dec(x.get("total_incl_vat_raw")),
+                base=_dec(x.get("subtotal_excl_vat_raw")) if euros else None,
+                iva=_dec(x.get("vat_amount_raw")) if euros else None,
+                total=_dec(x.get("total_incl_vat_raw")) if euros else None,
                 regimen=x.get("vat_regime") or "unknown",
                 iban=(x.get("iban") or "—"),
                 vencimiento=x.get("due_date") or "—",
                 estado=estado,
                 fallos=fallos,
                 avisos=avisos,
+                en_euros=euros,
             )
         )
     filas.sort(key=lambda f: f.fecha_orden, reverse=True)
     return filas
+
+
+def _sumables(filas: list[Fila]) -> list[Fila]:
+    """Las filas que entran en los agregados: las que estan en euros.
+
+    Una factura que no esta en euros queda fuera de todos, tambien de las
+    horas y de los recuentos por mes, proveedor, regimen y semana. Dejarla en
+    unos y no en otros daba un panel que la contaba en las horas de un
+    proveedor con 0,00 EUR de importe, como si hubiera trabajado gratis.
+    """
+    return [f for f in filas if f.en_euros]
 
 
 def por_mes(filas: list[Fila]) -> list[dict[str, Any]]:
@@ -221,7 +241,7 @@ def por_mes(filas: list[Fila]) -> list[dict[str, Any]]:
     gasto. La base es lo unico comparable entre regimenes.
     """
     acumulado: dict[str, list[Any]] = defaultdict(lambda: [0, Decimal(0)])
-    for fila in filas:
+    for fila in _sumables(filas):
         importe = fila.base if fila.base is not None else fila.total
         if fila.fecha_orden == "0000-00-00" or importe is None:
             continue
@@ -248,7 +268,7 @@ def por_mes(filas: list[Fila]) -> list[dict[str, Any]]:
 
 def por_proveedor(filas: list[Fila]) -> list[dict[str, Any]]:
     acumulado: dict[str, dict[str, Any]] = {}
-    for fila in filas:
+    for fila in _sumables(filas):
         entrada = acumulado.setdefault(
             fila.proveedor,
             {"proveedor": fila.proveedor, "facturas": 0, "total": Decimal(0),
@@ -278,7 +298,7 @@ def por_regimen(filas: list[Fila]) -> list[dict[str, Any]]:
         "unknown": "Sin determinar",
     }
     acumulado: dict[str, dict[str, Any]] = {}
-    for fila in filas:
+    for fila in _sumables(filas):
         entrada = acumulado.setdefault(
             fila.regimen,
             {"clave": fila.regimen, "etiqueta": etiquetas.get(fila.regimen, fila.regimen),
@@ -427,6 +447,10 @@ def detectar_cambios_de_tarifa(registros: list[dict[str, Any]]) -> list[Alerta]:
     nombres: dict[str, list[str]] = defaultdict(list)
     for registro in registros:
         x = registro.get("extraction") or {}
+        if not en_euros(x):
+            # X1: una tarifa sin marcador en una factura en dolares no es una
+            # tarifa en euros, y compararla con las otras daria un G3 falso.
+            continue
         # Se agrupa por la identidad del proveedor, no por el nombre impreso:
         # quien cambia de nombre seguia cobrando otra tarifa sin que saltara
         # nada, y dos proveedores que se llaman igual se mezclaban.
@@ -492,6 +516,55 @@ def _nombre_de(nombres: list[str]) -> str:
     return " / ".join(sorted(nombres)) if nombres else "(sin nombre)"
 
 
+def _nombre_normalizado(nombre: Any) -> str:
+    """Nombre impreso sin mayusculas, puntos ni espacios de mas.
+
+    "Van Dijk B.V." y "van dijk bv" son el mismo nombre para quien copia una
+    factura ajena, y tienen que serlo tambien para F3.
+    """
+    sin_puntos = re.sub(r"[^\w\s]", "", str(nombre or "").lower())
+    return " ".join(sin_puntos.split())
+
+
+def _grupos_de_pago(registros: list[dict[str, Any]]) -> list[int]:
+    """Grupo de proveedor de cada registro para las reglas de pago (F).
+
+    _identidad toma la primera clave que hay (btw-id, KvK o nombre), y eso
+    basta para agrupar el gasto, pero no para una parada de pago: un
+    documento que copia el nombre y el KvK de un proveedor conocido y quita o
+    cambia el btw-id tenia otra identidad, y su IBAN nuevo no paraba nada.
+    Aqui dos registros son del mismo grupo si comparten CUALQUIERA de las tres
+    claves (union de conjuntos). Juntar de mas cuesta una llamada; juntar de
+    menos, un pago a una cuenta ajena.
+
+    Un nombre vacio no une nada: "(sin nombre)" no es un proveedor.
+    """
+    padre = list(range(len(registros)))
+
+    def raiz(i: int) -> int:
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+
+    primero_con: dict[str, int] = {}
+    for i, registro in enumerate(registros):
+        x = registro.get("extraction") or {}
+        claves = [
+            "btw:" + (x.get("vat_number") or "").replace(" ", "").upper(),
+            "kvk:" + (x.get("kvk_number") or "").strip(),
+            "nom:" + _nombre_normalizado(x.get("supplier_name")),
+        ]
+        for clave in claves:
+            if clave.endswith(":"):
+                continue
+            if clave in primero_con:
+                padre[raiz(i)] = raiz(primero_con[clave])
+            else:
+                primero_con[clave] = i
+    return [raiz(i) for i in range(len(registros))]
+
+
 def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
     """Un proveedor con mas de un IBAN en sus documentos. Parada dura F3.
 
@@ -502,15 +575,18 @@ def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
     cuentas llega con el maestro); mientras tanto, todas las facturas del
     proveedor que traen alguno de esos IBAN se paran hasta la llamada.
 
+    El proveedor es el grupo de _grupos_de_pago: comparte btw-id, KvK o
+    nombre con otra factura. Asi no se escapa quien copia el nombre y el KvK
+    de un proveedor y cambia o quita el btw-id.
+
     Las cuentas se listan por la fecha en que aparecieron, porque eso ayuda a
     la llamada, pero el orden no hace buena a ninguna.
     """
-    ibanes: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    nombres: dict[str, list[str]] = defaultdict(list)
+    ibanes: dict[int, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    nombres: dict[int, list[str]] = defaultdict(list)
     fechas: dict[str, str] = {}
-    for registro in registros:
+    for registro, clave in zip(registros, _grupos_de_pago(registros)):
         x = registro.get("extraction") or {}
-        clave = _identidad(x)
         nombre = x.get("supplier_name") or "(sin nombre)"
         if nombre not in nombres[clave]:
             nombres[clave].append(nombre)
@@ -521,8 +597,8 @@ def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
         if iban:
             ibanes[clave][iban].append(fichero)
 
-    alertas: list[Alerta] = []
-    for clave, cuentas in sorted(ibanes.items()):
+    encontradas: list[tuple[tuple[str, list[str]], Alerta]] = []
+    for clave, cuentas in ibanes.items():
         if len(cuentas) < 2:
             continue
         proveedor = _nombre_de(nombres[clave])
@@ -538,15 +614,15 @@ def detectar_ibanes(registros: list[dict[str, Any]]) -> list[Alerta]:
             for c in orden
         )
         afectadas = sorted(f for lista in cuentas.values() for f in lista)
-        alertas.append(Alerta(
+        encontradas.append(((proveedor, afectadas), Alerta(
             "critico", "F3", "Mas de un IBAN para el mismo proveedor",
             f"{proveedor} trae {len(cuentas)} IBAN distintos en sus facturas: "
             f"{resumen}. Ninguno vale de referencia por haberse visto antes: "
             "verificacion telefonica al numero ya conocido antes de pagar "
             "cualquiera de ellas.",
             afectadas,
-        ))
-    return alertas
+        )))
+    return [alerta for _clave, alerta in sorted(encontradas, key=lambda e: e[0])]
 
 
 def construir_alertas(
@@ -716,7 +792,7 @@ def matriz_semanal(filas: list[Fila], maximo: int = 18) -> dict[str, Any]:
     celdas: dict[tuple[str, str], dict[str, Any]] = {}
     semanas: set[str] = set()
     totales_por_proveedor: dict[str, Decimal] = defaultdict(Decimal)
-    for fila in filas:
+    for fila in _sumables(filas):
         importe = fila.base if fila.base is not None else fila.total
         suyas = _semanas_de(fila)
         if not suyas:
@@ -785,9 +861,12 @@ def construir_datos(
         if estimado is not None:
             coste += estimado
 
-    total = sum((f.total for f in filas if f.total is not None), Decimal(0))
-    horas = sum((f.horas for f in filas if f.horas is not None), Decimal(0))
-    iva = sum((f.iva for f in filas if f.iva is not None), Decimal(0))
+    # Los recuentos de abajo (facturas, proveedores, criticas) son de la
+    # tabla, y la factura que no esta en euros esta en la tabla. Las sumas no.
+    sumables = _sumables(filas)
+    total = sum((f.total for f in sumables if f.total is not None), Decimal(0))
+    horas = sum((f.horas for f in sumables if f.horas is not None), Decimal(0))
+    iva = sum((f.iva for f in sumables if f.iva is not None), Decimal(0))
 
     return {
         "filas": [

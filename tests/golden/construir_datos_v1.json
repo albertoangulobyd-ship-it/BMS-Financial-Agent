@@ -220,22 +220,12 @@
       "primera": "2026-09-13",
       "ultima": "2026-09-13",
       "avisos": 0
-    },
-    {
-      "proveedor": "Northwind Analytics Ltd",
-      "facturas": 1,
-      "total": 0.0,
-      "horas": 20.0,
-      "primera": "2026-09-18",
-      "ultima": "2026-09-18",
-      "avisos": 1
     }
   ],
   "matriz": {
     "semanas": [
       "2026-W36",
-      "2026-W37",
-      "2026-W38"
+      "2026-W37"
     ],
     "proveedores": [
       {
@@ -292,17 +282,6 @@
           }
         },
         "total": 540.0
-      },
-      {
-        "proveedor": "Northwind Analytics Ltd",
-        "celdas": {
-          "2026-W38": {
-            "importe": 0.0,
-            "n": 1,
-            "estado": "critico"
-          }
-        },
-        "total": 0.0
       }
     ],
     "maximo": 2297.75
@@ -484,7 +463,7 @@
     {
       "clave": "reverse_charged",
       "etiqueta": "IVA trasladado",
-      "facturas": 2,
+      "facturas": 1,
       "total": 1520.0
     }
   ],
@@ -512,7 +491,7 @@
     "facturas": 7,
     "importe": 7986.42,
     "iva": 1122.27,
-    "horas": 181.5,
+    "horas": 161.5,
     "proveedores": 6,
     "criticas": 1,
     "por_revisar": 2,

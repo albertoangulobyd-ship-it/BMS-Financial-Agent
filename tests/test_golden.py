@@ -110,6 +110,12 @@ def test_la_factura_en_dolares_no_suma_como_euros() -> None:
     euros = sum(f["total"] for f in datos["filas"] if f["total"] is not None)
     assert datos["totales"]["importe"] == pytest.approx(euros)
     assert datos["totales"]["importe"] == pytest.approx(7986.42)
+    # Fuera de todos los agregados, tambien de las horas (revision del paso 0).
+    assert datos["totales"]["horas"] == pytest.approx(161.5)
+    assert "Northwind Analytics Ltd" not in [p["proveedor"] for p in datos["por_proveedor"]]
+    assert "Northwind Analytics Ltd" not in [
+        p["proveedor"] for p in datos["matriz"]["proveedores"]]
+    assert fila["horas"] == 20.0   # la fila dice lo que trae el documento
 
 
 def test_las_demas_fixtures_dicen_lo_que_tienen_que_decir() -> None:

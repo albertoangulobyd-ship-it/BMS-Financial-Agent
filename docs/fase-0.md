@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-289 tests, ninguno llama a la API. Cubren la conversión de importes
+314 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local y una
@@ -90,7 +90,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 289 tests, sin llamadas a la API
+pytest                                    # 314 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -122,11 +122,13 @@ Vista agregada de **todo el histórico**, no una ficha por factura. Lleva:
 - Avisos agrupados: duplicados de número (B2), duplicados por contenido (B3),
   periodos solapados (B4, que retiene y no bloquea), más de un IBAN por
   proveedor (F3) y cambios de tarifa (G3). Son los que solo se ven cruzando
-  el histórico completo. F3 y G3 agrupan por la identidad del proveedor
-  (btw-id, luego KvK, luego nombre), no por el nombre impreso. Y en F3
-  ninguna de las cuentas impresas vale de referencia, ni la primera que se
-  vio: se paran todas las facturas de ese proveedor que traen alguna de
-  ellas, hasta la verificación telefónica.
+  el histórico completo. G3 agrupa por la identidad del proveedor
+  (btw-id, luego KvK, luego nombre), no por el nombre impreso. F3 junta las
+  facturas que comparten **cualquiera** de las tres claves: quien copia el
+  nombre y el KvK de un proveedor y quita o cambia el btw-id sigue siendo ese
+  proveedor. Y en F3 ninguna de las cuentas impresas vale de referencia, ni
+  la primera que se vio: se paran todas las facturas de ese proveedor que
+  traen alguna de ellas, hasta la verificación telefónica.
 - Gasto por mes y ranking por proveedor, **en base imponible**: comparar por
   el total con IVA premiaría al régimen y no al gasto.
 - Matriz proveedor × semana ISO. Una celda vacía es una semana sin factura de
@@ -194,8 +196,10 @@ reglas explícitas y tests. Cuando el texto es ambiguo lanza `ParseError` y la
 factura va a revisión, en vez de adivinar.
 
 Lo mismo con la moneda. Solo se quita el símbolo del euro: un importe como
-`"$2,500.00"` no se convierte, la factura queda fuera de todos los totales y
-la regla X1 la marca como crítica. Antes el dólar se quitaba igual que el
+`"$2,500.00"` no se convierte y la regla X1 marca la factura como crítica.
+La moneda es de la factura, no de cada importe: si el total lleva `$` y la
+línea no, la línea tampoco son euros, y la factura entera queda fuera de
+todos los totales (importes, horas, proyección y simulador). Antes el dólar se quitaba igual que el
 euro y la factura sumaba como si estuviera en euros.
 
 ### El esquema es permisivo; lo estricto son las reglas

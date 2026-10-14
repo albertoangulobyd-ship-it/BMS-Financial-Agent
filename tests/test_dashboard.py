@@ -564,3 +564,98 @@ def test_b4_marca_la_fila_para_revisar_no_como_critica() -> None:
     ], tarifas_path=None)
     assert {f["estado"] for f in datos["filas"]} == {"revisar"}
     assert datos["totales"]["criticas"] == 0
+
+
+# --- revision del paso 0: la moneda es de la factura, F3 por cualquier clave ---
+
+def _en_dolares(cabecera: str, linea_: str) -> dict:
+    """Factura con "$" en unos importes y sin marcador en otros."""
+    reg = factura("usd.pdf", proveedor="Northwind", numero="NW-1", total=cabecera,
+                  iban=None, lineas=[{
+                      "description": "Consultancy", "location": "Waalhaven",
+                      "unit": "hours", "quantity_raw": "20", "unit_rate_raw": linea_,
+                      "line_total_raw": linea_.replace("125.00", "2,500.00"),
+                      "week_number": 37}])
+    reg["extraction"]["vat_amount_raw"] = "0.00"
+    return reg
+
+
+def test_una_cabecera_sin_marcador_en_una_factura_en_dolares_no_suma_como_euros() -> None:
+    """X1 es de la factura: la base sin "$" de una factura en dolares no es EUR."""
+    from bms_agent.dashboard import construir_datos
+
+    euros = factura("a.pdf", numero="1", total="1.000,00", iban=None)
+    datos = construir_datos([euros, _en_dolares("2,500.00", "$125.00")], tarifas_path=None)
+
+    fila = next(f for f in datos["filas"] if f["fichero"] == "usd.pdf")
+    assert fila["estado"] == "critico"
+    assert (fila["base"], fila["iva"], fila["total"]) == (None, None, None)
+    assert datos["totales"]["importe"] == 1000.0
+    assert datos["totales"]["horas"] == 0.0
+    assert [m["total"] for m in datos["por_mes"]] == [1000.0]
+    assert [m["facturas"] for m in datos["por_mes"]] == [1]
+    assert [p["proveedor"] for p in datos["por_proveedor"]] == ["Van Dijk BV"]
+    assert [r["facturas"] for r in datos["por_regimen"]] == [1]
+    assert [p["proveedor"] for p in datos["matriz"]["proveedores"]] == ["Van Dijk BV"]
+
+
+def test_una_tarifa_sin_marcador_en_una_factura_en_dolares_no_se_proyecta() -> None:
+    """$125/h no son 125 EUR/h, aunque la linea haya perdido el "$"."""
+    from bms_agent.dashboard import construir_datos
+    from bms_agent.facturacion import lineas_para_simulador
+
+    dolares = _en_dolares("$2,500.00", "125.00")
+    datos = construir_datos([dolares], tarifas_path=None)
+
+    assert datos["filas"][0]["estado"] == "critico"
+    assert datos["facturacion"]["propuestas"] == []
+    assert datos["facturacion"]["totales"]["coste"] == 0.0
+    assert lineas_para_simulador([dolares])["lineas"] == []
+
+
+def test_g3_no_compara_una_tarifa_en_dolares_con_una_en_euros() -> None:
+    euros = factura("a.pdf", proveedor="Northwind", numero="1", iban=None,
+                    lineas=[linea("Consultancy", "Waalhaven", "90,00")])
+    dolares = _en_dolares("$2,500.00", "125.00")
+    dolares["extraction"]["lines"][0]["unit"] = "uur"
+    assert detectar_cambios_de_tarifa([euros, dolares]) == []
+
+
+def _van_dijk(nombre, numero, iban, btw="NL001234567B01", kvk="87654321"):
+    reg = factura(nombre, proveedor="Bouwtechniek Van Dijk BV", numero=numero, iban=iban)
+    reg["extraction"]["vat_number"] = btw
+    reg["extraction"]["kvk_number"] = kvk
+    return reg
+
+
+def test_f3_no_se_esquiva_quitando_o_cambiando_el_btw_id() -> None:
+    """Mismo nombre y KvK, btw-id quitado o cambiado, IBAN nuevo: sigue siendo F3.
+
+    Antes cada variante tenia su propia identidad (btw, luego KvK) y la
+    factura con la cuenta nueva salia "ok", lista para pagar.
+    """
+    from bms_agent.dashboard import construir_datos
+
+    original = _van_dijk("a.pdf", "1", "NL02ABNA0123456789")
+    for btw in (None, "NL000099998B57"):
+        copia = _van_dijk("b.pdf", "2", "NL18RABO0123459876", btw=btw)
+        alertas = [a for a in detectar_ibanes([original, copia]) if a.regla == "F3"]
+        assert len(alertas) == 1, btw
+        assert alertas[0].facturas == ["a.pdf", "b.pdf"]
+        datos = construir_datos([original, copia], tarifas_path=None)
+        assert next(f for f in datos["filas"] if f["fichero"] == "b.pdf")["estado"] == "critico"
+
+
+def test_f3_tampoco_se_esquiva_copiando_solo_el_nombre() -> None:
+    original = _van_dijk("a.pdf", "1", "NL02ABNA0123456789")
+    copia = _van_dijk("b.pdf", "2", "NL18RABO0123459876", btw=None, kvk=None)
+    copia["extraction"]["supplier_name"] = "Bouwtechniek  van Dijk B.V."
+    assert [a.regla for a in detectar_ibanes([original, copia])] == ["F3"]
+
+
+def test_f3_no_junta_proveedores_sin_nada_en_comun_ni_los_que_no_tienen_nombre() -> None:
+    a = _van_dijk("a.pdf", "1", "NL02ABNA0123456789")
+    b = factura("b.pdf", proveedor="Bakker", numero="2", iban="NL18RABO0123459876")
+    sin_1 = factura("c.pdf", proveedor=None, numero="3", iban="NL91ABNA0417164300")
+    sin_2 = factura("d.pdf", proveedor=None, numero="4", iban="NL44RABO0123456789")
+    assert detectar_ibanes([a, b, sin_1, sin_2]) == []

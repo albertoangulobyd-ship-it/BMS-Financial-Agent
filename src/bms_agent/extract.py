@@ -206,8 +206,10 @@ def extraer_pasada(
     Es el unico bucle de extraccion: lo usan `extract` y el servidor local,
     para que los dos apliquen la misma politica de cache. Con CONSERVAR, un
     documento ya leido con cualquier version no vuelve a la API; con
-    ESTRICTA, solo si coincide todo; con forzar, se vuelve a leer siempre.
-    Ninguna de las tres sobrescribe lo que ya hay en out_dir.
+    ESTRICTA, solo si coincide todo; con forzar, se vuelve a leer lo que ya
+    estaba en out_dir, pero un PDF que se repite dentro de la misma pasada se
+    paga una vez tambien con forzar: el indice empieza vacio y solo guarda lo
+    que esta pasada acaba de escribir. Ninguna de las tres sobrescribe nada.
 
     Si se pasa `resultado`, se rellena sobre la marcha: el servidor lo lee
     desde otro hilo para ensenar el progreso y el coste mientras corre.
@@ -228,7 +230,7 @@ def extraer_pasada(
             avisar("omitido", ruta.name, str(exc))
             continue
 
-        guardada = None if forzar else reutilizable(
+        guardada = reutilizable(
             indice.get(doc.sha256), politica=politica, model=model,
             prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
         )
