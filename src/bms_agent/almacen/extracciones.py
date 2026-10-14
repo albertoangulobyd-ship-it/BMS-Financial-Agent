@@ -15,11 +15,13 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from ..auditoria import registrar
 from ..reloj import marca
 from . import reloj_de, transaccion
+from .evidencia import foto
 from .unidades import es_sha256, json_canonico, sha256_texto
 
 VIAS = ("api", "lote", "out_v1")
@@ -46,18 +48,29 @@ class RegistroLeido:
 
 
 def _instante(valor: Any) -> str | None:
-    """extracted_at si es un instante ISO legible; si no, la columna queda vacia.
+    """extracted_at como marca UTC del almacen, o None si no es un instante claro.
 
-    El texto original sigue en contenido_json: aqui solo se decide si sirve
-    para ordenar.
+    Se normaliza (reloj.marca) en vez de guardar el texto: datetime() de
+    SQLite, que es lo que comprueba la columna, no entiende formas que
+    Python si lee ('20260920T100012Z', '+0000', semanas ISO), y dos offsets
+    distintos no se ordenan bien como texto. Sin zona horaria no se sabe de
+    que instante es, y queda vacio. El texto original sigue en
+    contenido_json: aqui solo se decide si sirve para ordenar.
     """
     if not isinstance(valor, str):
         return None
     try:
-        datetime.fromisoformat(valor)
-    except ValueError:
+        instante = datetime.fromisoformat(valor)
+        if instante.tzinfo is None or instante.utcoffset() is None:
+            return None
+        return marca(instante)
+    except (ValueError, OverflowError):
         return None
-    return valor
+
+
+def _sin_constantes(nombre: str) -> None:
+    """NaN e Infinity: json.loads los acepta, pero no son JSON (json_valid los rechaza)."""
+    raise RegistroInvalido(f"{nombre} no es un valor JSON")
 
 
 def _uso(valor: Any) -> str | None:
@@ -77,7 +90,7 @@ def leer_registro(contenido: str) -> RegistroLeido:
     falta para atarlo a su documento y a sus versiones.
     """
     try:
-        registro = json.loads(contenido)
+        registro = json.loads(contenido, parse_constant=_sin_constantes)
     except json.JSONDecodeError as exc:
         raise RegistroInvalido(f"no es JSON: {exc.msg} (linea {exc.lineno})") from None
     if not isinstance(registro, dict):
@@ -117,8 +130,14 @@ def registrar_extraccion(
     via: str,
     actor: int,
     usuario_id: int | None = None,
+    fichero: str | None = None,
 ) -> ExtraccionRegistrada:
-    """Guarda la extraccion de un documento si no estaba ya, y lo audita."""
+    """Guarda la extraccion de un documento si no estaba ya, y lo audita.
+
+    `fichero` es el nombre del fichero de out/ que tiene el mismo texto, si
+    lo hay. Solo sirve a registros_legado: load_records ordena por nombre de
+    fichero, y para dar lo mismo que el hace falta saberlo.
+    """
     if via not in VIAS:
         raise ValueError(f"via desconocida: {via!r}")
     with transaccion(conn):
@@ -152,26 +171,30 @@ def registrar_extraccion(
         registrar(
             conn, tipo="extraccion_registrada", actor=actor, usuario_id=usuario_id,
             tabla="extraccion", fila_id=extraccion_id,
-            datos={"documento_id": documento_id, "via": via, "modelo": registro.modelo,
-                   "prompt_version": registro.prompt_version,
-                   "schema_version": registro.schema_version,
-                   "contenido_sha256": registro.contenido_sha256},
+            datos={"fichero": fichero, "fila": foto(conn, "extraccion", extraccion_id)},
         )
         return ExtraccionRegistrada(extraccion_id, True)
 
 
-def contenido_vigente(conn: sqlite3.Connection) -> list[str]:
-    """El texto de la extraccion vigente de cada documento, por orden de documento."""
-    return [
-        fila["contenido_json"]
-        for fila in conn.execute(
-            "SELECT contenido_json FROM v_extraccion_vigente ORDER BY documento_id, id"
-        )
-    ]
+def en_orden_de_out(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Todas las extracciones (id, documento_id, contenido_json) en el orden de out/.
 
+    Es el orden en que load_records las leeria: por el nombre del fichero
+    que se apunto al registrarlas, comparado como lo compara Path (en
+    Windows, sin distinguir mayusculas). Las que no tienen fichero van
+    detras, por orden de entrada.
+    """
+    filas = conn.execute(
+        "SELECT e.id, e.documento_id, e.contenido_json, ("
+        "  SELECT json_extract(v.datos_json, '$.fichero') FROM evento AS v"
+        "  WHERE v.tipo = 'extraccion_registrada' AND v.tabla = 'extraccion'"
+        "    AND v.fila_id = e.id ORDER BY v.id LIMIT 1) AS fichero "
+        "FROM extraccion AS e"
+    ).fetchall()
 
-def contenido_todas(conn: sqlite3.Connection) -> list[str]:
-    """El texto de todas las extracciones, por orden de entrada."""
-    return [fila["contenido_json"] for fila in conn.execute(
-        "SELECT contenido_json FROM extraccion ORDER BY id"
-    )]
+    def posicion(fila: sqlite3.Row) -> tuple:
+        if isinstance(fila["fichero"], str) and fila["fichero"]:
+            return (0, Path(fila["fichero"]), fila["id"])
+        return (1, fila["id"])
+
+    return sorted(filas, key=posicion)

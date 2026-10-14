@@ -18,11 +18,13 @@ extractor v1 son facturas recibidas (ruta_declarada 'entrante').
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
 from ..almacen.documentos import instante_de_fichero, registrar_documento
+from ..almacen.evidencia import foto
 from ..almacen.extracciones import RegistroInvalido, leer_registro, registrar_extraccion
 from ..almacen.unidades import json_canonico, sha256_bytes
 from ..auditoria import registrar
@@ -86,10 +88,12 @@ def _rechazar(
          json_canonico([{"fila": 1, "motivo": motivo, "crudo": None}]),
          ahora, ahora, usuario_id, actor),
     )
+    importacion_id = int(cursor.lastrowid)
     registrar(
         conn, tipo="importacion", actor=actor, usuario_id=usuario_id, resultado="error",
-        tabla="importacion", fila_id=int(cursor.lastrowid), motivo=motivo,
-        datos={"fichero": nombre, "estado": "rechazada"},
+        tabla="importacion", fila_id=importacion_id, motivo=motivo,
+        datos={"fichero": nombre, "estado": "rechazada",
+               "fila": foto(conn, "importacion", importacion_id)},
     )
 
 
@@ -108,7 +112,7 @@ def _aceptar(
     importacion_id = int(cursor.lastrowid)
     extraccion = registrar_extraccion(
         conn, registro, documento_id=documento_id, via="out_v1",
-        actor=actor, usuario_id=usuario_id,
+        actor=actor, usuario_id=usuario_id, fichero=nombre,
     )
     conn.execute(
         "UPDATE importacion SET estado = 'aceptada', filas_aceptadas = 1, terminada_en = ? "
@@ -119,7 +123,7 @@ def _aceptar(
         conn, tipo="importacion", actor=actor, usuario_id=usuario_id,
         tabla="importacion", fila_id=importacion_id,
         datos={"fichero": nombre, "estado": "aceptada", "documento_id": documento_id,
-               "extraccion_id": extraccion.id},
+               "extraccion_id": extraccion.id, "fila": foto(conn, "importacion", importacion_id)},
     )
     return extraccion.id
 
@@ -132,6 +136,11 @@ def importar_out(
     usuario_id: int | None = None,
 ) -> ResultadoImportacion:
     """Importa cada out/*.json al almacen. Toda la orden es una transaccion.
+
+    Cada fichero va ademas en su propio SAVEPOINT: si la base rechaza algo
+    que la lectura dejo pasar (un CHECK), se deshace solo ese fichero y queda
+    como importacion rechazada con el motivo, en vez de tumbar la orden
+    entera y dejar sin importar todos los demas.
 
     `usuario_id` es la persona que la lanza, si la hay; la ejecuta el usuario
     de sistema importador.
@@ -157,40 +166,63 @@ def importar_out(
                 registro, motivo = None, "no es texto UTF-8"
             except RegistroInvalido as exc:
                 registro, motivo = None, str(exc)
-            if registro is None:
-                resultado.rechazadas += 1
-                resultado.rechazos.append((ruta.name, motivo))
-                if previa is None:
-                    _rechazar(almacen, ruta.name, fichero_sha256, motivo, actor, usuario_id)
-                continue
-
-            pdf = pdfs.get(registro.source_sha256)
-            contenido_pdf = pdf.read_bytes() if pdf is not None else None
-            if contenido_pdf is not None and sha256_bytes(contenido_pdf) != registro.source_sha256:
-                pdf, contenido_pdf = None, None        # cambio mientras se importaba
-            documento = registrar_documento(
-                almacen, sha256=registro.source_sha256, contenido=contenido_pdf,
-                nombre_original=registro.source_name or (pdf.name if pdf else None),
-                tipo_mime=TIPO_MIME, origen="out_v1", ruta_declarada="entrante",
-                recibido_en=instante_de_fichero(pdf) if pdf is not None else None,
-                recibido_fuente="mtime" if pdf is not None else "desconocido",
-                actor=actor, usuario_id=usuario_id,
-            )
-            original_de[documento.id] = documento.original
-            resultado.documentos_nuevos += documento.nuevo
-            resultado.originales_guardados += documento.original in ("guardado", "anadido")
-
-            ya_esta = previa is not None or conn.execute(
-                "SELECT 1 FROM extraccion WHERE documento_id = ? AND modelo = ? "
-                "AND prompt_version = ? AND schema_version = ? AND contenido_sha256 = ?",
-                (documento.id, registro.modelo, registro.prompt_version,
-                 registro.schema_version, registro.contenido_sha256),
-            ).fetchone() is not None
-            if ya_esta:
-                resultado.ya_estaban += 1
-                continue
-            _aceptar(almacen, ruta.name, registro, documento.id, actor, usuario_id)
-            resultado.importadas += 1
+            if registro is not None:
+                try:
+                    with transaccion(conn):
+                        hecho = _importar_fichero(
+                            almacen, ruta, registro, previa, pdfs, actor, usuario_id)
+                except sqlite3.IntegrityError as exc:
+                    motivo = f"la base no lo admite: {exc}"
+                else:
+                    original_de[hecho.documento_id] = hecho.original
+                    resultado.documentos_nuevos += hecho.documento_nuevo
+                    resultado.originales_guardados += hecho.original in ("guardado", "anadido")
+                    resultado.importadas += hecho.importada
+                    resultado.ya_estaban += not hecho.importada
+                    continue
+            resultado.rechazadas += 1
+            resultado.rechazos.append((ruta.name, motivo))
+            if previa is None:
+                _rechazar(almacen, ruta.name, fichero_sha256, motivo, actor, usuario_id)
 
     resultado.sin_original = sum(1 for estado in original_de.values() if estado == "falta")
     return resultado
+
+
+@dataclass(frozen=True)
+class _Fichero:
+    """Lo que hizo un fichero bueno. Se suma al resultado solo si su SAVEPOINT entra."""
+
+    documento_id: int
+    original: str
+    documento_nuevo: bool
+    importada: bool
+
+
+def _importar_fichero(
+    almacen: Almacen, ruta: Path, registro, previa, pdfs: dict[str, Path],
+    actor: int, usuario_id: int | None,
+) -> _Fichero:
+    """Un fichero bueno: su documento (con el PDF si esta) y su extraccion."""
+    conn = almacen.conn
+    pdf = pdfs.get(registro.source_sha256)
+    contenido_pdf = pdf.read_bytes() if pdf is not None else None
+    if contenido_pdf is not None and sha256_bytes(contenido_pdf) != registro.source_sha256:
+        pdf, contenido_pdf = None, None        # cambio mientras se importaba
+    documento = registrar_documento(
+        almacen, sha256=registro.source_sha256, contenido=contenido_pdf,
+        nombre_original=registro.source_name or (pdf.name if pdf else None),
+        tipo_mime=TIPO_MIME, origen="out_v1", ruta_declarada="entrante",
+        recibido_en=instante_de_fichero(pdf) if pdf is not None else None,
+        recibido_fuente="mtime" if pdf is not None else "desconocido",
+        actor=actor, usuario_id=usuario_id,
+    )
+    ya_esta = previa is not None or conn.execute(
+        "SELECT 1 FROM extraccion WHERE documento_id = ? AND modelo = ? "
+        "AND prompt_version = ? AND schema_version = ? AND contenido_sha256 = ?",
+        (documento.id, registro.modelo, registro.prompt_version,
+         registro.schema_version, registro.contenido_sha256),
+    ).fetchone() is not None
+    if not ya_esta:
+        _aceptar(almacen, ruta.name, registro, documento.id, actor, usuario_id)
+    return _Fichero(documento.id, documento.original, documento.nuevo, not ya_esta)

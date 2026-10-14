@@ -78,6 +78,10 @@ class ExtractionRecord:
         nombre ya existe (un --force con las mismas versiones), se anade un
         sufijo en vez de sobrescribir. El fichero se crea en modo exclusivo:
         ni dos procesos a la vez pueden pisarse.
+
+        Se escribe con newline='': sin el, Windows pondria CRLF y los bytes
+        del fichero ya no serian contenido(), que es lo que va al almacen.
+        importar-out hashea los bytes, y la misma extraccion entraria otra vez.
         """
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -89,7 +93,7 @@ class ExtractionRecord:
         while True:
             target = out_dir / (base if numero == 1 else f"{base[:-5]}__{numero}.json")
             try:
-                with target.open("x", encoding="utf-8") as fichero:
+                with target.open("x", encoding="utf-8", newline="") as fichero:
                     fichero.write(contenido)
                 return target
             except FileExistsError:
@@ -119,8 +123,9 @@ def nombre_fichero(
 
 
 def _mismo_contenido(ruta: Path, contenido: str) -> bool:
+    """Byte a byte: read_text cambiaria CRLF por LF y daria por igual lo que no lo es."""
     try:
-        return ruta.read_text(encoding="utf-8") == contenido
+        return ruta.read_bytes() == contenido.encode("utf-8")
     except OSError:
         return False
 
@@ -259,7 +264,7 @@ def extraer_pasada(
             resultado.reutilizadas += 1
             avisar("cache", ruta.name, _detalle_cache(guardada, model))
             if almacen is not None:
-                _al_almacen(almacen, doc, ruta, guardada.path, "out_v1", resultado, avisar)
+                _al_almacen(almacen, doc, ruta, Path(guardada.path), "out_v1", resultado, avisar)
             continue
 
         try:
@@ -272,7 +277,7 @@ def extraer_pasada(
 
         target = record.write_json(out_dir)
         if almacen is not None:
-            _al_almacen(almacen, doc, ruta, record.contenido(), "api", resultado, avisar)
+            _al_almacen(almacen, doc, ruta, target, "api", resultado, avisar)
         # Si el mismo PDF viene dos veces en la carpeta, la segunda ya no paga.
         indice.setdefault(doc.sha256, []).insert(0, CachedExtraction(
             path=target, sha256=doc.sha256, model=record.model,
@@ -293,7 +298,7 @@ def _al_almacen(
     almacen: Almacen,
     doc: SourceDocument,
     ruta: Path,
-    extraccion: str | Path,
+    fichero_out: Path,
     via: str,
     resultado: ResultadoPasada,
     avisar: Informar,
@@ -302,16 +307,16 @@ def _al_almacen(
 
     Una por documento y no una por pasada: cada documento es una llamada
     pagada, y un fallo en el documento 40 no tiene que deshacer los 39
-    anteriores. `extraccion` es el texto del registro, o la ruta del fichero
-    de out/ que se reutiliza (su texto entra tal cual, como en importar-out).
+    anteriores. `fichero_out` es el fichero de out/ con la extraccion, recien
+    escrita o reutilizada: entran sus bytes tal cual, como en importar-out,
+    para que las dos vias den el mismo hash y no se guarde dos veces.
     """
     from .almacen import transaccion, usuario_sistema
     from .almacen.documentos import instante_de_fichero, registrar_documento
-    from .almacen.extracciones import leer_registro, registrar_extraccion
+    from .almacen.extracciones import RegistroInvalido, leer_registro, registrar_extraccion
 
     try:
-        texto = extraccion if isinstance(extraccion, str) else (
-            Path(extraccion).read_text(encoding="utf-8"))
+        texto = fichero_out.read_bytes().decode("utf-8")
         with transaccion(almacen.conn):
             actor = usuario_sistema(almacen.conn, "extractor")
             documento = registrar_documento(
@@ -322,14 +327,19 @@ def _al_almacen(
             )
             registrar_extraccion(
                 almacen.conn, leer_registro(texto), documento_id=documento.id,
-                via=via, actor=actor,
+                via=via, actor=actor, fichero=fichero_out.name,
             )
         resultado.almacenadas += 1
     except Exception as exc:  # la extraccion ya esta en out/: no se pierde nada pagado
         resultado.sin_almacen += 1
         detalle = f"almacen: {type(exc).__name__}: {exc}"
         resultado.errores.append(f"{ruta.name}: {detalle}")
-        avisar("error", ruta.name, f"{detalle} (esta en out/; `bms-agent importar-out` la recupera)")
+        if isinstance(exc, (RegistroInvalido, UnicodeDecodeError)):
+            # importar-out lo rechazaria igual: no se promete lo que no hara.
+            avisar("error", ruta.name, f"{detalle} (esta en {fichero_out.name}, sin poder guardarse)")
+        else:
+            avisar("error", ruta.name,
+                   f"{detalle} (esta en out/; `bms-agent importar-out` la recupera)")
 
 
 def _detalle_cache(guardada: CachedExtraction, model: str) -> str:

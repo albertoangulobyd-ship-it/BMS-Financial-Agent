@@ -282,8 +282,10 @@ afectadas no cambia.
 ## Paso 1
 
 Almacén, evidencia y auditoría, con la migración de `out/` sin una sola
-llamada a la API. **388 tests pasan** (275 funciones de test; eran 314 y
+llamada a la API. **414 tests pasan** (295 funciones de test; eran 314 y
 207), ninguno llama a la API y ninguno escribe fuera de una carpeta temporal.
+Las cifras incluyen las correcciones de la revisión (al final de este
+apartado).
 
 ### Qué se construyó
 
@@ -291,12 +293,13 @@ llamada a la API. **388 tests pasan** (275 funciones de test; eran 314 y
 
 | Módulo | Qué hace |
 | --- | --- |
-| `almacen/__init__.py` | `abrir()` (claves foráneas, WAL, `busy_timeout=5000`, `sqlite3.Row`, se niega a correr en SQLite < 3.37), `transaccion()` (`BEGIN IMMEDIATE`; dentro de otra, un `SAVEPOINT` que deshace solo lo suyo), `preparar()` (abre, migra y devuelve un `Almacen` = conexión + carpeta de documentos), `usuario_sistema()`, `ruta_por_defecto()` (`BMS_DB` o `datos/bms.sqlite3`). La conexión lleva su reloj: `conn.reloj` |
+| `almacen/__init__.py` | `abrir()` (claves foráneas, WAL, `busy_timeout=5000`, `sqlite3.Row`, se niega a correr en SQLite < 3.37), `transaccion()` (`BEGIN IMMEDIATE`; dentro de otra, un `SAVEPOINT` que deshace solo lo suyo), `preparar()` (abre, migra y devuelve un `Almacen` = conexión + carpeta de documentos), `usuario_sistema()`, `ruta_por_defecto()` (`BMS_DB` o `datos/bms.sqlite3`), `ruta_anclas_de()` (`anclas.log` al lado de la base, que también lleva `Almacen.ruta_anclas`). La conexión lleva su reloj: `conn.reloj` |
 | `almacen/migrar.py` + `almacen/sql/0001_almacen.sql` | Migraciones `NNNN_nombre.sql`, de una en una, cada una en su transacción con su fila en `migracion` (sha256) y su evento `migracion_aplicada`. Una migración aplicada que cambia, o que falta, detiene todo (`MigracionAlterada`) |
-| `almacen/unidades.py` | `a_cent`, `a_mil`, `a_e4`, `a_pb` y sus inversas: solo `Decimal` o `int`, nunca `float`, y `PerdidaDePrecision` en vez de redondear. `json_canonico()` (claves ordenadas, sin espacios, rechaza floats) y los hash |
-| `almacen/documentos.py` | `AlmacenDocumentos`: `datos/documentos/<sha[:2]>/<sha256>.<ext>`, 0444, escritura a un temporal que se enlaza con `os.link` (no pisa nunca; un original alterado hace fallar `guardar` en vez de repararse en silencio). `registrar_documento()`, `abrir()` (cada apertura es un evento, también la que falla), `verificar()` (vuelve a calcular cada hash; un fichero que nadie apunta es un aviso) |
-| `almacen/extracciones.py` | `leer_registro()` (el texto tal cual y sus columnas) y `registrar_extraccion()` (única por documento, modelo, versiones y hash del contenido) |
-| `auditoria.py` | `registrar()` (evento encadenado, con sus `cambio_campo` dentro del hash), `verificar_cadena()`, `anclar()`, `leer_anclas()`, `historial()` |
+| `almacen/unidades.py` | `a_cent`, `a_mil`, `a_e4`, `a_pb` y sus inversas: solo `Decimal` o `int`, nunca `float`, y `PerdidaDePrecision` en vez de redondear (comprobado con aritmética de enteros, sin la precisión del contexto); `FueraDeRango` si no cabe en 64 bits. `json_canonico()` (claves ordenadas, sin espacios, rechaza floats) y los hash |
+| `almacen/documentos.py` | `AlmacenDocumentos`: `datos/documentos/<sha[:2]>/<sha256>.<ext>`, 0444, escritura a un temporal que se enlaza con `os.link` (no pisa nunca; un original alterado hace fallar `guardar` en vez de repararse en silencio). `registrar_documento()`, `abrir()` (cada apertura es un evento, también la que falla; se niega a correr dentro de una transacción abierta), `verificar()` (vuelve a calcular cada hash; un fichero que nadie apunta es un aviso) |
+| `almacen/extracciones.py` | `leer_registro()` (el texto tal cual y sus columnas; rechaza `NaN` e `Infinity`), `registrar_extraccion()` (única por documento, modelo, versiones y hash del contenido; apunta el nombre del fichero de `out/`) y `en_orden_de_out()` |
+| `almacen/evidencia.py` | `foto()` (las columnas de una fila de evidencia, que van en los datos de su evento), `verificar_evidencia()` (cada extracción rehasheada, cada fila igual a la foto de su evento, ningún evento sin fila) y `verificar_esquema()` (tablas, vistas, índices y disparadores iguales a los que crean las migraciones aplicadas) |
+| `auditoria.py` | `registrar()` (evento encadenado, con sus `cambio_campo` dentro del hash, todo en su `SAVEPOINT`), `verificar_cadena()`, `identidad()` (el hash del primer evento), `anclar()`, `leer_anclas()`, `historial()` |
 | `importadores/extracciones.py` | `importar_out()`: cada `out/*.json` al almacén, tal cual, con su PDF si se encuentra por hash |
 | `legado.py` | `registros_legado(conn)`: los diccionarios de siempre, sacados de la extracción vigente de cada documento |
 | `reloj.py` | `Reloj` (`ahora()` en UTC, `hoy()` en Amsterdam), `RelojFijo`, `marca()` |
@@ -321,16 +324,22 @@ sembrados), `permiso` (los 14), `rol`, `rol_permiso`, `usuario_rol`,
 
 - `bms-agent db init` crea el almacén y migra; `db migrar` migra uno que ya
   existe (y se niega si no existe, para no crear una base en el sitio
-  equivocado); `db verificar [--anclas out/anclas.log]` comprueba
-  `integrity_check`, `foreign_key_check`, el hash de cada migración, la cadena
-  de auditoría con sus anclas y el hash de cada original. Sale con 1 si algo
-  no cuadra.
+  equivocado). Las dos anclan al terminar. `db verificar [--anclas …]
+  [--sin-anclas]` comprueba `integrity_check`, `foreign_key_check`, el hash
+  de cada migración, el esquema contra el de las migraciones, la cadena de
+  auditoría con sus anclas (por defecto `anclas.log` al lado de la base),
+  cada fila de evidencia contra su evento y el hash de cada original. Sale
+  con 1 si algo no cuadra, si la base no está migrada y si no hay ninguna
+  ancla de esa base (salvo con `--sin-anclas`); dice cuántos eventos hay
+  después de la última ancla.
 - `bms-agent importar-out [--out out] [--pdfs facturas] [--db …]`. Una
   transacción para toda la orden. Cada fichero bueno da un `documento` (si no
   estaba), una `extraccion` con `via = 'out_v1'` y una `importacion`
   aceptada; cada fichero malo, una `importacion` rechazada con su motivo.
   Repetirla no añade filas (solo un evento por cada original que aparece
-  después con `--pdfs`). Al final ancla la cabeza en `out/anclas.log`.
+  después con `--pdfs`). Cada fichero va en su `SAVEPOINT`: lo que la base
+  rechaza (un `CHECK`) es una importación rechazada más, no una orden caída.
+  Al final ancla la cabeza en `datos/anclas.log`.
 - `extract` y `serve` (y la página local) abren el almacén **antes** de
   gastar nada, escriben cada documento en `out/` y en el almacén con el mismo
   texto, y anclan al terminar. Las dos aceptan `--db`.
@@ -346,12 +355,12 @@ almacén»), el recuento de tests en README, `fase-0.md`,
 | Puerta | Tests |
 | --- | --- |
 | `UPDATE` y `DELETE` abortan en cada tabla de solo escritura | `test_almacen.py::test_update_y_delete_abortan_en_cada_tabla_de_solo_escritura` (las siete tablas, con un `UPDATE` que no cambia nada, uno que sí y un `DELETE`; el mensaje prueba que es el disparador) y `test_la_lista_de_tablas_de_solo_escritura_esta_completa` (toda tabla con disparador `<tabla>_sin_delete` tiene que estar en la prueba) |
-| La cadena encuentra una fila editada por una conexión directa después de borrar los disparadores | `test_auditoria.py::test_la_cadena_encuentra_una_fila_editada_sin_disparadores`, y además: el hash rehecho (`..._rompe_el_enlace_con_la_siguiente`), un `cambio_campo` editado, un evento borrado por en medio, el final cortado y el final reescrito (los dos últimos solo con anclas), y por la CLI `test_migracion_out.py::test_db_verificar_encuentra_un_evento_tocado_por_detras` |
+| La cadena encuentra una fila editada por una conexión directa después de borrar los disparadores | `test_auditoria.py::test_la_cadena_encuentra_una_fila_editada_sin_disparadores`, y además: el hash rehecho (`..._rompe_el_enlace_con_la_siguiente`), un `cambio_campo` editado, un evento borrado por en medio, el final cortado y el final reescrito (los dos últimos solo con anclas), y por la CLI `test_migracion_out.py::test_db_verificar_encuentra_un_evento_tocado_por_detras`. Las filas de evidencia, por la CLI: `test_una_extraccion_metida_por_detras_no_cuadra` (con los disparadores intactos), `test_una_extraccion_editada_y_con_el_disparador_repuesto_no_cuadra`, `test_filas_de_evidencia_editadas_sin_disparadores_no_cuadran` (extracción, documento, importación y una extracción borrada), `test_un_disparador_cambiado_o_de_mas_no_cuadra` y `test_sin_anclas_no_se_da_por_buena_una_cadena_cortada` |
 | El almacén de documentos no sobrescribe y detecta un hash que no cuadra | `test_almacen.py::test_guardar_es_de_una_vez_y_de_solo_lectura`, `test_el_almacen_no_sobrescribe_un_original_alterado`, `test_verificar_vuelve_a_calcular_cada_hash`, `test_abrir_un_documento_queda_auditado_tambien_si_falla`, y `db verificar` en `test_db_init_migrar_y_verificar` |
-| `importar-out` dos veces da los mismos recuentos y lo guardado es byte a byte el fichero | `test_migracion_out.py::test_importar_dos_veces_da_los_mismos_recuentos`, `test_lo_guardado_es_byte_a_byte_el_fichero`, `test_la_orden_de_la_cli_no_llama_a_la_api` (por la CLI) |
+| `importar-out` dos veces da los mismos recuentos y lo guardado es byte a byte el fichero | `test_migracion_out.py::test_importar_dos_veces_da_los_mismos_recuentos`, `test_lo_guardado_es_byte_a_byte_el_fichero`, `test_la_orden_de_la_cli_no_llama_a_la_api` (por la CLI), y con `extract` delante y un `out/` con CRLF `test_almacen_extraccion.py::test_un_fichero_con_crlf_entra_una_sola_vez` |
 | Un PDF que no está deja `ruta_cas` NULL | `test_un_pdf_que_no_esta_deja_ruta_cas_vacia` (las 04 a 07 no tienen PDF), `test_sin_carpeta_de_pdf_todo_queda_sin_original_y_se_anade_despues` |
-| `import anthropic` parcheado para lanzar: cero llamadas | `test_la_orden_de_la_cli_no_llama_a_la_api` (fixture `sin_api`: `anthropic` y sus submódulos a `None` en `sys.modules`) |
-| `construir_datos(registros_legado(db))` es `construir_datos(load_records(out))` | `test_equivalencia_legado.py::test_el_panel_desde_el_almacen_es_el_panel_desde_out` (y las dos son la foto de referencia byte a byte), `test_los_registros_son_los_mismos_diccionarios`, `test_con_varias_extracciones_vale_la_misma_vigente_que_en_out` |
+| `import anthropic` parcheado para lanzar: cero llamadas | `test_la_orden_de_la_cli_no_llama_a_la_api`: `importar-out` dos veces y `db verificar` en un proceso nuevo con un buscador de módulos que hace lanzar `import anthropic` desde antes de importar `bms_agent` (ve también un import al cargar un módulo), y que al final comprueba que no se cargó; `test_el_bloqueo_de_la_api_funciona` prueba el bloqueo |
+| `construir_datos(registros_legado(db))` es `construir_datos(load_records(out))` | `test_equivalencia_legado.py::test_el_panel_desde_el_almacen_es_el_panel_desde_out` (y las dos son la foto de referencia byte a byte), `test_los_registros_son_los_mismos_diccionarios`, `test_con_varias_extracciones_vale_la_misma_vigente_que_en_out`, y sin ordenar nada, con B2 saltando y la vigente en el último fichero, `test_el_orden_es_el_de_out_tambien_con_varias_extracciones`; con fechas que no son ISO o con otro offset, `test_con_fechas_raras_vale_la_regla_de_load_records` |
 | `extract` y `serve` escriben en el almacén y en `out/` | `test_almacen_extraccion.py` (nueva, reutilizada, fallo del almacén, CLI, servidor) |
 
 ### Desviaciones de la especificación, y por qué
@@ -398,16 +407,23 @@ almacén»), el recuento de tests en README, `fase-0.md`,
    `filas_leidas`, `filas_aceptadas` y `filas_rechazadas`. `fuente` y `tipo`
    no llevan una lista cerrada en un `CHECK` porque crecerán en el paso 5.
 9. **`extraccion.registrada_en`** (columna añadida: cuándo entró en el
-   almacén, que no es cuándo se extrajo). `extraido_en` queda NULL si el
-   `extracted_at` del registro no es un instante ISO; el texto original sigue
-   en `contenido_json`.
-10. **La extracción vigente es una vista**, `v_extraccion_vigente`, con la
-    regla de `load_records`: la de `extraido_en` mayor y, en empate, la que
-    entró después. `factura.extraccion_vigente_id` es del paso 2, porque
-    `factura` también. «Entró después» es el orden de los ficheros en una
-    misma pasada de `importar-out`, igual que en `out/`; solo difiere si un
-    fichero con el mismo `extracted_at` se importa en una pasada posterior y
-    va antes por nombre (gana el que entró después).
+   almacén, que no es cuándo se extrajo). `extraido_en` es el `extracted_at`
+   del registro pasado a UTC con `reloj.marca()`, y queda NULL si no es un
+   instante ISO o no lleva zona horaria; el texto original sigue en
+   `contenido_json`.
+10. **La extracción vigente del almacén es una vista**,
+    `v_extraccion_vigente`: la de `extraido_en` (UTC) mayor y, en empate, la
+    que entró después. `factura.extraccion_vigente_id` es del paso 2, porque
+    `factura` también. **`registros_legado` no usa la vista**: aplica la
+    misma función que `load_records` (`report.vigentes`, que compara el texto
+    de `extracted_at`) sobre las extracciones en el orden de `out/` (el nombre
+    del fichero que se apuntó al registrarlas). Las dos reglas coinciden con
+    lo que escribe el extractor (UTC con `+00:00`); difieren con un
+    `extracted_at` que no es ISO (`load_records` lo compara como texto, la
+    vista lo deja en NULL) o con otro offset (como texto `09:00+02:00` va
+    después de `08:00+00:00`; como instante, antes). Lo fija
+    `test_con_fechas_raras_vale_la_regla_de_load_records`. El paso 2 decide
+    con `factura.extraccion_vigente_id` y deja la regla del texto atrás.
 11. **Lo que `importar-out` rechaza no sale en `registros_legado`**: un JSON
     sin `source_sha256` válido, o sin `model`, `prompt_version` o
     `schema_version`, no se puede atar a un documento. `load_records` sí lo
@@ -418,7 +434,9 @@ almacén»), el recuento de tests en README, `fase-0.md`,
     extracción ya está en `out/`), lo cuenta en `sin_almacen`, lo avisa y sale
     con 1. Los documentos que se reutilizan de `out/` también entran en el
     almacén (`via 'out_v1'`), así que el siguiente `extract` arregla lo que
-    faltó sin pagar.
+    faltó sin pagar. Lo que entra son los bytes del fichero de `out/`, leídos
+    del disco, tanto si se acaba de escribir como si se reutiliza: así
+    `extract` e `importar-out` dan siempre el mismo hash.
 13. **Las migraciones se aplican solas** al abrir el almacén desde `extract`,
     `serve` e `importar-out` (`preparar()`): cada una está fijada por su hash,
     así que aplicarla es determinista. El hash se calcula con los finales de
@@ -429,8 +447,16 @@ almacén»), el recuento de tests en README, `fase-0.md`,
     inyectable. Las semanas ISO siguen en `dashboard.py`. Los usuarios
     sembrados por la migración llevan la hora de SQLite, no la del reloj.
 15. **Anclas**: no hay informe diario todavía, así que `anclar()` escribe en
-    `out/anclas.log` al final de `importar-out`, de `extract` y de cada pasada
-    del servidor, solo si la cabeza ha cambiado. `db verificar` las comprueba.
+    `anclas.log` **al lado de la base** (`datos/anclas.log`, no
+    `out/anclas.log` como dice la especificación) al final de `db init`,
+    `db migrar`, `importar-out`, `extract` y cada pasada del servidor, solo
+    si la cabeza ha cambiado. Al lado de la base porque una base se alimenta
+    desde varias carpetas `--out` y `db verificar` tiene que encontrar lo
+    que escribieron todas. Cada línea lleva una cuarta columna, la identidad
+    de la base: el hash de su primer evento, que lleva un identificador al
+    azar en sus datos. Solo se comprueban las anclas de esa base; una línea
+    de tres columnas (de antes) se comprueba siempre. Sin ninguna ancla de
+    esa base, `db verificar` falla (salvo `--sin-anclas`).
 16. **`politica_version`** es única por `(fichero, sha256, vigente_desde)`
     (volver a una política anterior es otra fila) y `vigente_desde` es una
     fecha. No hay cargador: `politica.py` es de un paso posterior.
@@ -458,6 +484,16 @@ almacén»), el recuento de tests en README, `fase-0.md`,
   `<tabla>_sin_update` y `<tabla>_sin_delete`, una fila en `_poblar` y su
   nombre en `SOLO_ESCRITURA` de `tests/test_almacen.py`: el test de la lista
   completa falla si no.
+- **Una tabla nueva de evidencia** (factura, sus líneas…) añade sus columnas
+  a `evidencia.COLUMNAS` y sus tipos de evento (alta y modificaciones) a
+  `evidencia.EVENTOS`, y quien la escribe pone `"fila": foto(conn, tabla,
+  id)` en los datos de cada evento que la da de alta o la cambia: así
+  `db verificar` ve una fila metida o editada por detrás. Lo mismo
+  `usuario_rol` y `rol_permiso` cuando `permisos.py` (paso 2) escriba sus
+  eventos; en el paso 1 nadie las escribe.
+- **Abrir un original** (`documentos.abrir`) va fuera de la transacción de
+  la orden: dentro se niega, porque el `ROLLBACK` de la orden se llevaría el
+  registro de una apertura fallida.
 - **Migraciones**: la 0002 es un fichero nuevo; la 0001 no se toca nunca
   (cambiar un byte que no sea un final de línea la da por alterada). Para
   validar `factura_id` en `evento` y `cambio_campo` hará falta un disparador
@@ -484,3 +520,43 @@ almacén»), el recuento de tests en README, `fase-0.md`,
   `datetime()` lo entienda.
 - **Importes**: `almacen.unidades` es el único conversor a enteros; el paso
   2 lo usa al tipar las facturas.
+
+### Correcciones de la revisión
+
+Dieciocho hallazgos de la revisión, cada uno reproducido antes de tocar
+nada; varios eran el mismo defecto visto desde dos sitios. Son 20 funciones
+de test nuevas (26 casos con los parametrizados) y seis cambiadas. Con el
+código del commit `82117fa` fallan 28 casos (24 nuevos y 4 cambiados); de
+los que pasan, los que importan son la comparación byte a byte de
+`write_json` (en Linux no hay CRLF: protege Windows), el caso «por la tarde»
+del test de `extracted_at` (ya quedaba NULL; fija el comportamiento) y el
+que comprueba que el bloqueo de la API funciona. Los tests cambiados que
+miraban `out/anclas.log` (`test_la_cli_extract_escribe_en_el_almacen_de_bms_db`,
+`test_la_orden_de_la_cli_no_llama_a_la_api`, `test_db_init_migrar_y_verificar`)
+cambian porque las anclas cambian de sitio (desviación 15).
+
+| Hallazgo | ¿Real? | Qué se hizo | Tests |
+| --- | --- | --- | --- |
+| En Windows `write_json` escribía CRLF, `_al_almacen` leía con `read_text` (que cambia CRLF por LF) e `importar-out` hasheaba los bytes: cada extracción entraba dos veces y `coste` contaba doble | Sí | `write_json` abre con `newline=''`; `_mismo_contenido` compara bytes; `_al_almacen` guarda siempre los bytes del fichero de `out/` (`read_bytes().decode`), nuevo o reutilizado | `test_el_registro_que_se_guarda_es_el_mismo_texto_que_el_fichero` (ahora bytes), `test_un_fichero_con_crlf_entra_una_sola_vez` |
+| `registros_legado` salía por orden de documento y `load_records` por orden de fichero: con varias extracciones de un documento, `construir_datos` difería (las facturas de B2 en otro orden) | Sí | `registrar_extraccion` apunta en su evento el nombre del fichero de `out/`; `en_orden_de_out()` ordena por él (como `Path`) y `registros_legado` aplica `report.vigentes`, la misma función que `load_records`. También con `todas=True` | `test_el_orden_es_el_de_out_tambien_con_varias_extracciones` |
+| `importar-out` solo capturaba `UnicodeDecodeError` y `RegistroInvalido`: un `CHECK` (un `extracted_at` que SQLite no entiende, un `NaN`) deshacía la orden entera con una traza | Sí | `_instante` normaliza a UTC (abajo); `leer_registro` rechaza `NaN`/`Infinity` con `parse_constant`; cada fichero va en su `SAVEPOINT` y un `sqlite3.IntegrityError` da una importación rechazada con el motivo. `extract` ya no promete que `importar-out` recupera un registro inválido | `test_nan_o_infinity_se_rechazan_sin_tumbar_la_orden` (por la CLI), `test_lo_que_la_base_rechaza_es_una_importacion_rechazada` |
+| `registrar()` insertaba el evento y sus `cambio_campo` sin `SAVEPOINT`: si un cambio fallaba y quien llama capturaba el error, quedaba un evento cuyo hash cubría cambios que no existen | Sí | El cuerpo de `registrar()` va en `with transaccion(conn):` | `test_una_correccion_manual_sin_motivo_no_entra` (ahora también: ningún evento de más y la cadena verifica) |
+| `extraido_en` guardaba el texto crudo: sin normalizar a UTC, mal ordenado entre offsets, y la vista y `load_records` elegían distinta vigente con un `extracted_at` raro | Sí | `extraido_en` es `marca(fromisoformat(x))` (UTC); sin zona, NULL. La vista ordena instantes; `registros_legado` sigue la regla de `load_records`, y la diferencia queda escrita (desviación 10) | `test_un_extracted_at_que_python_lee_y_sqlite_no_se_guarda_en_utc` (siete formas), `test_con_fechas_raras_vale_la_regla_de_load_records` |
+| Las anclas no decían de qué base eran: dos bases con el mismo `out/` daban por reescrita una base intacta | Sí | Cuarta columna con la identidad de la base (hash del primer evento, con un identificador al azar); se comprueban solo las suyas y se avisa de las ajenas | `test_dos_bases_pueden_compartir_el_fichero_de_anclas`, `test_una_linea_sin_identidad_se_comprueba_igual`, `test_cada_base_tiene_su_identidad`, `test_las_anclas_van_con_la_base_y_no_con_la_carpeta_out` |
+| `migrar()` calculaba lo pendiente antes del cerrojo: dos procesos que abren una base nueva a la vez chocaban | Sí | Si aplicar falla con un error de SQLite, se deshace y se vuelve a mirar `migracion`: si la versión ya está con el mismo hash, la aplicó el otro y se sigue. La clave de `migracion.version` garantiza que una migración que se puede repetir sin error también falla. No se toma el cerrojo antes porque `executescript()` hace `COMMIT` de lo abierto | `test_dos_procesos_que_migran_a_la_vez_no_chocan` |
+| `db verificar` sobre un fichero sin migrar daba una traza | Sí | Si no hay ninguna migración aplicada, lo dice y sale con 1 | `test_verificar_una_base_sin_migrar_lo_dice_sin_traza` |
+| El test de cero llamadas parcheaba `sys.modules` después de importar `bms_agent`: un `import anthropic` al cargar un módulo no se habría visto | Sí | El test corre la CLI en un proceso nuevo con un buscador de módulos que bloquea `anthropic` antes de importar nada, y comprueba al final que no se cargó | `test_la_orden_de_la_cli_no_llama_a_la_api`, `test_el_bloqueo_de_la_api_funciona` |
+| `db verificar` no miraba las filas de evidencia: una extracción insertada por detrás (otro IBAN) o editada con el disparador quitado y repuesto daba «Todo cuadra» (dos hallazgos) | Sí | Nuevo `almacen/evidencia.py`. Cada evento de alta o cambio de `documento`, `extraccion` e `importacion` lleva la foto de la fila; `verificar_evidencia` rehashea cada `contenido_json`, exige a cada fila exactamente un evento de alta y que sea igual a la foto del último, y señala los eventos cuya fila ya no existe; también cada `migracion` contra su evento. `verificar_esquema` compara el esquema con el de las migraciones aplicadas en una base en memoria: un disparador que falta, cambia o sobra es un error | `test_una_extraccion_metida_por_detras_no_cuadra`, `test_una_extraccion_editada_y_con_el_disparador_repuesto_no_cuadra`, `test_filas_de_evidencia_editadas_sin_disparadores_no_cuadran`, `test_un_disparador_cambiado_o_de_mas_no_cuadra` |
+| Sin fichero de anclas `db verificar` pasaba, y las anclas iban a la carpeta `--out` de cada orden mientras `verificar` leía `out/anclas.log` | Sí | Las anclas van al lado de la base (desviación 15) y también las escriben `db init` y `db migrar`; sin ninguna ancla de la base es un error salvo `--sin-anclas`; se dice cuántos eventos van detrás de la última | `test_sin_anclas_no_se_da_por_buena_una_cadena_cortada`, `test_las_anclas_van_con_la_base_y_no_con_la_carpeta_out`, `test_db_init_migrar_y_verificar` |
+| `_instante()` aceptaba lo que lee Python y no SQLite (`20260920T100012Z`, `2026-W38-1`): una sola extracción así tumbaba `importar-out` | Sí, el mismo que el tercero y el quinto | Ver arriba | Ver arriba |
+| `documentos.abrir()` dentro de la transacción de quien llama: el `ROLLBACK` al recibir `DocumentoCorrupto` borraba el registro de la apertura fallida (dos hallazgos) | Sí | `abrir()` se niega con `RuntimeError` si hay una transacción abierta, como `migrar()` | `test_abrir_dentro_de_una_transaccion_se_niega` |
+| `_a_entero` redondeaba en silencio con más de 100 cifras (`scaleb` redondea a la precisión del contexto antes de comprobar) | Sí | La exactitud se comprueba con aritmética de enteros sobre los dígitos de `as_tuple()`, sin contexto; un resultado fuera del entero de 64 bits lanza `FueraDeRango` antes de llegar a SQLite | `test_la_exactitud_no_depende_de_la_precision_del_contexto` |
+| `extracted_at` sin dos puntos en el offset (`+0000`) tumbaba `importar-out`, y `+02:00` se guardaba sin pasar a UTC | Sí, el mismo que el tercero | Ver arriba | Ver arriba |
+| `v_extraccion_vigente` no aplicaba la regla de `load_records` con un `extracted_at` que no es ISO, aunque la desviación 10 decía que sí | Sí | Se escribió la diferencia en la desviación 10 y `registros_legado` ya no depende de la vista | `test_con_fechas_raras_vale_la_regla_de_load_records` |
+
+**Lo que no se tocó.** La migración 0001 sigue igual byte a byte: todo lo
+de arriba cabe en código y en los datos de los eventos, sin columnas
+nuevas. Las bases creadas antes de esta corrección no pasan
+`db verificar`: sus eventos no llevan la foto de cada fila ni sus anclas
+están al lado de la base. Como `out/` sigue siendo la fuente, se rehacen con
+`db init` en una ruta nueva e `importar-out`.

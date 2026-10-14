@@ -16,14 +16,23 @@ import json
 import sqlite3
 from typing import Any
 
-from .almacen.extracciones import contenido_todas, contenido_vigente
+from .almacen.extracciones import en_orden_de_out
+from .report import vigentes
 
 
 def registros_legado(conn: sqlite3.Connection, todas: bool = False) -> list[dict[str, Any]]:
-    """Un registro por documento, el de su extraccion vigente.
+    """Un registro por documento, el de su extraccion vigente, como load_records.
+
+    No usa la vista v_extraccion_vigente: esa es la regla del almacen
+    (extraido_en en UTC), y load_records compara el texto de extracted_at
+    tal cual. Las dos coinciden con lo que escribe el extractor; para que
+    esta coincida tambien con un out/ raro (una fecha que no es ISO, otro
+    offset), aqui se aplica la misma funcion que en load_records, sobre las
+    extracciones en el orden de out/. El orden importa: construir_datos
+    lista las facturas de B2 en el orden en que le llegan.
 
     `todas=True` devuelve cada extraccion guardada, como
     load_records(..., todas=True): es lo que cuenta lo gastado.
     """
-    textos = contenido_todas(conn) if todas else contenido_vigente(conn)
-    return [json.loads(texto) for texto in textos]
+    leidos = [json.loads(fila["contenido_json"]) for fila in en_orden_de_out(conn)]
+    return leidos if todas else vigentes(leidos)

@@ -14,7 +14,8 @@ guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
 un modelo o un prompt nuevo hace falta pedirlo con --estricta.
 
 El almacen esta en datos/bms.sqlite3, o donde diga --db o la variable BMS_DB;
-los originales, en la carpeta documentos/ de al lado.
+los originales, en la carpeta documentos/ de al lado, y las anclas de la
+auditoria en anclas.log, tambien al lado.
 """
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
             almacen=almacen,
         )
-        _anclar(almacen, Path(args.out))
+        _anclar(almacen)
     return codigo
 
 
@@ -89,11 +90,12 @@ def _abrir_almacen(valor: str | None):
     return preparar(_ruta_db(valor))
 
 
-def _anclar(almacen, out_dir: Path) -> None:
-    """Apunta la cabeza de la auditoria en out/anclas.log (ver auditoria.anclar)."""
+def _anclar(almacen) -> None:
+    """Apunta la cabeza de la auditoria en el anclas.log de la base (ver auditoria.anclar)."""
     from .auditoria import anclar
 
-    anclar(almacen.conn, out_dir / "anclas.log")
+    if almacen.ruta_anclas is not None:
+        anclar(almacen.conn, almacen.ruta_anclas)
 
 
 def extraer_carpeta(
@@ -316,15 +318,17 @@ def _cmd_coste(args: argparse.Namespace) -> int:
 
 
 def _cmd_db(args: argparse.Namespace) -> int:
-    from .almacen import abrir
+    from .almacen import abrir, ruta_anclas_de
     from .almacen.migrar import MigracionAlterada, migrar, pendientes
+    from .auditoria import anclar
 
     ruta = _ruta_db(args.db)
     if args.accion != "init" and not ruta.exists():
         print(f"No existe el almacen {ruta}. Crealo con: bms-agent db init", file=sys.stderr)
         return 1
     if args.accion == "verificar":
-        return _verificar_db(ruta, Path(args.anclas))
+        anclas = Path(args.anclas) if args.anclas else ruta_anclas_de(ruta)
+        return _verificar_db(ruta, anclas, exigir_anclas=not args.sin_anclas)
 
     existia = ruta.exists()
     conn = abrir(ruta)
@@ -332,6 +336,7 @@ def _cmd_db(args: argparse.Namespace) -> int:
         if args.accion == "migrar" and not pendientes(conn):
             print(f"{ruta}: no hay migraciones pendientes")
         hechas = migrar(conn)
+        anclar(conn, ruta_anclas_de(ruta))
     except MigracionAlterada as exc:
         print(f"No se migra: {exc}", file=sys.stderr)
         return 1
@@ -344,14 +349,25 @@ def _cmd_db(args: argparse.Namespace) -> int:
     return 0
 
 
-def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
-    """Integridad de SQLite, migraciones, cadena de auditoria, anclas y originales."""
+def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) -> int:
+    """Integridad de SQLite, esquema, migraciones, auditoria, anclas, evidencia y originales.
+
+    Sin anclas, la cadena no ve que alguien corte o reescriba su final: por
+    eso que falten (o que ninguna sea de esta base) es un error, salvo que
+    se pida verificar sin ellas con --sin-anclas.
+    """
     from .almacen import Almacen, abrir, raiz_documentos_de
     from .almacen.documentos import AlmacenDocumentos, verificar
-    from .almacen.migrar import comprobar, pendientes
+    from .almacen.evidencia import verificar_esquema, verificar_evidencia
+    from .almacen.migrar import aplicadas, comprobar, pendientes
     from .auditoria import leer_anclas, verificar_cadena
 
     conn = abrir(ruta)
+    if not aplicadas(conn):
+        conn.close()
+        print(f"Almacen {ruta}\n\n1 problemas:\n"
+              "  - el almacen no esta migrado (bms-agent db migrar)")
+        return 1
     almacen = Almacen(conn, AlmacenDocumentos(raiz_documentos_de(ruta)))
     errores: list[str] = []
     avisos: list[str] = []
@@ -362,6 +378,7 @@ def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
         for fila in conn.execute("PRAGMA foreign_key_check"):
             errores.append(f"clave foranea rota en {fila[0]}, fila {fila[1]} -> {fila[2]}")
         errores.extend(comprobar(conn))
+        errores.extend(verificar_esquema(conn))
         sin_aplicar = pendientes(conn)
         if sin_aplicar:
             avisos.append("migraciones pendientes: " + ", ".join(m.nombre for m in sin_aplicar))
@@ -370,6 +387,14 @@ def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
         errores.extend(malas)
         cadena = verificar_cadena(conn, anclas)
         errores.extend(cadena.problemas)
+        if exigir_anclas and cadena.eventos and not cadena.anclas:
+            errores.append(
+                f"no hay ninguna ancla de este almacen en {anclas_ruta}: sin ellas no se ve "
+                "un final de la cadena cortado o reescrito (--sin-anclas para verificar sin ellas)"
+            )
+        if cadena.anclas_ajenas:
+            avisos.append(f"{cadena.anclas_ajenas} anclas de {anclas_ruta} son de otro almacen")
+        errores.extend(verificar_evidencia(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -384,8 +409,7 @@ def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
     print(f"Almacen {ruta}")
     print(f"  eventos de auditoria  {cadena.eventos}"
           + (f"  (cabeza {cadena.cabeza.id} {cadena.cabeza.hash[:12]})" if cadena.cabeza else ""))
-    print(f"  anclas comprobadas    {cadena.anclas}"
-          + ("" if anclas_ruta.exists() else f"  (no hay {anclas_ruta})"))
+    print(f"  anclas comprobadas    {cadena.anclas}" + _detalle_anclas(cadena, anclas_ruta))
     print(f"  documentos            {documentos[0]}  ({documentos[1]} con el original)")
     print(f"  extracciones          {extracciones}")
     for aviso in avisos:
@@ -397,6 +421,18 @@ def _verificar_db(ruta: Path, anclas_ruta: Path) -> int:
         return 1
     print("\nTodo cuadra.")
     return 0
+
+
+def _detalle_anclas(cadena, anclas_ruta: Path) -> str:
+    """Donde estan, y cuantos eventos hay despues de la ultima (eso no lo cubre ninguna)."""
+    if not anclas_ruta.exists():
+        return f"  (no hay {anclas_ruta})"
+    if cadena.ultima_ancla is None or cadena.cabeza is None:
+        return f"  ({anclas_ruta})"
+    detras = cadena.cabeza.id - cadena.ultima_ancla
+    if detras <= 0:
+        return f"  ({anclas_ruta}; la ultima es la cabeza)"
+    return f"  ({anclas_ruta}; la ultima es el evento {cadena.ultima_ancla}, {detras} sin anclar)"
 
 
 def _cmd_importar_out(args: argparse.Namespace) -> int:
@@ -414,7 +450,7 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
         return 2
     with almacen:
         r = importar_out(almacen, out_dir, pdfs)
-        _anclar(almacen, out_dir)
+        _anclar(almacen)
 
     print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
     print(f"  importados          {r.importadas}")
@@ -545,8 +581,12 @@ def main(argv: list[str] | None = None) -> int:
         p_accion.add_argument("--db", help=_AYUDA_DB)
         if accion == "verificar":
             p_accion.add_argument(
-                "--anclas", default="out/anclas.log",
-                help="fichero de anclas de la auditoria (por defecto: out/anclas.log)",
+                "--anclas",
+                help="fichero de anclas de la auditoria (por defecto: anclas.log al lado de la base)",
+            )
+            p_accion.add_argument(
+                "--sin-anclas", action="store_true",
+                help="verificar aunque no haya anclas (no se vera un final cortado o reescrito)",
             )
     p_db.set_defaults(func=_cmd_db)
 

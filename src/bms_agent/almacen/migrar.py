@@ -13,6 +13,7 @@ checkout en Windows con CRLF no parezca una migracion alterada.
 from __future__ import annotations
 
 import re
+import secrets
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -103,6 +104,16 @@ def migrar(conn: sqlite3.Connection, directorio: str | Path | None = None) -> li
     executescript() hace COMMIT de lo que haya abierto antes de empezar, asi
     que el BEGIN va dentro del propio guion: el DDL, la fila de migracion y
     su evento de auditoria entran o fallan juntos.
+
+    Dos procesos pueden abrir a la vez una base nueva o atrasada (el servidor
+    y `extract` llaman los dos a preparar). Los dos ven la misma migracion
+    pendiente, pero solo uno la aplica: el otro espera el cerrojo y falla al
+    repetirla (la tabla ya existe, o la version ya esta en migracion, que es
+    su clave). Ese fallo se deshace entero, y si la migracion ya esta
+    aplicada con el mismo hash, la ha aplicado el otro y se sigue sin error.
+
+    La primera migracion lleva en su evento un identificador al azar: el
+    hash de ese evento es la identidad de la base (auditoria.identidad).
     """
     if conn.in_transaction:
         raise RuntimeError("migrar necesita su propia transaccion; hay una abierta")
@@ -114,6 +125,9 @@ def migrar(conn: sqlite3.Connection, directorio: str | Path | None = None) -> li
 
     hechas = []
     for migracion in pendientes(conn, directorio):
+        datos = {"nombre": migracion.nombre, "sha256": migracion.sha256}
+        if migracion.version == 1:
+            datos["almacen"] = secrets.token_hex(16)
         try:
             conn.executescript("BEGIN IMMEDIATE;\n" + migracion.sql)
             conn.execute(
@@ -124,13 +138,19 @@ def migrar(conn: sqlite3.Connection, directorio: str | Path | None = None) -> li
             with transaccion(conn):
                 registrar(
                     conn, tipo="migracion_aplicada", actor=usuario_sistema(conn, "sistema"),
-                    tabla="migracion", fila_id=migracion.version,
-                    datos={"nombre": migracion.nombre, "sha256": migracion.sha256},
+                    tabla="migracion", fila_id=migracion.version, datos=datos,
                 )
             conn.execute("COMMIT")
-        except BaseException:
+        except BaseException as exc:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
+            if isinstance(exc, sqlite3.Error) and _la_aplico_otro(conn, migracion):
+                continue
             raise
         hechas.append(migracion)
     return hechas
+
+
+def _la_aplico_otro(conn: sqlite3.Connection, migracion: Migracion) -> bool:
+    fila = aplicadas(conn).get(migracion.version)
+    return fila is not None and fila["sha256"] == migracion.sha256

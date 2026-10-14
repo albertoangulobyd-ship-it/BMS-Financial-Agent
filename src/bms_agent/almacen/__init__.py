@@ -138,10 +138,15 @@ def usuario_sistema(conn: sqlite3.Connection, nombre: str) -> int:
 
 @dataclass
 class Almacen:
-    """La base y la carpeta de documentos, que siempre van juntas."""
+    """La base y la carpeta de documentos, que siempre van juntas.
+
+    `ruta_anclas` es donde se anclan los eventos de esta base (ver
+    auditoria.anclar); None en una base en memoria, que no se ancla.
+    """
 
     conn: Conexion
     documentos: AlmacenDocumentos
+    ruta_anclas: Path | None = None
 
     def cerrar(self) -> None:
         self.conn.close()
@@ -156,6 +161,16 @@ class Almacen:
 def raiz_documentos_de(ruta_db: str | Path) -> Path:
     """Los originales viven al lado de la base: datos/documentos/."""
     return Path(ruta_db).parent / "documentos"
+
+
+def ruta_anclas_de(ruta_db: str | Path) -> Path:
+    """Las anclas de la auditoria, tambien al lado de la base: datos/anclas.log.
+
+    Van con la base y no con la carpeta out/ de cada orden: una misma base
+    se alimenta desde varias carpetas (--out), y `db verificar` tiene que
+    encontrar el fichero que escribieron extract, serve e importar-out.
+    """
+    return Path(ruta_db).parent / "anclas.log"
 
 
 def preparar(
@@ -183,4 +198,5 @@ def preparar(
         conn.close()
         raise
     raiz = Path(raiz_documentos) if raiz_documentos is not None else raiz_documentos_de(destino)
-    return Almacen(conn=conn, documentos=AlmacenDocumentos(raiz))
+    anclas = None if str(destino) == MEMORIA else ruta_anclas_de(destino)
+    return Almacen(conn=conn, documentos=AlmacenDocumentos(raiz), ruta_anclas=anclas)

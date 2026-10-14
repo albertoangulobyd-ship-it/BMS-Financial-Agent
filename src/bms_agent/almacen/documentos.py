@@ -30,6 +30,7 @@ from pathlib import Path
 from ..auditoria import registrar
 from ..reloj import marca
 from . import Almacen, reloj_de, transaccion
+from .evidencia import foto
 from .unidades import es_sha256, sha256_bytes
 
 MODO_SOLO_LECTURA = 0o444
@@ -208,7 +209,8 @@ def registrar_documento(
             registrar(
                 conn, tipo="documento_original_anadido", actor=actor, usuario_id=usuario_id,
                 tabla="documento", fila_id=existente["id"],
-                datos={"ruta_cas": relativa, "bytes": len(contenido)},
+                datos={"ruta_cas": relativa, "bytes": len(contenido),
+                       "fila": foto(conn, "documento", existente["id"])},
             )
             return DocumentoRegistrado(existente["id"], False, "anadido")
 
@@ -227,7 +229,8 @@ def registrar_documento(
             conn, tipo="documento_registrado", actor=actor, usuario_id=usuario_id,
             tabla="documento", fila_id=documento_id,
             datos={"sha256": sha256, "origen": origen, "ruta_declarada": ruta_declarada,
-                   "original": "guardado" if relativa else "falta"},
+                   "original": "guardado" if relativa else "falta",
+                   "fila": foto(conn, "documento", documento_id)},
         )
         return DocumentoRegistrado(documento_id, True, "guardado" if relativa else "falta")
 
@@ -245,8 +248,17 @@ def abrir(
     Si el original falta o no cuadra, el intento tambien queda (resultado
     error) y despues se lanza DocumentoCorrupto: el evento se confirma antes
     de lanzar, para que el fallo no se lleve su propio rastro.
+
+    Por eso se niega a correr dentro de una transaccion abierta: ahi su
+    evento seria solo un SAVEPOINT, y el ROLLBACK de quien llama al recibir
+    DocumentoCorrupto borraria el registro de la apertura fallida. Quien
+    abre un original lo hace fuera de su orden, antes o despues.
     """
     conn = almacen.conn
+    if conn.in_transaction:
+        raise RuntimeError(
+            "abrir un original se audita en su propia transaccion; hay una abierta"
+        )
     fila = conn.execute(
         "SELECT sha256, ruta_cas FROM documento WHERE id = ?", (documento_id,)
     ).fetchone()

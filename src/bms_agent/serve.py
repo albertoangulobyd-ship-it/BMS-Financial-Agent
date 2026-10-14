@@ -228,7 +228,8 @@ class Agente:
                 politica=CONSERVAR, informar=avance, resultado=estado.pasada,
                 almacen=almacen,
             )
-            anclar(almacen.conn, Path(self.carpeta_salida) / "anclas.log")
+            if almacen.ruta_anclas is not None:
+                anclar(almacen.conn, almacen.ruta_anclas)
 
         p = estado.pasada
         estado.estado = "terminado"

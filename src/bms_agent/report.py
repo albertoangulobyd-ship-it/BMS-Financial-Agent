@@ -130,9 +130,16 @@ def load_records(out_dir: str | Path, todas: bool = False) -> list[dict[str, Any
             continue
         if isinstance(payload, dict):
             leidos.append(payload)
-    if todas:
-        return leidos
+    return leidos if todas else vigentes(leidos)
 
+
+def vigentes(leidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """La extraccion vigente de cada documento, en el orden en que se leyeron.
+
+    Es la regla de load_records, aparte para que legado.registros_legado
+    aplique exactamente la misma sobre lo que sale del almacen. Un registro
+    sin source_sha256 no se puede atar a un documento y se deja pasar.
+    """
     vigente: dict[str, int] = {}
     for posicion, payload in enumerate(leidos):
         sha256 = payload.get("source_sha256")

@@ -175,7 +175,7 @@ alcanzables por teclado; la tabla completa como alternativa a todo color.
 
 ## 11. Estado real del proyecto
 
-- Código: unas 7.700 líneas de Python, 388 tests, ninguno llama a la API.
+- Código: unas 8.200 líneas de Python, 414 tests, ninguno llama a la API.
 - La extracción funciona sobre facturas reales con acierto medido.
 - El agente **no tiene credenciales de ningún sistema de la empresa**. Ni
   correo, ni contabilidad, ni banco. Solo lee PDF de una carpeta.

@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-388 tests, ninguno llama a la API. Cubren la conversión de importes
+414 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
@@ -90,7 +90,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 388 tests, sin llamadas a la API
+pytest                                    # 414 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -248,7 +248,8 @@ todas se pagaron.
 Desde el paso 1 de la V1, `extract` y `serve` guardan además cada documento
 en un almacén: una base SQLite en `datos/bms.sqlite3` (o donde diga `--db` o
 la variable `BMS_DB`) y los PDF originales en `datos/documentos/`, nombrados
-por su hash y de solo lectura. La extracción se guarda con el mismo texto que
+por su hash y de solo lectura, y las anclas de la auditoría en
+`datos/anclas.log`. La extracción se guarda con el mismo texto que
 el fichero de `out/`, y cada paso queda en un registro de auditoría
 encadenado por hash que la base no deja modificar ni borrar.
 
@@ -256,7 +257,7 @@ encadenado por hash que la base no deja modificar ni borrar.
 | --- | --- |
 | `bms-agent db init` | Crea el almacén y aplica las migraciones |
 | `bms-agent importar-out --pdfs facturas` | Lleva lo que ya hay en `out/` al almacén, sin ninguna llamada a la API. Busca cada PDF por su hash; si no lo encuentra, el documento queda sin original y se puede añadir después. Repetirla no duplica nada |
-| `bms-agent db verificar` | Comprueba la base, las migraciones, la cadena de auditoría (con las anclas de `out/anclas.log`) y el hash de cada original |
+| `bms-agent db verificar` | Comprueba la base, su esquema y sus migraciones, la cadena de auditoría con sus anclas (`datos/anclas.log`), cada fila de evidencia contra su evento y el hash de cada original. Sin anclas de ese almacén falla, salvo con `--sin-anclas` |
 
 `datos/` no entra en git, igual que `out/` y `facturas/`. El panel, el
 informe y la puntuación siguen leyendo de `out/` hasta el paso 2.

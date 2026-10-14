@@ -36,6 +36,7 @@ from bms_agent.almacen.migrar import (
     migrar,
 )
 from bms_agent.almacen.unidades import (
+    FueraDeRango,
     PerdidaDePrecision,
     a_cent,
     a_e4,
@@ -180,11 +181,18 @@ def test_los_catorce_permisos(db) -> None:
 
 
 def test_una_correccion_manual_sin_motivo_no_entra(db) -> None:
+    """Ni el cambio ni su evento: si quedara el evento, su hash cubriria un cambio que no esta."""
+    from bms_agent.auditoria import verificar_cadena
+
+    eventos = db.execute("SELECT count(*) FROM evento").fetchone()[0]
     with transaccion(db):
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
             registrar(db, tipo="correccion", actor=usuario_sistema(db, "sistema"), cambios=[
                 Cambio("factura", 1, "total_cent", 2, 100, 121, "manual_correccion",
                        fuente_anterior="extraccion")])
+    assert db.execute("SELECT count(*) FROM evento").fetchone()[0] == eventos
+    assert db.execute("SELECT count(*) FROM evento WHERE tipo = 'correccion'").fetchone()[0] == 0
+    assert verificar_cadena(db).ok
 
 
 # --- solo escritura: la puerta ---
@@ -335,6 +343,50 @@ def test_migrar_dos_veces_aplica_cada_migracion_una_vez(tmp_path) -> None:
         conn.close()
 
 
+def test_dos_procesos_que_migran_a_la_vez_no_chocan(tmp_path, monkeypatch) -> None:
+    """B migra entera mientras A ya tiene su lista de pendientes: A no falla ni repite."""
+    from bms_agent.almacen import migrar as modulo
+    from bms_agent.auditoria import verificar_cadena
+
+    ruta = tmp_path / "carrera.sqlite3"
+    a, b = abrir(ruta), abrir(ruta)
+    original = modulo.pendientes
+
+    def pendientes_viejas(conn, directorio=None):
+        lista = original(conn, directorio)
+        if conn is a:
+            monkeypatch.setattr(modulo, "pendientes", original)
+            migrar(b)
+        return lista
+
+    monkeypatch.setattr(modulo, "pendientes", pendientes_viejas)
+    try:
+        assert [m.nombre for m in migrar(a)] == []
+        assert a.execute("SELECT count(*) FROM migracion").fetchone()[0] == len(disponibles())
+        assert a.execute(
+            "SELECT count(*) FROM evento WHERE tipo = 'migracion_aplicada'"
+        ).fetchone()[0] == len(disponibles())
+        assert verificar_cadena(a).ok
+    finally:
+        a.close()
+        b.close()
+
+
+def test_cada_base_tiene_su_identidad(tmp_path, reloj) -> None:
+    """Con el mismo reloj, dos bases nuevas no tienen el mismo primer evento."""
+    from bms_agent.auditoria import identidad
+
+    bases = [abrir(tmp_path / f"{n}.sqlite3", reloj=reloj) for n in (1, 2)]
+    try:
+        for conn in bases:
+            migrar(conn)
+        assert identidad(bases[0]) != identidad(bases[1])
+        assert all(len(identidad(conn)) == 64 for conn in bases)
+    finally:
+        for conn in bases:
+            conn.close()
+
+
 def test_el_hash_de_una_migracion_no_depende_del_final_de_linea(tmp_path) -> None:
     copia = tmp_path / "sql"
     copia.mkdir()
@@ -410,6 +462,21 @@ def test_los_enteros_del_almacen_no_redondean_nunca() -> None:
         a_cent("12.50")
     with pytest.raises(ValueError):
         a_cent(Decimal("NaN"))
+
+
+def test_la_exactitud_no_depende_de_la_precision_del_contexto() -> None:
+    """Con mas de 100 cifras, Decimal redondeaba antes de comprobar: ya no."""
+    with pytest.raises(PerdidaDePrecision):
+        a_cent(Decimal("1" * 99 + ".005"))
+    with pytest.raises(PerdidaDePrecision):
+        a_cent(Decimal("1E-999999999"))
+    assert a_cent(Decimal("100E-4")) == 1 and a_cent(Decimal("-0.10")) == -10
+    assert a_cent(Decimal("0E+999999")) == 0
+    assert a_cent(Decimal("92233720368547758.07")) == 2**63 - 1
+    assert a_cent(Decimal("-92233720368547758.08")) == -(2**63)
+    for fuera in ("92233720368547758.08", "-92233720368547758.09", "1E+999999999", "-" + "1" * 40):
+        with pytest.raises(FueraDeRango):
+            a_cent(Decimal(fuera))
 
 
 def test_el_json_canonico_ordena_y_rechaza_floats() -> None:
@@ -502,6 +569,25 @@ def test_abrir_un_documento_queda_auditado_tambien_si_falla(almacen) -> None:
         "SELECT resultado, motivo FROM evento WHERE tipo = 'documento_abierto' ORDER BY id"
     ).fetchall()
     assert [tuple(f) for f in aperturas] == [("ok", "revision"), ("error", None)]
+
+
+def test_abrir_dentro_de_una_transaccion_se_niega(almacen) -> None:
+    """Dentro, el ROLLBACK de quien llama se llevaria el registro de la apertura fallida."""
+    sistema = usuario_sistema(almacen.conn, "sistema")
+    with transaccion(almacen.conn):
+        cursor = almacen.conn.execute(
+            "INSERT INTO documento (sha256, tipo_mime, origen, ruta_declarada, recibido_fuente, "
+            "registrado_en, registrado_por) VALUES (?, 'application/pdf', 'manual', 'entrante', "
+            "'desconocido', ?, ?)", ("b" * 64, AHORA, sistema))
+    documento_id = cursor.lastrowid
+    with pytest.raises(DocumentoCorrupto):
+        documentos.abrir(almacen, documento_id, actor=sistema)
+    with pytest.raises(RuntimeError, match="transaccion"):
+        with transaccion(almacen.conn):
+            documentos.abrir(almacen, documento_id, actor=sistema)
+    aperturas = almacen.conn.execute(
+        "SELECT resultado FROM evento WHERE tipo = 'documento_abierto'").fetchall()
+    assert [f[0] for f in aperturas] == ["error"]
 
 
 def test_el_contenido_tiene_que_ser_el_del_hash(almacen) -> None:

@@ -9,9 +9,9 @@ ni con el hash_anterior del siguiente. `verificar_cadena()` lo encuentra.
 
 Lo que la cadena sola no detecta es que alguien reescriba el final entero
 (o lo corte) y recalcule los hashes. Para eso estan las anclas: `anclar()`
-apunta el ultimo id y su hash fuera de la base (out/anclas.log; despues, en
-el informe diario), y la verificacion comprueba que la cadena sigue
-conteniendo cada evento anclado tal cual.
+apunta el ultimo id y su hash fuera de la base (anclas.log, al lado de la
+base; despues, tambien en el informe diario), y la verificacion comprueba
+que la cadena sigue conteniendo cada evento anclado tal cual.
 
 Un evento solo se escribe dentro de una transaccion: se confirma o se
 deshace con el cambio que describe, nunca por separado.
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .almacen import reloj_de
+from .almacen import reloj_de, transaccion
 from .almacen.unidades import json_canonico, sha256_texto
 from .reloj import marca
 
@@ -96,6 +96,11 @@ def registrar(
     porque la transaccion es BEGIN IMMEDIATE: nadie mas escribe hasta el
     COMMIT. Si aun asi otro evento se colara, el disparador
     evento_encadenado lo rechaza.
+
+    El evento y sus cambio_campo van en su propio SAVEPOINT: el hash del
+    evento ya cubre sus cambios, asi que si uno no entra (una correccion sin
+    motivo) tampoco puede quedar el evento, aunque quien llama capture el
+    error y confirme el resto de la orden.
     """
     if not conn.in_transaction:
         raise RuntimeError(
@@ -124,23 +129,32 @@ def registrar(
     evento["hash"] = calcular_hash(evento, filas_cambio)
 
     columnas = (*_COLUMNAS_EVENTO, "hash")
-    conn.execute(
-        f"INSERT INTO evento ({', '.join(columnas)}) VALUES ({', '.join('?' * len(columnas))})",
-        tuple(evento[c] for c in columnas),
-    )
-    for fila in filas_cambio:
+    with transaccion(conn):
         conn.execute(
-            f"INSERT INTO cambio_campo (evento_id, {', '.join(_COLUMNAS_CAMBIO)}) "
-            f"VALUES (?, {', '.join('?' * len(_COLUMNAS_CAMBIO))})",
-            (evento["id"], *(fila[c] for c in _COLUMNAS_CAMBIO)),
+            f"INSERT INTO evento ({', '.join(columnas)}) "
+            f"VALUES ({', '.join('?' * len(columnas))})",
+            tuple(evento[c] for c in columnas),
         )
+        for fila in filas_cambio:
+            conn.execute(
+                f"INSERT INTO cambio_campo (evento_id, {', '.join(_COLUMNAS_CAMBIO)}) "
+                f"VALUES (?, {', '.join('?' * len(_COLUMNAS_CAMBIO))})",
+                (evento["id"], *(fila[c] for c in _COLUMNAS_CAMBIO)),
+            )
     return evento["id"]
 
 
 @dataclass(frozen=True)
 class Ancla:
+    """Un evento de la cadena apuntado fuera de la base.
+
+    `almacen` es la identidad de la base que lo escribio (ver
+    `identidad()`); None en una linea antigua, que se comprueba siempre.
+    """
+
     id: int
     hash: str
+    almacen: str | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -148,6 +162,9 @@ class ResultadoCadena:
     eventos: int = 0
     cabeza: Ancla | None = None
     anclas: int = 0
+    # Anclas de otra base que comparte el fichero: no se comprueban.
+    anclas_ajenas: int = 0
+    ultima_ancla: int | None = None
     problemas: list[str] = field(default_factory=list)
 
     @property
@@ -172,6 +189,7 @@ def verificar_cadena(
     partir de aqui". No se fia de los disparadores: puede que ya no existan.
     """
     resultado = ResultadoCadena()
+    propia = identidad(conn)
     cambios = _cambios_por_evento(conn)
     hashes: dict[int, str] = {}
     esperado_id, anterior = 1, HASH_INICIAL
@@ -199,7 +217,11 @@ def verificar_cadena(
         resultado.problemas.append(f"hay cambio_campo del evento {evento_id}, que no existe")
 
     for ancla in anclas:
+        if ancla.almacen is not None and ancla.almacen != propia:
+            resultado.anclas_ajenas += 1
+            continue
         resultado.anclas += 1
+        resultado.ultima_ancla = max(resultado.ultima_ancla or 0, ancla.id)
         guardado = hashes.get(ancla.id)
         if guardado is None:
             resultado.problemas.append(
@@ -214,7 +236,19 @@ def verificar_cadena(
 
 def cabeza(conn: sqlite3.Connection) -> Ancla | None:
     fila = conn.execute("SELECT id, hash FROM evento ORDER BY id DESC LIMIT 1").fetchone()
-    return Ancla(fila["id"], fila["hash"]) if fila else None
+    return Ancla(fila["id"], fila["hash"], identidad(conn)) if fila else None
+
+
+def identidad(conn: sqlite3.Connection) -> str | None:
+    """Que base es esta: el hash de su primer evento.
+
+    El primer evento es la migracion 0001, que lleva un identificador al
+    azar (migrar.py): dos bases creadas en el mismo segundo no se confunden.
+    Asi un fichero de anclas compartido por dos bases (otra --db, o una base
+    vuelta a crear) no da por reescrita una base que nadie ha tocado.
+    """
+    fila = conn.execute("SELECT hash FROM evento WHERE id = 1").fetchone()
+    return fila["hash"] if fila else None
 
 
 def leer_anclas(ruta: str | Path) -> tuple[list[Ancla], list[str]]:
@@ -226,10 +260,14 @@ def leer_anclas(ruta: str | Path) -> tuple[list[Ancla], list[str]]:
     for numero, linea in enumerate(ruta.read_text(encoding="utf-8").splitlines(), start=1):
         if not linea.strip():
             continue
-        partes = linea.split("\t")
+        partes = [parte.strip() for parte in linea.split("\t")]
         try:
-            _cuando, evento_id, hash_ = partes
-            anclas.append(Ancla(int(evento_id), hash_.strip()))
+            if len(partes) == 3:                       # linea anterior a la identidad
+                _cuando, evento_id, hash_ = partes
+                almacen = None
+            else:
+                _cuando, evento_id, hash_, almacen = partes
+            anclas.append(Ancla(int(evento_id), hash_, almacen or None))
         except ValueError:
             malas.append(f"linea {numero} de {ruta.name} no es un ancla: {linea[:60]!r}")
     return anclas, malas
@@ -238,18 +276,22 @@ def leer_anclas(ruta: str | Path) -> tuple[list[Ancla], list[str]]:
 def anclar(conn: sqlite3.Connection, ruta: str | Path) -> Ancla | None:
     """Apunta la cabeza de la cadena al final del fichero, si ha cambiado.
 
-    El fichero solo crece. Si la ultima ancla ya es la cabeza, no se repite.
+    El fichero solo crece. Si la ultima ancla de esta base ya es la cabeza,
+    no se repite. Cada linea dice de que base es (`identidad()`).
     """
     actual = cabeza(conn)
     if actual is None:
         return None
     ruta = Path(ruta)
     anclas, _malas = leer_anclas(ruta)
-    if anclas and anclas[-1] == actual:
+    propias = [a for a in anclas if a.almacen in (None, actual.almacen)]
+    if propias and propias[-1] == actual:
         return actual
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    with ruta.open("a", encoding="utf-8") as fichero:
-        fichero.write(f"{marca(reloj_de(conn).ahora())}\t{actual.id}\t{actual.hash}\n")
+    with ruta.open("a", encoding="utf-8", newline="") as fichero:
+        fichero.write(
+            f"{marca(reloj_de(conn).ahora())}\t{actual.id}\t{actual.hash}\t{actual.almacen}\n"
+        )
     return actual
 
 

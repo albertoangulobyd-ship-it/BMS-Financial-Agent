@@ -33,8 +33,18 @@ ESCALA_E4 = 4
 ESCALA_PB = 2   # sobre el porcentaje: 21 -> 2100
 
 
+# Lo que cabe en una columna INTEGER de SQLite.
+ENTERO_MAXIMO = 2**63 - 1
+ENTERO_MINIMO = -(2**63)
+_DIGITOS_MAXIMOS = len(str(ENTERO_MAXIMO))
+
+
 class PerdidaDePrecision(ValueError):
     """El valor no cabe exacto en la escala de la columna."""
+
+
+class FueraDeRango(ValueError):
+    """El valor escalado no cabe en un entero de 64 bits (el INTEGER de SQLite)."""
 
 
 def _a_entero(valor: Decimal | int, decimales: int, columna: str) -> int:
@@ -46,13 +56,37 @@ def _a_entero(valor: Decimal | int, decimales: int, columna: str) -> int:
     numero = Decimal(valor)
     if not numero.is_finite():
         raise ValueError(f"{columna}: {valor} no es un numero finito")
-    with localcontext() as contexto:
-        contexto.prec = 100
-        escalado = numero.scaleb(decimales)
-        entero = escalado.to_integral_value()
-    if entero != escalado:
+    entero = _escalar_exacto(numero, decimales)
+    if entero is None:
         raise PerdidaDePrecision(f"{valor} no cabe en {columna} sin redondear")
-    return int(entero)
+    if not ENTERO_MINIMO <= entero <= ENTERO_MAXIMO:
+        raise FueraDeRango(f"{valor} no cabe en {columna}: pasa de un entero de 64 bits")
+    return entero
+
+
+def _escalar_exacto(numero: Decimal, decimales: int) -> int | None:
+    """numero * 10**decimales como int, o None si tiene decimales de mas.
+
+    Con aritmetica de enteros sobre los digitos, no con Decimal: cualquier
+    operacion de Decimal redondea primero a la precision del contexto, y
+    entonces la comprobacion de exactitud compara dos numeros ya redondeados.
+    """
+    signo, digitos, exponente = numero.as_tuple()
+    coeficiente = int("".join(map(str, digitos)) or "0")
+    exponente += decimales
+    if coeficiente == 0:
+        return 0
+    if exponente >= 0:
+        if len(digitos) + exponente > _DIGITOS_MAXIMOS:
+            return ENTERO_MAXIMO + 1                    # fuera de rango, sin calcular 10**n
+        entero = coeficiente * 10**exponente
+    else:
+        if -exponente > len(digitos):
+            return None                                 # menor que una unidad de la escala
+        entero, resto = divmod(coeficiente, 10**-exponente)
+        if resto:
+            return None
+    return -entero if signo else entero
 
 
 def _de_entero(valor: int, decimales: int) -> Decimal:

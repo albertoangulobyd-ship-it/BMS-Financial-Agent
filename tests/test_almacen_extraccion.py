@@ -10,9 +10,12 @@ import pytest
 
 from test_extraccion_pasada import PDF, ClienteFalso
 
-from bms_agent.almacen import abrir, preparar
+from bms_agent.almacen import abrir, preparar, ruta_anclas_de
 from bms_agent.auditoria import leer_anclas, verificar_cadena
 from bms_agent.extract import extraer_pasada
+from bms_agent.importadores.extracciones import importar_out
+from bms_agent.legado import registros_legado
+
 
 @pytest.fixture
 def carpeta(tmp_path):
@@ -84,8 +87,9 @@ def test_la_cli_extract_escribe_en_el_almacen_de_bms_db(carpeta, monkeypatch, ca
     try:
         [fila] = _extracciones(conn)
         assert fila["via"] == "api"
-        anclas, _ = leer_anclas(out / "anclas.log")
+        anclas, _ = leer_anclas(ruta_anclas_de(ruta_por_defecto()))
         assert verificar_cadena(conn, anclas).ok and anclas
+        assert not (out / "anclas.log").exists()
     finally:
         conn.close()
 
@@ -109,8 +113,27 @@ def test_el_servidor_escribe_en_el_almacen(carpeta, monkeypatch, tmp_path) -> No
 
 
 def test_el_registro_que_se_guarda_es_el_mismo_texto_que_el_fichero(tmp_path) -> None:
+    """Byte a byte: read_text compararia con los CRLF de Windows ya cambiados por LF."""
     from test_extraccion_pasada import _registro
 
     registro = _registro()
     ruta = registro.write_json(tmp_path)
-    assert ruta.read_text(encoding="utf-8") == registro.contenido()
+    assert ruta.read_bytes() == registro.contenido().encode("utf-8")
+
+
+def test_un_fichero_con_crlf_entra_una_sola_vez(almacen, carpeta) -> None:
+    """Un out/ escrito en Windows (CRLF): extract e importar-out guardan los mismos bytes."""
+    rutas, out = carpeta
+    extraer_pasada(ClienteFalso(), rutas, out, model="claude-opus-5")    # sin almacen
+    [fichero] = sorted(out.glob("*.json"))
+    fichero.write_bytes(fichero.read_bytes().replace(b"\n", b"\r\n"))
+
+    r = extraer_pasada(ClienteFalso(), rutas, out, model="claude-opus-5", almacen=almacen)
+    assert (r.reutilizadas, r.almacenadas) == (1, 1)
+    [fila] = _extracciones(almacen.conn)
+    assert fila["contenido_json"].encode("utf-8") == fichero.read_bytes()
+
+    importado = importar_out(almacen, out, None)
+    assert (importado.importadas, importado.ya_estaban) == (0, 1)
+    assert len(_extracciones(almacen.conn)) == 1
+    assert len(registros_legado(almacen.conn, todas=True)) == 1

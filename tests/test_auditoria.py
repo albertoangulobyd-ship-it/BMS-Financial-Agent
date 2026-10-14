@@ -213,6 +213,45 @@ def test_anclar_no_repite_la_misma_cabeza(db, tmp_path) -> None:
     assert anclas == [primera, segunda] and segunda.id == primera.id + 1
 
 
+def test_dos_bases_pueden_compartir_el_fichero_de_anclas(tmp_path, reloj) -> None:
+    """Cada linea dice de que base es: la otra base no da por reescrita a esta."""
+    log = tmp_path / "anclas.log"
+    bases = []
+    for nombre in ("una", "otra"):
+        conn = abrir(tmp_path / f"{nombre}.sqlite3", reloj=reloj)
+        migrar(conn)
+        _eventos(conn, 2)
+        anclar(conn, log)
+        bases.append(conn)
+    try:
+        anclas, malas = leer_anclas(log)
+        assert malas == [] and [a.id for a in anclas] == [3, 3]
+        assert anclas[0].hash != anclas[1].hash
+        for conn in bases:
+            resultado = verificar_cadena(conn, anclas)
+            assert resultado.ok, resultado.problemas
+            assert (resultado.anclas, resultado.anclas_ajenas, resultado.ultima_ancla) == (1, 1, 3)
+        # anclar mira solo las suyas: la ultima linea es de la otra, y esta no se repite.
+        anclar(bases[0], log)
+        assert len(leer_anclas(log)[0]) == 2
+    finally:
+        for conn in bases:
+            conn.close()
+
+
+def test_una_linea_sin_identidad_se_comprueba_igual(fichero, tmp_path) -> None:
+    """Las lineas de antes (cuando, id, hash) valen para cualquier base."""
+    conn = abrir(fichero)
+    ancla = cabeza(conn)
+    conn.close()
+    log = tmp_path / "anclas.log"
+    log.write_text(f"2026-10-14T09:30:00+00:00\t{ancla.id}\t{'f' * 64}\n", encoding="utf-8")
+    anclas, _ = leer_anclas(log)
+    assert anclas[0].almacen is None
+    assert _verificar(fichero, anclas).problemas == [
+        f"el evento anclado {ancla.id} ya no es el que se anclo: se ha reescrito"]
+
+
 def test_una_linea_de_anclas_ilegible_es_un_problema(tmp_path) -> None:
     log = tmp_path / "anclas.log"
     log.write_text("2026-10-14T09:30:00+00:00\t1\t" + "a" * 64 + "\nbasura\n", encoding="utf-8")
