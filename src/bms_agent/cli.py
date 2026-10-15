@@ -728,6 +728,36 @@ def _persona_de_token(conn, token: str | None, accion: str) -> int | None:
     return usuario_id
 
 
+def _unir_valores_de_accion(argv: list[str], opciones: set[str]) -> list[str]:
+    """En `accion`, lo que sigue a una de sus opciones es su valor, aunque empiece por '-'.
+
+    argparse toma por otra opcion cualquier valor que empiece por '-' y no
+    sea un numero a su manera: un abono escrito "-1.234,56" o un token que
+    empiece por '-' no llegaban a la orden ("expected one argument", salida
+    2). `--opcion=valor` si lo acepta, y aqui se escribe asi. Solo en
+    `accion`, donde cada opcion lleva un valor: en otras ordenes hay
+    opciones sin valor (--force). Si lo que sigue es otra opcion de la orden
+    (o la ayuda), se deja como esta, para que argparse diga que falta el
+    valor en vez de guardar "--db" como motivo.
+    """
+    if len(argv) < 2 or argv[0] != "accion":
+        return list(argv)
+    no_es_valor = opciones | {"-h", "--help"}
+    unidos = list(argv[:2])
+    i = 2
+    while i < len(argv):
+        argumento = argv[i]
+        siguiente = argv[i + 1] if i + 1 < len(argv) else None
+        if (argumento in opciones and siguiente is not None
+                and siguiente.split("=", 1)[0] not in no_es_valor):
+            unidos.append(f"{argumento}={siguiente}")
+            i += 2
+        else:
+            unidos.append(argumento)
+            i += 1
+    return unidos
+
+
 def _cmd_acciones(args: argparse.Namespace) -> int:
     """Lo que una persona puede hacer, con el permiso que pide cada cosa (spec §6)."""
     from .servicios import ACCIONES
@@ -1099,10 +1129,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_accion = sub.add_parser("accion", help="una orden de una persona, firmada con su token")
     sub_accion = p_accion.add_subparsers(dest="nombre", required=True)
+    opciones_accion = {"--token", "--peticion", "--db"}
     for accion in ACCIONES.values():
         p_una = sub_accion.add_parser(accion.nombre, help=accion.descripcion)
         for parametro in accion.parametros:
-            p_una.add_argument(f"--{parametro.nombre.replace('_', '-')}", dest=parametro.nombre,
+            opcion = f"--{parametro.nombre.replace('_', '-')}"
+            opciones_accion.add(opcion)
+            p_una.add_argument(opcion, dest=parametro.nombre,
                                required=parametro.obligatorio and parametro.nombre != "motivo",
                                help=parametro.ayuda or (
                                    "entero" if parametro.tipo == ENTERO else parametro.tipo))
@@ -1135,7 +1168,8 @@ def main(argv: list[str] | None = None) -> int:
     p_cargar.add_argument("--db", help=_AYUDA_DB)
     p_politica.set_defaults(func=_cmd_politica)
 
-    args = parser.parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))
     return args.func(args)
 
 

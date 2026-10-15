@@ -1742,3 +1742,44 @@ Lo que deben saber los pasos siguientes, además de lo de arriba:
   contar en sus agregados (`estados._agregados`, conjunto `en_juego`).
 - **Paso 9**: cuando exista `orden_compra`, `comprobar_entidad` la acepta
   sola (mira si la tabla existe).
+
+### Cierre de la puerta
+
+La puerta del paso 4 falló en un solo punto: **la suite no pasaba siempre**.
+En una de tres ejecuciones,
+`test_un_error_de_la_base_tiene_su_codigo_y_la_cli_no_ensena_una_traza`
+salió con `argument --token: expected one argument`. La causa estaba en el
+producto, no en el test: `emitir_token` daba `secrets.token_urlsafe(32)`,
+que empieza por `-` una vez de cada 64 (el 1,5 % medido), y argparse lee
+`--token -XXXX` como otra opción. Uno de cada 64 tokens que imprime
+`bms-agent usuario token` no se podía pasar como dice la propia CLI
+(`--token X`): la orden salía con 2 sin ejecutarse. Los cuatro sitios de
+`test_servicios.py` que pasan `"--token", token` fallaban así al azar. El
+otro fallo de aquella revisión (`test_rendimiento[400]`) venía de correr ese
+test dos veces a la vez; solo pasa.
+
+Buscando lo mismo en el resto de la orden salió un segundo caso con la
+misma causa: **un abono no se podía escribir**. `--valor -2900,00` o
+`--valor -1.234,56` (un importe negativo con coma decimal, como lo escribe
+la administración) también salían con 2; argparse solo deja pasar los
+negativos que reconoce como número suyo (`-5`, `-100.5`).
+
+| Qué se hizo | Por qué | Test |
+| --- | --- | --- |
+| `permisos.token_nuevo()`: `PREFIJO_TOKEN` (`bms_`) delante de `token_urlsafe(32)`, y `emitir_token` lo usa | Ningún token empieza por `-`, así que ninguno parece una opción en la CLI ni en ninguna otra herramienta; además se reconoce como token de este programa si aparece donde no debe. El azar es el mismo (256 bits) | `test_permisos.py::test_ningun_token_empieza_por_guion` (con `token_urlsafe` forzado a empezar por `-`, el token sale con el prefijo y vale; dos mil tokens, todos con prefijo y distintos) |
+| `cli._unir_valores_de_accion`: en `accion`, lo que sigue a una de sus opciones se pasa a argparse como `--opcion=valor` | Así entra cualquier valor que empiece por `-`: un abono y también un token emitido antes del prefijo. Solo en `accion`, donde toda opción lleva valor (en otras órdenes hay opciones sin valor, como `--force`). Si lo que sigue es otra opción de la orden o la ayuda, no se junta: argparse sigue diciendo que falta el valor en vez de guardar `--db` como motivo | `test_servicios.py::test_la_cli_pasa_valores_que_empiezan_por_guion` (un token que empieza por `-` firma `recalcular` y `fijar_campo`, y `--valor -2900,00` guarda −290.000 céntimos; `--token` sin valor sigue saliendo con 2) y `test_la_cli_solo_junta_los_valores_de_las_opciones_de_accion` (lo que se junta y lo que no: otras órdenes, la ayuda, una opción sin valor, una que no es de la orden) |
+
+Los tres tests nuevos fallan con el código anterior (el de la CLI, también
+con solo `cli.py` anterior y `permisos.py` nuevo). Ningún test existente
+cambia: con el prefijo, los que pasan `"--token", token` dejan de depender
+del azar. **1061 tests pasan** (630 funciones de test; eran 1058 y 627).
+
+Desviaciones nuevas, y por qué:
+
+- **El token lleva prefijo** (`bms_…`). La especificación no fija su forma.
+  Los tokens emitidos antes siguen valiendo: la base guarda el sha256 de lo
+  que se emitió, y la CLI los acepta también si empiezan por `-`.
+- **`accion` acepta un valor que empieza por `-` detrás de cualquiera de sus
+  opciones**, no solo de `--token` y `--valor`: un motivo o una nota pueden
+  empezar por un guion. Las abreviaturas de argparse (`--tok`) no se juntan;
+  la forma documentada es el nombre entero.

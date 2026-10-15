@@ -591,6 +591,60 @@ def test_por_la_cli_con_el_token_de_la_persona(tmp_path, out_v1, capsys) -> None
     assert main([*argumentos, "--token", token, "--peticion", "cli-2"]) == 1
 
 
+def test_la_cli_pasa_valores_que_empiezan_por_guion(tmp_path, out_v1, capsys,
+                                                   monkeypatch) -> None:
+    """Un token que empieza por '-' (de antes del prefijo) y un abono ("-2900,00") se pasan.
+
+    argparse los tomaba por otra opcion y la orden salia con 2 sin
+    ejecutarse; el test de la CLI con token fallaba asi una vez de cada 64.
+    """
+    from bms_agent.almacen import preparar
+    from bms_agent.cli import main
+
+    db = tmp_path / "datos" / "bms.sqlite3"
+    assert main(["importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"),
+                 "--db", str(db)]) == 0
+    assert main(["usuario", "crear", "Ana", "--rol", "administracion", "--db", str(db)]) == 0
+    monkeypatch.setattr(permisos, "token_nuevo", lambda: "-Legado" + "x" * 40)
+    capsys.readouterr()
+    assert main(["usuario", "token", "Ana", "--db", str(db)]) == 0
+    token = capsys.readouterr().out.splitlines()[1].strip()
+    assert token.startswith("-")
+    with preparar(db) as almacen:
+        f = factura_de(almacen.conn, "2026-4471")
+    assert main(["accion", "recalcular", "--token", token, "--db", str(db)]) == 0
+    assert main(["accion", "fijar_campo", "--tabla", "factura", "--fila-id", str(f),
+                 "--campo", "total_cent", "--valor", "-2900,00", "--rev", "0",
+                 "--motivo", MOTIVO, "--token", token, "--db", str(db)]) == 0
+    with preparar(db) as almacen:
+        assert almacen.conn.execute("SELECT total_cent FROM factura WHERE id = ?",
+                                    (f,)).fetchone()[0] == -290000
+    with pytest.raises(SystemExit) as salida:
+        main(["accion", "recalcular", "--token", "--db", str(db)])
+    assert salida.value.code == 2
+    assert "--token: expected one argument" in capsys.readouterr().err
+
+
+def test_la_cli_solo_junta_los_valores_de_las_opciones_de_accion() -> None:
+    from bms_agent.cli import _unir_valores_de_accion as unir
+
+    opciones = {"--token", "--valor", "--motivo", "--db"}
+    assert unir(["accion", "fijar_campo", "--valor", "-5,00", "--token", "-t", "--motivo", "x"],
+                opciones) == ["accion", "fijar_campo", "--valor=-5,00", "--token=-t",
+                              "--motivo=x"]
+    assert unir(["accion", "fijar_campo", "--valor=-5,00", "--otra", "-1"], opciones) == [
+        "accion", "fijar_campo", "--valor=-5,00", "--otra", "-1"]
+    assert unir(["accion", "recalcular", "--token", "--db", "x"], opciones) == [
+        "accion", "recalcular", "--token", "--db=x"]
+    for argv in (["accion", "recalcular", "--motivo", "--db=x"],
+                 ["accion", "recalcular", "--token", "--help"],
+                 ["accion", "recalcular", "--token"],
+                 ["accion", "--token", "-t"],
+                 ["extract", "facturas", "--force", "--db", "x"],
+                 ["usuario", "crear", "Ana", "--db", "-x"]):
+        assert unir(argv, opciones) == argv
+
+
 def test_las_ordenes_no_llaman_a_la_api(tmp_path, out_v1) -> None:
     from test_migracion_out import _sin_api
 

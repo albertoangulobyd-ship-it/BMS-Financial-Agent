@@ -384,8 +384,24 @@ def listar_usuarios(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 # ------------------------------------------------------- tokens de persona
 
+PREFIJO_TOKEN = "bms_"
+
+
 def sha256_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def token_nuevo() -> str:
+    """Un token al azar que empieza siempre por PREFIJO_TOKEN.
+
+    token_urlsafe usa '-' entre sus caracteres, y uno de cada 64 empezaria
+    por el: `--token -abc` lo lee argparse como otra opcion y la orden no
+    llega a ejecutarse. Con el prefijo ningun token parece una opcion, y
+    ademas se reconoce como un token de este programa si aparece donde no
+    debe (un log, un fichero subido). El azar sigue siendo el de
+    token_urlsafe(32): 256 bits.
+    """
+    return PREFIJO_TOKEN + secrets.token_urlsafe(32)
 
 
 def emitir_token(conn: sqlite3.Connection, usuario_id: int, *, por: int | None = None) -> str:
@@ -395,7 +411,7 @@ def emitir_token(conn: sqlite3.Connection, usuario_id: int, *, por: int | None =
     fichero no puede actuar como nadie. Es la atribucion local de la V1
     (spec §3.17), hasta que llegue Entra ID con el despliegue.
     """
-    token = secrets.token_urlsafe(32)
+    token = token_nuevo()
     with orden_auditada(conn):
         actor, persona = _actor_y_persona(conn, por)
         fila = _usuario(conn, usuario_id)

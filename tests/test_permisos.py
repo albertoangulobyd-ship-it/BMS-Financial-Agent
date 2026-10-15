@@ -182,3 +182,16 @@ def test_la_cli_crea_personas_con_roles(tmp_path, capsys) -> None:
     salida = capsys.readouterr().out
     assert "Ana" in salida and "administracion, consulta" in salida
     assert main(["db", "verificar", "--db", str(db)]) == 0
+
+
+def test_ningun_token_empieza_por_guion(db, monkeypatch) -> None:
+    """token_urlsafe empieza por '-' una vez de cada 64: `--token -abc` no llegaba a la orden."""
+    ana = persona(db, "Ana", "consulta")
+    monkeypatch.setattr(permisos.secrets, "token_urlsafe", lambda n: "-" + "x" * 42)
+    token = permisos.emitir_token(db, ana)
+    assert token == permisos.PREFIJO_TOKEN + "-" + "x" * 42
+    assert permisos.usuario_por_token(db, token) == ana
+    monkeypatch.undo()
+    tokens = [permisos.token_nuevo() for _ in range(2000)]
+    assert all(t.startswith(permisos.PREFIJO_TOKEN) for t in tokens)
+    assert len(set(tokens)) == 2000 and min(len(t) for t in tokens) >= 40
