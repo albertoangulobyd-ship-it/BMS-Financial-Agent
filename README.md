@@ -50,7 +50,7 @@ bms-agent facturas             # la más urgente primero; `factura 12` da la fic
 bms-agent accion marcar_revisada --factura-id 12 --huella ... --token ...   # las órdenes
 bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, reglas o empresa, con su hash
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
-bms-agent extract --estricta facturas/   # para medir otro modelo o prompt
+bms-agent extract --estricta facturas/   # releer con otra versión: con almacén, deja candidatas
 bms-agent score                # precisión contra respuestas escritas a mano
 bms-agent coste                # qué ha costado cada pasada y versión; --estimar, la siguiente
 bms-agent reextraer --abiertas --presupuesto 15   # volver a leer con el esquema v2, con techo

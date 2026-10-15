@@ -19,6 +19,13 @@ almacen de documentos y la extraccion (nueva o reutilizada de out/) con el
 mismo texto que el fichero. out/ sigue escribiendose igual: la puntuacion y
 el coste leen de ahi, y es lo que leen el panel y el informe si no hay
 almacen. La factura tipada la hace ingesta.py despues de esta pasada.
+
+Con un almacen, volver a leer (--force o --estricta) un documento cuya
+vigente es de otras versiones no cambia la vigente: la lectura nueva es una
+CANDIDATA, como las de `reextraer`, exportada en out/reextraccion/, y solo
+pasa a vigente con `reextraer --activar`, despues de la puerta de
+puntuacion (spec §10). Si no, --force seria una forma de cambiar de version
+sin puerta, sin admin y sin fila de activacion.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -197,7 +205,15 @@ def construir_peticion_lote(doc: SourceDocument, model: str | None = None) -> di
 
 
 class Rechazado(RuntimeError):
-    """El modelo se nego a leer el documento (stop_reason refusal)."""
+    """El modelo se nego a leer el documento (stop_reason refusal).
+
+    Un rechazo se cobra: `uso` lleva los tokens de la respuesta, para que
+    quien lleva la cuenta de lo gastado (reextraccion.py) lo sume.
+    """
+
+    def __init__(self, mensaje: str, uso: dict[str, Any] | None = None) -> None:
+        super().__init__(mensaje)
+        self.uso = uso or {}
 
 
 def extract_invoice(
@@ -211,7 +227,8 @@ def extract_invoice(
         details = getattr(response, "stop_details", None)
         raise Rechazado(
             f"El modelo rechazo el documento {doc.path.name}: "
-            f"{getattr(details, 'category', 'sin categoria')}"
+            f"{getattr(details, 'category', 'sin categoria')}",
+            uso=_uso(getattr(response, "usage", None)),
         )
 
     return ExtractionRecord(
@@ -227,11 +244,16 @@ def extract_invoice(
     )
 
 
-def _uso(usage: Any, *, lote: bool = False) -> dict[str, Any]:
-    """Los tokens que se pagan, y si se pagaron al precio de lote.
+def _uso(usage: Any, *, lote: bool = False, esfuerzo: str | None = None,
+         max_tokens: int | None = None) -> dict[str, Any]:
+    """Los tokens que se pagan, si se pagaron al precio de lote, y con que esfuerzo y tope.
 
     service_tier "batch" es lo que hace que coste.py cobre la mitad: sin
     apuntarlo, una pasada por lotes se contaria al doble de lo que costo.
+    El esfuerzo y el tope de salida (max_tokens) cambian cuanto razona el
+    modelo, y el razonamiento se cobra como salida: sin apuntarlos, la
+    estimacion de una pasada con esfuerzo high usaria como medida lo que
+    salio con medium.
     """
     if not usage:
         return {}
@@ -242,6 +264,8 @@ def _uso(usage: Any, *, lote: bool = False) -> dict[str, Any]:
     tier = "batch" if lote else getattr(usage, "service_tier", None)
     if isinstance(tier, str) and tier:
         uso["service_tier"] = tier
+    uso["effort"] = esfuerzo or config.effort()
+    uso["max_tokens"] = max_tokens or config.max_tokens()
     return uso
 
 
@@ -251,6 +275,9 @@ REINTENTO_ERROR = "error"
 REINTENTO_CADUCADO = "caducado"
 REINTENTO_CANCELADO = "cancelado"
 REINTENTO_INVALIDO = "invalido"
+# No es del lote: la pasada sincrona se paro antes de pagarlo, porque su peor
+# caso ya no cabia en el presupuesto (reextraccion.py).
+REINTENTO_PRESUPUESTO = "presupuesto"
 
 
 @dataclass(frozen=True)
@@ -264,7 +291,8 @@ class Reintento:
 
 def leer_resultado_lote(
     resultado: Any, doc: SourceDocument, *, model: str, prompt_version: str | None = None,
-    schema_version: str | None = None,
+    schema_version: str | None = None, esfuerzo: str | None = None,
+    max_tokens: int | None = None,
 ) -> ExtractionRecord | Reintento:
     """Un resultado de un lote como registro de extraccion, o como reintento.
 
@@ -318,7 +346,8 @@ def leer_resultado_lote(
         schema_version=schema_version or config.SCHEMA_VERSION,
         extracted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         extraction=extraccion,
-        usage=_uso(getattr(mensaje, "usage", None), lote=True),
+        usage=_uso(getattr(mensaje, "usage", None), lote=True, esfuerzo=esfuerzo,
+                   max_tokens=max_tokens),
         request_id=None,
     )
 
@@ -337,7 +366,14 @@ class ResultadoPasada:
     # Con almacen: documentos guardados alli, y los que no se pudo (estan en out/).
     almacenadas: int = 0
     sin_almacen: int = 0
+    # Con almacen: relecturas de un documento con vigente de otras versiones,
+    # que quedan como candidatas hasta `reextraer --activar`.
+    candidatas: int = 0
 
+
+# Donde van las candidatas, dentro de out/ (reextraccion.CARPETA_EXPORTACION):
+# lo que esta en out/ mismo cuenta como vigente para quien lee sin almacen.
+_CARPETA_CANDIDATAS = "reextraccion"
 
 # Avisos de progreso: (tipo, nombre del PDF, detalle). tipo es "omitido",
 # "cache", "error" u "ok".
@@ -380,6 +416,12 @@ def extraer_pasada(
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
     indice = {} if forzar else indexar(out_dir)
     resultado = resultado if resultado is not None else ResultadoPasada()
+    actual = (model, config.PROMPT_VERSION, config.SCHEMA_VERSION)
+    de_otra_version = _vigentes_de_otra_version(almacen, actual) if almacen is not None else {}
+    # Las candidatas exportadas (reextraer, o un --estricta de antes) no son
+    # vigentes, pero estan pagadas: una de estas mismas versiones no se paga
+    # otra vez.
+    releidas = {} if forzar else indexar(Path(out_dir) / _CARPETA_CANDIDATAS)
 
     for ruta_pdf in rutas:
         ruta_pdf = Path(ruta_pdf)
@@ -395,7 +437,7 @@ def extraer_pasada(
         guardada = reutilizable(
             indice.get(doc.sha256), politica=politica, model=model,
             prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
-        )
+        ) or next((e for e in releidas.get(doc.sha256, []) if e.matches(*actual)), None)
         if guardada is not None:
             resultado.reutilizadas += 1
             avisar("cache", ruta_pdf.name, _detalle_cache(guardada, model))
@@ -412,10 +454,12 @@ def extraer_pasada(
             avisar("error", ruta_pdf.name, f"{type(exc).__name__}: {exc}")
             continue
 
-        target = record.write_json(out_dir)
+        candidata = doc.sha256 in de_otra_version
+        target = record.write_json(Path(out_dir) / _CARPETA_CANDIDATAS if candidata else out_dir)
         if almacen is not None:
             _al_almacen(almacen, doc, ruta_pdf, target, "api", resultado, avisar,
-                        via_entrada=ruta)
+                        via_entrada=ruta, anterior_id=de_otra_version.get(doc.sha256),
+                        origen={"politica": politica, "forzar": forzar})
         # Si el mismo PDF viene dos veces en la carpeta, la segunda ya no paga.
         indice.setdefault(doc.sha256, []).insert(0, CachedExtraction(
             path=target, sha256=doc.sha256, model=record.model,
@@ -427,9 +471,38 @@ def extraer_pasada(
         resultado.tokens_salida += record.usage.get("output_tokens") or 0
         dudosos = record.extraction.low_confidence_fields
         sufijo = f"  (dudoso: {', '.join(dudosos)})" if dudosos else ""
+        if candidata:
+            sufijo += ("  (candidata: la vigente sigue siendo la de antes hasta "
+                       "`reextraer --activar`)")
         avisar("ok", ruta_pdf.name, f"{target.name}{sufijo}")
 
     return resultado
+
+
+def _vigentes_de_otra_version(almacen: Almacen, actual: tuple[str, str, str]) -> dict[str, int]:
+    """sha256 -> su extraccion vigente, de los documentos cuya vigente es de otras versiones.
+
+    Se mira una vez, antes de pagar nada: releer uno de estos deja una
+    candidata, no una vigente. Un almacen que no se puede leer no para la
+    pasada (como en _al_almacen): tampoco se podra escribir en el, y lo
+    pagado queda en out/.
+    """
+    from .ingesta import vigentes_por_documento
+
+    conn = almacen.conn
+    salida = {}
+    try:
+        vigentes = vigentes_por_documento(conn)
+    except sqlite3.Error:
+        return salida
+    for extraccion_id in vigentes.values():
+        fila = conn.execute(
+            "SELECT d.sha256, e.modelo, e.prompt_version, e.schema_version FROM extraccion AS e "
+            "JOIN documento AS d ON d.id = e.documento_id WHERE e.id = ?",
+            (extraccion_id,)).fetchone()
+        if (fila["modelo"], fila["prompt_version"], fila["schema_version"]) != actual:
+            salida[fila["sha256"]] = extraccion_id
+    return salida
 
 
 def _al_almacen(
@@ -442,6 +515,8 @@ def _al_almacen(
     avisar: Informar,
     *,
     via_entrada: str = "entrante",
+    anterior_id: int | None = None,
+    origen: dict[str, Any] | None = None,
 ) -> None:
     """Guarda el PDF y su extraccion en el almacen, en una transaccion por documento.
 
@@ -450,6 +525,8 @@ def _al_almacen(
     anteriores. `fichero_out` es el fichero de out/ con la extraccion, recien
     escrita o reutilizada: entran sus bytes tal cual, como en importar-out,
     para que las dos vias den el mismo hash y no se guarde dos veces.
+    `anterior_id`: es la relectura de un documento cuya vigente (esa) es de
+    otras versiones, y entra como candidata (reextraccion.apuntar_relectura).
     """
     from .almacen import transaccion, usuario_sistema
     from .almacen.documentos import instante_de_fichero, registrar_documento
@@ -465,11 +542,17 @@ def _al_almacen(
                 ruta_declarada=via_entrada, recibido_en=instante_de_fichero(ruta),
                 recibido_fuente="mtime", actor=actor,
             )
-            registrar_extraccion(
+            registrada = registrar_extraccion(
                 almacen.conn, leer_registro(texto), documento_id=documento.id,
                 via=via, actor=actor, fichero=fichero_out.name,
             )
+            if anterior_id is not None:
+                from .reextraccion import apuntar_relectura
+
+                apuntar_relectura(almacen.conn, documento.id, registrada.id, origen or {},
+                                  anterior_id=anterior_id)
         resultado.almacenadas += 1
+        resultado.candidatas += int(anterior_id is not None)
     except Exception as exc:  # la extraccion ya esta en out/: no se pierde nada pagado
         resultado.sin_almacen += 1
         detalle = f"almacen: {type(exc).__name__}: {exc}"

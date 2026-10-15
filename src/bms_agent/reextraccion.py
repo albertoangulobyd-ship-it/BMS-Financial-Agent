@@ -7,11 +7,16 @@ frenos:
 
 1. Presupuesto. Antes de pagar nada se cuentan los tokens de entrada de
    cada documento con count_tokens (exacto, y contar no se cobra) y se
-   estima la salida con el historico de la misma version del esquema (o,
-   sin historico, con un factor declarado y la marca "sin medir"). Si el
-   extremo alto de la horquilla pasa del presupuesto, no se paga nada. Sin
-   presupuesto, solo se estima. La base tampoco admite una reextraccion cuya
-   estimacion alta pase de su presupuesto.
+   estima la salida con el historico de la misma version del esquema y el
+   mismo esfuerzo (o, sin historico, con un factor declarado y la marca
+   "sin medir"). Si el extremo alto de la horquilla pasa del presupuesto, no
+   se paga nada. Sin presupuesto, solo se estima. La base tampoco admite una
+   reextraccion cuya estimacion alta pase de su presupuesto. Y el
+   presupuesto es un tope de lo que se paga, no solo de lo que se estima:
+   la via sincrona suma lo que cuesta cada respuesta (tambien un rechazo) y
+   se para antes del documento cuyo peor caso (su entrada y todo su
+   max_tokens de salida) ya no cabe; un lote, que no se puede parar a
+   medias, solo se manda si el peor caso de todo el lote cabe.
 2. Candidatas. Lo que se lee queda guardado como cualquier extraccion (en el
    almacen, y exportado en out/reextraccion/ con el hash y las versiones en
    el nombre), pero no es la vigente de su documento: las facturas, sus
@@ -44,7 +49,7 @@ import math
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -58,6 +63,7 @@ from .auditoria import registrar
 from .documents import SourceDocument
 from .extract import (
     REINTENTO_ERROR,
+    REINTENTO_PRESUPUESTO,
     REINTENTO_RECHAZO,
     ExtractionRecord,
     Rechazado,
@@ -67,6 +73,7 @@ from .extract import (
     extract_invoice,
     leer_resultado_lote,
 )
+from .pricing import estimate_cost
 from .reloj import marca
 
 # Donde se exportan las candidatas, dentro de la carpeta de extracciones. No
@@ -86,13 +93,15 @@ def objetivo_actual() -> Objetivo:
 
 
 class PresupuestoInsuficiente(RuntimeError):
-    """La estimacion alta pasa del presupuesto (o no hay tarifa): no se paga nada."""
+    """La estimacion alta (o, por lotes, el peor caso) pasa del presupuesto: no se paga nada."""
 
-    def __init__(self, estimacion: coste.Estimacion, presupuesto: Decimal) -> None:
+    def __init__(self, estimacion: coste.Estimacion, presupuesto: Decimal,
+                 detalle: str | None = None) -> None:
         self.estimacion, self.presupuesto = estimacion, presupuesto
         alto = estimacion.coste_alto
-        detalle = ("sin tarifa conocida para " + estimacion.modelo if alto is None
-                   else f"hasta ${alto:.4f} estimados")
+        if detalle is None:
+            detalle = ("sin tarifa conocida para " + estimacion.modelo if alto is None
+                       else f"hasta ${alto:.4f} estimados")
         super().__init__(f"{detalle} y el presupuesto es ${presupuesto:.2f}: no se paga nada")
 
 
@@ -179,9 +188,11 @@ def seleccionar(conn: sqlite3.Connection, criterio: Criterio, objetivo: Objetivo
     """Los documentos que cumplen el criterio y que todavia no se han leido con el objetivo.
 
     Nunca se vuelve a pagar un documento que ya tiene una extraccion de esas
-    mismas versiones (vigente, candidata o activada), y no se puede leer uno
-    cuyo original no esta guardado (Q4). Los dos casos se dicen. El orden es
-    el de los documentos, y el limite se aplica al final.
+    mismas versiones (vigente, candidata o activada), ni uno que esta en un
+    lote sin recoger (mandado, o que no se sabe si se mando: su resultado
+    puede estar pagado ya), y no se puede leer uno cuyo original no esta
+    guardado (Q4). Los tres casos se dicen. El orden es el de los
+    documentos, y el limite se aplica al final.
     """
     from .ingesta import vigentes_por_documento
 
@@ -225,6 +236,7 @@ def seleccionar(conn: sqlite3.Connection, criterio: Criterio, objetivo: Objetivo
     leidos = {f[0] for f in conn.execute(
         "SELECT documento_id FROM extraccion WHERE modelo = ? AND prompt_version = ? "
         "AND schema_version = ?", (modelo, prompt, esquema))}
+    en_lote = en_lotes_sin_recoger(conn)
     vigentes = vigentes_por_documento(conn)
     seleccion = Seleccion()
     for fila in filas:
@@ -232,6 +244,10 @@ def seleccionar(conn: sqlite3.Connection, criterio: Criterio, objetivo: Objetivo
             seleccion.ya_leidos += 1
             seleccion.omitidos.append((fila["id"], "ya leido con estas versiones: no se paga otra "
                                                    "vez"))
+        elif fila["id"] in en_lote:
+            n = en_lote[fila["id"]]
+            seleccion.omitidos.append((fila["id"], f"en un lote sin recoger (reextraccion {n}): "
+                                                   f"se recoge con --recoger {n}"))
         elif fila["ruta_cas"] is None:
             seleccion.omitidos.append((fila["id"], "el original no esta guardado (Q4): no se "
                                                    "puede volver a leer"))
@@ -244,6 +260,18 @@ def seleccionar(conn: sqlite3.Connection, criterio: Criterio, objetivo: Objetivo
                 tipo_mime=fila["tipo_mime"], bytes=fila["bytes"],
                 anterior_id=vigentes.get(fila["id"])))
     return seleccion
+
+
+def en_lotes_sin_recoger(conn: sqlite3.Connection) -> dict[int, int]:
+    """Documento -> reextraccion, de los lotes mandados (o quiza mandados) sin su resultado."""
+    salida: dict[int, int] = {}
+    for fila in conn.execute("SELECT id, estimacion_json FROM reextraccion WHERE estado IN "
+                             "('esperando_lote', 'lote_desconocido') ORDER BY id"):
+        apuntados = _apuntados(conn, fila["id"])
+        for elegido in json.loads(fila["estimacion_json"]).get("seleccionados", []):
+            if elegido["documento_id"] not in apuntados:
+                salida.setdefault(elegido["documento_id"], fila["id"])
+    return salida
 
 
 def cargar(almacen: Almacen, seleccion: Seleccion) -> list[SourceDocument]:
@@ -283,26 +311,42 @@ def estimar(
 
     La entrada se cuenta con count_tokens sobre la misma peticion que se va a
     mandar, esquema incluido: es exacta y contar no se cobra. La salida sale
-    del historico de esa version del esquema (coste.estimar_salida), en
-    horquilla. Por lotes, la mitad.
+    del historico de esa version del esquema con el mismo esfuerzo
+    (coste.estimar_salida), en horquilla; el peor caso, del tope de salida
+    de la peticion (max_tokens), que es lo que de verdad se puede llegar a
+    pagar. Por lotes, la mitad. `entradas` guarda la de cada documento: la
+    pasada sincrona compara el peor caso de cada uno con lo que queda.
     """
+    from . import config
+
     modelo, _prompt, esquema = objetivo
     salida = coste.estimar_salida(coste.leer_documentos(_registros(conn)), modelo=modelo,
-                                  esquema=esquema)
-    entrada = sum(coste.contar_entrada(client, build_request(doc, model=modelo))
-                  for doc in documentos)
+                                  esquema=esquema, esfuerzo=config.effort())
+    entradas = tuple(coste.contar_entrada(client, build_request(doc, model=modelo))
+                     for doc in documentos)
     n = len(documentos)
     return coste.Estimacion(
-        modelo=modelo, en_cache=ya_leidos, nuevos=n, entrada=entrada,
+        modelo=modelo, en_cache=ya_leidos, nuevos=n, entrada=sum(entradas),
         salida_baja=salida.bajo * n, salida_alta=salida.alto * n,
-        salida_medida=salida.medida, origen_salida=salida.origen, lote=lote)
+        salida_medida=salida.medida, origen_salida=salida.origen, lote=lote,
+        salida_peor=config.max_tokens() * n, entradas=entradas)
 
 
 def comprobar_presupuesto(estimacion: coste.Estimacion, presupuesto: Decimal) -> None:
-    """Se niega si el extremo alto pasa del presupuesto, o si no hay tarifa con que medirlo."""
+    """Se niega si el extremo alto pasa del presupuesto, o si no hay tarifa con que medirlo.
+
+    Por lotes, ademas, si el peor caso pasa del presupuesto: un lote mandado
+    se paga entero y no hay como pararlo a medias.
+    """
     alto = estimacion.coste_alto
     if alto is None or alto > presupuesto:
         raise PresupuestoInsuficiente(estimacion, presupuesto)
+    peor = estimacion.coste_peor
+    if estimacion.lote and estimacion.salida_peor and (peor is None or peor > presupuesto):
+        raise PresupuestoInsuficiente(
+            estimacion, presupuesto,
+            f"por lotes no se puede parar a medias: el peor caso del lote (cada documento "
+            f"hasta su tope de salida) es ${peor:.4f}")
 
 
 def _centimos(valor: Decimal | None, *, arriba: bool) -> int:
@@ -326,12 +370,17 @@ def registrar_rechazo(conn: sqlite3.Connection, error: PresupuestoInsuficiente, 
 
 
 def _estimacion_json(est: coste.Estimacion) -> dict[str, Any]:
+    from . import config
+
     return {"modelo": est.modelo, "documentos": est.nuevos, "ya_leidos": est.en_cache,
             "entrada": est.entrada, "salida_baja": est.salida_baja,
             "salida_alta": est.salida_alta, "salida_medida": est.salida_medida,
             "origen_salida": est.origen_salida, "lote": est.lote,
+            "salida_peor": est.salida_peor, "esfuerzo": config.effort(),
+            "max_tokens": config.max_tokens(),
             "coste_bajo": None if est.coste_bajo is None else str(est.coste_bajo),
-            "coste_alto": None if est.coste_alto is None else str(est.coste_alto)}
+            "coste_alto": None if est.coste_alto is None else str(est.coste_alto),
+            "coste_peor": None if est.coste_peor is None else str(est.coste_peor)}
 
 
 # ------------------------------------------------------------ la pasada
@@ -410,6 +459,45 @@ def _apuntar(conn: sqlite3.Connection, reextraccion_id: int, elegido: Selecciona
         ":evento_id)", {**fila, "evento_id": evento})
 
 
+def apuntar_relectura(conn: sqlite3.Connection, documento_id: int, extraccion_id: int,
+                      origen: dict[str, Any], *, anterior_id: int | None) -> int:
+    """La relectura de `extract --force/--estricta` de un documento con vigente de otras versiones.
+
+    Queda como candidata, igual que lo que lee `reextraer`: una reextraccion
+    de un documento, terminada, sin presupuesto (extract no lo tiene; lo que
+    costo esta en el uso de la extraccion) y con el origen en su criterio.
+    Asi solo pasa a vigente con `reextraer --activar`, despues de la puerta.
+    Va en la transaccion de quien llama, despues de registrar la extraccion.
+    `anterior_id` es la vigente del documento, que quien llama ya sabe.
+    """
+    fila = conn.execute("SELECT e.modelo, e.prompt_version, e.schema_version, e.via, d.sha256 "
+                        "FROM extraccion AS e JOIN documento AS d ON d.id = e.documento_id "
+                        "WHERE e.id = ?", (extraccion_id,)).fetchone()
+    if conn.execute("SELECT 1 FROM reextraccion_resultado WHERE extraccion_id = ?",
+                    (extraccion_id,)).fetchone():
+        return extraccion_id                 # ya era candidata (el mismo contenido otra vez)
+    elegido = Seleccionado(documento_id=documento_id, sha256=fila["sha256"], nombre="",
+                           tipo_mime="", bytes=None, anterior_id=anterior_id)
+    criterio = {"origen": "extract", **origen}
+    detalle = {"origen": "extract", "seleccionados": [
+        {"documento_id": documento_id, "sha256": fila["sha256"],
+         "anterior_id": elegido.anterior_id}]}
+    with transaccion(conn):
+        reextraccion_id = int(conn.execute(
+            "INSERT INTO reextraccion (modelo, prompt_version, schema_version, via, "
+            "criterio_json, documentos, presupuesto_usd_cent, estimado_bajo_usd_cent, "
+            "estimado_alto_usd_cent, salida_medida, estimacion_json, iniciada_en, actor) "
+            "VALUES (?, ?, ?, ?, ?, 1, 0, 0, 0, 0, ?, ?, ?)",
+            (fila["modelo"], fila["prompt_version"], fila["schema_version"], fila["via"],
+             json_canonico(criterio), json_canonico(detalle), marca(reloj_de(conn).ahora()),
+             usuario_sistema(conn, "extractor"))).lastrowid)
+        _evento_reextraccion(conn, reextraccion_id, "reextraccion_iniciada")
+        _apuntar(conn, reextraccion_id, elegido, extraccion_id=extraccion_id)
+        _terminar(conn, reextraccion_id,
+                  ResultadoReextraccion(reextraccion_id, fila["via"], "en_curso"))
+    return extraccion_id
+
+
 def _guardar_candidata(almacen: Almacen, reextraccion_id: int, elegido: Seleccionado,
                        record: ExtractionRecord, out_dir: Path, via: str) -> int:
     """Exporta la lectura (sin pisar nada) y la guarda en el almacen como candidata.
@@ -428,18 +516,75 @@ def _guardar_candidata(almacen: Almacen, reextraccion_id: int, elegido: Seleccio
     return extraccion.id
 
 
+def _apuntados(conn: sqlite3.Connection, reextraccion_id: int) -> dict[int, str]:
+    """Los documentos de la pasada que ya tienen su resultado apuntado: documento -> resultado."""
+    return {f[0]: f[1] for f in conn.execute(
+        "SELECT documento_id, resultado FROM reextraccion_resultado WHERE reextraccion_id = ?",
+        (reextraccion_id,))}
+
+
 def _terminar(conn: sqlite3.Connection, reextraccion_id: int,
-              resultado: ResultadoReextraccion) -> None:
+              resultado: ResultadoReextraccion, *, gastado: Decimal | None = None,
+              parada: bool = False) -> None:
+    """Cierra la pasada con los recuentos de sus filas, no de lo que se vio en esta llamada.
+
+    Una recogida que se corto a medias y se repite solo ve lo que faltaba:
+    contar en memoria dejaria la fila diciendo menos de lo que tiene. El
+    evento lleva lo gastado (la via sincrona) y si la pasada se paro por el
+    presupuesto.
+    """
+    extra: dict[str, Any] = {}
+    if gastado is not None:
+        extra = {"gastado_usd": str(gastado), "parada_por_presupuesto": parada}
     with transaccion(conn):
+        apuntados = list(_apuntados(conn, reextraccion_id).values())
         conn.execute(
             "UPDATE reextraccion SET estado = 'terminada', terminada_en = ?, extraidas = ?, "
             "reintentos = ? WHERE id = ?",
-            (marca(reloj_de(conn).ahora()), len(resultado.candidatas), len(resultado.reintentos),
-             reextraccion_id))
+            (marca(reloj_de(conn).ahora()), apuntados.count("candidata"),
+             apuntados.count("reintento"), reextraccion_id))
         _evento_reextraccion(conn, reextraccion_id, "reextraccion_terminada",
                              tokens_entrada=resultado.tokens_entrada,
-                             tokens_salida=resultado.tokens_salida)
+                             tokens_salida=resultado.tokens_salida, **extra)
     resultado.estado = "terminada"
+
+
+def _a_reintentar(conn: sqlite3.Connection, reextraccion_id: int, resultado: ResultadoReextraccion,
+                  elegidos: list[Seleccionado], motivo: str, detalle: str) -> None:
+    """Todos estos documentos a la lista de reintentos, en una transaccion."""
+    with transaccion(conn):
+        for elegido in elegidos:
+            reintento = Reintento(elegido.sha256, motivo, detalle)
+            _apuntar(conn, reextraccion_id, elegido, reintento=reintento)
+            resultado.reintentos.append((elegido.documento_id, motivo, detalle))
+
+
+def _rechazo_definitivo(exc: Exception) -> bool:
+    """La API contesto que no (un 4xx): el lote no existe. Sin respuesta, no se sabe.
+
+    Un timeout (408) o un corte de conexion pueden llegar despues de que la
+    API aceptara el lote: darlo por no mandado y volver a pedirlo lo pagaria
+    dos veces.
+    """
+    estado = getattr(exc, "status_code", None)
+    return isinstance(estado, int) and 400 <= estado < 500 and estado != 408
+
+
+def _sin_reintentos(client: Any) -> Any:
+    """El cliente sin los reintentos automaticos del SDK, para crear el lote.
+
+    Crear un lote no es idempotente: si el SDK repite un POST que llego pero
+    cuya respuesta se perdio, quedan dos lotes pagados.
+    """
+    opciones = getattr(client, "with_options", None)
+    return opciones(max_retries=0) if callable(opciones) else client
+
+
+def _uso_coste(modelo: str, uso: dict[str, Any]) -> Decimal | None:
+    entrada, salida = uso.get("input_tokens"), uso.get("output_tokens")
+    if not isinstance(entrada, int) or not isinstance(salida, int):
+        return None
+    return estimate_cost(modelo, entrada, salida, lote=uso.get("service_tier") == "batch")
 
 
 def ejecutar(
@@ -460,9 +605,20 @@ def ejecutar(
     """Paga la pasada, si el presupuesto lo cubre. Las lecturas quedan como candidatas.
 
     Sincrona: un documento cada vez, cada uno en su transaccion (lo pagado no
-    se pierde si falla el siguiente). Por lotes: manda el lote y deja la
-    pasada esperando; `recoger` lee los resultados.
+    se pierde si falla el siguiente). Antes de cada llamada se compara lo ya
+    gastado mas el peor caso de ese documento (su entrada contada y todo su
+    max_tokens de salida) con el presupuesto: si no cabe, ni ese ni los
+    siguientes se pagan, y van a reintentos ("presupuesto"). Lo gastado es
+    el uso de cada respuesta, tambien de un rechazo; de un fallo sin uso
+    (no se sabe si se cobro) se cuenta su peor caso.
+
+    Por lotes: manda el lote (el peor caso entero ya cabe: comprobar_presupuesto)
+    y deja la pasada esperando; `recoger` lee los resultados. Si la API dice
+    que no, todo va a reintentos; si no contesta, no se sabe si lo acepto, y
+    la pasada queda en 'lote_desconocido' hasta que `recoger` lo encuentra.
     """
+    from . import config
+
     comprobar_presupuesto(estimacion, presupuesto)
     if tuple(objetivo[1:]) != tuple(objetivo_actual()[1:]):
         raise ValueError("solo se lee con el prompt y el esquema de config.py: "
@@ -479,16 +635,22 @@ def ejecutar(
     if lote:
         peticiones = [construir_peticion_lote(doc, model=modelo) for doc in documentos]
         try:
-            enviado = client.messages.batches.create(requests=peticiones)
-        except Exception as exc:  # no se mando: todo a reintentar, nada pagado
+            enviado = _sin_reintentos(client).messages.batches.create(requests=peticiones)
+        except Exception as exc:
+            if _rechazo_definitivo(exc):    # no se mando: todo a reintentar, nada pagado
+                _a_reintentar(conn, reextraccion_id, resultado, seleccion.documentos,
+                              REINTENTO_ERROR, f"el lote no se pudo mandar: {type(exc).__name__}")
+                _terminar(conn, reextraccion_id, resultado)
+                return resultado
             with transaccion(conn):
-                for elegido in seleccion.documentos:
-                    reintento = Reintento(elegido.sha256, REINTENTO_ERROR,
-                                          f"el lote no se pudo mandar: {type(exc).__name__}")
-                    _apuntar(conn, reextraccion_id, elegido, reintento=reintento)
-                    resultado.reintentos.append((elegido.documento_id, reintento.motivo,
-                                                 reintento.detalle))
-            _terminar(conn, reextraccion_id, resultado)
+                conn.execute("UPDATE reextraccion SET estado = 'lote_desconocido' WHERE id = ?",
+                             (reextraccion_id,))
+                _evento_reextraccion(conn, reextraccion_id, "reextraccion_lote_desconocido",
+                                     usuario_id=iniciada_por,
+                                     error=f"{type(exc).__name__}: {exc}")
+            resultado.estado = "lote_desconocido"
+            avisar("lote", "?", f"sin respuesta al mandarlo ({type(exc).__name__}): "
+                                f"--recoger {reextraccion_id} lo busca en la API")
             return resultado
         resultado.lote_id = str(getattr(enviado, "id"))
         with transaccion(conn):
@@ -500,35 +662,145 @@ def ejecutar(
         avisar("lote", resultado.lote_id, f"{len(peticiones)} documentos")
         return resultado
 
-    for elegido, doc in zip(seleccion.documentos, documentos):
+    tope = config.max_tokens()
+    entradas = list(estimacion.entradas) or [0] * len(documentos)
+    gastado, parada = Decimal(0), False
+    pares = list(zip(seleccion.documentos, documentos))
+    for posicion, (elegido, doc) in enumerate(pares):
+        peor = estimate_cost(modelo, entradas[posicion] if posicion < len(entradas) else 0, tope)
+        if peor is None or gastado + peor > presupuesto:
+            parada = True
+            restantes = [e for e, _d in pares[posicion:]]
+            _a_reintentar(conn, reextraccion_id, resultado, restantes, REINTENTO_PRESUPUESTO,
+                          f"no se paga: ${gastado:.4f} gastados mas el peor caso de un documento "
+                          f"pasa del presupuesto (${presupuesto:.2f})")
+            avisar("reintento", elegido.nombre, f"presupuesto: {len(restantes)} sin pagar")
+            break
         try:
             record = extract_invoice(client, doc, model=modelo)
-            resultado.tokens_entrada += record.usage.get("input_tokens") or 0
-            resultado.tokens_salida += record.usage.get("output_tokens") or 0
+        except Exception as exc:  # una pasada no se detiene por un documento
+            # Un rechazo se cobra y trae su uso; un fallo sin uso no se sabe si
+            # se cobro, y se cuenta como si si, por su peor caso.
+            uso = getattr(exc, "uso", None) or {}
+            gastado += _uso_coste(modelo, uso) or peor
+            resultado.tokens_entrada += uso.get("input_tokens") or 0
+            resultado.tokens_salida += uso.get("output_tokens") or 0
+            motivo = REINTENTO_RECHAZO if isinstance(exc, Rechazado) else REINTENTO_ERROR
+            _a_reintentar(conn, reextraccion_id, resultado, [elegido], motivo,
+                          f"{type(exc).__name__}: {exc}")
+            avisar("reintento", elegido.nombre, resultado.reintentos[-1][2])
+            continue
+        gastado += _uso_coste(modelo, record.usage) or peor
+        resultado.tokens_entrada += record.usage.get("input_tokens") or 0
+        resultado.tokens_salida += record.usage.get("output_tokens") or 0
+        try:
             extraccion_id = _guardar_candidata(almacen, reextraccion_id, elegido, record,
                                                out_dir, via)
-        except Exception as exc:  # una pasada no se detiene por un documento
-            # Un rechazo es un reintento con su motivo; cualquier otro fallo, un
-            # error. Si lo que fallo fue guardarla, lo pagado sigue exportado en
-            # out/reextraccion/, y el documento vuelve a pedirse con --reintentos.
-            motivo = REINTENTO_RECHAZO if isinstance(exc, Rechazado) else REINTENTO_ERROR
-            reintento = Reintento(doc.sha256, motivo, f"{type(exc).__name__}: {exc}")
-            with transaccion(conn):
-                _apuntar(conn, reextraccion_id, elegido, reintento=reintento)
-            resultado.reintentos.append((elegido.documento_id, reintento.motivo,
-                                         reintento.detalle))
-            avisar("reintento", elegido.nombre, reintento.detalle)
+        except Exception as exc:
+            # Lo pagado sigue exportado en out/reextraccion/, y el documento
+            # vuelve a pedirse con --reintentos.
+            _a_reintentar(conn, reextraccion_id, resultado, [elegido], REINTENTO_ERROR,
+                          f"{type(exc).__name__}: {exc}")
+            avisar("reintento", elegido.nombre, resultado.reintentos[-1][2])
             continue
         resultado.candidatas.append((elegido.documento_id, extraccion_id))
         avisar("candidata", elegido.nombre, f"extraccion {extraccion_id}")
-    _terminar(conn, reextraccion_id, resultado)
+    _terminar(conn, reextraccion_id, resultado, gastado=gastado, parada=parada)
     return resultado
 
 
 def pendientes_de_lote(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Las reextracciones por lotes que esperan sus resultados."""
-    return conn.execute("SELECT * FROM reextraccion WHERE estado = 'esperando_lote' "
-                        "ORDER BY id").fetchall()
+    """Las reextracciones por lotes que esperan sus resultados (o saber si se mandaron)."""
+    return conn.execute("SELECT * FROM reextraccion WHERE estado IN ('esperando_lote', "
+                        "'lote_desconocido') ORDER BY id").fetchall()
+
+
+# Cuanto antes o despues de empezar la pasada puede decir la API que se creo
+# su lote: los relojes de aqui y de la API no son el mismo.
+MARGEN_LOTE_DESCONOCIDO = timedelta(hours=1)
+
+
+def _instante(valor: Any) -> datetime | None:
+    if isinstance(valor, datetime):
+        return valor if valor.tzinfo else None
+    try:
+        instante = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return instante if instante.tzinfo else None
+
+
+def _peticiones_de(lote: Any) -> int:
+    cuentas = getattr(lote, "request_counts", None)
+    return sum(int(getattr(cuentas, c, 0) or 0)
+               for c in ("processing", "succeeded", "errored", "canceled", "expired"))
+
+
+def _buscar_lote(client: Any, conn: sqlite3.Connection, fila: sqlite3.Row) -> list[str]:
+    """Los lotes de la API que pueden ser el de una pasada sin respuesta al mandarlo.
+
+    Se crearon cerca de cuando empezo la pasada, tienen tantas peticiones
+    como documentos, y no son ya el lote de otra pasada. La lista de la API
+    va de mas nuevo a mas viejo: se deja de mirar al pasar el margen.
+    """
+    inicio = _instante(fila["iniciada_en"])
+    desde, hasta = inicio - MARGEN_LOTE_DESCONOCIDO, inicio + MARGEN_LOTE_DESCONOCIDO
+    usados = {f[0] for f in conn.execute(
+        "SELECT lote_id FROM reextraccion WHERE lote_id IS NOT NULL")}
+    candidatos = []
+    for lote in client.messages.batches.list(limit=100):
+        creado = _instante(getattr(lote, "created_at", None))
+        if creado is None:
+            continue
+        if creado < desde:
+            break
+        if (creado <= hasta and _peticiones_de(lote) == fila["documentos"]
+                and str(getattr(lote, "id", "")) not in usados):
+            candidatos.append(str(lote.id))
+    return candidatos
+
+
+def _reconciliar(client: Any, almacen: Almacen, fila: sqlite3.Row,
+                 resultado: ResultadoReextraccion) -> bool:
+    """Una pasada en 'lote_desconocido': busca su lote en la API. True si lo encontro.
+
+    Si esta, se adopta su id y la pasada espera como cualquier otra. Si no
+    esta, no se mando: sus documentos van a reintentos, sin haber pagado
+    nada. Si hay mas de uno que podria ser, no se elige: lo decide una
+    persona mirando la consola de la API.
+    """
+    conn = almacen.conn
+    candidatos = _buscar_lote(client, conn, fila)
+    if len(candidatos) > 1:
+        raise ValueError(f"la reextraccion {fila['id']} no tuvo respuesta al mandar su lote, y "
+                         f"hay {len(candidatos)} lotes en la API que podrian ser el suyo: "
+                         + ", ".join(candidatos))
+    if not candidatos:
+        detalle = json.loads(fila["estimacion_json"])
+        elegidos = [_seleccionado(conn, e) for e in detalle.get("seleccionados", [])]
+        apuntados = _apuntados(conn, fila["id"])
+        _a_reintentar(conn, fila["id"], resultado,
+                      [e for e in elegidos if e.documento_id not in apuntados], REINTENTO_ERROR,
+                      "el lote no llego a la API: no se mando, y no se pago")
+        _terminar(conn, fila["id"], resultado)
+        return False
+    resultado.lote_id = candidatos[0]
+    with transaccion(conn):
+        conn.execute("UPDATE reextraccion SET lote_id = ?, estado = 'esperando_lote' "
+                     "WHERE id = ?", (resultado.lote_id, fila["id"]))
+        _evento_reextraccion(conn, fila["id"], "reextraccion_lote_encontrado",
+                             lote_id=resultado.lote_id)
+    resultado.estado = "esperando_lote"
+    return True
+
+
+def _seleccionado(conn: sqlite3.Connection, elegido: dict[str, Any]) -> Seleccionado:
+    doc = conn.execute("SELECT nombre_original, tipo_mime, bytes FROM documento "
+                       "WHERE id = ?", (elegido["documento_id"],)).fetchone()
+    return Seleccionado(
+        documento_id=elegido["documento_id"], sha256=elegido["sha256"],
+        nombre=doc["nombre_original"] or f"{elegido['sha256'][:12]}.pdf",
+        tipo_mime=doc["tipo_mime"], bytes=doc["bytes"], anterior_id=elegido["anterior_id"])
 
 
 def recoger(client: Any, almacen: Almacen, reextraccion_id: int, *,
@@ -538,13 +810,25 @@ def recoger(client: Any, almacen: Almacen, reextraccion_id: int, *,
     Si el lote no ha terminado, no cambia nada. Cada resultado se ata a su
     documento por custom_id (el sha256 del documento): llegan en cualquier
     orden. Un documento del lote que no tiene resultado tambien va a
-    reintentos.
+    reintentos. Una pasada cuyo lote no se sabe si se mando lo busca antes
+    en la API (_reconciliar).
+
+    Cada resultado se guarda en su transaccion, y la pasada sigue esperando
+    hasta el final: si algo corta la recogida a medias (un disco lleno, un
+    Ctrl-C), repetirla salta los documentos que ya tienen su resultado
+    apuntado. Sin eso, el mismo contenido chocaria con su candidata (y la
+    recogida no podria terminar nunca) o, leido otro dia, entraria dos veces
+    y `coste` lo contaria pagado dos veces.
     """
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
     conn = almacen.conn
     fila = _fila_reextraccion(conn, reextraccion_id)
     resultado = ResultadoReextraccion(reextraccion_id, fila["via"], fila["estado"],
                                       lote_id=fila["lote_id"])
+    if fila["estado"] == "lote_desconocido":
+        if not _reconciliar(client, almacen, fila, resultado):
+            return resultado
+        fila = _fila_reextraccion(conn, reextraccion_id)
     if fila["estado"] != "esperando_lote":
         raise ValueError(f"la reextraccion {reextraccion_id} no espera ningun lote "
                          f"(esta {fila['estado']})")
@@ -554,15 +838,9 @@ def recoger(client: Any, almacen: Almacen, reextraccion_id: int, *,
         return resultado
 
     detalle = json.loads(fila["estimacion_json"])
-    por_sha = {}
-    for elegido in detalle.get("seleccionados", []):
-        doc = conn.execute("SELECT nombre_original, tipo_mime, bytes FROM documento "
-                           "WHERE id = ?", (elegido["documento_id"],)).fetchone()
-        por_sha[elegido["sha256"]] = Seleccionado(
-            documento_id=elegido["documento_id"], sha256=elegido["sha256"],
-            nombre=doc["nombre_original"] or f"{elegido['sha256'][:12]}.pdf",
-            tipo_mime=doc["tipo_mime"], bytes=doc["bytes"], anterior_id=elegido["anterior_id"])
-    vistos = set()
+    por_sha = {e["sha256"]: _seleccionado(conn, e) for e in detalle.get("seleccionados", [])}
+    apuntados = _apuntados(conn, reextraccion_id)
+    vistos = {sha for sha, elegido in por_sha.items() if elegido.documento_id in apuntados}
     for individual in client.messages.batches.results(fila["lote_id"]):
         sha = getattr(individual, "custom_id", None)
         elegido = por_sha.get(sha)
@@ -574,33 +852,28 @@ def recoger(client: Any, almacen: Almacen, reextraccion_id: int, *,
                              media_type=elegido.tipo_mime)
         leido = leer_resultado_lote(individual, doc, model=fila["modelo"],
                                     prompt_version=fila["prompt_version"],
-                                    schema_version=fila["schema_version"])
+                                    schema_version=fila["schema_version"],
+                                    esfuerzo=detalle.get("esfuerzo"),
+                                    max_tokens=detalle.get("max_tokens"))
         if isinstance(leido, Reintento):
-            with transaccion(conn):
-                _apuntar(conn, reextraccion_id, elegido, reintento=leido)
-            resultado.reintentos.append((elegido.documento_id, leido.motivo, leido.detalle))
+            _a_reintentar(conn, reextraccion_id, resultado, [elegido], leido.motivo,
+                          leido.detalle)
             avisar("reintento", elegido.nombre, leido.detalle)
             continue
         try:
             extraccion_id = _guardar_candidata(almacen, reextraccion_id, elegido, leido,
                                                Path(out_dir), "lote")
         except RegistroInvalido as exc:
-            reintento = Reintento(sha, "invalido", str(exc))
-            with transaccion(conn):
-                _apuntar(conn, reextraccion_id, elegido, reintento=reintento)
-            resultado.reintentos.append((elegido.documento_id, reintento.motivo, str(exc)))
+            _a_reintentar(conn, reextraccion_id, resultado, [elegido], "invalido", str(exc))
             continue
         resultado.candidatas.append((elegido.documento_id, extraccion_id))
         resultado.tokens_entrada += leido.usage.get("input_tokens") or 0
         resultado.tokens_salida += leido.usage.get("output_tokens") or 0
         avisar("candidata", elegido.nombre, f"extraccion {extraccion_id}")
-    for sha, elegido in por_sha.items():
-        if sha not in vistos:
-            reintento = Reintento(sha, REINTENTO_ERROR, "el lote no trajo resultado")
-            with transaccion(conn):
-                _apuntar(conn, reextraccion_id, elegido, reintento=reintento)
-            resultado.reintentos.append((elegido.documento_id, reintento.motivo,
-                                         reintento.detalle))
+    sin_resultado = [e for sha, e in por_sha.items() if sha not in vistos]
+    if sin_resultado:
+        _a_reintentar(conn, reextraccion_id, resultado, sin_resultado, REINTENTO_ERROR,
+                      "el lote no trajo resultado")
     _terminar(conn, reextraccion_id, resultado)
     return resultado
 
@@ -608,10 +881,24 @@ def recoger(client: Any, almacen: Almacen, reextraccion_id: int, *,
 # ------------------------------------------------------------ la puerta y la activacion
 
 
+def registros_vigentes_posibles(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Las extracciones que pueden ser la vigente: todas menos las candidatas sin activar."""
+    from .almacen.extracciones import en_orden_de_out
+
+    return [json.loads(f["contenido_json"]) for f in en_orden_de_out(conn)]
+
+
 def comparar(conn: sqlite3.Connection, truth: dict[str, dict[str, Any]], objetivo: Objetivo, *,
              inyeccion: str = scoring.INYECCION) -> scoring.Comparacion:
-    """`score --comparar-versiones` sobre el almacen: todas las extracciones, candidatas incluidas."""
-    return scoring.comparar_versiones(truth, _registros(conn), objetivo, inyeccion=inyeccion)
+    """`score --comparar-versiones` sobre el almacen.
+
+    La nueva sale de todas las extracciones (sus candidatas incluidas); la
+    anterior, de las que pueden ser la vigente: una candidata de otra
+    version que nadie activo (un prompt rechazado) no es la referencia con
+    la que se mide "no peor que la anterior".
+    """
+    return scoring.comparar_versiones(truth, _registros(conn), objetivo, inyeccion=inyeccion,
+                                      anteriores=registros_vigentes_posibles(conn))
 
 
 def resumen_comparacion(comparacion: scoring.Comparacion) -> dict[str, Any]:

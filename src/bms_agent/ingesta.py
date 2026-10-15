@@ -17,11 +17,12 @@ que no se puede leer, o que no cabe exacto en su escala, queda vacio y
 dudoso con su literal, para que una persona lo mire. Una factura que no
 esta en euros (X1) deja todos sus importes vacios: no entra en ninguna suma.
 
-Una extraccion nueva del mismo documento (un --force, otra version) pasa a
-vigente como hasta ahora (la mas reciente, la regla de load_records) y se
-aplica como fuente automatica: lo que una persona corrigio no se pisa, solo
-queda apuntado el nuevo valor automatico (y si lo contradice, el campo queda
-sin resolver: M1). Desde el paso 6, lo que lee `bms-agent reextraer` es una
+Una extraccion nueva del mismo documento pasa a vigente como hasta ahora (la
+mas reciente, la regla de load_records) y se aplica como fuente automatica:
+lo que una persona corrigio no se pisa, solo queda apuntado el nuevo valor
+automatico (y si lo contradice, el campo queda sin resolver: M1). Desde el
+paso 6, lo que lee `bms-agent reextraer`, y lo que relee `extract --force` o
+`--estricta` de un documento cuya vigente es de otras versiones, es una
 candidata y no cuenta para la vigente hasta que una persona la activa
 despues de la puerta de puntuacion (reextraccion.py).
 
@@ -39,6 +40,7 @@ Nada de aqui llama a la API: tipar es determinista y se puede repetir.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -299,8 +301,9 @@ def _cabecera(
         valores[columna] = leer_literal(lector, datos.get(clave), en_euros=euros,
                                         dudoso=clave in dudosos)
     # El plazo lo calcula el codigo del literal impreso (spec §10), nunca el
-    # modelo; si no se puede leer sin adivinar, queda vacio y vale el del
-    # maestro. Una v1 no trae condiciones y no escribe nada.
+    # modelo; si no se puede leer sin adivinar, queda vacio. Es lo que dice el
+    # proveedor: el vencimiento (estados.py) lo usa solo si el maestro no
+    # tiene plazo acordado. Una v1 no trae condiciones y no escribe nada.
     if leida.solicitado("payment_terms_raw"):
         valores["plazo_pago_dias"] = Leido(_plazo(datos.get("payment_terms_raw")),
                                            fuente=Fuente.CALCULADO.value,
@@ -309,19 +312,7 @@ def _cabecera(
     valores["contacto_nombre_doc"] = leer_literal(
         TEXTO, datos.get(clave_contacto), dudoso=clave_contacto in dudosos)
 
-    tipo_doc = datos.get("document_type")
-    if tipo_doc in TIPO_DECLARADO:
-        valores["tipo"] = Leido(TIPO_DECLARADO[tipo_doc], crudo=tipo_doc)
-    else:
-        # v1 no dice que es el documento, y un v2 que no lo declara (unknown)
-        # o que se declara anulacion tampoco dice si es una factura o un
-        # abono: decide el signo del total, como en v1.
-        total = valores["total_cent"].valor
-        base = valores["base_cent"].valor
-        negativo = any(isinstance(v, Decimal) and v < 0 for v in (total, base))
-        valores["tipo"] = Leido(
-            TipoFactura.NOTA_CREDITO.value if negativo else TipoFactura.FACTURA.value,
-            fuente=Fuente.CALCULADO.value, ref="signo_del_total")
+    valores["tipo"] = _tipo(datos.get("document_type"), valores)
     if isinstance(datos.get("currency_raw"), str):
         valores["moneda_doc"] = Leido(datos["currency_raw"], crudo=datos["currency_raw"])
     elif not euros:
@@ -329,6 +320,33 @@ def _cabecera(
     else:
         valores["moneda_doc"] = Leido(None, fuente=Fuente.CALCULADO.value, ref="x1_literales")
     return valores, euros, moneda
+
+
+def _tipo(tipo_doc: Any, valores: dict[str, Leido]) -> Leido:
+    """factura.tipo: lo que el documento declara, si su signo impreso lo confirma.
+
+    v1 no dice que es el documento, y un v2 que no lo declara (unknown) o
+    que se declara anulacion tampoco dice si es una factura o un abono:
+    decide el signo del total, como en v1. Lo declarado es un texto que
+    copia el modelo de lo que escribio el proveedor: un "CREDITNOTA" impreso
+    en una factura positiva la sacaria de B4 (un abono no cobra un periodo)
+    y de U1. Por eso lo declarado solo vale si el signo de la base o del
+    total lo confirma; si lo contradice, decide el signo y el total queda
+    dudoso, para que Q2 retenga la factura hasta que una persona lo mire.
+    Sin importes legibles no hay signo con que contradecirlo.
+    """
+    importes = [v for v in (valores["total_cent"].valor, valores["base_cent"].valor)
+                if isinstance(v, Decimal)]
+    negativo = any(v < 0 for v in importes)
+    por_signo = TipoFactura.NOTA_CREDITO.value if negativo else TipoFactura.FACTURA.value
+    declarado = TIPO_DECLARADO.get(tipo_doc) if isinstance(tipo_doc, str) else None
+    if declarado is not None and (not importes or declarado == por_signo):
+        return Leido(declarado, crudo=tipo_doc)
+    if declarado is not None:
+        valores["total_cent"] = replace(valores["total_cent"], dudoso=True)
+        return Leido(por_signo, crudo=tipo_doc, fuente=Fuente.CALCULADO.value,
+                     ref="signo_contra_declarado")
+    return Leido(por_signo, fuente=Fuente.CALCULADO.value, ref="signo_del_total")
 
 
 def _plazo(crudo: Any) -> int | None:
@@ -415,6 +433,50 @@ def huella_de_fila(fila: Any) -> str:
             valor = Decimal(valor).scaleb(_ESCALA_HUELLA[columna])
         partes[columna] = _parte_huella(valor)
     return huella_linea(partes)
+
+
+_REF_LINEA = re.compile(r"^extraccion:(\d+):lines\[(\d+)\]$")
+
+
+def huella_de_su_lectura(conn: sqlite3.Connection, linea_id: int,
+                         cache: dict[int, Any] | None = None) -> str | None:
+    """La huella de una linea recalculada de la ultima lectura automatica que la puso.
+
+    huella_linea guarda la de la lectura que creo la linea, pero en un
+    almacen de antes del paso 6 lleva la definicion de entonces (la posicion
+    y el JSON crudo), y huella_de_fila no puede reproducir un literal que no
+    se pudo leer ("?n.v.t."): ese valor no esta en la fila. La referencia de
+    la procedencia (extraccion:N:lines[i]) dice de que linea de que lectura
+    salio, y de ahi se lee con la definicion de ahora. None si no se sabe.
+    """
+    cache = {} if cache is None else cache
+    procedencia = campos.procedencia(conn, "factura_linea", linea_id)
+    for columna in _COLUMNAS_HUELLA:
+        datos = procedencia.get(columna) or {}
+        ref = datos.get("fuente_automatica_ref") or datos.get("fuente_ref")
+        m = _REF_LINEA.match(ref or "")
+        if m:
+            break
+    else:
+        return None
+    extraccion_id, indice = int(m.group(1)), int(m.group(2))
+    if extraccion_id not in cache:
+        fila = conn.execute("SELECT contenido_json FROM extraccion WHERE id = ?",
+                            (extraccion_id,)).fetchone()
+        try:
+            leida = compat.leer_registro(json.loads(fila[0])) if fila else None
+        except ValueError:
+            leida = None
+        cache[extraccion_id] = (leida, en_euros(leida)[0]) if leida else None
+    if cache[extraccion_id] is None:
+        return None
+    leida, euros = cache[extraccion_id]
+    lineas = leida.datos.get("lines") or []
+    if indice >= len(lineas) or not isinstance(lineas[indice], dict):
+        return None
+    valores = {columna: leer_literal(lector, lineas[indice].get(clave), en_euros=euros)
+               for clave, columna, lector in LINEA if columna in _COLUMNAS_HUELLA}
+    return huella_de_leidos(valores)
 
 
 def _referencias(leida: compat.ExtraccionLeida) -> list[tuple[int | None, dict[str, Leido]]]:
@@ -624,10 +686,11 @@ def _actualizar_lineas(
     sigue excluida). Las que retiro una extraccion anterior porque ya no
     venian no cuentan: si vuelven a venir, entran como lineas nuevas.
 
-    Primero por huella, en orden: la de la lectura que la puso (huella_linea)
-    o la de sus valores de ahora (una correccion de una persona puede ser
-    justo lo que la lectura nueva lee bien). Despues, solo para las que nadie
-    ha tocado, por posicion: la misma posicion impresa, leida de otra forma,
+    Primero por huella, en orden: la de la lectura que la puso (huella_linea,
+    y la misma recalculada de esa lectura, que es la unica en un almacen de
+    antes del paso 6) o la de sus valores de ahora (una correccion de una
+    persona puede ser justo lo que la lectura nueva lee bien). Despues, solo
+    para las que nadie ha tocado, por posicion: la misma posicion impresa, leida de otra forma,
     es la misma linea, y asi su imputacion no cambia de fila. Una linea que
     una persona edito no se casa por posicion: si su huella no aparece, no se
     sabe cual es, y aplicar sus ediciones a otra seria peor que conservarla.
@@ -644,8 +707,10 @@ def _actualizar_lineas(
     huellas = [v["huella_linea"].valor for v in lineas]
     libres = list(range(len(lineas)))
     casadas: dict[int, int] = {}
+    lecturas: dict[int, Any] = {}
     for fila in previas:
-        propias = {fila["huella_linea"], huella_de_fila(fila)} - {None}
+        propias = {fila["huella_linea"], huella_de_fila(fila),
+                   huella_de_su_lectura(conn, fila["id"], lecturas)} - {None}
         indice = next((j for j in libres if huellas[j] in propias), None)
         if indice is not None:
             casadas[fila["id"]] = indice
@@ -674,12 +739,29 @@ def _actualizar_lineas(
         if fila["id"] in casadas:
             continue
         if ediciones[fila["id"]]:
+            if fila["retirada_en"] is not None and _excluida_por_su_m2(conn, fila["id"]):
+                continue
             conflictos.append(_SinCasar(fila["id"], fila["orden"],
                                         fila["retirada_en"] is not None,
                                         tuple(ediciones[fila["id"]])))
             continue
         o.retirar("factura_linea", fila["id"])         # y su imputacion (campos)
     return conflictos, por_indice
+
+
+def _excluida_por_su_m2(conn: sqlite3.Connection, linea_id: int) -> bool:
+    """La linea ya salio sin casar estando activa, y una persona la excluyo despues.
+
+    Es lo que pide su M2 ("excluyela si ya no existe"): la decision esta
+    tomada, y una lectura posterior que tampoco la trae no tiene nada nuevo
+    que preguntar. Volver a apuntarla reabriria el M2 que la persona cerro.
+    Una linea que ya estaba excluida cuando salio sin casar (excluida = 1)
+    sigue apuntandose: su exclusion no se ha llevado a ninguna linea nueva, y
+    lo que la cierra es una anulacion con motivo.
+    """
+    ultima = conn.execute("SELECT excluida FROM linea_sin_casar WHERE linea_id = ? "
+                          "ORDER BY id DESC LIMIT 1", (linea_id,)).fetchone()
+    return ultima is not None and ultima[0] == 0
 
 
 def _ediciones_de_linea(conn: sqlite3.Connection, linea_id: int) -> list[str]:
@@ -728,33 +810,78 @@ def _de_extracciones(conn: sqlite3.Connection, tabla: str, factura_id: int) -> l
 def _actualizar_hijas(o: campos.Orden, conn: sqlite3.Connection, factura_id: int,
                       referencias: list[tuple[int | None, dict[str, Leido]]],
                       desglose: list[dict[str, Leido]], lineas: dict[int, int]) -> list[str]:
-    """Referencias y desglose de IVA, casados por posicion como las lineas.
+    """Referencias y desglose de IVA: las de la cabecera por posicion, las de linea con su linea.
 
-    Igual que las lineas: entran en el casado todas las filas que puso una
-    extraccion, tambien las que una persona edito o retiro (si se dejaran
-    fuera, los valores nuevos caerian en la fila de al lado y se duplicaria
-    una). Lo que una persona puso en una fila no se pisa; una fila editada
-    que ya no viene se conserva y se devuelve. Una referencia nueva de una
-    linea se ata a la linea con la que caso ese indice (`lineas`).
+    Entran en el casado todas las filas que puso una extraccion, tambien las
+    que una persona edito o retiro (si se dejaran fuera, los valores nuevos
+    caerian en la fila de al lado y se duplicaria una). Lo que una persona
+    puso en una fila no se pisa; una fila editada que ya no viene se conserva
+    y se devuelve.
+
+    Una referencia de linea no se casa por su posicion en la lista: va con
+    la linea con la que caso su indice (`lineas`, por huella). Si esa linea
+    ya tenia una referencia de una extraccion, es esa fila la que recibe el
+    valor nuevo (y la correccion de una persona sigue en su linea); si no,
+    se crea. Por posicion, una linea nueva delante correria cada referencia
+    a la linea de al lado.
     """
     conflictos = []
-    for tabla, nuevas in (("factura_referencia", referencias),
-                          ("factura_iva", [(None, v) for v in desglose])):
-        existentes = _de_extracciones(conn, tabla, factura_id)
-        for fila, (_indice, valores) in zip(existentes, nuevas):
-            o.fijar(tabla, fila["id"], valores)
-        for fila in existentes[len(nuevas):]:
-            if fila["retirada_en"] is not None:
-                continue
-            if not _de_la_extraccion(conn, tabla, fila["id"]):
-                conflictos.append(f"{tabla}:{fila['id']}")
-                continue
-            o.retirar(tabla, fila["id"])
-        sobrantes = nuevas[len(existentes):]
-        if tabla == "factura_referencia":
-            _crear_hijas(o, factura_id, sobrantes, [], lineas)
+    existentes = _de_extracciones(conn, "factura_referencia", factura_id)
+    de_cabecera = [(None, v) for i, v in referencias if i is None]
+    conflictos += _casar_por_posicion(
+        o, conn, factura_id, "factura_referencia",
+        [f for f in existentes if f["linea_id"] is None], de_cabecera, lineas)
+    por_linea: dict[int, sqlite3.Row] = {}
+    for fila in existentes:
+        if fila["linea_id"] is not None:
+            por_linea.setdefault(fila["linea_id"], fila)
+    usadas: set[int] = set()
+    nuevas = []
+    for indice, valores in referencias:
+        if indice is None:
+            continue
+        fila = por_linea.get(lineas.get(indice))
+        if fila is not None and fila["id"] not in usadas:
+            o.fijar("factura_referencia", fila["id"], valores)
+            usadas.add(fila["id"])
         else:
-            _crear_hijas(o, factura_id, [], [v for _i, v in sobrantes], lineas)
+            nuevas.append((indice, valores))
+    for fila in existentes:
+        if fila["linea_id"] is not None and fila["id"] not in usadas:
+            conflictos += _retirar_si_no_es_de_persona(o, conn, "factura_referencia", fila)
+    _crear_hijas(o, factura_id, nuevas, [], lineas)
+    conflictos += _casar_por_posicion(
+        o, conn, factura_id, "factura_iva", _de_extracciones(conn, "factura_iva", factura_id),
+        [(None, v) for v in desglose], lineas)
+    return conflictos
+
+
+def _retirar_si_no_es_de_persona(o: campos.Orden, conn: sqlite3.Connection, tabla: str,
+                                 fila: sqlite3.Row) -> list[str]:
+    """Retira una fila que ya no viene; la que toco una persona se conserva y se devuelve."""
+    if fila["retirada_en"] is not None:
+        return []
+    if not _de_la_extraccion(conn, tabla, fila["id"]):
+        return [f"{tabla}:{fila['id']}"]
+    o.retirar(tabla, fila["id"])
+    return []
+
+
+def _casar_por_posicion(o: campos.Orden, conn: sqlite3.Connection, factura_id: int, tabla: str,
+                        existentes: list[sqlite3.Row],
+                        nuevas: list[tuple[int | None, dict[str, Leido]]],
+                        lineas: dict[int, int]) -> list[str]:
+    """Las filas de la cabecera (referencias sin linea, desglose de IVA), por su posicion."""
+    conflictos = []
+    for fila, (_indice, valores) in zip(existentes, nuevas):
+        o.fijar(tabla, fila["id"], valores)
+    for fila in existentes[len(nuevas):]:
+        conflictos += _retirar_si_no_es_de_persona(o, conn, tabla, fila)
+    sobrantes = nuevas[len(existentes):]
+    if tabla == "factura_referencia":
+        _crear_hijas(o, factura_id, sobrantes, [], lineas)
+    else:
+        _crear_hijas(o, factura_id, [], [v for _i, v in sobrantes], lineas)
     return conflictos
 
 

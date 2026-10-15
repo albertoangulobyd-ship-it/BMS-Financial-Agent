@@ -370,6 +370,12 @@ def test_parse_plazo_pago(texto, dias) -> None:
 @pytest.mark.parametrize("texto", [
     "binnen 10 werkdagen",          # dias laborables: depende del calendario
     "binnen 1 maand",               # un mes no tiene dias fijos
+    # Fin de mes: el vencimiento real puede ser casi el doble (revision del paso 6).
+    "30 dagen na einde maand",
+    "30 days end of month",
+    "30 dagen na einde van de maand waarin gefactureerd",
+    "30 days EOM",
+    "netto 30 dagen einde maand",
     "betalen binnen 8 of 14 dagen", # dos plazos y ninguno es el neto
     "30-60 days",
     "2% korting binnen 8 dagen of 30 dagen",

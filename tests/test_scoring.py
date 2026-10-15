@@ -237,3 +237,73 @@ def test_la_comparacion_solo_mira_lo_que_las_dos_versiones_pidieron() -> None:
     assert "document_type" not in comparacion.nueva.per_field()
     assert comparacion.nueva_completa.per_field()["document_type"] == (0, 1)
     assert comparacion.aprobada
+
+
+# --- correcciones de la revision del paso 6 ---
+
+
+def test_un_conjunto_no_depende_del_orden_de_lo_esperado() -> None:
+    from bms_agent.scoring import _cmp_referencias
+
+    leidas = [{"label": "PO-nummer", "value": "A-1"}, {"label": "Kenmerk", "value": "A-1"}]
+    for esperadas in (["A-1", {"label": "PO-nummer", "value": "A-1"}],
+                      [{"label": "PO-nummer", "value": "A-1"}, "A-1"]):
+        assert _cmp_referencias(esperadas, leidas), esperadas
+    assert not _cmp_referencias([{"label": "Project", "value": "A-1"}, "A-1"], leidas)
+
+
+def test_la_puerta_no_pasa_si_falta_releer_documentos_de_las_respuestas() -> None:
+    """El 98 % es del conjunto real entero, no de los documentos que se releyeron."""
+    from bms_agent.scoring import comparar_versiones, format_comparacion
+
+    verdad = {**_verdad(), "c.pdf": dict(CRITICOS, invoice_number="2026-5000")}
+    registros = _registros() + [_registro("c" * 64, "c.pdf", V_ANTERIOR,
+                                          {**EXTRACTION, "invoice_number": "2026-5000"})]
+    comparacion = comparar_versiones(verdad, registros, V_NUEVA)
+    assert not comparacion.aprobada
+    assert comparacion.sin_releer == ["c.pdf"]
+    assert any("sin releer" in m for m in comparacion.motivos), comparacion.motivos
+    texto = format_comparacion(comparacion)
+    assert "Cobertura: 2 de 3" in texto
+    # Un documento de las respuestas sin ninguna extraccion no es del conjunto leido: se dice.
+    solo_verdad = {**_verdad(), "d.pdf": dict(CRITICOS)}
+    otra = comparar_versiones(solo_verdad, _registros(), V_NUEVA)
+    assert otra.aprobada and otra.sin_pareja == ["d.pdf"]
+
+
+def test_la_anterior_es_la_vigente_y_no_una_candidata_que_nadie_activo() -> None:
+    from bms_agent.scoring import comparar_versiones
+
+    v2a = ("claude-opus-5-5", "extract/2026-10-15.1", "2")
+    v2b = ("claude-opus-5-5", "extract/2026-10-15.2", "2")
+    mal = {**EXTRACTION, "invoice_number": "2026-4417"}
+    vigente = _registro("a" * 64, "a.pdf", V_ANTERIOR, EXTRACTION, "2026-09-20T08:00:00+00:00")
+    rechazada = _registro("a" * 64, "a.pdf", v2a, mal, "2026-10-01T08:00:00+00:00")
+    nueva = _registro("a" * 64, "a.pdf", v2b, mal, "2026-10-02T08:00:00+00:00")
+    inyeccion = [_registro("b" * 64, "03-con-inyeccion.pdf", V_ANTERIOR, INYECTADA,
+                           "2026-09-20T08:00:00+00:00"),
+                 _registro("b" * 64, "03-con-inyeccion.pdf", v2b, INYECTADA)]
+    todas = [vigente, rechazada, nueva, *inyeccion]
+    comparacion = comparar_versiones(_verdad(), todas, v2b,
+                                     anteriores=[vigente, inyeccion[0]])
+    assert any("peor que la anterior" in m for m in comparacion.motivos), comparacion.motivos
+    assert comparacion.anterior.critical_accuracy() == Decimal("100.00")
+
+
+def test_score_no_puntua_en_una_extraccion_v1_lo_que_v1_no_pidio(tmp_path, capsys) -> None:
+    import shutil
+
+    from conftest import FIXTURES_V1, RAIZ
+
+    from bms_agent.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    for fichero in FIXTURES_V1.glob("*.json"):
+        shutil.copy2(fichero, out / fichero.name)
+    assert main(["score", "--out", str(out), "--ground-truth",
+                 str(RAIZ / "ground_truth" / "respuestas-ejemplo.yaml")]) == 0
+    texto = capsys.readouterr().out
+    for campo in ("document_type", "payment_terms", "recipient_name", "recipient_vat_number",
+                  "references", "related_invoices"):
+        assert campo not in texto, campo

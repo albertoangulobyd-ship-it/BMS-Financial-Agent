@@ -38,12 +38,13 @@ escribe, recalcula y dice lo que cambio, todo en una transaccion. Ninguna
 crea una factura, paga, aprueba un pago ni presenta el BTW.
 
 `extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
-guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
-un modelo o un prompt nuevo hace falta pedirlo con --estricta. Volver a leer
-lo ya leido con la version nueva es `reextraer`: cuenta antes de pagar, se
-niega si la estimacion alta pasa del presupuesto, y lo que lee no es vigente
+guardada no vuelve a la API aunque cambie el modelo o la version. Volver a
+leer lo ya leido con la version nueva es `reextraer`: cuenta antes de pagar,
+el presupuesto es un tope de lo que se paga, y lo que lee no es vigente
 hasta `reextraer --activar`, que exige pasar la puerta de
-`score --comparar-versiones`.
+`score --comparar-versiones`. `extract --estricta` o `--force` con almacen
+sobre un documento cuya vigente es de otras versiones tambien deja una
+candidata: ninguna via cambia de version sin la puerta.
 
 El almacen esta en datos/bms.sqlite3, o donde diga --db o la variable BMS_DB;
 los originales, en la carpeta documentos/ de al lado, y las anclas de la
@@ -172,6 +173,10 @@ def extraer_carpeta(
         if r.sin_almacen:
             print(f"  {r.sin_almacen} no se pudieron guardar; estan en {out_dir}/ y "
                   "`bms-agent importar-out` los recupera sin pagar")
+        if r.candidatas:
+            print(f"  {r.candidatas} relecturas con otra version quedan como candidatas "
+                  f"(en {out_dir}/reextraccion/): la vigente no cambia hasta "
+                  "`bms-agent reextraer --activar`, que pasa la puerta")
         _imprimir_tipado(ingesta)
         _imprimir_recalculo(ingesta.recalculo)
         print()
@@ -247,18 +252,25 @@ def _cmd_recalcular(args: argparse.Namespace) -> int:
     return 0
 
 
-def _registros_para_comparar(args: argparse.Namespace) -> tuple[list[dict], str]:
-    """Todas las extracciones (tambien las candidatas), del almacen si lo hay; si no, de out/."""
-    from .reextraccion import CARPETA_EXPORTACION
+def _registros_para_comparar(args: argparse.Namespace) -> tuple[list[dict], list[dict], str]:
+    """Todas las extracciones (tambien las candidatas) y las que pueden ser la vigente.
+
+    Del almacen si lo hay; si no, de out/ (las que pueden ser la vigente) y
+    out/reextraccion/ (las candidatas). La anterior de la comparacion sale
+    de las segundas: una candidata que nadie activo no es la referencia.
+    """
+    from .reextraccion import CARPETA_EXPORTACION, registros_vigentes_posibles
 
     ruta = _ruta_db(args.db)
     if not args.out_explicito and ruta.exists():
         with _abrir_almacen(args.db) as almacen:
             registros = [json.loads(f[0]) for f in almacen.conn.execute(
                 "SELECT contenido_json FROM extraccion ORDER BY id")]
-        return registros, f"el almacen {ruta}"
+            anteriores = registros_vigentes_posibles(almacen.conn)
+        return registros, anteriores, f"el almacen {ruta}"
     out = Path(args.out)
-    return (load_records(out, todas=True) + load_records(out / CARPETA_EXPORTACION, todas=True),
+    anteriores = load_records(out, todas=True)
+    return (anteriores + load_records(out / CARPETA_EXPORTACION, todas=True), anteriores,
             f"{out}/ y {out / CARPETA_EXPORTACION}/")
 
 
@@ -270,13 +282,15 @@ def _cmd_score(args: argparse.Namespace) -> int:
         print(f"{args.ground_truth} esta vacio", file=sys.stderr)
         return 1
 
+    from .compat import no_solicitados
+
     if args.comparar_versiones:
         from .reextraccion import objetivo_actual
         from .scoring import comparar_versiones, format_comparacion
 
-        registros, origen = _registros_para_comparar(args)
+        registros, anteriores, origen = _registros_para_comparar(args)
         comparacion = comparar_versiones(truth, registros, objetivo_actual(),
-                                         inyeccion=args.inyeccion)
+                                         inyeccion=args.inyeccion, anteriores=anteriores)
         print(f"Extracciones de {origen}\n")
         print(format_comparacion(comparacion))
         return 0 if comparacion.aprobada else 1
@@ -295,7 +309,10 @@ def _cmd_score(args: argparse.Namespace) -> int:
         if payload is None:
             missing.append(source_name)
             continue
-        scores.append(score_document(source_name, payload["extraction"], expected))
+        # Lo que la version de esa extraccion no pidio no se puntua (compat).
+        scores.append(score_document(
+            source_name, payload["extraction"], expected,
+            no_solicitados=no_solicitados(str(payload.get("schema_version")))))
 
     if missing:
         print(f"Sin extraccion para {len(missing)} documentos: {', '.join(missing)}\n")
@@ -458,7 +475,8 @@ def _cmd_coste(args: argparse.Namespace) -> int:
     model = config.model_id()
     politica = ESTRICTA if args.estricta else CONSERVAR
     indice = indexar(args.out)
-    salida = estimar_salida(documentos, modelo=model, esquema=config.SCHEMA_VERSION)
+    salida = estimar_salida(documentos, modelo=model, esquema=config.SCHEMA_VERSION,
+                            esfuerzo=config.effort())
 
     en_cache = entrada = nuevos = 0
     for path in pdfs:
@@ -1021,6 +1039,11 @@ def _imprimir_resultado_reextraccion(r) -> None:
     if r.estado == "esperando_lote":
         print(f"Reextraccion {r.reextraccion_id}: lote {r.lote_id} enviado. Cuando termine "
               f"(horas): bms-agent reextraer --recoger {r.reextraccion_id}")
+        return
+    if r.estado == "lote_desconocido":
+        print(f"Reextraccion {r.reextraccion_id}: la API no contesto al mandar el lote y no se "
+              "sabe si lo acepto. Sus documentos no se vuelven a pagar mientras tanto: "
+              f"bms-agent reextraer --recoger {r.reextraccion_id} lo busca en la API")
         return
     print(f"Reextraccion {r.reextraccion_id}: {len(r.candidatas)} candidatas, "
           f"{len(r.reintentos)} para reintentar (--reintentos)")

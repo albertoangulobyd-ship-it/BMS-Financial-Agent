@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import FIXTURES_V1, factura_de, persona
+from conftest import FIXTURES_V1, INSTANTE_FIJO, factura_de, persona
 
 from bms_agent import campos, compat, config, reextraccion
 from bms_agent.almacen import transaccion
@@ -49,11 +49,12 @@ class ClienteFalso:
     """anthropic.Anthropic sin red: cuenta lo que se pagaria y lo que solo se cuenta."""
 
     def __init__(self, lecturas: dict[str, dict] | None = None, *, falla: set[str] = frozenset(),
-                 tokens: int = 3000) -> None:
+                 tokens: int = 3000, salida: int = 2400) -> None:
         self.lecturas = lecturas or {}
         self.falla = set(falla)
         self.rechaza: set[str] = set()
         self.tokens = tokens
+        self.salida = salida
         self.pagadas = 0          # parse: se cobra
         self.conteos = 0          # count_tokens: no se cobra
         self.lotes: list[list[dict]] = []
@@ -83,7 +84,7 @@ class ClienteFalso:
         return SimpleNamespace(
             stop_reason="end_turn",
             parsed_output=InvoiceExtraction.model_validate(self.lecturas[sha]),
-            usage=SimpleNamespace(input_tokens=self.tokens, output_tokens=2400),
+            usage=SimpleNamespace(input_tokens=self.tokens, output_tokens=self.salida),
             _request_id=f"req_falso_{next(_PETICIONES)}")
 
 
@@ -101,13 +102,29 @@ class _Lotes:
         self.cliente = cliente
         self.terminado = False
         self.resultados: list = []
+        self.error: Exception | None = None    # lo que lanza create, despues de crearlo o no
+        self.crea_aunque_falle = False
+        self.creados: list = []
 
     def create(self, *, requests):
         for peticion in requests:
             assert not {"tools", "tool_choice", "mcp_servers"} & set(peticion["params"])
+        if self.error is not None and not self.crea_aunque_falle:
+            raise self.error
         self.cliente.lotes.append(list(requests))
-        return SimpleNamespace(id=f"msgbatch_falso_{len(self.cliente.lotes)}",
-                               processing_status="in_progress")
+        lote = SimpleNamespace(id=f"msgbatch_falso_{len(self.cliente.lotes)}",
+                               processing_status="in_progress",
+                               created_at=INSTANTE_FIJO,
+                               request_counts=SimpleNamespace(
+                                   processing=len(requests), succeeded=0, errored=0,
+                                   canceled=0, expired=0))
+        self.creados.append(lote)
+        if self.error is not None:
+            raise self.error
+        return lote
+
+    def list(self, **_opciones):
+        return list(reversed(self.creados))
 
     def retrieve(self, lote_id):
         return SimpleNamespace(id=lote_id,
@@ -637,3 +654,289 @@ def test_coste_cuenta_cada_version_aparte_y_tambien_lo_reextraido(con_pdfs, out_
     [v1] = [l for l in texto.splitlines() if "claude-opus-5 " in l and "esquema 1" in l]
     [v2] = [l for l in texto.splitlines() if "claude-opus-5-5" in l and "esquema 2" in l]
     assert "7 doc" in v1 and "3 doc" in v2
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+
+def _otra_lectura_igual(conn, factura_id: int, extraido: str) -> None:
+    """Otra extraccion de la factura, con el mismo contenido que su vigente y otra fecha."""
+    from bms_agent.almacen import usuario_sistema
+    from bms_agent.almacen.extracciones import leer_registro, registrar_extraccion
+
+    fila = conn.execute("SELECT e.documento_id, e.contenido_json FROM factura AS f JOIN extraccion "
+                        "AS e ON e.id = f.extraccion_vigente_id WHERE f.id = ?",
+                        (factura_id,)).fetchone()
+    registro = json.loads(fila["contenido_json"])
+    registro["extracted_at"] = extraido
+    with transaccion(conn):
+        registrar_extraccion(conn, leer_registro(json.dumps(registro, indent=2)),
+                             documento_id=fila["documento_id"], via="out_v1",
+                             actor=usuario_sistema(conn, "extractor"))
+
+
+def test_una_linea_excluida_para_cerrar_su_m2_no_lo_reabre_con_otra_lectura(
+        con_pdfs, tmp_path) -> None:
+    from bms_agent.hallazgos import recalcular
+
+    conn = con_pdfs.conn
+    ana = persona(conn, "Ana", "administracion")
+    f = factura_de(conn, "2026-4471")
+    lineas = conn.execute("SELECT id FROM factura_linea WHERE factura_id = ? ORDER BY orden",
+                          (f,)).fetchall()
+    tercera, segunda = lineas[2]["id"], lineas[1]["id"]
+    campos.fijar(conn, "factura_linea", tercera, {"objeto_doc": "Schiedam-Oost"},
+                 Persona(ana, "es la obra de Oost"))
+    campos.retirar(conn, "factura_linea", segunda, Persona(ana, "no se factura"))
+    nueva = lectura_v2("01-limpia")
+    nueva["lines"][2].update(description="Reiskosten Schiedam", line_total_raw="101,30")
+    nueva["lines"][1].update(line_total_raw="704,10")
+    _pasada(con_pdfs, ClienteFalso(_lecturas(conn, **{"01-limpia": nueva})), tmp_path,
+            abiertas=True)
+    reextraccion.activar(con_pdfs, _admin(conn), VERDAD, objetivo=OBJETIVO)
+    # Ana hace lo que pide el M2 de la tercera: la excluye, porque ya no existe.
+    campos.retirar(conn, "factura_linea", tercera, Persona(ana, "es la misma que la nueva"))
+    recalcular(conn)
+
+    _otra_lectura_igual(conn, f, "2099-01-01T00:00:00+00:00")
+    [tipado] = [t for t in tipar_pendientes(conn) if t.factura_id == f]
+    assert tipado.accion == "actualizada"
+    assert tercera not in tipado.sin_casar        # ya decidida: no se vuelve a preguntar
+    assert segunda in tipado.sin_casar            # la exclusion de antes sigue sin llevarse
+    recalcular(conn)
+    estados = {r["clave"]: (r["estado"], r["severidad"]) for r in conn.execute(
+        "SELECT clave, estado, severidad FROM hallazgo WHERE regla = 'M2'")}
+    assert estados[f"M2|factura:{f}|linea:{tercera}"][0] == "cerrado"
+    assert estados[f"M2|factura:{f}|linea:{segunda}"][0] == "abierto"
+    assert verificar_evidencia(conn) == []
+
+
+def test_recoger_un_lote_interrumpido_se_puede_repetir_sin_duplicar(con_pdfs, tmp_path,
+                                                                    monkeypatch) -> None:
+    conn = con_pdfs.conn
+    shas = _shas(conn)
+    cliente = ClienteFalso(_lecturas(conn))
+    r = _pasada(con_pdfs, cliente, tmp_path, lote=True, abiertas=True)
+    cliente.batches.terminado = True
+    cliente.batches.resultados = [
+        resultado_lote(shas[n], datos=lectura_v2(n[:-4])) for n in (
+            "01-limpia.pdf", "02-sin-kvk-btw-verlegd.pdf", "03-con-inyeccion.pdf")]
+    original = reextraccion._guardar_candidata
+    llamadas = itertools.count(1)
+
+    def guardar_y_fallar(*args, **kwargs):
+        if next(llamadas) == 3:
+            raise OSError("disco lleno")
+        return original(*args, **kwargs)
+
+    with monkeypatch.context() as m:
+        m.setattr(reextraccion, "_guardar_candidata", guardar_y_fallar)
+        with pytest.raises(OSError):
+            reextraccion.recoger(cliente, con_pdfs, r.reextraccion_id, out_dir=tmp_path / "salida")
+    assert conn.execute("SELECT estado FROM reextraccion").fetchone()[0] == "esperando_lote"
+
+    otra = reextraccion.recoger(cliente, con_pdfs, r.reextraccion_id, out_dir=tmp_path / "salida")
+    assert otra.estado == "terminada"
+    fila = conn.execute("SELECT * FROM reextraccion").fetchone()
+    assert (fila["extraidas"], fila["reintentos"]) == (3, 0)
+    assert conn.execute("SELECT count(*) FROM extraccion WHERE via = 'lote'").fetchone()[0] == 3
+    assert conn.execute("SELECT count(*) FROM reextraccion_resultado").fetchone()[0] == 3
+    assert verificar_evidencia(conn) == []
+
+
+def _coste(modelo: str, entrada: int, salida: int) -> Decimal:
+    from bms_agent.pricing import estimate_cost
+
+    return estimate_cost(modelo, entrada, salida)
+
+
+def test_el_presupuesto_es_un_tope_de_lo_que_se_paga(con_pdfs, tmp_path) -> None:
+    """Una salida muy por encima de lo estimado no se sigue pagando pasado el presupuesto."""
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn), salida=config.max_tokens())
+    # La estimacion alta (sin medir) cabe en 0,70; el peor caso de los tres, no.
+    r = _pasada(con_pdfs, cliente, tmp_path, presupuesto="0.70", abiertas=True)
+    gastado = _coste(OBJETIVO[0], 3000, config.max_tokens()) * cliente.pagadas
+    assert cliente.pagadas == 2 and gastado <= Decimal("0.70")
+    assert [m for _d, m, _x in r.reintentos] == ["presupuesto"]
+    fila = conn.execute("SELECT * FROM reextraccion").fetchone()
+    assert (fila["estado"], fila["extraidas"], fila["reintentos"]) == ("terminada", 2, 1)
+    evento = json.loads(conn.execute(
+        "SELECT datos_json FROM evento WHERE tipo = 'reextraccion_terminada'").fetchone()[0])
+    assert Decimal(evento["gastado_usd"]) == gastado and evento["parada_por_presupuesto"]
+    # Lo que no se pago se pide otra vez con --reintentos, y con presupuesto.
+    otra = reextraccion.seleccionar(conn, reextraccion.Criterio(reintentos=True), OBJETIVO)
+    assert len(otra.documentos) == 1
+    assert verificar_evidencia(conn) == []
+
+
+def test_si_el_peor_caso_de_un_documento_no_cabe_no_se_paga_ninguno(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn), salida=config.max_tokens())
+    r = _pasada(con_pdfs, cliente, tmp_path, presupuesto="0.21", abiertas=True)
+    assert cliente.pagadas == 0
+    assert [m for _d, m, _x in r.reintentos] == ["presupuesto"] * 3
+
+
+def test_un_rechazo_se_paga_y_cuenta_en_lo_gastado(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn))
+    cliente.rechaza.add(_shas(conn)["03-con-inyeccion.pdf"])
+    r = _pasada(con_pdfs, cliente, tmp_path, abiertas=True)
+    assert r.tokens_entrada == 3 * 3000 and r.tokens_salida == 2 * 2400 + 10
+
+
+def test_por_lotes_el_peor_caso_tiene_que_caber_porque_no_se_puede_parar(con_pdfs,
+                                                                          tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn))
+    with pytest.raises(reextraccion.PresupuestoInsuficiente, match="peor caso"):
+        _pasada(con_pdfs, cliente, tmp_path, presupuesto="0.30", lote=True, abiertas=True)
+    assert cliente.lotes == []
+
+
+def test_la_salida_medida_lo_es_con_el_mismo_esfuerzo() -> None:
+    from bms_agent import coste
+
+    medidos = [coste.Documento(f"{i}.pdf", "m", 3000, 2000, None, None, esquema="2",
+                               esfuerzo="medium") for i in range(3)]
+    assert coste.estimar_salida(medidos, modelo="m", esquema="2", esfuerzo="medium").medida
+    otra = coste.estimar_salida(medidos, modelo="m", esquema="2", esfuerzo="high")
+    assert not otra.medida and "sin medir" in otra.origen
+
+
+def test_cada_extraccion_apunta_su_esfuerzo_y_su_tope_de_salida(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    _pasada(con_pdfs, ClienteFalso(_lecturas(conn)), tmp_path, abiertas=True)
+    for (uso,) in conn.execute("SELECT uso_json FROM extraccion WHERE schema_version = '2'"):
+        assert json.loads(uso)["effort"] == config.effort()
+        assert json.loads(uso)["max_tokens"] == config.max_tokens()
+
+
+class _SinRespuesta(Exception):
+    """Un corte de conexion: no se sabe si la API acepto el lote."""
+
+
+class _Rechazo400(Exception):
+    status_code = 400
+
+
+def test_un_lote_rechazado_por_la_api_va_entero_a_reintentos(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn))
+    cliente.batches.error = _Rechazo400("invalid_request_error")
+    r = _pasada(con_pdfs, cliente, tmp_path, lote=True, abiertas=True)
+    assert r.estado == "terminada" and [m for _d, m, _x in r.reintentos] == ["error"] * 3
+
+
+def test_un_lote_que_no_se_sabe_si_se_mando_no_se_vuelve_a_pagar(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    shas = _shas(conn)
+    cliente = ClienteFalso(_lecturas(conn))
+    cliente.batches.error = _SinRespuesta("timeout")
+    cliente.batches.crea_aunque_falle = True        # la API lo acepto; la respuesta se perdio
+    r = _pasada(con_pdfs, cliente, tmp_path, lote=True, abiertas=True)
+    assert r.estado == "lote_desconocido" and r.reintentos == []
+    # Ni --reintentos ni otro criterio vuelven a pagar esos documentos mientras tanto.
+    for criterio in (reextraccion.Criterio(reintentos=True), reextraccion.Criterio(abiertas=True)):
+        seleccion = reextraccion.seleccionar(conn, criterio, OBJETIVO)
+        assert seleccion.documentos == []
+    assert any("lote" in m for _d, m in reextraccion.seleccionar(
+        conn, reextraccion.Criterio(abiertas=True), OBJETIVO).omitidos)
+
+    # Recoger lo busca en la API por la hora y el numero de peticiones, y lo adopta.
+    cliente.batches.error = None
+    r2 = reextraccion.recoger(cliente, con_pdfs, r.reextraccion_id, out_dir=tmp_path / "salida")
+    assert r2.estado == "esperando_lote" and r2.lote_id == "msgbatch_falso_1"
+    cliente.batches.terminado = True
+    cliente.batches.resultados = [resultado_lote(shas[n], datos=lectura_v2(n[:-4])) for n in (
+        "01-limpia.pdf", "02-sin-kvk-btw-verlegd.pdf", "03-con-inyeccion.pdf")]
+    r3 = reextraccion.recoger(cliente, con_pdfs, r.reextraccion_id, out_dir=tmp_path / "salida")
+    assert r3.estado == "terminada" and len(r3.candidatas) == 3
+    assert len(cliente.lotes) == 1
+    assert verificar_evidencia(conn) == []
+
+
+def test_un_lote_que_la_api_no_tiene_se_da_por_no_mandado(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn))
+    cliente.batches.error = _SinRespuesta("connection reset")
+    r = _pasada(con_pdfs, cliente, tmp_path, lote=True, abiertas=True)
+    assert r.estado == "lote_desconocido"
+    cliente.batches.error = None
+    r2 = reextraccion.recoger(cliente, con_pdfs, r.reextraccion_id, out_dir=tmp_path / "salida")
+    assert r2.estado == "terminada" and len(r2.reintentos) == 3
+    assert len(reextraccion.seleccionar(conn, reextraccion.Criterio(reintentos=True),
+                                        OBJETIVO).documentos) == 3
+
+
+def test_el_lote_se_manda_sin_reintentos_automaticos_del_sdk(con_pdfs, tmp_path) -> None:
+    conn = con_pdfs.conn
+    cliente = ClienteFalso(_lecturas(conn))
+    opciones = []
+
+    def with_options(**kwargs):
+        opciones.append(kwargs)
+        return cliente
+
+    cliente.with_options = with_options
+    _pasada(con_pdfs, cliente, tmp_path, lote=True, abiertas=True)
+    assert opciones == [{"max_retries": 0}]
+
+
+def test_la_puerta_compara_con_la_vigente_y_no_con_una_candidata_rechazada(
+        con_pdfs, tmp_path, monkeypatch) -> None:
+    conn = con_pdfs.conn
+    mal = lectura_v2("01-limpia", invoice_number="2026-4417")
+    # Un prompt anterior, nunca activado, que ya leia mal el numero.
+    with monkeypatch.context() as m:
+        m.setattr(config, "PROMPT_VERSION", "extract/2026-10-15.0")
+        rechazado = (OBJETIVO[0], "extract/2026-10-15.0", OBJETIVO[2])
+        seleccion = reextraccion.seleccionar(conn, reextraccion.Criterio(abiertas=True),
+                                             rechazado)
+        documentos = reextraccion.cargar(con_pdfs, seleccion)
+        cliente = ClienteFalso(_lecturas(conn, **{"01-limpia": mal}))
+        reextraccion.ejecutar(
+            cliente, con_pdfs, seleccion, documentos,
+            reextraccion.estimar(cliente, conn, documentos, rechazado, lote=False),
+            Decimal("10"), criterio=reextraccion.Criterio(abiertas=True), objetivo=rechazado,
+            out_dir=tmp_path / "salida")
+    _pasada(con_pdfs, ClienteFalso(_lecturas(conn, **{"01-limpia": mal})), tmp_path,
+            abiertas=True)
+    comparacion = reextraccion.comparar(conn, VERDAD, OBJETIVO)
+    # La referencia es la v1 vigente, que acierta el numero: la nueva es peor.
+    assert any("peor que la anterior" in m for m in comparacion.motivos), comparacion.motivos
+    assert comparacion.anterior.critical_accuracy() == Decimal("100.00")
+
+
+@pytest.mark.parametrize("opciones", [{"politica": "estricta"}, {"forzar": True}],
+                         ids=["estricta", "force"])
+def test_extract_con_almacen_no_salta_la_puerta(con_pdfs, pdfs_ejemplo, tmp_path,
+                                                opciones) -> None:
+    """Releer con --estricta o --force lo ya tipado deja una candidata, no una vigente."""
+    from bms_agent.ingesta import ingestar_pasada
+
+    conn = con_pdfs.conn
+    otra = lectura_v2("03-con-inyeccion", iban="NL91 ABNA 0417 1643 00")
+    cliente = ClienteFalso(_lecturas(conn, **{"03-con-inyeccion": otra}))
+    vigentes = vigentes_por_documento(conn)
+    resueltos = registros_resueltos(conn)
+    pdfs = sorted(pdfs_ejemplo.glob("0[123]-*.pdf"))
+    salida = tmp_path / "salida"
+    pasada, ingesta = ingestar_pasada(cliente, pdfs, salida, almacen=con_pdfs, **opciones)
+    assert cliente.pagadas == 3 and pasada.candidatas == 3
+    assert vigentes_por_documento(conn) == vigentes
+    assert registros_resueltos(conn) == resueltos
+    assert {t.accion for t in ingesta.tipados} == {"sin_cambios"}
+    assert conn.execute("SELECT count(*) FROM activacion").fetchone()[0] == 0
+    assert len(reextraccion.candidatas_pendientes(conn, OBJETIVO)) == 3
+    # Exportadas como candidatas, fuera de out/: sin almacen tampoco son vigentes.
+    assert len(list((salida / "reextraccion").glob("*.json"))) == 3
+    assert not list(salida.glob("*.json"))
+    # Otra --estricta no las vuelve a pagar: estan exportadas como candidatas.
+    ingestar_pasada(cliente, pdfs, salida, almacen=con_pdfs, politica="estricta")
+    assert cliente.pagadas == 3
+    # Solo pasan a vigentes por la puerta.
+    with pytest.raises(reextraccion.PuertaCerrada):
+        reextraccion.activar(con_pdfs, _admin(conn), VERDAD, objetivo=OBJETIVO)
+    assert verificar_evidencia(conn) == []

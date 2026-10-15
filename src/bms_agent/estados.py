@@ -222,6 +222,15 @@ def _facturas(conn: sqlite3.Connection) -> list[_Factura]:
         conn, "SELECT id, plazo_pago_dias FROM proveedor WHERE plazo_pago_dias IS NOT NULL")}
     plazos.update({("cliente", i): p for i, p in _filas(
         conn, "SELECT id, plazo_pago_dias FROM cliente WHERE plazo_pago_dias IS NOT NULL")})
+    # El plazo que la ingesta calcula de las condiciones impresas (v2) es lo
+    # que dice el proveedor, no lo acordado: solo vale si el maestro no tiene
+    # plazo. Si no, un "per omgaande" impreso haria vencer la factura el dia
+    # de su fecha. El que fija una persona o una importacion en la factura si
+    # manda sobre el maestro.
+    del_documento = {f[0] for f in _filas(
+        conn, "SELECT fila_id FROM procedencia_campo WHERE tabla = 'factura' "
+              "AND campo = 'plazo_pago_dias' AND fuente = 'calculado' "
+              "AND fuente_ref = 'condiciones_pago_doc'")}
     salida = []
     for (id_, sentido, numero, emisor, receptor, proveedor_id, cliente_id, fecha, impreso,
          plazo, base, total, anulada, fusionada) in _filas(
@@ -229,8 +238,9 @@ def _facturas(conn: sqlite3.Connection) -> list[_Factura]:
                   "proveedor_id, cliente_id, fecha_factura, fecha_vencimiento, plazo_pago_dias, "
                   "base_cent, total_cent, anulada, fusionada_en_id FROM factura ORDER BY id"):
         entrante = sentido == ENTRANTE
-        if plazo is None:
-            plazo = plazos.get(("proveedor", proveedor_id) if entrante else ("cliente", cliente_id))
+        acordado = plazos.get(("proveedor", proveedor_id) if entrante else ("cliente", cliente_id))
+        if plazo is None or (id_ in del_documento and acordado is not None):
+            plazo = acordado
         fecha_ = _fecha(fecha)
         salida.append(_Factura(
             id=id_, sentido=sentido, numero=numero, parte=emisor if entrante else receptor,

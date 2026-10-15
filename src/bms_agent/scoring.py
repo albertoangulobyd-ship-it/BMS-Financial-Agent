@@ -177,21 +177,33 @@ def _mismo_conjunto(esperados: list[tuple], leidos: list[tuple]) -> bool:
     """Las mismas entradas, sin importar el orden, cada una casada con una distinta.
 
     Un None en lo esperado es "no se puntua esa parte" (la respuesta solo
-    da el numero, o solo el valor); en lo leido, un valor mas.
+    da el numero, o solo el valor); en lo leido, un valor mas. Con esos
+    comodines, casar la primera que valga depende del orden: "A-1" a secas
+    puede quedarse la leida "PO-nummer A-1" y dejar sin pareja a la
+    esperada que la pedia con su etiqueta. Por eso es un casado de verdad
+    (caminos de aumento, listas de pocas entradas): hay pareja para todas o
+    no la hay, en cualquier orden.
     """
-    if len(set(esperados)) != len(set(leidos)):
+    esperados, leidos = list(dict.fromkeys(esperados)), list(dict.fromkeys(leidos))
+    if len(esperados) != len(leidos):
         return False
-    libres = list(dict.fromkeys(leidos))
 
     def casa(e: tuple, l: tuple) -> bool:
         return all(a is None or a == b for a, b in zip(e, l))
 
-    for esperado in dict.fromkeys(esperados):
-        pareja = next((l for l in libres if casa(esperado, l)), None)
-        if pareja is None:
-            return False
-        libres.remove(pareja)
-    return True
+    pareja_de: dict[int, int] = {}          # leida -> esperada
+
+    def aumentar(i: int, vistos: set[int]) -> bool:
+        for j, leido in enumerate(leidos):
+            if j in vistos or not casa(esperados[i], leido):
+                continue
+            vistos.add(j)
+            if j not in pareja_de or aumentar(pareja_de[j], vistos):
+                pareja_de[j] = i
+                return True
+        return False
+
+    return all(aumentar(i, set()) for i in range(len(esperados)))
 
 
 def _cmp_referencias(expected: Any, actual: Any) -> bool:
@@ -382,29 +394,42 @@ def _mas_reciente(a: dict[str, Any], b: dict[str, Any] | None) -> bool:
 
 def pares(
     registros: list[dict[str, Any]], objetivo: Version,
+    anteriores: list[dict[str, Any]] | None = None,
 ) -> dict[str, tuple[dict[str, Any] | None, dict[str, Any] | None]]:
     """Por documento (nombre del PDF): (la extraccion anterior, la de la version objetivo).
 
-    La nueva es la mas reciente hecha con el modelo y las versiones objetivo;
-    la anterior, la mas reciente hecha con cualquier otra. Se agrupan por el
+    La nueva es la mas reciente de `registros` hecha con el modelo y las
+    versiones objetivo. La anterior es la mas reciente de otra version entre
+    `anteriores`: las que pueden ser la vigente (sin las candidatas que nadie
+    activo). Una candidata rechazada de otra version no es la referencia: con
+    ella, una version peor que la vigente pasaria por "no peor que la
+    anterior". Sin `anteriores`, valen todos los registros. Se agrupan por el
     hash del documento, no por el nombre: dos PDF con el mismo nombre son dos
     documentos.
     """
     por_hash: dict[str, list[dict[str, Any] | None]] = {}
     for registro in registros:
-        sha = registro.get("source_sha256")
-        if not isinstance(sha, str) or not sha:
-            continue
-        par = por_hash.setdefault(sha, [None, None])
-        lado = 1 if version_de(registro) == objetivo else 0
-        if _mas_reciente(registro, par[lado]):
-            par[lado] = registro
+        if version_de(registro) == objetivo:
+            _a_su_lado(por_hash, registro, 1)
+    for registro in registros if anteriores is None else anteriores:
+        if version_de(registro) != objetivo:
+            _a_su_lado(por_hash, registro, 0)
     salida = {}
     for anterior, nueva in por_hash.values():
         nombre = (nueva or anterior or {}).get("source_name")
         if isinstance(nombre, str) and nombre:
             salida[nombre] = (anterior, nueva)
     return salida
+
+
+def _a_su_lado(por_hash: dict[str, list[dict[str, Any] | None]], registro: dict[str, Any],
+               lado: int) -> None:
+    sha = registro.get("source_sha256")
+    if not isinstance(sha, str) or not sha:
+        return
+    par = por_hash.setdefault(sha, [None, None])
+    if _mas_reciente(registro, par[lado]):
+        par[lado] = registro
 
 
 @dataclass
@@ -419,6 +444,8 @@ class Comparacion:
     inyeccion: str
     inyeccion_fallo: str | None      # None si la factura con inyeccion pasa
     umbral: Decimal = UMBRAL_CRITICO
+    # En las respuestas, con extraccion de antes y sin la de la nueva: falta releerlos.
+    sin_releer: list[str] = field(default_factory=list)
 
     @property
     def motivos(self) -> list[str]:
@@ -439,6 +466,10 @@ class Comparacion:
         if self.nueva.hits() < self.anterior.hits():
             motivos.append(f"la nueva acierta {self.nueva.hits()} campos y la anterior "
                            f"{self.anterior.hits()}, en los mismos campos")
+        if self.sin_releer:
+            motivos.append(f"{len(self.sin_releer)} documentos de las respuestas sin releer con "
+                           "la nueva: la puerta mide el conjunto entero, no solo lo releido ("
+                           + ", ".join(self.sin_releer) + ")")
         if self.inyeccion_fallo:
             motivos.append(self.inyeccion_fallo)
         return motivos
@@ -478,18 +509,24 @@ def comparar_versiones(
     *,
     inyeccion: str = INYECCION,
     umbral: Decimal = UMBRAL_CRITICO,
+    anteriores: list[dict[str, Any]] | None = None,
 ) -> Comparacion:
     """Puntua la version anterior y la objetivo sobre los mismos documentos y campos.
 
-    Solo cuentan los documentos de las respuestas que tienen las dos
-    versiones. En la comparacion, un campo que una de las dos no pidio no se
-    puntua en ninguna, para que comparen lo mismo; `nueva_completa` da
-    ademas lo que solo la nueva pidio.
+    Se comparan los documentos de las respuestas que tienen las dos
+    versiones. Uno que tiene extraccion de antes y no de la nueva hace que
+    la puerta no pase (`sin_releer`): el 98 % es del conjunto real, y
+    releer uno solo no puede dejar activar todas las candidatas. Uno sin
+    ninguna extraccion no es del conjunto leido y solo se dice. En la
+    comparacion, un campo que una de las dos no pidio no se puntua en
+    ninguna, para que comparen lo mismo; `nueva_completa` da ademas lo que
+    solo la nueva pidio. `anteriores` son los registros que pueden ser la
+    vigente (ver pares).
     """
     from .compat import no_solicitados
 
-    por_nombre = pares(registros, objetivo)
-    anteriores, nuevas, completas, sin_pareja = [], [], [], []
+    por_nombre = pares(registros, objetivo, anteriores)
+    anteriores_, nuevas, completas, sin_pareja, sin_releer = [], [], [], [], []
     for nombre, esperado in truth.items():
         anterior, nueva = por_nombre.get(nombre, (None, None))
         if nueva is not None:
@@ -498,19 +535,21 @@ def comparar_versiones(
                 no_solicitados=no_solicitados(str(nueva.get("schema_version")))))
         if anterior is None or nueva is None:
             sin_pareja.append(nombre)
+            if anterior is not None:
+                sin_releer.append(nombre)
             continue
         comunes = (no_solicitados(str(anterior.get("schema_version")))
                    | no_solicitados(str(nueva.get("schema_version"))))
-        anteriores.append(score_document(nombre, anterior.get("extraction") or {}, esperado,
-                                         no_solicitados=comunes))
+        anteriores_.append(score_document(nombre, anterior.get("extraction") or {}, esperado,
+                                          no_solicitados=comunes))
         nuevas.append(score_document(nombre, nueva.get("extraction") or {}, esperado,
                                      no_solicitados=comunes))
     return Comparacion(
-        objetivo=objetivo, anterior=Report(anteriores), nueva=Report(nuevas),
+        objetivo=objetivo, anterior=Report(anteriores_), nueva=Report(nuevas),
         nueva_completa=Report(completas), sin_pareja=sin_pareja, inyeccion=inyeccion,
         inyeccion_fallo=_comprobar_inyeccion(inyeccion, por_nombre.get(inyeccion),
                                              truth.get(inyeccion)),
-        umbral=umbral,
+        umbral=umbral, sin_releer=sin_releer,
     )
 
 
@@ -520,8 +559,11 @@ def format_comparacion(comparacion: Comparacion) -> str:
     anterior, nueva = comparacion.anterior.per_field(), comparacion.nueva.per_field()
     campos = sorted(set(anterior) | set(nueva))
     ancho = max((len(c) for c in campos), default=10)
+    leidos = len(comparacion.nueva.documents) + len(comparacion.sin_releer)
     lineas = [f"Version nueva: {modelo}, prompt {prompt}, esquema {esquema}",
-              f"Documentos con las dos versiones: {len(comparacion.nueva.documents)}", "",
+              f"Documentos con las dos versiones: {len(comparacion.nueva.documents)}",
+              f"Cobertura: {len(comparacion.nueva.documents)} de {leidos} documentos de las "
+              "respuestas con extraccion anterior", "",
               f"  {'campo'.ljust(ancho)}  {'anterior':>9}  {'nueva':>9}", "-" * (ancho + 26)]
     for campo in campos:
         a, n = anterior.get(campo, (0, 0)), nueva.get(campo, (0, 0))

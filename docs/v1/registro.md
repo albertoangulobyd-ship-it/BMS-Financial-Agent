@@ -2587,7 +2587,122 @@ la versión ni de la posición) y el generador.
   huella: `Tipado.contradichos` (M1) y `Tipado.sin_casar` (M2) dicen lo que
   pasó. Una tabla hija nueva de la línea con ediciones de persona tiene que
   entrar en `ingesta._ediciones_de_linea`.
-- **Un rechazo del modelo se paga y no se cuenta**: no deja extracción, así
-  que `coste` no lo ve. Si los rechazos son muchos, apuntar su uso.
+- **Un rechazo del modelo se paga**: no deja extracción, así que `coste` no
+  lo ve; la pasada de `reextraer` sí lo suma a lo gastado (corrección de la
+  revisión). Si los rechazos son muchos, apuntar su uso también para `coste`.
 - **El esfuerzo** está en `config.effort()`; cambiarlo es medir otra vez.
 - **La velocidad**: sin cambios apreciables (1,45-1,7 s y 1,3-1,6 s).
+
+### Correcciones de la revisión
+
+La revisión del paso 6 dejó dieciséis hallazgos. Dos estaban repetidos (el
+salto de la puerta con `extract --force` o `--estricta`, en `extract.py` y
+en `ingesta.py`; y el presupuesto que no frena el gasto real, en la
+migración y en `reextraccion.py`), así que son catorce. Cada uno se
+reprodujo antes de tocarlo con un test que falla con el commit del paso 6;
+todos eran reales. Uno se arregla en parte: el plazo del maestro manda,
+pero avisar de unas condiciones impresas más cortas que las acordadas es la
+regla C5, que ningún paso de la §11 tiene todavía en su lista (desviación
+29). **1351 tests pasan** (791 funciones de test; eran 1321 y 769): todas
+las funciones nuevas fallan con el commit del paso 6 salvo
+`test_un_lote_rechazado_por_la_api_va_entero_a_reintentos`, que fija lo que
+tiene que seguir pasando con un 4xx. Cinco mil facturas se recalculan en
+1,51-1,71 s la primera vez y en 1,30-1,38 s las siguientes (seis medidas):
+la consulta nueva de `estados` (qué plazos salen del documento) no se nota.
+Sin una sola llamada a la API.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| **Mayor.** Las líneas se casaban por huella, pero las referencias de línea por posición: con una línea nueva delante, la PO de cada línea acababa en la de al lado (una con dos y otra sin ninguna), y una `clase` corregida a mano se iba con ella | `ingesta._actualizar_hijas`: las referencias de la cabecera y el desglose de IVA siguen por posición (`_casar_por_posicion`); una referencia de línea va con la línea con la que casó su índice. Si esa línea ya tenía una referencia de una extracción, esa fila recibe el valor nuevo (la corrección de una persona sigue en su línea); si no, se crea. Las de líneas que ya no traen referencia se retiran, o se conservan y se devuelven si una persona las tocó | `test_ingesta.py::test_una_linea_nueva_delante_no_corre_las_referencias_de_linea` |
+| **Mayor.** `recoger` no se podía repetir: cada resultado entra en su transacción y la pasada sigue esperando hasta el final, así que una recogida cortada a medias fallaba para siempre (`UNIQUE` de la candidata) o, otro día, guardaba los resultados dos veces y `coste` los contaba pagados dos veces | `recoger` salta los documentos que ya tienen su resultado apuntado en esa reextracción, y `_terminar` cuenta `extraidas` y `reintentos` de las filas de `reextraccion_resultado`, no de lo visto en la llamada | `test_reextraccion.py::test_recoger_un_lote_interrumpido_se_puede_repetir_sin_duplicar` |
+| `score` sin `--comparar-versiones` puntuaba en una extracción v1 lo que v1 no pidió (`document_type 0/3`, `references 1/1`…) | `_cmd_score` pasa `compat.no_solicitados` de la versión de cada extracción, como `comparar_versiones` | `test_scoring.py::test_score_no_puntua_en_una_extraccion_v1_lo_que_v1_no_pidio` |
+| `parse_plazo_pago` daba 30 a «30 dagen na einde maand»: el mes solo se miraba si no había días, y el vencimiento real puede ser casi el doble | Un mes, «einde maand», «end of month» o «EOM» en cualquier parte del texto es un `ParseError` | `test_parsing.py::test_parse_plazo_pago_no_adivina` (cinco casos nuevos) |
+| En un almacén de antes del paso 6 (`huella_linea` con la definición de entonces), una línea editada con un literal ilegible («n.v.t.») no casaba nunca: `huella_de_fila` no puede reproducir el «?n.v.t.» de la lectura, y era la única huella con que casar | `ingesta.huella_de_su_lectura`: la huella recalculada, con la definición de ahora, de la línea de la lectura que la puso, que dice la procedencia (`extraccion:N:lines[i]` en `fuente_automatica_ref`). Entra en el casado junto a las otras dos | `test_ingesta.py::test_en_un_almacen_de_antes_una_linea_editada_con_un_literal_ilegible_casa` (tipa con la huella de antes y activa una lectura v2) |
+| Un M2 cerrado como pide su mensaje (excluir la línea que ya no existe) volvía a abrirse con la siguiente extracción de la factura: la línea excluida no casaba, su exclusión contaba como edición y `linea_sin_casar` la apuntaba otra vez con `excluida = 1` | Una línea que salió sin casar estando activa (su último `linea_sin_casar` con `excluida = 0`) y que después excluyó una persona ya está decidida: no se apunta otra vez. La que ya estaba excluida cuando salió sin casar se sigue apuntando (su exclusión no se llevó a ninguna línea nueva; la cierra una anulación) | `test_reextraccion.py::test_una_linea_excluida_para_cerrar_su_m2_no_lo_reabre_con_otra_lectura` |
+| `_mismo_conjunto` casaba con comodines la primera que valía: `["A-1", {PO-nummer: A-1}]` contra `{PO-nummer: A-1}, {Kenmerk: A-1}` era un fallo, y en el otro orden un acierto | Casado bipartito (caminos de aumento): hay pareja para todas o no, en cualquier orden | `test_scoring.py::test_un_conjunto_no_depende_del_orden_de_lo_esperado` |
+| *(duplicado, mayor)* El presupuesto solo se comparaba con la estimación antes de empezar; nada paraba la pasada síncrona cuando el gasto real lo pasaba (reproducido: $0,21 de presupuesto, $0,996 pagados), la estimación no sabía de `max_tokens` ni del esfuerzo, y los rechazos se pagaban sin contarse. El comentario de la migración decía que la base no dejaba pagar de más | Desviación 24: el presupuesto es un tope de lo que se paga. Antes de cada documento, lo gastado (el uso de cada respuesta, también de un rechazo, que `Rechazado.uso` trae; de un fallo sin uso, su peor caso) más el peor caso de ese documento (su entrada contada y todo su `max_tokens`) tiene que caber; si no, ni ese ni los siguientes se pagan, y van a reintentos con el motivo nuevo `presupuesto`. El evento `reextraccion_terminada` lleva lo gastado y si se paró. Un lote, que no se puede parar, solo se manda si el peor caso del lote entero cabe. Cada extracción apunta en su uso el esfuerzo y el tope de salida, y la salida «medida» lo es con el mismo esfuerzo (desviación 30). El comentario de la migración dice que el `CHECK` es de la estimación | `test_el_presupuesto_es_un_tope_de_lo_que_se_paga`, `test_si_el_peor_caso_de_un_documento_no_cabe_no_se_paga_ninguno`, `test_un_rechazo_se_paga_y_cuenta_en_lo_gastado`, `test_por_lotes_el_peor_caso_tiene_que_caber_porque_no_se_puede_parar`, `test_la_salida_medida_lo_es_con_el_mismo_esfuerzo`, `test_cada_extraccion_apunta_su_esfuerzo_y_su_tope_de_salida` |
+| **Mayor.** `document_type`, que el modelo copia del proveedor, decidía `factura.tipo` aunque el signo dijera otra cosa: una factura positiva que se llama «creditnota» era una nota de crédito, y B4 y U1 no la miraban | Desviación 28: lo declarado vale solo si el signo de la base o del total lo confirma (abono con importe negativo, factura con importe no negativo). Si lo contradice, decide el signo (fuente `calculado`, ref `signo_contra_declarado`, con lo declarado como literal) y el total queda dudoso: Q2 retiene la factura hasta que una persona lo verifique | `test_ingesta.py::test_el_tipo_lo_decide_lo_que_declara_el_documento_o_el_signo` (dos casos nuevos), `test_un_abono_declarado_con_importe_positivo_no_se_salta_b4` |
+| *(duplicado, mayor)* `extract --force` o `--estricta` con almacén volvía a leer lo ya tipado y la lectura v2 pasaba a vigente sin puerta, sin admin y sin fila de `activacion`; `costes.md`, `fase-0.md` y el README mandaban medir así | Desviación 23: con almacén, la relectura de un documento cuya vigente es de otras versiones es una candidata (`reextraccion.apuntar_relectura`), exportada en `out/reextraccion/`, y solo pasa a vigente con `reextraer --activar`. Una candidata exportada de esas mismas versiones no se vuelve a pagar con otra `--estricta`. La salida de `extract` dice cuántas quedan como candidatas. Los tres documentos miden ahora con `reextraer` y `score --comparar-versiones` | `test_reextraccion.py::test_extract_con_almacen_no_salta_la_puerta` (con `--estricta` y con `--force`) |
+| Cualquier excepción de `batches.create` se tomaba por «no se mandó»: un timeout o un corte después de que la API aceptara el lote dejaba un lote pagado sin recoger, y `--reintentos` lo pagaba otra vez; los reintentos automáticos del SDK podían crear un segundo lote | Desviación 25: el lote se crea sin reintentos del SDK (`with_options(max_retries=0)`). Un 4xx (salvo 408) es un rechazo: todo a reintentos, como antes. Sin respuesta, la pasada queda en el estado nuevo `lote_desconocido`; sus documentos no los vuelve a elegir ningún criterio (tampoco los de un lote mandado y sin recoger), y `--recoger N` lo busca en la API por la hora y el número de peticiones: si está, lo adopta; si no, sus documentos van a reintentos; si hay más de uno que podría ser, no elige | `test_un_lote_rechazado_por_la_api_va_entero_a_reintentos`, `test_un_lote_que_no_se_sabe_si_se_mando_no_se_vuelve_a_pagar`, `test_un_lote_que_la_api_no_tiene_se_da_por_no_mandado`, `test_el_lote_se_manda_sin_reintentos_automaticos_del_sdk` |
+| El plazo impreso (`payment_terms_raw`) pasaba por encima del acordado en el maestro: «per omgaande» hacía vencer la factura el día de su fecha | Desviación 29: el plazo calculado de las condiciones impresas solo vale si el maestro no tiene plazo (`estados._facturas` mira su procedencia); el que fija una persona o una importación en la factura sigue mandando. Avisar de un plazo impreso más corto es C5 | `test_ingesta.py::test_el_plazo_del_documento_no_pasa_por_encima_del_acordado` |
+| **Mayor.** La puerta medía solo los documentos de las respuestas que tenían las dos versiones: con uno releído (y la inyección) pasaba, y `activar` activaba todas las candidatas pendientes | Desviación 26: un documento de las respuestas con extracción de antes y sin la de la nueva hace que la puerta no pase (`Comparacion.sin_releer`); `format_comparacion` da la línea «Cobertura». Uno sin ninguna extracción no es del conjunto leído y solo se dice | `test_scoring.py::test_la_puerta_no_pasa_si_falta_releer_documentos_de_las_respuestas` |
+| **Mayor.** «No peor que la anterior» se medía contra la extracción más reciente de cualquier otra versión, también una candidata que nadie activó (un prompt rechazado): una versión peor que la vigente pasaba | Desviación 27: la anterior sale de las extracciones que pueden ser la vigente (`en_orden_de_out`, sin candidatas sin activar; `reextraccion.registros_vigentes_posibles`); sin almacén, de `out/` y no de `out/reextraccion/`. `comparar_versiones` y `pares` aceptan `anteriores` | `test_scoring.py::test_la_anterior_es_la_vigente_y_no_una_candidata_que_nadie_activo`, `test_reextraccion.py::test_la_puerta_compara_con_la_vigente_y_no_con_una_candidata_rechazada` |
+
+**La migración 0006 se corrige en su sitio** (los estados y motivos nuevos
+y los comentarios del presupuesto), como la 0003, la 0004 y la 0005 en sus
+revisiones: ninguna base la tiene aplicada fuera de los tests. Una base
+local creada con la versión anterior la rechaza `migrar` por el hash; se
+rehace con `bms-agent importar-out`.
+
+Desviaciones nuevas, y por qué:
+
+23. **`extract --force` y `--estricta` con almacén dejan candidatas** si la
+    vigente del documento es de otras versiones; el §10 dice que `--force`
+    «no cambia» y que `--estricta` mantiene el comportamiento para medir,
+    pero también que una extracción nueva solo es vigente después de la
+    puerta, y las dos cosas a la vez solo caben así. La candidata es una
+    `reextraccion` de un documento, ya terminada, con presupuesto 0 (extract
+    no tiene; lo pagado está en el uso de la extracción) y
+    `{"origen": "extract", ...}` en el criterio. Un `--force` de un
+    documento cuya vigente ya es de las versiones actuales sigue pasando a
+    vigente y casando por huella (desviación 17). Sin almacén nada cambia:
+    no hay puerta que saltar. `importar-out` sigue sin recorrer
+    `out/reextraccion/` (desviación 11).
+24. **El presupuesto es un tope del gasto real.** El peor caso de un
+    documento es su entrada contada más todo su `max_tokens` de salida al
+    precio del modelo; un fallo sin uso cuenta como su peor caso, porque no
+    se sabe si se cobró. Así la parada es conservadora: puede dejar sin
+    pagar el último documento que habría cabido. La comprobación previa
+    sigue siendo la del §10 (el extremo alto de la estimación), más, por
+    lotes, el peor caso del lote entero. `reextraccion_resultado.motivo`
+    admite `presupuesto`.
+25. **`lote_desconocido`** es un estado más de `reextraccion`, y
+    `reextraccion_resultado` admite filas mientras dura. El margen para
+    buscar el lote en la API es de una hora a cada lado de `iniciada_en`
+    (`MARGEN_LOTE_DESCONOCIDO`): los relojes no son el mismo. Si la lista
+    de la API no lo tiene, se da por no mandado.
+26. **La puerta exige cobertura completa de las respuestas**: todo
+    documento de `respuestas.yaml` con una extracción anterior tiene que
+    tener la de la nueva. El §10 dice «el 98 % del conjunto real»; medir
+    solo lo releído dejaba activar con un documento.
+27. **La anterior es la vigente** (o la más reciente de otra versión que
+    pudo serlo), nunca una candidata sin activar. Completa la desviación 7.
+28. **El tipo declarado se cruza con el signo**, y su desacuerdo retiene por
+    Q2 (el total dudoso), no por una regla nueva. Sustituye a la desviación
+    19 en lo que tiene de «lo declarado manda»: corrección y sustitución
+    siguen siendo facturas, y anulación y `unknown` siguen decidiendo por el
+    signo.
+29. **El plazo del maestro manda sobre el impreso.** Sustituye a la
+    desviación 20 en lo que tiene de «vale el impreso»: el impreso se sigue
+    guardando (`condiciones_pago_doc` y `plazo_pago_dias` calculado), pero
+    el vencimiento solo lo usa sin plazo acordado. Avisar de un plazo
+    impreso más corto que el acordado es C5, que no está en la lista de
+    ningún paso de la §11; queda para cuando se decida dónde va.
+30. **El uso de cada extracción lleva `effort` y `max_tokens`**, como
+    `service_tier` (desviación 21): `ExtractionRecord` no cambia de forma.
+    `coste.estimar_salida` solo da por medida la salida de extracciones del
+    mismo modelo, versión del esquema y esfuerzo; las de antes, sin
+    esfuerzo apuntado, no son medida de ninguno.
+
+**Tests existentes cambiados, y por qué**: en `test_ingesta.py`, el caso
+`invoice` con importes negativos de
+`test_el_tipo_lo_decide_lo_que_declara_el_documento_o_el_signo` es ahora una
+nota de crédito por el signo con el total dudoso (desviación 28), y
+`test_una_extraccion_v2_llena_lo_que_v1_no_pedia` declara
+`corrected_invoice` en vez de `credit_note`, porque sus importes son
+positivos; en `test_extraccion_v2.py`, el uso de un resultado de lote lleva
+`effort` y `max_tokens` (desviación 30). El cliente falso de
+`test_reextraccion.py` gana la salida configurable y `batches.list`, y su
+`batches.create` puede fallar antes o después de crear el lote. Ninguno
+prueba menos que antes.
+
+Lo que deben saber los pasos siguientes, además de lo de arriba:
+
+- **Una vía nueva que lea un documento ya leído** tiene que dejar
+  candidatas (`reextraccion.apuntar_relectura` o `ejecutar`), nunca
+  vigentes, si la vigente es de otras versiones.
+- **Paso 7**: `--abiertas` y el estado de pago no cambian; el vencimiento
+  usa el plazo del maestro antes que el impreso.
+- **C5** (plazo impreso más corto que el acordado) tiene ya los dos datos:
+  `factura.plazo_pago_dias` calculado de `condiciones_pago_doc` y el del
+  maestro.

@@ -312,7 +312,7 @@ _PLAZO_ALTERNATIVA = re.compile(
     r"(?<![\d,.])(\d{1,3})\s*(?:of|en|tot|or|to|-|\u2013)\s*\d{1,3}\s*"
     r"(?:kalender\s*)?(?:dagen|dag|dgn|days|day|d|weken|week|weeks|wk)(?![a-z])", re.IGNORECASE)
 _PLAZO_LABORABLES = re.compile(r"werkdag|working\s*day|business\s*day", re.IGNORECASE)
-_PLAZO_MESES = re.compile(r"(?<![a-z])(?:maand|maanden|month|months)(?![a-z])", re.IGNORECASE)
+_PLAZO_MESES = re.compile(r"(?<![a-z])(?:maand|maanden|month|months|eom)(?![a-z])", re.IGNORECASE)
 _PLAZO_NETO = re.compile(r"(?:netto|net)\s*(\d{1,3})|(\d{1,3})\s*(?:dagen|dgn|days)?\s*(?:netto|net)(?![a-z])",
                          re.IGNORECASE)
 _PLAZO_INMEDIATO = re.compile(
@@ -330,7 +330,9 @@ def parse_plazo_pago(raw: str | None) -> int:
     pronto pago y el neto), vale el que dice "netto"; si ninguno lo dice, no
     se elige. Los dias laborables y los meses se rechazan en vez de
     convertirse: un mes no tiene un numero fijo de dias, y un dia laborable
-    depende de festivos que aqui no se saben.
+    depende de festivos que aqui no se saben. Un mes en cualquier parte del
+    texto basta: "30 dagen na einde maand" no son 30 dias desde la factura
+    sino hasta casi 60, y devolver 30 adelantaria el vencimiento.
 
     El vencimiento que se calcula con esto es "calculado" (spec §10): el
     modelo nunca lo calcula, y el impreso, si lo hay, manda.
@@ -342,6 +344,8 @@ def parse_plazo_pago(raw: str | None) -> int:
         raise ParseError("plazo vacio")
     if _PLAZO_LABORABLES.search(texto):
         raise ParseError(f"plazo en dias laborables, no se convierte: {raw!r}")
+    if _PLAZO_MESES.search(texto):
+        raise ParseError(f"plazo en meses o hasta fin de mes, no se convierte: {raw!r}")
 
     plazos = {int(m.group(1)) for m in _PLAZO_DIAS.finditer(texto)}
     plazos |= {int(m.group(1)) * 7 for m in _PLAZO_SEMANAS.finditer(texto)}
@@ -350,8 +354,6 @@ def parse_plazo_pago(raw: str | None) -> int:
     if not plazos and (m := _PLAZO_NUMERO_SUELTO.match(texto)):
         plazos = {int(m.group(1))}
     if not plazos:
-        if _PLAZO_MESES.search(texto):
-            raise ParseError(f"plazo en meses, no se convierte: {raw!r}")
         if _PLAZO_INMEDIATO.search(texto):
             return 0
         raise ParseError(f"plazo no interpretable: {raw!r}")

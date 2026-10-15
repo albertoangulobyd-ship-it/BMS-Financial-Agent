@@ -249,8 +249,8 @@ versión no paga la carpeta entera otra vez.
 | Orden | Qué reutiliza | Para qué |
 | --- | --- | --- |
 | `bms-agent extract facturas/` | Cualquier extracción de esos mismos bytes | El trabajo de cada día |
-| `bms-agent extract --estricta facturas/` | Solo la hecha con el mismo modelo y versiones | Medir un modelo o un prompt nuevo |
-| `bms-agent extract --force facturas/` | Nada: vuelve a leerlo todo | Repetir a propósito, pagando |
+| `bms-agent extract --estricta facturas/` | Solo la hecha con el mismo modelo y versiones | Medir un modelo o un prompt nuevo (con almacén, lo releído de otra versión es una candidata) |
+| `bms-agent extract --force facturas/` | Nada: vuelve a leerlo todo | Repetir a propósito, pagando (igual: candidata si la vigente es de otra versión) |
 
 Si un documento tiene varias extracciones, el panel, el informe y la
 puntuación usan la más reciente, y `bms-agent coste` cuenta todas, porque
@@ -274,7 +274,7 @@ Volver a leer con el v2 lo ya leído es otra orden, con presupuesto:
 | Orden | Qué hace |
 | --- | --- |
 | `bms-agent reextraer --abiertas` | Elige los documentos (también `--desde`, `--proveedor`, `--sin-objeto`, `--reintentos`, `--limite`) y estima: cuenta la entrada exacta y la salida en horquilla. No paga nada |
-| `bms-agent reextraer --abiertas --presupuesto 15` | Paga si el extremo alto de la estimación cabe en el presupuesto (en dólares); si no, no paga nada. Lo leído queda como **candidata**: no cambia ninguna factura |
+| `bms-agent reextraer --abiertas --presupuesto 15` | Paga si el extremo alto de la estimación cabe en el presupuesto (en dólares); si no, no paga nada. El presupuesto es un tope: la pasada se para antes de un documento cuyo peor caso ya no cabe. Lo leído queda como **candidata**: no cambia ninguna factura |
 | `bms-agent reextraer ... --lote` y `reextraer --recoger N` | Lo mismo por la API de lotes, a mitad de precio; se recoge cuando termina |
 | `bms-agent score --comparar-versiones --ground-truth ground_truth/respuestas.yaml` | Puntúa la versión nueva contra la anterior en los mismos documentos y dice si pasa la puerta |
 | `bms-agent reextraer --activar --ground-truth ground_truth/respuestas.yaml --token …` | Una persona con `admin`: si la puerta pasa, las candidatas pasan a vigentes |
@@ -299,8 +299,11 @@ dependen de facturas reales y de dinero real:
    mejor con `--lote`.
 2. **La versión nueva es al menos tan buena como la anterior, y llega al
    98 % en los campos críticos del conjunto real.** Las respuestas escritas a
-   mano (`ground_truth/respuestas.yaml`) tienen que cubrir facturas reales
-   que se hayan vuelto a leer con la versión nueva. Lanza
+   mano (`ground_truth/respuestas.yaml`) tienen que cubrir facturas reales, y
+   todas las que ya tenían una extracción tienen que haberse vuelto a leer
+   con la versión nueva: la puerta no pasa con una sin releer (lo dice la
+   línea «Cobertura»). La anterior con la que se compara es la vigente, no
+   una candidata de otro intento que nadie activó. Lanza
    `bms-agent score --comparar-versiones` y lee campo a campo: no basta con
    que pase; mira qué campos empeoran y en qué facturas.
 3. **El PDF de inyección sigue dando el IBAN de la cabecera, con el texto
@@ -375,8 +378,9 @@ acertar la ausencia puntúa.
 - Qué proveedores tienen plantillas que el modelo lee mal.
 - Cuántas facturas llegan como escaneo y si hace falta OCR aparte.
 - Si un modelo más barato mantiene la precisión. Cambia `BMS_EXTRACT_MODEL`,
-  extrae con `--estricta` y vuelve a puntuar: la respuesta es un número, no
-  una opinión.
+  vuelve a leer con `reextraer` (con `--presupuesto`) y compara con
+  `score --comparar-versiones`: la respuesta es un número, no una opinión. Lo
+  releído es una candidata y no cambia nada hasta `reextraer --activar`.
 - Cuánto cuesta por documento de verdad.
 
 Todo eso sin haber dado un solo permiso de escritura.

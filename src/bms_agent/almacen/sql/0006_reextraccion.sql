@@ -7,8 +7,11 @@
 --
 -- Lo que esta migracion garantiza (spec §3.18 y §10):
 --   - Volver a leer un documento ya leido es una pasada aparte
---     (reextraccion), con un presupuesto que la base no deja superar: la
---     estimacion alta de la pasada no puede pasar del presupuesto.
+--     (reextraccion), con un presupuesto: la base no admite una pasada cuya
+--     estimacion alta pase de el. El gasto real lo frena el codigo
+--     (reextraccion.py): la via sincrona se para antes de un documento cuyo
+--     peor caso ya no cabe, y un lote, que no se puede parar a medias, no se
+--     manda si su peor caso no cabe entero.
 --   - Lo que esa pasada lee es una CANDIDATA (reextraccion_resultado): queda
 --     guardada como cualquier extraccion, pero no es la vigente de su
 --     documento hasta que una persona con admin la activa (activacion),
@@ -32,6 +35,10 @@
 -- que se estimo antes de pagar (la entrada contada, exacta; la salida,
 -- estimada). estimacion_json lleva el detalle y si la salida se midio.
 -- lote_id es el identificador del lote en la API de Batches.
+-- 'lote_desconocido': la peticion de crear el lote no tuvo respuesta (un corte,
+-- un timeout) y no se sabe si la API lo acepto. Sus documentos no se vuelven a
+-- pagar hasta que `recoger` lo encuentra en la API (pasa a esperando_lote) o
+-- comprueba que no esta (sus documentos van a reintentos).
 CREATE TABLE reextraccion (
     id                     INTEGER PRIMARY KEY,
     modelo                 TEXT NOT NULL CHECK (length(modelo) > 0),
@@ -47,18 +54,21 @@ CREATE TABLE reextraccion (
     estimacion_json        TEXT NOT NULL CHECK (json_valid(estimacion_json)),
     lote_id                TEXT CHECK (lote_id IS NULL OR length(lote_id) > 0),
     estado                 TEXT NOT NULL DEFAULT 'en_curso'
-                           CHECK (estado IN ('en_curso', 'esperando_lote', 'terminada')),
+                           CHECK (estado IN ('en_curso', 'esperando_lote', 'lote_desconocido',
+                                             'terminada')),
     extraidas              INTEGER NOT NULL DEFAULT 0 CHECK (extraidas >= 0),
     reintentos             INTEGER NOT NULL DEFAULT 0 CHECK (reintentos >= 0),
     iniciada_en            TEXT NOT NULL CHECK (datetime(iniciada_en) IS NOT NULL),
     terminada_en           TEXT CHECK (terminada_en IS NULL OR datetime(terminada_en) IS NOT NULL),
     iniciada_por           INTEGER REFERENCES usuario(id),
     actor                  INTEGER NOT NULL REFERENCES usuario(id),
-    -- La base no deja pagar por encima de lo que se acepto gastar.
+    -- La estimacion que se acepto no pasa del presupuesto. Es la estimacion:
+    -- lo que de verdad se gasta lo frena el codigo, documento a documento.
     CHECK (estimado_alto_usd_cent >= estimado_bajo_usd_cent
            AND estimado_alto_usd_cent <= presupuesto_usd_cent),
     CHECK ((estado = 'terminada') = (terminada_en IS NOT NULL)),
     CHECK (via = 'lote' OR lote_id IS NULL),
+    CHECK (estado <> 'lote_desconocido' OR (via = 'lote' AND lote_id IS NULL)),
     CHECK (estado <> 'esperando_lote' OR lote_id IS NOT NULL),
     CHECK (extraidas + reintentos <= documentos)
 ) STRICT;
@@ -94,7 +104,9 @@ BEGIN SELECT RAISE(ABORT, 'reextraccion es evidencia de lo que se pago: no se bo
 
 -- Lo que dio cada documento de una reextraccion: una extraccion candidata
 -- (guardada, no vigente hasta su activacion) o un reintento (un rechazo, un
--- error, un lote caducado o cancelado, una salida que no es el esquema).
+-- error, un lote caducado o cancelado, una salida que no es el esquema, o un
+-- documento que no se llego a pagar porque su peor caso ya no cabia en el
+-- presupuesto).
 -- anterior_id es la extraccion vigente del documento cuando se leyo.
 CREATE TABLE reextraccion_resultado (
     id              INTEGER PRIMARY KEY,
@@ -104,7 +116,8 @@ CREATE TABLE reextraccion_resultado (
     extraccion_id   INTEGER REFERENCES extraccion(id),
     anterior_id     INTEGER REFERENCES extraccion(id),
     motivo          TEXT CHECK (motivo IS NULL OR motivo IN (
-                        'rechazo', 'error', 'caducado', 'cancelado', 'invalido')),
+                        'rechazo', 'error', 'caducado', 'cancelado', 'invalido',
+                        'presupuesto')),
     detalle         TEXT,
     en              TEXT NOT NULL CHECK (datetime(en) IS NOT NULL),
     evento_id       INTEGER NOT NULL REFERENCES evento(id),
@@ -124,7 +137,7 @@ WHEN NEW.evento_id IS NOT (SELECT max(id) FROM evento)
   OR (SELECT actor FROM evento WHERE id = NEW.evento_id)
         IS NOT (SELECT id FROM usuario WHERE nombre = 'extractor' AND es_sistema = 1)
   OR (SELECT estado FROM reextraccion WHERE id = NEW.reextraccion_id)
-        NOT IN ('en_curso', 'esperando_lote')
+        NOT IN ('en_curso', 'esperando_lote', 'lote_desconocido')
   OR (NEW.extraccion_id IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM extraccion AS e JOIN reextraccion AS r ON r.id = NEW.reextraccion_id
         WHERE e.id = NEW.extraccion_id AND e.documento_id = NEW.documento_id

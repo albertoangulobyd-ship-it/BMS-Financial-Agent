@@ -303,7 +303,9 @@ def test_un_resultado_de_lote_se_valida_contra_el_esquema() -> None:
                                  model="claude-opus-5-5", prompt_version="p-lote",
                                  schema_version="2")
     assert isinstance(record, ExtractionRecord)
-    assert record.usage == {"input_tokens": 5000, "output_tokens": 2500, "service_tier": "batch"}
+    # El esfuerzo y el tope de salida van con el uso: la estimacion se mide por esfuerzo.
+    assert record.usage == {"input_tokens": 5000, "output_tokens": 2500, "service_tier": "batch",
+                            "effort": config.effort(), "max_tokens": config.max_tokens()}
     assert (record.prompt_version, record.schema_version) == ("p-lote", "2")
     assert record.extraction.invoice_number == "2026-4471"
 

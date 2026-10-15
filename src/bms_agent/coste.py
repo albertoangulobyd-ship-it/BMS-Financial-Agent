@@ -54,6 +54,7 @@ class Documento:
     coste: Decimal | None
     esquema: str = "?"
     lote: bool = False
+    esfuerzo: str | None = None     # usage.effort; None en lo extraido antes de apuntarlo
 
 
 @dataclass
@@ -109,6 +110,7 @@ def leer_documentos(registros: list[dict[str, Any]]) -> list[Documento]:
                 coste=estimate_cost(modelo, entrada, salida, lote=lote),
                 esquema=str(registro.get("schema_version") or "?"),
                 lote=lote,
+                esfuerzo=uso.get("effort") if isinstance(uso.get("effort"), str) else None,
             )
         )
     return documentos
@@ -157,6 +159,11 @@ class Estimacion:
     salida_medida: bool              # False si no habia historico del que sacarla
     origen_salida: str = ""          # de donde sale la horquilla, para decirlo
     lote: bool = False               # a mitad de precio (API de Batches)
+    # El peor caso: cada documento hasta su tope de salida (max_tokens). Es lo
+    # que se puede llegar a pagar de verdad, razonamiento incluido.
+    salida_peor: int = 0
+    # La entrada contada de cada documento, en orden (si se conto por documento).
+    entradas: tuple[int, ...] = ()
 
     @property
     def coste_bajo(self) -> Decimal | None:
@@ -165,6 +172,11 @@ class Estimacion:
     @property
     def coste_alto(self) -> Decimal | None:
         return estimate_cost(self.modelo, self.entrada, self.salida_alta, lote=self.lote)
+
+    @property
+    def coste_peor(self) -> Decimal | None:
+        return estimate_cost(self.modelo, self.entrada, max(self.salida_peor, self.salida_alta),
+                             lote=self.lote)
 
 
 # Sin historico propio, una factura de una pagina ronda esto de salida. Es
@@ -207,20 +219,26 @@ class SalidaEstimada:
     origen: str
 
 
-def estimar_salida(documentos: list[Documento], *, modelo: str, esquema: str) -> SalidaEstimada:
+def estimar_salida(documentos: list[Documento], *, modelo: str, esquema: str,
+                   esfuerzo: str | None = None) -> SalidaEstimada:
     """La salida por documento de una version, desde su propio historico si lo hay.
 
-    Con tres extracciones o mas del mismo modelo y version del esquema, la
-    horquilla de siempre (percentiles 10 y 90). Si no, la mediana de las
-    demas extracciones por FACTOR_SIN_MEDIR, marcada "sin medir"; sin
-    ningun historico, el punto de partida declarado por el mismo factor.
+    Con tres extracciones o mas del mismo modelo, version del esquema y
+    esfuerzo, la horquilla de siempre (percentiles 10 y 90). El esfuerzo
+    cuenta: Opus 5.5 razona siempre, y con high razona mas que con medium;
+    lo medido con uno no es medida del otro (una extraccion que no apunto su
+    esfuerzo no es medida de ninguno). Si no, la mediana de las demas
+    extracciones por FACTOR_SIN_MEDIR, marcada "sin medir"; sin ningun
+    historico, el punto de partida declarado por el mismo factor.
     """
-    mismas = [d for d in documentos if d.modelo == modelo and d.esquema == esquema]
+    mismas = [d for d in documentos if d.modelo == modelo and d.esquema == esquema
+              and (esfuerzo is None or d.esfuerzo == esfuerzo)]
     if len([d for d in mismas if d.salida]) >= MINIMO_MEDIDO:
         bajo, alto, _ = horquilla_de_salida(mismas)
+        con = f"con {modelo}" + (f" y esfuerzo {esfuerzo}" if esfuerzo else "")
         return SalidaEstimada(bajo, alto, True,
                               f"medida en {len(mismas)} extracciones del esquema {esquema} "
-                              f"con {modelo}")
+                              f"{con}")
     factor_bajo, factor_alto = FACTOR_SIN_MEDIR
     de_esta = {id(d) for d in mismas}
     otras = sorted(d.salida for d in documentos if d.salida and id(d) not in de_esta)
@@ -385,6 +403,13 @@ def formatear_estimacion(est: Estimacion) -> str:
         "  La entrada es exacta: contarla no se cobra. La salida no se puede",
         "  saber sin generar, y por eso va en horquilla.",
     ]
+    if est.salida_peor and est.coste_peor is not None:
+        lineas += [
+            f"  peor caso            {_dolares(est.coste_peor):>14}   cada documento hasta su "
+            "tope de salida",
+            "  Con --presupuesto, la pasada sincrona se para antes del documento cuyo peor",
+            "  caso ya no cabe; un lote, que no se puede parar, solo se manda si cabe entero.",
+        ]
     if not est.salida_medida:
         lineas += [
             "  Con menos de tres extracciones previas de esta version, la",

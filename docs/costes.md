@@ -143,7 +143,10 @@ Lo que sí se paga, y conviene tenerlo claro:
 
 En los tres casos la extracción anterior se queda donde estaba: nada se
 sobrescribe. `bms-agent coste --estimar` sigue la misma política, y con
-`--estricta` estima la pasada estricta.
+`--estricta` estima la pasada estricta. Con un almacén, lo que `--estricta` o
+`--force` releen de un documento cuya vigente es de otra versión queda como
+**candidata** (en `out/reextraccion/`): no cambia la factura hasta
+`reextraer --activar`, que pasa la puerta.
 
 ## Volver a leer lo ya leído: `reextraer`
 
@@ -163,10 +166,21 @@ facturas que siguen abiertas, se pide aparte y con un techo:
   tiene una extracción de la versión actual, y dice cuáles no puede leer
   porque su original no está guardado.
 - Cuenta la entrada exacta con `count_tokens` (no se cobra) y estima la
-  salida como `coste --estimar`. **Sin `--presupuesto` solo estima. Si el
-  extremo alto de la horquilla pasa del presupuesto, no paga nada**, y el
-  intento queda en la auditoría; la base tampoco admite una pasada cuya
-  estimación alta pase de su presupuesto.
+  salida como `coste --estimar` (con el histórico del mismo esfuerzo).
+  **Sin `--presupuesto` solo estima. Si el extremo alto de la horquilla pasa
+  del presupuesto, no paga nada**, y el intento queda en la auditoría; la
+  base tampoco admite una pasada cuya estimación alta pase de su
+  presupuesto.
+- **El presupuesto es un tope de lo que se paga**, no solo de lo estimado.
+  La vía síncrona suma lo que cuesta cada respuesta (también un rechazo, que
+  se cobra) y se para antes del documento cuyo peor caso (su entrada y todo
+  su `max_tokens` de salida, razonamiento incluido) ya no cabe; lo que queda
+  sin pagar va a `--reintentos`. Un lote no se puede parar a medias: solo se
+  manda si el peor caso del lote entero cabe.
+- Si la API no contesta al mandar un lote (un corte, un timeout), no se sabe
+  si lo aceptó: la pasada queda «lote desconocido», sus documentos no se
+  vuelven a pagar, y `reextraer --recoger N` lo busca en la API (lo adopta si
+  está, y si no está manda sus documentos a `--reintentos`).
 - Lo leído queda como **candidata**: guardado en el almacén y exportado en
   `out/reextraccion/`, pero las facturas no cambian hasta
   `reextraer --activar` (ver [fase-0.md](fase-0.md), «Antes de activar»).
@@ -186,13 +200,17 @@ sin el número delante es una corazonada.
 
 ```powershell
 $env:BMS_EXTRACT_MODEL = "claude-sonnet-5"
-.venv\Scripts\bms-agent coste --estimar facturas\ --estricta
-.venv\Scripts\bms-agent extract --estricta facturas\
-.venv\Scripts\bms-agent score
+.venv\Scripts\bms-agent reextraer --abiertas --limite 20
+.venv\Scripts\bms-agent reextraer --abiertas --limite 20 --presupuesto 5
+.venv\Scripts\bms-agent score --comparar-versiones --ground-truth ground_truth\respuestas.yaml
 ```
 
-Sin `--estricta`, `extract` reutilizaría las extracciones del modelo anterior
-y `score` puntuaría lo mismo de antes.
+`reextraer` sin presupuesto solo estima; con él, el presupuesto es un tope
+de lo que se paga. Lo que lee es una candidata: no cambia ninguna factura, y
+`score --comparar-versiones` la compara con la vigente. Con un almacén,
+`extract --estricta` o `--force` sobre facturas ya leídas también deja
+candidatas (en `out/reextraccion/`), no vigentes: ninguna vía cambia de
+versión sin pasar la puerta de `reextraer --activar`.
 
 Si la precisión aguanta el 98 por ciento, te quedas el ahorro. Si no, no.
 Esto es exactamente por lo que el modelo es configurable: la respuesta es un
@@ -213,7 +231,9 @@ por hecho el ahorro.
 difícil. Vale la pena medir si un esfuerzo menor mantiene la precisión. En
 Opus 5.5 el razonamiento no se puede apagar, y el esfuerzo se fija siempre
 de forma explícita: `BMS_EXTRACT_EFFORT` (`low`, `medium` por defecto,
-`high`…). Cambiarlo es medir otra vez con `--estricta` y `score`.
+`high`…). Cambiarlo es medir otra vez: cada extracción apunta su esfuerzo, y
+la estimación de `reextraer` solo da por medida la salida de extracciones
+con el mismo esfuerzo.
 
 ## Lo que no hay que hacer
 
