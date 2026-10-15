@@ -11,7 +11,13 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent ingestar            tipa lo extraido que aun no tiene su factura, sin la API
     bms-agent sembrar             clientes, Objetos y tarifas de venta de config/tarifas.yaml
     bms-agent recalcular          evalua las reglas y pone al dia los hallazgos (--simular)
-    bms-agent usuario ...         personas y sus roles
+    bms-agent usuario ...         personas, sus roles y sus tokens
+    bms-agent acciones            lo que una persona puede hacer, con su permiso
+    bms-agent accion NOMBRE ...   una orden de una persona (con su token)
+    bms-agent facturas            las facturas, la mas urgente primero
+    bms-agent factura N           la ficha de una factura
+    bms-agent excepciones         las excepciones sin resolver
+    bms-agent politica cargar     apunta config/prioridad.yaml en la politica
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -20,6 +26,12 @@ fecha.
 
 `panel`, `report`, `export` y `simulador` leen del almacen, con los valores
 corregidos; solo si no hay almacen leen out/ tal cual, y lo dicen.
+
+Las ordenes de una persona (`accion`) se identifican con su token
+(`usuario token NOMBRE` da uno; se pasa con --token o la variable
+BMS_TOKEN): cada una comprueba el permiso, el motivo y la version de la fila,
+escribe, recalcula y dice lo que cambio, todo en una transaccion. Ninguna
+crea una factura, paga, aprueba un pago ni presenta el BTW.
 
 `extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
 guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
@@ -34,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -517,6 +530,12 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             from .hallazgos import verificar as verificar_hallazgos
 
             errores.extend(verificar_hallazgos(conn))
+        con_excepciones = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'excepcion'").fetchone()
+        if con_excepciones:
+            from .excepciones import verificar as verificar_excepciones
+
+            errores.extend(verificar_excepciones(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -673,6 +692,15 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
             elif args.accion == "quitar":
                 permisos.cerrar_rol(conn, permisos.usuario_por_nombre(conn, args.nombre), args.rol)
                 print(f"{args.nombre} ya no tiene el rol {args.rol}")
+            elif args.accion == "token":
+                token = permisos.emitir_token(conn, permisos.usuario_por_nombre(conn, args.nombre))
+                print(f"Token de {args.nombre} (se ensena una sola vez; el anterior ya no vale):")
+                print(f"  {token}")
+                print("Con el se entra en la consola (bms-agent serve) y se firman las ordenes "
+                      "de la CLI (--token o BMS_TOKEN).")
+            elif args.accion == "desactivar":
+                permisos.desactivar_usuario(conn, permisos.usuario_por_nombre(conn, args.nombre))
+                print(f"{args.nombre} queda desactivado y su token ya no vale")
             else:
                 for u in permisos.listar_usuarios(conn):
                     tipo = "sistema" if u["es_sistema"] else "persona"
@@ -682,6 +710,203 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
             print(f"No se hace: {exc}", file=sys.stderr)
             return 1
         _anclar(almacen)
+    return 0
+
+
+VARIABLE_TOKEN = "BMS_TOKEN"
+
+
+def _persona_de_token(conn, token: str | None, accion: str) -> int | None:
+    """La persona del token; si no vale, el intento queda en la auditoria y None."""
+    from .permisos import PermisoDenegado, registrar_denegacion, usuario_por_token
+
+    usuario_id = usuario_por_token(conn, token)
+    if usuario_id is None:
+        registrar_denegacion(conn, PermisoDenegado(
+            None, "ver_facturas", "token ausente o no valido", accion))
+    return usuario_id
+
+
+def _cmd_acciones(args: argparse.Namespace) -> int:
+    """Lo que una persona puede hacer, con el permiso que pide cada cosa (spec §6)."""
+    from .servicios import ACCIONES
+
+    del_campo = "el del campo (rellenar: anadir_informacion; corregir: editar_extraccion)"
+    for accion in ACCIONES.values():
+        print(f"{accion.nombre}  [{accion.permiso or del_campo}]")
+        print(f"    {accion.descripcion}")
+        parametros = " ".join(
+            f"--{p.nombre.replace('_', '-')}" + ("" if p.obligatorio else "?")
+            for p in accion.parametros)
+        if parametros:
+            print(f"    {parametros}")
+    return 0
+
+
+def _cmd_accion(args: argparse.Namespace) -> int:
+    """Una orden de una persona, firmada con su token. Cero llamadas a la API."""
+    from .campos import Conflicto, FaltaMotivo
+    from .permisos import PermisoDenegado
+    from .servicios import ACCIONES, LISTA, OBJETO, ejecutar
+
+    accion = ACCIONES[args.nombre]
+    datos = {}
+    for parametro in accion.parametros:
+        valor = getattr(args, parametro.nombre, None)
+        if valor is None:
+            continue
+        if parametro.tipo in (LISTA, OBJETO):
+            try:
+                valor = json.loads(valor)
+            except json.JSONDecodeError:
+                print(f"--{parametro.nombre.replace('_', '-')} es JSON", file=sys.stderr)
+                return 1
+        datos[parametro.nombre] = valor
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        token = args.token or os.environ.get(VARIABLE_TOKEN)
+        usuario_id = _persona_de_token(conn, token, args.nombre)
+        if usuario_id is None:
+            print("Hace falta el token de una persona activa (--token o BMS_TOKEN; "
+                  "lo da `bms-agent usuario token NOMBRE`)", file=sys.stderr)
+            _anclar(almacen)
+            return 1
+        segunda = None
+        if args.segunda_firma_token:
+            segunda = _persona_de_token(conn, args.segunda_firma_token, args.nombre)
+            if segunda is None:
+                print("El token de la segunda firma no vale", file=sys.stderr)
+                _anclar(almacen)
+                return 1
+        try:
+            diferencia = ejecutar(conn, args.nombre, datos, usuario_id=usuario_id,
+                                  peticion_id=args.peticion, segunda_firma_id=segunda)
+        except (PermisoDenegado, Conflicto, FaltaMotivo, ValueError, LookupError,
+                TypeError) as exc:
+            print(f"No se hace: {exc}", file=sys.stderr)
+            _anclar(almacen)
+            return 1
+        _anclar(almacen)
+    for linea in diferencia.lineas():
+        print(linea)
+    return 0
+
+
+_SIMBOLO = {"bloqueada": "BLOQ", "urgente": "URG ", "atencion": "ATN ", "normal": "    "}
+
+
+def _cmd_facturas(args: argparse.Namespace) -> int:
+    """Las facturas, la mas urgente primero (lo mismo que la lista de la consola)."""
+    from .consultas import listado
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = listado(almacen.conn, nivel=args.nivel, limite=args.limite)
+    for f in filas:
+        print(f"{_SIMBOLO.get(f['nivel'], f['nivel'])} {f['puntos']:>3}  {f['id']:>5}  "
+              f"{(f['numero'] or '(sin numero)'):<18} {(f['contraparte'] or '')[:28]:<28} "
+              f"{f['total'] or '':>12}  {f['estado_revision'] or '':<17} {f['etiqueta']}")
+        if f["motivos"]:
+            print(f"{'':>12}{' · '.join(f['motivos'])}")
+    return 0
+
+
+def _cmd_factura(args: argparse.Namespace) -> int:
+    """La ficha de una factura: campos con su original y su fuente, hallazgos y excepcion."""
+    from .consultas import detalle
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            ficha = detalle(almacen.conn, args.id)
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(ficha, ensure_ascii=False, indent=2, default=str))
+        return 0
+    estado = ficha["estado"] or {}
+    print(f"Factura {ficha['id']} {ficha['numero'] or '(sin numero)'} — {ficha['contraparte']}"
+          f"  (rev {ficha['rev']})")
+    print(f"  {estado.get('nivel', '-')}, {estado.get('puntos', 0)} puntos; "
+          f"{estado.get('estado_revision', '-')}; {ficha['etiqueta']}")
+    for motivo in estado.get("motivos", []):
+        print(f"    {motivo}")
+    print(f"  huella del contenido: {ficha['huella_contenido']}")
+    for c in ficha["campos"]:
+        if c["valor"] is None and c["original_crudo"] is None:
+            continue
+        marcas = [m for m, si in (("editado", c["editado"]), ("sin resolver", c["sin_resolver"]),
+                                  ("dudoso", c["dudoso"]), ("verificado", c["verificado"])) if si]
+        original = (f"  (original {c['original_texto']!s}, impreso {c['original_crudo']!r})"
+                    if c["editado"] else "")
+        print(f"  {c['campo']:<26} {c['texto'] or '':<30} {c['fuente'] or '':<18}"
+              f"{', '.join(marcas)}{original}")
+    for h in ficha["hallazgos"]:
+        print(f"  hallazgo {h['id']} {h['regla']} {h['estado']} ({h['severidad']}): {h['detalle']}")
+    if ficha["excepcion"]:
+        e = ficha["excepcion"]
+        print(f"  excepcion {e['id']} {e['estado']} (rev {e['rev']}): {e['titulo']}")
+    for r in ficha["revisiones"]:
+        print(f"  revision {r['resultado']} por {r['usuario']} el {r['en']}"
+              f"{' (autorrevisada)' if r['autorrevisada'] else ''}"
+              f"{'' if r['vigente'] else ' — ya no vale'}")
+    return 0
+
+
+def _cmd_excepciones(args: argparse.Namespace) -> int:
+    from .consultas import excepciones_abiertas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = excepciones_abiertas(almacen.conn)
+    for e in filas:
+        quien = f", de {e['responsable']}" if e["responsable"] else ""
+        espera = (f", esperando a {e['esperando_a']} hasta el {e['fecha_seguimiento']}"
+                  if e["esperando_a"] else "")
+        print(f"{_SIMBOLO.get(e['nivel'], e['nivel'])} {e['id']:>5} (rev {e['rev']}) "
+              f"{e['estado']}{quien}{espera}: {e['titulo']} — {e['descripcion'] or ''}")
+    if not filas:
+        print("No hay excepciones sin resolver.")
+    return 0
+
+
+def _cmd_politica(args: argparse.Namespace) -> int:
+    """Apunta un fichero de pesos de la prioridad y recalcula con el."""
+    from .hallazgos import recalcular
+    from .politica import cargar_prioridad
+    from .prioridad import PesosNoValidos
+
+    fichero = Path(args.fichero)
+    if not fichero.is_file():
+        print(f"No existe {fichero}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            with transaccion(almacen.conn):
+                pesos, nuevo = cargar_prioridad(almacen.conn, fichero)
+                diferencia = recalcular(almacen.conn, motivo="manual")
+        except PesosNoValidos as exc:
+            print(f"No se carga {fichero}: {exc}", file=sys.stderr)
+            return 1
+        _anclar(almacen)
+    print(f"{fichero}: {'cargado' if nuevo else 'ya era la version vigente'} "
+          f"(pesos {pesos.sha256()[:12]})")
+    cambios = diferencia.estados.prioridades if diferencia.estados else []
+    print(f"  prioridades que cambian: {len(cambios)}")
     return 0
 
 
@@ -864,10 +1089,58 @@ def main(argv: list[str] | None = None) -> int:
         p_rol = sub_usuario.add_parser(accion, help=ayuda)
         p_rol.add_argument("nombre")
         p_rol.add_argument("rol")
+    for accion, ayuda in (("token", "un token nuevo para una persona (el anterior deja de valer)"),
+                          ("desactivar", "desactiva a una persona y anula su token")):
+        sub_usuario.add_parser(accion, help=ayuda).add_argument("nombre")
     sub_usuario.add_parser("listar", help="usuarios y sus roles")
     for p_accion in sub_usuario.choices.values():
         p_accion.add_argument("--db", help=_AYUDA_DB)
     p_usuario.set_defaults(func=_cmd_usuario)
+
+    p_acciones = sub.add_parser("acciones", help="lo que una persona puede hacer, con su permiso")
+    p_acciones.set_defaults(func=_cmd_acciones)
+
+    from .servicios import ACCIONES, ENTERO
+
+    p_accion = sub.add_parser("accion", help="una orden de una persona, firmada con su token")
+    sub_accion = p_accion.add_subparsers(dest="nombre", required=True)
+    for accion in ACCIONES.values():
+        p_una = sub_accion.add_parser(accion.nombre, help=accion.descripcion)
+        for parametro in accion.parametros:
+            p_una.add_argument(f"--{parametro.nombre.replace('_', '-')}", dest=parametro.nombre,
+                               required=parametro.obligatorio and parametro.nombre != "motivo",
+                               help=parametro.ayuda or (
+                                   "entero" if parametro.tipo == ENTERO else parametro.tipo))
+        p_una.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+        p_una.add_argument("--peticion", help="identificador de la peticion: repetirla no repite "
+                                              "la orden")
+        p_una.add_argument("--segunda-firma-token", dest="segunda_firma_token",
+                           help="token de la segunda persona que firma (anular un hallazgo)")
+        p_una.add_argument("--db", help=_AYUDA_DB)
+    p_accion.set_defaults(func=_cmd_accion)
+
+    p_facturas = sub.add_parser("facturas", help="las facturas, la mas urgente primero")
+    p_facturas.add_argument("--nivel", choices=("bloqueada", "urgente", "atencion", "normal"))
+    p_facturas.add_argument("--limite", type=int)
+    p_facturas.add_argument("--db", help=_AYUDA_DB)
+    p_facturas.set_defaults(func=_cmd_facturas)
+
+    p_factura = sub.add_parser("factura", help="la ficha de una factura")
+    p_factura.add_argument("id", type=int)
+    p_factura.add_argument("--json", action="store_true", help="la ficha entera en JSON")
+    p_factura.add_argument("--db", help=_AYUDA_DB)
+    p_factura.set_defaults(func=_cmd_factura)
+
+    p_excepciones = sub.add_parser("excepciones", help="las excepciones sin resolver")
+    p_excepciones.add_argument("--db", help=_AYUDA_DB)
+    p_excepciones.set_defaults(func=_cmd_excepciones)
+
+    p_politica = sub.add_parser("politica", help="la politica: pesos de la prioridad")
+    sub_politica = p_politica.add_subparsers(dest="accion", required=True)
+    p_cargar = sub_politica.add_parser("cargar", help="apunta un fichero de pesos y recalcula")
+    p_cargar.add_argument("fichero", nargs="?", default="config/prioridad.yaml")
+    p_cargar.add_argument("--db", help=_AYUDA_DB)
+    p_politica.set_defaults(func=_cmd_politica)
 
     args = parser.parse_args(argv)
     return args.func(args)

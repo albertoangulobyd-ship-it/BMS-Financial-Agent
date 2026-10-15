@@ -49,7 +49,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
-from . import __version__
+from . import __version__, estados, excepciones
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .auditoria import registrar
 from .campos import FaltaMotivo, Persona
@@ -111,9 +111,26 @@ class Transicion:
     nota: str | None = None
 
 
+@dataclass(frozen=True)
+class CambioEvaluacion:
+    """Un resultado de una regla que cambio con la pasada (None: no estaba, o ya no esta)."""
+
+    regla: str
+    tabla: str
+    fila_id: int
+    clave: str
+    antes: str | None
+    despues: str | None
+
+
 @dataclass
 class Diferencia:
-    """Lo que cambio con una pasada: resultados, hallazgos que se mueven y lo pendiente."""
+    """Lo que cambio con una pasada: resultados, hallazgos que se mueven y lo pendiente.
+
+    Desde el paso 4 tambien lo que la pasada hizo despues de los hallazgos:
+    las excepciones que abrio o a las que unio hallazgos (excepciones.py) y
+    las prioridades y revisiones que se movieron en las caches (estados.py).
+    """
 
     ejecucion_id: int | None = None
     simulada: bool = False
@@ -121,6 +138,9 @@ class Diferencia:
     transiciones: list[Transicion] = field(default_factory=list)
     retenidos: list[str] = field(default_factory=list)
     pendientes: dict[str, int] = field(default_factory=dict)
+    cambios_evaluacion: list[CambioEvaluacion] = field(default_factory=list)
+    excepciones: Any = None
+    estados: Any = None
 
     def de_tipo(self, *tipos: str) -> list[Transicion]:
         return [t for t in self.transiciones if t.tipo in tipos]
@@ -216,8 +236,13 @@ _CON_VALORES = frozenset({FALLO, SIN_DATOS})
 
 
 def _escribir_evaluaciones(conn: sqlite3.Connection, ejecucion_id: int,
-                           resultados: Sequence[Resultado]) -> int:
+                           resultados: Sequence[Resultado],
+                           cambios: list[CambioEvaluacion] | None = None) -> int:
     """Pone la cache al dia escribiendo solo lo que cambia. Devuelve cuantas filas cambiaron.
+
+    En `cambios` deja cada resultado que paso de uno a otro (o aparecio, o
+    ya no se da): es lo que una orden de una persona ensena como "lo que
+    cambio" (servicios.py).
 
     Lo habitual es que una orden cambie unas pocas facturas: reescribir las
     decenas de miles de evaluaciones de un historico entero costaria mas que
@@ -243,9 +268,15 @@ def _escribir_evaluaciones(conn: sqlite3.Connection, ejecucion_id: int,
             if previa[1:] == (r.resultado, r.detalle, valores):
                 continue
             viejas.append((previa[0],))
+        if cambios is not None and (previa is None or previa[1] != r.resultado):
+            cambios.append(CambioEvaluacion(r.regla, r.tabla, r.fila_id, clave,
+                                            None if previa is None else previa[1], r.resultado))
         nuevas.append((ejecucion_id, r.regla, r.tabla, r.fila_id, clave, r.resultado, r.detalle,
                        valores))
     viejas.extend((previa[0],) for previa in anteriores.values())
+    if cambios is not None:
+        cambios.extend(CambioEvaluacion(r, t, f, c, previa[1], None)
+                       for (t, f, r, c), previa in sorted(anteriores.items()))
     conn.executemany("DELETE FROM evaluacion WHERE id = ?", viejas)
     conn.executemany(
         "INSERT INTO evaluacion (ejecucion_id, regla, tabla, fila_id, clave, resultado, detalle, "
@@ -366,7 +397,8 @@ class _Pasada:
              motor.sha256_politica(self.politica), hasta, self.causa_evento_id)).lastrowid)
         self.diferencia.ejecucion_id = self.ejecucion_id
         self.diferencia.evaluaciones = dict(Counter(r.resultado for r in resultados))
-        _escribir_evaluaciones(conn, self.ejecucion_id, resultados)
+        _escribir_evaluaciones(conn, self.ejecucion_id, resultados,
+                               self.diferencia.cambios_evaluacion)
 
         self.causas = dict(_filas(
             conn, "SELECT factura_id, max(evento_id) FROM cambio_campo "
@@ -402,6 +434,15 @@ class _Pasada:
             conn, f"SELECT estado, count(*) FROM hallazgo WHERE estado IN "
                   f"({', '.join('?' * len(ESTADOS_PENDIENTES))}) GROUP BY estado",
             sorted(ESTADOS_PENDIENTES)))
+        # Lo que va detras de los hallazgos, en la misma transaccion: las
+        # excepciones que agrupan los nuevos y las caches de estado y
+        # prioridad, que dependen de todo lo anterior y de hoy.
+        self.diferencia.excepciones = excepciones.sincronizar(conn, usuario_id=self.usuario_id)
+        sin_datos = Counter(r.fila_id for r in resultados
+                            if r.resultado == SIN_DATOS and r.tabla == "factura")
+        self.diferencia.estados = estados.recalcular(conn, hoy=self.hoy,
+                                                     ejecucion_id=self.ejecucion_id,
+                                                     sin_datos=dict(sin_datos))
         conn.execute("UPDATE ejecucion_reglas SET terminada_en = ?, resumen_json = ? WHERE id = ?",
                      (self.ahora, motor.canonico(self.diferencia.resumen()), self.ejecucion_id))
         return self.diferencia
@@ -659,7 +700,8 @@ def requiere_segunda_firma(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> b
 
 def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
            vigente_hasta: date | str | None = None,
-           segunda_firma: Persona | None = None) -> int:
+           segunda_firma: Persona | None = None,
+           datos: dict[str, Any] | None = None) -> int:
     """Una persona con anular_aviso acepta la evidencia de ahora de un hallazgo. Devuelve su id.
 
     Vale mientras la huella del hallazgo sea la que se anula, sea la ultima
@@ -734,7 +776,8 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
             conn, tipo="hallazgo_anulado", actor=persona.usuario_id,
             usuario_id=persona.usuario_id, tabla="hallazgo", fila_id=hallazgo_id,
             factura_id=hallazgo["factura_id"], motivo=motivo, peticion_id=persona.peticion_id,
-            datos={"fila": fila, "clave": hallazgo["clave"], "regla": hallazgo["regla"]})
+            datos={**(datos or {}), "fila": fila, "clave": hallazgo["clave"],
+                   "regla": hallazgo["regla"]})
         anulacion_id = int(conn.execute(
             "INSERT INTO anulacion (hallazgo_id, huella, motivo, usuario_id, en, vigente_hasta, "
             "segunda_firma_usuario_id, segunda_firma_en, autoaprobada, evento_id) "
@@ -747,7 +790,8 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
     return anulacion_id
 
 
-def resolver(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona) -> int:
+def resolver(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
+             datos: dict[str, Any] | None = None) -> int:
     """Una persona con resolver_aviso cierra un hallazgo cuya condicion ha desaparecido.
 
     Es la unica forma de cerrar uno de una regla pegajosa. Uno abierto no se
@@ -769,7 +813,7 @@ def resolver(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona) -> in
             conn, tipo="hallazgo_resuelto", actor=persona.usuario_id,
             usuario_id=persona.usuario_id, tabla="hallazgo", fila_id=hallazgo_id,
             factura_id=hallazgo["factura_id"], motivo=motivo, peticion_id=persona.peticion_id,
-            datos={"clave": hallazgo["clave"], "regla": hallazgo["regla"],
+            datos={**(datos or {}), "clave": hallazgo["clave"], "regla": hallazgo["regla"],
                    "huella": hallazgo["huella"]})
         evento_hallazgo = _evento(conn, hallazgo_id, EV_RESUELTO, RESUELTO, hallazgo["huella"],
                                   en=en, causa=evento, ejecucion_id=None,

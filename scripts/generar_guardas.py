@@ -26,6 +26,11 @@ from bms_agent.almacen.migrar import disponibles  # noqa: E402
 
 ULTIMO = "(SELECT max(id) FROM evento)"
 
+# Quien escribe cada tabla controlada, para el mensaje de la guarda. Casi
+# todas las escribe campos.py; la excepcion (paso 4) es estado de trabajo y
+# la escribe excepciones.py, con la misma guarda.
+ESCRITOR = {"excepcion": "excepciones.py"}
+
 
 def columnas(conn: sqlite3.Connection, tabla: str) -> list[str]:
     return [f[1] for f in conn.execute(f"PRAGMA table_info({tabla})") if f[1] not in ("id", "rev")]
@@ -47,14 +52,15 @@ def guardas(tabla: str, nombres: list[str]) -> str:
             f"    OR (NEW.{c} IS NOT OLD.{c} AND NOT EXISTS ({base} AND rev = NEW.rev\n"
             f"        AND campo = '{c}' AND json_extract(valor_anterior, '$') IS OLD.{c}\n"
             f"        AND json_extract(valor_nuevo, '$') IS NEW.{c}))")
+    escritor = ESCRITOR.get(tabla, "campos.py")
     return (
         f"\nCREATE TRIGGER {tabla}_guarda_insert BEFORE INSERT ON {tabla}\nWHEN\n"
         + "\n".join(alta)
-        + f"\nBEGIN SELECT RAISE(ABORT, '{tabla} es una tabla controlada: solo la escribe campos.py, "
+        + f"\nBEGIN SELECT RAISE(ABORT, '{tabla} es una tabla controlada: solo la escribe {escritor}, "
           "con un cambio_campo por campo en el evento en curso'); END;\n"
         f"\nCREATE TRIGGER {tabla}_guarda_update BEFORE UPDATE ON {tabla}\nWHEN\n"
         + "\n".join(cambio)
-        + f"\nBEGIN SELECT RAISE(ABORT, '{tabla} es una tabla controlada: solo la escribe campos.py, "
+        + f"\nBEGIN SELECT RAISE(ABORT, '{tabla} es una tabla controlada: solo la escribe {escritor}, "
           "con rev + 1 y un cambio_campo por campo en el evento en curso'); END;\n"
         f"\nCREATE TRIGGER {tabla}_sin_delete BEFORE DELETE ON {tabla}\n"
         f"BEGIN SELECT RAISE(ABORT, '{tabla} no se borra: una fila se retira o se desactiva'); END;\n"

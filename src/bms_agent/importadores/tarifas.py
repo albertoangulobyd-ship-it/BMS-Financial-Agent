@@ -26,16 +26,13 @@ from typing import Any
 
 import yaml
 
-from .. import campos
-from ..almacen import reloj_de, transaccion, usuario_sistema
-from ..almacen.evidencia import foto
+from .. import campos, politica
+from ..almacen import transaccion, usuario_sistema
 from ..almacen.unidades import sha256_texto
-from ..auditoria import registrar
 from ..campos import Automatico, Leido
 from ..dominio import Fuente
 from ..identidad import normalizar_nombre, resolver_objeto, resolver_parte
 from ..parsing import ParseError, parse_amount
-from ..reloj import marca
 
 
 @dataclass
@@ -51,27 +48,6 @@ class ResultadoSemilla:
     avisos: list[str] = field(default_factory=list)
     # La pasada del motor de reglas con la que termina la orden (paso 3).
     recalculo: Any = None
-
-
-def _politica(conn: sqlite3.Connection, nombre: str, texto: str, sha256: str,
-              usuario_id: int | None) -> bool:
-    """Apunta el fichero en politica_version si ese contenido no estaba ya."""
-    if conn.execute("SELECT 1 FROM politica_version WHERE fichero = ? AND sha256 = ?",
-                    (nombre, sha256)).fetchone():
-        return False
-    reloj = reloj_de(conn)
-    sistema = usuario_sistema(conn, "sistema")
-    fila_id = int(conn.execute(
-        "INSERT INTO politica_version (sha256, fichero, contenido, vigente_desde, cargada_en, "
-        "cargada_por) VALUES (?, ?, ?, ?, ?, ?)",
-        (sha256, nombre, texto, reloj.hoy().isoformat(), marca(reloj.ahora()),
-         usuario_id or sistema),
-    ).lastrowid)
-    registrar(conn, tipo="politica_cargada", actor=sistema, usuario_id=usuario_id,
-              tabla="politica_version", fila_id=fila_id,
-              datos={"fichero": nombre, "sha256": sha256,
-                     "fila": foto(conn, "politica_version", fila_id)})
-    return True
 
 
 def _obras(datos: dict[str, Any]) -> list[tuple[str, str | None]]:
@@ -95,7 +71,7 @@ def sembrar_tarifas(
                         ref=f"config:{ruta.name}@{sha256[:12]}", usuario_id=usuario_id)
 
     with transaccion(conn):
-        resultado.nueva_politica = _politica(conn, ruta.name, texto, sha256, usuario_id)
+        resultado.nueva_politica = politica.registrar(conn, ruta.name, texto, usuario_id)
         with campos.orden(conn, origen, tipo="semilla_tarifas",
                           datos={"fichero": ruta.name, "sha256": sha256}) as o:
             clientes: dict[str, int] = {}

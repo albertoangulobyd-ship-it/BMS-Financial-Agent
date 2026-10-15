@@ -1,0 +1,465 @@
+"""La consola interna: su pagina, su script y su estilo, como texto.
+
+La pagina no lleva ningun dato: todo llega despues por /api/v2 en JSON y el
+script lo pinta con createElement y textContent. Nada de lo que viene de un
+documento (un nombre, una descripcion, las notas del PDF) se interpreta
+nunca como HTML: no hay innerHTML, ni insertAdjacentHTML, ni document.write,
+ni atributos de evento escritos como texto. Y aunque lo hubiera, la politica
+de contenido del servidor (consola.py) solo deja ejecutar el script propio,
+no uno que venga dentro de los datos.
+
+El token de la persona se escribe al entrar y vive solo en la memoria de la
+pagina: no se guarda en el navegador ni viaja en la URL.
+"""
+
+from __future__ import annotations
+
+PAGINA = """<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bms-agent, consola</title>
+<link rel="stylesheet" href="/consola.css">
+<script src="/consola.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Consola interna</h1>
+  <p class="aviso">Revisar no aprueba ningún pago. «Sin objeciones del sistema» quiere decir
+  que las reglas no ven nada, no que una persona lo haya mirado.</p>
+  <form id="entrar">
+    <label>Token personal <input id="token" type="password" autocomplete="off" required></label>
+    <button type="submit">Entrar</button>
+    <span id="quien"></span>
+  </form>
+</header>
+<main>
+  <section id="mensaje" role="status"></section>
+  <section id="lista"></section>
+  <section id="ficha"></section>
+</main>
+</body>
+</html>
+"""
+
+ESTILO = """
+:root{--fondo:#ffffff;--texto:#141a23;--suave:#5b6573;--linea:#d9dee5;--bloq:#a4161a;
+--urg:#d9480f;--aten:#b08900;--ok:#2b8a3e;--caja:#f3f5f8}
+body{font:14px/1.45 system-ui,sans-serif;margin:0 auto;max-width:78rem;padding:0 1rem;
+color:var(--texto);background:var(--fondo)}
+header{border-bottom:1px solid var(--linea);padding:.5rem 0}
+h1{font-size:1.3rem;margin:.3rem 0}
+h2{font-size:1.1rem;margin:1.2rem 0 .4rem}
+h3{font-size:1rem;margin:.9rem 0 .3rem}
+.aviso{color:var(--suave);margin:.2rem 0 .6rem}
+table{border-collapse:collapse;width:100%;margin:.3rem 0}
+th,td{border-bottom:1px solid var(--linea);padding:.25rem .4rem;text-align:left;vertical-align:top}
+th{font-weight:600;background:var(--caja)}
+tr.fila{cursor:pointer}
+tr.fila:hover{background:var(--caja)}
+.insignia{display:inline-block;border-radius:.3rem;padding:0 .35rem;font-size:.8rem;
+font-weight:600;border:1px solid currentColor}
+.bloqueada{color:var(--bloq)}.urgente{color:var(--urg)}.atencion{color:var(--aten)}
+.normal{color:var(--suave)}.verificado{color:var(--ok)}
+.faltante,.discrepancia{color:var(--bloq)}.anomalia{color:var(--urg)}.dudoso{color:var(--aten)}
+.doc{background:#fff8e6;border:1px dashed var(--aten);padding:.5rem;white-space:pre-wrap}
+.caja{background:var(--caja);padding:.5rem;margin:.4rem 0}
+form.linea{display:flex;flex-wrap:wrap;gap:.3rem;align-items:center;margin:.2rem 0}
+input,select,button,textarea{font:inherit}
+#mensaje{white-space:pre-wrap;margin:.5rem 0}
+.error{color:var(--bloq)}
+.suave{color:var(--suave)}
+"""
+
+SCRIPT = r"""
+(function () {
+  'use strict';
+
+  var estado = {token: null, yo: null, acciones: {}, personas: [], objetos: [], ficha: null};
+
+  // ---------------------------------------------------------------- DOM
+
+  // Un elemento con sus atributos y sus hijos. Un hijo que no es un nodo se
+  // pone siempre como texto: es la unica forma en que un dato entra en la
+  // pagina.
+  function el(etiqueta, atributos) {
+    var nodo = document.createElement(etiqueta);
+    var claves = Object.keys(atributos || {});
+    for (var i = 0; i < claves.length; i++) {
+      var clave = claves[i];
+      var valor = atributos[clave];
+      if (valor === null || valor === undefined || valor === false) { continue; }
+      if (clave === 'clase') { nodo.className = String(valor); }
+      else if (clave === 'al_pulsar') { nodo.addEventListener('click', valor); }
+      else if (clave === 'al_enviar') { nodo.addEventListener('submit', valor); }
+      else if (clave === 'valor') { nodo.value = String(valor); }
+      else if (/^on/i.test(clave)) { throw new Error('atributo de evento no admitido: ' + clave); }
+      else { nodo.setAttribute(clave, String(valor)); }
+    }
+    for (var j = 2; j < arguments.length; j++) { poner(nodo, arguments[j]); }
+    return nodo;
+  }
+
+  // Todos los argumentos tras el nodo son hijos, como en el().
+  function anadir(nodo) {
+    for (var i = 1; i < arguments.length; i++) { poner(nodo, arguments[i]); }
+  }
+
+  function poner(nodo, hijo) {
+    if (hijo === null || hijo === undefined || hijo === false) { return; }
+    if (Array.isArray(hijo)) { for (var i = 0; i < hijo.length; i++) { poner(nodo, hijo[i]); } return; }
+    if (typeof hijo === 'object' && hijo.nodeType) { nodo.appendChild(hijo); return; }
+    nodo.appendChild(document.createTextNode(String(hijo)));
+  }
+
+  function vaciar(nodo) { while (nodo.firstChild) { nodo.removeChild(nodo.firstChild); } }
+
+  function insignia(texto, clase) {
+    return el('span', {clase: 'insignia ' + (clase || '')}, texto);
+  }
+
+  var ETIQUETA_NIVEL = {bloqueada: 'Bloqueada', urgente: 'Urgente', atencion: 'Atención',
+                        normal: 'Normal'};
+  var ETIQUETA_REVISION = {sin_revisar: 'Sin revisar', necesita_revision: 'Necesita revisión',
+                           revisada: 'Revisada'};
+
+  function nuevoId() {
+    if (window.crypto && window.crypto.randomUUID) { return window.crypto.randomUUID(); }
+    return 'p-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  // ---------------------------------------------------------------- API
+
+  function api(metodo, ruta, cuerpo) {
+    var cabeceras = {'X-BMS-Token': estado.token || ''};
+    var opciones = {method: metodo, headers: cabeceras};
+    if (cuerpo !== undefined) {
+      cabeceras['Content-Type'] = 'application/json';
+      opciones.body = JSON.stringify(cuerpo);
+    }
+    return fetch(ruta, opciones).then(function (r) {
+      return r.json().then(function (datos) {
+        if (!r.ok) { throw new Error(datos.error || ('error ' + r.status)); }
+        return datos;
+      });
+    });
+  }
+
+  function decir(texto, esError) {
+    var caja = document.getElementById('mensaje');
+    vaciar(caja);
+    anadir(caja, el('p', {clase: esError ? 'error' : ''}, texto));
+  }
+
+  function resumen(diferencia) {
+    if (diferencia.repetida) { return 'Esa petición ya se había aplicado: no se repite.'; }
+    if (diferencia.evento_id === null) { return 'No cambia nada.'; }
+    var partes = ['Hecho (evento ' + diferencia.evento_id + ').'];
+    var grupos = diferencia.hallazgos || {};
+    Object.keys(grupos).forEach(function (clave) {
+      partes.push('Hallazgos ' + clave + ': ' + grupos[clave].map(function (h) {
+        return h.regla; }).join(', '));
+    });
+    (diferencia.prioridades || []).forEach(function (p) {
+      partes.push('Prioridad de ' + p.entidad + ' ' + p.entidad_id + ': ' +
+                  (p.antes || '-') + ' → ' + (p.despues || '-'));
+    });
+    (diferencia.revisiones_invalidadas || []).forEach(function (f) {
+      partes.push('La revisión de la factura ' + f + ' deja de valer.');
+    });
+    (diferencia.totales || []).forEach(function (t) {
+      partes.push(t.entidad + ' ' + t.id + ' ' + t.campo + ': ' + t.antes + ' → ' + t.despues);
+    });
+    return partes.join('\n');
+  }
+
+  // Una orden: su peticion_id se fija al pintar el formulario, asi que
+  // pulsar dos veces no la aplica dos veces.
+  function ordenar(nombre, datos, peticion, segundaFirma) {
+    var cuerpo = {accion: nombre, peticion_id: peticion, datos: datos};
+    if (segundaFirma) { cuerpo.segunda_firma_token = segundaFirma; }
+    return api('POST', '/api/v2/acciones', cuerpo).then(function (r) {
+      decir(resumen(r.diferencia), false);
+      return recargar();
+    }).catch(function (error) { decir('No se hace: ' + error.message, true); });
+  }
+
+  function formulario(nombre, campos, datosFijos, textoBoton, opciones) {
+    var peticion = nuevoId();
+    var entradas = {};
+    var hijos = campos.map(function (c) {
+      var entrada;
+      if (c.opciones) {
+        entrada = el('select', {name: c.nombre});
+        c.opciones.forEach(function (o) {
+          anadir(entrada, el('option', {valor: o[0]}, o[1]));
+        });
+      } else {
+        entrada = el('input', {name: c.nombre, type: c.tipo || 'text', placeholder: c.ayuda || '',
+                               valor: c.valor === undefined || c.valor === null ? '' : c.valor});
+      }
+      entradas[c.nombre] = entrada;
+      return el('label', {}, (c.etiqueta || c.nombre) + ' ', entrada);
+    });
+    var form = el('form', {clase: 'linea', al_enviar: function (ev) {
+      ev.preventDefault();
+      var datos = {};
+      Object.keys(datosFijos).forEach(function (k) { datos[k] = datosFijos[k]; });
+      var segunda = null;
+      Object.keys(entradas).forEach(function (k) {
+        var v = entradas[k].value;
+        if (k === 'segunda_firma_token') { segunda = v || null; return; }
+        if (v !== '') { datos[k] = v; }
+      });
+      ordenar(nombre, datos, peticion, segunda);
+    }}, hijos, el('button', {type: 'submit'}, textoBoton));
+    if (opciones && opciones.titulo) { return el('div', {}, el('span', {clase: 'suave'}, opciones.titulo), form); }
+    return form;
+  }
+
+  // ---------------------------------------------------------------- lista
+
+  function pintarListado(contenedor, facturas) {
+    vaciar(contenedor);
+    var cabecera = el('tr', {}, ['Prioridad', 'Puntos', 'Factura', 'Contraparte', 'Total',
+      'Vence', 'Revisión', 'Calidad', 'Ediciones', 'Sistema'].map(function (t) {
+        return el('th', {}, t); }));
+    var cuerpo = el('tbody');
+    facturas.forEach(function (f) {
+      var ediciones = [];
+      if (f.corregida) { ediciones.push('corregida'); }
+      if (f.suplementada) { ediciones.push('suplementada'); }
+      if (f.sin_resolver) { ediciones.push(f.sin_resolver + ' sin resolver'); }
+      var fila = el('tr', {clase: 'fila', al_pulsar: function () { abrirFicha(f.id); }},
+        el('td', {}, insignia(ETIQUETA_NIVEL[f.nivel] || f.nivel, f.nivel)),
+        el('td', {}, String(f.puntos)),
+        el('td', {}, f.numero || '(sin número)'),
+        el('td', {}, f.contraparte || ''),
+        el('td', {}, f.total || ''),
+        el('td', {}, f.vencimiento || ''),
+        el('td', {}, ETIQUETA_REVISION[f.estado_revision] || ''),
+        el('td', {}, f.calidad ? insignia(f.calidad, f.calidad) : ''),
+        el('td', {}, ediciones.join(', ')),
+        el('td', {}, f.etiqueta, f.motivos && f.motivos.length ?
+          el('div', {clase: 'suave'}, f.motivos.join(' · ')) : null));
+      anadir(cuerpo, fila);
+    });
+    anadir(contenedor, el('h2', {}, 'Facturas'), el('table', {}, el('thead', {}, cabecera), cuerpo));
+  }
+
+  // ---------------------------------------------------------------- ficha
+
+  function tablaCampos(campos, conAcciones) {
+    var cuerpo = el('tbody');
+    campos.forEach(function (c) {
+      if (c.valor === null && c.original_crudo === null && !c.obligatorio) { return; }
+      var marcas = [];
+      if (c.suplementado) { marcas.push('suplido a mano'); }
+      if (c.corregido) { marcas.push('corregido a mano'); }
+      if (c.sin_resolver) { marcas.push('sin resolver'); }
+      if (c.dudoso) { marcas.push('dudoso'); }
+      if (c.verificado) { marcas.push('verificado'); }
+      var original = c.editado ? [c.original_texto === null ? '(vacío)' : c.original_texto,
+        c.original_crudo !== null ? ' (impreso: ' + c.original_crudo + ')' : ''] :
+        (c.original_crudo !== null && c.original_crudo !== c.texto ? 'impreso: ' + c.original_crudo : '');
+      var acciones = [];
+      if (conAcciones && c.editable) {
+        acciones.push(formulario('fijar_campo', [
+          {nombre: 'valor', etiqueta: c.valor === null ? 'Rellenar' : 'Corregir', valor: c.entrada},
+          {nombre: 'motivo', etiqueta: 'motivo'}],
+          {tabla: c.tabla, fila_id: c.fila_id, campo: c.campo, rev: c.rev}, 'Guardar'));
+        if (c.valor !== null && !c.verificado) {
+          acciones.push(formulario('verificar_campo', [],
+            {tabla: c.tabla, fila_id: c.fila_id, campo: c.campo, rev: c.rev}, 'Verificar'));
+        }
+        if (c.revertible) {
+          acciones.push(formulario('revertir_campo', [{nombre: 'motivo', etiqueta: 'motivo'}],
+            {tabla: c.tabla, fila_id: c.fila_id, campo: c.campo, rev: c.rev}, 'Deshacer'));
+        }
+      }
+      anadir(cuerpo, el('tr', {},
+        el('td', {}, c.campo),
+        el('td', {}, c.texto === null ? '' : c.texto),
+        el('td', {}, original),
+        el('td', {}, c.fuente || ''),
+        el('td', {}, c.calidad ? insignia(c.calidad, c.calidad) : ''),
+        el('td', {}, marcas.join(', '), c.cambiado_por && c.editado ?
+          el('div', {clase: 'suave'}, (c.cambiado_por) + ', ' + (c.cambiado_en || '')) : null),
+        el('td', {}, acciones)));
+    });
+    var cabecera = el('tr', {}, ['Campo', 'Valor actual', 'Original', 'Fuente', 'Calidad',
+      'Marcas', ''].map(function (t) { return el('th', {}, t); }));
+    return el('table', {}, el('thead', {}, cabecera), cuerpo);
+  }
+
+  function conRev(campos, rev) {
+    return campos.map(function (c) { var copia = {}; Object.keys(c).forEach(function (k) {
+      copia[k] = c[k]; }); copia.rev = rev; return copia; });
+  }
+
+  function pintarHallazgos(f) {
+    var lista = el('div');
+    if (!f.hallazgos.length) { anadir(lista, el('p', {clase: 'suave'}, 'Ningún hallazgo pendiente.')); }
+    f.hallazgos.forEach(function (h) {
+      var acciones = [];
+      if (h.anulable && (h.estado === 'abierto' || h.estado === 'aceptado')) {
+        acciones.push(formulario('anular_hallazgo', [
+          {nombre: 'motivo', etiqueta: 'motivo (10+)'},
+          {nombre: 'vigente_hasta', etiqueta: 'hasta', tipo: 'date'},
+          {nombre: 'segunda_firma_token', etiqueta: '2.ª firma (token)', tipo: 'password'}],
+          {hallazgo_id: h.id, huella: h.huella}, 'Anular'));
+      }
+      if (h.estado === 'desaparecido') {
+        acciones.push(formulario('cerrar_hallazgo', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {hallazgo_id: h.id, huella: h.huella}, 'Cerrar'));
+      }
+      anadir(lista, el('div', {clase: 'caja'},
+        insignia(h.severidad, h.severidad === 'bloqueo' ? 'bloqueada' :
+          (h.severidad === 'retencion' ? 'atencion' : 'normal')), ' ',
+        el('strong', {}, h.regla + ' ' + h.titulo), ' ', el('span', {clase: 'suave'}, h.estado),
+        el('div', {}, h.detalle), acciones));
+    });
+    return lista;
+  }
+
+  function pintarExcepcion(f) {
+    var caja = el('div', {clase: 'caja'});
+    var e = f.excepcion;
+    if (!e) {
+      anadir(caja, el('p', {clase: 'suave'}, 'Sin excepción abierta.'),
+        formulario('crear_excepcion', [{nombre: 'titulo', etiqueta: 'asunto'},
+          {nombre: 'motivo', etiqueta: 'descripción'}], {tabla: 'factura', fila_id: f.id},
+          'Abrir una excepción'));
+      return caja;
+    }
+    anadir(caja, el('p', {}, el('strong', {}, e.titulo), ' — ', e.estado,
+      e.responsable ? ', a cargo de ' + e.responsable : '',
+      e.esperando_a ? ', esperando a ' + e.esperando_a + ' hasta el ' + e.fecha_seguimiento : ''),
+      el('p', {clase: 'suave'}, e.descripcion || ''));
+    var personas = estado.personas.map(function (p) { return [String(p.id), p.nombre]; });
+    anadir(caja,
+      formulario('asignar_excepcion', [{nombre: 'responsable_id', etiqueta: 'a cargo de',
+        opciones: personas}], {excepcion_id: e.id, rev: e.rev}, 'Asignar'),
+      formulario('esperar_externo', [{nombre: 'esperando_a', etiqueta: 'esperando a', opciones: [
+        ['proveedor', 'proveedor'], ['cliente', 'cliente'], ['contable', 'contable'],
+        ['exact', 'Exact'], ['trnsprnt', 'TRNSPRNT'], ['banco', 'banco'], ['otro', 'otro']]},
+        {nombre: 'fecha_seguimiento', etiqueta: 'seguimiento', tipo: 'date'},
+        {nombre: 'motivo', etiqueta: 'nota'}], {excepcion_id: e.id, rev: e.rev}, 'Esperar'),
+      formulario('resolver_excepcion', [{nombre: 'resolucion', etiqueta: 'resolución', opciones: [
+        ['corregido', 'corregido'], ['aceptado', 'aceptado'], ['anulado', 'anulado'],
+        ['no_procede', 'no procede'], ['condicion_desaparecida', 'condición desaparecida']]},
+        {nombre: 'motivo', etiqueta: 'notas'}], {excepcion_id: e.id, rev: e.rev}, 'Resolver'));
+    return caja;
+  }
+
+  function pintarLineas(f) {
+    var caja = el('div');
+    f.lineas.forEach(function (l) {
+      var objetos = [['', '(sin Objeto)']].concat(estado.objetos.map(function (o) {
+        return [String(o.id), o.codigo]; }));
+      anadir(caja, el('h3', {}, 'Línea ' + l.orden + (l.retirada ? ' (excluida)' : '')),
+        tablaCampos(conRev(l.campos, l.rev), !l.retirada));
+      l.imputaciones.forEach(function (imp) {
+        if (imp.retirada) { return; }
+        anadir(caja, el('div', {clase: 'caja'}, 'Imputación ' + imp.id + ': ',
+          imp.objeto || '(sin Objeto)',
+          formulario('cambiar_objeto', [{nombre: 'objeto_id', etiqueta: 'Objeto', opciones: objetos},
+            {nombre: 'motivo', etiqueta: 'motivo'}], {imputacion_id: imp.id, rev: imp.rev},
+            'Cambiar imputación')));
+      });
+      if (!l.retirada) {
+        anadir(caja, formulario('excluir_linea', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {linea_id: l.id, rev: l.rev}, 'Excluir la línea'));
+      }
+    });
+    return caja;
+  }
+
+  function pintarDetalle(contenedor, f) {
+    vaciar(contenedor);
+    var e = f.estado || {};
+    anadir(contenedor,
+      el('h2', {}, 'Factura ' + (f.numero || '(sin número)') + ' — ' + (f.contraparte || '')),
+      el('p', {}, insignia(ETIQUETA_NIVEL[e.nivel] || e.nivel || '', e.nivel), ' ',
+        String(e.puntos || 0) + ' puntos · ', ETIQUETA_REVISION[e.estado_revision] || '', ' · ',
+        el('strong', {}, f.etiqueta)),
+      el('ul', {}, (e.motivos || []).map(function (m) { return el('li', {}, m); })),
+      f.pide_revision.length ? el('div', {clase: 'caja'}, 'Antes de revisarla: ',
+        el('ul', {}, f.pide_revision.map(function (m) { return el('li', {}, m); }))) : null,
+      el('h3', {}, 'Revisión'),
+      formulario('marcar_revisada', [{nombre: 'motivo', etiqueta: 'nota'}],
+        {factura_id: f.id, huella: f.huella_contenido}, 'Marcar revisada'),
+      formulario('devolver_factura', [{nombre: 'motivo', etiqueta: 'por qué'}],
+        {factura_id: f.id, huella: f.huella_contenido}, 'Devolver'),
+      el('ul', {}, f.revisiones.map(function (r) {
+        return el('li', {}, r.resultado + ' por ' + r.usuario + ' el ' + r.en +
+          (r.autorrevisada ? ' (autorrevisada)' : '') + (r.vigente ? '' : ' — ya no vale') +
+          (r.nota ? ': ' + r.nota : ''));
+      })),
+      el('h3', {}, 'Excepción'), pintarExcepcion(f),
+      el('h3', {}, 'Hallazgos'), pintarHallazgos(f),
+      el('h3', {}, 'Prioridad'),
+      formulario('subir_prioridad', [{nombre: 'nivel', etiqueta: 'subir a', opciones: [
+        ['atencion', 'Atención'], ['urgente', 'Urgente']]},
+        {nombre: 'hasta', etiqueta: 'hasta', tipo: 'date'},
+        {nombre: 'motivo', etiqueta: 'motivo (10+)'}], {entidad: 'factura', entidad_id: f.id},
+        'Subir'),
+      el('h3', {}, 'Campos'), tablaCampos(conRev(f.campos, f.rev), true),
+      el('h3', {}, 'Líneas'), pintarLineas(f),
+      el('h3', {}, 'Notas internas'),
+      el('ul', {}, f.notas.map(function (n) {
+        return el('li', {}, n.usuario + ', ' + n.en + ': ', n.texto); })),
+      formulario('anadir_nota', [{nombre: 'texto', etiqueta: 'nota'}],
+        {tabla: 'factura', fila_id: f.id}, 'Añadir nota'),
+      f.notas_doc ? el('div', {}, el('h3', {}, 'Texto del documento (no verificado)'),
+        el('div', {clase: 'doc'}, f.notas_doc)) : null,
+      el('h3', {}, 'Historia'),
+      el('ul', {}, f.historia.map(function (h) {
+        return el('li', {}, h.en + ' ' + h.tipo + (h.usuario ? ' (' + h.usuario + ')' : '') +
+          (h.motivo ? ': ' + h.motivo : ''));
+      })));
+  }
+
+  // ---------------------------------------------------------------- arranque
+
+  function recargar() {
+    var lista = api('GET', '/api/v2/facturas').then(function (r) {
+      pintarListado(document.getElementById('lista'), r.facturas);
+    });
+    if (estado.ficha !== null) { return lista.then(function () { return abrirFicha(estado.ficha); }); }
+    return lista;
+  }
+
+  function abrirFicha(id) {
+    estado.ficha = id;
+    return api('GET', '/api/v2/facturas/' + encodeURIComponent(String(id))).then(function (r) {
+      pintarDetalle(document.getElementById('ficha'), r.factura);
+    }).catch(function (error) { decir(error.message, true); });
+  }
+
+  function entrar(ev) {
+    ev.preventDefault();
+    estado.token = document.getElementById('token').value;
+    api('GET', '/api/v2/yo').then(function (yo) {
+      estado.yo = yo;
+      var quien = document.getElementById('quien');
+      vaciar(quien);
+      anadir(quien, yo.nombre + ' (' + yo.permisos.join(', ') + ')');
+      return Promise.all([api('GET', '/api/v2/personas'), api('GET', '/api/v2/objetos')]);
+    }).then(function (r) {
+      estado.personas = r[0].personas;
+      estado.objetos = r[1].objetos;
+      return recargar();
+    }).catch(function (error) { decir(error.message, true); });
+  }
+
+  function iniciar() {
+    document.getElementById('entrar').addEventListener('submit', entrar);
+  }
+
+  window.BMSConsola = {el: el, pintarListado: pintarListado, pintarDetalle: pintarDetalle,
+                       resumen: resumen, estado: estado};
+  document.addEventListener('DOMContentLoaded', iniciar);
+})();
+"""

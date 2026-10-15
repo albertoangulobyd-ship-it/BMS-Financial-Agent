@@ -13,6 +13,7 @@ cuenta para vencimientos y plazos de la empresa, no la del servidor.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 ZONA_EMPRESA = "Europe/Amsterdam"
@@ -63,3 +64,39 @@ def semana_iso(dia: date) -> str:
     """
     ano, semana, _ = dia.isocalendar()
     return f"{ano:04d}-W{semana:02d}"
+
+
+def trimestre_de(dia: date) -> tuple[int, int]:
+    """El trimestre natural de un dia: (2026, 3) para el 15 de septiembre de 2026."""
+    return dia.year, (dia.month - 1) // 3 + 1
+
+
+@lru_cache(maxsize=256)
+def limite_btw(ano: int, trimestre: int) -> date:
+    """El ultimo dia para declarar un trimestre: el ultimo del mes siguiente a su cierre.
+
+    El 31 de octubre para el tercero y el 31 de enero del ano siguiente para
+    el cuarto (arquitectura.md §8). Confirmarlo con el contable es del paso 11.
+    """
+    if trimestre not in (1, 2, 3, 4):
+        raise ValueError(f"un trimestre va de 1 a 4, no {trimestre}")
+    mes, ano_limite = trimestre * 3 + 1, ano
+    if mes > 12:
+        mes, ano_limite = mes - 12, ano + 1
+    siguiente = date(ano_limite + (mes == 12), mes % 12 + 1, 1)
+    return siguiente - timedelta(days=1)
+
+
+def proximo_limite_btw(dia: date, hoy: date) -> date:
+    """El plazo del BTW que le toca a algo fechado `dia`, visto desde hoy.
+
+    Es el de su trimestre si aun no ha pasado; si ya paso, el primero que no
+    ha pasado: lo que quede por arreglar de un trimestre ya vencido entra en
+    la siguiente declaracion.
+    """
+    ano, trimestre = trimestre_de(dia)
+    limite = limite_btw(ano, trimestre)
+    while limite < hoy:
+        ano, trimestre = (ano + 1, 1) if trimestre == 4 else (ano, trimestre + 1)
+        limite = limite_btw(ano, trimestre)
+    return limite

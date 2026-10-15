@@ -47,7 +47,9 @@ from bms_agent.almacen.unidades import (
     json_canonico,
     sha256_bytes,
 )
+from bms_agent import campos, excepciones
 from bms_agent.auditoria import Cambio, registrar
+from bms_agent.campos import Automatico, Persona
 
 PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 SHA_PDF = sha256_bytes(PDF)
@@ -57,7 +59,8 @@ AHORA = "2026-10-14T09:30:00+00:00"
 # excepcion cada una (apuntar el original una vez; rellenar mientras esta en
 # curso) que se prueba aparte; fuera de ella, abortan igual.
 SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
-                  "nota", "hallazgo_evento", "anulacion")
+                  "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
+                  "prioridad_manual")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas")
 
 
@@ -251,6 +254,27 @@ def _poblar(almacen: Almacen) -> None:
         conn.execute("INSERT INTO anulacion (hallazgo_id, huella, motivo, usuario_id, en, "
                      "evento_id) VALUES (?, ?, 'el proveedor lo confirmo', ?, ?, ?)",
                      (hallazgo, "a" * 64, persona, AHORA, anulado))
+        # Paso 4: una factura con su revision, su prioridad subida y una
+        # excepcion con un hallazgo unido. Ana revisa y gestiona avisos.
+        for permiso in ("revisar_factura", "resolver_aviso"):
+            conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, ?)", (rol, permiso))
+        factura = campos.crear(conn, "factura", {"sentido": "entrante", "tipo": "factura",
+                                                 "origen": "manual", "numero": "2026-1"},
+                               Automatico("extraccion", sistema))
+        revisado = registrar(conn, tipo="revision_registrada", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO revision (factura_id, resultado, huella_contenido, usuario_id, "
+                     "en, evento_id) VALUES (?, 'revisada', ?, ?, ?, ?)",
+                     (factura, "b" * 64, persona, AHORA, revisado))
+        subido = registrar(conn, tipo="prioridad_subida", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO prioridad_manual (entidad, entidad_id, nivel, motivo, "
+                     "usuario_id, en, evento_id) VALUES ('factura', ?, 'urgente', "
+                     "'el cliente espera la respuesta', ?, ?, ?)",
+                     (factura, persona, AHORA, subido))
+        excepcion = excepciones.crear(conn, Persona(persona), tabla="factura", fila_id=factura,
+                                      titulo="Comprobar con el proveedor")
+        unido = registrar(conn, tipo="excepciones_sincronizadas", actor=motor)
+        conn.execute("INSERT INTO excepcion_hallazgo (excepcion_id, hallazgo_id, vinculado_en, "
+                     "evento_id) VALUES (?, ?, ?, ?)", (excepcion, hallazgo, AHORA, unido))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)
@@ -286,9 +310,10 @@ def test_la_lista_de_tablas_de_solo_escritura_esta_completa(db) -> None:
     from bms_agent.campos import TABLAS_CONTROLADAS
 
     # El hallazgo del paso 3 cambia de estado, pero solo como diga su ultimo
-    # evento (test_hallazgos.py).
+    # evento (test_hallazgos.py), y la excepcion del paso 4 es controlada como
+    # las del paso 2, aunque la escribe excepciones.py (test_excepciones.py).
     assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo", "hallazgo",
-                                      *TABLAS_CONTROLADAS}
+                                      "excepcion", *TABLAS_CONTROLADAS}
 
 
 def test_un_documento_solo_admite_apuntar_su_original_una_vez(almacen) -> None:

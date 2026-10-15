@@ -154,10 +154,11 @@ def test_rehacer_el_hash_de_la_fila_editada_rompe_el_enlace_con_la_siguiente(fic
 
 def test_la_cadena_encuentra_un_cambio_de_campo_editado(fichero) -> None:
     atacante = _directa(fichero)
-    atacante.execute("UPDATE cambio_campo SET valor_nuevo = '999' WHERE evento_id = 4")
+    primero = MIGRACIONES + 1
+    atacante.execute(f"UPDATE cambio_campo SET valor_nuevo = '999' WHERE evento_id = {primero}")
     atacante.close()
     assert _verificar(fichero).problemas == [
-        "el evento 4 o sus cambio_campo se han modificado (el hash no coincide)"]
+        f"el evento {primero} o sus cambio_campo se han modificado (el hash no coincide)"]
 
 
 def test_la_cadena_encuentra_un_evento_borrado_por_en_medio(fichero) -> None:

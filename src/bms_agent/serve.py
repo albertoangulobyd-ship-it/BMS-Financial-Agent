@@ -29,6 +29,13 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
      de otra web no puede poner ninguna de las dos cosas, asi que no puede
      lanzar pasadas que se pagan. El token es aleatorio en cada arranque, se
      imprime al arrancar y va dentro de la pagina local que sirve "/".
+
+4. Desde el paso 4, /api/v2 y la consola (/consola). Ahi X-BMS-Token es el
+   token personal de quien usa la consola (permisos.emitir_token; la base
+   guarda solo su hash): dice quien es, y cada lectura pide ver_facturas y
+   cada orden su permiso (servicios.py). Las mismas comprobaciones de Host,
+   Origin, cabecera y JSON valen para todo. Ninguna orden crea una factura,
+   paga, aprueba un pago ni presenta el BTW.
 """
 
 from __future__ import annotations
@@ -43,9 +50,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from . import config
+from . import config, consola, consultas, permisos, servicios
 from .almacen import preparar, ruta_por_defecto
 from .auditoria import anclar
 from .cache import CONSERVAR
@@ -58,9 +65,11 @@ from .pricing import estimate_cost
 
 HOSTS_LOCALES = ("127.0.0.1", "localhost")
 CABECERA_TOKEN = "X-BMS-Token"
-# El unico POST que hay no necesita cuerpo; esto solo impide que alguien
-# tenga el hilo ocupado leyendo megas.
+# El POST de ejecutar no necesita cuerpo; esto solo impide que alguien
+# tenga el hilo ocupado leyendo megas. Una orden de la consola lleva sus datos
+# (una nota, un reparto de una linea) y cabe en 64 KiB.
 MAX_CUERPO = 4096
+MAX_CUERPO_V2 = 65536
 
 
 def nuevo_token() -> str:
@@ -352,6 +361,10 @@ class Manejador(BaseHTTPRequestHandler):
         ruta = self.path.split("?", 1)[0].rstrip("/")
         if ruta == "":
             self._pagina()
+        elif consola.fichero(ruta) is not None:
+            self._consola(ruta)
+        elif ruta.startswith("/api/v2/"):
+            self._leer_v2(ruta)
         elif ruta == "/api/datos":
             # Del almacen, con los valores corregidos; de out/ solo si no hay almacen.
             lectura = leer_registros(self.carpeta_salida, self.ruta_db or ruta_por_defecto())
@@ -383,10 +396,41 @@ class Manejador(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(datos)
 
+    def _cuerpo_json(self, maximo: int) -> dict[str, Any] | None:
+        """El cuerpo de un POST: application/json, un objeto, de un tamano razonable.
+
+        Contesta el error y devuelve None si no lo es.
+        """
+        if self.headers.get_content_type() != "application/json":
+            self._json(415, {"error": "el cuerpo tiene que ser application/json"})
+            return None
+        try:
+            largo = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._json(400, {"error": "Content-Length no valido"})
+            return None
+        if largo < 0 or largo > maximo:
+            self._json(413, {"error": "cuerpo demasiado grande"})
+            return None
+        crudo = self.rfile.read(largo) if largo else b""
+        try:
+            cuerpo = json.loads(crudo or b"{}", parse_float=_sin_floats)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            cuerpo = None
+        if not isinstance(cuerpo, dict):
+            self._json(400, {"error": "el cuerpo tiene que ser un objeto JSON (sin numeros con "
+                                      "decimales: los importes van como texto)"})
+            return None
+        return cuerpo
+
     def do_POST(self) -> None:  # noqa: N802
         if self._rechazada():
             return
-        if self.path.split("?", 1)[0].rstrip("/") != "/api/ejecutar":
+        ruta = self.path.split("?", 1)[0].rstrip("/")
+        if ruta == "/api/v2/acciones":
+            self._accion_v2()
+            return
+        if ruta != "/api/ejecutar":
             self._json(404, {"error": "no existe"})
             return
         if not hmac.compare_digest(
@@ -394,31 +438,144 @@ class Manejador(BaseHTTPRequestHandler):
         ):
             self._json(403, {"error": f"falta la cabecera {CABECERA_TOKEN} o no es valida"})
             return
-        if self.headers.get_content_type() != "application/json":
-            self._json(415, {"error": "el cuerpo tiene que ser application/json"})
-            return
-        try:
-            largo = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._json(400, {"error": "Content-Length no valido"})
-            return
-        if largo < 0 or largo > MAX_CUERPO:
-            self._json(413, {"error": "cuerpo demasiado grande"})
-            return
-        crudo = self.rfile.read(largo) if largo else b""
-        try:
-            cuerpo = json.loads(crudo or b"{}")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            cuerpo = None
-        if not isinstance(cuerpo, dict):
-            self._json(400, {"error": "el cuerpo tiene que ser un objeto JSON"})
+        if self._cuerpo_json(MAX_CUERPO) is None:
             return
 
         lanzada, mensaje = self.agente.lanzar()
         self._json(202 if lanzada else 409, {"lanzada": lanzada, "mensaje": mensaje})
 
+    # ---- consola y /api/v2
+
+    def _consola(self, ruta: str) -> None:
+        tipo, datos = consola.fichero(ruta)
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(datos)))
+        for nombre, valor in consola.cabeceras().items():
+            self.send_header(nombre, valor)
+        self.end_headers()
+        self.wfile.write(datos)
+
+    def _almacen(self) -> Any:
+        return preparar(self.ruta_db or ruta_por_defecto())
+
+    def _persona(self, conn: Any, accion: str) -> int | None:
+        """La persona del token personal. Si no hay o no vale, contesta 401 y lo audita."""
+        usuario_id = permisos.usuario_por_token(conn, self.headers.get(CABECERA_TOKEN))
+        if usuario_id is None:
+            permisos.registrar_denegacion(conn, permisos.PermisoDenegado(
+                None, "ver_facturas", "token personal ausente o no valido", accion))
+            self._json(401, {"error": f"falta un token personal valido en {CABECERA_TOKEN}"})
+        return usuario_id
+
+    def _leer_v2(self, ruta: str) -> None:
+        """Las lecturas de la consola: piden un token personal con ver_facturas."""
+        consulta = parse_qs(urlsplit(self.path).query)
+        with self._almacen() as almacen:
+            conn = almacen.conn
+            usuario_id = self._persona(conn, f"GET {ruta}")
+            if usuario_id is None:
+                return
+            try:
+                permisos.exigir(conn, usuario_id, "ver_facturas", accion=f"GET {ruta}")
+            except permisos.PermisoDenegado as exc:
+                self._json(403, {"error": str(exc)})
+                return
+            partes = ruta.split("/")[3:]
+            try:
+                if partes == ["yo"]:
+                    fila = conn.execute("SELECT nombre FROM usuario WHERE id = ?",
+                                        (usuario_id,)).fetchone()
+                    self._json(200, {"id": usuario_id, "nombre": fila["nombre"],
+                                     "permisos": sorted(permisos.permisos_de(conn, usuario_id))})
+                elif partes == ["facturas"]:
+                    nivel = (consulta.get("nivel") or [None])[0]
+                    self._json(200, {"facturas": consultas.listado(conn, nivel=nivel)})
+                elif len(partes) == 2 and partes[0] == "facturas" and partes[1].isdigit():
+                    self._json(200, {"factura": consultas.detalle(conn, int(partes[1]))})
+                elif partes == ["excepciones"]:
+                    self._json(200, {"excepciones": consultas.excepciones_abiertas(conn)})
+                elif partes == ["personas"]:
+                    self._json(200, {"personas": consultas.personas(conn)})
+                elif partes == ["objetos"]:
+                    self._json(200, {"objetos": consultas.objetos(conn)})
+                elif partes == ["acciones"]:
+                    self._json(200, {"acciones": [
+                        {"nombre": a.nombre, "permiso": a.permiso, "descripcion": a.descripcion,
+                         "motivo": a.motivo, "parametros": [
+                             {"nombre": p.nombre, "tipo": p.tipo, "obligatorio": p.obligatorio}
+                             for p in a.parametros]}
+                        for a in servicios.ACCIONES.values()]})
+                else:
+                    self._json(404, {"error": "no existe"})
+            except LookupError as exc:
+                self._json(404, {"error": str(exc)})
+
+    def _accion_v2(self) -> None:
+        """Una orden de una persona: su token, su permiso y todo en una transaccion."""
+        cuerpo = self._cuerpo_json(MAX_CUERPO_V2)
+        if cuerpo is None:
+            return
+        nombre = cuerpo.get("accion")
+        datos = cuerpo.get("datos") or {}
+        if not isinstance(nombre, str) or not isinstance(datos, dict):
+            self._json(400, {"error": "una orden es {accion, peticion_id, datos}"})
+            return
+        with self._almacen() as almacen:
+            conn = almacen.conn
+            usuario_id = self._persona(conn, nombre)
+            if usuario_id is None:
+                return
+            segunda = None
+            if cuerpo.get("segunda_firma_token"):
+                segunda = permisos.usuario_por_token(conn, str(cuerpo["segunda_firma_token"]))
+                if segunda is None:
+                    self._json(401, {"error": "el token de la segunda firma no vale"})
+                    return
+            try:
+                diferencia = servicios.ejecutar(
+                    conn, nombre, datos, usuario_id=usuario_id,
+                    peticion_id=cuerpo.get("peticion_id"), segunda_firma_id=segunda)
+            except Exception as exc:  # cada error de la orden tiene su codigo
+                codigo = _codigo_de(exc)
+                if codigo is None:
+                    raise
+                self._json(codigo, {"error": str(exc), "tipo": type(exc).__name__})
+                return
+            if almacen.ruta_anclas is not None:
+                anclar(conn, almacen.ruta_anclas)
+        self._json(200, {"ok": True, "diferencia": diferencia.a_dict()})
+
     def log_message(self, formato: str, *args: Any) -> None:
         print(f"  {self.address_string()} {formato % args}")
+
+
+def _sin_floats(texto: str) -> Any:
+    """Un numero con decimales en JSON llega como float y pierde centimos: no se admite."""
+    raise ValueError(f"numero con decimales {texto}: los importes van como texto")
+
+
+def _codigo_de(error: Exception) -> int | None:
+    """El codigo HTTP de un error de una orden, o None si es un fallo de verdad."""
+    from .campos import CampoDeOtroSistema, CampoNoEditable, Conflicto, FaltaMotivo
+    from .estados import NoSube
+    from .excepciones import BloqueoAbierto, EstadoNoValido as EstadoExcepcion
+    from .hallazgos import EstadoNoValido as EstadoHallazgo, NoAnulable
+    from .revision import NoRevisable
+
+    if isinstance(error, permisos.PermisoDenegado):
+        return 403
+    if isinstance(error, (Conflicto, servicios.PeticionRepetida)):
+        return 409
+    if isinstance(error, (BloqueoAbierto, EstadoExcepcion, EstadoHallazgo, NoAnulable,
+                          NoRevisable, NoSube, CampoDeOtroSistema, CampoNoEditable)):
+        return 409
+    if isinstance(error, LookupError):
+        return 404
+    if isinstance(error, (FaltaMotivo, servicios.AccionDesconocida, servicios.DatosNoValidos,
+                          ValueError, TypeError)):
+        return 400
+    return None
 
 
 def crear_servidor(
@@ -475,6 +632,9 @@ def servir(
     print("  GET  /api/datos       datos del panel (del almacen; de out/ si no hay almacen)")
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
+    print("  GET  /consola         consola interna (se entra con el token personal)")
+    print("  GET  /api/v2/...      facturas, ficha, excepciones (token personal)")
+    print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")
     print("\nOrigenes admitidos: " + ", ".join(sorted(manejador.origenes)))

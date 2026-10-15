@@ -1522,7 +1522,7 @@ def recalcular(conn: sqlite3.Connection, tabla: str, fila_id: int, origen: Autom
 
 
 def anadir_nota(conn: sqlite3.Connection, tabla: str, fila_id: int, texto: str,
-                persona: Persona) -> int:
+                persona: Persona, *, datos: Mapping[str, Any] | None = None) -> int:
     """Una nota de una persona sobre una fila. Las notas solo se anaden."""
     if not (texto or "").strip():
         raise ValueError("una nota vacia no dice nada")
@@ -1537,7 +1537,7 @@ def anadir_nota(conn: sqlite3.Connection, tabla: str, fila_id: int, texto: str,
         evento = registrar(conn, tipo="nota_anadida", actor=persona.usuario_id,
                            usuario_id=persona.usuario_id, tabla=tabla, fila_id=fila_id,
                            factura_id=factura_id, peticion_id=persona.peticion_id,
-                           datos={"fila": fila})
+                           datos={**(datos or {}), "fila": fila})
         cursor = conn.execute(
             "INSERT INTO nota (tabla, fila_id, texto, usuario_id, en, evento_id) "
             "VALUES (:tabla, :fila_id, :texto, :usuario_id, :en, :evento_id)",

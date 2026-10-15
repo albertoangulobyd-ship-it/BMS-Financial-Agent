@@ -1,0 +1,90 @@
+# Pesos de la prioridad (spec.md §8, capa 2: puntos).
+#
+# Lo que esta aqui se puede ajustar; los suelos no. Que un hallazgo que
+# bloquea ponga la factura en Bloqueada, que B3, B4, B5, V7, F7, P4, P6, P10
+# y K5 la pongan por lo menos en Urgente, el IVA a 7 dias del BTW, una compra
+# vencida mas de 30 dias que necesita accion o una venta vencida mas de 60
+# estan en el codigo (prioridad.py): son la parte que no se negocia.
+#
+# Se carga con `bms-agent politica cargar config/prioridad.yaml`, que lo
+# apunta en politica_version con su hash. Mientras no se cargue ninguno,
+# valen los mismos numeros, que estan tambien en prioridad.Pesos (un test
+# comprueba que este fichero y el codigo dicen lo mismo).
+#
+# Importes en euros enteros, plazos en dias. Los puntos de plazo, vencimiento
+# e importe solo cuentan si la factura necesita accion (tiene una excepcion
+# abierta o no esta revisada).
+
+# Puntos a partir de los cuales una factura pasa a atencion y a urgente.
+niveles:
+  atencion: 20
+  urgente: 40
+
+# Compra que vence en N dias o menos (de 0 a 3: 20; de 4 a 7: 10).
+plazo_entrante:
+  - {hasta_dias: 3, puntos: 20}
+  - {hasta_dias: 7, puntos: 10}
+
+# Dias vencida, desde N (compra: 1-14, 15-30, mas de 30).
+vencida_entrante:
+  - {desde_dias: 1, puntos: 15}
+  - {desde_dias: 15, puntos: 25}
+  - {desde_dias: 31, puntos: 35}
+
+# Dias vencida de una venta, desde N (1-14, 15-30, 31 o mas; pasados 60 el
+# suelo ya es urgente).
+vencida_saliente:
+  - {desde_dias: 1, puntos: 10}
+  - {desde_dias: 15, puntos: 20}
+  - {desde_dias: 31, puntos: 30}
+
+# Base (en valor absoluto) desde N euros.
+importe:
+  - {desde_euros: 2500, puntos: 5}
+  - {desde_euros: 10000, puntos: 10}
+  - {desde_euros: 25000, puntos: 20}
+
+# Discrepancia de planning (G2-G6, V1-V4): puntos, y los extras se suman
+# segun lo que vale (horas de diferencia por la tarifa).
+planning:
+  puntos: 15
+  extras:
+    - {desde_euros: 500, puntos: 10}
+    - {desde_euros: 2500, puntos: 10}
+
+# Facturacion ausente (V5, V8).
+facturacion_ausente: 20
+
+# Trabajo sin facturar (V6): bajo si vale menos del umbral, alto si no, y
+# por cada semana entera pasado el margen, hasta un maximo.
+trabajo_sin_facturar:
+  umbral_euros: 1000
+  puntos_bajo: 15
+  puntos_alto: 25
+  por_semana: 5
+  maximo_extra: 20
+
+# Limite de PO blando (P1-P3, P5, P8, P9).
+limite_po: 10
+
+# La PO caduca en N dias o menos (P7).
+caducidad_po:
+  - {hasta_dias: 7, puntos: 20}
+  - {hasta_dias: 30, puntos: 10}
+
+# IVA blando (E0-E2, E7, C4), y el extra si el BTW vence en N dias o menos.
+iva_blando:
+  puntos: 20
+  extra: 15
+  extra_hasta_dias_btw: 14
+
+# Otras anomalias: por cada regla distinta, hasta un maximo.
+otra_anomalia:
+  por_regla: 10
+  maximo: 20
+
+# Esperando a alguien de fuera: con el seguimiento por llegar, los puntos de
+# plazo y vencimiento se dividen; con el seguimiento pasado, se suman estos.
+esperando_externo:
+  divisor_plazos: 2
+  seguimiento_vencido: 10

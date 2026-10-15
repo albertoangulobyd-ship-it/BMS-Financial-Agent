@@ -259,6 +259,8 @@ class Regla:
     `severidad_saliente` y `anulable_saliente`, si la regla cambia en las
     facturas de venta (D2: bloquea una compra, retiene una venta).
     `segunda_firma`: anularla pide otra persona con anular_aviso, si la hay.
+    `crea_excepcion`: un aviso suyo abre tambien una excepcion (Q3, K1, U1);
+    los que bloquean o retienen la abren siempre (spec §7, Exceptions).
     """
 
     id: str
@@ -273,6 +275,7 @@ class Regla:
     anulable_saliente: bool | None = None
     pegajosa: bool = False
     segunda_firma: bool = False
+    crea_excepcion: bool = False
     entrada_prioridad: str = EntradaPrioridad.OTRA.value
     calidad: str | None = None
     ambito: str = AmbitoHallazgo.FACTURA.value
@@ -300,7 +303,8 @@ class Regla:
             "version": self.version, "severidad": self.severidad,
             "severidad_saliente": self.severidad_saliente, "anulable": self.anulable,
             "anulable_saliente": self.anulable_saliente, "pegajosa": self.pegajosa,
-            "segunda_firma": self.segunda_firma, "entrada_prioridad": self.entrada_prioridad,
+            "segunda_firma": self.segunda_firma, "crea_excepcion": self.crea_excepcion,
+            "entrada_prioridad": self.entrada_prioridad,
             "calidad": self.calidad, "ambito": self.ambito, "lee": sorted(self.lee),
             "solo_texto": sorted(self.solo_texto),
         }

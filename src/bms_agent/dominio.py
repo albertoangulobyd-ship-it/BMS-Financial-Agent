@@ -100,11 +100,56 @@ class EstadoExcepcion(_Texto):
     RESUELTA = "resuelta"
 
 
+ESTADOS_EXCEPCION_ABIERTA = frozenset({EstadoExcepcion.ABIERTA.value,
+                                       EstadoExcepcion.ASIGNADA.value,
+                                       EstadoExcepcion.ESPERANDO_EXTERNO.value})
+
+
+class EsperandoA(_Texto):
+    """A quien se espera cuando una excepcion esta esperando a alguien de fuera."""
+
+    PROVEEDOR = "proveedor"
+    CLIENTE = "cliente"
+    CONTABLE = "contable"
+    EXACT = "exact"
+    TRNSPRNT = "trnsprnt"
+    BANCO = "banco"
+    OTRO = "otro"
+
+
+class ResolucionExcepcion(_Texto):
+    """Como acabo una excepcion. Ninguna es "aprobada": resolver no aprueba un pago."""
+
+    CORREGIDO = "corregido"
+    ACEPTADO = "aceptado"
+    ANULADO = "anulado"
+    NO_PROCEDE = "no_procede"
+    CONDICION_DESAPARECIDA = "condicion_desaparecida"
+
+
+class ResultadoRevision(_Texto):
+    """Lo que deja una persona al revisar una factura. No hay "aprobada"."""
+
+    REVISADA = "revisada"
+    DEVUELTA = "devuelta"
+
+
 class Prioridad(_Texto):
     NORMAL = "normal"
     ATENCION = "atencion"
     URGENTE = "urgente"
     BLOQUEADA = "bloqueada"
+
+
+class EntidadPrioridad(_Texto):
+    """Lo que tiene prioridad propia ademas de una factura (cache prioridad)."""
+
+    EXCEPCION = "excepcion"
+    PROVEEDOR = "proveedor"
+    CLIENTE = "cliente"
+    OBJETO = "objeto"
+    ORDEN_COMPRA = "orden_compra"
+    TRIMESTRE = "trimestre"
 
 
 class Severidad(_Texto):

@@ -163,6 +163,7 @@ def resolver_recurso(conn: sqlite3.Connection, texto: Any) -> Resolucion:
 def anadir_alias(
     conn: sqlite3.Connection, tabla: str, alias: str, fila_id: int,
     origen: Automatico | Persona, *, origen_alias: str = "manual", confirmado: bool = True,
+    datos: dict[str, Any] | None = None,
 ) -> int:
     """Un nombre mas con el que se reconoce una fila. Devuelve el id del alias.
 
@@ -188,4 +189,4 @@ def anadir_alias(
     return crear(conn, "alias", {
         "tabla": tabla, "alias": alias.strip(), "fila_id": fila_id, "origen": origen_alias,
         "confirmado": confirmado,
-    }, origen, tipo="alias_alta")
+    }, origen, tipo="alias_alta", datos=datos)

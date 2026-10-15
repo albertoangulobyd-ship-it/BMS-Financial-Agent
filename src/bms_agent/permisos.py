@@ -26,12 +26,15 @@ campo; los predicados SOD1-SOD5 llegan con las ordenes que separan (ver el
 registro, paso 2) y se escriben encima de `separacion()`.
 
 La CLI local actua como el operador del fichero (`por=None`, actor
-'sistema'): quien la ejecuta ya tiene la base. Las personas con nombre y
-token llegan con el servidor (paso 4).
+'sistema'): quien la ejecuta ya tiene la base. Desde el paso 4 cada persona
+tiene un token (`emitir_token`), del que la base guarda solo el sha256; con
+el se identifica en el servidor local y en las ordenes de la CLI.
 """
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -377,3 +380,61 @@ def listar_usuarios(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "ORDER BY r.nombre", (fila["id"], instante, instante))]
         usuarios.append({**dict(fila), "roles": roles})
     return usuarios
+
+
+# ------------------------------------------------------- tokens de persona
+
+def sha256_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def emitir_token(conn: sqlite3.Connection, usuario_id: int, *, por: int | None = None) -> str:
+    """Un token nuevo para una persona; el anterior deja de valer. Se devuelve una sola vez.
+
+    La base guarda solo su sha256 (usuario.token_sha256): quien lee el
+    fichero no puede actuar como nadie. Es la atribucion local de la V1
+    (spec §3.17), hasta que llegue Entra ID con el despliegue.
+    """
+    token = secrets.token_urlsafe(32)
+    with orden_auditada(conn):
+        actor, persona = _actor_y_persona(conn, por)
+        fila = _usuario(conn, usuario_id)
+        if fila is None:
+            raise LookupError(f"no hay usuario {usuario_id}")
+        if fila["es_sistema"]:
+            raise ValueError(f"{fila['nombre']} es un usuario de sistema: no tiene token")
+        if not fila["activo"]:
+            raise ValueError(f"{fila['nombre']} esta desactivado")
+        conn.execute("UPDATE usuario SET token_sha256 = ? WHERE id = ?",
+                     (sha256_token(token), usuario_id))
+        registrar(conn, tipo="usuario_modificado", actor=actor, usuario_id=persona,
+                  tabla="usuario", fila_id=usuario_id, motivo="token nuevo",
+                  datos={"fila": foto(conn, "usuario", usuario_id)})
+    return token
+
+
+def usuario_por_token(conn: sqlite3.Connection, token: str | None) -> int | None:
+    """La persona activa de un token, o None. Un usuario de sistema no tiene token."""
+    if not token:
+        return None
+    fila = conn.execute(
+        "SELECT id FROM usuario WHERE token_sha256 = ? AND es_sistema = 0 AND activo = 1",
+        (sha256_token(token),)).fetchone()
+    return int(fila["id"]) if fila else None
+
+
+def desactivar_usuario(conn: sqlite3.Connection, usuario_id: int, *,
+                       por: int | None = None) -> None:
+    """Una persona que ya no actua: no se borra, se desactiva, y su token deja de valer."""
+    with orden_auditada(conn):
+        actor, persona = _actor_y_persona(conn, por)
+        fila = _usuario(conn, usuario_id)
+        if fila is None:
+            raise LookupError(f"no hay usuario {usuario_id}")
+        if fila["es_sistema"]:
+            raise ValueError(f"{fila['nombre']} es un usuario de sistema: no se desactiva")
+        conn.execute("UPDATE usuario SET activo = 0, token_sha256 = NULL WHERE id = ?",
+                     (usuario_id,))
+        registrar(conn, tipo="usuario_modificado", actor=actor, usuario_id=persona,
+                  tabla="usuario", fila_id=usuario_id, motivo="desactivado",
+                  datos={"fila": foto(conn, "usuario", usuario_id)})

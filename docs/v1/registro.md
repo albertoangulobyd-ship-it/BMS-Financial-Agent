@@ -1345,3 +1345,313 @@ también `hallazgo_clasificacion` para tocar la marca), `test_el_dominio_de_los_
 (lee también la cadena de `OR` de `evaluacion.resultado`) y
 `test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture` (usa
 `_comparar_con_v1`). Ninguno prueba menos que antes.
+
+## Paso 4
+
+Excepciones, revisión, prioridad, órdenes y consola. **1011 tests pasan**
+(608 funciones de test; eran 725 y 491 al terminar el paso 3), ninguno llama
+a la API y ninguno escribe fuera de una carpeta temporal. La pasada del motor
+hace ahora también excepciones, estado de cada factura y prioridad, y cinco
+mil facturas se recalculan en 1,4-1,7 s la primera vez y en 1,1-1,35 s las
+siguientes (cuatro medidas de cada caso en este contenedor; eran 1,0-1,3 s y
+0,9-1,3 s). La puerta de 2 s sigue en pie, con menos margen: ver "Lo que
+deben saber los pasos siguientes".
+
+### Qué se construyó
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `prioridad.py` | El §8 como función pura: `calcular(entradas, hoy, pesos)` da nivel, puntos, suelo y motivos. Suelos en el código (`REGLAS_URGENTES`, `DIAS_IVA_URGENTE`, `DIAS_VENCIDA_URGENTE`); puntos con `Pesos` (los de `config/prioridad.yaml`, con su `sha256()`); `pesos_de_yaml` (rechaza un fichero que no tenga la forma entera); `Subida` (lo que sube una persona, con vigencia); `huella_entradas`; `clave_orden` y `ordenar`; `agregar` (proveedor, cliente, Objeto, trimestre: el máximo de sus hijas) y `de_excepcion` |
+| `politica.py` | `registrar()` apunta un fichero de `config/` en `politica_version` con su texto, su sha256 y su evento; `vigente()`; `pesos_prioridad()` (los del último `prioridad.yaml` cargado, o los de `prioridad.Pesos`); `cargar_prioridad()` |
+| `excepciones.py` | La excepción por entidad: `sincronizar()` (la abre el motor en cada pasada y le une los hallazgos nuevos), `crear`, `asignar`, `esperar` y `resolver` (órdenes de persona), `seguimiento_por_defecto`, `bloqueos_abiertos`, `abierta_de`, `hallazgos_de` y `verificar()` |
+| `revision.py` | La huella del contenido (`contenidos`, `huella_contenido`), el estado de los campos de cada factura (`estado_de_campos`: marcas de edición, cambios sin resolver, dudosos sin verificar), el estado de revisión (`estado`), la etiqueta del sistema (`etiqueta_sistema`: "Sin objeciones del sistema", nunca "aprobada"), `lo_que_pide_revision`, `marcar_revisada` y `devolver` |
+| `estados.py` | Las cachés `factura_estado` y `prioridad`, rehechas en cada pasada (solo lo que cambia); `vencimiento_efectivo`, `estado_pago`, `calidad`; `subir_prioridad()` (la orden de persona sobre `prioridad_manual`). Devuelve `Cambios`: prioridades que se movieron y revisiones que dejaron de valer |
+| `servicios.py` | Las órdenes de persona: `ACCIONES` (23 `Accion` tipadas, con sus `Parametro`, su permiso y si piden motivo) y `ejecutar()`, la única puerta de la CLI, la consola y `POST /api/v2/acciones`. Devuelve una `Diferencia` (`a_dict()` y `lineas()`) |
+| `consultas.py` | Lo que lee la consola, la CLI y `/api/v2`: `listado` (por prioridad, con insignias), `excepciones_abiertas`, `detalle` (campo a campo: valor, literal impreso, original, fuente, dudoso, verificado, sin resolver, calidad; líneas e imputaciones, referencias, hallazgos, excepción, revisiones, notas, historia), `personas`, `objetos` |
+| `consola.py`, `consola_assets.py` | La consola mínima: una página sin datos, un script y una hoja de estilo, con su política de contenido. El script pinta todo con `createElement` y `textContent` |
+| `config/prioridad.yaml` | Los pesos del §8, iguales a `prioridad.Pesos` (un test lo comprueba) |
+
+**Órdenes** (`servicios.ACCIONES`; en la CLI, `bms-agent accion <orden>`):
+
+| Orden | Permiso | Qué hace |
+| --- | --- | --- |
+| `fijar_campo` | `anadir_informacion` si el campo está vacío, `editar_extraccion` si se corrige (el del campo en `campos.py`) | Rellenar o corregir un campo de una factura, una línea, una imputación, un desglose o una referencia |
+| `verificar_campo` | el de corregir el campo | Dar por bueno el valor actual (lo verifica otra persona si hay dos) |
+| `revertir_campo` | el de corregir el campo | Volver al valor automático |
+| `anadir_nota` | `anadir_informacion` | Nota interna en una factura o una excepción |
+| `cambiar_objeto`, `anadir_alias` | `cambiar_objeto` | Imputar una línea a otro Objeto; un nombre impreso más para un Objeto o un recurso |
+| `cambiar_po` | `cambiar_po` | La clase de una referencia impresa (PO, orden, proyecto…) |
+| `excluir_linea`, `anadir_linea`, `dividir_linea` | `editar_extraccion` | Retirar una línea, añadir la que la extracción no trajo, repartir una línea entre Objetos (las partes suman la línea) |
+| `corregir_maestro` | `admin` | Corregir un proveedor, cliente o contacto que no viene de Exact ni de TRNSPRNT |
+| `anular_factura`, `fusionar_factura` | `anular_acreditar` | Anular (no emite abono); fusionar un reenvío en su factura (cierra su B2) |
+| `marcar_revisada`, `devolver_factura` | `revisar_factura` | Revisar con la huella vista; devolver con una nota |
+| `crear_excepcion`, `asignar_excepcion`, `esperar_externo`, `resolver_excepcion` | `resolver_aviso` | La vida de una excepción |
+| `cerrar_hallazgo` | `resolver_aviso` | Cerrar uno cuya condición desapareció |
+| `anular_hallazgo` | `anular_aviso` | Anular con la huella vista (y la segunda firma, si toca) |
+| `subir_prioridad` | `resolver_aviso` | Subir a atención o urgente, con motivo y fecha de fin |
+| `recalcular` | `ver_facturas` | Una pasada a petición |
+
+`ejecutar()` hace siempre lo mismo y en este orden: comprueba los datos
+(tipos, nada que no se espere, importes como texto y nunca como float),
+mira la idempotencia (`peticion_id`), abre la transacción, exige una persona
+activa (nunca un usuario de sistema) con el permiso, el motivo donde hace
+falta y la `rev` que la persona vio, escribe por `campos.py` (o por el
+módulo dueño de la tabla), recalcula todo con la causa de la orden y
+devuelve la `Diferencia`: resultados de reglas que cambiaron, hallazgos que
+se abrieron, cerraron o reabrieron, excepciones, revisiones que dejaron de
+valer, prioridades que se movieron y los totales de las facturas tocadas
+antes y después. Si algo falla no queda nada; una denegación de permiso sí
+queda, como evento, después del ROLLBACK.
+
+**Tablas** (migración `0004_excepciones_revision_prioridad.sql`), STRICT,
+con clave entera y sin columnas REAL:
+
+| Tabla | Clase | Qué no se puede hacer |
+| --- | --- | --- |
+| `excepcion` | Controlada (rev y la guarda generada, con `cambio_campo` por columna; la escribe `excepciones.py`) | Borrarla; nacer en otro estado que `abierta`; dos sin resolver para la misma entidad (índice único parcial); `asignada` sin responsable activo; `esperando_externo` sin a quién y sin fecha; `resuelta` sin resolución, notas, fecha y quién; tocar una resuelta o cambiar a qué apunta; que cambie el estado alguien que no sea una persona activa con `resolver_aviso` en el evento de la orden; resolverla con un hallazgo suyo que bloquea abierto y sin anular |
+| `excepcion_hallazgo` | SOLO ESCRITURA | `UPDATE` y `DELETE`; unir un hallazgo a una excepción resuelta o fuera del último evento |
+| `revision` | SOLO ESCRITURA | `UPDATE` y `DELETE`; que la escriba alguien sin `revisar_factura` en ese momento, un usuario de sistema o en un evento que no es el último ni suyo; `devuelta` sin nota; `autorrevisada` en una devuelta |
+| `prioridad_manual` | SOLO ESCRITURA | `UPDATE` y `DELETE`; un nivel que no sea atención o urgente; un motivo de menos de 10 caracteres; que la escriba alguien sin `resolver_aviso`; un nivel por debajo del que ya tiene la entidad |
+| `factura_estado` | CACHE | — (una fila por factura; se reescribe lo que cambia) |
+| `prioridad` | CACHE | — (una fila por excepción sin resolver, proveedor, cliente, Objeto y trimestre) |
+
+**Lectura y consola**
+
+- `serve.py`: `/consola`, `/consola.js` y `/consola.css` con
+  `Content-Security-Policy: default-src 'none'; script-src 'self'; …;
+  frame-ancestors 'none'`; `GET /api/v2/yo|facturas|facturas/<id>|excepciones|personas|objetos|acciones`
+  y `POST /api/v2/acciones`. Todo con el endurecimiento del paso 0 (solo
+  127.0.0.1, Host y Origin comprobados) y con el **token personal** de quien
+  lee o actúa en `X-BMS-Token`; las lecturas piden `ver_facturas`. La
+  segunda firma llega con el token de la otra persona en
+  `segunda_firma_token`. Los errores tienen su código: 401 sin token
+  personal, 403 sin permiso, 409 conflicto de `rev`, petición repetida con
+  otra orden o estado que no lo permite, 404 lo que no existe, 400 datos
+  mal formados, 413/415 cuerpo demasiado grande o que no es JSON.
+- La consola: la página no lleva ningún dato; la persona escribe su token,
+  que se queda en memoria (nunca en `localStorage`, `sessionStorage` ni una
+  cookie). Lista por prioridad con sus insignias (nivel, revisión, calidad,
+  ediciones, lo que dice el sistema) y ficha con la procedencia de cada
+  campo y los formularios de cada orden, cada envío con su `peticion_id`.
+  Dice en la cabecera que revisar no aprueba ningún pago.
+
+**Cambios**
+
+- `hallazgos.py`: la pasada termina con `excepciones.sincronizar` y
+  `estados.recalcular`, en la misma transacción; `Diferencia` lleva además
+  `cambios_evaluacion` (los resultados de reglas que cambiaron),
+  `excepciones` y `estados`; `anular` y `resolver` aceptan `datos` (la
+  petición, para la idempotencia).
+- `permisos.py`: `emitir_token` (guarda solo `usuario.token_sha256`, con su
+  evento), `usuario_por_token`, `sha256_token` y `desactivar_usuario` (que
+  anula también el token).
+- `campos.anadir_nota` e `identidad.anadir_alias` aceptan `datos`.
+- `dominio.py`: `ESTADOS_EXCEPCION_ABIERTA`, `EsperandoA`,
+  `ResolucionExcepcion`, `ResultadoRevision`, `EntidadPrioridad`.
+- `reloj.py`: `trimestre_de`, `limite_btw` (último día del mes siguiente al
+  trimestre) y `proximo_limite_btw`.
+- `reglas/base.py`: `Regla.crea_excepcion` (un aviso de esa regla abre
+  también excepción: Q3, K1, U1 cuando lleguen).
+- `importadores/tarifas.py` apunta su fichero con `politica.registrar`.
+- `almacen/evidencia.py`: `revision` y `prioridad_manual` son evidencia (su
+  foto va en `revision_registrada` y `prioridad_subida`).
+- `scripts/generar_guardas.py`: el mensaje de la guarda nombra al módulo que
+  escribe la tabla (`excepcion` → `excepciones.py`).
+- `cli.py`: `usuario token|desactivar`, `acciones`, `accion <orden>` (un
+  subcomando por orden, con sus parámetros generados de `ACCIONES`, `--token`
+  o `BMS_TOKEN`, `--peticion`, `--segunda-firma-token`), `facturas [--nivel]
+  [--limite]`, `factura <id> [--json]`, `excepciones`, `politica cargar
+  [fichero]`; `db verificar` comprueba también las excepciones.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Cada orden escribe sus filas, su auditoría y su recálculo en una transacción | `test_servicios.py::test_cada_orden_escribe_filas_auditoria_y_recalculo_en_una_transaccion` (un solo `BEGIN IMMEDIATE` y un `COMMIT` después de la pasada, que lleva la causa y el usuario de la orden), `test_si_el_recalculo_falla_no_queda_nada`, y `test_cada_orden_pide_su_permiso` (las 23 órdenes, cada una con su escritura, su evento, su pasada y `verificar` limpio) |
+| Una corrección que arregla D4 lo cierra con su causa y deja la edición sin resolver hasta verificarla | `test_una_correccion_que_arregla_d4_lo_cierra_con_su_causa_y_queda_sin_resolver` (el `cerrado_automatico` lleva el evento de la orden como causa y la `Diferencia` dice que D4 pasó de fallo a ok; el campo cuenta en `sin_resolver` de `factura_estado` y sale sin resolver y como discrepancia en la ficha; quien lo editó no puede verificarlo habiendo otra persona, y cuando lo verifica otra deja de contar) y `test_rellenar_lo_que_cerro_un_hallazgo_tambien_queda_sin_resolver` |
+| Cualquier cambio posterior invalida una revisión | `test_revision.py::test_cualquier_cambio_posterior_invalida_la_revision` (corregir un campo, excluir una línea, reimputar, otra factura que abre un hallazgo sin tocar esta, anular un hallazgo, verificar un campo, una extracción nueva), `test_la_diferencia_de_la_orden_dice_que_revision_deja_de_valer`, `test_revisar_lo_que_ya_cambio_es_un_conflicto` y `test_una_nota_no_cambia_lo_revisado` |
+| Tests de prioridad por tablas: cada suelo, cada borde, la puerta de "necesita acción", la espera externa y que solo sube | `test_prioridad.py` (134 casos): cada suelo (bloqueo, las urgentes, IVA a 7 días del BTW, compra vencida más de 30 días que necesita acción, venta vencida más de 60), cada borde de cada tramo (plazo, vencida, importe, planning, sin facturar, PO, IVA blando, otras), plazo/vencida/importe solo con acción pendiente, la espera con el seguimiento por llegar, el mismo día y pasado, la subida a mano que solo sube, vence y no llega a bloqueada, el motivo, la huella, el orden, la agregación y los pesos del YAML; `test_subir_a_mano_en_el_almacen_solo_sube` (también en la base) |
+| Matriz de permisos; los usuarios de sistema rechazados en cada orden de persona | `test_servicios.py::test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6`, `test_cada_orden_pide_su_permiso` (por orden: una persona con todos los permisos menos ese es rechazada y deja su evento denegado; con él, pasa) y `test_ningun_usuario_de_sistema_firma_una_orden_de_persona` (cada usuario de sistema contra cada orden); en la base, `test_la_base_solo_deja_el_estado_a_una_persona_con_resolver_aviso` y `test_solo_una_persona_con_revisar_factura_y_en_su_orden` |
+| Test XSS de la consola: un `<script>` del documento se pinta como texto | `test_consola.py::test_el_script_pinta_el_html_de_un_documento_como_texto` (el script de verdad, en node con un DOM que revienta ante `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` y atributos `on*`: el nombre, la descripción y las notas con `<script>` y `<img onerror>` salen como texto y no crean ningún elemento), `test_el_script_no_usa_nada_que_interprete_html`, `test_la_pagina_no_lleva_datos_y_solo_corre_su_script` y `test_los_datos_llegan_como_json_con_el_html_tal_cual` |
+| La suite de alcance corre desde aquí | `test_alcance_v1.py` (43 casos): ninguna orden, permiso, subcomando ni estado crea o prepara una factura, paga, aprueba un pago o presenta el IVA (y cada orden, ejecutada con todos los permisos, deja las mismas facturas); sin SEPA ni pain.001; sin variables, claves ni clientes de red para un banco; ninguna tabla ni columna de plazos y un solo vencimiento por factura; X1 bloquea siempre (seis monedas, también tras corregir un importe a mano, y una propiedad sobre `prioridad.calcular` con 500 entradas al azar); ningún import desde la extracción llega a `cuenta_bancaria` y un IBAN de un documento no sale de los registros del documento (propiedad con IBAN al azar, válidos y no, en la cabecera y en las notas); las peticiones de extracción no llevan herramientas |
+
+Además: el ciclo de una excepción (`test_excepciones.py`: una por entidad,
+la pasada sin cambios no escribe, un hallazgo nuevo se une, un aviso solo la
+abre si su regla lo pide, asignar, esperar y resolver, el seguimiento por
+defecto, no se resuelve con un bloqueo abierto, resolver no cierra
+hallazgos, otra evidencia abre otra, la guarda y los CHECK, `verificar` que
+ve lo tocado por detrás); la revisión (`test_revision.py`: limpia es "sin
+objeciones del sistema", no se revisa con algo pendiente, autorrevisada con
+una sola persona, devolver pide nota, `db verificar` ve una revisión
+tocada); las órdenes (idempotencia, `rev` vieja, motivo, datos comprobados
+antes de nada, dividir que suma, alias que resuelve imputaciones, fusionar
+que cierra B2, segunda firma, maestro de Exact rechazado, la CLI con token
+y sin `anthropic`); y la API (`test_consola.py`: leer pide token personal
+con `ver_facturas` y deja el evento denegado, otra web no lee ni con el
+token, cada error con su código, permiso, conflicto y segunda firma por la
+API, lo que la ficha enseña).
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración del paso 4 es la 0004.** El §11 numera 0004 la del paso 5
+   (`cuenta_bancaria`…). Cada paso tiene la suya en orden; la del paso 5
+   será la 0005.
+2. **`excepcion` no la escribe `campos.py` sino `excepciones.py`**, con la
+   misma auditoría (rev, guarda generada, un `cambio_campo` por columna en
+   el evento de la orden). En `campos.py` una fuente automática no pisa
+   nunca un valor manual, y aquí el motor tiene que poder abrir una
+   excepción nueva aunque una persona cerrara la anterior. Es estado de
+   trabajo, no un dato de un documento. Lo que pone una persona va como
+   `manual_entrada`; lo que pone el motor, como `calculado`.
+3. **Nada automático asigna, deja esperando ni resuelve una excepción**, y
+   el motor no la cierra aunque sus hallazgos desaparezcan
+   (`condicion_desaparecida` es una resolución que elige una persona). El
+   §15 deja abierta la puerta a cerrarla sola; preferimos que alguien diga
+   que el trabajo terminó. La base lo exige (`excepcion_de_persona`).
+4. **Qué hallazgos abren excepción**: los pendientes sin aceptar (`abierto`
+   o `desaparecido`) que bloquean o retienen, más los avisos de reglas con
+   `crea_excepcion` (ninguna todavía). Uno de grupo (B2, B4, G3) abre o se
+   une a la excepción **de cada factura** que cubre: ninguna de las dos de
+   un duplicado debe pagarse sin mirarlo.
+5. **Columna añadida `excepcion.hallazgo_evento_hasta`**: el último evento
+   de hallazgo que cubría la excepción al resolverse. Si después un hallazgo
+   suyo se reabre o cambia su evidencia, la pasada siguiente abre otra; los
+   que no cambiaron siguen cubiertos por aquella resolución. Sin esa marca
+   habría que adivinarlo por fechas.
+6. **Seguimiento por defecto**: hoy + 14 días, o el vencimiento si llega
+   antes (y no ha pasado). Una fecha pasada se rechaza. El §15 no da un
+   valor.
+7. **Revisar es más estricto que el §5**: además de que el estado diga
+   "necesita revisión" con un bloqueo o retención pendiente, un dudoso sin
+   verificar o un cambio manual sin resolver, `marcar_revisada` se
+   **rechaza** en esos casos (`NoRevisable`, con la lista de lo que falta).
+   Revisar con una objeción abierta sería firmar algo que el sistema
+   todavía dice que está mal; se anula o se corrige primero.
+8. **Una revisión que dejó de valer, o una devuelta, deja la factura en
+   "necesita revisión"**, no en "sin revisar": alguien ya la miró y hay que
+   volver a mirarla.
+9. **La huella del contenido** son los valores actuales de la factura y sus
+   hijas, la fuente, el valor automático, `dudoso` y la verificación de cada
+   campo, la evidencia de sus hallazgos pendientes **y la última anulación
+   de cada uno** (renovar una anulación con otro plazo invalida la
+   revisión). Una nota no la cambia. Se calcula solo para las facturas cuya
+   última revisión es "revisada" (las demás no tienen nada que comparar):
+   así la pasada de cinco mil facturas cabe en 2 s.
+10. **"Sin resolver" incluye la edición que hizo desaparecer un hallazgo**
+    (lo cerró o lo dejó desaparecido) mientras nadie la verifique: además
+    del M1 del §7 (manual distinto del último automático), "editar hasta que
+    el aviso se vaya" lo tiene que ver otra persona. Si el campo vuelve a
+    cambiar, ya no es esa edición. M1 y Q2 todavía no son reglas: salen de
+    `procedencia_campo` en cada pasada (`revision.estado_de_campos`).
+11. **El plazo del BTW** que mira la prioridad es el próximo que no ha
+    pasado: el IVA de un trimestre ya vencido cuenta con el plazo siguiente
+    (es la declaración en la que tendrá que entrar).
+12. **Subir una prioridad pide `resolver_aviso`** (el §6 no lo dice; es
+    quien gestiona el trabajo), un motivo de 10 caracteres o más, solo a
+    atención o urgente (bloqueada tiene siempre una regla con nombre), y la
+    base rechaza un nivel por debajo del que ya tiene la entidad: "solo
+    sube" está en el cálculo (el máximo) y también en la tabla.
+13. **Dos hashes de la política**: `politica_version` guarda el sha256 del
+    fichero tal cual; `factura_estado.politica_sha256` y
+    `prioridad.politica_sha256` guardan el de los pesos en forma canónica.
+    Un comentario nuevo en el YAML no cambia ninguna prioridad ni la marca
+    como calculada con otra política.
+14. **`politica cargar` es una orden de operador**, como `sembrar`: quien
+    tiene la CLI tiene el fichero SQLite. Queda apuntada con su texto, su
+    hash y su evento. La gestión de la política desde la consola con
+    `admin` llega con el resto de la administración.
+15. **Sin pagos (hasta el paso 7)**, `estado_pago` es `pendiente` o
+    `vencida` por el vencimiento efectivo (el impreso, o la fecha más el
+    plazo de pago), `anulada` si se anuló y vacío si se fusionó en otra.
+    `pendiente_cent` es el total.
+16. **Columnas de más en las cachés**: `factura_estado` lleva también
+    `vencimiento`, `dudosos`, `pendientes`, `sin_datos`, `excepcion_id`,
+    `huella_entradas` y `politica_sha256`; `prioridad` lleva `vencimiento`,
+    `importe_cent` y las dos huellas. Son lo que los filtros del §18 y el
+    orden del §8 necesitan sin otra consulta. Los CHECK de las cachés son
+    cadenas de `OR` en vez de `IN (...)`, por velocidad (como en el paso 3).
+17. **Órdenes que no están**, porque su tabla o su regla es de un paso
+    posterior: marcar pagada y confirmar un pago (paso 7), registrar o
+    modificar una PO (órdenes de compra), enlazar o confirmar relaciones
+    (relaciones), verificar, rechazar o atestar un IBAN y el teléfono de
+    verificación (paso 5), estado del BTW (paso 11), importar (paso 5) y
+    dar de alta un Objeto (hoy, con `sembrar`). `recalcular` es una orden
+    con `ver_facturas`: no cambia ningún dato, solo lo pone al día.
+18. **Idempotencia**: `evento.peticion_id` (único) y el sha256 de la orden
+    en los datos del evento. La misma petición con los mismos datos y la
+    misma persona devuelve la `Diferencia` marcada como repetida sin
+    escribir nada; con otra orden u otra persona es `PeticionRepetida`.
+19. **El token de `/api/v2` es personal** (el de `bms-agent usuario token`,
+    guardado solo por su hash), en la misma cabecera `X-BMS-Token` que el
+    del servidor; el del servidor sigue valiendo solo para `/api/ejecutar`.
+    Así cada lectura y cada orden tiene una persona detrás, con sus permisos.
+20. **Los importes llegan como texto**: un número JSON con decimales se
+    rechaza (400) antes de parsear, y un texto con separador de miles
+    también ("2.902,79" sería ambiguo; se escribe 2902,79 o 2902.79). Un
+    float no vuelve a entrar por la puerta de atrás.
+21. **`consultas.py` es mínimo**: lista, ficha, excepciones, personas y
+    Objetos. Los bloques del §17 y los filtros del §18 son del paso 12.
+22. **`Regla.crea_excepcion` entra en el metadato**, así que cambió el
+    hash del catálogo. Las pasadas viejas siguen diciendo con qué catálogo
+    se hicieron.
+23. **La suite de alcance mira lo que existe**: `cuenta_bancaria` no existe
+    todavía, así que la propiedad del IBAN comprueba hoy que lo impreso no
+    sale de los registros del documento (extracción, factura, procedencia,
+    auditoría y lo que dicen las reglas) y, si la tabla existe, que no tiene
+    filas; el grafo de imports ya prohíbe el camino. Las variables de
+    entorno están en una lista cerrada (`BMS_DB`, `BMS_TOKEN`,
+    `BMS_EXTRACT_MODEL`, `BMS_EXTRACT_MAX_TOKENS`): una nueva tiene que
+    pasar por el test.
+
+**Tests existentes cambiados**: `test_auditoria.py` (el primer evento de
+una prueba es `MIGRACIONES + 1`, no un 4 fijo) y `test_almacen.py` (las
+tablas nuevas en la lista de solo escritura y en la de guardas, y una fila
+de cada una en `_poblar`). Ninguno prueba menos que antes.
+
+**Un fallo encontrado por la puerta**: el XSS en node pilló que
+`anadir(nodo, a, b, …)` de la consola solo ponía el primer hijo, así que la
+ficha salía con el título y nada más. Ahora `anadir` acepta cualquier
+número de hijos, como `el()`.
+
+### Lo que deben saber los pasos siguientes
+
+- **Una orden nueva** es una `Accion` en `servicios.ACCIONES` (parámetros
+  tipados, permiso, si pide motivo y la función que escribe). Sale sola en
+  la CLI (`bms-agent accion <orden>`), en `GET /api/v2/acciones` y en la
+  consola. Tiene que entrar también en `CASOS` de `test_servicios.py` (la
+  matriz falla si falta) y pasa por la suite de alcance, que la ejecuta con
+  todos los permisos.
+- **Lo que cambie una orden** se escribe dentro de `ejecutar`, que ya abre
+  la transacción y recalcula con la causa; no hace falta llamar a
+  `hallazgos.recalcular` desde la acción.
+- **Paso 5 (maestros e IBAN)**: la migración es la 0005. Q2 y M1, si se
+  hacen reglas, no deben contar dos veces con `dudosos` y `sin_resolver`
+  de `factura_estado` (hoy salen de la procedencia y ya ponen atención).
+  Q3, K1 y U1 llevan `crea_excepcion=True`. La propiedad del gate
+  ("ninguna extracción crea ni cambia una fila de `cuenta_bancaria`") tiene
+  ya su sitio en `test_alcance_v1.py`; el módulo que escriba la tabla no
+  puede importar nada de la extracción (`EXTRACCION` en ese test) y, si
+  `campos.py` la registra, su alta pide `confirmar_iban`. Las órdenes de
+  IBAN piden `confirmar_iban`.
+- **Paso 7 (pagos)**: `estados.estado_pago` tiene que leer el saldo
+  (`v_factura_saldo`) para `pagada` y `pendiente_cent`; una factura pagada
+  sale de juego (`Entradas.en_juego`), que apaga plazo y vencida. Marcar
+  pagada es una `Accion` con `marcar_pagada`.
+- **Las reglas de planning, facturación y PO** (G, V, P) dan sus entradas
+  de prioridad en `valores_json` con estos nombres: `valor_cent` (lo que
+  vale la discrepancia o el trabajo sin facturar), `semanas_tras_gracia`
+  (V6) y `dias_para_caducar` (P7). La entrada (`entrada_prioridad`) y si
+  pone suelo urgente (`prioridad.REGLAS_URGENTES`) salen del catálogo y del
+  código, no del fichero.
+- **Los pesos** se cambian en `config/prioridad.yaml` y se aplican con
+  `bms-agent politica cargar`; un fichero sin la forma entera se rechaza.
+  Los suelos no están en el fichero y no se pueden relajar desde él.
+- **La consola** (paso 12) crece en `consola_assets.py` con `el()` y
+  `anadir()`: nunca `innerHTML` ni nada que interprete HTML (un test lo
+  busca en el script), ningún dato en la página, el token en memoria.
+- **La velocidad**: la pasada de cinco mil facturas está en 1,1-1,7 s con
+  todo lo del paso 4. Lo que se añada a la pasada (pagos, planning) tiene
+  que leer de una vez, no por factura, y escribir solo lo que cambia, como
+  `estados.recalcular`.
