@@ -191,6 +191,72 @@ def test_un_doctype_en_utf16_tambien_se_ve() -> None:
     lector_camt.comprobar_seguro(b"<?xml version='1.0'?><!-- hola --><a><![CDATA[x]]></a>")
 
 
+@pytest.mark.parametrize("codificacion", ["utf-16-le", "utf-16-be"])
+def test_un_doctype_en_utf16_sin_bom_tambien_se_ve(almacen, ana, codificacion) -> None:
+    """Sin BOM, los bytes de un UTF-16 son UTF-8 valido (con NUL entre letras): el texto no
+    traia ningun '<!' seguido y la entidad llegaba al movimiento (revision del paso 7)."""
+    texto = camt053(apunte("-10.00", concepto="&x;")).decode().replace(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<!DOCTYPE Document [<!ENTITY x "Factuur INYECTADA">]>')
+    contenido = texto.encode(codificacion)
+    with pytest.raises(FicheroNoAdmitido, match="DOCTYPE o ENTITY"):
+        lector_camt.leer(contenido)
+    with pytest.raises(FicheroNoAdmitido):
+        lector_camt.comprobar_seguro(contenido)
+    # Expat, el que lee de verdad, para cualquier DTD aunque el texto no la viera.
+    with pytest.raises(FicheroNoAdmitido):
+        lector_camt._sin_dtd_para_expat(contenido)
+    with pytest.raises(FicheroNoAdmitido):
+        importar_camt(almacen, ana, contenido)
+    assert almacen.conn.execute("SELECT count(*) FROM movimiento_bancario").fetchone()[0] == 0
+    # El mismo extracto sin la declaracion, en UTF-16 sin BOM, se lee.
+    limpio = camt053(apunte("-10.00", concepto="Factuur 1")).decode().replace(
+        'encoding="UTF-8"', 'encoding="UTF-16"').encode(codificacion)
+    assert lector_camt.leer(limpio).registros[0].movimientos[0].concepto == "Factuur 1"
+
+
+def test_el_importe_es_el_del_apunte_y_no_el_instruido_en_otra_moneda() -> None:
+    """Un cargo en euros de un pago instruido en dolares es un cargo en euros: InstdAmt no es
+    lo apuntado (revision del paso 7)."""
+    contenido = camt053(apunte("-92.50", iban="NL02ABNA0123456789", concepto="Invoice 7")
+                        ).replace(b"<TxDtls>", b'<TxDtls><AmtDtls><InstdAmt><Amt Ccy="USD">'
+                                               b'100.00</Amt></InstdAmt></AmtDtls>')
+    lote = lector_camt.leer(contenido)
+    [m] = lote.registros[0].movimientos
+    assert (m.importe, m.moneda, m.importe_crudo) == (Decimal("-92.50"), "EUR", "-92.50 EUR")
+    assert lote.avisos == ()
+    # En un apunte agrupado, una transaccion con solo el instruido no se puede repartir.
+    remesa = camt053(apunte("-300.00", detalles=(
+        apunte("-100.00", iban="NL02ABNA0123456789"),
+        apunte("-200.00", iban="NL20INGB0001234567"))))
+    solo_instruido = remesa.replace(b"<TxAmt>", b"<InstdAmt>", 1).replace(
+        b"</TxAmt>", b"</InstdAmt>", 1)
+    [rechazo] = lector_camt.leer(solo_instruido).rechazos
+    assert "no se puede repartir" in rechazo.motivo
+    # Ni una transaccion de una remesa en otra moneda que su apunte.
+    otra = remesa.replace(b'<TxAmt><Amt Ccy="EUR">100.00', b'<TxAmt><Amt Ccy="USD">100.00')
+    [rechazo] = lector_camt.leer(otra).rechazos
+    assert "USD" in rechazo.motivo
+
+
+def test_un_apunte_en_otra_moneda_no_apaga_la_suma_de_los_saldos(almacen, ana) -> None:
+    """Antes, un apunte en dolares dejaba sin comprobar los saldos: un extracto incompleto
+    entraba y pagaba facturas (revision del paso 7)."""
+    incompleto = camt053(apunte("-2902.79", iban="NL02ABNA0123456789", concepto="F 2026-4471"),
+                         apunte("1.00", moneda="USD"), inicial="10000.00", final="10000.00")
+    [rechazo] = lector_camt.leer(incompleto).rechazos
+    assert "incompleto" in rechazo.motivo
+    [lote] = importar_camt(almacen, ana, incompleto).lotes
+    assert lote.estado == "rechazada"
+    assert almacen.conn.execute("SELECT count(*) FROM movimiento_bancario").fetchone()[0] == 0
+    # Si los apuntes en euros dan los saldos, entra, con el de dolares aparte (X1).
+    cuadra = camt053(apunte("-2902.79", iban="NL02ABNA0123456789", concepto="F 2026-4471"),
+                     apunte("1.00", moneda="USD"), inicial="10000.00")
+    lote = lector_camt.leer(cuadra)
+    assert lote.rechazos == () and "otra moneda" in lote.avisos[0]
+
+
 def test_otra_version_de_camt_no_se_lee_a_medias() -> None:
     contenido = camt053(apunte("-10.00")).replace(b"camt.053.001.02", b"camt.053.001.04")
     with pytest.raises(FicheroNoAdmitido, match="001.02"):
@@ -382,6 +448,58 @@ def test_mt940_se_importa_y_se_elige_por_el_contenido(almacen, ana) -> None:
     assert (lote.estado, lote.formato) == ("aceptada", "mt940:ing")
     assert len(_movimientos(almacen.conn)) == 2
     assert banco.leer(MT940_RABOBANK, formato="mt940:rabobank")[0].formato == "mt940:rabobank"
+
+
+def _mt940(numero: str, apertura: str, cierre: str, dia: str, importe: str,
+           *, inicial: str, final: str) -> bytes:
+    """Una pagina de un MT940 de ING con un cargo: `apertura` y `cierre` son 60F/60M y 62F/62M."""
+    return (f":20:P{dia}{numero.replace('/', '')}\n:25:NL60INGB0009988776EUR\n:28C:{numero}\n"
+            f":{apertura}:C{dia}EUR{inicial}\n"
+            f":61:{dia}{dia[2:]}D{importe}NTRFNONREF//ING-{dia}-{numero}\n"
+            f":86:/CNTP/NL53RABO0333444555/RABONL2U/Kantoor BV/Utrecht/REMI/USTD//Huur/\n"
+            f":{cierre}:C{dia}EUR{final}\n-}}\n").encode()
+
+
+def _k6(conn) -> list:
+    return conn.execute("SELECT * FROM hallazgo WHERE regla = 'K6' AND estado = 'abierto'"
+                        ).fetchall()
+
+
+def test_mt940_de_varias_paginas_no_rompe_la_cadena(almacen, ana) -> None:
+    """Las paginas de un extracto llevan el mismo numero en :28C: (00101/1, 00101/2): con los
+    saldos encadenados no falta nada, y no es un K6 (revision del paso 7)."""
+    paginas = (_mt940("00101/1", "60F", "62M", "261012", "100,00", inicial="10000,00",
+                      final="9900,00")
+               + _mt940("00101/2", "60M", "62F", "261012", "100,00", inicial="9900,00",
+                        final="9800,00"))
+    lote = mt940.leer(paginas, "ing.sta")
+    assert [e.secuencia for e in lote.registros] == [101, 101] and lote.rechazos == ()
+    ruta = almacen.documentos.raiz.parent / "paginas.sta"
+    ruta.write_bytes(paginas)
+    [importado] = importar_fichero(almacen, "banco", "extracto", ruta, lanzado_por=ana).lotes
+    assert importado.estado == "aceptada"
+    assert _k6(almacen.conn) == []
+
+
+def test_mt940_con_el_numero_siempre_a_cero_no_rompe_la_cadena(almacen, ana) -> None:
+    """ING manda :28C:00000 todos los dias: el numero no dice nada y deciden los saldos."""
+    carpeta = almacen.documentos.raiz.parent
+    for nombre, contenido in (
+            ("lunes.sta", _mt940("00000", "60F", "62F", "261012", "100,00", inicial="10000,00",
+                                 final="9900,00")),
+            ("martes.sta", _mt940("00000", "60F", "62F", "261013", "100,00", inicial="9900,00",
+                                  final="9800,00"))):
+        (carpeta / nombre).write_bytes(contenido)
+        [lote] = importar_fichero(almacen, "banco", "extracto", carpeta / nombre,
+                                  lanzado_por=ana).lotes
+        assert lote.estado == "aceptada"
+    assert _k6(almacen.conn) == []
+    # Un saldo que no encadena sigue siendo una rotura, lleve el numero que lleve.
+    (carpeta / "jueves.sta").write_bytes(_mt940("00000", "60F", "62F", "261015", "100,00",
+                                                inicial="9000,00", final="8900,00"))
+    importar_fichero(almacen, "banco", "extracto", carpeta / "jueves.sta", lanzado_por=ana)
+    [k6] = _k6(almacen.conn)
+    assert "abre con" in k6["detalle"]
 
 
 # ------------------------------------------------------------ los CSV del banco

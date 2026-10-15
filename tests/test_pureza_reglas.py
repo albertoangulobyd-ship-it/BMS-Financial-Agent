@@ -39,6 +39,7 @@ from bms_agent.reglas.base import (
     LineaSinCasar,
     Lote,
     Movimiento,
+    PagadoExact,
     Parte,
     Politica,
     Relacion,
@@ -144,7 +145,7 @@ _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
           CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar",
           Extracto: "extracto", Movimiento: "movimiento", Aplicacion: "aplicacion",
-          Bloqueo: "bloqueo"}
+          Bloqueo: "bloqueo", PagadoExact: "pagado_exact"}
 
 
 class Grabadora:

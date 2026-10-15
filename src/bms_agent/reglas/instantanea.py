@@ -25,9 +25,10 @@ recalcular cinco mil facturas en menos de dos segundos.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -49,6 +50,7 @@ from .base import (
     LineaSinCasar,
     Lote,
     Movimiento,
+    PagadoExact,
     Parte,
     Politica,
     Relacion,
@@ -288,7 +290,8 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
                        movimientos=movimientos(conn), aplicaciones=pagos,
                        beneficiarios=beneficiarios(conn),
                        bloqueos=bloqueos(conn, {a.factura_id for a in pagos
-                                                if a.estado == "confirmada"}))
+                                                if a.estado == "confirmada"}),
+                       exact_pagado=exact_pagado(conn))
 
 
 _SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
@@ -408,7 +411,7 @@ def cuentas(conn: sqlite3.Connection) -> tuple[Cuenta, ...]:
             id=id_, tipo=tipo, en=en, importacion_id=importacion_id, documento_id=documento_id,
             usuario_id=usuario_id, con_permiso=bool(con_permiso),
             telefono_usado=normalizar_telefono(telefono), llegada=llegada_doc or llegada_imp,
-            decision_facturas=decision))
+            decision_facturas=decision, dia=_dia(en)))
     documentos = primeros_documentos(conn)
     return tuple(
         Cuenta(id=id_, titular=titular, parte_id=proveedor_id or cliente_id, iban=iban,
@@ -525,17 +528,80 @@ def extractos(conn: sqlite3.Connection) -> tuple[Extracto, ...]:
                  in filas)
 
 
+# Una referencia de menos de tres caracteres ("1", "12") casaria con cualquier cosa.
+LARGO_MINIMO = 3
+_PALABRA = re.compile(r"[A-Za-z0-9]+(?:[-./_][A-Za-z0-9]+)*")
+_SIN_REFERENCIA = frozenset({"NOTPROVIDED", "NONREF", "NOTAVAILABLE"})
+
+
+def referencias_de(*textos: str | None) -> frozenset[str]:
+    """Lo que puede ser un numero de factura en lo que dice el banco, ya normalizado.
+
+    Cada palabra (con sus guiones, puntos o barras: "2026-4471") y cada par de
+    palabras seguidas ("2026 4471"): el banco parte a veces el numero en dos.
+    Lo usan casar (pagos.py) y la referencia de cada movimiento para K4.
+    """
+    salida: set[str] = set()
+    for texto in textos:
+        if not texto:
+            continue
+        completo = normalizar_referencia(texto)
+        if completo and len(completo) >= LARGO_MINIMO and len(texto) <= 40:
+            salida.add(completo)
+        palabras = [normalizar_referencia(p) for p in _PALABRA.findall(texto)]
+        palabras = [p for p in palabras if p]
+        salida.update(p for p in palabras if len(p) >= LARGO_MINIMO)
+        salida.update(a + b for a, b in zip(palabras, palabras[1:]) if len(a + b) >= LARGO_MINIMO)
+    return frozenset(salida)
+
+
+def _referencia_de_pago(texto: str | None) -> str | None:
+    normal = normalizar_referencia(texto)
+    return None if not normal or normal in _SIN_REFERENCIA else normal
+
+
 def movimientos(conn: sqlite3.Connection) -> tuple[Movimiento, ...]:
-    """Los movimientos del banco. `referencia`: la estructurada o el concepto, normalizados."""
-    return tuple(Movimiento(id_, extracto_id, cuenta, date.fromisoformat(fecha), importe, moneda,
-                            contraparte, nombre,
-                            normalizar_referencia(estructurada) or normalizar_referencia(concepto))
-                 for (id_, extracto_id, cuenta, fecha, importe, moneda, contraparte, nombre,
-                      estructurada, concepto) in _filas(
-                     conn, "SELECT id, extracto_id, cuenta_propia_iban, fecha_contable, "
-                           "importe_cent, moneda, contraparte_iban, contraparte_nombre_doc, "
-                           "referencia_estructurada, concepto_doc FROM movimiento_bancario "
-                           "ORDER BY id"))
+    """Los movimientos del banco, con lo que los identifica como pago de algo (K4).
+
+    `referencia`: la estructurada, el end-to-end o, sin ninguna, el numero (o
+    la referencia de pago) de una factura que aparezca en el concepto. Nunca el
+    concepto entero: los recibos de un contrato llevan el mismo texto cada mes.
+    """
+    conocidas: set[str] = set()
+    for numero, referencia in _filas(conn, "SELECT numero_norm, referencia_pago FROM factura"):
+        conocidas.update(r for r in (numero, normalizar_referencia(referencia))
+                         if r and len(r) >= LARGO_MINIMO)
+    salida = []
+    for (id_, extracto_id, cuenta, fecha, importe, moneda, contraparte, nombre, estructurada,
+         e2e, concepto) in _filas(
+            conn, "SELECT id, extracto_id, cuenta_propia_iban, fecha_contable, importe_cent, "
+                  "moneda, contraparte_iban, contraparte_nombre_doc, referencia_estructurada, "
+                  "referencia_e2e, concepto_doc FROM movimiento_bancario ORDER BY id"):
+        referencia = _referencia_de_pago(estructurada) or _referencia_de_pago(e2e)
+        if referencia is None and concepto:
+            en_concepto = sorted(referencias_de(concepto) & conocidas)
+            referencia = en_concepto[0] if en_concepto else None
+        salida.append(Movimiento(id_, extracto_id, cuenta, date.fromisoformat(fecha), importe,
+                                 moneda, contraparte, nombre, referencia))
+    return tuple(salida)
+
+
+def exact_pagado(conn: sqlite3.Connection) -> tuple[PagadoExact, ...]:
+    """Lo que dice Exact de lo pagado de cada factura (tambien cero): la ultima importacion de
+    pagos aceptada que la trae, con el dia de su foto (K8)."""
+    ultimo: dict[int, PagadoExact] = {}
+    for (datos,) in _filas(
+            conn, "SELECT e.datos_json FROM evento AS e JOIN importacion AS i "
+                  "ON i.id = e.fila_id WHERE e.tipo = 'importacion' AND e.tabla = 'importacion' "
+                  "AND i.fuente = 'exact' AND i.tipo = 'pagos_exact' "
+                  "AND i.estado IN ('aceptada', 'parcial') ORDER BY i.id, e.id"):
+        contenido = json.loads(datos or "{}")
+        if not contenido.get("exact_fecha"):
+            continue
+        fecha = date.fromisoformat(contenido["exact_fecha"])
+        for factura_id, pagado in contenido.get("exact_pagado", ()):
+            ultimo[int(factura_id)] = PagadoExact(int(factura_id), int(pagado), fecha)
+    return tuple(ultimo[f] for f in sorted(ultimo))
 
 
 def beneficiarios(conn: sqlite3.Connection) -> frozenset[str]:
@@ -544,14 +610,35 @@ def beneficiarios(conn: sqlite3.Connection) -> frozenset[str]:
         conn, "SELECT iban FROM beneficiario_conocido WHERE retirada_en IS NULL"))
 
 
-_PENDIENTE = frozenset({"abierto", "desaparecido"})
+# Bloqueada es lo que dice prioridad.py: un hallazgo que bloquea y esta
+# abierto. Uno desaparecido (pegajoso, que espera a una persona) pone la
+# factura en Atencion, no en Bloqueada: K5 no lo cuenta.
+_PENDIENTE = frozenset({"abierto"})
+
+
+def tramos_bloqueados(historia: Iterable[tuple[int, str, date]]
+                      ) -> dict[int, list[tuple[date, date | None]]]:
+    """De la historia de unos hallazgos que bloquean (hallazgo, estado, dia), en orden, los
+    dias en que cada uno tuvo la factura Bloqueada: abierto, y hasta el dia en que dejo de
+    estarlo (incluido); None si sigue."""
+    tramos: dict[int, list[tuple[date, date | None]]] = defaultdict(list)
+    abierto: dict[int, date] = {}
+    for hallazgo_id, estado, dia in historia:
+        if estado in _PENDIENTE:
+            abierto.setdefault(hallazgo_id, dia)
+        elif hallazgo_id in abierto:
+            tramos[hallazgo_id].append((abierto.pop(hallazgo_id), dia))
+    for hallazgo_id, desde in abierto.items():
+        tramos[hallazgo_id].append((desde, None))
+    return tramos
 
 
 def bloqueos(conn: sqlite3.Connection, facturas: set[int]) -> tuple[Bloqueo, ...]:
     """Los dias en que cada una de estas facturas tuvo un hallazgo que bloquea pendiente.
 
     Sale de la historia de cada hallazgo (hallazgo_evento): pendiente desde
-    que se abre o reabre, hasta que se anula, se cierra o se resuelve. No
+    que se abre o reabre, hasta que se anula, desaparece, se cierra o se
+    resuelve (lo mismo que llama Bloqueada la prioridad). No
     cuentan los de los pagos (K) ni F7: los provoca el propio pago, y K5
     diria que se pago bloqueada por el hallazgo que abrio ese mismo pago.
     """
@@ -568,18 +655,10 @@ def bloqueos(conn: sqlite3.Connection, facturas: set[int]) -> tuple[Bloqueo, ...
             conn, "SELECT hallazgo_id, fila_id FROM hallazgo_objetivo WHERE tabla = 'factura'"):
         if hallazgo_id in hallazgos:
             hallazgos[hallazgo_id][1].add(fila_id)
-    tramos: dict[int, list[tuple[date, date | None]]] = defaultdict(list)
-    abierto: dict[int, date] = {}
-    for hallazgo_id, estado, en in _filas(
-            conn, "SELECT hallazgo_id, estado, en FROM hallazgo_evento ORDER BY id"):
-        if hallazgo_id not in hallazgos:
-            continue
-        if estado in _PENDIENTE:
-            abierto.setdefault(hallazgo_id, _dia(en))
-        elif hallazgo_id in abierto:
-            tramos[hallazgo_id].append((abierto.pop(hallazgo_id), _dia(en)))
-    for hallazgo_id, desde in abierto.items():
-        tramos[hallazgo_id].append((desde, None))
+    tramos = tramos_bloqueados(
+        (hallazgo_id, estado, _dia(en)) for hallazgo_id, estado, en in _filas(
+            conn, "SELECT hallazgo_id, estado, en FROM hallazgo_evento ORDER BY id")
+        if hallazgo_id in hallazgos)
     salida = []
     for hallazgo_id, lista in sorted(tramos.items()):
         regla, suyas = hallazgos[hallazgo_id]

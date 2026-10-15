@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from conftest import CUENTA_PROPIA, apunte, camt053, cuentas_propias, factura_de, \
-    importar_camt, persona
+from conftest import CUENTA_PROPIA, OTRA_CUENTA_PROPIA, apunte, camt053, cuentas_propias, \
+    factura_de, importar_camt, persona
 
 from bms_agent import flujo_caja, servicios
 from bms_agent.flujo_caja import ENTRADA, SALIDA, Movido, Partida, calcular, direccion, ventanas
@@ -134,7 +134,7 @@ def test_la_direccion_de_cada_factura() -> None:
 def test_el_flujo_del_almacen_con_un_pago_parcial(tipado) -> None:
     conn = tipado.conn
     ana = persona(conn, "Ana", "administrador")
-    cuentas_propias(tipado, ana, CUENTA_PROPIA)
+    cuentas_propias(tipado, ana, CUENTA_PROPIA, OTRA_CUENTA_PROPIA)
     antes = flujo_caja.flujo(conn, date(2026, 10, 14))
     # La USD (X1) no entra en ninguna suma; el abono de Van Dijk es una entrada.
     usd = factura_de(conn, "NW-2026-0042")
@@ -151,9 +151,17 @@ def test_el_flujo_del_almacen_con_un_pago_parcial(tipado) -> None:
     despues = flujo_caja.flujo(conn, date(2026, 10, 14))
     assert (antes["esperado"]["salida"]["semana"] - despues["esperado"]["salida"]["semana"]
             ) == 100000
-    assert despues["real"]["pagado"]["semana"] == 100000
+    # Lo cobrado y pagado es el dinero que se movio (decision 5): lo apuntado a mano, sin el
+    # banco, va aparte (revision del paso 7).
+    assert despues["real"]["pagado"]["semana"] == 0
+    assert despues["real"]["a_mano"]["pagado"]["semana"] == 100000
     assert despues["estimado"]["importe_cent"] is None
     assert despues["fuentes"] == ["banco", "exact", "manual"]
-    # Un movimiento que no casa con nada no es un pago de ninguna factura.
-    importar_camt(tipado, ana, camt053(apunte("-5.00", "2026-10-13")))
-    assert flujo_caja.flujo(conn, date(2026, 10, 14))["real"] == despues["real"]
+    # Un movimiento que no casa con nada tambien es dinero que salio (y se dice sin casar); un
+    # traspaso a otra cuenta propia no sale de la empresa.
+    importar_camt(tipado, ana, camt053(apunte("-5.00", "2026-10-13"),
+                                       apunte("-700.00", "2026-10-13", iban=OTRA_CUENTA_PROPIA)))
+    con_banco = flujo_caja.flujo(conn, date(2026, 10, 14))["real"]
+    assert (con_banco["pagado"]["semana"], con_banco["sin_casar"]["pagado"]["semana"]) == (
+        500, 500)
+    assert con_banco["a_mano"] == despues["real"]["a_mano"]

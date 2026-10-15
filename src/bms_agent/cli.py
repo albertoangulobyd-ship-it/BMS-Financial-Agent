@@ -1422,8 +1422,14 @@ def _cmd_flujo_caja(args: argparse.Namespace) -> int:
                           ("periodo", "periodo")):
         if real["cobrado"][clave] is None:
             continue
-        print(f"  cobrado/pagado {nombre}: {_euros(real['cobrado'][clave])} / "
+        print(f"  cobrado/pagado {nombre} (banco): {_euros(real['cobrado'][clave])} / "
               f"{_euros(real['pagado'][clave])}")
+        for linea, texto in (("sin_casar", "sin casar con facturas"),
+                             ("segun_exact", "segun Exact, sin el banco"),
+                             ("a_mano", "a mano, sin el banco")):
+            cobrado, pagado = real[linea]["cobrado"][clave], real[linea]["pagado"][clave]
+            if cobrado or pagado:
+                print(f"    {texto}: {_euros(cobrado)} / {_euros(pagado)}")
     print(f"  estimado: {datos['estimado']['nota']}")
     return 0
 

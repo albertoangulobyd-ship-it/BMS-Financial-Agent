@@ -123,6 +123,8 @@ class _Contexto:
     persona: int
     actor: int
     resultado: ResultadoLote
+    # Lo que dice Exact de cada factura de un fichero de pagos, tambien cero (K8).
+    exact_pagado: dict[int, int] = field(default_factory=dict)
 
     @property
     def origen(self) -> Automatico:
@@ -583,6 +585,10 @@ def _pagos_exact(ctx: _Contexto) -> tuple[list[Rechazo], int]:
     (Z2); las demas si: a una factura que no esta no se le puede dar ningun
     estado falso. Si Exact dice otro importe que la ultima vez, la aplicacion
     de antes se retira y se escribe otra.
+
+    Un pago de cero no es una aplicacion, pero es lo que dice Exact: lo de
+    cada factura (tambien cero) va en el evento de la importacion
+    (`exact_pagado`, con el dia de la foto), y K8 lo compara con el banco.
     """
     lote, conn = ctx.lote, ctx.conn
     if lote.fuente != "exact":
@@ -603,6 +609,7 @@ def _pagos_exact(ctx: _Contexto) -> tuple[list[Rechazo], int]:
             with transaccion(conn):
                 factura_id = _factura_de_exact(conn, registro)
                 pagado = _pagado_segun_exact(conn, registro, factura_id)
+                ctx.exact_pagado[factura_id] = a_cent(pagado)
                 actuales = conn.execute(
                     "SELECT id, importe_cent FROM aplicacion_pago WHERE factura_id = ? "
                     "AND fuente = 'exact' AND estado = 'confirmada' ORDER BY id",
@@ -752,8 +759,20 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
         datos={"fichero": nombre, "mapeo": lote.mapeo_id, "estado": resultado.estado,
                "nuevos": len(resultado.nuevos), "cambiados": len(resultado.cambiados),
                "sin_resolver": len(resultado.sin_resolver),
-               "fila": foto(conn, "importacion", resultado.importacion_id)})
+               "fila": foto(conn, "importacion", resultado.importacion_id),
+               **_lo_que_dice_exact(ctx)})
     return resultado
+
+
+def _lo_que_dice_exact(ctx: _Contexto) -> dict[str, Any]:
+    """Para el evento de un fichero de pagos de Exact: lo pagado de cada factura y de que dia."""
+    if ctx.lote.tipo != "pagos_exact" or not ctx.exact_pagado:
+        return {}
+    lote = ctx.lote
+    fecha = (lote.exportado_en.astimezone(ZoneInfo(ZONA_EMPRESA)).date()
+             if lote.exportado_en else reloj_de(ctx.conn).hoy())
+    return {"exact_pagado": sorted([f, c] for f, c in ctx.exact_pagado.items()),
+            "exact_fecha": fecha.isoformat()}
 
 
 def _exportado_no_futuro(conn: sqlite3.Connection, lote: LoteLeido) -> None:

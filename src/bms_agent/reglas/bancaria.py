@@ -19,7 +19,7 @@ import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .base import (
@@ -210,7 +210,8 @@ class EstadoCuenta:
 
 
 def estado_cuenta(cuenta: Cuenta, telefonos: Sequence[CambioTelefono],
-                  politica: Politica) -> EstadoCuenta:
+                  politica: Politica,
+                  eventos: Sequence[EventoCuenta] | None = None) -> EstadoCuenta:
     """El estado de una cuenta (decision 3): heredada, verificada, atestada, rechazada...
 
     Pagable es: verificada, atestada o heredada (heredada no, con
@@ -221,8 +222,12 @@ def estado_cuenta(cuenta: Cuenta, telefonos: Sequence[CambioTelefono],
     cambios pendientes y sin ninguna decision antes (ni un rechazo ni una
     verificacion que no conto). Si no, no existe: atestar no deshace un
     rechazo ni tapa un F8.
+
+    `eventos`, si se dan, en vez de todos los de la cuenta: el estado que tenia
+    con solo esos (F7 mira la cuenta el dia del cargo).
     """
-    baseline = next((e.importacion_id for e in cuenta.eventos if e.tipo == "baseline"), None)
+    eventos = cuenta.eventos if eventos is None else eventos
+    baseline = next((e.importacion_id for e in eventos if e.tipo == "baseline"), None)
     decision: str | None = None
     en_exact: bool | None = None
     cambios: list[tuple[str, int, int | None]] = []
@@ -232,7 +237,7 @@ def estado_cuenta(cuenta: Cuenta, telefonos: Sequence[CambioTelefono],
     tocada = False
     vista_antes = False
     ultima_referencia: str | None = None
-    for evento in cuenta.eventos:
+    for evento in eventos:
         if evento.tipo == "baseline":
             aceptada_en = aceptada_en or evento.llegada or evento.en
         elif evento.tipo in DECISIONES:
@@ -677,13 +682,36 @@ EVALUAR = {
 
 # ------------------------------------------------------------ F7 (paso 7)
 
+def _dia_del_evento(evento: EventoCuenta) -> date:
+    return evento.dia or datetime.fromisoformat(evento.en).date()
+
+
+def _estado_el_dia(cuenta: Cuenta, dia: date, telefonos: Sequence[CambioTelefono],
+                   politica: Politica) -> EstadoCuenta:
+    """El estado de una cuenta con lo que habia pasado hasta ese dia (incluido).
+
+    Los eventos de la importacion de partida cuentan siempre: dicen como
+    estaban las cuentas cuando empezo el registro, tambien para lo de antes.
+    """
+    partida = next((e.importacion_id for e in cuenta.eventos if e.tipo == "baseline"), None)
+    eventos = tuple(e for e in cuenta.eventos
+                    if (partida is not None and e.importacion_id == partida)
+                    or _dia_del_evento(e) <= dia)
+    return estado_cuenta(cuenta, telefonos, politica, eventos)
+
+
 def f7(instantanea: Instantanea) -> list[Resultado]:
     """F7: un cargo del banco a un proveedor fue a una cuenta que no es pagable para el (bloquea).
 
     El cargo es de un proveedor si esta casado (confirmado o propuesto) con una
     factura suya, o si su cuenta de destino esta registrada para un solo
-    proveedor. Pagable es lo de F2: verificada, atestada o heredada, en el
-    ultimo Exact y sin cambios por verificar. Un traspaso a una cuenta propia o
+    proveedor. Pagable es lo de F2 (verificada, atestada o heredada, en el
+    ultimo Exact y sin cambios por verificar) el dia del cargo: una cuenta que
+    lo era cuando se pago no convierte el pago en un F7 porque despues saliera
+    de Exact o cambiara. Lo de la importacion de partida cuenta desde siempre
+    (describe lo que ya se pagaba antes). Solo un rechazo de una persona cuenta
+    aunque llegue despues: dice que la cuenta no es suya, y lo pagado alli
+    tampoco lo era. Un traspaso a una cuenta propia o
     un pago a un beneficiario conocido (Belastingdienst, nominas, alquiler) no
     es un pago a un proveedor. El hallazgo va sobre el movimiento, y toca las
     facturas con que esta casado.
@@ -696,6 +724,10 @@ def f7(instantanea: Instantanea) -> list[Resultado]:
     for a in instantanea.aplicaciones:
         if a.movimiento_id is not None and a.estado != "retirada" and a.factura_id in proveedor_de:
             casadas[a.movimiento_id].add(a.factura_id)
+    telefonos: dict[int, list[CambioTelefono]] = defaultdict(list)
+    for t in instantanea.telefonos:
+        telefonos[t.proveedor_id].append(t)
+    del_dia: dict[tuple[int, date], EstadoCuenta] = {}
     salida = []
     for m in instantanea.movimientos:
         if m.importe_cent is None or m.importe_cent >= 0 or (
@@ -724,7 +756,15 @@ def f7(instantanea: Instantanea) -> list[Resultado]:
                 continue
             cuenta = next((c for c in r.por_proveedor.get(proveedor_id, ())
                            if c.iban == m.contraparte_iban), None)
-            estado = r.estados[cuenta.id] if cuenta is not None else None
+            estado = None
+            if cuenta is not None:
+                clave_dia = (cuenta.id, m.fecha)
+                if clave_dia not in del_dia:
+                    del_dia[clave_dia] = _estado_el_dia(cuenta, m.fecha, telefonos.get(
+                        cuenta.parte_id, ()), instantanea.politica)
+                estado = del_dia[clave_dia]
+                if r.estados[cuenta.id].estado == "rechazada":
+                    estado = r.estados[cuenta.id]
             if estado is not None and estado.pagable:
                 continue
             motivo = ("no está registrada para él" if estado is None
@@ -747,5 +787,5 @@ LEE_F7 = LEE_REGISTRO | frozenset({
     "factura.id", "factura.sentido", "factura.proveedor_id", "parte.id", "parte.nombre",
     "aplicacion.movimiento_id", "aplicacion.estado", "aplicacion.factura_id",
     "movimiento.id", "movimiento.importe_cent", "movimiento.contraparte_iban",
-    "movimiento.fecha",
+    "movimiento.fecha", "evento_cuenta.dia",
 })

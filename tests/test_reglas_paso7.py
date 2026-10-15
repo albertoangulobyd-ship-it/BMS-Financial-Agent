@@ -17,14 +17,18 @@ from test_reglas_paso5 import (
     K_HEREDADA,
     K_RECHAZADA,
     compra,
+    cuenta,
     de,
+    evento,
     lote,
     lotes,
     maestros,
+    persona_decide,
     resultados,
 )
 
 from bms_agent.reglas import catalogo
+from bms_agent.reglas.instantanea import tramos_bloqueados
 from bms_agent.reglas.base import (
     Aplicacion,
     Bloqueo,
@@ -32,6 +36,7 @@ from bms_agent.reglas.base import (
     Factura,
     Instantanea,
     Movimiento,
+    PagadoExact,
     Politica,
 )
 from bms_agent.reglas.pagos import roturas, saldo, tolerancia_cent
@@ -277,6 +282,24 @@ def test_k6_la_cadena_de_extractos() -> None:
     assert roturas(ano) == {}
 
 
+def test_k6_un_numero_repetido_o_cero_lo_deciden_los_saldos() -> None:
+    """Paginas de un MT940 (el mismo :28C:) y el 00000 de ING: no rompen si los saldos
+    encadenan; si no encadenan, si (revision del paso 7)."""
+    paginas = (extracto(1, 101, 10000, 9900, date(2026, 10, 12), date(2026, 10, 12)),
+               extracto(2, 101, 9900, 9800, date(2026, 10, 12), date(2026, 10, 12)),
+               extracto(3, 102, 9800, 9700, date(2026, 10, 13), date(2026, 10, 13)))
+    assert roturas(paginas) == {}
+    ceros = (extracto(1, 0, 10000, 9900, date(2026, 10, 12), date(2026, 10, 12)),
+             extracto(2, 0, 9900, 9800, date(2026, 10, 13), date(2026, 10, 13)))
+    assert roturas(ceros) == {}
+    [(roto, motivo)] = roturas((*ceros, extracto(3, 0, 5000, 4900, date(2026, 10, 14),
+                                                 date(2026, 10, 14))))[PROPIA]
+    assert roto.id == 3 and "abre con" in motivo and "numero" not in motivo
+    # Un salto de verdad sigue siendo una rotura aunque los saldos encadenen.
+    assert roturas((*paginas, extracto(4, 104, 9700, 9700, date(2026, 10, 14),
+                                       date(2026, 10, 14))))[PROPIA][0][0].id == 4
+
+
 def test_k6_bloquea_el_extracto_y_lo_pagado_desde_la_rotura() -> None:
     extractos = (extracto(1, 100, 0, 100000, date(2026, 9, 1), date(2026, 9, 30), importacion=7),
                  extracto(2, 102, 100000, 58860, date(2026, 10, 1), date(2026, 10, 13),
@@ -352,6 +375,106 @@ def test_x1_un_movimiento_en_otra_moneda() -> None:
     assert (r.fila_id, r.resultado, r.valores) == (1, "fallo", {"moneda": "USD"})
 
 
+# ------------------------------------------------------------ revision del paso 7
+
+def test_k4_la_ventana_se_cuenta_desde_el_primer_cargo() -> None:
+    """Tres cargos cada 20 dias no son un grupo de tres: el tercero esta a 40 del primero."""
+    movs = (movimiento(1, -41140, date(2026, 8, 1)), movimiento(2, -41140, date(2026, 8, 21)),
+            movimiento(3, -41140, date(2026, 9, 10)))
+    k4 = [r for r in resultados("K4", banco(compra(1), movimientos=movs)) if r.tabla == "movimiento"]
+    assert sorted(r.fila_id for r in k4) == [1, 2]
+
+
+def test_k4_dos_cargos_al_mismo_proveedor_en_dos_cuentas_suyas() -> None:
+    """La misma parte, no la misma cuenta: K_HEREDADA y K_RECHAZADA son las dos de Van Dijk."""
+    movs = (movimiento(1, -41140, date(2026, 10, 5), iban=K_HEREDADA),
+            movimiento(2, -41140, date(2026, 10, 9), iban=K_RECHAZADA),
+            movimiento(3, -41140, date(2026, 10, 9), iban=SIN_REGISTRAR, referencia="OTRA"),
+            movimiento(4, -41140, date(2026, 10, 10), iban="NL53RABO0333444555",
+                       referencia="OTRA"))
+    k4 = [r for r in resultados("K4", banco(compra(1), movimientos=movs)) if r.tabla == "movimiento"]
+    assert sorted(r.fila_id for r in k4) == [1, 2]
+    assert k4[0].valores["parte"] == "proveedor:1"
+    assert k4[0].valores["ibans"] == sorted([K_HEREDADA, K_RECHAZADA])
+
+
+def test_k5_un_bloqueo_desaparecido_ya_no_es_bloqueada() -> None:
+    """Desaparecido pone la factura en Atencion (prioridad.py), no en Bloqueada: un pago
+    despues no es K5; si el hallazgo se reabre, vuelve a contar."""
+    tramos = tramos_bloqueados([
+        (1, "abierto", date(2026, 10, 1)), (1, "desaparecido", date(2026, 10, 3)),
+        (1, "abierto", date(2026, 10, 8)), (2, "abierto", date(2026, 10, 2)),
+        (2, "aceptado", date(2026, 10, 4))])
+    assert tramos == {1: [(date(2026, 10, 1), date(2026, 10, 3)), (date(2026, 10, 8), None)],
+                      2: [(date(2026, 10, 2), date(2026, 10, 4))]}
+    bloqueos = tuple(Bloqueo(1, "F3", desde, hasta) for desde, hasta in tramos[1])
+    inst = banco(compra(1), bloqueos=bloqueos, aplicaciones=(
+        aplicacion(1, 1, 100, fecha=date(2026, 10, 5)),
+        aplicacion(2, 1, 100, fecha=date(2026, 10, 9))))
+    assert [r.valores["fecha_pago"] for r in de("K5", inst, 1)] == ["2026-10-09"]
+
+
+def test_f7_mira_si_la_cuenta_era_pagable_el_dia_del_cargo() -> None:
+    """Un cargo a una cuenta pagable ese dia no es F7 porque despues saliera de Exact; uno de
+    despues si. Un rechazo de una persona cuenta aunque llegue despues (revision del paso 7)."""
+    heredada = cuenta(1, K_HEREDADA, evento(1, "baseline", importacion=1),
+                      evento(2, "visto_en_exact", importacion=1),
+                      evento(3, "ausente_en_exact", "2026-10-12T08:00:00+00:00", importacion=2))
+    rechazada = cuenta(4, K_RECHAZADA, evento(10, "baseline", importacion=1),
+                       evento(11, "visto_en_exact", importacion=1),
+                       persona_decide(12, "rechazada", "2026-10-12T09:00:00+00:00"))
+    movs = (movimiento(1, -41140, date(2026, 9, 10), iban=K_HEREDADA),
+            movimiento(2, -41140, date(2026, 10, 13), iban=K_HEREDADA),
+            movimiento(3, -41140, date(2026, 8, 1), iban=K_HEREDADA),     # antes del registro
+            movimiento(4, -41140, date(2026, 9, 10), iban=K_RECHAZADA))
+    inst = dataclasses.replace(
+        banco(compra(1), compra(2), compra(3), compra(4), movimientos=movs, aplicaciones=(
+            aplicacion(1, 1, 41140), aplicacion(2, 2, 41140), aplicacion(3, 3, 41140),
+            aplicacion(4, 4, 41140))),
+        cuentas=(heredada, rechazada))
+    por_movimiento = {r.fila_id: r for r in resultados("F7", inst)}
+    assert set(por_movimiento) == {2, 4}
+    assert "con un cambio sin verificar" in por_movimiento[2].detalle
+    assert "rechazada" in por_movimiento[4].detalle
+
+
+def test_k1_y_k3_no_dicen_sin_pagar_sobre_una_rotura_de_la_cadena() -> None:
+    """Falta el extracto 101: lo vencido o pagado a mano esos dias puede estar en el que
+    falta (K6). Y la cobertura es por cuenta (revision del paso 7)."""
+    rota = (extracto(1, 100, 0, 100000, date(2026, 9, 1), date(2026, 9, 30)),
+            extracto(2, 102, 100000, 58860, date(2026, 10, 5), date(2026, 10, 13)))
+    manual = aplicacion(1, 2, 41140, fuente="manual", metodo="manual", fecha=date(2026, 10, 2))
+    vencida = compra(1, vencimiento=VENCIDA, fecha_factura=date(2026, 9, 15))
+    inst = banco(vencida, compra(2), extractos=rota, aplicaciones=(manual,))
+    [k1] = de("K1", inst, 1)
+    assert k1.resultado == "sin_datos"
+    [k3] = de("K3", inst, 2)
+    assert k3.resultado == "sin_datos" and "K6" in k3.detalle
+    # Con la cadena entera, si se sabe.
+    sigue = (extracto(1, 100, 0, 100000, date(2026, 9, 1), date(2026, 9, 30)),
+             extracto(2, 101, 100000, 58860, date(2026, 10, 1), date(2026, 10, 13)))
+    entera = banco(vencida, compra(2), extractos=sigue, aplicaciones=(manual,))
+    assert [r.resultado for r in de("K1", entera, 1)] == ["fallo"]
+    assert [r.resultado for r in de("K3", entera, 2)] == ["fallo"]
+    # Otra cuenta propia con extractos solo desde octubre: lo de septiembre no se sabe.
+    otra = (*sigue, extracto(3, 1, 0, 0, date(2026, 10, 5), date(2026, 10, 13),
+                             cuenta=OTRA_PROPIA))
+    assert [r.resultado for r in de("K1", banco(vencida, extractos=otra), 1)] == ["sin_datos"]
+
+
+def test_k8_exact_dice_cero_y_el_banco_pagado() -> None:
+    """Abierta en Exact y pagada en el banco: K8, comparando con lo que el banco habia pagado
+    el dia de la foto de Exact (revision del paso 7)."""
+    pagos = (aplicacion(1, 1, 41140, fecha=date(2026, 10, 12)),
+             aplicacion(2, 2, 41140, fecha=date(2026, 10, 12)))
+    inst = dataclasses.replace(
+        banco(compra(1), compra(2), aplicaciones=pagos),
+        exact_pagado=(PagadoExact(1, 0, date(2026, 10, 13)),        # despues del pago
+                      PagadoExact(2, 0, date(2026, 10, 11))))       # antes: no lo sabia
+    [r] = resultados("K8", inst)
+    assert (r.fila_id, r.valores) == (1, {"banco_cent": 41140, "exact_cent": 0})
+
+
 # ------------------------------------------------------------ para la prueba de pureza
 
 def escenarios() -> list[Instantanea]:
@@ -385,4 +508,8 @@ def escenarios() -> list[Instantanea]:
               con_lotes=lotes()[:4]),
         dataclasses.replace(banco(*facturas, movimientos=movs, aplicaciones=apps),
                             cuentas=(), lotes=()),
+        # Exact dice cero de la 4 y lo que pago la 1 (K8 con la foto de Exact).
+        dataclasses.replace(banco(*facturas, movimientos=movs, aplicaciones=apps),
+                            exact_pagado=(PagadoExact(4, 0, date(2026, 10, 13)),
+                                          PagadoExact(1, 82280, date(2026, 10, 13)))),
     ]

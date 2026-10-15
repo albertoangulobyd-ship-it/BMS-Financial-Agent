@@ -277,6 +277,9 @@ class EventoCuenta:
     telefono_usado: str | None
     llegada: str | None
     decision_facturas: str | None
+    # El dia (en la zona de la empresa) de `en`: F7 mira la cuenta como estaba
+    # el dia del cargo. None en las instantaneas de prueba: se toma de `en`.
+    dia: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,8 +355,10 @@ class Extracto:
 class Movimiento:
     """Un movimiento del banco. `importe_cent` None si no esta en euros (X1); con signo.
 
-    `referencia` es lo que lo identifica como pago de algo, ya normalizado:
-    la referencia estructurada o, si no hay, el concepto (K4).
+    `referencia` es lo que lo identifica como pago de algo, ya normalizado
+    (K4): la referencia estructurada, el end-to-end o, si no hay, un numero de
+    factura que aparece en el concepto. Nunca el concepto entero: dos recibos
+    de un contrato con el mismo texto cada mes no son un pago doble.
     """
 
     id: int
@@ -393,6 +398,16 @@ class Bloqueo:
     hasta: date | None
 
 
+@dataclass(frozen=True, slots=True)
+class PagadoExact:
+    """Lo que la ultima importacion de pagos de Exact que trae una factura dice pagado de
+    ella (tambien cero), y de que dia es esa foto de Exact (K8)."""
+
+    factura_id: int
+    pagado_cent: int
+    fecha: date
+
+
 @dataclass(frozen=True)
 class Instantanea:
     """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py.
@@ -420,6 +435,7 @@ class Instantanea:
     aplicaciones: tuple[Aplicacion, ...] = ()
     beneficiarios: frozenset[str] = frozenset()
     bloqueos: tuple[Bloqueo, ...] = ()
+    exact_pagado: tuple[PagadoExact, ...] = ()
 
 
 # ------------------------------------------------------------ resultados

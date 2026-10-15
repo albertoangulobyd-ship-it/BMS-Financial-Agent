@@ -1260,7 +1260,8 @@ def _marcar_pagada(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     resultado = pagos.marcar_pagada(
         ctx.conn, ctx.persona, factura_id=d["factura_id"], importe=importe,
         fecha_pago=date.fromisoformat(d["fecha_pago"]) if d.get("fecha_pago") else None,
-        movimiento_id=d.get("movimiento_id"), rev=d["rev"], datos=ctx.datos_evento)
+        movimiento_id=d.get("movimiento_id"), rev=d["rev"],
+        evidencia_documento_id=d.get("evidencia_documento_id"), datos=ctx.datos_evento)
     creada = next((i for t, i in resultado.creadas if t == "aplicacion_pago"), None)
     return Hecho(resultado.evento_id, facturas={d["factura_id"]},
                  detalle={"aplicacion_id": creada})
@@ -1418,8 +1419,10 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Apuntar que una factura se pago (fuera de lo que el sistema ve, o enlazando un "
            "movimiento del banco que no se caso solo). No paga nada: apunta lo que ya se pago.",
            (_p("factura_id"), _p("importe", VALOR, False, "por defecto, lo que queda"),
-            _p("fecha_pago", FECHA, False, "por defecto, hoy o la del movimiento"),
-            _p("movimiento_id", ENTERO, False), _p("rev"), _MOTIVO),
+            _p("fecha_pago", FECHA, False, "por defecto, hoy; con un movimiento, la suya"),
+            _p("movimiento_id", ENTERO, False),
+            _p("evidencia_documento_id", ENTERO, False, "el documento que lo prueba"),
+            _p("rev"), _MOTIVO),
            _marcar_pagada, motivo="obligatorio", rev=True),
     Accion("confirmar_pago", P.MARCAR_PAGADA.value,
            "Confirmar un pago que el sistema propuso al casar un movimiento del banco.",

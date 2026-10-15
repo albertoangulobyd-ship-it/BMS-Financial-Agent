@@ -411,6 +411,165 @@ def test_lo_de_exact_no_se_retira_aqui_y_el_banco_manda(banco) -> None:
     assert json.loads(k8["valores_json"]) == {"banco_cent": 290279, "exact_cent": 50000}
 
 
+# ------------------------------------------------------------ revision del paso 7
+
+def _marcar(conn, numero: str, **datos) -> servicios.Diferencia:
+    f = factura_de(conn, numero)
+    return _orden(conn, "marcar_pagada", {"factura_id": f, "rev": _rev(conn, "factura", f),
+                                          "motivo": MOTIVO, **datos})
+
+
+def _movimiento_de(conn, iban: str) -> int:
+    return conn.execute("SELECT id FROM movimiento_bancario WHERE contraparte_iban = ?",
+                        (iban,)).fetchone()[0]
+
+
+def test_enlazar_un_movimiento_no_paga_mas_de_lo_que_queda_de_el(banco) -> None:
+    """Un cargo de 10,00 no paga una factura de 2902,79, ni dos veces, ni Hacienda paga una
+    factura: un enlace a mano es evidencia del banco y apaga K3 (revision del paso 7)."""
+    conn = banco.conn
+    _orden(conn, "anadir_beneficiario", {"iban": BELASTINGDIENST, "nombre": "Belastingdienst",
+                                         "motivo": "Pagos de BTW"})
+    importar_camt(banco, _ana(conn), camt053(apunte("-10.00", iban=DESCONOCIDA),
+                                             apunte("-12.00", iban=BELASTINGDIENST)))
+    diez, hacienda = _movimiento_de(conn, DESCONOCIDA), _movimiento_de(conn, BELASTINGDIENST)
+    with pytest.raises(PagoNoValido, match="quedan 10.00"):
+        _marcar(conn, "2026-4471", movimiento_id=diez, importe="2902,79")
+    with pytest.raises(PagoNoValido, match="beneficiario conocido"):
+        _marcar(conn, "2026-4471", movimiento_id=hacienda, importe="12,00")
+    assert _aplicaciones(conn) == []
+    # Lo que si se puede: lo que queda del movimiento, que deja la factura con su saldo.
+    _marcar(conn, "2026-4471", movimiento_id=diez)
+    [a] = _aplicaciones(conn)
+    assert (a["fuente"], a["importe_cent"]) == ("banco", 1000)
+    assert _estado(conn, "2026-4471")[:2] == ("pendiente", 289279)
+    # Y el movimiento ya no da para otra factura.
+    with pytest.raises(PagoNoValido, match="aplicado entero"):
+        _marcar(conn, "2026-112", movimiento_id=diez, importe="5,00")
+    assert len(_aplicaciones(conn)) == 1
+    _limpio(conn)
+
+
+def test_no_se_marca_a_mano_lo_que_el_banco_ya_paga_en_parte(banco) -> None:
+    """Lo marcado a mano no cuenta si hay pagos del banco (manda el banco): la orden no puede
+    salir bien y dejar la factura pendiente con K2 (revision del paso 7)."""
+    conn = banco.conn
+    importar_camt(banco, _ana(conn), camt053(apunte(
+        "-1000.00", iban=VAN_DIJK, concepto="Factuur 2026-4471")))
+    [a] = _aplicaciones(conn)
+    _confirmar(conn, a["id"])
+    assert _estado(conn, "2026-4471")[:2] == ("pendiente", 190279)
+    with pytest.raises(PagoNoValido, match="banco"):
+        _marcar(conn, "2026-4471")
+    assert len(_aplicaciones(conn)) == 1
+    # El resto llega por el banco y se enlaza: pagada.
+    importar_camt(banco, _ana(conn), camt053(apunte("-1902.79", "2026-10-13", iban=DESCONOCIDA),
+                                             inicial="9000.00", secuencia=2,
+                                             identificador="STMT-2", desde="2026-10-13"), "2.xml")
+    _marcar(conn, "2026-4471", movimiento_id=_movimiento_de(conn, DESCONOCIDA))
+    assert _estado(conn, "2026-4471")[:2] == ("pagada", 0)
+
+
+def test_un_pago_enlazado_lleva_la_fecha_del_banco_y_k5_lo_ve(banco) -> None:
+    """Con un movimiento, la fecha del pago es la del banco: otra dejaria un pago hecho con la
+    factura Bloqueada fuera de K5 (revision del paso 7)."""
+    conn = banco.conn
+    assert _estado(conn, "2026-0912")[2] == "bloqueada"
+    importar_camt(banco, _ana(conn), camt053(apunte("-1781.12", "2026-10-14", iban=KOSTER),
+                                             hasta="2026-10-14"))
+    [a] = _aplicaciones(conn)
+    _orden(conn, "retirar_pago", {"aplicacion_id": a["id"], "rev": a["rev"],
+                                  "motivo": "La enlazo yo"})
+    with pytest.raises(PagoNoValido, match="fecha del banco"):
+        _marcar(conn, "2026-0912", movimiento_id=a["movimiento_id"], fecha_pago="2026-10-01")
+    _marcar(conn, "2026-0912", movimiento_id=a["movimiento_id"], fecha_pago="2026-10-14")
+    assert _aplicaciones(conn)[-1]["fecha_pago"] == "2026-10-14"
+    assert _de_factura(conn, "K5", "2026-0912")
+
+
+def test_casar_solo_es_automatico_con_el_importe_exacto(banco) -> None:
+    """Con una tolerancia de 0,01, un cargo de 2902,78 casa en referencia, importe y
+    contraparte, pero no es el importe: una propuesta por lo que movio el banco, no un pago
+    automatico de 2902,79 (revision del paso 7)."""
+    conn = banco.conn
+    carpeta = banco.documentos.raiz.parent / "reglas"
+    carpeta.mkdir()
+    texto = (RAIZ / "config" / "reglas.yaml").read_text(encoding="utf-8")
+    (carpeta / "reglas.yaml").write_text(texto.replace('tolerancia: "0.00"', 'tolerancia: "0.01"'),
+                                         encoding="utf-8")
+    politica.cargar(conn, carpeta / "reglas.yaml", _ana(conn))
+    importar_camt(banco, _ana(conn), camt053(apunte(
+        "-2902.78", iban=VAN_DIJK, concepto="Factuur 2026-4471")))
+    [a] = _aplicaciones(conn)
+    assert (a["metodo"], a["estado"], a["importe_cent"], a["regla"]) == (
+        "propuesta", "propuesta", 290278, "referencia+importe+contraparte")
+    assert pagos.casar(
+        pagos.MovimientoAbierto(1, None, -290278, VAN_DIJK, frozenset({"20264471"})),
+        [pagos.FacturaAbierta(9, "entrante", "20264471", None, 290279, frozenset({VAN_DIJK}))],
+        1).metodo == "propuesta"
+
+
+def test_un_pago_a_mano_cita_su_prueba_y_queda_autorrevisado(banco) -> None:
+    """La prueba de un pago a mano (evidencia_documento_id) se puede dar, y quien marca y
+    confirma a la vez queda como autorrevisado en el evento (revision del paso 7)."""
+    conn = banco.conn
+    documento = conn.execute("SELECT min(id) FROM documento").fetchone()[0]
+    with pytest.raises(LookupError):
+        _marcar(conn, "2026-018", fecha_pago="2026-10-01", evidencia_documento_id=999999)
+    _marcar(conn, "2026-018", fecha_pago="2026-10-01", evidencia_documento_id=documento)
+    [a] = _aplicaciones(conn)
+    assert a["evidencia_documento_id"] == documento
+    datos = json.loads(conn.execute("SELECT datos_json FROM evento WHERE tipo = 'pago_marcado'"
+                                    ).fetchone()[0])
+    assert datos["autorrevisado"] is True
+    _limpio(conn)
+
+
+def test_dos_recibos_mensuales_con_el_mismo_concepto_no_son_un_pago_doble(banco) -> None:
+    """El concepto entero no es una referencia de pago: dos cuotas de un leasing con el mismo
+    texto a 28 dias (febrero) no son K4. Un numero de factura en el concepto si lo es
+    (revision del paso 7)."""
+    conn = banco.conn
+    ana = _ana(conn)
+    cuota = "Leasecontract LC-88 maandtermijn"
+    importar_camt(banco, ana, camt053(apunte("-49.95", "2026-02-02", iban=KOSTER, concepto=cuota,
+                                             e2e="LC88-202602"),
+                                      secuencia=1, identificador="F", desde="2026-02-01",
+                                      hasta="2026-02-28"), "feb.xml")
+    importar_camt(banco, ana, camt053(apunte("-49.95", "2026-03-02", iban=KOSTER, concepto=cuota,
+                                             e2e="LC88-202603"),
+                                      inicial="9950.05", secuencia=2, identificador="M",
+                                      desde="2026-03-01", hasta="2026-03-31"), "mar.xml")
+    assert _hallazgos(conn, "K6") == []
+    assert _hallazgos(conn, "K4") == []
+    # Dos cargos que citan la misma factura en el concepto, si.
+    importar_camt(banco, ana, camt053(
+        apunte("-49.95", "2026-04-02", iban=KOSTER, concepto="Factuur 2026-0912 deel"),
+        apunte("-49.95", "2026-04-03", iban=KOSTER, concepto="Factuur 2026-0912 deel"),
+        inicial="9900.10", secuencia=3, identificador="A", desde="2026-04-01",
+        hasta="2026-04-30"), "abr.xml")
+    [k4] = _hallazgos(conn, "K4")
+    assert len(json.loads(k4["valores_json"])["movimientos"]) == 2
+
+
+def test_exact_dice_abierta_y_el_banco_pagada_da_k8(banco) -> None:
+    """Exact sin nada pagado no dejaba ninguna aplicacion y K8 no tenia con que comparar
+    (revision del paso 7)."""
+    conn = banco.conn
+    cabecera = (RAIZ / "tests" / "fixtures" / "importacion" / "exact-pagos_exact-v1.csv"
+                ).read_text(encoding="utf-8-sig").splitlines()[0]
+    ruta = banco.documentos.raiz.parent / "pagos.csv"
+    ruta.write_text(f"{cabecera}\nInkoop;20001;2026-4471;2.902,79;2.902,79;;;EUR\n",
+                    encoding="utf-8")
+    [lote] = importar_fichero(banco, "exact", "pagos_exact", ruta, lanzado_por=_ana(conn)).lotes
+    assert lote.estado == "aceptada" and _aplicaciones(conn) == []
+    importar_camt(banco, _ana(conn), camt053(apunte(
+        "-2902.79", iban=VAN_DIJK, concepto="Factuur 2026-4471")))
+    assert _estado(conn, "2026-4471")[0] == "pagada"
+    [k8] = _de_factura(conn, "K8", "2026-4471")
+    assert json.loads(k8["valores_json"]) == {"banco_cent": 290279, "exact_cent": 0}
+
+
 def test_la_base_no_deja_escribir_pagos_por_fuera(banco) -> None:
     conn = banco.conn
     importar_camt(banco, _ana(conn), camt053(apunte(

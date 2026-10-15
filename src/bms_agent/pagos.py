@@ -18,10 +18,11 @@ venta) por tres cosas:
 - la contraparte: la cuenta del movimiento esta en el registro de cuentas de
   ese proveedor o cliente.
 
-Con las tres, y una sola factura que las cumpla, el pago es automatico y
-queda confirmado. Con dos de tres, y una sola factura con dos, es una
-propuesta que una persona confirma (o retira). Con menos, nada: el
-movimiento queda sin casar y K7 lo dice pasados unos dias. Lo que una
+Con las tres, el importe exacto (al centimo, sin la tolerancia) y una sola
+factura que las cumpla, el pago es automatico y queda confirmado. Con dos de
+tres (o las tres con el importe solo dentro de la tolerancia), y una sola
+factura con dos, es una propuesta que una persona confirma (o retira). Con
+menos, nada: el movimiento queda sin casar y K7 lo dice pasados unos dias. Lo que una
 persona retiro no se vuelve a proponer. Un traspaso entre cuentas propias o
 un pago a un beneficiario conocido no se casa con nada.
 
@@ -36,7 +37,6 @@ retirar un pago.
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
@@ -60,6 +60,7 @@ from .dominio import (
 )
 from .parsing import normalizar_referencia
 from .permisos import exigir, orden_auditada
+from .reglas.instantanea import LARGO_MINIMO, referencias_de
 from .reglas.instantanea import aplicaciones as leer_aplicaciones
 from .reglas.pagos import en_el_movimiento, saldo, tolerancia_cent
 
@@ -68,9 +69,6 @@ SALIENTE = Sentido.SALIENTE.value
 BANCO = FuenteAplicacion.BANCO.value
 RETIRADA = EstadoAplicacion.RETIRADA.value
 PROPUESTA = EstadoAplicacion.PROPUESTA.value
-# Una referencia de menos de tres caracteres ("1", "12") casaria con cualquier cosa.
-LARGO_MINIMO = 3
-_PALABRA = re.compile(r"[A-Za-z0-9]+(?:[-./_][A-Za-z0-9]+)*")
 
 
 class PagoNoValido(ValueError):
@@ -109,26 +107,6 @@ class FacturaAbierta:
     def esperado(self) -> int:
         """Lo que tendria que traer el movimiento que la paga, en el signo del movimiento."""
         return -self.abierto_cent if self.sentido == ENTRANTE else self.abierto_cent
-
-
-def referencias_de(*textos: str | None) -> frozenset[str]:
-    """Lo que puede ser un numero de factura en lo que dice el banco, ya normalizado.
-
-    Cada palabra (con sus guiones, puntos o barras: "2026-4471") y cada par de
-    palabras seguidas ("2026 4471"): el banco parte a veces el numero en dos.
-    """
-    salida: set[str] = set()
-    for texto in textos:
-        if not texto:
-            continue
-        completo = normalizar_referencia(texto)
-        if completo and len(completo) >= LARGO_MINIMO and len(texto) <= 40:
-            salida.add(completo)
-        palabras = [normalizar_referencia(p) for p in _PALABRA.findall(texto)]
-        palabras = [p for p in palabras if p]
-        salida.update(p for p in palabras if len(p) >= LARGO_MINIMO)
-        salida.update(a + b for a, b in zip(palabras, palabras[1:]) if len(a + b) >= LARGO_MINIMO)
-    return frozenset(salida)
 
 
 @dataclass(frozen=True)
@@ -179,10 +157,13 @@ def casar(m: MovimientoAbierto, facturas: Iterable[FacturaAbierta], tolerancia: 
     if len(mejores) != 1:
         return None
     cuantos, f, coincide = mejores[0]
-    if cuantos == 3:
+    # Automatico solo con el importe exacto: dentro de la tolerancia, el
+    # banco movio otra cosa que lo que queda, y eso lo mira una persona.
+    if cuantos == 3 and m.resto_cent == f.esperado():
         return Casado(m.id, f.id, MetodoAplicacion.AUTOMATICA.value, f.abierto_cent, _que(coincide))
     # Lo que se lleva una propuesta: el movimiento entero, sin pasar de lo que
-    # queda de la factura (lo que sobre queda sin casar).
+    # queda de la factura (lo que sobre queda sin casar). Es lo que el banco
+    # movio de verdad, nunca mas.
     signo = 1 if f.abierto_cent > 0 else -1
     importe = signo * min(abs(m.resto_cent), abs(f.abierto_cent))
     return Casado(m.id, f.id, MetodoAplicacion.PROPUESTA.value, importe, _que(coincide))
@@ -247,6 +228,15 @@ def _ajenas(conn: sqlite3.Connection) -> frozenset[str]:
 
 def _sentidos(conn: sqlite3.Connection) -> dict[int, str]:
     return dict(_filas(conn, "SELECT id, sentido FROM factura"))
+
+
+def _resto_del_movimiento(conn: sqlite3.Connection, movimiento: sqlite3.Row) -> int:
+    """Lo que queda de un movimiento sin aplicar (propuesto o confirmado), en su signo."""
+    sentidos = _sentidos(conn)
+    aplicado = sum(en_el_movimiento(a, sentidos.get(a.factura_id, ENTRANTE))
+                   for a in leer_aplicaciones(conn)
+                   if a.movimiento_id == movimiento["id"] and a.estado != RETIRADA)
+    return movimiento["importe_cent"] - aplicado
 
 
 def movimientos_abiertos(conn: sqlite3.Connection, tolerancia: int = 0) -> list[MovimientoAbierto]:
@@ -384,17 +374,71 @@ def _comprobar_rev(fila: sqlite3.Row, rev: int | None, que: str) -> None:
                                "cargarla")
 
 
+def _abierto_con_el_banco(conn: sqlite3.Connection, factura: sqlite3.Row) -> int:
+    """Lo que queda de una factura por cubrir con el banco (lo propuesto tambien cuenta)."""
+    del_banco = sum(a.importe_cent for a in leer_aplicaciones(conn)
+                    if a.factura_id == factura["id"] and a.fuente == BANCO
+                    and a.estado != RETIRADA)
+    return factura["total_cent"] - del_banco
+
+
+def _movimiento_enlazable(conn: sqlite3.Connection, factura: sqlite3.Row, movimiento_id: int,
+                          fecha_pago: date | None) -> tuple[sqlite3.Row, int]:
+    """El movimiento que una persona enlaza a una factura, y lo que queda de el.
+
+    Un enlace a mano es evidencia del banco (manda sobre Exact y lo marcado a
+    mano, y apaga K3): solo vale si el movimiento la puede sostener. No vale
+    un movimiento en otra moneda, en el otro sentido, de un traspaso entre
+    cuentas propias o a un beneficiario conocido (no es un pago de facturas, y
+    K4, K7 y F7 no lo miran), uno ya aplicado entero ni otra fecha que la del
+    banco (una fecha a mano dejaria un pago hecho en Bloqueada fuera de K5).
+    """
+    movimiento = conn.execute("SELECT * FROM movimiento_bancario WHERE id = ?",
+                              (movimiento_id,)).fetchone()
+    if movimiento is None:
+        raise LookupError(f"no hay movimiento {movimiento_id}")
+    if movimiento["importe_cent"] is None:
+        raise PagoNoValido(f"el movimiento {movimiento_id} no esta en euros (X1)")
+    # Un cargo paga una compra y un abono cobra una venta (al reves con un abono).
+    entra_dinero = (factura["sentido"] == SALIENTE) == (factura["total_cent"] > 0)
+    if (movimiento["importe_cent"] > 0) != entra_dinero:
+        raise PagoNoValido("un cargo paga una compra y un abono cobra una venta: el "
+                           "movimiento va en el otro sentido")
+    contraparte = movimiento["contraparte_iban"]
+    if contraparte is not None and contraparte in _ajenas(conn):
+        raise PagoNoValido(f"el movimiento {movimiento_id} va a {contraparte}, una cuenta propia o "
+                           "un beneficiario conocido: no paga facturas")
+    fecha_banco = date.fromisoformat(movimiento["fecha_contable"])
+    if fecha_pago is not None and fecha_pago != fecha_banco:
+        raise PagoNoValido(f"el movimiento {movimiento_id} es del {fecha_banco.isoformat()}: un "
+                           "pago enlazado lleva la fecha del banco, no otra")
+    resto = _resto_del_movimiento(conn, movimiento)
+    if resto == 0 or (resto > 0) != (movimiento["importe_cent"] > 0):
+        raise PagoNoValido(f"el movimiento {movimiento_id} ya esta aplicado entero: retira lo que "
+                           "sobre antes de enlazarlo a otra factura")
+    return movimiento, resto
+
+
 def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int,
                   importe: Decimal | None = None, fecha_pago: date | None = None,
                   movimiento_id: int | None = None, rev: int | None = None,
+                  evidencia_documento_id: int | None = None,
                   datos: dict[str, Any] | None = None) -> campos.ResultadoOrden:
     """Una persona apunta que una factura se pago fuera de lo que el sistema ve. Pide motivo.
 
     Sin movimiento, es un pago manual (fuente manual): vale hasta que llegue
-    el banco o Exact, y K3 avisa si pasados unos dias el banco no lo trae.
+    el banco o Exact, y K3 avisa si pasados unos dias el banco no lo trae. No
+    se apunta a mano lo que ya dicen el banco o Exact: no contaria (manda la
+    fuente de mas peso), asi que se enlaza el movimiento o se corrige en Exact.
     Con un movimiento del banco, lo enlaza a mano (fuente banco): lo que el
-    sistema no pudo casar. El importe, en el signo de la factura, es por
-    defecto lo que queda; un importe menor deja la factura con su saldo (K2).
+    sistema no pudo casar, por lo que queda del movimiento como mucho y con su
+    fecha (ver _movimiento_enlazable). El importe, en el signo de la factura,
+    es por defecto lo que queda; un importe menor deja la factura con su saldo
+    (K2). `evidencia_documento_id` es el documento que lo prueba (un recibo).
+
+    Quien marca, confirma: el esquema no tiene una marca a mano sin confirmar
+    que firme otra persona, asi que cada marca queda como autorrevisada en su
+    evento (separacion de funciones, si_hay_dos) y K3 la contrasta con el banco.
     """
     motivo = (persona.motivo or "").strip()
     with orden_auditada(conn):
@@ -408,29 +452,30 @@ def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int
         if factura["total_cent"] is None:
             raise PagoNoValido(f"la factura {factura_id} no tiene un total en euros (X1): no se "
                                "apunta ningun pago")
+        if evidencia_documento_id is not None and conn.execute(
+                "SELECT 1 FROM documento WHERE id = ?", (evidencia_documento_id,)).fetchone() is None:
+            raise LookupError(f"no hay documento {evidencia_documento_id}")
         s = saldos(conn)[factura_id]
         hoy = reloj_de(conn).hoy()
         fuente = FuenteAplicacion.MANUAL.value
         if movimiento_id is not None:
-            movimiento = conn.execute("SELECT * FROM movimiento_bancario WHERE id = ?",
-                                      (movimiento_id,)).fetchone()
-            if movimiento is None:
-                raise LookupError(f"no hay movimiento {movimiento_id}")
-            if movimiento["importe_cent"] is None:
-                raise PagoNoValido(f"el movimiento {movimiento_id} no esta en euros (X1)")
-            # Un cargo paga una compra y un abono cobra una venta (al reves con un abono).
-            entra_dinero = (factura["sentido"] == SALIENTE) == (factura["total_cent"] > 0)
-            if (movimiento["importe_cent"] > 0) != entra_dinero:
-                raise PagoNoValido("un cargo paga una compra y un abono cobra una venta: el "
-                                   "movimiento va en el otro sentido")
+            movimiento, resto = _movimiento_enlazable(conn, factura, movimiento_id, fecha_pago)
             fuente = BANCO
-            fecha_pago = fecha_pago or date.fromisoformat(movimiento["fecha_contable"])
+            fecha_pago = date.fromisoformat(movimiento["fecha_contable"])
+            abierto = _abierto_con_el_banco(conn, factura)
+            signo = 1 if factura["total_cent"] > 0 else -1
             if importe is None:
-                resto = next((m.resto_cent for m in movimientos_abiertos(conn)
-                              if m.id == movimiento_id), 0)
-                pendiente = s.pendiente_cent or 0
-                importe_cent = (1 if pendiente >= 0 else -1) * min(abs(resto), abs(pendiente))
-                importe = de_cent(importe_cent)
+                if abierto == 0 or (abierto > 0) != (factura["total_cent"] > 0):
+                    raise PagoNoValido(f"el banco ya cubre la factura {factura_id} entera: no "
+                                       "queda nada que enlazar")
+                importe = de_cent(signo * min(abs(resto), abs(abierto)))
+            if abs(a_cent(importe)) > abs(resto):
+                raise PagoNoValido(f"del movimiento {movimiento_id} quedan "
+                                   f"{de_cent(abs(resto))}: no puede pagar {abs(importe)}")
+        elif s.fuente is not None and s.fuente != fuente:
+            raise PagoNoValido(f"la factura {factura_id} ya tiene pagos confirmados de "
+                               f"{s.fuente}, que mandan sobre lo marcado a mano: enlaza el "
+                               "movimiento del banco que falta o corrigelo en Exact")
         if importe is None:
             importe = de_cent(s.pendiente_cent or 0)
         if a_cent(importe) == 0:
@@ -439,12 +484,14 @@ def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int
         if fecha > hoy:
             raise PagoNoValido(f"un pago del {fecha.isoformat()} todavia no se ha hecho: aqui se "
                                "apunta lo que ya se pago")
+        datos = {**(datos or {}), "autorrevisado": True}
         with campos.orden(conn, persona, tipo="pago_marcado", tabla="aplicacion_pago",
                           factura_id=factura_id, datos=datos) as o:
             o.crear("aplicacion_pago", {
                 "factura_id": factura_id, "movimiento_id": movimiento_id, "importe_cent": importe,
                 "fecha_pago": fecha, "fuente": fuente,
                 "metodo": MetodoAplicacion.MANUAL.value, "motivo": motivo,
+                "evidencia_documento_id": evidencia_documento_id,
                 "confirmada_por": persona.usuario_id,
                 "confirmada_en": datetime.fromisoformat(o.ahora)})
     return o.resultado

@@ -21,9 +21,13 @@ Las ventanas que empiezan hoy no llevan lo vencido, que va aparte; el total
 lo lleva todo, tambien lo que no tiene fecha (sin vencimiento ni plazo: no
 se adivina). Neto es entrada menos salida en cada ventana.
 
-Lo movido (cobrado y pagado) son los pagos confirmados de la fuente que manda
-en cada factura (banco, Exact, a mano) con su fecha de pago en la semana y el
-mes en curso hasta hoy, o en el periodo pedido.
+Lo movido (cobrado y pagado) es el dinero que se movio de verdad (decision
+5): los movimientos del banco en euros, salvo los traspasos entre cuentas
+propias, con su fecha contable en la semana y el mes en curso hasta hoy, o en
+el periodo pedido. Va entero, case o no con una factura; lo que no casa se
+dice aparte (`sin_casar`). Lo que solo dicen Exact o una persona (la fuente
+que manda en una factura sin pagos del banco) no se suma: va en sus lineas,
+`segun_exact` y `a_mano`, porque el banco no lo ha visto.
 
 El trabajo sin facturar y el planificado no se mezclan con nada de esto: van
 en una linea aparte, "estimado" (decision 22), que llega con el planning
@@ -43,7 +47,7 @@ from typing import Any
 
 from . import politica
 from .reglas import instantanea
-from .reglas.pagos import CONFIRMADA, PRECEDENCIA, saldo, tolerancia_cent
+from .reglas.pagos import CONFIRMADA, PRECEDENCIA, en_el_movimiento, saldo, tolerancia_cent
 from .reloj import mes_de, semana_de
 
 ENTRADA = "entrada"
@@ -63,14 +67,26 @@ class Partida:
     importe_cent: int
 
 
+BANCO = "banco"
+EXACT = "exact"
+MANUAL = "manual"
+SIN_CASAR = "sin_casar"
+
+
 @dataclass(frozen=True)
 class Movido:
-    """Un pago confirmado de una factura: cobrado (entrada) o pagado (salida), y cuando."""
+    """Dinero cobrado (entrada) o pagado (salida), cuando y segun quien.
 
-    factura_id: int
+    `origen`: banco (un movimiento, o la parte de el casada con `factura_id`),
+    sin_casar (lo de un movimiento que no casa con ninguna factura; tambien es
+    banco), exact o manual (lo que dicen Exact o una persona sin el banco).
+    """
+
+    factura_id: int | None
     direccion: str
     fecha: date
     importe_cent: int
+    origen: str = BANCO
 
 
 def direccion(sentido: str, importe_cent: int) -> str:
@@ -124,18 +140,28 @@ def calcular(partidas: list[Partida], movidos: list[Movido], hoy: date, *,
     primero, _ultimo = mes_de(hoy)
     rangos_movidos = {"semana": (lunes, hoy), "mes": (primero, hoy),
                       "periodo": limites["periodo"]}
-    real: dict[str, dict[str, int | None]] = {ENTRADA: {}, SALIDA: {}}
-    for nombre, rango in rangos_movidos.items():
-        for d in (ENTRADA, SALIDA):
-            real[d][nombre] = None if rango is None else sum(
-                m.importe_cent for m in movidos
-                if m.direccion == d and rango[0] <= m.fecha <= rango[1])
+
+    def suma(origenes: frozenset[str]) -> dict[str, dict[str, int | None]]:
+        salida: dict[str, dict[str, int | None]] = {ENTRADA: {}, SALIDA: {}}
+        for nombre, rango in rangos_movidos.items():
+            for d in (ENTRADA, SALIDA):
+                salida[d][nombre] = None if rango is None else sum(
+                    m.importe_cent for m in movidos
+                    if m.origen in origenes and m.direccion == d
+                    and rango[0] <= m.fecha <= rango[1])
+        return salida
+
+    real = suma(frozenset({BANCO, SIN_CASAR}))
+    aparte = {nombre: suma(frozenset({origen})) for nombre, origen in (
+        ("sin_casar", SIN_CASAR), ("segun_exact", EXACT), ("a_mano", MANUAL))}
     return {
         "hoy": hoy.isoformat(),
         "ventanas": {n: (None if r is None else [r[0].isoformat(), r[1].isoformat()])
                      for n, r in limites.items()},
         "esperado": {"entrada": esperado[ENTRADA], "salida": esperado[SALIDA], "neto": neto},
         "real": {"cobrado": real[ENTRADA], "pagado": real[SALIDA],
+                 **{nombre: {"cobrado": cuentas[ENTRADA], "pagado": cuentas[SALIDA]}
+                    for nombre, cuentas in aparte.items()},
                  "ventanas": {n: (None if r is None else [r[0].isoformat(), r[1].isoformat()])
                               for n, r in rangos_movidos.items()}},
         "estimado": {"importe_cent": None, "nota": SIN_ESTIMADO},
@@ -150,13 +176,41 @@ def _filas(conn: sqlite3.Connection, sql: str) -> list[tuple]:
     return cursor.execute(sql).fetchall()
 
 
+def _del_banco(conn: sqlite3.Connection, sentidos: dict[int, str]) -> list[Movido]:
+    """Los movimientos del banco en euros, salvo los traspasos entre cuentas propias: la parte
+    casada (confirmada) con cada factura y lo que queda sin casar."""
+    propias = frozenset(politica.empresa(conn).cuentas_propias)
+    casado: dict[int, list] = defaultdict(list)
+    for a in instantanea.aplicaciones(conn):
+        if a.movimiento_id is not None and a.estado == CONFIRMADA:
+            casado[a.movimiento_id].append(a)
+    salida = []
+    for id_, fecha, importe, contraparte in _filas(
+            conn, "SELECT id, fecha_contable, importe_cent, contraparte_iban "
+                  "FROM movimiento_bancario WHERE importe_cent IS NOT NULL AND importe_cent <> 0 "
+                  "ORDER BY id"):
+        if contraparte is not None and contraparte in propias:
+            continue
+        dia = date.fromisoformat(fecha)
+        sentido_ = ENTRADA if importe > 0 else SALIDA
+        resto = importe
+        for a in casado.get(id_, ()):
+            parte = en_el_movimiento(a, sentidos.get(a.factura_id, "entrante"))
+            resto -= parte
+            salida.append(Movido(a.factura_id, sentido_, dia, abs(parte), BANCO))
+        if resto:
+            salida.append(Movido(None, ENTRADA if resto > 0 else SALIDA, dia, abs(resto),
+                                 SIN_CASAR))
+    return salida
+
+
 def datos(conn: sqlite3.Connection,
           tolerancia: Decimal | None = None) -> tuple[list[Partida], list[Movido]]:
-    """Lo que queda de cada factura en juego y los pagos confirmados que cuentan.
+    """Lo que queda de cada factura en juego y el dinero movido (ver el docstring del modulo).
 
-    De cada factura cuentan los pagos de la fuente que manda (como en su
-    saldo): si el banco ya lo trae, lo que dijo Exact o una persona no se
-    suma otra vez.
+    Del banco, todo lo que movio. De Exact o de una persona, solo lo de las
+    facturas en que mandan (sin pagos del banco), marcado con su origen: si
+    el banco ya lo trae, lo que dijo Exact o una persona no se suma otra vez.
     """
     tol = tolerancia_cent(tolerancia if tolerancia is not None
                           else politica.politica_reglas(conn).tolerancia_pago)
@@ -164,7 +218,8 @@ def datos(conn: sqlite3.Connection,
     por_factura: dict[int, list] = defaultdict(list)
     for a in instantanea.aplicaciones(conn):
         por_factura[a.factura_id].append(a)
-    partidas, movidos = [], []
+    sentidos = dict(_filas(conn, "SELECT id, sentido FROM factura"))
+    partidas, movidos = [], _del_banco(conn, sentidos)
     for id_, sentido, total, anulada, fusionada, moneda in _filas(
             conn, "SELECT id, sentido, total_cent, anulada, fusionada_en_id, moneda_doc "
                   "FROM factura ORDER BY id"):
@@ -172,11 +227,11 @@ def datos(conn: sqlite3.Connection,
                 instantanea.moneda_extranjera(moneda) is not None):
             continue
         s = saldo(total, por_factura.get(id_, ()), tol)
-        if s.fuente is not None:
+        if s.fuente in (EXACT, MANUAL):
             for a in por_factura[id_]:
                 if a.estado == CONFIRMADA and a.fuente == s.fuente:
                     movidos.append(Movido(id_, direccion(sentido, a.importe_cent),
-                                          a.fecha_pago, abs(a.importe_cent)))
+                                          a.fecha_pago, abs(a.importe_cent), s.fuente))
         if s.pagada or not s.pendiente_cent:
             continue
         partidas.append(Partida(id_, direccion(sentido, s.pendiente_cent), vence.get(id_),

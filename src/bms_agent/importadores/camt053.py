@@ -17,9 +17,18 @@ al leer, porque un fichero que no cuadra esta incompleto o mal leido:
 - los apuntes contabilizados suman la diferencia entre el saldo de cierre y
   el de apertura.
 
-Un apunte en otra moneda que el euro se lee con su literal y su moneda (X1);
-no entra en ninguna suma. Los apuntes que no estan contabilizados (PDNG,
-INFO) no son movimientos: se dicen como aviso.
+El importe de un movimiento es el del apunte (Ntry/Amt), que esta siempre en
+la moneda de la cuenta y es lo que el banco movio de verdad. Solo un apunte
+agrupado se reparte con el importe de cada transaccion (TxDtls/Amt o
+AmtDtls/TxAmt), en la moneda del apunte; el importe instruido (InstdAmt)
+es lo que pidio el ordenante, quiza en otra moneda, y nunca es lo apuntado.
+
+Un apunte en otra moneda que la de la cuenta se lee con su literal y su
+moneda (X1) y no entra en la suma de los saldos: los demas tienen que darla
+igual. Si no la dan, el extracto no entra, haya o no apuntes en otra moneda:
+un apunte raro no apaga la comprobacion de que el extracto esta entero. Los
+apuntes que no estan contabilizados (PDNG, INFO) no son movimientos: se
+dicen como aviso.
 
 Leer es puro: bytes en, registros canonicos fuera.
 """
@@ -28,6 +37,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -55,7 +65,19 @@ class ExtractoNoValido(ValueError):
 
 # ------------------------------------------------------------ seguridad
 
+# Las firmas del apendice F de XML: un UTF-16 sin BOM empieza por '<' con un
+# NUL delante o detras. Esos bytes son UTF-8 valido (NUL es un caracter), asi
+# que probar UTF-8 primero los leeria mal y no veria ningun '<!'.
+_FIRMAS_UTF16 = ((b"<\x00", "utf-16-le"), (b"\x00<", "utf-16-be"))
+
+
 def _texto_del_fichero(contenido: bytes) -> str:
+    for firma, codificacion in _FIRMAS_UTF16:
+        if contenido.startswith(firma):
+            try:
+                return contenido.decode(codificacion)
+            except UnicodeDecodeError:
+                break
     for codificacion in ("utf-8-sig", "utf-16"):
         try:
             return contenido.decode(codificacion)
@@ -64,20 +86,51 @@ def _texto_del_fichero(contenido: bytes) -> str:
     return contenido.decode("latin-1")
 
 
+_DECLARACION = "el fichero trae una declaracion DOCTYPE o ENTITY: no se lee"
+
+
+def _rechazar_declaracion(*_argumentos) -> None:
+    raise FicheroNoAdmitido(_DECLARACION)
+
+
+def _sin_dtd_para_expat(contenido: bytes) -> None:
+    """Pasa el fichero por expat, el mismo que usara ElementTree, parando en cualquier DTD.
+
+    Expat decide la codificacion como la decidira al leer de verdad (BOM,
+    firmas, encoding=), asi que ninguna codificacion esconde la declaracion:
+    el DOCTYPE se ve antes de expandir ninguna entidad. Un fichero mal formado
+    no se juzga aqui: lo dira ElementTree.
+    """
+    lector = expat.ParserCreate()
+    lector.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    lector.StartDoctypeDeclHandler = _rechazar_declaracion
+    lector.EntityDeclHandler = _rechazar_declaracion
+    lector.UnparsedEntityDeclHandler = _rechazar_declaracion
+    lector.ElementDeclHandler = _rechazar_declaracion
+    lector.AttlistDeclHandler = _rechazar_declaracion
+    lector.NotationDeclHandler = _rechazar_declaracion
+    try:
+        lector.Parse(contenido, True)
+    except expat.ExpatError:
+        return
+
+
 def comprobar_seguro(contenido: bytes) -> None:
     """Rechaza un XML con cualquier declaracion (`<!DOCTYPE`, `<!ENTITY`, `<!ELEMENT`...).
 
-    Solo se admiten los comentarios y las secciones CDATA. Se mira en el texto
-    ya decodificado (tambien UTF-16) y en los bytes tal cual, para que una
-    codificacion rara no la esconda.
+    Solo se admiten los comentarios y las secciones CDATA. Se mira en los
+    bytes tal cual, en el texto ya decodificado (tambien UTF-16, con BOM o
+    sin el) y, al final, con el propio expat: lo que expat leeria es lo que
+    se comprueba, sea cual sea la codificacion.
     """
     if re.search(rb"<!\s*(?:DOCTYPE|ENTITY|ELEMENT|ATTLIST|NOTATION)", contenido, re.IGNORECASE):
-        raise FicheroNoAdmitido("el fichero trae una declaracion DOCTYPE o ENTITY: no se lee")
+        raise FicheroNoAdmitido(_DECLARACION)
     texto = _texto_del_fichero(contenido)
     for encontrado in re.finditer(r"<!", texto):
         resto = texto[encontrado.start():encontrado.start() + 9]
         if not (resto.startswith("<!--") or resto.startswith("<![CDATA[")):
-            raise FicheroNoAdmitido("el fichero trae una declaracion DOCTYPE o ENTITY: no se lee")
+            raise FicheroNoAdmitido(_DECLARACION)
+    _sin_dtd_para_expat(contenido)
 
 
 # ------------------------------------------------------------ el arbol
@@ -212,7 +265,13 @@ def _transacciones(apunte: ET.Element) -> list[ET.Element]:
 
 def _movimientos_de(apunte: ET.Element, numero: int, cuenta: str,
                     posicion: int) -> list[MovimientoCanonico]:
-    """Los movimientos de un apunte: uno por transaccion, o el apunte si no trae ninguna."""
+    """Los movimientos de un apunte: el apunte con su importe, o uno por transaccion si agrupa.
+
+    Un apunte de una transaccion es un movimiento por el importe del apunte
+    (Ntry/Amt): es lo que el banco apunto en la cuenta. Un apunte agrupado se
+    reparte con el importe de cada transaccion (Amt o AmtDtls/TxAmt, nunca
+    InstdAmt), que tiene que estar en la moneda del apunte y sumarlo.
+    """
     donde = f"apunte {numero}"
     importe, moneda, literal = _importe(_hijo(apunte, "Amt"), donde)
     signo = _signo(_texto(apunte, "CdtDbtInd"), donde)
@@ -225,23 +284,24 @@ def _movimientos_de(apunte: ET.Element, numero: int, cuenta: str,
     agrupado = len(transacciones) > 1
     importes: list[tuple[Decimal, str, str, int]] = []
     for indice, transaccion in enumerate(transacciones, start=1):
-        cantidad = _primero(_hijo(transaccion, "Amt"),
-                            _hijo(transaccion, "AmtDtls", "TxAmt", "Amt"),
-                            _hijo(transaccion, "AmtDtls", "InstdAmt", "Amt"))
-        if cantidad is None:
-            if agrupado:
-                raise ExtractoNoValido(f"{donde}: un apunte agrupado sin el importe de cada "
-                                       "transaccion no se puede repartir")
+        if not agrupado:
             importes.append((importe, moneda, literal, signo))
             continue
+        cantidad = _primero(_hijo(transaccion, "Amt"),
+                            _hijo(transaccion, "AmtDtls", "TxAmt", "Amt"))
+        if cantidad is None:
+            raise ExtractoNoValido(f"{donde}: un apunte agrupado sin el importe de cada "
+                                   "transaccion no se puede repartir")
         propio, moneda_tx, literal_tx = _importe(cantidad, f"{donde}, transaccion {indice}")
+        if moneda_tx != moneda:
+            raise ExtractoNoValido(f"{donde}: la transaccion {indice} esta en {moneda_tx} y el "
+                                   f"apunte en {moneda}: no se puede repartir")
         indicador = _texto(transaccion, "CdtDbtInd")
         importes.append((propio, moneda_tx, literal_tx,
                          _signo(indicador, donde) if indicador else signo))
-    if agrupado and all(m == moneda for _i, m, _l, _s in importes):
-        if sum(s * i for i, _m, _l, s in importes) != signo * importe:
-            raise ExtractoNoValido(f"{donde}: sus transacciones no suman el apunte "
-                                   f"({literal} {moneda})")
+    if agrupado and sum(s * i for i, _m, _l, s in importes) != signo * importe:
+        raise ExtractoNoValido(f"{donde}: sus transacciones no suman el apunte "
+                               f"({literal} {moneda})")
     salida = []
     for indice, (transaccion, (cantidad, moneda_tx, literal_tx, signo_tx)) in enumerate(
             zip(transacciones, importes), start=1):
@@ -278,7 +338,7 @@ def _extracto(stmt: ET.Element, numero: int, version: str,
     secuencia_texto = _texto(stmt, "ElctrncSeqNb") or _texto(stmt, "LglSeqNb")
     secuencia = int(secuencia_texto) if secuencia_texto and secuencia_texto.isdigit() else None
     movimientos: list[MovimientoCanonico] = []
-    suma, sumable = Decimal(0), True
+    suma, en_otra_moneda = Decimal(0), False
     for orden, apunte in enumerate(_hijos(stmt, "Ntry"), start=1):
         estado_ = _hijo(apunte, "Sts")
         estado = (_texto(estado_, "Cd") or (estado_.text or "").strip()) if estado_ is not None \
@@ -291,8 +351,9 @@ def _extracto(stmt: ET.Element, numero: int, version: str,
         movimientos.extend(nuevos)
         for m in nuevos:
             if m.moneda != moneda:
-                sumable = False
-            suma += m.importe
+                en_otra_moneda = True
+            else:
+                suma += m.importe
     fechas = [m.fecha_contable for m in movimientos]
     rango = _hijo(stmt, "FrToDt")
     desde = _fecha(_hijo(rango, "FrDtTm")) if rango is not None else None
@@ -300,13 +361,13 @@ def _extracto(stmt: ET.Element, numero: int, version: str,
     desde = desde or (min(fechas) if fechas else (apertura[1] if apertura else None))
     hasta = hasta or (max(fechas) if fechas else (cierre[1] if cierre else None))
     con_saldos = apertura is not None and cierre is not None
-    if con_saldos and sumable and apertura[0] + suma != cierre[0]:
+    if con_saldos and apertura[0] + suma != cierre[0]:
         raise ExtractoNoValido(
-            f"los apuntes suman {suma} y los saldos van de {apertura[0]} a {cierre[0]}: el "
-            "extracto esta incompleto")
-    if not sumable:
-        avisos.append(f"extracto {numero}: trae apuntes en otra moneda; no se comprueba que "
-                      "sumen los saldos")
+            f"los apuntes en {moneda} suman {suma} y los saldos van de {apertura[0]} a "
+            f"{cierre[0]}: el extracto esta incompleto")
+    if en_otra_moneda:
+        avisos.append(f"extracto {numero}: trae apuntes en otra moneda que la cuenta; no entran "
+                      "en la suma de los saldos (X1)")
     return ExtractoCanonico(
         fila=numero, crudo={"Id": _texto(stmt, "Id") or "", "IBAN": cuenta},
         cuenta_propia_iban=cuenta, identificador=_texto(stmt, "Id"), secuencia=secuencia,
@@ -331,7 +392,16 @@ def version_de(contenido: bytes) -> str | None:
 
 
 def reconoce(contenido: bytes) -> bool:
-    """Si los bytes parecen un XML (lo que decide si se lee como CAMT y no como MT940 o CSV)."""
+    """Si los bytes parecen un XML (lo que decide si se lee como CAMT y no como MT940 o CSV).
+
+    Tambien en UTF-16, con BOM o sin el: asi un XML en UTF-16 big-endian pasa
+    por comprobar_seguro y se dice por que no se lee, en vez de acabar en los CSV.
+    """
+    for bom in (b"\xff\xfe", b"\xfe\xff"):
+        if contenido.startswith(bom):
+            contenido = contenido[len(bom):]
+    if contenido.startswith(b"\x00<"):
+        return True
     inicio = contenido.lstrip(b"\xef\xbb\xbf \t\r\n")[:200]
     return inicio.startswith(b"<")
 

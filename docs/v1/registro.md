@@ -2852,12 +2852,12 @@ límites en `politica._LIMITES`); los valores por defecto son los de
 | K1 | Vencida sin pagar: una compra desde el día siguiente, una venta pasados 14 días; sin un extracto que cubra desde su fecha (ni un Exact de pagos al día), sin datos | aviso, anulable, abre excepción | factura |
 | K2 | Lo confirmado no deja el saldo a cero: parcial o de más | retención (aviso en una venta), pegajosa | factura |
 | K3 | Marcada pagada a mano y, pasados 7 días con extractos al día, el banco no la trae | aviso, anulable | factura |
-| K4 | Dos cargos a la misma cuenta, mismo importe y misma referencia en 30 días; o una factura pagada de más con dos o más cargos | bloqueo, pegajosa | movimiento / factura |
+| K4 | Dos cargos a la misma parte (el proveedor o cliente de la cuenta; si no está registrada, la cuenta), mismo importe y misma referencia de pago en 30 días desde el primero; o una factura pagada de más con dos o más cargos (revisión: desviación 24) | bloqueo, pegajosa | movimiento / factura |
 | K5 | Pagada un día en que tenía un hallazgo que bloquea, pendiente y sin anular | retención, pegajosa | factura (uno por pago) |
 | K6 | La cadena de extractos de una cuenta se rompe (saldo que no encadena o secuencia que salta) | bloqueo, pegajosa | importación, y las facturas pagadas desde la rotura |
 | K7 | Movimiento sin casar pasados 7 días | aviso, anulable | movimiento |
-| K8 | El banco y Exact dicen importes pagados distintos | retención | factura |
-| F7 | Un cargo a un proveedor (casado con una factura suya, o a una cuenta registrada solo para él) fue a una cuenta que no es pagable para él, y no es un beneficiario conocido ni una cuenta propia | bloqueo, pegajosa; las facturas casadas, al menos urgentes | movimiento, y sus facturas como relacionadas |
+| K8 | El banco y Exact dicen importes pagados distintos, también cuando Exact dice cero, con lo del banco hasta el día de la foto de Exact (revisión: desviación 27) | retención | factura |
+| F7 | Un cargo a un proveedor (casado con una factura suya, o a una cuenta registrada solo para él) fue a una cuenta que no era pagable para él el día del cargo (o que una persona rechazó), y no es un beneficiario conocido ni una cuenta propia (revisión: desviación 26) | bloqueo, pegajosa; las facturas casadas, al menos urgentes | movimiento, y sus facturas como relacionadas |
 
 **Estados y prioridad** (`estados.py`). `estado_pago` es `pagada` cuando el
 saldo queda en la tolerancia; un pago parcial deja `pendiente` o `vencida`,
@@ -2874,9 +2874,10 @@ queda, en euros, por su vencimiento efectivo; «entrada» lo que se cobra
 `hoy` (inyectado; Amsterdam): vencido, esta semana (de hoy al domingo),
 este mes (de hoy al último día), próximos 30 días (hoy y 29 más), un
 periodo pedido (con lo que venció en él), sin fecha y total, con el neto de
-cada una. Lo movido (cobrado y pagado) son los pagos confirmados de la fuente
-que manda, de lunes a hoy, del día 1 a hoy o en el periodo. El trabajo sin
-facturar y el planificado van en una línea aparte, `estimado`, que hoy dice
+cada una. Lo movido (cobrado y pagado) es, desde la revisión, el dinero que
+movió el banco (desviación 28), de lunes a hoy, del día 1 a hoy o en el
+periodo. El trabajo sin facturar y el planificado van en una línea aparte,
+`estimado`, que hoy dice
 que no hay datos (`None`, nunca cero). `calcular` es puro; `flujo(conn, hoy)`
 lee el almacén. `reloj.semana_de` y `reloj.mes_de` dan la semana ISO y el mes.
 
@@ -2948,7 +2949,8 @@ punta a punta.
    extracto roto o de los siguientes de la cuenta**, no las que siguen sin
    pagar (no hay nada que dar por bueno). Una secuencia que vuelve a 1 con
    el año no es una rotura. Los CSV no tienen saldos: K6 no los mira.
-7. **K4 pide cuenta y referencia** y deja fuera las cuentas propias y los
+7. **K4 pide parte y referencia** (en la revisión, la parte en vez de la
+   cuenta; desviación 24) y deja fuera las cuentas propias y los
    beneficiarios conocidos: dos alquileres o dos nóminas iguales no son un
    pago doble. Añade el caso de una factura pagada de más con dos o más
    cargos, que es el mismo error visto desde la factura.
@@ -3045,3 +3047,96 @@ la instantánea y los escenarios del paso 7. Ninguno prueba menos que antes.
 - **El rendimiento**: con movimientos, casar es por índice (referencia e
   importe), no movimientos × facturas; K4 y K6 recorren los movimientos y
   los extractos una vez por pasada.
+
+### Correcciones de la revisión
+
+La revisión del paso 7 dejó diecinueve hallazgos. Uno estaba repetido (el
+DOCTYPE en UTF-16 sin BOM) y otro se solapaba en parte con un tercero (el
+enlace a mano de un movimiento que no lo sostiene), así que son diecisiete.
+Cada uno se reprodujo antes de tocarlo (con el script del revisor o con el
+test nuevo contra el commit del paso 7); todos eran reales. Dos se arreglan
+en parte, y se dice por qué: la separación de funciones de los pagos queda
+apuntada (`autorrevisado`) pero no se exige una segunda firma, y no hay una
+regla nueva para un movimiento aplicado de más (desviaciones 25 y 29).
+**1467 tests pasan** (877 funciones de test; eran 1447 y 858). Sin una sola
+llamada a la API.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| *(duplicado, mayor)* El filtro de DOCTYPE no veía un UTF-16 sin BOM: sus bytes son UTF-8 válido (NUL entre letras), el texto no traía ningún «<!» seguido y expat, que reconoce UTF-16 por «<\x00», expandía la entidad en el movimiento | `comprobar_seguro` termina pasando el fichero por expat (el mismo que lee después) con manejadores que paran en cualquier DTD, entidad, elemento, lista de atributos o notación, y sin entidades de parámetro: lo que expat leería es lo que se comprueba, sea cual sea la codificación. El texto se decodifica además con las firmas del apéndice F de XML, y `reconoce` ve un XML en UTF-16 (con BOM o sin él) para que llegue al lector CAMT y se diga por qué no se lee | `test_banco.py::test_un_doctype_en_utf16_sin_bom_tambien_se_ve` (LE y BE) |
+| Un apunte de una sola transacción tomaba el importe instruido (`InstdAmt`, quizá en otra moneda) en vez del del apunte: un cargo en euros salía como X1 en dólares y apagaba la suma de los saldos | El importe de un apunte es `Ntry/Amt`, siempre. Solo un apunte agrupado se reparte, con `TxDtls/Amt` o `AmtDtls/TxAmt` en la moneda del apunte; `InstdAmt` nunca es lo apuntado, y una transacción de una remesa en otra moneda que su apunte rechaza el extracto | `test_el_importe_es_el_del_apunte_y_no_el_instruido_en_otra_moneda` |
+| **Mayor.** Un apunte en otra moneda apagaba las dos comprobaciones de que el extracto está entero: uno truncado con una línea en dólares entraba y casaba pagos | Desviación 32: la suma de los saldos se hace siempre con los apuntes en la moneda de la cuenta; los de otra moneda (X1) no entran en ella, y si los demás no dan los saldos el extracto no entra | `test_un_apunte_en_otra_moneda_no_apaga_la_suma_de_los_saldos` |
+| **Mayor.** MT940: las páginas de un extracto (`:28C:00101/1`, `00101/2`) y el `:28C:00000` de ING daban un K6 que bloquea aunque los saldos encadenaran | Desviación 31: en `roturas`, un número repetido o 0 no dice nada y deciden los saldos; un salto de verdad sigue rompiendo | `test_banco.py::test_mt940_de_varias_paginas_no_rompe_la_cadena`, `test_mt940_con_el_numero_siempre_a_cero_no_rompe_la_cadena`, `test_reglas_paso7.py::test_k6_un_numero_repetido_o_cero_lo_deciden_los_saldos` |
+| **Mayor** (dos hallazgos). `marcar_pagada` con un movimiento no miraba lo que quedaba de él, ni si iba a una cuenta propia o a un beneficiario conocido: un cargo de 10,00 (o uno a Hacienda) dejaba pagada con el banco una factura de 2902,79, apagaba K3 y K7/F7 no lo veían; el mismo movimiento servía para varias facturas | Desviación 25: `_movimiento_enlazable` rechaza (`PagoNoValido`) un movimiento de una cuenta propia o de un beneficiario conocido, uno ya aplicado entero y un importe mayor que lo que queda de él (lo propuesto cuenta). Sin importe, lo que queda del movimiento sin pasar de lo que la factura tiene abierto con el banco | `test_pagos.py::test_enlazar_un_movimiento_no_paga_mas_de_lo_que_queda_de_el` |
+| **Mayor.** Con un movimiento enlazado, la fecha del pago la podía poner la persona: un pago hecho con la factura Bloqueada se fechaba antes y K5 (que no se anula) no lo veía | Un pago enlazado lleva la fecha contable del movimiento; otra fecha es un `PagoNoValido` | `test_un_pago_enlazado_lleva_la_fecha_del_banco_y_k5_lo_ve` |
+| **Mayor.** Marcar pagada a mano una factura con pagos del banco (o de Exact) salía bien pero no contaba (manda el banco): la orden decía «lo que queda» y la factura seguía pendiente con K2 | Desviación 33: una marca a mano sobre una factura con pagos confirmados de una fuente de más peso es un `PagoNoValido` que dice enlazar el movimiento que falta o corregirlo en Exact | `test_no_se_marca_a_mano_lo_que_el_banco_ya_paga_en_parte` |
+| Casar automático aceptaba un importe solo dentro de la tolerancia, y apuntaba lo abierto de la factura y no lo que movió el banco | Desviación 34: automático pide el importe exacto; con las tres coincidencias y el importe dentro de la tolerancia es una propuesta, por lo que movió el banco como mucho | `test_casar_solo_es_automatico_con_el_importe_exacto` |
+| **Mayor.** K4 usaba el concepto entero como referencia y encadenaba la ventana desde el último cargo: dos cuotas de un leasing con el mismo texto a 28 días eran un pago doble que bloquea | Desviación 24: la referencia de un movimiento es la estructurada, el end-to-end o el número de una factura que aparece en el concepto (`instantanea.movimientos`; `referencias_de` pasa de `pagos.py` a `instantanea.py` para que casar y K4 lean igual); la ventana se cuenta desde el primero | `test_pagos.py::test_dos_recibos_mensuales_con_el_mismo_concepto_no_son_un_pago_doble`, `test_reglas_paso7.py::test_k4_la_ventana_se_cuenta_desde_el_primer_cargo` |
+| K4 agrupaba por cuenta y no por parte: pagar dos veces a un proveedor en dos cuentas suyas no era un pago doble | Desviación 24: se agrupa por la parte de la cuenta en el registro (si es de una sola), y por la cuenta si no está registrada | `test_k4_dos_cargos_al_mismo_proveedor_en_dos_cuentas_suyas` |
+| **Mayor.** Para K5, un hallazgo que bloquea seguía contando como Bloqueada mientras estaba desaparecido; la prioridad lo pone en Atención | `instantanea.bloqueos` cuenta solo lo abierto, como `prioridad.suelo_de`: un tramo acaba al desaparecer y empieza otro si se reabre. La cuenta de los tramos sale a `tramos_bloqueados`, pura | `test_k5_un_bloqueo_desaparecido_ya_no_es_bloqueada` |
+| **Mayor.** F7 miraba si la cuenta es pagable hoy: un pago de septiembre a una cuenta pagable entonces se volvía un F7 que bloquea cuando el proveedor cambió de banco en octubre | Desviación 26: F7 mira el estado de la cuenta con los eventos hasta el día del cargo (`EventoCuenta.dia`, en Ámsterdam; `estado_cuenta` acepta los eventos). Los de la importación de partida cuentan desde siempre, y un rechazo de una persona cuenta aunque llegue después | `test_f7_mira_si_la_cuenta_era_pagable_el_dia_del_cargo` |
+| **Mayor.** K8 no veía «abierta en Exact, pagada en el banco»: con cero pagado Exact no deja aplicación y K8 no tenía con qué comparar | Desviación 27: el evento de cada importación de pagos de Exact lleva lo que dice de cada factura (también cero) y el día de la foto; la instantánea trae `exact_pagado` (lo último de cada factura) y K8 lo compara con lo que el banco había pagado hasta ese día | `test_pagos.py::test_exact_dice_abierta_y_el_banco_pagada_da_k8`, `test_reglas_paso7.py::test_k8_exact_dice_cero_y_el_banco_pagado` |
+| **Mayor.** K1 y K3 decían «vencida y sin pagar» y «el banco no trae ese pago» sobre una rotura de la cadena (K6), y la cobertura del banco juntaba todas las cuentas | Desviación 30: con una rotura entre la fecha de la factura (K1) o del pago (K3) y lo que se mira, sin datos; la cobertura es por cuenta propia (la que empieza más tarde y la que acaba antes) | `test_k1_y_k3_no_dicen_sin_pagar_sobre_una_rotura_de_la_cadena` |
+| Lo cobrado y pagado del flujo de caja salía de las aplicaciones de la fuente que manda, no del dinero que se movió: un cobro sin casar no contaba y una marca a mano sí | Desviación 28: lo movido son los movimientos del banco en euros salvo los traspasos entre cuentas propias; lo que no casa con ninguna factura va además en `sin_casar`, y lo que solo dicen Exact o una persona va en `segun_exact` y `a_mano`, sin sumarse | `test_flujo_caja.py::test_el_flujo_del_almacen_con_un_pago_parcial` (cambiado: ver abajo) |
+| La separación de funciones de las órdenes de pago, prevista para el paso 7, no estaba | Desviación 29: cada marca y enlace a mano queda `autorrevisado` en su evento; confirmar una propuesta no la necesita (la escribe el motor, no una persona) | `test_un_pago_a_mano_cita_su_prueba_y_queda_autorrevisado` |
+| `aplicacion_pago.evidencia_documento_id` existía pero nada la podía poner | `marcar_pagada` y su orden aceptan `evidencia_documento_id` (un documento que existe) | `test_un_pago_a_mano_cita_su_prueba_y_queda_autorrevisado` |
+
+**Tests existentes cambiados, y por qué**: `test_flujo_caja.py::test_el_flujo_del_almacen_con_un_pago_parcial`
+dice ahora que la marca a mano de 1000,00 va en `a_mano` y no en lo pagado,
+y que un cargo sin casar sí es dinero pagado (y `sin_casar`), con un
+traspaso a otra cuenta propia fuera (la decisión 5 pide lo que se movió; el
+test probaba lo contrario). `test_pureza_reglas.py` conoce el tipo nuevo
+`PagadoExact`, y `test_reglas_paso7.escenarios` gana una instantánea con la
+foto de Exact para que K8 pase por sus dos ramas. Ninguno prueba menos.
+
+Desviaciones nuevas, y por qué:
+
+24. **K4 es de la parte, con una referencia de pago de verdad, y la ventana
+    cuenta desde el primero.** La referencia es la estructurada, el
+    end-to-end o el número (o la referencia de pago) de una factura que
+    aparece en el concepto; nunca el concepto entero. Un pago doble a un
+    proveedor sin número de factura en ningún sitio no se ve: decirlo de
+    cada recibo mensual igual sería peor (bloquea y no se anula).
+25. **Enlazar un movimiento a mano tiene tope.** Lo que queda del movimiento
+    (con lo propuesto), su fecha, y nunca uno de una cuenta propia o de un
+    beneficiario conocido. No hay una regla para un movimiento aplicado de
+    más: los tres caminos que escriben una aplicación del banco (casar,
+    enlazar y confirmar una propuesta, que ya llevaba como mucho lo que
+    queda) lo impiden, y la base solo deja escribir por ellos.
+26. **F7 mira el día del cargo.** Un pago a una cuenta pagable ese día no
+    es un F7 aunque después saliera de Exact; la importación de partida
+    cuenta desde siempre (si no, todo lo pagado antes del primer maestro
+    sería F7). Un rechazo de una persona cuenta aunque llegue después: dice
+    que la cuenta no es del proveedor, y lo pagado allí tampoco lo era.
+27. **K8 compara con la foto de Exact, también cero, hasta su día.** Lo que
+    dice Exact de cada factura va en el evento de su importación (no hay
+    tabla para un pago de cero: una aplicación es de un importe distinto de
+    cero) y la instantánea toma lo último de cada factura. Lo que el banco
+    pagó después de la foto, Exact no lo podía saber: no es un desacuerdo.
+28. **El flujo de caja cuenta el dinero que movió el banco.** Entero, case o
+    no; lo de Exact o de una persona sin el banco va en líneas aparte y no
+    se suma, porque nadie ha visto ese dinero moverse.
+29. **La separación de funciones de los pagos es `autorrevisado`, sin
+    segunda firma.** Quien marca una factura pagada la confirma en el mismo
+    acto, y la migración 0007 no tiene una marca a mano sin confirmar
+    (`manual ⇒ confirmada_por`): exigir otra persona con si_hay_dos
+    bloquearía toda marca a mano en cuanto dos personas tengan
+    `marcar_pagada`. Queda apuntado en el evento, y el control es K3 (el
+    banco tiene que traer el pago) y el tope del enlace. Una marca con
+    segunda firma pide un estado nuevo y una migración: es trabajo de un
+    paso con la consola de pagos.
+30. **K1 y K3 no afirman nada sobre una rotura de la cadena.** Sin datos si
+    una rotura de K6 cae entre la fecha de la factura (o del pago) y lo que
+    se mira; la cobertura es por cuenta propia de la política que tiene
+    extractos.
+31. **En MT940 un número de extracto repetido o 0 lo deciden los saldos.**
+    Una página que falta con apuntes que se anulan entre sí (+100 y −100)
+    no se vería; lo mismo pasa con los CSV, que no tienen saldos.
+32. **Un CAMT con apuntes en otra moneda se suma igual** con los de la
+    moneda de la cuenta: si no dan los saldos, no entra. Un banco que
+    apuntara en otra moneda moviendo el saldo en euros dejaría el extracto
+    fuera, que es lo prudente (decisión 6).
+33. **No se marca a mano lo que ya dicen el banco o Exact.** La marca no
+    contaría; se enlaza el movimiento o se corrige en Exact.
+34. **Casar automático pide el importe exacto.** La tolerancia solo decide
+    si una factura está pagada (`reglas.pagos.saldo`).
