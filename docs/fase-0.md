@@ -24,13 +24,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-537 tests, ninguno llama a la API. Cubren la conversión de importes
+713 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
 almacén con su cadena de auditoría, la única vía de escritura de las facturas
-tipadas con la procedencia de cada campo y los permisos, y una foto de
-referencia del panel sobre siete extracciones fijas (`tests/fixtures/v1/`).
+tipadas con la procedencia de cada campo y los permisos, el motor de reglas
+con sus hallazgos (también que cinco mil facturas se recalculan en menos de
+dos segundos), y una foto de referencia del panel sobre siete extracciones
+fijas (`tests/fixtures/v1/`).
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -91,7 +93,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 537 tests, sin llamadas a la API
+pytest                                    # 713 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -260,6 +262,7 @@ encadenado por hash que la base no deja modificar ni borrar.
 | `bms-agent importar-out --pdfs facturas` | Lleva lo que ya hay en `out/` al almacén y convierte cada extracción en su factura tipada, sin ninguna llamada a la API. Busca cada PDF por su hash; si no lo encuentra, el documento queda sin original y se puede añadir después. Repetirla no duplica nada |
 | `bms-agent ingestar` | Tipa lo que ya está extraído en el almacén y aún no tiene su factura (o tiene una extracción más reciente). Sin la API |
 | `bms-agent sembrar --tarifas config/tarifas.yaml` | Lleva al almacén los clientes, los Objetos y las tarifas de venta de la tabla de tarifas, y vuelve a imputar cada línea a su Objeto. Repetirla con el mismo fichero no hace nada |
+| `bms-agent recalcular [--simular] [--diaria]` | Evalúa todas las reglas del motor sobre el almacén y pone al día los hallazgos: los nuevos, los que cambian de evidencia, los que desaparecen y los que se reabren. Con `--simular` dice lo que cambiaría sin escribir nada; `--diaria` es la pasada programada de cada día. Sin la API |
 | `bms-agent usuario crear Ana --rol administracion` | Una persona con sus roles (`administrador`, `administracion`, `consulta`); `usuario asignar`, `usuario quitar` y `usuario listar` |
 | `bms-agent db verificar` | Comprueba la base, su esquema y sus migraciones, la cadena de auditoría con sus anclas (`datos/anclas.log`), cada fila de evidencia contra su evento, cada factura tipada contra su historia de cambios y el hash de cada original. Sin anclas de ese almacén falla, salvo con `--sin-anclas` |
 
@@ -269,6 +272,15 @@ dónde sale: la extracción, un cálculo, el maestro o una persona, con el
 literal que imprimía el documento y el valor original, que no se pierden
 nunca. Solo `campos.py` escribe esas tablas, y la base rechaza cualquier
 cambio que no lleve su registro de auditoría.
+
+Desde el paso 3, cada orden que cambia algo que una regla lee
+(`importar-out`, `ingestar`, `extract`, `sembrar` y el botón del servidor)
+termina evaluando el catálogo de reglas en su misma transacción. Lo que
+falla es un **hallazgo**, con su historia: cuándo apareció, qué edición o
+importación lo cambió o lo hizo desaparecer, y quién lo aceptó. Los de las
+reglas pegajosas (IBAN, duplicados, moneda) no se cierran solos aunque la
+condición desaparezca: los cierra una persona. Una anulación vale solo
+mientras la evidencia sea la que se aceptó.
 
 `panel`, `report`, `export`, `simulador` y `/api/datos` leen del almacén,
 con los valores corregidos; si no hay almacén, leen `out/` tal cual y lo
@@ -296,7 +308,8 @@ Todo eso sin haber dado un solo permiso de escritura.
 
 ## Lo que falta para la fase 1
 
-Un adaptador de Exact, la ingesta de correo y el motor de reglas del catálogo
-de validación. El núcleo de la fase 0 (esquema, conversión, procedencia) no se
-tira: la fase 1 le añade un camino de escritura a algo que ya habéis visto
-acertar durante semanas.
+Un adaptador de Exact, la ingesta de correo y el resto del catálogo de
+validación en el motor de reglas (hoy evalúa Q1, X1, B2-B4, D1-D4, E3, E4,
+F1 y G3 contra el histórico). El núcleo de la fase 0 (esquema, conversión,
+procedencia) no se tira: la fase 1 le añade un camino de escritura a algo
+que ya habéis visto acertar durante semanas.

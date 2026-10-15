@@ -34,6 +34,7 @@ import yaml
 
 from .checks import en_euros
 from .parsing import ParseError, es_unidad_hora, parse_amount
+from .reglas.planning import tipo_de_trabajo as _tipo_de_trabajo
 
 MARGEN_POR_DEFECTO = Decimal("0.35")
 
@@ -108,11 +109,6 @@ def cargar_tarifas(ruta: str | Path | None) -> Tarifas:
         margen_por_defecto=margen_dec, obras=obras,
         tarifas=tarifas, no_facturable=no_facturable,
     )
-
-
-def _tipo_de_trabajo(descripcion: Any) -> str:
-    texto = str(descripcion or "").strip().lower()
-    return texto.split(",")[0].strip() or "(sin descripcion)"
 
 
 def _dec(raw: Any) -> Decimal | None:

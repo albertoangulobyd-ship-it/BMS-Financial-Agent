@@ -19,7 +19,8 @@ encuentra `db verificar` de tres formas:
 
 Una tabla nueva de evidencia (paso 2 en adelante) anade aqui sus columnas y
 sus tipos de evento, y su escritor pone `foto()` en los datos del evento.
-Las del paso 2 son politica_version y nota. La procedencia de los campos de
+Las del paso 2 son politica_version y nota; la del paso 3, anulacion (la
+foto la escribe hallazgos.anular antes de la fila, como la de una nota). La procedencia de los campos de
 las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia).
 """
@@ -61,6 +62,9 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     # rehashea aparte, como una extraccion) y las notas de las personas.
     "politica_version": ("sha256", "fichero", "vigente_desde", "cargada_en", "cargada_por"),
     "nota": ("tabla", "fila_id", "texto", "usuario_id", "en"),
+    # Paso 3: lo que firma una persona al anular un hallazgo.
+    "anulacion": ("hallazgo_id", "huella", "motivo", "usuario_id", "en", "vigente_hasta",
+                  "segunda_firma_usuario_id", "segunda_firma_en", "autoaprobada"),
 }
 
 # Filas que no se comprueban contra un evento porque no lo tienen: las
@@ -79,12 +83,13 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "usuario_rol": ("rol_asignado", ("rol_cerrado",)),
     "politica_version": ("politica_cargada", ()),
     "nota": ("nota_anadida", ()),
+    "anulacion": ("hallazgo_anulado", ()),
 }
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
 # evento apunte a la fila: el evento de una nota es de la fila anotada, para
 # que salga en su historial. La foto la lleva igual el evento.
-POR_EVENTO: dict[str, str] = {"nota": "evento_id"}
+POR_EVENTO: dict[str, str] = {"nota": "evento_id", "anulacion": "evento_id"}
 
 
 _FALTA = object()

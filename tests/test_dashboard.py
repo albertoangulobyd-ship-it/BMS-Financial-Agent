@@ -659,3 +659,40 @@ def test_f3_no_junta_proveedores_sin_nada_en_comun_ni_los_que_no_tienen_nombre()
     sin_1 = factura("c.pdf", proveedor=None, numero="3", iban="NL91ABNA0417164300")
     sin_2 = factura("d.pdf", proveedor=None, numero="4", iban="NL44RABO0123456789")
     assert detectar_ibanes([a, b, sin_1, sin_2]) == []
+
+
+# --- paso 3: los detectores delegan en reglas/ ---
+
+def test_b3_tolera_un_centimo_como_dice_el_catalogo() -> None:
+    """El §7 pide el total "within 0,01": antes tenia que ser exactamente el mismo."""
+    filas = construir_filas([
+        factura("a.pdf", numero="1", fecha="2026-09-08", total="1.000,00"),
+        factura("b.pdf", numero="2", fecha="2026-09-10", total="1.000,01"),
+    ])
+    assert [a.regla for a in detectar_duplicados(filas)] == ["B3"]
+    filas = construir_filas([
+        factura("a.pdf", numero="1", fecha="2026-09-08", total="1.000,00"),
+        factura("b.pdf", numero="2", fecha="2026-09-10", total="1.000,02"),
+    ])
+    assert detectar_duplicados(filas) == []
+
+
+def test_las_facturas_sin_nombre_ni_btw_no_se_agrupan_entre_si() -> None:
+    """La guarda `nom:(sin` no cazaba nada: dos facturas anonimas eran del mismo proveedor."""
+    filas = construir_filas([factura("a.pdf", proveedor=""), factura("b.pdf", proveedor="")])
+    assert detectar_duplicados(filas) == [] and detectar_periodos_repetidos(filas) == []
+
+
+def test_dos_pdf_que_se_llaman_igual_no_se_marcan_el_uno_al_otro() -> None:
+    """La alerta marca la fila de su factura, no la de otra con el mismo nombre de fichero."""
+    from bms_agent.dashboard import construir_datos
+
+    registros = [
+        factura("a.pdf", numero="2026-001"),
+        factura("a.pdf", proveedor="De Vries", numero="2026-050", total="777,00",
+                iban="NL44RABO0123456789"),
+        factura("b.pdf", numero="2026-001", fecha="2026-09-16"),
+    ]
+    filas = {(f["proveedor"], f["numero"]): f for f in construir_datos(registros, None)["filas"]}
+    assert filas[("Van Dijk BV", "2026-001")]["estado"] == "critico"
+    assert filas[("De Vries", "2026-050")]["estado"] == "ok"

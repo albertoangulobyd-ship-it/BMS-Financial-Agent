@@ -162,6 +162,83 @@ class ResultadoRegla(_Texto):
     NO_APLICA = "no_aplica"
 
 
+class EstadoHallazgo(_Texto):
+    """Donde esta un hallazgo. Abierto, aceptado y desaparecido siguen pidiendo a alguien.
+
+    desaparecido es el de una regla pegajosa cuya condicion ya no se da: no
+    se cierra solo, lo cierra una persona (resuelto). cerrado es el de una
+    regla normal que se cerro sola, con la edicion o la importacion que lo
+    causo apuntada en su evento.
+    """
+
+    ABIERTO = "abierto"
+    ACEPTADO = "aceptado"           # anulado por una persona, mientras la huella sea la anulada
+    DESAPARECIDO = "desaparecido"   # condicion desaparecida en una regla pegajosa
+    CERRADO = "cerrado"             # cerrado por el sistema (regla no pegajosa)
+    RESUELTO = "resuelto"           # cerrado por una persona
+
+
+ESTADOS_PENDIENTES = frozenset({EstadoHallazgo.ABIERTO.value, EstadoHallazgo.ACEPTADO.value,
+                                EstadoHallazgo.DESAPARECIDO.value})
+
+
+class TipoEventoHallazgo(_Texto):
+    """La historia de un hallazgo (hallazgo_evento), en el orden en que puede pasar."""
+
+    DETECTADO = "detectado"
+    CAMBIO_EVIDENCIA = "cambio_evidencia"
+    DESAPARECIDO = "desaparecido"
+    CERRADO_AUTOMATICO = "cerrado_automatico"
+    RESUELTO = "resuelto"
+    ACEPTADO = "aceptado"
+    REABIERTO = "reabierto"
+
+
+class MotivoEjecucion(_Texto):
+    """Por que corrio el motor de reglas (ejecucion_reglas.motivo)."""
+
+    INGESTA = "ingesta"
+    IMPORTACION = "importacion"
+    EDICION = "edicion"
+    DIARIA = "diaria"
+    MANUAL = "manual"
+
+
+class PapelObjetivo(_Texto):
+    PRINCIPAL = "principal"
+    RELACIONADO = "relacionado"
+
+
+class AmbitoHallazgo(_Texto):
+    """De que entidad es un hallazgo; una excepcion (paso 4) agrupa por ella."""
+
+    FACTURA = "factura"
+    PROVEEDOR = "proveedor"
+    CLIENTE = "cliente"
+    ORDEN_COMPRA = "orden_compra"
+    TRIMESTRE = "trimestre"
+    MOVIMIENTO = "movimiento"
+    IMPORTACION = "importacion"
+
+
+class EntradaPrioridad(_Texto):
+    """Lo que aporta un hallazgo al calculo de prioridad (spec §7, ultima columna; §8)."""
+
+    OTRA = "otra"
+    DUPLICADO_EXACTO = "duplicado_exacto"
+    DUPLICADO = "duplicado"
+    IBAN = "iban"
+    IVA_DURA = "iva_dura"
+    IVA_BLANDA = "iva_blanda"
+    PLANNING = "planning"
+    FACTURACION_AUSENTE = "facturacion_ausente"
+    TRABAJO_SIN_FACTURAR = "trabajo_sin_facturar"
+    LIMITE_PO = "limite_po"
+    LIMITE_PO_DURO = "limite_po_duro"
+    CADUCIDAD_PO = "caducidad_po"
+    DIAS_VENCIDA = "dias_vencida"
+
+
 class Permiso(_Texto):
     """Los once permisos del §19 y los tres propuestos (revisar, BTW, importar)."""
 

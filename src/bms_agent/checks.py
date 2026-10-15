@@ -1,8 +1,12 @@
-"""Primeras reglas del catalogo de validacion: las de aritmetica.
+"""Las comprobaciones de una factura sola, sobre el diccionario que escribe el extractor.
 
-Son las reglas D2, D2b, D3, D4, E3, E4, F1 y X1 de validacion-facturas.md, y
-son las unicas que se pueden aplicar hoy: no necesitan el planning ni el
-maestro de Exact, solo lo que pone la propia factura.
+Son las reglas Q1 (en su version reducida), X1, D2, D2b, D3, D4, E3, E4 y F1
+para el contrato v1 de siempre: el informe por fichas, el panel y
+/api/datos las leen de aqui con estas etiquetas y estos textos, y la foto de
+referencia no cambia. La aritmetica ya no vive aqui: cada funcion lee los
+literales con parsing.py y llama a la comprobacion de fondo de reglas/, la
+misma que el motor de reglas evalua sobre el almacen. Asi no hay dos
+formas de sumar unas lineas.
 
 Un dato que falta no es un fallo. Es un hallazgo distinto, y se distingue:
 una regla sin los datos para evaluarse queda como no evaluable, no como
@@ -16,22 +20,34 @@ from decimal import Decimal
 from typing import Any
 
 from .parsing import ParseError, detectar_moneda, parse_amount, parse_percentage
+from .reglas import aritmetica, bancaria, calidad, iva
+from .reglas.base import FALLO, NO_APLICA, SIN_DATOS, Comprobacion, Politica, euros_texto
 
-# Tolerancias de redondeo, en euros. Documentadas en validacion-facturas.md.
+# Tolerancias de redondeo, en euros. Documentadas en validacion-facturas.md;
+# las del motor estan en reglas.base.Politica, con estos mismos valores.
 TOLERANCE_LINE = Decimal("0.01")
 TOLERANCE_INVOICE = Decimal("0.02")
+POLITICA_V1 = Politica(tolerancia_linea=TOLERANCE_LINE, tolerancia_factura=TOLERANCE_INVOICE)
+
+# El contrato v1 escribe los estados con espacio.
+_ESTADO_V1 = {SIN_DATOS: "sin datos", NO_APLICA: "no aplica"}
 
 
 @dataclass(frozen=True)
 class CheckResult:
     rule: str
     label: str
-    status: str  # "ok" | "fallo" | "sin datos"
+    status: str  # "ok" | "fallo" | "sin datos" | "no aplica"
     detail: str
 
     @property
     def failed(self) -> bool:
         return self.status == "fallo"
+
+
+def _v1(rule: str, label: str, comprobacion: Comprobacion) -> CheckResult:
+    estado = comprobacion.resultado
+    return CheckResult(rule, label, _ESTADO_V1.get(estado, estado), comprobacion.detalle)
 
 
 def _amount(raw: Any) -> Decimal | None:
@@ -43,41 +59,19 @@ def _amount(raw: Any) -> Decimal | None:
         return None
 
 
-def _euros(value: Decimal) -> str:
-    return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+_euros = euros_texto
 
 
 def check_lines_sum(extraction: dict[str, Any]) -> CheckResult:
     """D2: la suma de las lineas cuadra con la base imponible."""
-    subtotal = _amount(extraction.get("subtotal_excl_vat_raw"))
-    lines = extraction.get("lines") or []
-
-    if subtotal is None:
-        return CheckResult("D2", "Suma de líneas", "sin datos", "No hay base imponible legible.")
-    if not lines:
-        return CheckResult("D2", "Suma de líneas", "sin datos", "La factura no tiene líneas.")
-
-    total = Decimal(0)
-    for line in lines:
-        value = _amount(line.get("line_total_raw"))
-        if value is None:
-            return CheckResult(
-                "D2", "Suma de líneas", "sin datos",
-                "Alguna línea no tiene importe legible.",
-            )
-        total += value
-
-    tolerance = TOLERANCE_LINE * len(lines) + TOLERANCE_INVOICE
-    difference = abs(total - subtotal)
-    if difference <= tolerance:
-        return CheckResult("D2", "Suma de líneas", "ok", f"{_euros(total)} = base imponible.")
-    return CheckResult(
-        "D2", "Suma de líneas", "fallo",
-        f"Las líneas suman {_euros(total)} y la base dice {_euros(subtotal)}.",
-    )
+    lineas = extraction.get("lines") or []
+    importes = [_amount(linea.get("line_total_raw")) for linea in lineas]
+    return _v1("D2", "Suma de líneas", aritmetica.suma_lineas(
+        _amount(extraction.get("subtotal_excl_vat_raw")), importes, POLITICA_V1))
 
 
-NO_VAT_REGIMES = {"reverse_charged", "kor_exempt"}
+# El regimen v1 que no repercute IVA, y como lo llama el almacen.
+NO_VAT_REGIMES = {"reverse_charged": "autoliquidacion", "kor_exempt": "kor"}
 
 
 def check_vat_amount(extraction: dict[str, Any]) -> CheckResult:
@@ -91,57 +85,32 @@ def check_vat_amount(extraction: dict[str, Any]) -> CheckResult:
     """
     regime = extraction.get("vat_regime")
     if regime in NO_VAT_REGIMES:
+        etiqueta = iva.ETIQUETA_REGIMEN[NO_VAT_REGIMES[regime]]
         charged = _amount(extraction.get("vat_amount_raw"))
-        etiqueta = "IVA trasladado" if regime == "reverse_charged" else "KOR"
-        if charged is not None and charged != 0:
-            return CheckResult(
-                "E4" if regime == "reverse_charged" else "E3", "Cuota de IVA", "fallo",
-                f"Con {etiqueta} no debería repercutirse IVA y la factura cobra {_euros(charged)}.",
-            )
-        return CheckResult(
-            "D3", "Cuota de IVA", "no aplica",
-            f"Sin IVA repercutido por el régimen declarado ({etiqueta}).",
-        )
+        if charged is not None:
+            comprobacion = iva.iva_indebido(etiqueta, charged)
+            if comprobacion.resultado == FALLO:
+                return _v1("E4" if regime == "reverse_charged" else "E3", "Cuota de IVA",
+                           comprobacion)
+        return _v1("D3", "Cuota de IVA", iva.sin_iva_por_regimen(etiqueta))
 
-    subtotal = _amount(extraction.get("subtotal_excl_vat_raw"))
-    vat = _amount(extraction.get("vat_amount_raw"))
     rate_raw = extraction.get("vat_rate_raw")
-
     rate = None
     if rate_raw is not None:
         try:
             rate = parse_percentage(str(rate_raw))
         except ParseError:
             rate = None
-
-    if subtotal is None or vat is None or rate is None:
-        return CheckResult("D3", "Cuota de IVA", "sin datos", "Falta la base, el tipo o la cuota.")
-
-    expected = (subtotal * rate / Decimal(100)).quantize(Decimal("0.01"))
-    if abs(expected - vat) <= TOLERANCE_INVOICE:
-        return CheckResult("D3", "Cuota de IVA", "ok", f"{_euros(subtotal)} al {rate}% = {_euros(vat)}.")
-    return CheckResult(
-        "D3", "Cuota de IVA", "fallo",
-        f"Al {rate}% deberían ser {_euros(expected)} y la factura dice {_euros(vat)}.",
-    )
+    return _v1("D3", "Cuota de IVA", iva.cuota_por_tipo(
+        _amount(extraction.get("subtotal_excl_vat_raw")),
+        _amount(extraction.get("vat_amount_raw")), rate, POLITICA_V1))
 
 
 def check_total(extraction: dict[str, Any]) -> CheckResult:
     """D4: base mas cuota da el total."""
-    subtotal = _amount(extraction.get("subtotal_excl_vat_raw"))
-    vat = _amount(extraction.get("vat_amount_raw"))
-    total = _amount(extraction.get("total_incl_vat_raw"))
-
-    if subtotal is None or vat is None or total is None:
-        return CheckResult("D4", "Total", "sin datos", "Falta la base, la cuota o el total.")
-
-    expected = subtotal + vat
-    if abs(expected - total) <= TOLERANCE_INVOICE:
-        return CheckResult("D4", "Total", "ok", f"{_euros(subtotal)} + {_euros(vat)} = {_euros(total)}.")
-    return CheckResult(
-        "D4", "Total", "fallo",
-        f"Base y cuota suman {_euros(expected)} y el total dice {_euros(total)}.",
-    )
+    return _v1("D4", "Total", aritmetica.total(
+        _amount(extraction.get("subtotal_excl_vat_raw")), _amount(extraction.get("vat_amount_raw")),
+        _amount(extraction.get("total_incl_vat_raw")), POLITICA_V1))
 
 
 CRITICAL_FIELDS = {
@@ -153,16 +122,13 @@ CRITICAL_FIELDS = {
 
 
 def check_required_fields(extraction: dict[str, Any]) -> CheckResult:
-    """Version reducida de A1, B1, C2 y D1: los campos sin los que no se puede seguir."""
-    missing = [
-        label for field, label in CRITICAL_FIELDS.items() if not extraction.get(field)
-    ]
-    if not missing:
-        return CheckResult("A/B/C", "Campos obligatorios", "ok", "Están todos.")
-    return CheckResult(
-        "A/B/C", "Campos obligatorios", "fallo",
-        "Falta " + ", ".join(missing) + ".",
-    )
+    """Version reducida de A1, B1, C2 y D1: los campos sin los que no se puede seguir.
+
+    Es la del contrato v1, con su lista corta y su etiqueta "A/B/C". La Q1
+    del motor (reglas/calidad.py) pide la lista entera del §7 por sentido.
+    """
+    return _v1("A/B/C", "Campos obligatorios", calidad.campos_que_faltan(
+        [(label, bool(extraction.get(field))) for field, label in CRITICAL_FIELDS.items()]))
 
 
 def run_checks(extraction: dict[str, Any]) -> list[CheckResult]:
@@ -178,70 +144,22 @@ def run_checks(extraction: dict[str, Any]) -> list[CheckResult]:
     ]
 
 
-def validar_iban(iban: str) -> bool:
-    """Regla F1: digito de control modulo 97 (ISO 13616).
-
-    Aritmetica pura, sin sistemas externos. Un IBAN que no pasa esta
-    comprobacion esta mal transcrito o es inventado, y en los dos casos el
-    pago no puede salir.
-    """
-    texto = "".join(str(iban or "").split()).upper()
-    if not (15 <= len(texto) <= 34) or not texto[:2].isalpha() or not texto[2:4].isdigit():
-        return False
-    if not texto.isalnum():
-        return False
-    movido = texto[4:] + texto[:4]
-    digitos = "".join(str(int(c, 36)) if c.isalpha() else c for c in movido)
-    return int(digitos) % 97 == 1
+validar_iban = bancaria.validar_iban
 
 
 def check_iban(extraction: dict[str, Any]) -> CheckResult:
     """F1: el IBAN impreso es sintacticamente valido."""
-    iban = extraction.get("iban")
-    if not iban:
-        return CheckResult("F1", "IBAN", "sin datos", "La factura no lleva IBAN.")
-    limpio = "".join(str(iban).split()).upper()
-    if validar_iban(limpio):
-        return CheckResult("F1", "IBAN", "ok", f"{limpio} pasa el digito de control.")
-    return CheckResult(
-        "F1", "IBAN", "fallo",
-        f"{limpio} no pasa el digito de control modulo 97.",
-    )
+    return _v1("F1", "IBAN", bancaria.iban(extraction.get("iban")))
 
 
 def check_line_arithmetic(extraction: dict[str, Any]) -> CheckResult:
     """D2b: cantidad por tarifa da el importe de cada linea."""
     lineas = extraction.get("lines") or []
-    if not lineas:
-        return CheckResult("D2b", "Aritmetica de linea", "sin datos", "La factura no tiene lineas.")
-
-    fallos: list[str] = []
-    evaluadas = 0
-    for indice, linea in enumerate(lineas, start=1):
-        cantidad = _amount(linea.get("quantity_raw"))
-        tarifa = _amount(linea.get("unit_rate_raw"))
-        importe = _amount(linea.get("line_total_raw"))
-        if cantidad is None or tarifa is None or importe is None:
-            continue
-        evaluadas += 1
-        esperado = (cantidad * tarifa).quantize(Decimal("0.01"))
-        if abs(esperado - importe) > TOLERANCE_LINE:
-            fallos.append(
-                f"linea {indice}: {cantidad} x {_euros(tarifa)} deberia dar "
-                f"{_euros(esperado)} y pone {_euros(importe)}"
-            )
-
-    if not evaluadas:
-        return CheckResult(
-            "D2b", "Aritmetica de linea", "sin datos",
-            "Ninguna linea trae cantidad, tarifa e importe a la vez.",
-        )
-    if fallos:
-        return CheckResult("D2b", "Aritmetica de linea", "fallo", "; ".join(fallos))
-    return CheckResult(
-        "D2b", "Aritmetica de linea", "ok",
-        f"Las {evaluadas} lineas con datos completos cuadran.",
-    )
+    comprobacion, _fallidas = aritmetica.aritmetica_lineas(
+        [(indice, _amount(l.get("quantity_raw")), _amount(l.get("unit_rate_raw")),
+          _amount(l.get("line_total_raw"))) for indice, l in enumerate(lineas, start=1)],
+        POLITICA_V1)
+    return _v1("D2b", "Aritmetica de linea", comprobacion)
 
 
 IMPORTES_CABECERA = ("subtotal_excl_vat_raw", "vat_amount_raw", "total_incl_vat_raw")
@@ -260,10 +178,9 @@ def check_currency(extraction: dict[str, Any]) -> CheckResult:
 
     El esquema v1 no pide la moneda, asi que se mira el literal de cada
     importe con detectar_moneda. La moneda se decide para la factura entera,
-    no importe a importe: un modelo copia el "$" en unos campos y lo pierde en
-    otros, y el importe que lo perdio no es por eso un importe en euros. Por
-    eso quien suma (panel, informe, proyeccion, simulador) mira en_euros y
-    deja fuera la factura entera, no solo los literales con el marcador.
+    no importe a importe (reglas.calidad.moneda): por eso quien suma (panel,
+    informe, proyeccion, simulador) mira en_euros y deja fuera la factura
+    entera, no solo los literales con el marcador.
 
     Solo se da por buena cuando algun importe se lee como euro (con su
     marcador o sin ninguno, que es como imprime una factura neerlandesa). Si
@@ -271,22 +188,10 @@ def check_currency(extraction: dict[str, Any]) -> CheckResult:
     no un "ok" que nadie ha comprobado.
     """
     literales = _literales_de_importe(extraction)
-    if not literales:
-        return CheckResult("X1", "Moneda", "sin datos", "La factura no trae importes.")
     monedas = [detectar_moneda(v) for v in literales]
     otras = sorted({m for m in monedas if m not in (None, "EUR")})
-    if otras:
-        return CheckResult(
-            "X1", "Moneda", "fallo",
-            f"Importes en {', '.join(otras)}: no está en euros y queda fuera de "
-            "todos los totales.",
-        )
-    if "EUR" not in monedas and all(_amount(v) is None for v in literales):
-        return CheckResult(
-            "X1", "Moneda", "sin datos",
-            "Ningún importe es legible: no se puede decir en qué moneda está.",
-        )
-    return CheckResult("X1", "Moneda", "ok", "Importes en euros.")
+    en_euro = "EUR" in monedas or any(_amount(v) is not None for v in literales)
+    return _v1("X1", "Moneda", calidad.moneda(bool(literales), otras, en_euro))
 
 
 def en_euros(extraction: dict[str, Any]) -> bool:

@@ -40,6 +40,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 bms-agent extract facturas/    # deja los PDF ahí primero; lo ya leído no se paga
 bms-agent importar-out         # lleva out/ al almacén (datos/) y lo tipa, sin llamar a la API
 bms-agent sembrar              # clientes, Objetos y tarifas de venta de config/tarifas.yaml
+bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
 bms-agent extract --estricta facturas/   # para medir otro modelo o prompt
@@ -61,5 +62,5 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 537 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 713 tests sin
 llamar a la API.

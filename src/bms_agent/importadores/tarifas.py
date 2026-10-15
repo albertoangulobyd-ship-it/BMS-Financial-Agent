@@ -14,6 +14,7 @@ coincidencia exacta con el nombre impreso.
   borra (no es una foto completa del maestro).
 - margen_por_defecto y no_facturable no se siembran: son la politica de la
   proyeccion de venta, que sigue leyendo el fichero (facturacion.py).
+- La orden termina recalculando las reglas, en la misma transaccion.
 """
 
 from __future__ import annotations
@@ -48,6 +49,8 @@ class ResultadoSemilla:
     tarifas_cambiadas: int = 0
     imputaciones_resueltas: int = 0
     avisos: list[str] = field(default_factory=list)
+    # La pasada del motor de reglas con la que termina la orden (paso 3).
+    recalculo: Any = None
 
 
 def _politica(conn: sqlite3.Connection, nombre: str, texto: str, sha256: str,
@@ -159,7 +162,11 @@ def sembrar_tarifas(
                     if o.fila("tarifa_acordada", existente["id"])["tarifa_e4"] != antes:
                         resultado.tarifas_cambiadas += 1
 
+        from ..hallazgos import recalcular
         from ..ingesta import reconciliar_referencias
 
         resultado.imputaciones_resueltas = reconciliar_referencias(conn)
+        # Un Objeto que ahora se resuelve cambia lo que leen las reglas (B4 por
+        # Objeto, G3): la orden acaba con su recalculo, en su transaccion.
+        resultado.recalculo = recalcular(conn, motivo="importacion", usuario_id=usuario_id)
     return resultado

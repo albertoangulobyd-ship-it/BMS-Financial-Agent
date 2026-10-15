@@ -926,3 +926,316 @@ rehace con `bms-agent importar-out`, que no gasta API.
 **Tests existentes cambiados**: `test_verificar_vale_para_la_version_que_se_verifico`
 verificaba y corregía `iban_doc`, que ya no se corrige a mano; ahora lo hace
 con `emisor_kvk_doc` (lo que prueba no cambia).
+
+
+## Paso 3
+
+Motor de reglas y hallazgos. **713 tests pasan** (480 funciones de test;
+eran 582 y 406 al terminar el paso 2), ninguno llama a la API y ninguno
+escribe fuera de una carpeta temporal. Cinco mil facturas se recalculan en
+1,35 s la primera vez y en 1,0 s las siguientes (en este contenedor, en
+memoria y en disco con WAL casi igual).
+
+### Qué se construyó
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `reglas/base.py` | `Regla` (metadato del §7: severidad B/R/A y la de venta si cambia, anulable y anulable en venta, pegajosa, segunda firma, entrada de prioridad, calidad, ámbito, versión, `lee` y `solo_texto`), `Resultado` (ok, fallo, sin_datos, no_aplica, con valores comparados, clave, grupo, severidad y objetivos), `Comprobacion`, `Objetivo`, `Politica` (tolerancias de validacion-facturas.md §4), la instantánea congelada (`Instantanea`, `Factura`, `Linea`, `TramoIva`, `Relacion`), `por_factura` y las escalas (`euros`, `tarifa`, `cantidad`, `porcentaje`, `euros_texto`, `periodo_de`) |
+| `reglas/catalogo.py` | `CATALOGO`: las 14 reglas que se evalúan, en el orden del §7, con su metadato. `NO_ANULABLES` y `nunca_anulable()` (la lista de la decisión 12) y `sha256()` del catálogo |
+| `reglas/motor.py` | `evaluar()` (puro: cada regla sobre la instantánea, resultados ordenados por regla, tabla, fila, grupo y clave; dos resultados con la misma clave son un error de la regla), `agrupar()` (los fallos que son el mismo hallazgo, su objetivo principal y su severidad), `huella()`, `campos_de_fuente()` y `canonico()` (JSON canónico que rechaza floats) |
+| `reglas/instantanea.py` | El único de `reglas/` que lee la base: facturas tipadas con sus valores actuales, líneas e imputaciones activas, desglose de IVA, relaciones confirmadas y qué campos tienen un literal ilegible. Deriva la contraparte como clave (`clave_parte`: fila del maestro, btw-id, KvK o nombre normalizados con identidad.py; nunca el IBAN), la moneda que no es el euro y el Objeto de cada línea |
+| `reglas/calidad.py` | Q1 y X1, y sus comprobaciones de fondo `campos_que_faltan` y `moneda` |
+| `reglas/aritmetica.py` | D1, D2, D2b y D4 (`suma_lineas`, `aritmetica_lineas`, `total`) |
+| `reglas/iva.py` | D3, E3 y E4 (`cuota_por_tipo`, `iva_indebido`, `sin_iva_por_regimen`) |
+| `reglas/bancaria.py` | F1 (`validar_iban`, `iban`) |
+| `reglas/unicidad.py` | B2, B3 y B4 sobre `Candidata` (`numeros_repetidos`, `importes_repetidos`, `periodos_solapados`, `periodos_compatibles`) |
+| `reglas/planning.py` | G3 de histórico (`cambios_de_tarifa`, `tipo_de_trabajo`) |
+| `hallazgos.py` | `recalcular()` (la pasada: instantánea, evaluación, caché, hallazgos y su historia, en una transacción; `simular=True` lo deshace y devuelve lo que habría cambiado), `calcular()` (hallazgos con su huella), `anular()`, `resolver()`, `requiere_segunda_firma()`, `historia()`, `pendientes()` y `verificar()`. Devuelve una `Diferencia` (evaluaciones por resultado, transiciones con su causa, retenidos por sin_datos y pendientes por estado) |
+
+**Cambios**
+
+- `checks.py` ya no calcula nada: cada `check_*` lee los literales con
+  parsing.py y llama a la comprobación de fondo de `reglas/`, con las mismas
+  etiquetas, estados ("sin datos", "no aplica") y textos del contrato v1.
+  `validar_iban` es la de `reglas/bancaria.py`; `POLITICA_V1` son las
+  tolerancias de siempre.
+- `dashboard.py`: `detectar_duplicados`, `detectar_periodos_repetidos` y
+  `detectar_cambios_de_tarifa` construyen candidatas y observaciones desde
+  las filas del panel y llaman a `reglas/unicidad.py` y
+  `reglas/planning.py`. Las alertas llevan `indices` (la posición de cada
+  registro, fuera del contrato) y `_propagar_alertas_a_filas` une por ahí;
+  `Fila.indice` es la posición del registro.
+- `facturacion.py` usa `reglas.planning.tipo_de_trabajo` (era una copia).
+- `ingesta.ingestar_pasada` (extract y el botón del servidor): tipar y
+  recalcular en una transacción; `ResultadoIngesta.recalculo`.
+- `importadores/tarifas.sembrar_tarifas` termina con `recalcular` en su
+  transacción; `ResultadoSemilla.recalculo`.
+- `cli.py`: `importar-out` e `ingestar` recalculan dentro de su transacción
+  (ingestar ahora es una transacción con un SAVEPOINT por documento, como
+  importar-out); `extract` y `sembrar` dicen lo que dejó la pasada; nueva
+  orden `recalcular [--simular] [--diaria]`; `db verificar` comprueba también
+  los hallazgos.
+- `dominio.py`: `EstadoHallazgo`, `ESTADOS_PENDIENTES`, `TipoEventoHallazgo`,
+  `MotivoEjecucion`, `PapelObjetivo`, `AmbitoHallazgo`, `EntradaPrioridad`.
+- `almacen/evidencia.py`: `anulacion` es evidencia (su foto va en el evento
+  `hallazgo_anulado`, enlazado por `anulacion.evento_id`, como una nota).
+
+**Tablas** (migración `0003_reglas_hallazgos.sql`), todas STRICT, con clave
+entera y sin ninguna columna REAL:
+
+| Tabla | Clase | Qué no se puede hacer |
+| --- | --- | --- |
+| `ejecucion_reglas` | Una por pasada | Borrarla; tocarla salvo cerrarla una vez (como `importacion`); actuar con un usuario que no sea de sistema; poner en `usuario_id` uno de sistema |
+| `evaluacion` | CACHE | — (se reescribe en cada pasada lo que cambia) |
+| `hallazgo` | Estado con historia | Borrarlo; nacer con un estado que no sea `abierto`; cambiar su clave, su regla o su primera vez; cambiar su estado o su huella sin que su último `hallazgo_evento` diga ese estado y esa huella |
+| `hallazgo_objetivo` | CACHE | — (se rehace cuando cambian los objetivos de un hallazgo) |
+| `hallazgo_evento` | SOLO ESCRITURA | `UPDATE` y `DELETE`; una transición que no sale del estado anterior (en particular `cerrado_automatico` de una regla pegajosa, o `desaparecido` de una normal); un `aceptado` sin su anulación con la misma huella, o un `resuelto` sin un evento de esa persona; un evento de persona firmado por un usuario de sistema |
+| `anulacion` | SOLO ESCRITURA | `UPDATE` y `DELETE`; anular una regla de la lista dura (familia F, X1, E3, E4, K2, K4, K6, R2, R3 y D2/D3/D4/D6 en compras) o un hallazgo marcado no anulable; anular una huella que no es la actual o un hallazgo que no está abierto ni aceptado; firmarla sin `anular_aviso` en ese momento (y la segunda firma igual); colgarla de un evento que no es el último o que no es de quien firma; un motivo de menos de 10 caracteres |
+
+**El catálogo** (§7, solo lo que se evalúa en este paso):
+
+| Regla | Compra / venta | Anulable | Pegajosa | Prioridad |
+| --- | --- | --- | --- | --- |
+| Q1 Campos obligatorios | R (B si falta número, total o contraparte) | no | no | otra |
+| X1 Moneda | B | no | sí | otra |
+| B2 Número repetido | B | con segunda firma | sí | duplicado exacto |
+| B3 Duplicado por contenido | R | sí | sí | duplicado |
+| B4 Periodo facturado dos veces | R | sí | sí | duplicado |
+| D1 Desglose | B / R | no | no | otra |
+| D2 Suma de líneas | B / R | no | no | otra |
+| D2b Aritmética de línea | B / R | sí | no | otra |
+| D3 Cuota de IVA | B | no | no | IVA duro |
+| D4 Total | B | no | no | otra |
+| E3 IVA con KOR | B | no | no | IVA duro |
+| E4 IVA trasladado | B | no | no | IVA duro |
+| F1 IBAN | B | no | sí | IBAN |
+| G3 Tarifa distinta (histórico) | R | sí | no | planning |
+
+**Cómo decide `hallazgos.recalcular`**
+
+- La **clave** de un hallazgo es regla + objetivo + llave
+  (`D4|factura:12`, `E4|factura:12|cuota`, `B2|entrante|btw:NL…|numero:2026001`,
+  `B3|par:3-7`, `G3|<contraparte>|<obra>|<trabajo>|<unidad>`). La **huella**
+  es el sha256 de la versión de la regla, los valores comparados, la fuente
+  de cada campo que la regla lee (sus columnas en `procedencia_campo`, de las
+  facturas y líneas del hallazgo) y los parámetros de la política que usa.
+- Cada transición queda en `hallazgo_evento` con su **causa**: el último
+  evento de auditoría que tocó alguna de sus facturas desde la pasada
+  anterior (`cambio_campo.factura_id`, por encima de
+  `ejecucion_reglas.hasta_evento_id` de la pasada previa); si ninguna se
+  tocó, la que da quien lanza la pasada (`causa_evento_id`), o ninguna.
+- Un hallazgo nuevo es `detectado`; si su huella cambia, `cambio_evidencia`.
+  Si su condición desaparece: `cerrado_automatico` (estado `cerrado`) en
+  una regla normal, `desaparecido` en una pegajosa, que sigue pendiente
+  hasta que una persona con `resolver_aviso` lo cierra (`resolver`, estado
+  `resuelto`). Si vuelve a darse uno cerrado, resuelto o desaparecido,
+  `reabierto`.
+- **sin_datos no cierra nada**: si la regla no pudo mirar la fila (su
+  resultado, o el de una de sus facturas, es sin_datos), el hallazgo se
+  queda como estaba y se dice en `Diferencia.retenidos`.
+- Una **anulación** (`anular`, permiso `anular_aviso`, motivo de 10
+  caracteres o más) acepta la huella de ahora; el hallazgo pasa a `aceptado`
+  mientras su huella sea esa y no venza `vigente_hasta` (incluido ese día).
+  Si la evidencia cambia o vence, `reabierto`; si vuelve exactamente la
+  evidencia anulada, vuelve a valer (evento `aceptado` atribuido a quien la
+  firmó, con su evento de auditoría como causa).
+- **Segunda firma**: la piden B2, cualquier hallazgo que bloquea y los de
+  10.000 € o más de base (decisión 12), solo si hay otra persona con
+  `anular_aviso`; sin ella, la anulación entra como `autoaprobada`.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| El test de pureza por AST pasa | `test_pureza_reglas.py::test_ninguna_regla_toca_la_base_el_reloj_el_entorno_ni_la_red` (cada módulo de `reglas/` salvo `instantanea.py`: solo importa la biblioteca estándar pura, `dominio` y otras reglas; no llama a `open`, `print`, `datetime.now`, `date.today`, `os.environ`, `execute`…), `test_la_busqueda_de_impurezas_ve_lo_que_tiene_que_ver` (18 fuentes impuras, todas cazadas) y `test_solo_instantanea_lee_la_base` |
+| El test del proxy que graba lo que se lee pasa | `test_cada_regla_lee_solo_lo_que_declara_y_todo_lo_que_declara` (cada regla, sobre instantáneas envueltas en un proxy que apunta cada atributo: lo leído está en `Regla.lee`, y entre todos los casos sale todo lo declarado), `test_el_proxy_da_lo_mismo_que_la_instantanea`, `test_una_regla_que_lee_de_mas_se_ve` |
+| Barajar la entrada da las mismas huellas | `test_hallazgos.py::test_barajar_la_entrada_da_las_mismas_huellas` (el almacén con B2, B4 y D4; facturas y líneas barajadas cinco veces: las mismas claves y huellas, que son las guardadas) y `test_reglas.py::test_barajar_la_entrada_no_cambia_nada` (resultados y hallazgos idénticos) |
+| Recalcular dos veces no crea duplicados | `test_recalcular_dos_veces_no_crea_nada_dos_veces` (mismos hallazgos, eventos, objetivos y evaluaciones; ninguna transición; la caché no reescribe ni una fila) |
+| Un pegajoso no se cierra solo | `test_un_hallazgo_pegajoso_no_se_cierra_solo` (B2 que desaparece al corregir el número: queda `desaparecido` pasada tras pasada, sigue en los pendientes de su factura, la base rechaza un `cerrado_automatico`, una persona lo resuelve y se reabre si vuelve la condición) |
+| Una anulación deja de valer cuando cambia la huella | `test_una_anulacion_vale_mientras_la_huella_sea_la_anulada` (aceptado, se reabre al cambiar el periodo y vuelve a valer si vuelve la evidencia anulada), `test_una_anulacion_vence`, `test_la_huella_cambia_con_los_valores_las_fuentes_la_politica_y_la_version` |
+| Los tests de antes siguen en verde a través de los envoltorios | Los 582 de antes pasan (los de `test_dashboard.py`, `test_parsing.py`, `test_report.py`, la foto de referencia byte a byte y las de equivalencia, sin tocarlos); `test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture` compara el motor con checks.py en las siete fixtures |
+| 5.000 facturas se recalculan en menos de 2 s | `test_rendimiento.py::test_cinco_mil_facturas_se_recalculan_en_menos_de_dos_segundos` (la primera pasada, que crea unos 200 hallazgos, y la segunda, sin cambios) |
+
+Además: el catálogo contra la tabla del §7 y la decisión 12
+(`test_el_catalogo_es_el_del_paragrafo_7`,
+`test_lo_que_no_se_anula_nunca_es_la_lista_de_la_decision_12`,
+`test_las_familias_pegajosas_son_las_de_la_decision_11`), una tabla de
+casos por regla en `test_reglas.py` (bordes de tolerancia de D2, D3 y D4,
+B3 a 14 y 15 días, B4 por Objeto, abonos y relaciones, G3 por trabajo y
+unidad…), la causa al cerrar D4 con una corrección, sin_datos que retiene,
+`--simular` que no escribe nada, permiso y motivo de la anulación, la lista
+dura también en la base, la segunda firma, `db verificar` que ve un
+hallazgo o una anulación tocados por detrás, cada orden de entrada
+(importar-out, ingestar, sembrar, extract, el servidor) que acaba con su
+pasada, una orden que falla al recalcular y no deja nada, y la orden en un
+proceso sin `anthropic`.
+
+### Desviaciones de la especificación, y por qué
+
+1. **Cinco estados en vez de cuatro**: `abierto`, `aceptado`,
+   `desaparecido`, `cerrado` y `resuelto`. La especificación usa `resuelto`
+   tanto para lo que cierra el sistema como para lo que cierra una persona;
+   separarlos deja en la columna quién lo cerró sin leer la historia, y es
+   lo que necesita el disparador para impedir que una regla pegajosa se
+   cierre sola. Pendientes son `abierto`, `aceptado` y `desaparecido`
+   (`dominio.ESTADOS_PENDIENTES`).
+2. **`hallazgo_evento.estado`** (columna añadida: el estado que deja el
+   evento) y la guarda de `hallazgo`: estado y huella solo cambian como diga
+   el último evento. Es la misma idea que las guardas del paso 2: no hay
+   cambio de estado sin su historia, y `hallazgos.verificar` (en `db
+   verificar`) lo comprueba también sin disparadores.
+3. **`ejecucion_reglas`** lleva además `actor` (el usuario de sistema
+   `motor`; `usuario_id` es la persona que la lanzó, como en `evento`),
+   `hasta_evento_id` (el último evento al empezar, para buscar causas) y
+   `causa_evento_id`. Se inserta al empezar y se cierra una vez.
+4. **`evaluacion`**: `clave` es la del hallazgo que daría (en una regla de
+   grupo, la del grupo, en cada factura); `valores_json` solo en fallo y
+   sin_datos (en un ok son los valores de la factura, que ya están en sus
+   tablas, y escribirlos en cada pasada costaba más que todo lo demás); sin
+   índice único (la unicidad la comprueba el motor antes de escribir:
+   `ResultadoDuplicado`), con un índice por fila. Se escribe **solo lo que
+   cambia**: una fila igual conserva su `ejecucion_id`, que pasa a ser "la
+   pasada desde la que el resultado es este".
+5. **`anulacion.evento_id`** (columna añadida) y la anulación es evidencia:
+   su foto va en el evento `hallazgo_anulado` y `db verificar` compara cada
+   fila con ella. La segunda firma se da en la misma orden (las dos personas
+   delante), no hay un flujo de firma diferida: la tabla es de solo
+   escritura.
+6. **Q1, la contraparte es la que imprime el documento** (nombre, btw-id o
+   KvK; en una venta, el receptor). Que el maestro la conozca es A0 (paso 5):
+   sin maestros, todas las facturas de hoy bloquearían por "falta la
+   contraparte". "Falta" es que no hay valor ni literal: un literal que no se
+   pudo leer, o un importe en otra moneda, está en el papel (eso es Q2 o
+   X1). Lo que la versión del esquema no pidió da sin_datos. El periodo vale
+   de la cabecera o de las líneas.
+7. **Q1 del motor y "Campos obligatorios" del panel no son la misma
+   lista**: checks.py conserva la versión reducida del contrato v1 (nombre,
+   número, fecha y total, regla "A/B/C") porque la foto no puede cambiar; el
+   motor pide la del §7.
+8. **D1 no estaba en checks.py** (la tarea lo cita como portado): se
+   escribió desde validacion-facturas.md. Pide líneas con cantidad, tarifa e
+   importe, base, total y, si se repercute IVA, tipo y cuota; un literal
+   ilegible cuenta como presente. Una línea a tanto alzado sin cantidad ni
+   tarifa bloquea una compra, como dice el catálogo: si sale demasiado en
+   las facturas reales, es una decisión del catálogo, no del código.
+9. **D2, D3 y D4 no se anulan en ningún sentido** en el catálogo (§7 dice
+   "no override" sin distinguir); la lista dura de la base es exactamente la
+   de la decisión 12 (D2/D3/D4/D6 solo en compras), así que el paso 8 puede
+   relajarlas en las ventas con el catálogo sin tocar la migración.
+10. **E4 son dos resultados** (`cuota` y `btw_receptor`): una factura v1 no
+    pidió el btw-id del receptor y eso no puede tapar que la cuota sí se
+    comprobó. Que ese btw-id sea el de BM Support BV es A8 (paso 5, con
+    `config/empresa.yaml`). **E3 y E4** deducen la cuota de total − base
+    cuando la factura no la imprime.
+11. **B2** agrupa por sentido, contraparte y número normalizado; dos
+    facturas con una relación confirmada no son duplicado entre sí. El §7
+    dice que se cierra fusionando o enlazando y que anularla pide segunda
+    firma: las dos cosas valen (la fusionada queda no_aplica, el hallazgo
+    pegajoso queda desaparecido y lo resuelve una persona).
+12. **B3 tolera un céntimo** (el §7: "total within 0,01"), también en el
+    panel v1, que antes pedía el mismo total exacto. No cambia la foto ni
+    ningún test de antes; lo fija `test_b3_tolera_un_centimo_como_dice_el_catalogo`.
+13. **B4 del motor** separa por Objeto cuando las dos facturas lo nombran,
+    deja fuera los abonos (por su tipo) y los pares con relación confirmada.
+    El panel v1 sigue con su B4 de siempre (sin Objetos, abonos por el signo
+    del total): el §6 pide que el contrato v1 no cambie.
+14. **G3 de histórico** agrupa por contraparte, Objeto (el resuelto o el
+    nombre impreso normalizado), tipo de trabajo y **unidad** (una tarifa
+    por hora y otra por pieza no se comparan), solo en compras, y solo
+    retiene: el bloqueo por exceso es contra la tarifa pactada (paso 9).
+15. **Lo del panel que el paso 2 dejó para este** (desviación 24 del paso
+    2): la guarda muerta `nom:(sin` queda corregida (una factura sin nombre,
+    btw-id ni KvK no se agrupa con nadie, en el panel y en el motor);
+    `_propagar_alertas_a_filas` une por la posición del registro y no por el
+    nombre del fichero (también F3 y G3 llevan las posiciones); la identidad
+    de B2, B3, B4 y G3 es una sola en el motor (`clave_parte`). Siguen como
+    estaban, a propósito: la regla "D" de los fallos por factura en las
+    alertas del panel y `por_proveedor` y la matriz por nombre impreso. Son el
+    contrato v1 (`/api/datos` tiene que seguir siendo la foto, §6 y paso 12);
+    el motor ya lleva el identificador de cada regla.
+16. **La política está en el código** (`reglas.base.Politica`, con los
+    valores de validacion-facturas.md §4); su hash va en
+    `ejecucion_reglas.politica_sha256` y sus parámetros en cada huella. No
+    hay todavía `config/reglas.yaml` ni `politica.py`: ningún paso los pide
+    y ninguna tolerancia se ha cambiado. Quien los haga tiene que producir
+    una `Politica`.
+17. **El catálogo solo lista lo que se evalúa.** Las reglas del §7 que
+    llegan después no tienen entrada todavía: una entrada sin evaluación
+    daría por bueno lo que nadie miró. La lista dura de la base ya incluye
+    F2-F10, K y R.
+18. **Qué órdenes recalculan**: las que cambian algo que una regla lee
+    (`importar-out`, `ingestar`, `extract`, el botón del servidor,
+    `sembrar`), al final de su transacción. Las de usuarios y roles no: no
+    cambian nada que lea una regla. Las ediciones de una persona
+    (`campos.fijar`) no tienen todavía orden propia: `servicios.py` (paso 4)
+    tiene que terminar cada una con `recalcular`.
+19. **Anular y resolver son funciones** (`hallazgos.anular`,
+    `hallazgos.resolver`), con sus tests, sin orden de la CLI: las órdenes de
+    personas (con `peticion_id`, `rev` y la consola) son del paso 4.
+20. **`solo_texto`**: lo que una regla lee solo para escribir su
+    explicación (el nombre y el número impresos en B2, B3, B4 y G3, el nombre
+    de la obra en G3) no entra en la huella; tampoco `anulada` ni
+    `fusionada_en_id`, que dicen si la factura se evalúa. Sin eso, corregir
+    el número de una factura cambiaba la evidencia de su B4 y quitaba una
+    anulación que no tenía nada que ver.
+21. **Rendimiento**: los resultados son tuplas con nombre (no dataclasses),
+    las reglas de una factura devuelven listas, el recolector de ciclos de
+    Python se para durante la pasada (`hallazgos._sin_recolector`: decenas de
+    miles de tuplas sin ciclos que el recolector recorría una y otra vez) y
+    la procedencia solo se lee para las filas con fallo.
+22. **El test de rendimiento llena la base a mano**, con los disparadores
+    de guarda quitados en esa base de prueba: crear cinco mil facturas por
+    campos.py tardaría minutos, y lo que se mide es la pasada.
+23. **Tests existentes cambiados**, porque hay tablas nuevas: en
+    `test_almacen.py`, `SOLO_ESCRITURA` incluye `hallazgo_evento` y
+    `anulacion`, `EVIDENCIA` incluye `ejecucion_reglas`, `_poblar` les pone
+    una fila, y la lista de tablas que no se borran pero sí se editan
+    incluye `hallazgo`. Ninguno cambia lo que prueba.
+24. **Documentos tocados**: README (`recalcular` y el recuento), `fase-0.md`
+    (la orden, los hallazgos y el recuento), `instalacion-windows.md` y
+    `brief-diseno.md` (recuento; seguían en 537 desde antes de la revisión
+    del paso 2) y `validacion-facturas.md` (qué reglas evalúa ya el motor).
+
+### Lo que deben saber los pasos siguientes
+
+- **Una regla nueva**: su función en el módulo de su familia (una regla de
+  factura recibe `(factura, politica)` y devuelve una lista de `Resultado`,
+  con `resultado_de`; una de grupo recibe la instantánea entera), su `LEE_*`
+  con todo lo que lee y su `solo_texto`, y su entrada en `catalogo.CATALOGO`
+  con el metadato del §7. Después: su fila en `CATALOGO_SPEC` de
+  `test_reglas.py`, sus casos, y los escenarios de `test_pureza_reglas.py`
+  tienen que pasar por todo lo que declara (el test falla si declara algo
+  que nunca lee). Lo que necesite de la base (maestros, planning, pagos)
+  entra en la instantánea por `reglas/instantanea.py`, no en la regla.
+- **Cada orden** que cambie algo que lee una regla termina con
+  `hallazgos.recalcular(conn, motivo=…, usuario_id=…, causa_evento_id=…)`
+  dentro de su transacción. Devuelve la `Diferencia` que `servicios.py`
+  (paso 4) tiene que enseñar (hallazgos que se abren, cierran o reabren).
+  La causa se encuentra sola por `cambio_campo.factura_id`; pasarla sirve
+  para lo que no toca facturas.
+- **Excepciones y prioridad (paso 4)**: lo pendiente es
+  `estado IN ESTADOS_PENDIENTES`; `aceptado` es "anulado y vigente" (no pone
+  suelo de prioridad), `desaparecido` sí cuenta como atención. La entrada de
+  prioridad, la severidad y si bloquea están en el catálogo y en
+  `hallazgo.severidad`. El objetivo principal de un hallazgo de grupo es la
+  factura más reciente (la de id mayor) y puede cambiar si cambia el grupo;
+  todas sus facturas están en `hallazgo_objetivo`.
+- **Lo que el paso 4 tiene que añadir a esto**: las órdenes de anular y
+  resolver con `peticion_id` (y su segunda firma en la consola), que una
+  corrección que cierra un hallazgo deje el campo sin resolver hasta que lo
+  verifique otra persona (§7), y la excepción por entidad.
+- **Fusionar o enlazar (pasos 4 y 8)**: deja el B2 desaparecido; la orden
+  que fusiona puede resolverlo en la misma transacción (quien fusiona es
+  quien lo cierra), con `hallazgos.resolver`.
+- **La huella cambia** si cambia una tolerancia que la regla usa, la
+  versión de la regla o la fuente de un campo que lee: una anulación deja
+  de valer entonces, a propósito. Subir `Regla.version` cuando cambie lo que
+  una regla compara.
+- **El paso 5** (F2-F10, A, E1, E2, Q2-Q4, Z) trae reglas pegajosas y no
+  anulables: la base ya rechaza anular cualquier F. La E4 del btw-id de BMS
+  se completa con A8.
+- **Rendimiento**: unos 0,03-0,06 s por regla cada cinco mil facturas; la
+  escritura de la caché es lo más caro de la primera pasada. Si una regla
+  nueva cruza facturas, que ordene por fecha y corte la ventana, como B3.

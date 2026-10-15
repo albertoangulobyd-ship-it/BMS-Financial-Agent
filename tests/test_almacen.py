@@ -57,8 +57,8 @@ AHORA = "2026-10-14T09:30:00+00:00"
 # excepcion cada una (apuntar el original una vez; rellenar mientras esta en
 # curso) que se prueba aparte; fuera de ella, abortan igual.
 SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
-                  "nota")
-EVIDENCIA = ("documento", "importacion")
+                  "nota", "hallazgo_evento", "anulacion")
+EVIDENCIA = ("documento", "importacion", "ejecucion_reglas")
 
 
 def _tablas(conn) -> list[str]:
@@ -227,6 +227,30 @@ def _poblar(almacen: Almacen) -> None:
         conn.execute("INSERT INTO nota (tabla, fila_id, texto, usuario_id, en, evento_id) "
                      "VALUES ('factura', 1, 'llamado el proveedor', ?, ?, ?)",
                      (persona, AHORA, evento))
+        # Paso 3: una pasada cerrada, un hallazgo con su deteccion y una anulacion de Ana.
+        motor = usuario_sistema(conn, "motor")
+        ejecucion = conn.execute(
+            "INSERT INTO ejecucion_reglas (motivo, hoy, iniciada_en, terminada_en, actor, "
+            "version_codigo, catalogo_sha256, politica_sha256, hasta_evento_id) "
+            "VALUES ('manual', '2026-10-14', ?, ?, ?, '0.1.0', ?, ?, 0)",
+            (AHORA, AHORA, motor, "e" * 64, "f" * 64)).lastrowid
+        hallazgo = conn.execute(
+            "INSERT INTO hallazgo (clave, regla, regla_version, huella, tabla, fila_id, "
+            "severidad, ambito, pegajosa, anulable, titulo, detalle, valores_json, estado, "
+            "primera_vez_en, ultima_vez_en, ultima_ejecucion_id) VALUES ('B3|par:1-2', 'B3', "
+            "1, ?, 'factura', 1, 'retencion', 'factura', 1, 1, 'Duplicado', 'b', '{}', "
+            "'abierto', ?, ?, ?)", ("a" * 64, AHORA, AHORA, ejecucion)).lastrowid
+        conn.execute("INSERT INTO hallazgo_evento (hallazgo_id, tipo, estado, huella, "
+                     "ejecucion_id, en) VALUES (?, 'detectado', 'abierto', ?, ?, ?)",
+                     (hallazgo, "a" * 64, ejecucion, AHORA))
+        rol = conn.execute("INSERT INTO rol (nombre) VALUES ('avisos')").lastrowid
+        conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'anular_aviso')", (rol,))
+        conn.execute("INSERT INTO usuario_rol (usuario_id, rol_id, desde) VALUES (?, ?, ?)",
+                     (persona, rol, AHORA))
+        anulado = registrar(conn, tipo="hallazgo_anulado", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO anulacion (hallazgo_id, huella, motivo, usuario_id, en, "
+                     "evento_id) VALUES (?, ?, 'el proveedor lo confirmo', ?, ?, ?)",
+                     (hallazgo, "a" * 64, persona, AHORA, anulado))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)
@@ -261,7 +285,9 @@ def test_la_lista_de_tablas_de_solo_escritura_esta_completa(db) -> None:
     # controladas del paso 2 (solo por campos.py, ver test_campos.py).
     from bms_agent.campos import TABLAS_CONTROLADAS
 
-    assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo",
+    # El hallazgo del paso 3 cambia de estado, pero solo como diga su ultimo
+    # evento (test_hallazgos.py).
+    assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo", "hallazgo",
                                       *TABLAS_CONTROLADAS}
 
 

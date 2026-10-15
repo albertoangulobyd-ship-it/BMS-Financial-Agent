@@ -10,7 +10,13 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent importar-out        lleva out/*.json al almacen y lo tipa, sin llamar a la API
     bms-agent ingestar            tipa lo extraido que aun no tiene su factura, sin la API
     bms-agent sembrar             clientes, Objetos y tarifas de venta de config/tarifas.yaml
+    bms-agent recalcular          evalua las reglas y pone al dia los hallazgos (--simular)
     bms-agent usuario ...         personas y sus roles
+
+Cada orden que cambia algo que una regla lee (importar-out, ingestar,
+extract, sembrar) termina recalculando las reglas en su misma transaccion;
+`recalcular --diaria` es la pasada de cada dia, para lo que depende de la
+fecha.
 
 `panel`, `report`, `export` y `simulador` leen del almacen, con los valores
 corregidos; solo si no hay almacen leen out/ tal cual, y lo dicen.
@@ -145,6 +151,7 @@ def extraer_carpeta(
             print(f"  {r.sin_almacen} no se pudieron guardar; estan en {out_dir}/ y "
                   "`bms-agent importar-out` los recupera sin pagar")
         _imprimir_tipado(ingesta)
+        _imprimir_recalculo(ingesta.recalculo)
         print()
     if r.extraidas:
         print(format_cost_summary(model, r.extraidas, r.tokens_entrada, r.tokens_salida))
@@ -160,6 +167,62 @@ def _imprimir_tipado(ingesta) -> None:
     for tipado in ingesta.tipados:
         if tipado.accion in ("error", "omitido"):
             print(f"  {tipado.accion} documento {tipado.documento_id}: {tipado.detalle}")
+
+
+_PLURAL_TRANSICION = {
+    "detectado": "nuevos", "cambio_evidencia": "con otra evidencia",
+    "desaparecido": "desaparecidos (pegajosos: siguen pendientes)",
+    "cerrado_automatico": "cerrados solos", "reabierto": "reabiertos",
+    "aceptado": "aceptados de nuevo por su anulacion",
+}
+_ETIQUETA_RESULTADO = {"ok": "ok", "fallo": "fallo", "sin_datos": "sin datos",
+                       "no_aplica": "no aplica"}
+
+
+def _imprimir_recalculo(diferencia, *, detalle: bool = False) -> None:
+    """Lo que dejo la pasada del motor de reglas: evaluaciones y hallazgos que se movieron."""
+    if diferencia is None:
+        return
+    total = sum(diferencia.evaluaciones.values())
+    cuentas = ", ".join(f"{diferencia.evaluaciones.get(r, 0)} {e}"
+                        for r, e in _ETIQUETA_RESULTADO.items())
+    print(f"Reglas: {total} evaluaciones ({cuentas})")
+    movidos = [f"{len(diferencia.de_tipo(t))} {e}" for t, e in _PLURAL_TRANSICION.items()
+               if diferencia.de_tipo(t)]
+    print("Hallazgos: " + (", ".join(movidos) if movidos else "ninguno cambia"))
+    if diferencia.retenidos:
+        print(f"  {len(diferencia.retenidos)} se quedan como estaban: su regla no ha podido "
+              "mirar (sin datos)")
+    pendientes = diferencia.pendientes
+    print(f"  pendientes: {pendientes.get('abierto', 0)} abiertos, "
+          f"{pendientes.get('aceptado', 0)} aceptados, "
+          f"{pendientes.get('desaparecido', 0)} desaparecidos")
+    if detalle:
+        for t in diferencia.transiciones:
+            donde = f"factura {t.factura_id}" if t.factura_id is not None else t.clave
+            causa = f"  (causa: evento {t.causa_evento_id})" if t.causa_evento_id else ""
+            nota = f"  {t.nota}" if t.nota else ""
+            print(f"  {t.tipo:<18} {t.regla:<4} {donde}{causa}{nota}")
+
+
+def _cmd_recalcular(args: argparse.Namespace) -> int:
+    """Evalua el catalogo de reglas y pone al dia los hallazgos. Cero llamadas a la API."""
+    from .hallazgos import recalcular
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}. Crealo con: bms-agent importar-out", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        diferencia = recalcular(almacen.conn, motivo="diaria" if args.diaria else "manual",
+                                simular=args.simular)
+        _anclar(almacen)
+    if diferencia.simulada:
+        print("Simulacion: no se ha escrito nada; esto es lo que cambiaria")
+    else:
+        print(f"Pasada {diferencia.ejecucion_id} del motor de reglas")
+    _imprimir_recalculo(diferencia, detalle=True)
+    return 0
 
 
 def _cmd_score(args: argparse.Namespace) -> int:
@@ -448,6 +511,12 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             from .campos import verificar_controladas
 
             errores.extend(verificar_controladas(conn))
+        con_hallazgos = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hallazgo'").fetchone()
+        if con_hallazgos:
+            from .hallazgos import verificar as verificar_hallazgos
+
+            errores.extend(verificar_hallazgos(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -504,12 +573,14 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
         print(f"No se puede abrir el almacen: {exc}", file=sys.stderr)
         return 2
     with almacen:
-        # Una orden, una transaccion (spec §4): importar y tipar van juntos, y
-        # cada fichero y cada documento en su SAVEPOINT, asi que uno que falla
-        # no se lleva a los demas y un fallo de la orden no deja nada a medias.
+        # Una orden, una transaccion (spec §4): importar, tipar y recalcular
+        # las reglas van juntos, y cada fichero y cada documento en su
+        # SAVEPOINT, asi que uno que falla no se lleva a los demas y un fallo
+        # de la orden no deja nada a medias.
         with transaccion(almacen.conn):
             r = importar_out(almacen, out_dir, pdfs)
             tipado = _tipar(almacen)
+            tipado.recalculo = _recalcular(almacen, "importacion")
         _anclar(almacen)
 
     print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
@@ -525,6 +596,7 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
     for nombre, motivo in r.rechazos:
         print(f"  rechazado {nombre}: {motivo}")
     _imprimir_tipado(tipado)
+    _imprimir_recalculo(tipado.recalculo)
     return 1 if tipado.errores else 0
 
 
@@ -534,6 +606,12 @@ def _tipar(almacen):
     return ResultadoIngesta(tipar_pendientes(almacen.conn))
 
 
+def _recalcular(almacen, motivo: str):
+    from .hallazgos import recalcular
+
+    return recalcular(almacen.conn, motivo=motivo)
+
+
 def _cmd_ingestar(args: argparse.Namespace) -> int:
     """Tipa lo que ya esta extraido en el almacen. Cero llamadas a la API."""
     ruta = _ruta_db(args.db)
@@ -541,9 +619,13 @@ def _cmd_ingestar(args: argparse.Namespace) -> int:
         print(f"No existe el almacen {ruta}. Crealo con: bms-agent importar-out", file=sys.stderr)
         return 1
     with _abrir_almacen(args.db) as almacen:
-        tipado = _tipar(almacen)
+        # Tipar y recalcular, una transaccion; cada documento en su SAVEPOINT.
+        with transaccion(almacen.conn):
+            tipado = _tipar(almacen)
+            tipado.recalculo = _recalcular(almacen, "ingesta")
         _anclar(almacen)
     _imprimir_tipado(tipado)
+    _imprimir_recalculo(tipado.recalculo)
     return 1 if tipado.errores else 0
 
 
@@ -566,6 +648,7 @@ def _cmd_sembrar(args: argparse.Namespace) -> int:
     print(f"  imputaciones resueltas {r.imputaciones_resueltas}")
     for aviso in r.avisos:
         print(f"  aviso: {aviso}")
+    _imprimir_recalculo(r.recalculo)
     return 0
 
 
@@ -753,6 +836,21 @@ def main(argv: list[str] | None = None) -> int:
     p_sembrar.add_argument("--tarifas", default="config/tarifas.yaml", help="tabla de tarifas")
     p_sembrar.add_argument("--db", help=_AYUDA_DB)
     p_sembrar.set_defaults(func=_cmd_sembrar)
+
+    p_recalcular = sub.add_parser(
+        "recalcular",
+        help="evalua las reglas y pone al dia los hallazgos (no llama a la API)",
+    )
+    p_recalcular.add_argument(
+        "--simular", action="store_true",
+        help="dice lo que cambiaria (hallazgos nuevos, cerrados, reabiertos) sin escribir nada",
+    )
+    p_recalcular.add_argument(
+        "--diaria", action="store_true",
+        help="la pasada programada de cada dia (queda apuntada como diaria)",
+    )
+    p_recalcular.add_argument("--db", help=_AYUDA_DB)
+    p_recalcular.set_defaults(func=_cmd_recalcular)
 
     p_usuario = sub.add_parser("usuario", help="personas y sus roles")
     sub_usuario = p_usuario.add_subparsers(dest="accion", required=True)

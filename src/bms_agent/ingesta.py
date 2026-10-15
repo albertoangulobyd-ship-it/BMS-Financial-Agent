@@ -637,6 +637,8 @@ def reconciliar_referencias(conn: sqlite3.Connection, *, actor: int | None = Non
 @dataclass
 class ResultadoIngesta:
     tipados: list[Tipado] = field(default_factory=list)
+    # La pasada del motor de reglas con la que acaba la ingesta (hallazgos.Diferencia).
+    recalculo: Any = None
 
     def cuenta(self, accion: str) -> int:
         return sum(1 for t in self.tipados if t.accion == accion)
@@ -661,13 +663,19 @@ def ingestar_pasada(
 
     Es lo que ejecutan `extract` y el boton del servidor. La extraccion y la
     evidencia van primero, documento a documento (lo pagado no se pierde
-    aunque tipar falle); despues se tipa todo lo pendiente, sin API.
+    aunque tipar falle); despues se tipa todo lo pendiente, sin API, y se
+    recalculan las reglas, las dos cosas en una transaccion (cada documento
+    en su SAVEPOINT): o queda tipado con sus hallazgos al dia, o nada.
     """
     from .extract import extraer_pasada
+    from .hallazgos import recalcular
 
     if ruta not in SENTIDO_DE_RUTA:
         raise ValueError(f"via de entrada desconocida: {ruta!r}")
     pasada = extraer_pasada(client, pdfs, out_dir, almacen=almacen, ruta=ruta,
                             resultado=resultado_pasada, **opciones)
-    return pasada, ResultadoIngesta(tipar(almacen.conn))
+    with transaccion(almacen.conn):
+        resultado = ResultadoIngesta(tipar(almacen.conn))
+        resultado.recalculo = recalcular(almacen.conn, motivo="ingesta")
+    return pasada, resultado
 
