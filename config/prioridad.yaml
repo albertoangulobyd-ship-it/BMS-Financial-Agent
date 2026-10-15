@@ -13,7 +13,8 @@
 #
 # Importes en euros enteros, plazos en dias. Los puntos de plazo, vencimiento
 # e importe solo cuentan si la factura necesita accion (tiene una excepcion
-# abierta o no esta revisada).
+# abierta o no esta revisada) y sigue en juego (ni anulada, ni fusionada, ni
+# pagada).
 
 # Puntos a partir de los cuales una factura pasa a atencion y a urgente.
 niveles:

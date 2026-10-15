@@ -176,9 +176,8 @@ SCRIPT = r"""
 
   // Una orden: su peticion_id se fija al pintar el formulario, asi que
   // pulsar dos veces no la aplica dos veces.
-  function ordenar(nombre, datos, peticion, segundaFirma) {
+  function ordenar(nombre, datos, peticion) {
     var cuerpo = {accion: nombre, peticion_id: peticion, datos: datos};
-    if (segundaFirma) { cuerpo.segunda_firma_token = segundaFirma; }
     return api('POST', '/api/v2/acciones', cuerpo).then(function (r) {
       decir(resumen(r.diferencia), false);
       return recargar();
@@ -206,13 +205,11 @@ SCRIPT = r"""
       ev.preventDefault();
       var datos = {};
       Object.keys(datosFijos).forEach(function (k) { datos[k] = datosFijos[k]; });
-      var segunda = null;
       Object.keys(entradas).forEach(function (k) {
         var v = entradas[k].value;
-        if (k === 'segunda_firma_token') { segunda = v || null; return; }
         if (v !== '') { datos[k] = v; }
       });
-      ordenar(nombre, datos, peticion, segunda);
+      ordenar(nombre, datos, peticion);
     }}, hijos, el('button', {type: 'submit'}, textoBoton));
     if (opciones && opciones.titulo) { return el('div', {}, el('span', {clase: 'suave'}, opciones.titulo), form); }
     return form;
@@ -306,9 +303,18 @@ SCRIPT = r"""
       if (h.anulable && (h.estado === 'abierto' || h.estado === 'aceptado')) {
         acciones.push(formulario('anular_hallazgo', [
           {nombre: 'motivo', etiqueta: 'motivo (10+)'},
-          {nombre: 'vigente_hasta', etiqueta: 'hasta', tipo: 'date'},
-          {nombre: 'segunda_firma_token', etiqueta: '2.ª firma (token)', tipo: 'password'}],
+          {nombre: 'vigente_hasta', etiqueta: 'hasta', tipo: 'date'}],
           {hallazgo_id: h.id, huella: h.huella}, 'Anular'));
+        // La segunda firma la da la otra persona desde su propia sesion, para quien
+        // va a anular: nadie escribe aqui el token de otro.
+        if (h.segunda_firma) {
+          acciones.push(formulario('firmar_anulacion', [
+            {nombre: 'solicitante_id', etiqueta: 'la anula', opciones:
+              estado.personas.map(function (p) { return [String(p.id), p.nombre]; })},
+            {nombre: 'vigente_hasta', etiqueta: 'hasta', tipo: 'date'},
+            {nombre: 'motivo', etiqueta: 'motivo'}],
+            {hallazgo_id: h.id, huella: h.huella}, 'Dar la segunda firma'));
+        }
       }
       if (h.estado === 'desaparecido') {
         acciones.push(formulario('cerrar_hallazgo', [{nombre: 'motivo', etiqueta: 'motivo'}],

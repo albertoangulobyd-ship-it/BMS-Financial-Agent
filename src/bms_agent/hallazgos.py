@@ -698,10 +698,26 @@ def requiere_segunda_firma(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> b
         or (importe is not None and importe >= IMPORTE_SEGUNDA_FIRMA_CENT))
 
 
+def comprobar_anulable(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> None:
+    """Que el hallazgo se pueda anular ahora: abierto o ya aceptado, y de una regla que lo
+    admite para el sentido de su factura (EstadoNoValido o NoAnulable si no)."""
+    if hallazgo["estado"] not in (ABIERTO, ACEPTADO):
+        raise EstadoNoValido(
+            f"el hallazgo {hallazgo['id']} esta {hallazgo['estado']}: solo se anula uno abierto")
+    factura = _factura(conn, hallazgo["factura_id"])
+    sentido = factura["sentido"] if factura is not None else None
+    regla = catalogo.POR_ID.get(hallazgo["regla"])
+    if (regla is None or not hallazgo["anulable"] or not regla.anulable_para(sentido)
+            or catalogo.nunca_anulable(hallazgo["regla"], sentido)):
+        raise NoAnulable(f"la regla {hallazgo['regla']} no se puede anular: hay que "
+                         "corregir el dato o resolver el caso")
+
+
 def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
            vigente_hasta: date | str | None = None,
            segunda_firma: Persona | None = None,
-           datos: dict[str, Any] | None = None) -> int:
+           datos: dict[str, Any] | None = None,
+           datos_segunda_firma: dict[str, Any] | None = None) -> int:
     """Una persona con anular_aviso acepta la evidencia de ahora de un hallazgo. Devuelve su id.
 
     Vale mientras la huella del hallazgo sea la que se anula, sea la ultima
@@ -714,24 +730,16 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
     La segunda firma es la orden de otra persona (`segunda_firma`, con su
     propia peticion): queda como un evento suyo, hallazgo_segunda_firma,
     justo antes del de la anulacion, y la base no admite una anulacion con
-    segunda firma sin el. Que esa persona este de verdad delante (que la
-    peticion sea suya) lo tiene que asegurar quien la llama: la consola del
-    paso 4 la autentica aparte.
+    segunda firma sin el. Que esa persona la diera de verdad lo asegura
+    quien la llama: servicios.py solo la pone si esa persona firmo antes,
+    desde su sesion, la orden firmar_anulacion (`datos_segunda_firma` lleva
+    el evento de esa firma, que asi queda gastada).
     """
     motivo = (persona.motivo or "").strip()
     with orden_auditada(conn):
         exigir(conn, persona.usuario_id, Permiso.ANULAR_AVISO.value, accion="anular un hallazgo")
         hallazgo = _hallazgo(conn, hallazgo_id)
-        if hallazgo["estado"] not in (ABIERTO, ACEPTADO):
-            raise EstadoNoValido(
-                f"el hallazgo {hallazgo_id} esta {hallazgo['estado']}: solo se anula uno abierto")
-        factura = _factura(conn, hallazgo["factura_id"])
-        sentido = factura["sentido"] if factura is not None else None
-        regla = catalogo.POR_ID.get(hallazgo["regla"])
-        if (regla is None or not hallazgo["anulable"] or not regla.anulable_para(sentido)
-                or catalogo.nunca_anulable(hallazgo["regla"], sentido)):
-            raise NoAnulable(f"la regla {hallazgo['regla']} no se puede anular: hay que "
-                             "corregir el dato o resolver el caso")
+        comprobar_anulable(conn, hallazgo)
         if len(motivo) < MOTIVO_MINIMO:
             raise FaltaMotivo(f"anular un hallazgo pide un motivo de al menos {MOTIVO_MINIMO} "
                               "caracteres")
@@ -753,7 +761,8 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
             if any(p != persona.usuario_id for p in personas_con(conn, permiso)):
                 raise SeparacionDeFunciones(
                     persona.usuario_id, permiso, "esta anulacion necesita la segunda firma de "
-                    "otra persona con anular_aviso", "anular un hallazgo")
+                    "otra persona con anular_aviso: que la de antes con firmar_anulacion (para "
+                    "quien anula, con esta huella y este plazo)", "anular un hallazgo")
             autoaprobada = 1
         fila = {
             "hallazgo_id": hallazgo_id, "huella": hallazgo["huella"], "motivo": motivo,
@@ -768,8 +777,8 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
                 tabla="hallazgo", fila_id=hallazgo_id, factura_id=hallazgo["factura_id"],
                 motivo=(segunda_firma.motivo or "").strip() or motivo,
                 peticion_id=segunda_firma.peticion_id,
-                datos={"clave": hallazgo["clave"], "huella": hallazgo["huella"],
-                       "firma_con": persona.usuario_id})
+                datos={**(datos_segunda_firma or {}), "clave": hallazgo["clave"],
+                       "huella": hallazgo["huella"], "firma_con": persona.usuario_id})
             fila["segunda_firma_en"] = conn.execute(
                 "SELECT en FROM evento WHERE id = ?", (firma,)).fetchone()[0]
         evento = registrar(

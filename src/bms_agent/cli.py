@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -745,9 +746,10 @@ def _cmd_acciones(args: argparse.Namespace) -> int:
 
 def _cmd_accion(args: argparse.Namespace) -> int:
     """Una orden de una persona, firmada con su token. Cero llamadas a la API."""
+    from . import servicios
     from .campos import Conflicto, FaltaMotivo
     from .permisos import PermisoDenegado
-    from .servicios import ACCIONES, LISTA, OBJETO, ejecutar
+    from .servicios import ACCIONES, LISTA, OBJETO
 
     accion = ACCIONES[args.nombre]
     datos = {}
@@ -775,18 +777,11 @@ def _cmd_accion(args: argparse.Namespace) -> int:
                   "lo da `bms-agent usuario token NOMBRE`)", file=sys.stderr)
             _anclar(almacen)
             return 1
-        segunda = None
-        if args.segunda_firma_token:
-            segunda = _persona_de_token(conn, args.segunda_firma_token, args.nombre)
-            if segunda is None:
-                print("El token de la segunda firma no vale", file=sys.stderr)
-                _anclar(almacen)
-                return 1
         try:
-            diferencia = ejecutar(conn, args.nombre, datos, usuario_id=usuario_id,
-                                  peticion_id=args.peticion, segunda_firma_id=segunda)
+            diferencia = servicios.ejecutar(conn, args.nombre, datos, usuario_id=usuario_id,
+                                            peticion_id=args.peticion)
         except (PermisoDenegado, Conflicto, FaltaMotivo, ValueError, LookupError,
-                TypeError) as exc:
+                TypeError, sqlite3.Error) as exc:
             print(f"No se hace: {exc}", file=sys.stderr)
             _anclar(almacen)
             return 1
@@ -1114,8 +1109,6 @@ def main(argv: list[str] | None = None) -> int:
         p_una.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
         p_una.add_argument("--peticion", help="identificador de la peticion: repetirla no repite "
                                               "la orden")
-        p_una.add_argument("--segunda-firma-token", dest="segunda_firma_token",
-                           help="token de la segunda persona que firma (anular un hallazgo)")
         p_una.add_argument("--db", help=_AYUDA_DB)
     p_accion.set_defaults(func=_cmd_accion)
 

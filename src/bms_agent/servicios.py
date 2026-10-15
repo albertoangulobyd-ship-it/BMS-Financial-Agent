@@ -37,16 +37,27 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from . import campos, estados, excepciones, hallazgos, revision
+from .almacen import reloj_de
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb, json_canonico, sha256_texto
+from .auditoria import registrar
 from .campos import Conflicto, FaltaMotivo, Persona
-from .dominio import FUENTES_MANUALES, Permiso
+from .dominio import FUENTES_MANUALES, ClaseReferencia, Permiso
 from .identidad import anadir_alias
-from .permisos import PermisoDenegado, es_persona, exigir, orden_auditada
+from .permisos import (
+    PermisoDenegado,
+    SeparacionDeFunciones,
+    es_persona,
+    exigir,
+    orden_auditada,
+    tiene,
+)
+from .reglas.instantanea import moneda_extranjera
+from .reloj import marca
 
 P = Permiso
 
@@ -84,7 +95,6 @@ class Contexto:
 
     conn: sqlite3.Connection
     persona: Persona
-    segunda_firma: Persona | None
     datos_evento: dict[str, Any]
 
 
@@ -188,9 +198,13 @@ _COLUMNAS_TOTAL = ("base_cent", "iva_cent", "total_cent")
 
 
 def _cuenta(fila: tuple) -> bool:
-    """Si una factura suma en los totales: ni anulada, ni fusionada, ni en otra moneda."""
+    """Si una factura suma en los totales: ni anulada, ni fusionada, ni en otra moneda.
+
+    La moneda se mira como X1 (moneda_extranjera): una extraccion v2 guarda
+    "EUR" en moneda_doc, y eso es euros, no otra moneda.
+    """
     _sentido, _p, _c, _b, _i, _t, anulada, fusionada, moneda = fila
-    return not anulada and fusionada is None and moneda is None
+    return not anulada and fusionada is None and moneda_extranjera(moneda) is None
 
 
 def _totales(antes: dict[int, tuple], despues: dict[int, tuple]) -> list[dict[str, Any]]:
@@ -254,7 +268,13 @@ def _diferencia(nombre: str, hecho: Hecho, recalculo: hallazgos.Diferencia | Non
 
 # ------------------------------------------------------------ valores de entrada
 
-_DECIMAL = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
+# Solo cifras ASCII: \d de Python admite tambien las arabes o las devanagari.
+_DECIMAL = re.compile(r"^[+-]?[0-9]+(?:[.,][0-9]+)?$")
+_ENTERO_TEXTO = re.compile(r"^[+-]?[0-9]+$")
+# Un solo separador seguido de tres cifras, detras de lo que puede ser un grupo de
+# miles: "1.000" son mil para quien escribe en holandes y uno para quien escribe
+# en ingles. No se adivina: se pide escribirlo sin ambiguedad.
+_MILES = re.compile(r"^[+-]?[1-9][0-9]{0,2}[.,][0-9]{3}$")
 _SI = {"si", "sí", "true", "1", "verdadero"}
 _NO = {"no", "false", "0", "falso"}
 
@@ -264,7 +284,10 @@ def valor_de_entrada(definicion: campos.Campo, valor: Any) -> Any:
 
     Los importes, cantidades, tarifas y tipos llegan como texto ("2902,79" o
     "2902.79", sin separador de miles: "2.902,79" seria ambiguo) o como
-    entero; nunca como float, que ya habria perdido decimales.
+    entero; nunca como float, que ya habria perdido decimales. Un texto que
+    puede ser un grupo de miles ("1.000", "12.400") tampoco entra: el
+    extractor lo lee como mil, y leerlo aqui como uno guardaba un importe
+    mil veces menor como si fuera una correccion de una persona.
     """
     if valor is None or (isinstance(valor, str) and not valor.strip()):
         return None
@@ -278,6 +301,10 @@ def valor_de_entrada(definicion: campos.Campo, valor: Any) -> Any:
         if not _DECIMAL.match(texto):
             raise DatosNoValidos(f"{nombre}: {valor!r} no es un numero; se escribe sin "
                                  "separador de miles, como 2902,79")
+        if _MILES.match(texto):
+            raise DatosNoValidos(f"{nombre}: {valor!r} no se sabe si son miles o decimales; "
+                                 "se escribe sin separador de miles (1000) o con los decimales "
+                                 "que lleva (1,5)")
         return Decimal(texto.replace(",", "."))
     if tipo in (campos.ENTERO, campos.REF):
         if isinstance(valor, bool):
@@ -285,7 +312,7 @@ def valor_de_entrada(definicion: campos.Campo, valor: Any) -> Any:
         if isinstance(valor, int):
             return valor
         texto = str(valor).strip()
-        if not re.fullmatch(r"[+-]?\d+", texto):
+        if not _ENTERO_TEXTO.match(texto):
             raise DatosNoValidos(f"{nombre}: {valor!r} no es un entero")
         return int(texto)
     if tipo == campos.BOOL:
@@ -328,7 +355,7 @@ def _coercionar(parametro: Parametro, valor: Any) -> Any:
             raise DatosNoValidos(f"{parametro.nombre}: se espera un entero")
         if isinstance(valor, int):
             return valor
-        if isinstance(valor, str) and re.fullmatch(r"[+-]?\d+", valor.strip()):
+        if isinstance(valor, str) and _ENTERO_TEXTO.match(valor.strip()):
             return int(valor.strip())
         raise DatosNoValidos(f"{parametro.nombre}: {valor!r} no es un entero")
     if parametro.tipo == FECHA:
@@ -385,6 +412,15 @@ _CAMPOS_CON_ORDEN = {
 _MAESTROS = ("proveedor", "cliente", "contacto")
 
 
+def _definicion(tabla: str, nombre: str) -> campos.Campo:
+    """El campo del registro, o DatosNoValidos: un nombre que no existe es un dato mal
+    escrito (400), no algo que no se encontro (404)."""
+    try:
+        return campos.campo(tabla, nombre)
+    except KeyError as exc:
+        raise DatosNoValidos(str(exc.args[0]) if exc.args else str(exc)) from None
+
+
 def _factura_de_fila(conn: sqlite3.Connection, tabla: str, fila_id: int) -> int | None:
     if tabla == "factura":
         return fila_id
@@ -427,7 +463,7 @@ def _fijar_campo(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     otra = _CAMPOS_CON_ORDEN.get((tabla, nombre))
     if otra is not None:
         raise DatosNoValidos(f"{tabla}.{nombre} se cambia con {otra}")
-    definicion = campos.campo(tabla, nombre)
+    definicion = _definicion(tabla, nombre)
     valor = valor_de_entrada(definicion, d["valor"])
     resultado = campos.fijar(ctx.conn, tabla, fila_id, {nombre: valor}, ctx.persona,
                              tipo="campo_fijado", rev_esperada=d["rev"], datos=ctx.datos_evento)
@@ -445,7 +481,7 @@ def _corregir_maestro(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     otra = _CAMPOS_CON_ORDEN.get((tabla, nombre))
     if otra is not None:
         raise DatosNoValidos(f"{tabla}.{nombre} se cambia con {otra}")
-    definicion = campos.campo(tabla, nombre)
+    definicion = _definicion(tabla, nombre)
     valor = valor_de_entrada(definicion, d["valor"])
     resultado = campos.fijar(ctx.conn, tabla, fila_id, {nombre: valor}, ctx.persona,
                              tipo="maestro_corregido", rev_esperada=d["rev"],
@@ -462,6 +498,7 @@ def _verificar_campo(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     tabla, fila_id, nombre = d["tabla"], d["fila_id"], d["campo"]
     if tabla not in (*_TABLAS_DE_FACTURA, *_MAESTROS):
         raise DatosNoValidos(f"{tabla} no tiene campos que verificar aqui")
+    _definicion(tabla, nombre)
     _comprobar_rev(ctx.conn, tabla, fila_id, d["rev"])
     with campos.orden(ctx.conn, ctx.persona, tipo="campo_verificado", tabla=tabla,
                       fila_id=fila_id, datos=ctx.datos_evento) as o:
@@ -475,10 +512,10 @@ def _revertir_campo(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     if tabla not in (*_TABLAS_DE_FACTURA, *_MAESTROS):
         raise DatosNoValidos(f"{tabla} no tiene campos que deshacer aqui")
     _motivo(ctx, "deshacer un cambio")
+    definicion = _definicion(tabla, nombre)
     procedencia = campos.procedencia(ctx.conn, tabla, fila_id).get(nombre)
     if procedencia is None or procedencia["fuente"] not in FUENTES_MANUALES:
         raise DatosNoValidos(f"{tabla}.{nombre} no tiene un cambio manual que deshacer")
-    definicion = campos.campo(tabla, nombre)
     automatico = (procedencia["valor_automatico"] if procedencia["fuente_automatica"] is not None
                   else None)
     resultado = campos.fijar(ctx.conn, tabla, fila_id,
@@ -555,6 +592,32 @@ def _cambiar_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(resultado.evento_id, {referencia["factura_id"]})
 
 
+def _anadir_referencia(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Una referencia que la extraccion no trajo: la PO impresa que el modelo no vio, o
+    la que el cliente da por correo. Entra como dato de una persona (manual_entrada).
+
+    Sin `clase`, la decide la etiqueta como en la extraccion (PO-nummer es una
+    PO); con ella, es la que dice la persona.
+    """
+    conn = ctx.conn
+    factura_id = d["factura_id"]
+    _comprobar_rev(conn, "factura", factura_id, d["rev"])
+    valor = (d["valor"] or "").strip()
+    if not valor:
+        raise DatosNoValidos("una referencia necesita su valor")
+    fila: dict[str, Any] = {"factura_id": factura_id, "valor_doc": valor,
+                            "etiqueta_doc": (d["etiqueta"] or "").strip() or None}
+    if d["clase"] is not None:
+        if d["clase"] not in ClaseReferencia.valores():
+            raise DatosNoValidos(f"la clase de una referencia es una de "
+                                 f"{', '.join(ClaseReferencia.valores())}")
+        fila["clase"] = d["clase"]
+    with campos.orden(conn, ctx.persona, tipo="referencia_anadida", tabla="factura",
+                      fila_id=factura_id, factura_id=factura_id, datos=ctx.datos_evento) as o:
+        referencia = o.crear("factura_referencia", fila)
+    return Hecho(o.resultado.evento_id, {factura_id}, {"referencia_id": referencia})
+
+
 # ------------------------------------------------------------ lineas
 
 _CAMPOS_LINEA_NUEVA = ("descripcion_doc", "objeto_doc", "recurso_doc", "unidad_doc",
@@ -581,7 +644,7 @@ def _anadir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     sobran = sorted(set(d["valores"]) - set(_CAMPOS_LINEA_NUEVA))
     if sobran:
         raise DatosNoValidos(f"una linea nueva no lleva {', '.join(sobran)}")
-    valores = {n: valor_de_entrada(campos.campo("factura_linea", n), v)
+    valores = {n: valor_de_entrada(_definicion("factura_linea", n), v)
                for n, v in d["valores"].items()}
     orden_ = conn.execute("SELECT coalesce(max(orden), 0) + 1 FROM factura_linea "
                           "WHERE factura_id = ?", (factura_id,)).fetchone()[0]
@@ -593,11 +656,32 @@ def _anadir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
                  {"linea_id": linea, "imputacion_id": imputacion})
 
 
+def _partes_de(partes: list[int], total: int, que: str, cero: bool = False) -> None:
+    """Que cada parte sea un trozo del total: mismo signo, no mayor y (salvo `cero`) no cero.
+
+    Primero el signo de todas y despues el tamano: una parte negativa es el
+    error de fondo aunque otra sea ademas mayor que la linea.
+    """
+    if total == 0 and not cero:
+        raise DatosNoValidos(f"una linea con {que} cero no se reparte")
+    for i, parte in enumerate(partes):
+        if parte == 0 and not cero:
+            raise DatosNoValidos(f"la parte {i + 1} tiene {que} cero")
+        if parte and (parte > 0) != (total > 0):
+            raise DatosNoValidos(f"la parte {i + 1} tiene {que} de otro signo que la linea")
+    for i, parte in enumerate(partes):
+        if abs(parte) > abs(total):
+            raise DatosNoValidos(f"la parte {i + 1} tiene mas {que} que la linea entera")
+
+
 def _dividir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     """Repartir una linea entre varios Objetos: se retira su imputacion y se crean otras.
 
     Las partes tienen que sumar el importe de la linea (I1): una division que
-    pierde o inventa dinero no entra.
+    pierde o inventa dinero no entra. Y cada parte es un trozo de la linea:
+    distinta de cero, del mismo signo y no mayor que ella (lo mismo las
+    horas, si se dan). Sin eso, 101.593,75 a un Objeto y -100.000 a otro
+    suman la linea y mueven cien mil euros de coste de una obra a otra.
     """
     conn = ctx.conn
     _motivo(ctx, "dividir una linea")
@@ -612,7 +696,7 @@ def _dividir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     partes = d["partes"]
     if len(partes) < 2:
         raise DatosNoValidos("dividir es repartir en dos partes o mas")
-    definicion = {n: campos.campo("factura_imputacion", n)
+    definicion = {n: _definicion("factura_imputacion", n)
                   for n in ("objeto_id", "importe_cent", "horas_mil")}
     nuevas = []
     for i, parte in enumerate(partes):
@@ -625,8 +709,17 @@ def _dividir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
             valores["horas_mil"] = valor_de_entrada(definicion["horas_mil"], parte["horas"])
         if valores["importe_cent"] is None:
             raise DatosNoValidos(f"la parte {i + 1} no dice su importe")
+        if valores["objeto_id"] is not None and conn.execute(
+                "SELECT 1 FROM objeto WHERE id = ?", (valores["objeto_id"],)).fetchone() is None:
+            raise LookupError(f"no hay Objeto {valores['objeto_id']} (parte {i + 1})")
         nuevas.append(valores)
-    suma = sum(campos.a_columna(definicion["importe_cent"], v["importe_cent"]) for v in nuevas)
+    importes = [campos.a_columna(definicion["importe_cent"], v["importe_cent"]) for v in nuevas]
+    _partes_de(importes, linea["importe_cent"], "importe")
+    horas = [campos.a_columna(definicion["horas_mil"], v["horas_mil"]) for v in nuevas
+             if v.get("horas_mil") is not None]
+    if horas and linea["cantidad_mil"] is not None:
+        _partes_de(horas, linea["cantidad_mil"], "horas", cero=True)
+    suma = sum(importes)
     if suma != linea["importe_cent"]:
         raise DatosNoValidos(f"las partes suman {de_cent(suma)} y la linea es de "
                              f"{de_cent(linea['importe_cent'])}")
@@ -735,11 +828,12 @@ def _resolver_excepcion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 
 
 def _comprobar_huella_hallazgo(conn: sqlite3.Connection, hallazgo_id: int,
-                               huella: str | None) -> sqlite3.Row:
+                               huella: str) -> sqlite3.Row:
+    """El hallazgo, si su evidencia es la que la persona vio (la huella es obligatoria)."""
     fila = conn.execute("SELECT * FROM hallazgo WHERE id = ?", (hallazgo_id,)).fetchone()
     if fila is None:
         raise LookupError(f"no hay hallazgo {hallazgo_id}")
-    if huella is not None and fila["huella"] != huella:
+    if fila["huella"] != huella:
         raise Conflicto(f"la evidencia del hallazgo {hallazgo_id} cambio desde que se cargo: "
                         "vuelve a mirarla antes de decidir")
     return fila
@@ -755,13 +849,78 @@ def _cerrar_hallazgo(ctx: Contexto, d: dict[str, Any]) -> Hecho:
         "clave": fila["clave"], "tipo": "resuelto", "causa_evento_id": evento}])
 
 
+# Lo que vale la firma de la segunda persona antes de que quien anula la use.
+FIRMA_VALIDA_HORAS = 24
+
+
+def _firmar_anulacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """La segunda firma de una anulacion: una orden de quien firma, desde su propia sesion.
+
+    Antes la segunda firma llegaba con el token personal de la otra persona
+    dentro de la orden de la primera: quien pedia la anulacion se quedaba
+    con un token que vale para todo y no caduca, y podia actuar como la otra
+    persona en cualquier orden. Ahora nadie entrega su token: la segunda
+    persona firma aqui para una persona (`solicitante_id`), un hallazgo con
+    la evidencia que ve (`huella`) y un plazo (`vigente_hasta`). La firma es
+    un evento suyo; caduca en FIRMA_VALIDA_HORAS y se gasta al usarla.
+    """
+    conn = ctx.conn
+    fila = _comprobar_huella_hallazgo(conn, d["hallazgo_id"], d["huella"])
+    firmante, solicitante = ctx.persona.usuario_id, d["solicitante_id"]
+    if solicitante == firmante:
+        raise SeparacionDeFunciones(firmante, P.ANULAR_AVISO.value,
+                                    "la segunda firma es de otra persona: nadie firma su propia "
+                                    "anulacion", "firmar una anulacion")
+    if not es_persona(conn, solicitante):
+        raise LookupError(f"no hay ninguna persona activa con el id {solicitante}")
+    hallazgos.comprobar_anulable(conn, fila)
+    hasta = d["vigente_hasta"]
+    if hasta is not None and hasta < reloj_de(conn).hoy().isoformat():
+        raise DatosNoValidos(f"una anulacion hasta el {hasta} ya habria vencido")
+    caduca = marca(reloj_de(conn).ahora() + timedelta(hours=FIRMA_VALIDA_HORAS))
+    evento = registrar(conn, tipo="anulacion_firmada", actor=firmante, usuario_id=firmante,
+                       tabla="hallazgo", fila_id=fila["id"], factura_id=fila["factura_id"],
+                       motivo=_motivo(ctx, "firmar una anulacion"),
+                       peticion_id=ctx.persona.peticion_id,
+                       datos={**ctx.datos_evento, "clave": fila["clave"], "huella": fila["huella"],
+                              "solicitante_id": solicitante, "vigente_hasta": hasta,
+                              "caduca_en": caduca})
+    return Hecho(evento, {fila["factura_id"]} - {None},
+                 {"firma_evento_id": evento, "caduca_en": caduca})
+
+
+def _firma_para(conn: sqlite3.Connection, hallazgo: sqlite3.Row, solicitante: int,
+                vigente_hasta: str | None) -> sqlite3.Row | None:
+    """La firma sin gastar ni caducar que otra persona dio para esta anulacion, o None."""
+    return conn.execute(
+        "SELECT e.id, e.usuario_id, e.motivo FROM evento AS e "
+        "WHERE e.tipo = 'anulacion_firmada' AND e.resultado = 'ok' AND e.tabla = 'hallazgo' "
+        "AND e.fila_id = ? AND json_extract(e.datos_json, '$.huella') = ? "
+        "AND json_extract(e.datos_json, '$.solicitante_id') = ? "
+        "AND json_extract(e.datos_json, '$.vigente_hasta') IS ? "
+        "AND json_extract(e.datos_json, '$.caduca_en') > ? "
+        "AND NOT EXISTS (SELECT 1 FROM evento AS s WHERE s.tipo = 'hallazgo_segunda_firma' "
+        "AND json_extract(s.datos_json, '$.firma_evento_id') = e.id) "
+        "ORDER BY e.id DESC LIMIT 1",
+        (hallazgo["id"], hallazgo["huella"], solicitante, vigente_hasta,
+         marca(reloj_de(conn).ahora()))).fetchone()
+
+
 def _anular_hallazgo(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     """Aceptar la evidencia de un hallazgo que se puede anular, con motivo y, si hace falta,
-    la segunda firma de otra persona (que se identifica con su propio token)."""
+    la segunda firma que otra persona dio antes con firmar_anulacion."""
     fila = _comprobar_huella_hallazgo(ctx.conn, d["hallazgo_id"], d["huella"])
+    firma = _firma_para(ctx.conn, fila, ctx.persona.usuario_id, d["vigente_hasta"])
+    segunda = None
+    if firma is not None:
+        peticion = ctx.persona.peticion_id
+        segunda = Persona(firma["usuario_id"], motivo=firma["motivo"],
+                          peticion_id=f"{peticion}:segunda_firma" if peticion else None)
     anulacion = hallazgos.anular(ctx.conn, d["hallazgo_id"], ctx.persona,
-                                 vigente_hasta=d["vigente_hasta"],
-                                 segunda_firma=ctx.segunda_firma, datos=ctx.datos_evento)
+                                 vigente_hasta=d["vigente_hasta"], segunda_firma=segunda,
+                                 datos=ctx.datos_evento,
+                                 datos_segunda_firma={"firma_evento_id": firma["id"]}
+                                 if firma is not None else None)
     evento = ctx.conn.execute("SELECT evento_id, autoaprobada FROM anulacion WHERE id = ?",
                               (anulacion,)).fetchone()
     return Hecho(evento[0], {fila["factura_id"]} - {None},
@@ -821,6 +980,11 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Decir si una referencia impresa es un numero de PO (u otra clase).",
            (_p("referencia_id"), _p("clase", TEXTO), _p("rev"), _MOTIVO), _cambiar_po,
            motivo="segun_campo", rev=True),
+    Accion("anadir_referencia", P.CAMBIAR_PO.value,
+           "Anadir una referencia (PO, orden, proyecto, del cliente) que la extraccion no trajo.",
+           (_p("factura_id"), _p("valor", TEXTO), _p("etiqueta", TEXTO, False),
+            _p("clase", TEXTO, False), _p("rev"), _MOTIVO), _anadir_referencia,
+           motivo="obligatorio", rev=True),
     Accion("excluir_linea", P.EDITAR_EXTRACCION.value,
            "Excluir una linea (se retira, no se borra; su imputacion con ella).",
            (_p("linea_id"), _p("rev"), _MOTIVO), _excluir_linea, motivo="obligatorio", rev=True),
@@ -868,13 +1032,19 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            (_p("excepcion_id"), _p("resolucion", TEXTO), _p("rev"), _MOTIVO),
            _resolver_excepcion, motivo="obligatorio", rev=True),
     Accion("cerrar_hallazgo", P.RESOLVER_AVISO.value,
-           "Cerrar un hallazgo cuya condicion ha desaparecido.",
-           (_p("hallazgo_id"), _p("huella", TEXTO, False), _MOTIVO), _cerrar_hallazgo,
+           "Cerrar un hallazgo cuya condicion ha desaparecido (con la evidencia que se vio).",
+           (_p("hallazgo_id"), _p("huella", TEXTO), _MOTIVO), _cerrar_hallazgo,
            motivo="obligatorio"),
     Accion("anular_hallazgo", P.ANULAR_AVISO.value,
            "Anular un hallazgo de una regla que lo admite (motivo de 10 caracteres o mas).",
            (_p("hallazgo_id"), _p("huella", TEXTO), _p("vigente_hasta", FECHA, False), _MOTIVO),
            _anular_hallazgo, motivo="obligatorio"),
+    Accion("firmar_anulacion", P.ANULAR_AVISO.value,
+           "Dar la segunda firma a la anulacion que va a pedir otra persona (caduca en "
+           f"{FIRMA_VALIDA_HORAS} horas y vale una vez).",
+           (_p("hallazgo_id"), _p("huella", TEXTO), _p("solicitante_id"),
+            _p("vigente_hasta", FECHA, False), _MOTIVO), _firmar_anulacion,
+           motivo="obligatorio"),
     Accion("subir_prioridad", P.RESOLVER_AVISO.value,
            "Subir la prioridad de algo (solo se sube; nunca a bloqueada).",
            (_p("entidad", TEXTO, False), _p("entidad_id"), _p("nivel", TEXTO),
@@ -918,9 +1088,13 @@ def _exigir_persona(conn: sqlite3.Connection, usuario_id: int | None, accion: st
 
 
 def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | None = None, *,
-             usuario_id: int | None, peticion_id: str | None = None,
-             segunda_firma_id: int | None = None) -> Diferencia:
-    """Ejecuta una orden de una persona, entera o nada (ver el docstring del modulo)."""
+             usuario_id: int | None, peticion_id: str | None = None) -> Diferencia:
+    """Ejecuta una orden de una persona, entera o nada (ver el docstring del modulo).
+
+    Solo hay una persona por orden. La segunda firma de una anulacion es otra
+    orden, de la otra persona (firmar_anulacion), y no un id o un token que
+    pase quien llama.
+    """
     accion = ACCIONES.get(nombre)
     if accion is None:
         raise AccionDesconocida(f"no hay ninguna orden {nombre!r}")
@@ -938,14 +1112,7 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
         if previo is not None:
             return Diferencia(accion=nombre, evento_id=previo, repetida=True)
     persona = Persona(usuario_id, motivo=motivo, peticion_id=peticion_id)
-    segunda = None
-    if segunda_firma_id is not None and nombre != "anular_hallazgo":
-        raise DatosNoValidos("la segunda firma es solo para anular un hallazgo")
-    if segunda_firma_id is not None:
-        segunda = Persona(segunda_firma_id, motivo=motivo,
-                          peticion_id=f"{peticion_id}:segunda_firma" if peticion_id else None)
-    contexto = Contexto(conn, persona, segunda,
-                        {"peticion": {"accion": nombre, "sha256": huella}})
+    contexto = Contexto(conn, persona, {"peticion": {"accion": nombre, "sha256": huella}})
 
     with orden_auditada(conn):
         _exigir_persona(conn, usuario_id, nombre)
@@ -962,7 +1129,8 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
                                              causa_evento_id=hecho.evento_id)
             cerrar = hecho.detalle.pop("cerrar_b2", None)
             if cerrar:
-                hecho.hallazgos.extend(_cerrar_b2(conn, persona, cerrar, contexto))
+                hecho.hallazgos.extend(_cerrar_b2(conn, persona, cerrar, recalculo,
+                                                  hecho.evento_id))
                 if hecho.hallazgos:
                     recalculo = _juntar(recalculo, hallazgos.recalcular(
                         conn, motivo="edicion", usuario_id=usuario_id,
@@ -971,26 +1139,33 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
     return _diferencia(nombre, hecho, recalculo, antes, despues)
 
 
-def _cerrar_b2(conn: sqlite3.Connection, persona: Persona, facturas: list[int],
-               contexto: Contexto) -> list[dict[str, Any]]:
-    """Los B2 que una fusion dejo desaparecidos, cerrados por quien fusiono (si puede)."""
-    from .permisos import tiene
+def _cerrar_b2(conn: sqlite3.Connection, persona: Persona, pareja: list[int],
+               recalculo: hallazgos.Diferencia, evento_id: int | None) -> list[dict[str, Any]]:
+    """Los B2 que esta fusion hizo desaparecer, cerrados por quien fusiono (si puede).
 
+    Solo los que desaparecieron en la pasada de esta orden, con ella como
+    causa, y cuyas facturas son la fusionada y su destino. Un B2 que ya
+    estaba desaparecido (otro duplicado de una de las dos, que alguien
+    corrigio) espera a que una persona mire su evidencia y lo cierre: si no,
+    la fusion lo cerraba con su motivo sin que nadie lo hubiera visto.
+    """
     if not tiene(conn, persona.usuario_id, Permiso.RESOLVER_AVISO.value):
         return []
     cerrados = []
-    marcas = ", ".join("?" * len(facturas))
-    for fila in conn.execute(
-            f"SELECT DISTINCT h.* FROM hallazgo AS h LEFT JOIN hallazgo_objetivo AS o "
-            f"ON o.hallazgo_id = h.id AND o.tabla = 'factura' WHERE h.regla = 'B2' "
-            f"AND h.estado = 'desaparecido' AND (h.factura_id IN ({marcas}) "
-            f"OR o.fila_id IN ({marcas}))", (*facturas, *facturas)).fetchall():
+    for t in recalculo.transiciones:
+        if t.regla != "B2" or t.tipo != "desaparecido" or t.causa_evento_id != evento_id:
+            continue
+        cubiertas = {t.factura_id} | {f[0] for f in conn.execute(
+            "SELECT fila_id FROM hallazgo_objetivo WHERE hallazgo_id = ? AND tabla = 'factura'",
+            (t.hallazgo_id,))}
+        if not cubiertas - {None} <= set(pareja):
+            continue
         motivo = (persona.motivo or "").strip() or "fusionada en su factura"
-        hallazgos.resolver(conn, fila["id"], Persona(persona.usuario_id, motivo),
+        hallazgos.resolver(conn, t.hallazgo_id, Persona(persona.usuario_id, motivo),
                            datos={"por_fusion": True})
         evento = conn.execute("SELECT max(id) FROM evento").fetchone()[0]
-        cerrados.append({"hallazgo_id": fila["id"], "regla": "B2",
-                         "factura_id": fila["factura_id"], "clave": fila["clave"],
+        cerrados.append({"hallazgo_id": t.hallazgo_id, "regla": "B2",
+                         "factura_id": t.factura_id, "clave": t.clave,
                          "tipo": "resuelto", "causa_evento_id": evento})
     return cerrados
 

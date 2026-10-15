@@ -358,3 +358,47 @@ def test_rev_vieja_es_un_conflicto(pares) -> None:
     excepciones.asignar(conn, Persona(ana), e["id"], responsable_id=ana, rev=0)
     with pytest.raises(Conflicto):
         excepciones.asignar(conn, Persona(ana), e["id"], responsable_id=ana, rev=0)
+
+
+def test_no_se_resuelve_con_un_bloqueo_desaparecido_sin_cerrar(almacen, tmp_path) -> None:
+    """Un pegajoso cuya condicion desaparecio sigue abierto hasta que una persona lo cierra
+    (§7): la excepcion que lo agrupa no se resuelve antes."""
+    from bms_agent import permisos, servicios
+    from bms_agent.ingesta import reconciliar_referencias
+
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a"), _registro("b", invoice_date="2026-09-16"))
+    ana = persona(conn, "Ana", "administrador")
+    campos.crear(conn, "proveedor", {"nombre": "Bouwtechniek Van Dijk BV",
+                                     "btw_id": "NL001234567B01"}, Persona(ana))
+    reconciliar_referencias(conn)
+    hallazgos.recalcular(conn)
+    a, b = sorted(f[0] for f in conn.execute("SELECT id FROM factura"))
+    # Quien fusiona no puede cerrar hallazgos: el B2 queda desaparecido.
+    permisos.crear_rol(conn, "fusionar", ["ver_facturas", "anular_acreditar"])
+    pedro = persona(conn, "Pedro")
+    permisos.asignar_rol(conn, pedro, "fusionar")
+    rev = conn.execute("SELECT rev FROM factura WHERE id = ?", (b,)).fetchone()[0]
+    servicios.ejecutar(conn, "fusionar_factura", {
+        "factura_id": b, "destino_id": a, "rev": rev, "motivo": "Es el mismo PDF reenviado"},
+        usuario_id=pedro)
+    b2 = _hallazgo(conn, "B2")
+    assert b2["estado"] == "desaparecido"
+    e = excepciones.abierta_de(conn, "factura", a)
+    assert "B2" in _unidos(conn, e["id"])
+    with pytest.raises(BloqueoAbierto, match="B2"):
+        excepciones.resolver(conn, Persona(ana), e["id"], resolucion="corregido",
+                             notas="Fusionado el reenvio")
+    # La base tampoco.
+    with pytest.raises(sqlite3.IntegrityError, match="desaparecido"):
+        with transaccion(conn):
+            excepciones._cambiar(conn, Persona(ana), e, {
+                "estado": "resuelta", "resolucion": "corregido", "resolucion_notas": "a mano",
+                "resuelta_en": "2026-10-14T09:30:00+00:00", "resuelta_por": ana,
+                "hallazgo_evento_hasta": 0}, tipo="excepcion_resuelta", motivo="a mano")
+    # Cerrado el B2 por una persona, si.
+    hallazgos.resolver(conn, b2["id"], Persona(ana, "Visto: era el mismo PDF"))
+    excepciones.resolver(conn, Persona(ana), e["id"], resolucion="corregido",
+                         notas="Fusionado el reenvio")
+    assert conn.execute("SELECT estado FROM excepcion WHERE id = ?",
+                        (e["id"],)).fetchone()[0] == "resuelta"

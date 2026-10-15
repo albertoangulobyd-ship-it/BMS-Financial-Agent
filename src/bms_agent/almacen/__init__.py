@@ -136,6 +136,33 @@ def usuario_sistema(conn: sqlite3.Connection, nombre: str) -> int:
     return int(fila[0])
 
 
+class EntidadNoDisponible(ValueError):
+    """La entidad es de una tabla que llega en un paso posterior: todavia no se le apunta nada."""
+
+
+def comprobar_entidad(conn: sqlite3.Connection, entidad: str, fila_id: int) -> None:
+    """Que exista aquello a lo que apunta una orden (una excepcion, una subida de prioridad).
+
+    Sin esto, una subida o una excepcion a mano sobre un id que no existe
+    quedaba en la auditoria apuntando a nada. Un trimestre no tiene tabla:
+    es ano * 10 + trimestre (20263 es el T3 de 2026). Una tabla que todavia
+    no existe (orden_compra, movimiento) no admite nada hasta que llegue.
+    """
+    if entidad == "trimestre":
+        ano, trimestre = divmod(int(fila_id), 10)
+        if not (1 <= trimestre <= 4 and 1900 <= ano <= 9999):
+            raise LookupError(f"{fila_id} no es un trimestre: se escribe ano * 10 + trimestre "
+                              "(20263 es el T3 de 2026)")
+        return
+    existe = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                          (entidad,)).fetchone()
+    if existe is None:
+        raise EntidadNoDisponible(f"{entidad} todavia no esta en el almacen (llega en un paso "
+                                  "posterior): no se le apunta nada")
+    if conn.execute(f"SELECT 1 FROM {entidad} WHERE id = ?", (fila_id,)).fetchone() is None:
+        raise LookupError(f"no hay {entidad} {fila_id}")
+
+
 @dataclass
 class Almacen:
     """La base y la carpeta de documentos, que siempre van juntas.

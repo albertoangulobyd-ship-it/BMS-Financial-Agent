@@ -34,7 +34,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from . import politica, prioridad, revision
-from .almacen import reloj_de
+from .almacen import comprobar_entidad, reloj_de
 from .auditoria import registrar
 from .campos import FaltaMotivo, Persona
 from .dominio import (
@@ -248,12 +248,14 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     `sin_datos` son las reglas sin datos de cada factura; la pasada ya las
     tiene contadas y se ahorra volver a leer la cache de evaluaciones.
     """
-    pesos = pesos or politica.pesos_prioridad(conn)
-    politica_sha = pesos.sha256()
     cambios = Cambios()
     facturas = _facturas(conn)
     if not facturas:
         return cambios
+    # Los pesos con que se calcula quedan siempre en politica_version: si no se
+    # cargo ningun fichero, se apuntan los del codigo la primera vez que se usan.
+    pesos = pesos or politica.apuntar_pesos_en_uso(conn)
+    politica_sha = pesos.sha256()
     hallazgos_de, por_id, calidades = _hallazgos(conn)
     ultimas = revision.ultimas(conn)
     # La huella del contenido solo hace falta donde hay una revision que
@@ -385,8 +387,15 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             factura.importe_cent if factura else None,
             [excepcion_id, [h.texto for h in hallazgos], resultado.nivel, resultado.puntos])
 
+    # Lo que no esta en juego (anulada, fusionada en otra) no cuenta en su
+    # proveedor, cliente, Objeto ni trimestre: no se paga ni se declara. Su
+    # trabajo pendiente, si lo tiene, sigue en su excepcion. Paso 7: una pagada
+    # tampoco cuenta.
+    en_juego = {f.id for f in facturas if not (f.anulada or f.fusionada)}
     hijas: dict[tuple[str, int], list[Hija]] = defaultdict(list)
     for f in facturas:
+        if f.id not in en_juego:
+            continue
         hija = _hija(f, resultados[f.id])
         if f.sentido == ENTRANTE and f.proveedor_id is not None:
             hijas[("proveedor", f.proveedor_id)].append(hija)
@@ -399,7 +408,7 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             conn, "SELECT DISTINCT factura_id, objeto_id FROM factura_imputacion "
                   "WHERE objeto_id IS NOT NULL AND retirada_en IS NULL ORDER BY 1, 2"):
         f = por_id_factura.get(factura_id)
-        if f is not None:
+        if f is not None and f.id in en_juego:
             hijas[("objeto", objeto_id)].append(_hija(f, resultados[f.id]))
     for entidad, lista in sorted(hijas.items()):
         agregada = prioridad.agregar(lista, hoy, subidas.get(entidad, ()))
@@ -488,6 +497,9 @@ def subir_prioridad(conn: sqlite3.Connection, persona: Persona, *, entidad: str,
         if entidad not in _ENTIDADES_A_MANO:
             raise ValueError(f"se sube la prioridad de {', '.join(_ENTIDADES_A_MANO)}, "
                              f"no de {entidad}")
+        # Sin esto, una subida de algo que no existe pasaba: no tiene nivel, asi que
+        # tampoco hay nada por encima que la frene.
+        comprobar_entidad(conn, entidad, entidad_id)
         texto = str(getattr(nivel, "value", nivel))
         if texto not in prioridad.NIVELES_A_MANO:
             raise NoSube("a mano se sube a atencion o a urgente; bloqueada la pone una regla")

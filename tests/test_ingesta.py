@@ -302,7 +302,20 @@ def test_una_tarifa_cambiada_en_el_fichero_se_actualiza(tipado, tmp_path) -> Non
                         encoding="utf-8")
     r = sembrar_tarifas(conn, cambiado)
     assert (r.nueva_politica, r.tarifas_cambiadas, r.tarifas_nuevas) == (True, 1, 0)
-    assert conn.execute("SELECT count(*) FROM politica_version").fetchone()[0] == 2
+    # (La pasada con que termina la semilla apunta tambien los pesos de la prioridad.)
+    def versiones() -> int:
+        return conn.execute("SELECT count(*) FROM politica_version WHERE fichero = "
+                            "'tarifas.yaml'").fetchone()[0]
+
+    assert versiones() == 2
+    # Volver el mismo dia al fichero anterior lo pone en vigor otra vez: las tarifas y
+    # politica_version dicen lo mismo.
+    r = sembrar_tarifas(conn, TARIFAS_V1)
+    assert (r.nueva_politica, r.tarifas_cambiadas) == (True, 1)
+    assert versiones() == 3
+    from bms_agent import politica
+
+    assert politica.vigente(conn, "tarifas.yaml")["sha256"] == r.sha256
 
 
 def test_extract_tipa_lo_que_extrae(tmp_path, monkeypatch, capsys) -> None:

@@ -5,11 +5,18 @@ prioridad) queda en politica_version con su texto entero y su sha256, y con
 su evento de auditoria: meses despues se puede saber con que pesos se
 ordeno una lista o con que tabla se imputo una linea.
 
+La version que vale de cada fichero es la ultima que se cargo, por orden de
+carga y no por fecha: volver a una anterior el mismo dia la pone en vigor
+(migracion 0004).
+
 Los pesos de la prioridad que valen son los del ultimo prioridad.yaml
 cargado. Hasta que se carga uno, valen los de prioridad.Pesos, que son los
-mismos que trae config/prioridad.yaml (un test lo comprueba). Un fichero que
-no tiene la forma entera se rechaza antes de apuntarse: los suelos de la
-prioridad no estan en el fichero, asi que ningun fichero los puede relajar.
+mismos que trae config/prioridad.yaml (un test lo comprueba), y la primera
+pasada que los usa los apunta (`apuntar_pesos_en_uso`): ninguna prioridad
+guardada lleva el hash de unos pesos que politica_version no explique. Un
+fichero que no tiene la forma entera se rechaza antes de apuntarse: los
+suelos de la prioridad no estan en el fichero, asi que ningun fichero los
+puede relajar.
 """
 
 from __future__ import annotations
@@ -21,7 +28,7 @@ from .almacen import reloj_de, transaccion, usuario_sistema
 from .almacen.evidencia import foto
 from .almacen.unidades import sha256_texto
 from .auditoria import registrar as registrar_evento
-from .prioridad import PESOS, Pesos, pesos_de_yaml
+from .prioridad import PESOS, Pesos, pesos_a_yaml, pesos_de_yaml
 from .reloj import marca
 
 FICHERO_PRIORIDAD = "prioridad.yaml"
@@ -29,19 +36,19 @@ FICHERO_PRIORIDAD = "prioridad.yaml"
 
 def registrar(conn: sqlite3.Connection, fichero: str, texto: str,
               usuario_id: int | None = None) -> bool:
-    """Apunta un fichero en politica_version si ese contenido no estaba ya. Devuelve si es nuevo.
+    """Apunta un fichero en politica_version si no es ya la version vigente. Devuelve si
+    se apunto.
 
-    Volver a una version anterior es otra fila (otra fecha): la que vale es
-    la ultima que se cargo.
+    Volver a una version anterior es otra fila, tambien el mismo dia: la que
+    vale es la ultima que se cargo. Antes se miraba si ese contenido ya
+    estaba apuntado ese dia, y volver de B a A no hacia nada aunque la CLI
+    dijera que A era la vigente.
     """
     sha256 = sha256_texto(texto)
     reloj = reloj_de(conn)
     hoy = reloj.hoy().isoformat()
     ultima = vigente(conn, fichero)
     if ultima is not None and ultima["sha256"] == sha256:
-        return False
-    if conn.execute("SELECT 1 FROM politica_version WHERE fichero = ? AND sha256 = ? "
-                    "AND vigente_desde = ?", (fichero, sha256, hoy)).fetchone():
         return False
     sistema = usuario_sistema(conn, "sistema")
     with transaccion(conn):
@@ -68,6 +75,20 @@ def pesos_prioridad(conn: sqlite3.Connection) -> Pesos:
     """Los pesos de la prioridad que valen ahora: los del ultimo prioridad.yaml cargado."""
     fila = vigente(conn, FICHERO_PRIORIDAD)
     return PESOS if fila is None else pesos_de_yaml(fila["contenido"])
+
+
+def apuntar_pesos_en_uso(conn: sqlite3.Connection) -> Pesos:
+    """Los pesos que valen, apuntados en politica_version si todavia no habia ninguno.
+
+    Sin fichero cargado valen los de prioridad.Pesos; la primera pasada que
+    calcula prioridades los apunta con su texto (`prioridad.pesos_a_yaml`),
+    para que el hash que llevan las caches tenga siempre su version.
+    """
+    fila = vigente(conn, FICHERO_PRIORIDAD)
+    if fila is not None:
+        return pesos_de_yaml(fila["contenido"])
+    registrar(conn, FICHERO_PRIORIDAD, pesos_a_yaml(PESOS))
+    return PESOS
 
 
 def cargar_prioridad(conn: sqlite3.Connection, ruta: str | Path,

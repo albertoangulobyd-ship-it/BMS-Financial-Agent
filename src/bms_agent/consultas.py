@@ -26,10 +26,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from . import campos, excepciones, prioridad, revision
+from . import campos, excepciones, hallazgos, prioridad, revision
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb
 from .dominio import ESTADOS_PENDIENTES, FUENTES_MANUALES, Calidad
-from .reglas import catalogo
 
 _ORDEN_CALIDAD = (Calidad.FALTANTE.value, Calidad.DISCREPANCIA.value, Calidad.ANOMALIA.value,
                   Calidad.DUDOSO.value, Calidad.VERIFICADO.value)
@@ -290,13 +289,14 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
                                          "ORDER BY id", (factura_id,))]
     lista_hallazgos = []
     for h in hallazgos_:
-        regla = catalogo.POR_ID.get(h["regla"])
         lista_hallazgos.append({
             "id": h["id"], "clave": h["clave"], "regla": h["regla"], "titulo": h["titulo"],
             "detalle": h["detalle"], "severidad": h["severidad"], "estado": h["estado"],
             "huella": h["huella"], "anulable": bool(h["anulable"]),
             "pegajosa": bool(h["pegajosa"]), "calidad": h["calidad"],
-            "segunda_firma": bool(regla and regla.segunda_firma),
+            # Si anularlo pide la firma de otra persona (la regla, un bloqueo o el
+            # importe): la consola le ofrece entonces firmar_anulacion.
+            "segunda_firma": hallazgos.requiere_segunda_firma(conn, h),
             "primera_vez_en": h["primera_vez_en"], "objetivos": objetivos.get(h["id"], []),
         })
     excepcion = excepciones.abierta_de(conn, "factura", factura_id)

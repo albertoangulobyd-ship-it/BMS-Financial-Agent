@@ -16,6 +16,44 @@
 --   factura_estado, prioridad: CACHE. Se rehacen en cada pasada del motor y
 --     nunca son la fuente de nada; no llevan disparadores.
 
+-- ---------------------------------------------------------- politica_version
+
+-- La version vigente de un fichero de config/ es la ultima que se cargo
+-- (por id), no la de una fecha. La 0001 tenia UNIQUE (fichero, sha256,
+-- vigente_desde): volver el mismo dia a una version anterior (A, B y otra
+-- vez A) no podia apuntarse, y la que seguia valiendo era B. Se rehace la
+-- tabla sin esa restriccion, con los mismos datos, y se pide solo que una
+-- version nueva no repita la que ya esta vigente. La 0001 no se edita.
+CREATE TABLE politica_version_nueva (
+    id            INTEGER PRIMARY KEY,
+    sha256        TEXT NOT NULL CHECK (length(sha256) = 64),
+    fichero       TEXT NOT NULL,
+    contenido     TEXT NOT NULL,
+    vigente_desde TEXT NOT NULL CHECK (date(vigente_desde) IS vigente_desde),
+    cargada_en    TEXT NOT NULL CHECK (datetime(cargada_en) IS NOT NULL),
+    cargada_por   INTEGER NOT NULL REFERENCES usuario(id)
+) STRICT;
+
+INSERT INTO politica_version_nueva (id, sha256, fichero, contenido, vigente_desde, cargada_en,
+                                    cargada_por)
+SELECT id, sha256, fichero, contenido, vigente_desde, cargada_en, cargada_por
+FROM politica_version ORDER BY id;
+
+DROP TABLE politica_version;
+ALTER TABLE politica_version_nueva RENAME TO politica_version;
+
+CREATE INDEX politica_version_fichero ON politica_version (fichero, id);
+
+CREATE TRIGGER politica_version_sin_update BEFORE UPDATE ON politica_version
+BEGIN SELECT RAISE(ABORT, 'politica_version es de solo escritura: no se modifica'); END;
+CREATE TRIGGER politica_version_sin_delete BEFORE DELETE ON politica_version
+BEGIN SELECT RAISE(ABORT, 'politica_version es de solo escritura: no se borra'); END;
+
+CREATE TRIGGER politica_version_cambia BEFORE INSERT ON politica_version
+WHEN NEW.sha256 IS (SELECT sha256 FROM politica_version WHERE fichero = NEW.fichero
+                    ORDER BY id DESC LIMIT 1)
+BEGIN SELECT RAISE(ABORT, 'esa version ya es la vigente de ese fichero: no se apunta otra vez'); END;
+
 -- ---------------------------------------------------------------- excepcion
 
 -- El trabajo pendiente de una entidad (una factura, un proveedor...): una
@@ -103,13 +141,15 @@ WHEN (NEW.estado IS NOT OLD.estado OR NEW.responsable_id IS NOT OLD.responsable_
 BEGIN SELECT RAISE(ABORT, 'el estado de una excepcion lo pone una persona con resolver_aviso, en su propia orden'); END;
 
 -- No se resuelve mientras un hallazgo suyo que bloquea siga abierto (sin
--- anular), y la resuelve quien firma la orden.
+-- anular) o desaparecido (sin que una persona lo cierre: §7 lo trata como
+-- abierto), y la resuelve quien firma la orden.
 CREATE TRIGGER excepcion_resolver BEFORE UPDATE ON excepcion
 WHEN NEW.estado = 'resuelta' AND (
        EXISTS (SELECT 1 FROM excepcion_hallazgo AS eh JOIN hallazgo AS h ON h.id = eh.hallazgo_id
-               WHERE eh.excepcion_id = NEW.id AND h.severidad = 'bloqueo' AND h.estado = 'abierto')
+               WHERE eh.excepcion_id = NEW.id AND h.severidad = 'bloqueo'
+                 AND h.estado IN ('abierto', 'desaparecido'))
     OR NEW.resuelta_por IS NOT (SELECT usuario_id FROM evento WHERE id = (SELECT max(id) FROM evento)))
-BEGIN SELECT RAISE(ABORT, 'una excepcion con un hallazgo que bloquea abierto y sin anular no se resuelve'); END;
+BEGIN SELECT RAISE(ABORT, 'una excepcion con un hallazgo que bloquea abierto sin anular, o desaparecido sin cerrar, no se resuelve'); END;
 
 -- ------------------------------------------------------- excepcion_hallazgo
 

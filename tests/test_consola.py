@@ -226,8 +226,24 @@ def test_leer_pide_un_token_personal_con_ver_facturas(servidor) -> None:
     with preparar(db) as almacen:
         motivos = [f[0] for f in almacen.conn.execute(
             "SELECT motivo FROM evento WHERE tipo = 'permiso_denegado'")]
-    assert motivos.count("token personal ausente o no valido") == 8
+    # Solo el token que llega y no vale queda en la auditoria: sin token no se escribe nada.
+    assert motivos.count("token personal no valido") == 4
     assert sum("ver_facturas" in m for m in motivos) == 4
+
+
+def test_otra_web_no_llena_la_auditoria_con_lecturas_sin_token(servidor) -> None:
+    """Un <img src> de otra web llega sin Origin y sin token: 401, y nada escrito."""
+    puerto, _tokens, _f, db = servidor
+
+    def eventos() -> int:
+        with preparar(db) as almacen:
+            return almacen.conn.execute("SELECT count(*) FROM evento").fetchone()[0]
+
+    antes = eventos()
+    for _ in range(20):
+        assert _pedir(puerto, "GET", "/api/v2/yo")[0] == 401
+        assert _pedir(puerto, "GET", "/api/v2/yo", {"Sec-Fetch-Site": "cross-site"})[0] == 401
+    assert eventos() == antes
 
 
 def test_la_lista_va_por_prioridad_con_sus_insignias(servidor) -> None:
@@ -316,8 +332,9 @@ def test_permiso_conflicto_y_segunda_firma_por_la_api(servidor) -> None:
         "rev": 7}}
     estado, respuesta = _orden(puerto, tokens["ana"], viejo)
     assert (estado, respuesta["tipo"]) == (409, "Conflicto")
+    # La segunda firma no viaja con la orden de otro (es una orden suya: firmar_anulacion).
     estado, respuesta = _orden(puerto, tokens["ana"], {**nota, "segunda_firma_token": "x"})
-    assert estado == 401
+    assert estado == 400 and "segunda_firma_token" in respuesta["error"]
 
 
 def test_la_ficha_tiene_lo_que_la_consola_ensena(servidor) -> None:
@@ -333,3 +350,14 @@ def test_la_ficha_tiene_lo_que_la_consola_ensena(servidor) -> None:
                   "pide_revision"):
         assert clave in ficha
     assert consola.fichero("/no") is None
+
+
+def test_ni_la_consola_ni_la_cli_piden_el_token_de_otra_persona(capsys) -> None:
+    from bms_agent.cli import main
+
+    assert "segunda_firma_token" not in consola_assets.SCRIPT
+    assert "firmar_anulacion" in consola_assets.SCRIPT
+    with pytest.raises(SystemExit):
+        main(["accion", "anular_hallazgo", "--hallazgo-id", "1", "--huella", "x",
+              "--segunda-firma-token", "token-de-otra"])
+    assert "segunda-firma-token" in capsys.readouterr().err

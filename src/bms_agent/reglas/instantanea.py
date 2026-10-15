@@ -79,7 +79,7 @@ def clave_parte(sentido: str, proveedor_id: int | None, cliente_id: int | None,
     return None
 
 
-def _moneda(moneda_doc: str | None) -> str | None:
+def moneda_extranjera(moneda_doc: str | None) -> str | None:
     """La moneda que no es el euro (X1); None si esta en euros o no se sabe."""
     if not moneda_doc or not moneda_doc.strip():
         return None
@@ -177,7 +177,7 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             receptor_btw_doc=receptor_btw, fecha_factura=_fecha(fecha_factura),
             periodo_inicio=_fecha(inicio), periodo_fin=_fecha(fin), base_cent=base,
             iva_cent=iva, total_cent=total, tipo_iva_pb=tipo_iva, tratamiento_iva=tratamiento,
-            iban_doc=iban, moneda=_moneda(moneda_doc), anulada=bool(anulada),
+            iban_doc=iban, moneda=moneda_extranjera(moneda_doc), anulada=bool(anulada),
             fusionada_en_id=fusionada_en, lineas=tuple(lineas.get(id_, ())),
             desglose=tuple(desglose.get(id_, ())),
             ilegibles=frozenset(ilegibles.get(("factura", id_), vacio)),

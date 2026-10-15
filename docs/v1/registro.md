@@ -1368,7 +1368,7 @@ deben saber los pasos siguientes".
 | `excepciones.py` | La excepción por entidad: `sincronizar()` (la abre el motor en cada pasada y le une los hallazgos nuevos), `crear`, `asignar`, `esperar` y `resolver` (órdenes de persona), `seguimiento_por_defecto`, `bloqueos_abiertos`, `abierta_de`, `hallazgos_de` y `verificar()` |
 | `revision.py` | La huella del contenido (`contenidos`, `huella_contenido`), el estado de los campos de cada factura (`estado_de_campos`: marcas de edición, cambios sin resolver, dudosos sin verificar), el estado de revisión (`estado`), la etiqueta del sistema (`etiqueta_sistema`: "Sin objeciones del sistema", nunca "aprobada"), `lo_que_pide_revision`, `marcar_revisada` y `devolver` |
 | `estados.py` | Las cachés `factura_estado` y `prioridad`, rehechas en cada pasada (solo lo que cambia); `vencimiento_efectivo`, `estado_pago`, `calidad`; `subir_prioridad()` (la orden de persona sobre `prioridad_manual`). Devuelve `Cambios`: prioridades que se movieron y revisiones que dejaron de valer |
-| `servicios.py` | Las órdenes de persona: `ACCIONES` (23 `Accion` tipadas, con sus `Parametro`, su permiso y si piden motivo) y `ejecutar()`, la única puerta de la CLI, la consola y `POST /api/v2/acciones`. Devuelve una `Diferencia` (`a_dict()` y `lineas()`) |
+| `servicios.py` | Las órdenes de persona: `ACCIONES` (23 `Accion` tipadas; 25 tras la revisión, con sus `Parametro`, su permiso y si piden motivo) y `ejecutar()`, la única puerta de la CLI, la consola y `POST /api/v2/acciones`. Devuelve una `Diferencia` (`a_dict()` y `lineas()`) |
 | `consultas.py` | Lo que lee la consola, la CLI y `/api/v2`: `listado` (por prioridad, con insignias), `excepciones_abiertas`, `detalle` (campo a campo: valor, literal impreso, original, fuente, dudoso, verificado, sin resolver, calidad; líneas e imputaciones, referencias, hallazgos, excepción, revisiones, notas, historia), `personas`, `objetos` |
 | `consola.py`, `consola_assets.py` | La consola mínima: una página sin datos, un script y una hoja de estilo, con su política de contenido. El script pinta todo con `createElement` y `textContent` |
 | `config/prioridad.yaml` | Los pesos del §8, iguales a `prioridad.Pesos` (un test lo comprueba) |
@@ -1383,6 +1383,7 @@ deben saber los pasos siguientes".
 | `anadir_nota` | `anadir_informacion` | Nota interna en una factura o una excepción |
 | `cambiar_objeto`, `anadir_alias` | `cambiar_objeto` | Imputar una línea a otro Objeto; un nombre impreso más para un Objeto o un recurso |
 | `cambiar_po` | `cambiar_po` | La clase de una referencia impresa (PO, orden, proyecto…) |
+| `anadir_referencia` | `cambiar_po` | Una referencia que la extracción no trajo (añadida en la revisión) |
 | `excluir_linea`, `anadir_linea`, `dividir_linea` | `editar_extraccion` | Retirar una línea, añadir la que la extracción no trajo, repartir una línea entre Objetos (las partes suman la línea) |
 | `corregir_maestro` | `admin` | Corregir un proveedor, cliente o contacto que no viene de Exact ni de TRNSPRNT |
 | `anular_factura`, `fusionar_factura` | `anular_acreditar` | Anular (no emite abono); fusionar un reenvío en su factura (cierra su B2) |
@@ -1390,6 +1391,7 @@ deben saber los pasos siguientes".
 | `crear_excepcion`, `asignar_excepcion`, `esperar_externo`, `resolver_excepcion` | `resolver_aviso` | La vida de una excepción |
 | `cerrar_hallazgo` | `resolver_aviso` | Cerrar uno cuya condición desapareció |
 | `anular_hallazgo` | `anular_aviso` | Anular con la huella vista (y la segunda firma, si toca) |
+| `firmar_anulacion` | `anular_aviso` | La segunda firma, como orden de la otra persona (añadida en la revisión; antes iba su token en la orden de la primera) |
 | `subir_prioridad` | `resolver_aviso` | Subir a atención o urgente, con motivo y fecha de fin |
 | `recalcular` | `ver_facturas` | Una pasada a petición |
 
@@ -1425,8 +1427,9 @@ con clave entera y sin columnas REAL:
   y `POST /api/v2/acciones`. Todo con el endurecimiento del paso 0 (solo
   127.0.0.1, Host y Origin comprobados) y con el **token personal** de quien
   lee o actúa en `X-BMS-Token`; las lecturas piden `ver_facturas`. La
-  segunda firma llega con el token de la otra persona en
-  `segunda_firma_token`. Los errores tienen su código: 401 sin token
+  segunda firma llegaba con el token de la otra persona en
+  `segunda_firma_token`; tras la revisión es una orden suya
+  (`firmar_anulacion`) y ese campo se rechaza. Los errores tienen su código: 401 sin token
   personal, 403 sin permiso, 409 conflicto de `rev`, petición repetida con
   otra orden o estado que no lo permite, 404 lo que no existe, 400 datos
   mal formados, 413/415 cuerpo demasiado grande o que no es JSON.
@@ -1461,7 +1464,7 @@ con clave entera y sin columnas REAL:
   escribe la tabla (`excepcion` → `excepciones.py`).
 - `cli.py`: `usuario token|desactivar`, `acciones`, `accion <orden>` (un
   subcomando por orden, con sus parámetros generados de `ACCIONES`, `--token`
-  o `BMS_TOKEN`, `--peticion`, `--segunda-firma-token`), `facturas [--nivel]
+  o `BMS_TOKEN`, `--peticion`; `--segunda-firma-token` se quitó en la revisión), `facturas [--nivel]
   [--limite]`, `factura <id> [--json]`, `excepciones`, `politica cargar
   [fichero]`; `db verificar` comprueba también las excepciones.
 
@@ -1655,3 +1658,87 @@ número de hijos, como `el()`.
   todo lo del paso 4. Lo que se añada a la pasada (pagos, planning) tiene
   que leer de una vez, no por factura, y escribir solo lo que cambia, como
   `estados.recalcular`.
+
+### Correcciones de la revisión
+
+La revisión del paso 4 dejó dieciséis hallazgos; dos estaban repetidos (los
+puntos por importe de una anulada o fusionada, en `prioridad.py` y en
+`estados.py`, y las subidas y excepciones de entidades que no existen), así
+que son catorce. Cada uno se reprodujo antes de tocarlo y todos eran reales;
+uno (la reimputación en la puerta de la revisión) era un hueco del test, no
+del código. **1058 tests pasan** (627 funciones de test; eran 1011 y 608):
+veinte funciones nuevas y una quitada (la de la segunda firma por id, que
+sustituye la de la orden `firmar_anulacion`). Todas las nuevas fallan con el
+commit del paso 4 salvo las que miden lo que ya estaba bien:
+`test_un_importe_sin_separador_de_miles_entra` (lo que tiene que seguir
+entrando) y el caso nuevo `anulacion_vence` de la puerta de la revisión. El
+caso `imputar` corregido falla si `cambiar_objeto` no hace nada, y el de
+antes pasaba igual.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| "1.000" escrito por una persona se leía como 1,000: 100 céntimos guardados como corrección humana, mil veces menos (el extractor lee lo mismo como mil). `\d` admitía además cifras árabes ("٣" era 3) | `valor_de_entrada` rechaza un solo separador seguido de tres cifras detrás de lo que puede ser un grupo de miles (`1.000`, `12.400`, `1,000`), con el mismo mensaje de la desviación 20, y solo admite cifras ASCII (también en los enteros de los parámetros). `0.125` y `1000.000` siguen entrando: no pueden ser miles | `test_un_importe_con_separador_de_miles_o_cifras_raras_no_entra`, `test_un_importe_sin_separador_de_miles_entra`, `test_un_importe_de_mil_con_punto_no_se_guarda_mil_veces_menor` (por `fijar_campo`, `dividir_linea` y un id) |
+| Volver el mismo día a un fichero de política anterior (A, B, A) no apuntaba nada, la CLI decía que A era la vigente y valían los pesos de B; con las tarifas, las filas volvían a A y `politica_version` seguía en B | La versión vigente es la última cargada, por orden de carga: `registrar` solo mira si el contenido es el de la vigente. La 0004 rehace `politica_version` sin el `UNIQUE (fichero, sha256, vigente_desde)` de la 0001 (mismas columnas, mismos datos, sus dos disparadores de solo escritura) y añade `politica_version_cambia`, que no deja apuntar otra vez la versión que ya vale | `test_volver_a_unos_pesos_anteriores_el_mismo_dia_los_pone_en_vigor`, `test_ingesta.py::test_una_tarifa_cambiada_en_el_fichero_se_actualiza` (vuelve al fichero de antes) |
+| Un error de la base en una orden (un Objeto que no existe al dividir) tiraba la conexión en `/api/v2` y sacaba una traza en la CLI; un campo que no existe daba 404 | `dividir_linea` comprueba que existe cada Objeto (`LookupError`); `_codigo_de` da 409 a `sqlite3.IntegrityError` y `bms-agent accion` la recoge como las demás; un campo que no está en el registro es `DatosNoValidos` (400). `anadir_linea` no recibe ninguna clave foránea (sus campos son los impresos), así que no había nada que comprobar allí | `test_lo_que_no_existe_se_dice_y_no_revienta_en_la_base`, `test_un_error_de_la_base_tiene_su_codigo_y_la_cli_no_ensena_una_traza` |
+| `subir_prioridad` y `crear_excepcion` aceptaban entidades que no existen (también `orden_compra`, cuya tabla no existe) | `almacen.comprobar_entidad`: la fila tiene que existir en su tabla; un trimestre es año × 10 + trimestre (1 a 4); una tabla que llega en un paso posterior (`orden_compra`, `movimiento`) da `EntidadNoDisponible`. La llaman `estados.subir_prioridad` y `excepciones.crear` para cualquier tabla | `test_subir_la_prioridad_de_algo_que_no_existe_no_entra`, `test_una_excepcion_a_mano_es_de_algo_que_existe` |
+| Una factura anulada o fusionada sin revisar sumaba puntos por importe (una anulada de 30.000 € quedaba en Atención para siempre) y contaba en su proveedor, cliente, Objeto y trimestre | Los puntos por importe piden `en_juego`, como los de plazo. `estados._agregados` deja fuera las anuladas y fusionadas; su excepción, si la tienen, conserva su prioridad. El paso 7 tiene que sacar también las pagadas | `test_prioridad.py::test_lo_que_no_esta_en_juego_no_suma_por_importe`, `test_servicios.py::test_una_anulada_no_cuenta_en_su_proveedor_ni_en_su_trimestre` |
+| El caso `imputar` de la puerta "cualquier cambio invalida la revisión" pasaba sin que `cambiar_objeto` hiciera nada: la semilla de tarifas, que iba antes, ya la invalidaba. El comentario de `anular` decía "vence" y el caso renovaba | La semilla va en `_preparar`, antes de revisar. El comentario dice lo que hace el caso, y hay un caso nuevo, `anulacion_vence`: la anulación vale hasta hoy, pasa un día, la pasada diaria reabre el B4 y la revisión deja de valer | `test_revision.py::test_cualquier_cambio_posterior_invalida_la_revision[imputar]` y `[anulacion_vence]` |
+| `_cuenta` trataba cualquier `moneda_doc` como moneda extranjera: con una extracción v2 que guarda "EUR", las facturas en euros salían de los totales de la `Diferencia` | Cuenta lo que X1 da por euros: `reglas.instantanea.moneda_extranjera` (antes `_moneda`, ahora pública) | `test_los_totales_cuentan_las_facturas_en_euros_aunque_digan_eur` |
+| Fusionar cerraba cualquier B2 desaparecido que tocara una de las dos facturas, también otro duplicado que alguien había editado y nadie había mirado | `_cerrar_b2` cierra solo los B2 que pasaron a desaparecido en la pasada de esta orden, con su evento como causa, y cuyas facturas son la fusionada y su destino. Los demás esperan a `cerrar_hallazgo` | `test_fusionar_solo_cierra_el_b2_que_la_fusion_hizo_desaparecer` (el escenario de la revisión: c/a, a renumerada, b, b→a) |
+| La segunda firma viajaba como el token personal de la otra persona dentro de la orden de la primera (en la consola, en un campo de la página; en la CLI, en `argv`): quien pedía la anulación se quedaba con un token sin caducidad ni alcance y podía actuar como la otra persona, también para firmar sus propias anulaciones | La segunda firma es una orden de la segunda persona, desde su sesión: `firmar_anulacion` (`anular_aviso`, motivo obligatorio) con el hallazgo, la huella que ve, para quién (`solicitante_id`, otra persona activa) y el plazo de la anulación. Es un evento suyo, `anulacion_firmada`, que caduca a las 24 horas (`FIRMA_VALIDA_HORAS`) y se gasta al usarse: `anular_hallazgo` busca una firma sin gastar ni caducar para esa persona, esa huella y ese plazo, y el evento `hallazgo_segunda_firma` lleva `firma_evento_id`. Ya no hay `segunda_firma_id` en `ejecutar`, `segunda_firma_token` en `/api/v2` (400), `--segunda-firma-token` en la CLI ni campo de token en la consola, que ofrece "Dar la segunda firma" cuando la anulación la pide (`consultas` dice ahora `requiere_segunda_firma`, no solo la marca de la regla) | `test_la_segunda_firma_es_una_orden_de_la_otra_persona` (nadie se firma a sí mismo, huella vieja, otra persona u otro plazo no la usan, se gasta, caduca), `test_permiso_conflicto_y_segunda_firma_por_la_api`, `test_ni_la_consola_ni_la_cli_piden_el_token_de_otra_persona` |
+| Cualquier web podía añadir filas a la auditoría: un `GET /api/v2/*` sin token (un `<img src>` llega sin Origin) dejaba un `permiso_denegado` | Sin token se contesta 401 sin escribir nada; solo se audita un token que llega y no vale ("token personal no valido"). Ponerlo desde otra web pide una consulta CORS previa, que el Origin ya rechaza | `test_otra_web_no_llena_la_auditoria_con_lecturas_sin_token`, `test_leer_pide_un_token_personal_con_ver_facturas` |
+| Una excepción se resolvía con un bloqueo pegajoso desaparecido sin cerrar, que el §7 trata como abierto | `bloqueos_abiertos` y el disparador `excepcion_resolver` cuentan también los desaparecidos que bloquean: primero se cierran (`cerrar_hallazgo`). No se eligió resolver con `condicion_desaparecida` cerrándolos en la misma orden: cerrar un pegajoso es mirar su evidencia, y esa orden pide su huella | `test_excepciones.py::test_no_se_resuelve_con_un_bloqueo_desaparecido_sin_cerrar` (por el código y saltándoselo) |
+| No había orden para añadir una referencia (una PO) que la extracción no trajo | `anadir_referencia` (`cambiar_po`, motivo obligatorio, `rev` de la factura): crea la `factura_referencia` como `manual_entrada`; sin `clase`, la decide la etiqueta como en la extracción | `test_anadir_una_referencia_que_la_extraccion_no_trajo`, y en `CASOS` (matriz, permisos, usuarios de sistema, suite de alcance) |
+| Las prioridades se calculaban con pesos que no estaban en `politica_version` hasta un `politica cargar` | La pasada que calcula prioridades sin ningún `prioridad.yaml` apuntado apunta los de `prioridad.Pesos`, con el texto que da `prioridad.pesos_a_yaml` (lo lee `pesos_de_yaml` y da los mismos pesos), con el usuario `sistema`. Solo la primera vez y solo si hay facturas | `test_los_pesos_con_que_se_calcula_estan_siempre_en_la_politica` |
+| `cerrar_hallazgo` no pedía la huella: se cerraba un pegajoso sin probar que se había visto su evidencia | La huella es obligatoria, como en `anular_hallazgo` (la consola ya la mandaba) | `test_cerrar_un_hallazgo_pide_la_evidencia_que_se_vio` |
+| `dividir_linea` solo miraba que las partes sumaran la línea: 101.593,75 a un Objeto y −100.000 a otro movían dinero entre obras | Cada parte es distinta de cero, del signo de la línea y no mayor que ella; las horas, si se dan, del signo de la cantidad de la línea y no mayores | `test_dividir_no_mueve_dinero_entre_objetos` |
+
+**La migración 0004 se corrige en su sitio** (el disparador
+`excepcion_resolver` y la tabla `politica_version` rehecha), como la 0003 en
+la revisión del paso 3: ninguna base la tiene aplicada fuera de los tests.
+Una base local creada con la versión anterior la rechaza `migrar` por el
+hash; se rehace con `bms-agent importar-out`, que no gasta API. La 0001 no
+se toca: la tabla se rehace en la 0004 con los mismos datos.
+
+Desviaciones nuevas, y por qué:
+
+- **"1,000" también se rechaza**, no solo "1.000": para quien escribe en
+  inglés son mil. Una cantidad con tres decimales se escribe con un cero
+  delante (`0,125`) o sin el separador ambiguo (`1,5` en vez de `1,500`).
+- **La firma vale 24 horas y una vez**, ata la huella, la persona que
+  anula y el plazo, pero no el motivo de la anulación: quien firma escribe
+  el suyo, que queda en su evento. Si quien firmó pierde `anular_aviso`
+  antes de que se use, la anulación se rechaza.
+- **`--token` sigue en la CLI** (es el token de quien la usa, en su propia
+  sesión); `BMS_TOKEN` es la forma recomendada. El de otra persona ya no
+  pasa por ningún sitio.
+- **El texto de los pesos apuntados por la primera pasada no es el de
+  `config/prioridad.yaml`** (sin comentarios): cargar después ese fichero
+  apunta otra versión con el mismo hash canónico, y ninguna prioridad
+  cambia (desviación 13).
+
+**Tests existentes cambiados**: `CASOS` de `test_servicios.py` (con
+`anadir_referencia` y `firmar_anulacion`; `cerrar_hallazgo` manda la huella;
+el escenario tiene a Dora, que solo consulta, para quien se firma),
+`test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6` (las dos órdenes),
+`test_los_datos_se_comprueban_antes_de_hacer_nada` (`segunda_firma_id` ya no
+existe: `TypeError`), `test_anular_con_la_segunda_firma_de_otra_persona`
+(quitado: lo sustituye `test_la_segunda_firma_es_una_orden_de_la_otra_persona`,
+que prueba más), `test_leer_pide_un_token_personal_con_ver_facturas` (cuatro
+denegaciones, las del token que no vale, en vez de ocho),
+`test_permiso_conflicto_y_segunda_firma_por_la_api` (400 en vez de 401),
+`test_una_tarifa_cambiada_en_el_fichero_se_actualiza` (cuenta las versiones
+de `tarifas.yaml`: la pasada apunta también los pesos) y la puerta de la
+revisión (`imputar` siembra antes de revisar). Ninguno prueba menos que
+antes.
+
+Lo que deben saber los pasos siguientes, además de lo de arriba:
+
+- **Una orden que pida la firma de otra persona** sigue el modelo de
+  `firmar_anulacion`: la otra persona firma en su sesión, atada a lo que
+  ve, para quién y con caducidad; nunca un token o un id dentro de la
+  orden de la primera.
+- **Paso 7**: una pagada sale de juego y deja de sumar por importe y de
+  contar en sus agregados (`estados._agregados`, conjunto `en_juego`).
+- **Paso 9**: cuando exista `orden_compra`, `comprobar_entidad` la acepta
+  sola (mira si la tabla existe).

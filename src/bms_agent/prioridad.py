@@ -251,6 +251,40 @@ def pesos_de_yaml(texto: str) -> Pesos:
     return pesos
 
 
+def pesos_a_yaml(pesos: Pesos) -> str:
+    """El texto con la forma de config/prioridad.yaml que da estos pesos (sin comentarios).
+
+    Es lo que se apunta en politica_version cuando se calcula sin haber
+    cargado ningun fichero: pesos_de_yaml lo lee de vuelta y da los mismos.
+    """
+    def tramos(lista: tuple[Tramo, ...], limite: str) -> list[dict[str, int]]:
+        return [{limite: t.limite, "puntos": t.puntos} for t in lista]
+
+    datos = {
+        "niveles": {"atencion": pesos.nivel_atencion, "urgente": pesos.nivel_urgente},
+        "plazo_entrante": tramos(pesos.plazo_entrante, "hasta_dias"),
+        "vencida_entrante": tramos(pesos.vencida_entrante, "desde_dias"),
+        "vencida_saliente": tramos(pesos.vencida_saliente, "desde_dias"),
+        "importe": tramos(pesos.importe, "desde_euros"),
+        "planning": {"puntos": pesos.planning,
+                     "extras": tramos(pesos.planning_extras, "desde_euros")},
+        "facturacion_ausente": pesos.facturacion_ausente,
+        "trabajo_sin_facturar": {
+            "umbral_euros": pesos.sin_facturar_umbral, "puntos_bajo": pesos.sin_facturar_bajo,
+            "puntos_alto": pesos.sin_facturar_alto, "por_semana": pesos.sin_facturar_por_semana,
+            "maximo_extra": pesos.sin_facturar_maximo_extra},
+        "limite_po": pesos.limite_po,
+        "caducidad_po": tramos(pesos.caducidad_po, "hasta_dias"),
+        "iva_blando": {"puntos": pesos.iva_blando, "extra": pesos.iva_blando_extra,
+                       "extra_hasta_dias_btw": pesos.iva_blando_extra_dias},
+        "otra_anomalia": {"por_regla": pesos.otra_por_regla, "maximo": pesos.otra_maximo},
+        "esperando_externo": {"divisor_plazos": pesos.esperando_divisor,
+                              "seguimiento_vencido": pesos.seguimiento_vencido},
+    }
+    return ("# Pesos de prioridad.Pesos, apuntados por la primera pasada sin fichero cargado.\n"
+            + yaml.safe_dump(datos, sort_keys=True, allow_unicode=True))
+
+
 # ------------------------------------------------------------ entradas
 
 @dataclass(frozen=True)
@@ -289,8 +323,8 @@ class Subida:
 class Entradas:
     """Lo que se sabe de una factura para su prioridad.
 
-    `en_juego` es falso si la factura no tiene plazo que correr (pagada,
-    anulada o fusionada en otra). `esperando_a` y `fecha_seguimiento` solo
+    `en_juego` es falso si la factura no tiene plazo que correr ni importe
+    que reclamar (pagada, anulada o fusionada en otra). `esperando_a` y `fecha_seguimiento` solo
     con su excepcion esperando a alguien de fuera.
     """
 
@@ -472,7 +506,9 @@ def _puntos(e: Entradas, hoy: date, pesos: Pesos, dias: int | None, vencida: int
                    f"{e.fecha_seguimiento.isoformat()})", puntos // pesos.esperando_divisor)
                   for texto, puntos in plazos]
     aportes.extend(plazos)
-    if e.necesita_accion and e.importe_cent is not None:
+    # Como el plazo: lo que no esta en juego (anulada, fusionada, pagada) no pide
+    # accion por lo que vale. Sin esto, una anulada grande quedaba en Atencion.
+    if e.necesita_accion and e.en_juego and e.importe_cent is not None:
         puntos, limite = _desde(pesos.importe, abs(e.importe_cent) // 100)
         if puntos:
             aportes.append((f"importe {euros(abs(e.importe_cent))} ≥ {_miles(limite)}", puntos))

@@ -17,7 +17,7 @@ from conftest import factura_de, persona
 from test_hallazgos import SOLAPADA, _cargar, _hallazgo, _registro
 
 from bms_agent import campos, consola_assets, dominio, hallazgos, revision, servicios
-from bms_agent.almacen import transaccion, usuario_sistema
+from bms_agent.almacen import reloj_de, transaccion, usuario_sistema
 from bms_agent.almacen.evidencia import verificar_evidencia
 from bms_agent.auditoria import registrar
 from bms_agent.campos import Conflicto, Persona
@@ -86,10 +86,8 @@ def _cambios_posteriores():
             usuario_id=ana)
 
     def imputar(conn, _a, _t, ana, _b, f):
-        from bms_agent.importadores.tarifas import sembrar_tarifas
-        from conftest import TARIFAS_V1
-
-        sembrar_tarifas(conn, TARIFAS_V1)
+        # Las tarifas se sembraron antes de revisar (ver _preparar): lo unico que cambia
+        # despues es el Objeto de la imputacion.
         imputacion = conn.execute("SELECT id FROM factura_imputacion WHERE factura_id = ? "
                                   "ORDER BY id", (f,)).fetchone()[0]
         otro = conn.execute("SELECT id FROM objeto ORDER BY id DESC").fetchone()[0]
@@ -104,11 +102,19 @@ def _cambios_posteriores():
         hallazgos.recalcular(conn)
 
     def anular(conn, _a, _t, _ana, bea, _f):
-        # La revision se hizo con el B4 anulado (ver _preparar): vence su anulacion.
+        # La revision se hizo con el B4 anulado (ver _preparar): se renueva la anulacion con
+        # otro plazo.
         b4 = _hallazgo(conn, "B4")
         servicios.ejecutar(conn, "anular_hallazgo", {
             "hallazgo_id": b4["id"], "huella": b4["huella"], "motivo": MOTIVO,
             "vigente_hasta": "2026-12-31"}, usuario_id=bea)
+
+    def anulacion_vence(conn, _a, _t, _ana, _b, _f):
+        # La revision se hizo con el B4 anulado hasta hoy: pasa el dia y la pasada diaria
+        # lo reabre.
+        reloj_de(conn).avanzar(days=1)
+        hallazgos.recalcular(conn, motivo="diaria")
+        assert _hallazgo(conn, "B4")["estado"] == "abierto"
 
     def verificar(conn, _a, _t, ana, bea, f):
         servicios.ejecutar(conn, "verificar_campo", {
@@ -122,18 +128,26 @@ def _cambios_posteriores():
         hallazgos.recalcular(conn)
 
     return {"corregir": corregir, "excluir_linea": excluir, "imputar": imputar,
-            "otra_factura": otra_factura, "anular": anular, "verificar": verificar,
-            "extraccion_nueva": extraccion_nueva}
+            "otra_factura": otra_factura, "anular": anular, "anulacion_vence": anulacion_vence,
+            "verificar": verificar, "extraccion_nueva": extraccion_nueva}
 
 
 def _preparar(conn, almacen, tmp, ana, bea, f, cambio: str) -> None:
-    """Lo que hay antes de revisar: en el caso de la anulacion, un B4 ya anulado."""
-    if cambio == "anular":
+    """Lo que hay antes de revisar: en los casos de la anulacion, un B4 ya anulado (hasta
+    hoy, si se prueba que vence); en el de la imputacion, las tarifas sembradas."""
+    if cambio in ("anular", "anulacion_vence"):
         _cargar(almacen, tmp / "out2", _registro("b", **SOLAPADA))
         hallazgos.recalcular(conn)
         b4 = _hallazgo(conn, "B4")
+        hasta = reloj_de(conn).hoy().isoformat() if cambio == "anulacion_vence" else None
         servicios.ejecutar(conn, "anular_hallazgo", {
-            "hallazgo_id": b4["id"], "huella": b4["huella"], "motivo": MOTIVO}, usuario_id=bea)
+            "hallazgo_id": b4["id"], "huella": b4["huella"], "motivo": MOTIVO,
+            "vigente_hasta": hasta}, usuario_id=bea)
+    if cambio == "imputar":
+        from bms_agent.importadores.tarifas import sembrar_tarifas
+        from conftest import TARIFAS_V1
+
+        sembrar_tarifas(conn, TARIFAS_V1)
     _revisar(conn, ana, f)
 
 

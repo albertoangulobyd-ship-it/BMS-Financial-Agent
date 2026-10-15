@@ -36,7 +36,8 @@ LIMPIA = dict(invoice_number="2026-3001", invoice_date="2026-07-01",
 @pytest.fixture
 def escenario(almacen, tmp_path):
     """La 01 (a) y una que se pisa con ella (b, un B4), una limpia (c), los Objetos de la
-    semilla, el proveedor en el maestro y una referencia impresa. Ana lo puede todo."""
+    semilla, el proveedor en el maestro y una referencia impresa. Ana lo puede todo; Dora
+    solo consulta."""
     conn = almacen.conn
     _cargar(almacen, tmp_path / "out", _registro("a"), _registro("b", **SOLAPADA),
             _registro("c", **LIMPIA))
@@ -45,6 +46,9 @@ def escenario(almacen, tmp_path):
     campos.crear(conn, "proveedor", {"nombre": "Bouwtechniek Van Dijk BV",
                                      "btw_id": "NL001234567B01"}, Persona(admin))
     reconciliar_referencias(conn)
+    # Dora solo consulta: es otra persona activa (para quien se firma una anulacion) sin
+    # ningun permiso que cambie la separacion de funciones de Ana.
+    persona(conn, "Dora", "consulta")
     a = factura_de(conn, "2026-4471")
     campos.crear(conn, "factura_referencia", {"factura_id": a, "etiqueta_doc": "PO",
                                               "valor_doc": "4500012"},
@@ -114,6 +118,9 @@ CASOS = [
     ("cambiar_po", "cambiar_po", "cambiar_po", lambda c, i: {
         "referencia_id": i["referencia"], "clase": "otra",
         "rev": _rev(c, "factura_referencia", i["referencia"]), "motivo": MOTIVO}, None),
+    ("anadir_referencia", "anadir_referencia", "cambiar_po", lambda c, i: {
+        "factura_id": i["c"], "valor": "4500099", "etiqueta": "PO",
+        "rev": _rev(c, "factura", i["c"]), "motivo": MOTIVO}, None),
     ("excluir_linea", "excluir_linea", "editar_extraccion", lambda c, i: {
         "linea_id": i["ultima"], "rev": _rev(c, "factura_linea", i["ultima"]),
         "motivo": MOTIVO}, None),
@@ -149,9 +156,13 @@ CASOS = [
         "excepcion_id": i["excepcion"], "resolucion": "no_procede",
         "rev": _rev(c, "excepcion", i["excepcion"]), "motivo": "Dos obras distintas"}, None),
     ("cerrar_hallazgo", "cerrar_hallazgo", "resolver_aviso", lambda c, i: {
-        "hallazgo_id": i["b4"], "motivo": "Corregido el periodo con el PDF"}, _preparar_cerrar),
+        "hallazgo_id": i["b4"], "huella": _hallazgo(c, "B4")["huella"],
+        "motivo": "Corregido el periodo con el PDF"}, _preparar_cerrar),
     ("anular_hallazgo", "anular_hallazgo", "anular_aviso", lambda c, i: {
         "hallazgo_id": i["b4"], "huella": _hallazgo(c, "B4")["huella"], "motivo": MOTIVO}, None),
+    ("firmar_anulacion", "firmar_anulacion", "anular_aviso", lambda c, i: {
+        "hallazgo_id": i["b4"], "huella": _hallazgo(c, "B4")["huella"],
+        "solicitante_id": permisos.usuario_por_nombre(c, "Dora"), "motivo": MOTIVO}, None),
     ("subir_prioridad", "subir_prioridad", "resolver_aviso", lambda c, i: {
         "entidad_id": i["c"], "nivel": "urgente", "motivo": "El proveedor amenaza con parar"},
      None),
@@ -169,6 +180,7 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "fijar_campo": None, "verificar_campo": None, "revertir_campo": None,
         "anadir_nota": "anadir_informacion", "cambiar_objeto": "cambiar_objeto",
         "anadir_alias": "cambiar_objeto", "cambiar_po": "cambiar_po",
+        "anadir_referencia": "cambiar_po",
         "excluir_linea": "editar_extraccion", "anadir_linea": "editar_extraccion",
         "dividir_linea": "editar_extraccion", "corregir_maestro": "admin",
         "anular_factura": "anular_acreditar", "fusionar_factura": "anular_acreditar",
@@ -176,6 +188,7 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "crear_excepcion": "resolver_aviso", "asignar_excepcion": "resolver_aviso",
         "esperar_externo": "resolver_aviso", "resolver_excepcion": "resolver_aviso",
         "cerrar_hallazgo": "resolver_aviso", "anular_hallazgo": "anular_aviso",
+        "firmar_anulacion": "anular_aviso",
         "subir_prioridad": "resolver_aviso", "recalcular": "ver_facturas"}
 
 
@@ -439,7 +452,8 @@ def test_los_datos_se_comprueban_antes_de_hacer_nada(escenario) -> None:
         servicios.ejecutar(conn, "fijar_campo", {
             "tabla": "factura", "fila_id": ids["a"], "campo": "iban_doc",
             "valor": "NL91ABNA0417164300", "rev": rev, "motivo": MOTIVO}, usuario_id=admin)
-    with pytest.raises(servicios.DatosNoValidos, match="segunda firma"):
+    # La segunda firma no es un id que pase quien llama (es una orden de esa persona).
+    with pytest.raises(TypeError):
         servicios.ejecutar(conn, "anadir_nota", {"fila_id": ids["a"], "texto": "x"},
                            usuario_id=admin, segunda_firma_id=admin)
 
@@ -518,40 +532,6 @@ def test_fusionar_un_duplicado_cierra_su_b2(almacen, tmp_path) -> None:
             "despues": None} in dif.totales
 
 
-def test_anular_con_la_segunda_firma_de_otra_persona(almacen, tmp_path) -> None:
-    conn = almacen.conn
-    linea = {"description": "Montagewerk, locatie Rijnhaven", "quantity_raw": "10,00",
-             "unit": "uur", "unit_rate_raw": "42,50", "line_total_raw": "430,00",
-             "location": "Rijnhaven", "week_number": 36, "period_start": None,
-             "period_end": None}
-    _cargar(almacen, tmp_path / "out", _registro("c", lines=[linea],
-                                                 subtotal_excl_vat_raw="430,00",
-                                                 vat_amount_raw="90,30",
-                                                 total_incl_vat_raw="520,30"))
-    hallazgos.recalcular(conn)
-    d2b = _hallazgo(conn, "D2b")
-    ana = persona(conn, "Ana", "administracion")
-    bea = persona(conn, "Bea", "administracion")
-    datos = {"hallazgo_id": d2b["id"], "huella": d2b["huella"],
-             "motivo": "La tarifa de 43 euros esta pactada"}
-    # Bloquea, y hay otra persona que puede anular: sin su firma no.
-    with pytest.raises(permisos.SeparacionDeFunciones):
-        servicios.ejecutar(conn, "anular_hallazgo", datos, usuario_id=ana)
-    dif = servicios.ejecutar(conn, "anular_hallazgo", datos, usuario_id=ana,
-                             peticion_id="anular-1", segunda_firma_id=bea)
-    fila = conn.execute("SELECT * FROM anulacion").fetchone()
-    assert (fila["usuario_id"], fila["segunda_firma_usuario_id"], fila["autoaprobada"]) == (
-        ana, bea, 0)
-    assert _hallazgo(conn, "D2b")["estado"] == "aceptado"
-    assert dif.hallazgos["aceptados"][0]["regla"] == "D2b"
-    firma = conn.execute("SELECT * FROM evento WHERE tipo = 'hallazgo_segunda_firma'").fetchone()
-    assert (firma["usuario_id"], firma["peticion_id"]) == (bea, "anular-1:segunda_firma")
-    # La evidencia que se ve tiene que ser la de ahora.
-    with pytest.raises(Conflicto):
-        servicios.ejecutar(conn, "anular_hallazgo", {**datos, "huella": "0" * 64},
-                           usuario_id=ana, segunda_firma_id=bea)
-
-
 def test_un_maestro_de_exact_no_se_corrige_aqui(escenario) -> None:
     conn = escenario.conn
     ids = _ids(conn)
@@ -625,3 +605,339 @@ def test_las_ordenes_no_llaman_a_la_api(tmp_path, out_v1) -> None:
     ):
         proceso = _sin_api(*argumentos)
         assert proceso.returncode == 0, (argumentos, proceso.stdout, proceso.stderr)
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+@pytest.mark.parametrize("texto", ["1.000", "12.400", "2.902", "1,000", "-1.000", "٣", "1٣"])
+def test_un_importe_con_separador_de_miles_o_cifras_raras_no_entra(texto) -> None:
+    """"1.000" en holandes son mil euros: leerlo como 1,000 guardaba 1 euro sin avisar."""
+    total = campos.campo("factura", "total_cent")
+    with pytest.raises(servicios.DatosNoValidos):
+        servicios.valor_de_entrada(total, texto)
+    horas = campos.campo("factura_linea", "cantidad_mil")
+    with pytest.raises(servicios.DatosNoValidos):
+        servicios.valor_de_entrada(horas, texto)
+
+
+@pytest.mark.parametrize("texto, valor", [("1000", "1000"), ("1000,00", "1000.00"),
+                                          ("2902.79", "2902.79"), ("0.125", "0.125"),
+                                          ("1000.000", "1000.000"), ("-12,5", "-12.5")])
+def test_un_importe_sin_separador_de_miles_entra(texto, valor) -> None:
+    from decimal import Decimal
+
+    assert servicios.valor_de_entrada(campos.campo("factura_linea", "cantidad_mil"),
+                                      texto) == Decimal(valor)
+
+
+def test_un_importe_de_mil_con_punto_no_se_guarda_mil_veces_menor(escenario) -> None:
+    conn = escenario.conn
+    ids = _ids(conn)
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    total = conn.execute("SELECT total_cent FROM factura WHERE id = ?", (ids["a"],)).fetchone()[0]
+    with pytest.raises(servicios.DatosNoValidos, match="miles"):
+        servicios.ejecutar(conn, "fijar_campo", {
+            "tabla": "factura", "fila_id": ids["a"], "campo": "total_cent", "valor": "1.000",
+            "rev": _rev(conn, "factura", ids["a"]), "motivo": MOTIVO}, usuario_id=admin)
+    with pytest.raises(servicios.DatosNoValidos, match="miles"):
+        servicios.ejecutar(conn, "dividir_linea", {
+            "linea_id": ids["linea"], "rev": _rev(conn, "factura_linea", ids["linea"]),
+            "motivo": MOTIVO, "partes": [{"objeto_id": ids["rijnhaven"], "importe": "1.000"},
+                                         {"objeto_id": ids["schiedam"], "importe": "593,75"}]},
+            usuario_id=admin)
+    with pytest.raises(servicios.DatosNoValidos):
+        servicios.ejecutar(conn, "anadir_nota", {"fila_id": "٣", "texto": "x"},
+                           usuario_id=admin)
+    assert conn.execute("SELECT total_cent FROM factura WHERE id = ?",
+                        (ids["a"],)).fetchone()[0] == total
+
+
+def test_lo_que_no_existe_se_dice_y_no_revienta_en_la_base(escenario) -> None:
+    conn = escenario.conn
+    ids = _ids(conn)
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    partes = [{"objeto_id": 99999, "importe": "1000.00"},
+              {"objeto_id": ids["schiedam"], "importe": "593,75"}]
+    with pytest.raises(LookupError, match="99999"):
+        servicios.ejecutar(conn, "dividir_linea", {
+            "linea_id": ids["linea"], "rev": _rev(conn, "factura_linea", ids["linea"]),
+            "motivo": MOTIVO, "partes": partes}, usuario_id=admin)
+    with pytest.raises(servicios.DatosNoValidos, match="noexiste"):
+        servicios.ejecutar(conn, "fijar_campo", {
+            "tabla": "factura", "fila_id": ids["a"], "campo": "noexiste", "valor": "1",
+            "rev": _rev(conn, "factura", ids["a"]), "motivo": MOTIVO}, usuario_id=admin)
+    with pytest.raises(servicios.DatosNoValidos, match="noexiste"):
+        servicios.ejecutar(conn, "anadir_linea", {
+            "factura_id": ids["a"], "rev": _rev(conn, "factura", ids["a"]), "motivo": MOTIVO,
+            "valores": {"noexiste": "1"}}, usuario_id=admin)
+
+
+def test_un_error_de_la_base_tiene_su_codigo_y_la_cli_no_ensena_una_traza(
+        tmp_path, out_v1, capsys, monkeypatch) -> None:
+    import sqlite3
+
+    from bms_agent.cli import main
+    from bms_agent.serve import _codigo_de
+
+    assert _codigo_de(sqlite3.IntegrityError("FOREIGN KEY constraint failed")) == 409
+    db = tmp_path / "datos" / "bms.sqlite3"
+    assert main(["importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"),
+                 "--db", str(db)]) == 0
+    assert main(["usuario", "crear", "Ana", "--rol", "administracion", "--db", str(db)]) == 0
+    capsys.readouterr()
+    assert main(["usuario", "token", "Ana", "--db", str(db)]) == 0
+    token = capsys.readouterr().out.splitlines()[1].strip()
+
+    def fallar(*_a, **_k):
+        raise sqlite3.IntegrityError("FOREIGN KEY constraint failed")
+
+    monkeypatch.setattr(servicios, "ejecutar", fallar)
+    assert main(["accion", "recalcular", "--token", token, "--db", str(db)]) == 1
+    assert "FOREIGN KEY" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("partes, error", [
+    ([("rijnhaven", "101593.75"), ("schiedam", "-100000")], "signo"),
+    ([("rijnhaven", "1593.75"), ("schiedam", "0")], "cero"),
+    ([("rijnhaven", "1600"), ("schiedam", "-6.25")], "signo"),
+])
+def test_dividir_no_mueve_dinero_entre_objetos(escenario, partes, error) -> None:
+    conn = escenario.conn
+    ids = _ids(conn)
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    datos = {"linea_id": ids["linea"], "rev": _rev(conn, "factura_linea", ids["linea"]),
+             "motivo": MOTIVO,
+             "partes": [{"objeto_id": ids[o], "importe": i} for o, i in partes]}
+    with pytest.raises(servicios.DatosNoValidos, match=error):
+        servicios.ejecutar(conn, "dividir_linea", datos, usuario_id=admin)
+    # Las horas tampoco: ni con otro signo ni mas que las de la linea.
+    datos["partes"] = [{"objeto_id": ids["rijnhaven"], "importe": "1000", "horas": "60"},
+                       {"objeto_id": ids["schiedam"], "importe": "593,75", "horas": "-22.5"}]
+    with pytest.raises(servicios.DatosNoValidos, match="horas"):
+        servicios.ejecutar(conn, "dividir_linea", datos, usuario_id=admin)
+
+
+@pytest.mark.parametrize("entidad, entidad_id, error", [
+    ("factura", 999999, LookupError), ("proveedor", 999999, LookupError),
+    ("excepcion", 999999, LookupError), ("objeto", 999999, LookupError),
+    ("trimestre", 5, LookupError), ("trimestre", 20265, LookupError),
+    ("orden_compra", 5, ValueError),
+])
+def test_subir_la_prioridad_de_algo_que_no_existe_no_entra(escenario, entidad, entidad_id,
+                                                           error) -> None:
+    conn = escenario.conn
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    with pytest.raises(error):
+        servicios.ejecutar(conn, "subir_prioridad", {
+            "entidad": entidad, "entidad_id": entidad_id, "nivel": "urgente",
+            "motivo": "porque si, muy urgente"}, usuario_id=admin)
+    assert conn.execute("SELECT count(*) FROM prioridad_manual").fetchone()[0] == 0
+    # Un trimestre que existe si.
+    servicios.ejecutar(conn, "subir_prioridad", {
+        "entidad": "trimestre", "entidad_id": 20263, "nivel": "urgente",
+        "motivo": "el contable cierra el T3 antes"}, usuario_id=admin)
+
+
+@pytest.mark.parametrize("tabla, fila_id, error", [
+    ("proveedor", 999999, LookupError), ("cliente", 999999, LookupError),
+    ("trimestre", 20260, LookupError), ("orden_compra", 1, ValueError),
+    ("movimiento", 1, ValueError),
+])
+def test_una_excepcion_a_mano_es_de_algo_que_existe(escenario, tabla, fila_id, error) -> None:
+    conn = escenario.conn
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    antes = conn.execute("SELECT count(*) FROM excepcion").fetchone()[0]
+    with pytest.raises(error):
+        servicios.ejecutar(conn, "crear_excepcion", {
+            "tabla": tabla, "fila_id": fila_id, "titulo": "Algo raro"}, usuario_id=admin)
+    assert conn.execute("SELECT count(*) FROM excepcion").fetchone()[0] == antes
+    proveedor = _ids(conn)["proveedor"]
+    servicios.ejecutar(conn, "crear_excepcion", {
+        "tabla": "proveedor", "fila_id": proveedor, "titulo": "Cambia de banco"},
+        usuario_id=admin)
+
+
+def test_los_totales_cuentan_las_facturas_en_euros_aunque_digan_eur() -> None:
+    #           sentido, prov, cli, base, iva, total, anulada, fusionada, moneda
+    antes = {1: ("entrante", 7, None, 100, 21, 121, 0, None, "EUR"),
+             2: ("entrante", 7, None, 500, 0, 500, 0, None, "USD")}
+    despues = {1: ("entrante", 7, None, 100, 21, 131, 0, None, "EUR"),
+               2: ("entrante", 7, None, 500, 0, 600, 0, None, "USD")}
+    totales = servicios._totales(antes, despues)
+    assert {"entidad": "factura", "id": 1, "campo": "total_cent", "antes": 121,
+            "despues": 131} in totales
+    assert {"entidad": "proveedor", "id": 7, "campo": "total_cent", "antes": 121,
+            "despues": 131} in totales
+    assert not any(t["id"] == 2 for t in totales if t["entidad"] == "factura")
+
+
+def test_fusionar_solo_cierra_el_b2_que_la_fusion_hizo_desaparecer(almacen, tmp_path) -> None:
+    """Un B2 desaparecido de antes (otro duplicado, editado) espera a que lo cierre alguien."""
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("c", invoice_date="2026-09-16"),
+            _registro("a"))
+    admin = persona(conn, "Ana", "administrador")
+    campos.crear(conn, "proveedor", {"nombre": "Bouwtechniek Van Dijk BV",
+                                     "btw_id": "NL001234567B01"}, Persona(admin))
+    reconciliar_referencias(conn)
+    hallazgos.recalcular(conn)
+    viejo = _hallazgo(conn, "B2")
+    assert viejo["estado"] == "abierto"
+    c, a = sorted(f[0] for f in conn.execute("SELECT id FROM factura"))
+    servicios.ejecutar(conn, "fijar_campo", {
+        "tabla": "factura", "fila_id": a, "campo": "numero", "valor": "2026-5000",
+        "rev": _rev(conn, "factura", a), "motivo": "El numero del PDF es 2026-5000"},
+        usuario_id=admin)
+    assert conn.execute("SELECT estado FROM hallazgo WHERE id = ?",
+                        (viejo["id"],)).fetchone()[0] == "desaparecido"
+    _cargar(almacen, tmp_path / "out2", _registro("b", invoice_number="2026-5000",
+                                                  invoice_date="2026-09-20"))
+    hallazgos.recalcular(conn)
+    b = max(f[0] for f in conn.execute("SELECT id FROM factura"))
+    nuevo = conn.execute("SELECT * FROM hallazgo WHERE regla = 'B2' AND id <> ?",
+                         (viejo["id"],)).fetchone()
+    assert nuevo["estado"] == "abierto"
+    dif = servicios.ejecutar(conn, "fusionar_factura", {
+        "factura_id": b, "destino_id": a, "rev": _rev(conn, "factura", b),
+        "motivo": "Reenvio del mismo PDF"}, usuario_id=admin)
+    assert conn.execute("SELECT estado FROM hallazgo WHERE id = ?",
+                        (nuevo["id"],)).fetchone()[0] == "resuelto"
+    assert conn.execute("SELECT estado FROM hallazgo WHERE id = ?",
+                        (viejo["id"],)).fetchone()[0] == "desaparecido"
+    assert [h["hallazgo_id"] for h in dif.hallazgos["cerrados"]
+            if h["tipo"] == "resuelto"] == [nuevo["id"]]
+
+
+def _d2b(almacen, tmp_path):
+    """Una factura con un D2b que bloquea: anularlo pide la segunda firma."""
+    linea = {"description": "Montagewerk, locatie Rijnhaven", "quantity_raw": "10,00",
+             "unit": "uur", "unit_rate_raw": "42,50", "line_total_raw": "430,00",
+             "location": "Rijnhaven", "week_number": 36, "period_start": None,
+             "period_end": None}
+    _cargar(almacen, tmp_path / "out", _registro("c", lines=[linea],
+                                                 subtotal_excl_vat_raw="430,00",
+                                                 vat_amount_raw="90,30",
+                                                 total_incl_vat_raw="520,30"))
+    hallazgos.recalcular(almacen.conn)
+    return _hallazgo(almacen.conn, "D2b")
+
+
+def test_la_segunda_firma_es_una_orden_de_la_otra_persona(almacen, tmp_path, reloj) -> None:
+    """Nadie da su token a otro: la segunda persona firma desde su sesion, para esa
+    persona, esa evidencia y ese plazo, y la firma se gasta al usarla."""
+    conn = almacen.conn
+    d2b = _d2b(almacen, tmp_path)
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+    carla = persona(conn, "Carla", "administracion")
+    anular = {"hallazgo_id": d2b["id"], "huella": d2b["huella"],
+              "motivo": "La tarifa de 43 euros esta pactada"}
+    firmar = {"hallazgo_id": d2b["id"], "huella": d2b["huella"], "solicitante_id": ana,
+              "motivo": "Lo he visto con Ana"}
+    assert "segunda_firma_id" not in servicios.ejecutar.__kwdefaults__
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "anular_hallazgo", anular, usuario_id=ana)
+    # Nadie se firma a si mismo.
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "firmar_anulacion", {**firmar, "solicitante_id": bea},
+                           usuario_id=bea)
+    with pytest.raises(Conflicto):
+        servicios.ejecutar(conn, "firmar_anulacion", {**firmar, "huella": "0" * 64},
+                           usuario_id=bea)
+    firma = servicios.ejecutar(conn, "firmar_anulacion", firmar, usuario_id=bea,
+                               peticion_id="firma-bea-1")
+    evento = conn.execute("SELECT * FROM evento WHERE id = ?", (firma.evento_id,)).fetchone()
+    assert (evento["tipo"], evento["usuario_id"], evento["actor"]) == (
+        "anulacion_firmada", bea, bea)
+    # La firma es para Ana: Carla no la usa, ni Ana con otro plazo.
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "anular_hallazgo", anular, usuario_id=carla)
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "anular_hallazgo", {**anular, "vigente_hasta": "2026-12-31"},
+                           usuario_id=ana)
+    dif = servicios.ejecutar(conn, "anular_hallazgo", anular, usuario_id=ana,
+                             peticion_id="anular-1")
+    fila = conn.execute("SELECT * FROM anulacion").fetchone()
+    assert (fila["usuario_id"], fila["segunda_firma_usuario_id"], fila["autoaprobada"]) == (
+        ana, bea, 0)
+    assert dif.hallazgos["aceptados"][0]["regla"] == "D2b"
+    segunda = conn.execute("SELECT * FROM evento WHERE tipo = 'hallazgo_segunda_firma'"
+                           ).fetchone()
+    assert segunda["usuario_id"] == bea
+    assert json.loads(segunda["datos_json"])["firma_evento_id"] == firma.evento_id
+    # Se gasta: renovar la anulacion pide otra firma.
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "anular_hallazgo", anular, usuario_id=ana)
+    # Y caduca.
+    servicios.ejecutar(conn, "firmar_anulacion", firmar, usuario_id=bea)
+    reloj.avanzar(hours=servicios.FIRMA_VALIDA_HORAS, minutes=1)
+    with pytest.raises(permisos.SeparacionDeFunciones):
+        servicios.ejecutar(conn, "anular_hallazgo", anular, usuario_id=ana)
+    assert hallazgos.verificar(conn) == []
+
+
+def test_cerrar_un_hallazgo_pide_la_evidencia_que_se_vio(escenario) -> None:
+    conn = escenario.conn
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    _preparar_cerrar(conn, admin)
+    b4 = _hallazgo(conn, "B4")
+    with pytest.raises(servicios.DatosNoValidos, match="huella"):
+        servicios.ejecutar(conn, "cerrar_hallazgo", {
+            "hallazgo_id": b4["id"], "motivo": "Corregido el periodo"}, usuario_id=admin)
+    with pytest.raises(Conflicto):
+        servicios.ejecutar(conn, "cerrar_hallazgo", {
+            "hallazgo_id": b4["id"], "huella": "0" * 64, "motivo": "Corregido el periodo"},
+            usuario_id=admin)
+    servicios.ejecutar(conn, "cerrar_hallazgo", {
+        "hallazgo_id": b4["id"], "huella": b4["huella"], "motivo": "Corregido el periodo"},
+        usuario_id=admin)
+    assert _hallazgo(conn, "B4")["estado"] == "resuelto"
+
+
+def test_anadir_una_referencia_que_la_extraccion_no_trajo(escenario) -> None:
+    conn = escenario.conn
+    ids = _ids(conn)
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+    with pytest.raises(FaltaMotivo):
+        servicios.ejecutar(conn, "anadir_referencia", {
+            "factura_id": ids["c"], "valor": "4500099", "etiqueta": "PO-nummer",
+            "rev": _rev(conn, "factura", ids["c"])}, usuario_id=admin)
+    dif = servicios.ejecutar(conn, "anadir_referencia", {
+        "factura_id": ids["c"], "valor": "4500099", "etiqueta": "PO-nummer",
+        "rev": _rev(conn, "factura", ids["c"]), "motivo": "La PO viene en el correo"},
+        usuario_id=admin)
+    fila = conn.execute("SELECT * FROM factura_referencia WHERE id = ?",
+                        (dif.detalle["referencia_id"],)).fetchone()
+    assert (fila["factura_id"], fila["valor_doc"], fila["clase"]) == (ids["c"], "4500099", "po")
+    procedencia = campos.procedencia(conn, "factura_referencia", fila["id"])
+    assert procedencia["valor_doc"]["fuente"] == "manual_entrada"
+    # Una del cliente que no esta impresa, con su clase.
+    dif = servicios.ejecutar(conn, "anadir_referencia", {
+        "factura_id": ids["c"], "valor": "BMS-77", "clase": "ref_cliente",
+        "rev": _rev(conn, "factura", ids["c"]), "motivo": "La da el cliente por correo"},
+        usuario_id=admin)
+    assert conn.execute("SELECT clase FROM factura_referencia WHERE id = ?",
+                        (dif.detalle["referencia_id"],)).fetchone()[0] == "ref_cliente"
+    with pytest.raises(servicios.DatosNoValidos, match="clase"):
+        servicios.ejecutar(conn, "anadir_referencia", {
+            "factura_id": ids["c"], "valor": "X", "clase": "iban",
+            "rev": _rev(conn, "factura", ids["c"]), "motivo": "no"}, usuario_id=admin)
+
+
+def test_una_anulada_no_cuenta_en_su_proveedor_ni_en_su_trimestre(escenario) -> None:
+    conn = escenario.conn
+    ids = _ids(conn)
+    admin = permisos.usuario_por_nombre(conn, "Ana")
+
+    def motivos(entidad: str, entidad_id: int) -> list[str]:
+        fila = conn.execute("SELECT motivos_json FROM prioridad WHERE entidad = ? AND "
+                            "entidad_id = ?", (entidad, entidad_id)).fetchone()
+        return json.loads(fila[0])
+
+    for entidad in (("proveedor", ids["proveedor"]), ("trimestre", 20263)):
+        assert "3 facturas" in motivos(*entidad)
+    servicios.ejecutar(conn, "anular_factura", {
+        "factura_id": ids["b"], "rev": _rev(conn, "factura", ids["b"]), "motivo": MOTIVO},
+        usuario_id=admin)
+    for entidad in (("proveedor", ids["proveedor"]), ("trimestre", 20263)):
+        assert "2 facturas" in motivos(*entidad), entidad

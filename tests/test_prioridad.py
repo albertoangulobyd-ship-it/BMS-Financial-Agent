@@ -481,3 +481,51 @@ def test_la_cache_de_prioridad_agrega_por_proveedor_trimestre_y_excepcion(tipado
     assert trimestres[ano * 10 + (mes - 1) // 3 + 1] == "bloqueada"
     for f in conn.execute("SELECT * FROM factura_estado"):
         assert len(f["huella_entradas"]) == 64 and f["politica_sha256"] == PESOS.sha256()
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+def test_lo_que_no_esta_en_juego_no_suma_por_importe() -> None:
+    """Anulada, fusionada (y pagada, desde el paso 7) no necesita accion por su importe:
+    sin esto, una anulada grande quedaba en Atencion para siempre."""
+    r = calcular(_vence_en(-40, revisada=False, en_juego=False, importe_cent=3_000_000), HOY)
+    assert (r.nivel, r.puntos, r.motivos) == ("normal", 0, ())
+    # La misma, en juego, si.
+    r = calcular(_vence_en(-40, revisada=False, importe_cent=3_000_000), HOY)
+    assert any("importe" in m for m in r.motivos)
+
+
+def test_volver_a_unos_pesos_anteriores_el_mismo_dia_los_pone_en_vigor(tipado, tmp_path) -> None:
+    from bms_agent import politica
+
+    conn = tipado.conn
+    ruta = RAIZ / "config" / "prioridad.yaml"
+    otro = tmp_path / "prioridad.yaml"
+    otro.write_text(ruta.read_text(encoding="utf-8").replace(
+        "  atencion: 20", "  atencion: 25"), encoding="utf-8")
+    nuevos = [politica.cargar_prioridad(conn, r)[1] for r in (ruta, otro, ruta)]
+    assert nuevos == [True, True, True]
+    assert politica.pesos_prioridad(conn) == PESOS
+    assert politica.vigente(conn, politica.FICHERO_PRIORIDAD)["contenido"] == ruta.read_text(
+        encoding="utf-8")
+    # Volver a cargar la que ya vale no apunta nada.
+    assert politica.cargar_prioridad(conn, ruta)[1] is False
+
+
+def test_los_pesos_con_que_se_calcula_estan_siempre_en_la_politica(tipado) -> None:
+    """Sin cargar ningun fichero, la primera pasada apunta los pesos del codigo."""
+    from bms_agent import politica
+    from bms_agent.hallazgos import recalcular
+
+    conn = tipado.conn
+    assert politica.vigente(conn, politica.FICHERO_PRIORIDAD) is None
+    recalcular(conn)
+    version = politica.vigente(conn, politica.FICHERO_PRIORIDAD)
+    assert version is not None
+    usados = {f[0] for f in conn.execute("SELECT DISTINCT politica_sha256 FROM factura_estado")}
+    usados |= {f[0] for f in conn.execute("SELECT DISTINCT politica_sha256 FROM prioridad")}
+    assert usados == {pesos_de_yaml(version["contenido"]).sha256()} == {PESOS.sha256()}
+    eventos = conn.execute("SELECT count(*) FROM evento").fetchone()[0]
+    recalcular(conn)
+    assert conn.execute("SELECT count(*) FROM politica_version").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM evento").fetchone()[0] == eventos

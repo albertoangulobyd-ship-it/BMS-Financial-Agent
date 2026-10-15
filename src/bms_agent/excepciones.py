@@ -16,7 +16,8 @@ proveedor cubre todo lo suyo, y cada hallazgo sigue con su propia vida.
   resolucion y sus notas). Nada automatico la asigna ni la resuelve: la base
   lo exige (migracion 0004).
 - No se resuelve mientras un hallazgo suyo que bloquea siga abierto sin
-  anular. Resolverla no cierra sus hallazgos ni aprueba ningun pago.
+  anular, o desaparecido sin cerrar. Resolverla no cierra sus hallazgos ni
+  aprueba ningun pago.
 - Una resuelta no se toca. Si un hallazgo suyo vuelve a abrirse, o cambia
   su evidencia, despues de resolverla, la siguiente pasada abre otra; los que
   no cambiaron siguen cubiertos por aquella resolucion.
@@ -39,7 +40,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
-from .almacen import reloj_de, usuario_sistema
+from .almacen import comprobar_entidad, reloj_de, usuario_sistema
 from .almacen.unidades import json_canonico
 from .auditoria import Cambio, registrar
 from .campos import Conflicto, FaltaMotivo, Persona
@@ -359,9 +360,7 @@ def crear(conn: sqlite3.Connection, persona: Persona, *, tabla: str, fila_id: in
             raise ValueError(f"una excepcion es de {', '.join(sorted(_ENTIDADES))}, no de {tabla}")
         if not titulo:
             raise FaltaMotivo("una excepcion necesita decir de que va (titulo)")
-        if tabla == "factura" and conn.execute(
-                "SELECT 1 FROM factura WHERE id = ?", (fila_id,)).fetchone() is None:
-            raise LookupError(f"no hay factura {fila_id}")
+        comprobar_entidad(conn, tabla, fila_id)
         existente = abierta_de(conn, tabla, fila_id)
         if existente is not None:
             raise EstadoNoValido(f"{tabla} {fila_id} ya tiene la excepcion {existente['id']} "
@@ -446,11 +445,17 @@ def esperar(conn: sqlite3.Connection, persona: Persona, excepcion_id: int, *,
 
 
 def bloqueos_abiertos(conn: sqlite3.Connection, excepcion_id: int) -> list[sqlite3.Row]:
-    """Los hallazgos de la excepcion que bloquean y siguen abiertos sin anular."""
+    """Los hallazgos de la excepcion que bloquean y siguen abiertos sin anular.
+
+    Uno desaparecido cuenta como abierto (§7): su condicion se fue, pero es de
+    una regla pegajosa y nadie lo ha cerrado todavia. Si resolver la
+    excepcion lo dejara atras, el hallazgo quedaria sin nadie que lo mire.
+    """
     return conn.execute(
         "SELECT h.* FROM excepcion_hallazgo AS eh JOIN hallazgo AS h ON h.id = eh.hallazgo_id "
-        "WHERE eh.excepcion_id = ? AND h.severidad = 'bloqueo' AND h.estado = 'abierto' "
-        "ORDER BY h.id", (excepcion_id,)).fetchall()
+        "WHERE eh.excepcion_id = ? AND h.severidad = 'bloqueo' "
+        "AND h.estado IN ('abierto', 'desaparecido') ORDER BY h.id",
+        (excepcion_id,)).fetchall()
 
 
 def resolver(conn: sqlite3.Connection, persona: Persona, excepcion_id: int, *,
@@ -459,7 +464,8 @@ def resolver(conn: sqlite3.Connection, persona: Persona, excepcion_id: int, *,
     """Da la excepcion por resuelta, con su resolucion y sus notas.
 
     No se puede mientras un hallazgo suyo que bloquea siga abierto sin
-    anular: o se corrige el dato, o se anula (si la regla lo admite). Los
+    anular, o desaparecido sin que nadie lo cierre: o se corrige el dato, o
+    se anula (si la regla lo admite), o se cierra el desaparecido. Los
     hallazgos que retienen pueden quedar abiertos: resolver dice que el caso
     esta tratado, no que el hallazgo haya desaparecido, y sigue contando para
     la prioridad de la factura.
@@ -478,9 +484,10 @@ def resolver(conn: sqlite3.Connection, persona: Persona, excepcion_id: int, *,
         bloqueos = bloqueos_abiertos(conn, excepcion_id)
         if bloqueos:
             raise BloqueoAbierto(
-                "no se resuelve: bloquea " + ", ".join(f"{h['regla']} (hallazgo {h['id']})"
-                                                       for h in bloqueos)
-                + ", abierto y sin anular")
+                "no se resuelve: bloquea " + ", ".join(
+                    f"{h['regla']} (hallazgo {h['id']}, "
+                    + ("desaparecido: hay que cerrarlo" if h["estado"] == "desaparecido"
+                       else "abierto y sin anular") + ")" for h in bloqueos))
         hasta = conn.execute("SELECT coalesce(max(id), 0) FROM hallazgo_evento").fetchone()[0]
         return _cambiar(conn, persona, excepcion, {
             "estado": RESUELTA, "resolucion": codigo, "resolucion_notas": notas,

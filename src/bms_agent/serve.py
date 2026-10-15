@@ -44,6 +44,7 @@ import hmac
 import html
 import json
 import secrets
+import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -460,11 +461,20 @@ class Manejador(BaseHTTPRequestHandler):
         return preparar(self.ruta_db or ruta_por_defecto())
 
     def _persona(self, conn: Any, accion: str) -> int | None:
-        """La persona del token personal. Si no hay o no vale, contesta 401 y lo audita."""
-        usuario_id = permisos.usuario_por_token(conn, self.headers.get(CABECERA_TOKEN))
+        """La persona del token personal. Si no hay o no vale, contesta 401.
+
+        Solo se audita un token que llega y no vale. Una peticion sin token
+        no escribe nada: un <img src> de cualquier web llega sin Origin y sin
+        token, y si cada una dejara un evento, cualquier pagina podria llenar
+        la auditoria. Poner X-BMS-Token desde otra web pide una consulta CORS
+        previa, que ya se rechaza por su Origin.
+        """
+        token = self.headers.get(CABECERA_TOKEN)
+        usuario_id = permisos.usuario_por_token(conn, token)
         if usuario_id is None:
-            permisos.registrar_denegacion(conn, permisos.PermisoDenegado(
-                None, "ver_facturas", "token personal ausente o no valido", accion))
+            if token:
+                permisos.registrar_denegacion(conn, permisos.PermisoDenegado(
+                    None, "ver_facturas", "token personal no valido", accion))
             self._json(401, {"error": f"falta un token personal valido en {CABECERA_TOKEN}"})
         return usuario_id
 
@@ -518,24 +528,22 @@ class Manejador(BaseHTTPRequestHandler):
             return
         nombre = cuerpo.get("accion")
         datos = cuerpo.get("datos") or {}
-        if not isinstance(nombre, str) or not isinstance(datos, dict):
-            self._json(400, {"error": "una orden es {accion, peticion_id, datos}"})
+        sobran = sorted(set(cuerpo) - {"accion", "peticion_id", "datos"})
+        if not isinstance(nombre, str) or not isinstance(datos, dict) or sobran:
+            # La segunda firma ya no viaja aqui con el token de otra persona: es una
+            # orden suya (firmar_anulacion), desde su propia sesion.
+            self._json(400, {"error": "una orden es {accion, peticion_id, datos}"
+                             + (f"; no lleva {', '.join(sobran)}" if sobran else "")})
             return
         with self._almacen() as almacen:
             conn = almacen.conn
             usuario_id = self._persona(conn, nombre)
             if usuario_id is None:
                 return
-            segunda = None
-            if cuerpo.get("segunda_firma_token"):
-                segunda = permisos.usuario_por_token(conn, str(cuerpo["segunda_firma_token"]))
-                if segunda is None:
-                    self._json(401, {"error": "el token de la segunda firma no vale"})
-                    return
             try:
                 diferencia = servicios.ejecutar(
                     conn, nombre, datos, usuario_id=usuario_id,
-                    peticion_id=cuerpo.get("peticion_id"), segunda_firma_id=segunda)
+                    peticion_id=cuerpo.get("peticion_id"))
             except Exception as exc:  # cada error de la orden tiene su codigo
                 codigo = _codigo_de(exc)
                 if codigo is None:
@@ -565,6 +573,10 @@ def _codigo_de(error: Exception) -> int | None:
 
     if isinstance(error, permisos.PermisoDenegado):
         return 403
+    if isinstance(error, sqlite3.IntegrityError):
+        # Lo que la base no admite (una clave que no existe, un disparador): la
+        # orden choca con el estado del almacen, no es un fallo del servidor.
+        return 409
     if isinstance(error, (Conflicto, servicios.PeticionRepetida)):
         return 409
     if isinstance(error, (BloqueoAbierto, EstadoExcepcion, EstadoHallazgo, NoAnulable,
