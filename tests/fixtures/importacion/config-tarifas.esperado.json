@@ -1,0 +1,186 @@
+{
+  "semilla": "config/tarifas.yaml",
+  "clientes": [
+    {
+      "fila": 1,
+      "crudo": {
+        "obra": "Rijnhaven",
+        "cliente": "Havenbedrijf Rotterdam BV"
+      },
+      "id_externo": null,
+      "nombre": "Havenbedrijf Rotterdam BV",
+      "kvk": null,
+      "btw_id": null,
+      "plazo_pago_dias": null,
+      "requiere_po": null,
+      "tratamiento_iva_defecto": null,
+      "verlegd_elegible": false,
+      "activo": true
+    },
+    {
+      "fila": 2,
+      "crudo": {
+        "obra": "Schiedam",
+        "cliente": "Bouwgroep Schiedam VOF"
+      },
+      "id_externo": null,
+      "nombre": "Bouwgroep Schiedam VOF",
+      "kvk": null,
+      "btw_id": null,
+      "plazo_pago_dias": null,
+      "requiere_po": null,
+      "tratamiento_iva_defecto": null,
+      "verlegd_elegible": false,
+      "activo": true
+    }
+  ],
+  "objetos": [
+    {
+      "fila": 1,
+      "crudo": {
+        "obra": "Rijnhaven",
+        "cliente": "Havenbedrijf Rotterdam BV"
+      },
+      "codigo": "Rijnhaven",
+      "nombre": "Rijnhaven",
+      "cliente_ref": "Havenbedrijf Rotterdam BV",
+      "requiere_po": null,
+      "activo_desde": null,
+      "activo_hasta": null
+    },
+    {
+      "fila": 2,
+      "crudo": {
+        "obra": "Schiedam",
+        "cliente": "Bouwgroep Schiedam VOF"
+      },
+      "codigo": "Schiedam",
+      "nombre": "Schiedam",
+      "cliente_ref": "Bouwgroep Schiedam VOF",
+      "requiere_po": null,
+      "activo_desde": null,
+      "activo_hasta": null
+    },
+    {
+      "fila": 3,
+      "crudo": {
+        "obra": "Waalhaven",
+        "cliente": "Havenbedrijf Rotterdam BV"
+      },
+      "codigo": "Waalhaven",
+      "nombre": "Waalhaven",
+      "cliente_ref": "Havenbedrijf Rotterdam BV",
+      "requiere_po": null,
+      "activo_desde": null,
+      "activo_hasta": null
+    }
+  ],
+  "tarifas": [
+    {
+      "fila": 1,
+      "crudo": {
+        "obra": "Rijnhaven",
+        "trabajo": "montagewerk",
+        "tarifa": "62,00"
+      },
+      "sentido": "venta",
+      "proveedor_ref": null,
+      "recurso_ref": null,
+      "cliente_ref": null,
+      "objeto_ref": "Rijnhaven",
+      "tipo_servicio": "montagewerk",
+      "tipo_turno": null,
+      "unidad": "hora",
+      "tarifa": "62.00",
+      "tarifa_crudo": "62,00",
+      "moneda": null,
+      "vigente_desde": null,
+      "vigente_hasta": null
+    },
+    {
+      "fila": 2,
+      "crudo": {
+        "obra": "Rijnhaven",
+        "trabajo": "timmerwerk",
+        "tarifa": "56,00"
+      },
+      "sentido": "venta",
+      "proveedor_ref": null,
+      "recurso_ref": null,
+      "cliente_ref": null,
+      "objeto_ref": "Rijnhaven",
+      "tipo_servicio": "timmerwerk",
+      "tipo_turno": null,
+      "unidad": "hora",
+      "tarifa": "56.00",
+      "tarifa_crudo": "56,00",
+      "moneda": null,
+      "vigente_desde": null,
+      "vigente_hasta": null
+    },
+    {
+      "fila": 3,
+      "crudo": {
+        "obra": "Schiedam",
+        "trabajo": "elektrawerk",
+        "tarifa": "68,00"
+      },
+      "sentido": "venta",
+      "proveedor_ref": null,
+      "recurso_ref": null,
+      "cliente_ref": null,
+      "objeto_ref": "Schiedam",
+      "tipo_servicio": "elektrawerk",
+      "tipo_turno": null,
+      "unidad": "hora",
+      "tarifa": "68.00",
+      "tarifa_crudo": "68,00",
+      "moneda": null,
+      "vigente_desde": null,
+      "vigente_hasta": null
+    },
+    {
+      "fila": 4,
+      "crudo": {
+        "obra": "Schiedam",
+        "trabajo": "loodgieterswerk",
+        "tarifa": "61,00"
+      },
+      "sentido": "venta",
+      "proveedor_ref": null,
+      "recurso_ref": null,
+      "cliente_ref": null,
+      "objeto_ref": "Schiedam",
+      "tipo_servicio": "loodgieterswerk",
+      "tipo_turno": null,
+      "unidad": "hora",
+      "tarifa": "61.00",
+      "tarifa_crudo": "61,00",
+      "moneda": null,
+      "vigente_desde": null,
+      "vigente_hasta": null
+    },
+    {
+      "fila": 5,
+      "crudo": {
+        "obra": "Waalhaven",
+        "trabajo": "staalconstructie",
+        "tarifa": "74,00"
+      },
+      "sentido": "venta",
+      "proveedor_ref": null,
+      "recurso_ref": null,
+      "cliente_ref": null,
+      "objeto_ref": "Waalhaven",
+      "tipo_servicio": "staalconstructie",
+      "tipo_turno": null,
+      "unidad": "hora",
+      "tarifa": "74.00",
+      "tarifa_crudo": "74,00",
+      "moneda": null,
+      "vigente_desde": null,
+      "vigente_hasta": null
+    }
+  ],
+  "avisos": []
+}

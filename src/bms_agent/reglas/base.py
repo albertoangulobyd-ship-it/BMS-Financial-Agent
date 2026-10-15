@@ -70,6 +70,23 @@ class Politica:
     tolerancia_factura: Decimal = Decimal("0.02")
     ventana_duplicado_dias: int = 14
     tolerancia_duplicado: Decimal = Decimal("0.01")
+    # Paso 5. La cuenta pagable (decision 3): con solo_verificadas, lo
+    # heredado del primer maestro no se paga hasta que alguien lo atesta o lo
+    # verifica (lo estricto de D2, como interruptor).
+    iban_solo_verificadas: bool = False
+    # Tras un cambio del telefono de verificacion, cuantos dias no vale
+    # ninguna verificacion por telefono de ese proveedor (decision 4).
+    enfriamiento_telefono_dias: int = 14
+    # Frescura de cada fuente (decision 7): pasado el limite, Z1 y las reglas
+    # que dependen de ella dan sin_datos en vez de ok.
+    frescura_exact_dias: int = 7
+    frescura_trnsprnt_dias: int = 7
+    frescura_banco_dias_laborables: int = 3
+    # La identidad de BM Support BV (config/empresa.yaml), ya normalizada:
+    # A8 compara con ella a quien va dirigida una factura.
+    empresa_nombres: tuple[str, ...] = ("bm support bv",)
+    empresa_btw: str | None = None
+    empresa_kvk: str | None = None
 
     def valor(self, nombre: str) -> str:
         """El parametro como texto, para la huella (sin floats ni ambiguedad)."""
@@ -159,6 +176,16 @@ class Factura:
     desglose: tuple[TramoIva, ...]
     ilegibles: frozenset[str]
     no_solicitados: frozenset[str]
+    # Paso 5: lo que leen las reglas de identidad, de notas y del original.
+    # `dudosos` son los campos criticos con una lectura dudosa que nadie ha
+    # verificado (Q2); `sin_original`, que se extrajo de un documento cuyo
+    # original no se guardo (Q4).
+    documento_id: int | None = None
+    emisor_direccion_doc: str | None = None
+    kor_mencionada: bool | None = None
+    notas_doc: str | None = None
+    dudosos: frozenset[str] = frozenset()
+    sin_original: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,14 +197,111 @@ class Relacion:
     tipo: str
 
 
+@dataclass(frozen=True, slots=True)
+class Parte:
+    """Un proveedor o un cliente del maestro, con lo que lo identifica ya normalizado.
+
+    `nombres` son su nombre y sus alias confirmados, normalizados: el nombre
+    comercial que una persona confirmo cuenta como el suyo (A2).
+    """
+
+    id: int
+    tabla: str
+    nombre: str
+    nombres: frozenset[str]
+    kvk: str | None
+    btw: str | None
+    regimen_iva: str | None
+    activo: bool
+
+
+@dataclass(frozen=True, slots=True)
+class EventoCuenta:
+    """Lo que le paso a una cuenta del registro (cuenta_evento).
+
+    `llegada` es cuando llego lo que motivo una decision: el documento con el
+    IBAN nuevo o la importacion del maestro que lo cambio; el telefono que vale
+    es el del maestro de antes de eso (F8). `con_permiso`, si quien decidio
+    tenia confirmar_iban en ese momento. `telefono_usado`, normalizado.
+    """
+
+    id: int
+    tipo: str
+    en: str
+    importacion_id: int | None
+    documento_id: int | None
+    usuario_id: int | None
+    con_permiso: bool
+    telefono_usado: str | None
+    llegada: str | None
+    decision_facturas: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Cuenta:
+    """Una cuenta del registro con sus eventos en orden. `parte_id` es su proveedor o cliente."""
+
+    id: int
+    titular: str
+    parte_id: int
+    iban: str
+    primera_fuente: str
+    eventos: tuple[EventoCuenta, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CambioTelefono:
+    """Un valor del telefono de verificacion de un proveedor, en orden.
+
+    `alta` si se puso al crear el proveedor (no es un cambio: no abre el
+    enfriamiento); `dia`, en la zona de la empresa.
+    """
+
+    proveedor_id: int
+    cambio_id: int
+    valor: str | None
+    en: str
+    dia: date
+    alta: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Lote:
+    """Una importacion de un maestro (no las de out/). `rechazos`: (fila, codigo, motivo).
+
+    `exportado` es el dia en que se saco el fichero de su sistema, o el de la
+    importacion si no se dijo; `ultimo`, si es la mas reciente de su fuente y
+    tipo.
+    """
+
+    id: int
+    fuente: str
+    tipo: str
+    estado: str
+    exportado: date | None
+    filas_rechazadas: int
+    rechazos: tuple[tuple[int, str, str], ...]
+    ultimo: bool
+
+
 @dataclass(frozen=True)
 class Instantanea:
-    """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py."""
+    """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py.
+
+    Desde el paso 5, tambien los maestros (`proveedores`, `clientes`), el
+    registro de cuentas con sus eventos, la historia de los telefonos de
+    verificacion y las importaciones de maestros.
+    """
 
     hoy: date
     politica: Politica
     facturas: tuple[Factura, ...]
     relaciones: tuple[Relacion, ...] = ()
+    proveedores: tuple[Parte, ...] = ()
+    clientes: tuple[Parte, ...] = ()
+    cuentas: tuple[Cuenta, ...] = ()
+    telefonos: tuple[CambioTelefono, ...] = ()
+    lotes: tuple[Lote, ...] = ()
 
 
 # ------------------------------------------------------------ resultados
@@ -431,3 +555,108 @@ def vinculadas(relaciones: Iterable[Relacion]) -> frozenset[frozenset[int]]:
 
 
 LEE_RELACIONES = frozenset({"instantanea.relaciones", "relacion.origen_id", "relacion.destino_id"})
+
+
+# ------------------------------------------------------------ reglas del paso 5
+#
+# Las reglas de factura del paso 5 escriben solo lo que dicen algo: un fallo
+# o un sin_datos. Un ok o un no_aplica no se escribe en la cache: cada
+# resultado escrito cuesta unos 13 microsegundos entre la pasada y la cache, y
+# catorce reglas mas por factura no cabrian en los dos segundos de cinco mil
+# facturas (registro, paso 5). Que una regla no diga nada de una factura es
+# que no tiene nada que objetar; sin_datos sigue escribiendose siempre.
+
+LEE_EN_JUEGO = frozenset({"instantanea.facturas", "factura.anulada", "factura.fusionada_en_id"})
+
+ConContexto = Callable[[Factura, Any], Sequence[Resultado]]
+
+
+def solo_objeciones(funcion: ConContexto,
+                    preparar: Callable[[Instantanea], Any] | None = None) -> Evaluador:
+    """Una regla de factura del paso 5: la funcion con cada factura en juego y su contexto.
+
+    `preparar` construye una vez por pasada lo que la regla necesita de la
+    instantanea (los maestros por id, el estado de cada cuenta); sin el, el
+    contexto es la instantanea misma. Una factura anulada o fusionada no da
+    nada: lo que tuviera abierto se cierra (o queda desaparecido) como con
+    cualquier otra regla.
+    """
+    def evaluar(instantanea: Instantanea) -> list[Resultado]:
+        contexto = preparar(instantanea) if preparar is not None else instantanea
+        salida: list[Resultado] = []
+        for factura in instantanea.facturas:
+            if factura.anulada or factura.fusionada_en_id is not None:
+                continue
+            salida.extend(funcion(factura, contexto))
+        return salida
+    return evaluar
+
+
+def fallo(regla_id: str, factura: Factura, detalle: str, *,
+          valores: Mapping[str, Any] = SIN_VALORES, clave: str = "",
+          severidad: str | None = None, objetivos: tuple[Objetivo, ...] = ()) -> Resultado:
+    return Resultado(regla_id, "factura", factura.id, FALLO, detalle, valores, clave, None,
+                     severidad, objetivos)
+
+
+def sin_datos(regla_id: str, factura: Factura, detalle: str, *,
+              valores: Mapping[str, Any] = SIN_VALORES, clave: str = "") -> Resultado:
+    return Resultado(regla_id, "factura", factura.id, SIN_DATOS, detalle, valores, clave)
+
+
+# Las fuentes con limite de frescura, y en que unidad (decision 7).
+FRESCURA = {"exact": "frescura_exact_dias", "trnsprnt": "frescura_trnsprnt_dias",
+            "banco": "frescura_banco_dias_laborables"}
+VALIDOS = frozenset({"aceptada", "parcial"})
+
+
+def dias_laborables(desde: date, hasta: date) -> int:
+    """Los dias de lunes a viernes despues de `desde` y hasta `hasta`, incluido."""
+    if hasta <= desde:
+        return 0
+    completas, resto = divmod((hasta - desde).days, 7)
+    dias = completas * 5
+    dia = desde.weekday()
+    for _ in range(resto):
+        dia = (dia + 1) % 7
+        if dia < 5:
+            dias += 1
+    return dias
+
+
+def ultimo_lote_valido(instantanea: Instantanea, fuente: str) -> Lote | None:
+    """La ultima importacion aceptada (o parcial) de una fuente."""
+    validos = [l for l in instantanea.lotes if l.fuente == fuente and l.estado in VALIDOS]
+    return max(validos, key=lambda l: l.id) if validos else None
+
+
+def edad(lote: Lote, hoy: date, fuente: str) -> int:
+    """Lo viejo que es un lote: dias, o dias laborables en el banco."""
+    if lote.exportado is None:
+        return 0
+    if fuente == "banco":
+        return dias_laborables(lote.exportado, hoy)
+    return (hoy - lote.exportado).days
+
+
+def caducada(instantanea: Instantanea, fuente: str) -> bool | None:
+    """Si una fuente esta pasada de su limite de frescura (Z1); None si nunca se importo."""
+    lote = ultimo_lote_valido(instantanea, fuente)
+    if lote is None or fuente not in FRESCURA:
+        return None
+    limite = getattr(instantanea.politica, FRESCURA[fuente])
+    return edad(lote, instantanea.hoy, fuente) > limite
+
+
+def importado(instantanea: Instantanea, tipo: str) -> bool:
+    """Si ya entro algun maestro de ese tipo (proveedores, clientes...)."""
+    return any(l.tipo == tipo and l.estado in VALIDOS for l in instantanea.lotes)
+
+
+# Lo que lee `importado` (si ya entro un maestro de un tipo) y lo que lee
+# `caducada` (si la ultima importacion de una fuente esta pasada de su limite).
+LEE_IMPORTADO = frozenset({"instantanea.lotes", "lote.tipo", "lote.estado"})
+LEE_CADUCIDAD = frozenset({"instantanea.lotes", "lote.fuente", "lote.estado", "lote.id",
+                           "lote.exportado", "instantanea.hoy", "instantanea.politica",
+                           "politica.frescura_exact_dias"})
+LEE_LOTES = LEE_IMPORTADO | LEE_CADUCIDAD

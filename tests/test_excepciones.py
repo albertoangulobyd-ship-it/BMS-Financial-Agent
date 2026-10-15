@@ -126,7 +126,11 @@ def test_una_entidad_sin_hallazgos_que_la_pidan_no_tiene_excepcion(tipado) -> No
     conn = tipado.conn
     hallazgos.recalcular(conn)
     usd = factura_de(conn, "NW-2026-0042")
-    assert [(e["fila_id"], _unidos(conn, e["id"])) for e in _excepciones(conn)] == [(usd, ["X1"])]
+    inyeccion = factura_de(conn, "2026-0912")
+    # Paso 5: el aviso de inyeccion de la 03 abre la suya (Q3 crea excepcion); los Q4 de
+    # cada factura sin su original guardado son avisos que no la piden.
+    assert sorted((e["fila_id"], _unidos(conn, e["id"])) for e in _excepciones(conn)) == sorted(
+        [(inyeccion, ["Q3"]), (usd, ["X1"])])
 
 
 # ------------------------------------------------------------ el estado lo pone una persona
@@ -243,7 +247,7 @@ def test_una_persona_abre_una_a_mano_y_no_hay_dos(tipado) -> None:
     conn = tipado.conn
     hallazgos.recalcular(conn)
     ana = persona(conn, "Ana", "administracion")
-    limpia = factura_de(conn, "2026-0912")
+    limpia = factura_de(conn, "2026-4471")
     nueva = excepciones.crear(conn, Persona(ana, "El cliente discute las horas"),
                               tabla="factura", fila_id=limpia, titulo="Horas en disputa")
     e = conn.execute("SELECT * FROM excepcion WHERE id = ?", (nueva,)).fetchone()

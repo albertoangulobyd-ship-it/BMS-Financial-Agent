@@ -128,8 +128,11 @@ def importes_repetidos(
             # La ventana se corta antes de mirar nada mas: con la lista por
             # fecha, la primera factura fuera de plazo deja fuera a todas las
             # siguientes. Mirar antes el importe convertia a un proveedor con
-            # miles de facturas en millones de comparaciones.
-            for b in lista[i + 1:]:
+            # miles de facturas en millones de comparaciones. Y se recorre por
+            # posicion, no con lista[i + 1:]: copiar la cola en cada vuelta era
+            # cuadratico aunque el bucle se cortara enseguida.
+            for j in range(i + 1, len(lista)):
+                b = lista[j]
                 dias = (b.fecha - a.fecha).days
                 if dias > politica.ventana_duplicado_dias:
                     break
@@ -162,7 +165,8 @@ def periodos_solapados(
     for _grupo, rangos in sorted(por_grupo.items()):
         rangos = sorted(rangos, key=lambda c: (c.inicio, c.orden))
         for i, a in enumerate(rangos):
-            for b in rangos[i + 1:]:
+            for j in range(i + 1, len(rangos)):
+                b = rangos[j]
                 if b.inicio > a.fin:
                     break
                 if excluir(a, b):

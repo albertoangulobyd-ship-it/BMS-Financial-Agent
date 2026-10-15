@@ -476,7 +476,9 @@ def test_las_guardas_de_la_migracion_son_las_del_script(db) -> None:
     spec = importlib.util.spec_from_file_location("guardas", RAIZ / "scripts" / "generar_guardas.py")
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
-    sql = next(m.sql for m in disponibles() if m.version == 2)
+    # Las del paso 2 estan en la 0002 y las del paso 5 (beneficiario_conocido,
+    # ciclo_facturacion) en la 0005: se buscan en todas.
+    sql = "\n".join(m.sql for m in disponibles())
     for tabla in CONTROLADAS:
         assert modulo.guardas(tabla, modulo.columnas(db, tabla)) in sql, tabla
 

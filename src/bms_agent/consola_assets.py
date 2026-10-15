@@ -35,6 +35,7 @@ PAGINA = """<!doctype html>
   </form>
 </header>
 <main>
+  <section id="fuentes"></section>
   <section id="mensaje" role="status"></section>
   <section id="lista"></section>
   <section id="ficha"></section>
@@ -53,6 +54,7 @@ h1{font-size:1.3rem;margin:.3rem 0}
 h2{font-size:1.1rem;margin:1.2rem 0 .4rem}
 h3{font-size:1rem;margin:.9rem 0 .3rem}
 .aviso{color:var(--suave);margin:.2rem 0 .6rem}
+.pasada{color:var(--bloq);font-weight:600}
 table{border-collapse:collapse;width:100%;margin:.3rem 0}
 th,td{border-bottom:1px solid var(--linea);padding:.25rem .4rem;text-align:left;vertical-align:top}
 th{font-weight:600;background:var(--caja)}
@@ -429,7 +431,21 @@ SCRIPT = r"""
 
   // ---------------------------------------------------------------- arranque
 
+  // Z1: una fuente pasada de su limite sale arriba, antes que la lista: lo que
+  // depende de ella esta sin datos, y quien mira tiene que saberlo.
+  function pintarFuentes(contenedor, fuentes) {
+    vaciar(contenedor);
+    fuentes.filter(function (f) { return f.caducada; }).forEach(function (f) {
+      anadir(contenedor, el('p', {clase: 'aviso pasada'}, 'Lo último de ' + f.fuente + ' (' +
+        f.tipo + ') es del ' + f.exportado + ': ' + f.edad + ' ' + f.unidad +
+        ', más que el límite de ' + f.limite + '. Lo que depende de esa fuente está sin datos.'));
+    });
+  }
+
   function recargar() {
+    api('GET', '/api/v2/fuentes').then(function (r) {
+      pintarFuentes(document.getElementById('fuentes'), r.fuentes);
+    });
     var lista = api('GET', '/api/v2/facturas').then(function (r) {
       pintarListado(document.getElementById('lista'), r.facturas);
     });

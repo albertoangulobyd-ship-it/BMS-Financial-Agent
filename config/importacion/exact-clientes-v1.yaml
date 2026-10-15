@@ -1,0 +1,40 @@
+# Exportacion de deudores de Exact Online (Debiteuren) a CSV.
+#
+# De cada fila salen un cliente y, si trae IBAN, su cuenta (para el cruce con
+# el banco del paso 7). Como en los acreedores: clientes fila a fila, cuentas
+# enteras o ninguna.
+version: 1
+fuente: exact
+tipo: clientes
+formato: "csv:exact-debiteuren-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Debiteurnummer, Naam, Btw-nummer, Btw-behandeling, Betalingsconditie, IBAN]
+completo: true
+registros:
+  clientes:
+    campos:
+      id_externo: {columna: Debiteurnummer, obligatorio: true}
+      nombre: {columna: Naam, obligatorio: true}
+      kvk: {columna: KvK-nummer}
+      btw_id: {columna: Btw-nummer}
+      tratamiento_iva_defecto:
+        columna: Btw-behandeling
+        valores: {Normaal: estandar, Verlegd: autoliquidacion, Vrijgesteld: exento,
+                  Nultarief: tipo_cero}
+      verlegd_elegible: {columna: Verleggen toegestaan, tipo: bool, por_defecto: false}
+      requiere_po: {columna: PO verplicht, tipo: bool}
+      plazo_pago_dias: {columna: Betalingsconditie, tipo: entero}
+      activo: {columna: Status, valores: {Actief: true, Geblokkeerd: false}, por_defecto: true}
+  cuentas:
+    fijos: {titular: cliente}
+    omitir_si_vacio: [iban]
+    campos:
+      parte_ref: {columna: Debiteurnummer, obligatorio: true}
+      iban: {columna: IBAN, tipo: iban}
+      nombre_titular: {columna: Tenaamstelling}

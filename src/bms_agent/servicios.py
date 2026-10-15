@@ -37,16 +37,22 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import campos, estados, excepciones, hallazgos, revision
+from . import campos, cuentas, estados, excepciones, hallazgos, revision
 from .almacen import reloj_de
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb, json_canonico, sha256_texto
 from .auditoria import registrar
 from .campos import Conflicto, FaltaMotivo, Persona
-from .dominio import FUENTES_MANUALES, ClaseReferencia, Permiso
+from .dominio import (
+    FUENTES_MANUALES,
+    ClaseReferencia,
+    DecisionFacturas,
+    MetodoVerificacion,
+    Permiso,
+)
 from .identidad import anadir_alias
 from .permisos import (
     PermisoDenegado,
@@ -54,6 +60,7 @@ from .permisos import (
     es_persona,
     exigir,
     orden_auditada,
+    separacion,
     tiene,
 )
 from .reglas.instantanea import moneda_extranjera
@@ -249,7 +256,7 @@ def _diferencia(nombre: str, hecho: Hecho, recalculo: hallazgos.Diferencia | Non
         grupos[_GRUPO_TRANSICION.get(h["tipo"], "otros")].append(h)
     if recalculo is not None:
         diferencia.ejecucion_id = recalculo.ejecucion_id
-        diferencia.resultados = [asdict(c) for c in recalculo.cambios_evaluacion]
+        diferencia.resultados = [c._asdict() for c in recalculo.cambios_evaluacion]
         for t in recalculo.transiciones:
             grupos[_GRUPO_TRANSICION.get(t.tipo, "otros")].append({
                 "hallazgo_id": t.hallazgo_id, "regla": t.regla, "factura_id": t.factura_id,
@@ -407,7 +414,7 @@ _CAMPOS_CON_ORDEN = {
     ("factura_imputacion", "orden_compra_id"): "la imputacion a una PO (paso 9)",
     ("factura_referencia", "orden_compra_id"): "la imputacion a una PO (paso 9)",
     ("factura_referencia", "clase"): "cambiar_po",
-    ("proveedor", "telefono_verificacion"): "el telefono de verificacion (paso 5)",
+    ("proveedor", "telefono_verificacion"): "fijar_telefono_verificacion",
 }
 _MAESTROS = ("proveedor", "cliente", "contacto")
 
@@ -487,7 +494,7 @@ def _corregir_maestro(ctx: Contexto, d: dict[str, Any]) -> Hecho:
                              tipo="maestro_corregido", rev_esperada=d["rev"],
                              datos=ctx.datos_evento)
     if resultado.evento_id is not None:
-        from .ingesta import reconciliar_referencias
+        from .identidad import reconciliar_referencias
 
         reconciliar_referencias(ctx.conn)
     return Hecho(resultado.evento_id)
@@ -562,7 +569,7 @@ def _cambiar_objeto(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 
 def _anadir_alias(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     """Un nombre impreso mas con el que se reconoce un Objeto o un recurso."""
-    from .ingesta import reconciliar_referencias
+    from .identidad import reconciliar_referencias
 
     if d["tabla"] not in ("objeto", "recurso"):
         raise DatosNoValidos("aqui se anaden alias de Objetos y recursos; los de proveedores y "
@@ -945,6 +952,240 @@ def _recalcular(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(None, detalle={"recalcular": True})
 
 
+# ------------------------------------------------------------ cuentas bancarias (paso 5)
+#
+# Verificar, rechazar o atestar una cuenta y fijar el telefono de
+# verificacion piden confirmar_iban. El IBAN lo teclea la persona: nunca se
+# copia del documento. Si la decision hace desaparecer hallazgos de la
+# familia F, la misma orden los cierra (es esa decision la que los
+# resuelve); los demas que desaparezcan esperan a cerrar_hallazgo.
+
+def _proveedor(conn: sqlite3.Connection, proveedor_id: int) -> sqlite3.Row:
+    fila = conn.execute("SELECT * FROM proveedor WHERE id = ?", (proveedor_id,)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay proveedor {proveedor_id}")
+    return fila
+
+
+def _llegada_documento(conn: sqlite3.Connection, documento_id: int | None) -> str | None:
+    if documento_id is None:
+        return None
+    fila = conn.execute("SELECT coalesce(recibido_en, registrado_en) FROM documento "
+                        "WHERE id = ?", (documento_id,)).fetchone()
+    return fila[0] if fila else None
+
+
+def _motivo_de_la_cuenta(conn: sqlite3.Connection, proveedor_id: int, iban: str,
+                         factura_id: int | None) -> tuple[int | None, int | None, str | None]:
+    """Lo que motiva decidir sobre una cuenta: (documento, importacion, cuando llego).
+
+    Con una factura, su documento: el IBAN nuevo llego con ella. Sin factura,
+    la ultima importacion del maestro que trajo o quito la cuenta: el cambio
+    llego con ese fichero. El telefono que vale es el del maestro de antes.
+    """
+    if factura_id is not None:
+        factura = conn.execute("SELECT proveedor_id, documento_id FROM factura WHERE id = ?",
+                               (factura_id,)).fetchone()
+        if factura is None:
+            raise LookupError(f"no hay factura {factura_id}")
+        if factura["proveedor_id"] != proveedor_id:
+            raise DatosNoValidos(f"la factura {factura_id} no es del proveedor {proveedor_id} "
+                                 "(o no tiene proveedor resuelto): resuelvelo antes")
+        return (factura["documento_id"], None,
+                _llegada_documento(conn, factura["documento_id"]))
+    cuenta = cuentas.cuenta_de(conn, "proveedor", proveedor_id, iban)
+    if cuenta is None:
+        return None, None, None
+    fila = conn.execute(
+        "SELECT e.importacion_id, coalesce(d.registrado_en, i.iniciada_en) FROM cuenta_evento AS e "
+        "JOIN importacion AS i ON i.id = e.importacion_id "
+        "LEFT JOIN documento AS d ON d.id = i.documento_id "
+        "WHERE e.cuenta_id = ? AND e.tipo IN ('visto_en_exact', 'ausente_en_exact') "
+        "ORDER BY e.id DESC LIMIT 1", (cuenta["id"],)).fetchone()
+    return (None, fila[0], fila[1]) if fila else (None, None, None)
+
+
+def _estado_de(conn: sqlite3.Connection, cuenta_id: int) -> Any:
+    """El estado de una cuenta como lo vera la pasada (con la politica de ahora)."""
+    from . import politica
+    from .reglas import bancaria
+    from .reglas import instantanea as lecturas
+
+    cuenta = next(c for c in lecturas.cuentas(conn) if c.id == cuenta_id)
+    telefonos = [t for t in lecturas.telefonos(conn) if t.proveedor_id == cuenta.parte_id]
+    return bancaria.estado_cuenta(cuenta, telefonos, politica.politica_reglas(conn))
+
+
+def _iban(texto: str) -> str:
+    from .reglas.bancaria import validar_iban
+    from .reglas.normas import normalizar_iban
+
+    limpio = normalizar_iban(texto) or ""
+    if not validar_iban(limpio):
+        raise DatosNoValidos(f"{limpio!r} no pasa el digito de control: revisa lo tecleado")
+    return limpio
+
+
+def _hecho_cuenta(conn: sqlite3.Connection, resultado: Any, facturas: set[int],
+                  detalle: dict[str, Any]) -> Hecho:
+    return Hecho(resultado.evento_id, facturas,
+                 {**detalle, "cuentas": resultado.cuentas, "cuenta_creada": resultado.creada,
+                  "telefono_ref": resultado.telefono_ref, "cerrar_f": True})
+
+
+def _verificar_iban(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Verificar por telefono una cuenta de un proveedor (la nueva de una factura o la del maestro).
+
+    El numero llamado tiene que ser el que tenia el maestro antes de que
+    llegara lo que la motivo, y no puede haber cambiado dentro del
+    enfriamiento: si no, la verificacion queda apuntada pero no cuenta (F8),
+    y la orden lo dice. Quien cambio a mano el telefono de ese proveedor no
+    verifica con el si hay otra persona con confirmar_iban.
+    """
+    conn = ctx.conn
+    proveedor = _proveedor(conn, d["proveedor_id"])
+    iban = _iban(d["iban"])
+    metodo = d["metodo"] or "llamada"
+    if metodo not in MetodoVerificacion.valores():
+        raise DatosNoValidos(f"metodo: {metodo!r} no es uno de "
+                             f"{', '.join(MetodoVerificacion.valores())}")
+    documento_id, importacion_id, llegada = _motivo_de_la_cuenta(conn, proveedor["id"], iban,
+                                                                  d["factura_id"])
+    autor = conn.execute(
+        "SELECT e.usuario_id FROM cambio_campo AS c JOIN evento AS e ON e.id = c.evento_id "
+        "WHERE c.tabla = 'proveedor' AND c.fila_id = ? AND c.campo = 'telefono_verificacion' "
+        "ORDER BY c.id DESC LIMIT 1", (proveedor["id"],)).fetchone()
+    decision = separacion(conn, P.CONFIRMAR_IBAN.value, autor[0] if autor else None,
+                          ctx.persona.usuario_id)
+    if decision == "denegado":
+        raise SeparacionDeFunciones(
+            ctx.persona.usuario_id, P.CONFIRMAR_IBAN.value,
+            "cambiaste tu el telefono de verificacion de este proveedor y hay otra persona con "
+            "confirmar_iban: verifica la otra", "verificar una cuenta")
+    resultado = cuentas.decidir(
+        conn, ctx.persona, titular="proveedor", objetivos=[(proveedor["id"], iban)],
+        decision=cuentas.Decision("verificada", metodo=metodo, telefono_usado=d["telefono"],
+                                  persona_contactada=d["persona_contactada"],
+                                  documento_id=documento_id, importacion_id=importacion_id,
+                                  nota=d["nota"]),
+        llegada=llegada, crear=True,
+        datos={**ctx.datos_evento, "autorrevisada": decision == "autorrevisado"})
+    estado = _estado_de(conn, resultado.cuentas[0])
+    ineficaz = estado.ineficaz[1] if estado.ineficaz is not None else None
+    return _hecho_cuenta(conn, resultado, {d["factura_id"]} - {None}, {
+        "cuenta_id": resultado.cuentas[0], "eficaz": ineficaz is None, "motivo_ineficaz": ineficaz,
+        "estado": estado.estado, "pagable": estado.pagable})
+
+
+def _rechazar_iban(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Rechazar una cuenta de un proveedor: no es suya, o no la confirma al telefono del maestro.
+
+    Con una factura, `decision_facturas` dice que se hace con ella: pagar a la
+    cuenta verificada del maestro (sus F2 y F3 dejan de bloquearla si tiene
+    una pagable) o anularla (con anular_factura).
+    """
+    conn = ctx.conn
+    proveedor = _proveedor(conn, d["proveedor_id"])
+    iban = _iban(d["iban"])
+    if d["decision_facturas"] is not None and (
+            d["decision_facturas"] not in DecisionFacturas.valores()):
+        raise DatosNoValidos(f"decision_facturas: {d['decision_facturas']!r} no es una de "
+                             f"{', '.join(DecisionFacturas.valores())}")
+    if d["decision_facturas"] is not None and d["factura_id"] is None:
+        raise DatosNoValidos("decision_facturas va con la factura que traia la cuenta")
+    documento_id, importacion_id, llegada = _motivo_de_la_cuenta(conn, proveedor["id"], iban,
+                                                                  d["factura_id"])
+    resultado = cuentas.decidir(
+        conn, ctx.persona, titular="proveedor", objetivos=[(proveedor["id"], iban)],
+        decision=cuentas.Decision("rechazada", telefono_usado=d["telefono"],
+                                  metodo="llamada" if d["telefono"] else None,
+                                  persona_contactada=d["persona_contactada"],
+                                  decision_facturas=d["decision_facturas"],
+                                  documento_id=documento_id, importacion_id=importacion_id,
+                                  nota=d["nota"]),
+        llegada=llegada, crear=True, datos=ctx.datos_evento)
+    return _hecho_cuenta(conn, resultado, {d["factura_id"]} - {None},
+                         {"cuenta_id": resultado.cuentas[0],
+                          "decision_facturas": d["decision_facturas"]})
+
+
+def _atestar_iban(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Atestar cuentas heredadas del primer maestro: una, o todas las que faltan.
+
+    Es la tarea de F0. Sin proveedor ni IBAN atesta cada cuenta heredada que
+    sigue en Exact, sin un cambio pendiente y sin decision de nadie.
+    """
+    conn = ctx.conn
+    from .reglas import bancaria
+    from .reglas import instantanea as lecturas
+
+    if (d["proveedor_id"] is None) != (d["iban"] is None):
+        raise DatosNoValidos("se atesta una cuenta (proveedor e IBAN) o todas las heredadas "
+                             "(ninguno de los dos)")
+    if d["proveedor_id"] is not None:
+        _proveedor(conn, d["proveedor_id"])
+        objetivos = [(d["proveedor_id"], _iban(d["iban"]))]
+        if cuentas.cuenta_de(conn, "proveedor", d["proveedor_id"], objetivos[0][1]) is None:
+            raise LookupError(f"el registro no tiene la cuenta {objetivos[0][1]} del proveedor "
+                              f"{d['proveedor_id']}: se verifica por telefono, no se atesta")
+    else:
+        from . import politica
+
+        politica_ = politica.politica_reglas(conn)
+        telefonos: dict[int, list[Any]] = defaultdict(list)
+        for t in lecturas.telefonos(conn):
+            telefonos[t.proveedor_id].append(t)
+        objetivos = []
+        for cuenta in lecturas.cuentas(conn):
+            if cuenta.titular != "proveedor":
+                continue
+            estado = bancaria.estado_cuenta(cuenta, telefonos.get(cuenta.parte_id, ()),
+                                            politica_)
+            if estado.estado == "heredada" and estado.en_exact and not estado.cambios:
+                objetivos.append((cuenta.parte_id, cuenta.iban))
+        if not objetivos:
+            raise DatosNoValidos("no hay ninguna cuenta heredada por atestar")
+    resultado = cuentas.decidir(
+        conn, ctx.persona, titular="proveedor", objetivos=objetivos,
+        decision=cuentas.Decision("atestada", nota=d["nota"]), datos=ctx.datos_evento)
+    return _hecho_cuenta(conn, resultado, set(), {"atestadas": len(resultado.cuentas)})
+
+
+def _fijar_telefono(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """El telefono de verificacion de un proveedor: al que se llama para verificar una cuenta.
+
+    Cambiarlo abre el enfriamiento (F9): durante unos dias ninguna
+    verificacion por telefono de ese proveedor cuenta.
+    """
+    proveedor = _proveedor(ctx.conn, d["proveedor_id"])
+    definicion = campos.campo("proveedor", "telefono_verificacion")
+    resultado = campos.fijar(ctx.conn, "proveedor", proveedor["id"],
+                             {"telefono_verificacion": valor_de_entrada(definicion,
+                                                                        d["telefono"])},
+                             ctx.persona, tipo="telefono_verificacion_fijado",
+                             rev_esperada=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id)
+
+
+def _anadir_beneficiario(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Un beneficiario que no es proveedor (Belastingdienst, nominas, alquiler), para F7."""
+    motivo = _motivo(ctx, "anadir un beneficiario conocido")
+    with campos.orden(ctx.conn, ctx.persona, tipo="beneficiario_alta",
+                      datos=ctx.datos_evento) as o:
+        fila_id = o.crear("beneficiario_conocido", {
+            "iban": _iban(d["iban"]), "nombre": d["nombre"], "motivo": motivo,
+            "creado_por": ctx.persona.usuario_id,
+            "creado_en": datetime.fromisoformat(o.ahora)})
+    return Hecho(o.resultado.evento_id, detalle={"beneficiario_id": fila_id})
+
+
+def _retirar_beneficiario(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    _comprobar_rev(ctx.conn, "beneficiario_conocido", d["beneficiario_id"], d["rev"])
+    resultado = campos.retirar(ctx.conn, "beneficiario_conocido", d["beneficiario_id"],
+                               ctx.persona)
+    return Hecho(resultado.evento_id)
+
+
 # ------------------------------------------------------------ el catalogo
 
 def _p(nombre: str, tipo: str = ENTERO, obligatorio: bool = True, ayuda: str = "") -> Parametro:
@@ -1049,6 +1290,36 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Subir la prioridad de algo (solo se sube; nunca a bloqueada).",
            (_p("entidad", TEXTO, False), _p("entidad_id"), _p("nivel", TEXTO),
             _p("hasta", FECHA, False), _MOTIVO), _subir_prioridad, motivo="obligatorio"),
+    Accion("verificar_iban", P.CONFIRMAR_IBAN.value,
+           "Verificar por telefono una cuenta de un proveedor, llamando al numero que tenia el "
+           "maestro antes del documento (el IBAN se teclea, nunca se copia de la factura).",
+           (_p("proveedor_id"), _p("iban", TEXTO), _p("telefono", TEXTO),
+            _p("metodo", TEXTO, False), _p("persona_contactada", TEXTO, False),
+            _p("factura_id", ENTERO, False), _p("nota", TEXTO, False), _MOTIVO),
+           _verificar_iban, motivo="obligatorio"),
+    Accion("rechazar_iban", P.CONFIRMAR_IBAN.value,
+           "Rechazar una cuenta de un proveedor; con la factura que la traia, decir si se paga "
+           "a la verificada o se anula.",
+           (_p("proveedor_id"), _p("iban", TEXTO), _p("factura_id", ENTERO, False),
+            _p("decision_facturas", TEXTO, False), _p("telefono", TEXTO, False),
+            _p("persona_contactada", TEXTO, False), _p("nota", TEXTO, False), _MOTIVO),
+           _rechazar_iban, motivo="obligatorio"),
+    Accion("atestar_iban", P.CONFIRMAR_IBAN.value,
+           "Atestar una cuenta heredada del primer maestro, o todas las que faltan.",
+           (_p("proveedor_id", ENTERO, False), _p("iban", TEXTO, False),
+            _p("nota", TEXTO, False), _MOTIVO), _atestar_iban, motivo="obligatorio"),
+    Accion("fijar_telefono_verificacion", P.CONFIRMAR_IBAN.value,
+           "El telefono de verificacion de un proveedor (cambiarlo abre el enfriamiento).",
+           (_p("proveedor_id"), _p("telefono", TEXTO), _p("rev"), _MOTIVO), _fijar_telefono,
+           motivo="segun_campo", rev=True),
+    Accion("anadir_beneficiario", P.ADMIN.value,
+           "Un beneficiario que no es proveedor (Belastingdienst, nominas, alquiler).",
+           (_p("iban", TEXTO), _p("nombre", TEXTO), _MOTIVO), _anadir_beneficiario,
+           motivo="obligatorio"),
+    Accion("retirar_beneficiario", P.ADMIN.value,
+           "Retirar un beneficiario conocido (no se borra).",
+           (_p("beneficiario_id"), _p("rev"), _MOTIVO), _retirar_beneficiario,
+           motivo="obligatorio", rev=True),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),
@@ -1127,14 +1398,17 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
             recalculo = hallazgos.recalcular(conn, motivo="edicion" if hecho.evento_id else
                                              "manual", usuario_id=usuario_id,
                                              causa_evento_id=hecho.evento_id)
+            cerrados: list[dict[str, Any]] = []
+            if hecho.detalle.pop("cerrar_f", False):
+                cerrados += _cerrar_f(conn, persona, recalculo, hecho.evento_id)
             cerrar = hecho.detalle.pop("cerrar_b2", None)
             if cerrar:
-                hecho.hallazgos.extend(_cerrar_b2(conn, persona, cerrar, recalculo,
-                                                  hecho.evento_id))
-                if hecho.hallazgos:
-                    recalculo = _juntar(recalculo, hallazgos.recalcular(
-                        conn, motivo="edicion", usuario_id=usuario_id,
-                        causa_evento_id=hecho.evento_id))
+                cerrados += _cerrar_b2(conn, persona, cerrar, recalculo, hecho.evento_id)
+            if cerrados:
+                hecho.hallazgos.extend(cerrados)
+                recalculo = _juntar(recalculo, hallazgos.recalcular(
+                    conn, motivo="edicion", usuario_id=usuario_id,
+                    causa_evento_id=hecho.evento_id))
         despues = _foto_totales(conn)
     return _diferencia(nombre, hecho, recalculo, antes, despues)
 
@@ -1167,6 +1441,31 @@ def _cerrar_b2(conn: sqlite3.Connection, persona: Persona, pareja: list[int],
         cerrados.append({"hallazgo_id": t.hallazgo_id, "regla": "B2",
                          "factura_id": t.factura_id, "clave": t.clave,
                          "tipo": "resuelto", "causa_evento_id": evento})
+    return cerrados
+
+
+def _cerrar_f(conn: sqlite3.Connection, persona: Persona, recalculo: hallazgos.Diferencia,
+              evento_id: int | None) -> list[dict[str, Any]]:
+    """Los hallazgos de cuentas (familia F) que la decision de esta orden hizo desaparecer.
+
+    Una verificacion, un rechazo o una atestacion es lo que los resuelve
+    (spec §7: se cierran con una verificacion, un rechazo o un cambio en los
+    datos), asi que los cierra quien decidio, con confirmar_iban. Solo los
+    que desaparecieron en la pasada de esta orden con ella como causa.
+    """
+    cerrados = []
+    for t in recalculo.transiciones:
+        if not t.regla.startswith("F") or t.tipo != "desaparecido" or (
+                t.causa_evento_id != evento_id):
+            continue
+        motivo = (persona.motivo or "").strip() or "resuelto por la decision sobre la cuenta"
+        hallazgos.resolver(conn, t.hallazgo_id, Persona(persona.usuario_id, motivo),
+                           datos={"por_decision_de_cuenta": evento_id},
+                           permiso=P.CONFIRMAR_IBAN.value)
+        evento = conn.execute("SELECT max(id) FROM evento").fetchone()[0]
+        cerrados.append({"hallazgo_id": t.hallazgo_id, "regla": t.regla,
+                         "factura_id": t.factura_id, "clave": t.clave, "tipo": "resuelto",
+                         "causa_evento_id": evento})
     return cerrados
 
 

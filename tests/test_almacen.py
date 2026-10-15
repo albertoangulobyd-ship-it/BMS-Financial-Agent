@@ -47,7 +47,7 @@ from bms_agent.almacen.unidades import (
     json_canonico,
     sha256_bytes,
 )
-from bms_agent import campos, excepciones
+from bms_agent import campos, cuentas, excepciones
 from bms_agent.auditoria import Cambio, registrar
 from bms_agent.campos import Automatico, Persona
 
@@ -60,7 +60,7 @@ AHORA = "2026-10-14T09:30:00+00:00"
 # curso) que se prueba aparte; fuera de ella, abortan igual.
 SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
-                  "prioridad_manual")
+                  "prioridad_manual", "cuenta_bancaria", "cuenta_evento")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas")
 
 
@@ -275,6 +275,16 @@ def _poblar(almacen: Almacen) -> None:
         unido = registrar(conn, tipo="excepciones_sincronizadas", actor=motor)
         conn.execute("INSERT INTO excepcion_hallazgo (excepcion_id, hallazgo_id, vinculado_en, "
                      "evento_id) VALUES (?, ?, ?, ?)", (excepcion, hallazgo, AHORA, unido))
+        # Paso 5: una cuenta que Ana (con confirmar_iban) verifica por telefono al teclearla.
+        conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'confirmar_iban')",
+                     (rol,))
+        proveedor = campos.crear(conn, "proveedor", {"nombre": "Van Dijk BV"},
+                                 Automatico("importacion", usuario_sistema(conn, "importador"),
+                                            en_nombre_de="maestro_csv"))
+        cuentas.decidir(conn, Persona(persona, "llamado al numero de siempre"),
+                        titular="proveedor", objetivos=[(proveedor, "NL02ABNA0123456789")],
+                        decision=cuentas.Decision("verificada", metodo="llamada",
+                                                  telefono_usado="010 1234567"), crear=True)
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)

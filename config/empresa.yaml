@@ -1,0 +1,25 @@
+# Identidad legal de BM Support BV. La usan A8 (a quien va dirigida una
+# factura recibida, y quien emite una de venta) y F10 (paso 8: las cuentas de
+# la empresa que puede llevar una factura de venta).
+#
+# Se aplica con `bms-agent politica cargar config/empresa.yaml`: queda en la
+# politica con su hash. Mientras no se carga, vale el nombre de abajo y nada
+# mas (sin btw-id no se compara el btw-id del receptor).
+#
+# POR RELLENAR antes de usarlo en real: btw_id, kvk y cuentas_propias.
+
+nombre: "BM Support BV"
+
+# Otras formas en que la escriben los proveedores y que son ella.
+otros_nombres:
+  - "BM Support B.V."
+
+# El btw-id de la empresa (NL + nueve cifras + B + dos cifras).
+btw_id: null
+
+# El numero de la Camara de Comercio.
+kvk: null
+
+# Las cuentas de la empresa, con su IBAN completo. Solo identifican a BM
+# Support BV: el agente no se conecta a ningun banco.
+cuentas_propias: []

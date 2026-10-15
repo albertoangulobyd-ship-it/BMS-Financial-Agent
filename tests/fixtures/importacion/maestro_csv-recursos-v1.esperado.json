@@ -1,0 +1,66 @@
+{
+  "mapeo": "maestro_csv-recursos-v1",
+  "fuente": "maestro_csv",
+  "tipo": "recursos",
+  "lotes": [
+    {
+      "tipo": "recursos",
+      "formato": "csv:maestro-recursos-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Naam": "Piet",
+            "Soort": "ZZP",
+            "Leverancier": "",
+            "Actief": "ja"
+          },
+          "nombre": "Piet",
+          "tipo": "zzp",
+          "proveedor_ref": null,
+          "activo": true
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Naam": "Jan Bakker",
+            "Soort": "Inleen",
+            "Leverancier": "20004",
+            "Actief": "ja"
+          },
+          "nombre": "Jan Bakker",
+          "tipo": "personal_proveedor",
+          "proveedor_ref": "20004",
+          "activo": true
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Naam": "Sanne",
+            "Soort": "Medewerker",
+            "Leverancier": "",
+            "Actief": "nee"
+          },
+          "nombre": "Sanne",
+          "tipo": "empleado",
+          "proveedor_ref": null,
+          "activo": false
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 5,
+          "codigo": "fila",
+          "motivo": "tipo: 'Onbekend' no es uno de Medewerker, ZZP, Inleen",
+          "crudo": {
+            "Naam": "Kees",
+            "Soort": "Onbekend",
+            "Leverancier": "",
+            "Actief": "ja"
+          }
+        }
+      ]
+    }
+  ]
+}

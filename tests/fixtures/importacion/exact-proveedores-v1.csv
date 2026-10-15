@@ -1,0 +1,8 @@
+﻿Crediteurnummer;Naam;Soort;KvK-nummer;Btw-nummer;Btw-code;Betalingsconditie;Adres;Postcode;Plaats;E-mail facturen;Telefoon verificatie;Status;IBAN;Tenaamstelling
+20001;Bouwtechniek Van Dijk BV;Bedrijf;87654321;NL001234567B01;VH21;30 dagen;Havenstraat 12;3011 AA;Rotterdam;facturen@vandijk.example;010-1234567;Actief;NL02 ABNA 0123 4567 89;Bouwtechniek Van Dijk BV
+20002;J. de Vries;ZZP;;NL002345678B01;VERL;14;Dorpsweg 3;2801 BB;Gouda;;06-11112222;Actief;NL44RABO0123456789;J. de Vries
+20003;Elektro Installatie Koster;Bedrijf;76543210;NL003456789B01;VH21;30;Industrieweg 45;2802 AG;Gouda;administratie@koster.example;0182-555123;Actief;NL20INGB0001234567;Elektro Installatie Koster
+20004;Schilderwerken Bakker;Bedrijf;65432109;NL004567891B01;VH21;21 dagen;Kerkplein 8;2611 CC;Delft;;015-2223334;Actief;NL67INGB0006543210;Schilderwerken Bakker
+20005;Loodgietersbedrijf Smit;Bedrijf;54321098;NL005678912B01;VH21;30;;;Leiden;;071-5556667;Actief;;
+20006;Northwind Analytics Ltd;Bedrijf;;GB123456789;0;30;1 High Street;EC1A 1BB;London;ap@northwind.example;+44 20 7946 0000;Actief;GB29 NWBK 6016 1331 9268 19;Northwind Analytics Ltd
+20007;Bouwbedrijf Onbekend;Bedrijf;;NL006666666B01;XX;30;;;;;;Actief;;

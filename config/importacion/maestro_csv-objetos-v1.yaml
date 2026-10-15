@@ -1,0 +1,26 @@
+# Hoja de Objetos (obras, locaties, proyectos) rellenada a mano y guardada como CSV.
+#
+# El cliente se nombra por su numero de deudor de Exact, su btw-id o un nombre
+# que ya sea alias confirmado: si no se encuentra, la fila no entra (Z2) y no
+# se crea ningun cliente.
+version: 1
+fuente: maestro_csv
+tipo: objetos
+formato: "csv:maestro-objetos-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Code, Naam, Klant]
+completo: false
+registros:
+  objetos:
+    campos:
+      codigo: {columna: Code, obligatorio: true}
+      nombre: {primera: [Naam, Code]}
+      cliente_ref: {columna: Klant}
+      requiere_po: {columna: PO verplicht, tipo: bool}
+      activo_desde: {columna: Actief vanaf, tipo: fecha}
+      activo_hasta: {columna: Actief tot, tipo: fecha}

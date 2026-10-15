@@ -1,4 +1,5 @@
-"""Reglas de IVA de esta fase: D3 (la cuota por el tipo), E3 (KOR) y E4 (IVA trasladado).
+"""Reglas de IVA: D3 (la cuota por el tipo), E3 (KOR), E4 (IVA trasladado) y, desde el
+paso 5, E1 (contra el regimen del maestro) y E2 (contra la factura anterior).
 
 Con IVA trasladado o con KOR no hay tipo que aplicar, y eso no es un dato
 que falte: es el estado correcto de la factura (D3 no aplica). Pero si en
@@ -11,22 +12,33 @@ grupo E toca obligaciones fiscales.
 
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from .base import (
+    ENTRANTE,
     FALLO,
+    LEE_CADUCIDAD,
+    LEE_EN_JUEGO,
     NO_APLICA,
     OK,
     SIN_DATOS,
     Comprobacion,
     Factura,
+    Instantanea,
     Objetivo,
     Politica,
     Resultado,
+    caducada,
     euros,
     euros_texto,
+    fallo,
     porcentaje,
     resultado_de,
+    sin_datos,
+    solo_objeciones,
 )
 
 CENTIMO = Decimal("0.01")
@@ -172,3 +184,85 @@ LEE_E3 = frozenset({
 LEE_E4 = LEE_E3 | frozenset({
     "factura.receptor_btw_doc", "factura.ilegibles", "factura.no_solicitados",
 })
+
+
+# --------------------------------------------------------------- E1 y E2 (paso 5)
+#
+# Como las demas reglas de factura del paso 5, solo escriben lo que objetan
+# (base.solo_objeciones). Un regimen que la factura no dice ("desconocido" o
+# nada) no se compara: eso lo ve Q1 (falta el IVA o el regimen).
+
+_SIN_REGIMEN = (None, "desconocido")
+_NOMBRE_REGIMEN = {"estandar": "IVA normal", "autoliquidacion": "IVA trasladado", "kor": "KOR",
+                   "exento": "exención", "tipo_cero": "tipo cero"}
+
+
+def _preparar_e1(instantanea: Instantanea) -> dict[str, Any]:
+    return {"regimen": {p.id: p.regimen_iva for p in instantanea.proveedores},
+            "caducada": bool(caducada(instantanea, "exact"))}
+
+
+def e1(factura: Factura, contexto: dict[str, Any]) -> list[Resultado]:
+    """E1: el regimen de la factura no es el que el maestro tiene registrado del proveedor."""
+    if factura.sentido != ENTRANTE or factura.proveedor_id is None:
+        return []
+    registrado = contexto["regimen"].get(factura.proveedor_id)
+    if registrado in _SIN_REGIMEN or factura.tratamiento_iva in _SIN_REGIMEN:
+        return []
+    if registrado == factura.tratamiento_iva:
+        if contexto["caducada"]:
+            return [sin_datos("E1", factura, "El maestro de Exact está pasado de su límite de "
+                                             "frescura: no se compara con él.")]
+        return []
+    return [fallo("E1", factura,
+                  f"La factura viene con {_NOMBRE_REGIMEN.get(factura.tratamiento_iva)} y el "
+                  f"maestro tiene al proveedor en {_NOMBRE_REGIMEN.get(registrado)}.",
+                  valores={"maestro": registrado, "factura": factura.tratamiento_iva},
+                  objetivos=(Objetivo("factura", factura.id, "tratamiento_iva"),))]
+
+
+LEE_E1 = LEE_EN_JUEGO | LEE_CADUCIDAD | frozenset({
+    "factura.id", "factura.sentido", "factura.proveedor_id", "factura.tratamiento_iva",
+    "instantanea.proveedores", "parte.id", "parte.regimen_iva",
+})
+
+
+def _preparar_e2(instantanea: Instantanea) -> dict[int, tuple[int, str]]:
+    """Para cada compra con regimen, la anterior de su contraparte (por fecha) y el suyo."""
+    grupos: dict[str, list[Factura]] = defaultdict(list)
+    for f in instantanea.facturas:
+        if (f.sentido == ENTRANTE and f.parte is not None and not f.anulada
+                and f.fusionada_en_id is None and f.tratamiento_iva not in _SIN_REGIMEN):
+            grupos[f.parte].append(f)
+    anterior: dict[int, tuple[int, str]] = {}
+    for lista in grupos.values():
+        lista.sort(key=lambda f: (f.fecha_factura or date.min, f.id))
+        for previa, actual in zip(lista, lista[1:]):
+            anterior[actual.id] = (previa.id, previa.tratamiento_iva)
+    return anterior
+
+
+def e2(factura: Factura, anterior: dict[int, tuple[int, str]]) -> list[Resultado]:
+    """E2: el regimen cambia respecto a la factura anterior del mismo proveedor.
+
+    Casi siempre es un cambio legitimo que hay que llevar al maestro; verlo en
+    la factura y no en la declaracion es la diferencia entre un ajuste y una
+    correccion (validacion-facturas.md §3.E). El hallazgo no se cierra solo.
+    """
+    previa = anterior.get(factura.id)
+    if previa is None or previa[1] == factura.tratamiento_iva:
+        return []
+    return [fallo("E2", factura,
+                  f"Pasa de {_NOMBRE_REGIMEN.get(previa[1])} a "
+                  f"{_NOMBRE_REGIMEN.get(factura.tratamiento_iva)} respecto a su factura anterior.",
+                  valores={"anterior": previa[0], "antes": previa[1],
+                           "ahora": factura.tratamiento_iva},
+                  objetivos=(Objetivo("factura", factura.id, "tratamiento_iva"),))]
+
+
+LEE_E2 = LEE_EN_JUEGO | frozenset({
+    "factura.id", "factura.sentido", "factura.parte", "factura.fecha_factura",
+    "factura.tratamiento_iva",
+})
+
+EVALUAR_E = {"E1": solo_objeciones(e1, _preparar_e1), "E2": solo_objeciones(e2, _preparar_e2)}

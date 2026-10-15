@@ -1,0 +1,7 @@
+Richting;Leverancier;Medewerker;Klant;Object;Soort werk;Dienst;Eenheid;Tarief;Valuta;Geldig vanaf;Geldig tot
+Inkoop;20001;;;Rijnhaven;Montagewerk;Dag;uur;42,50;EUR;01-01-2026;
+Inkoop;20001;;;Rijnhaven;Montagewerk;Avond;uur;48,00;;01-01-2026;
+Verkoop;;;10001;Rijnhaven;Montagewerk;;uur;62,00;EUR;01-01-2026;31-12-2026
+Inkoop;20003;;;Schiedam;Elektrawerk;;uur;46,00;USD;;
+Inkoop;20006;;;;Data-analyse;;uur;$55.00;;;
+Verkoop;;;;Waalhaven;Staalconstructie;;uur;1.074,00;;;

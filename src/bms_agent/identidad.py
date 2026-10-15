@@ -20,49 +20,22 @@ eleccion: queda sin resolver y se dice por que.
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
 from .campos import Automatico, Persona, crear
+from .reglas.normas import (  # noqa: F401 (se reexportan: identidad es su sitio de siempre)
+    normalizar_btw,
+    normalizar_iban,
+    normalizar_kvk,
+    normalizar_nombre,
+    normalizar_telefono,
+    parece_iban,
+)
 
 PARTES = ("proveedor", "cliente")
 TABLAS_ALIAS = ("proveedor", "cliente", "objeto", "recurso")
-
-_NO_ALFANUMERICO = re.compile(r"[^0-9A-Za-z]")
-_SIN_PUNTUACION = re.compile(r"[^\w\s]")
-
-
-def normalizar_btw(texto: Any) -> str | None:
-    """'NL 0012.34567.B01' es 'NL001234567B01'."""
-    limpio = _NO_ALFANUMERICO.sub("", str(texto or "")).upper()
-    return limpio or None
-
-
-def normalizar_kvk(texto: Any) -> str | None:
-    """Solo los digitos: 'KvK 8765 4321' es '87654321'."""
-    limpio = re.sub(r"\D", "", str(texto or ""))
-    return limpio or None
-
-
-def normalizar_nombre(texto: Any) -> str | None:
-    """Sin mayusculas, sin puntuacion y con un espacio entre palabras.
-
-    "Van Dijk B.V." y "van dijk bv" son el mismo nombre escrito de dos
-    formas; "Van Dijk Bouw" es otro. Es la misma normalizacion que agrupa los
-    pagos del panel (dashboard._nombre_normalizado).
-    """
-    sin_puntos = _SIN_PUNTUACION.sub("", str(texto or "").lower())
-    limpio = " ".join(sin_puntos.split())
-    return limpio or None
-
-
-def parece_iban(texto: Any) -> bool:
-    """La forma de un IBAN: dos letras, dos digitos y de 15 a 34 caracteres alfanumericos."""
-    compacto = "".join(str(texto or "").split()).upper()
-    return (15 <= len(compacto) <= 34 and compacto[:2].isalpha() and compacto[2:4].isdigit()
-            and compacto.isalnum())
 
 
 @dataclass(frozen=True)
@@ -160,16 +133,15 @@ def resolver_recurso(conn: sqlite3.Connection, texto: Any) -> Resolucion:
     return Resolucion(None, motivo=f"ningun recurso se llama {texto!r}")
 
 
-def anadir_alias(
-    conn: sqlite3.Connection, tabla: str, alias: str, fila_id: int,
-    origen: Automatico | Persona, *, origen_alias: str = "manual", confirmado: bool = True,
-    datos: dict[str, Any] | None = None,
-) -> int:
-    """Un nombre mas con el que se reconoce una fila. Devuelve el id del alias.
+def comprobar_alias(conn: sqlite3.Connection, tabla: str, alias: str,
+                    fila_id: int) -> tuple[str, int | None]:
+    """Que un alias se pueda dar a una fila. Devuelve su forma normalizada y, si ya lo
+    tiene esa misma fila, su id.
 
     Se niega con un IBAN (un IBAN no identifica a nadie) y con un nombre que
-    ya es alias de otra fila: eso se resuelve a mano, no eligiendo una.
-    Volver a anadir el mismo alias a la misma fila no hace nada.
+    ya es alias de otra fila: eso se resuelve a mano, no eligiendo una. Lo
+    usan anadir_alias y el importador de maestros, que lo da dentro de su
+    propia orden.
     """
     if tabla not in TABLAS_ALIAS:
         raise ValueError(f"{tabla} no admite alias")
@@ -181,12 +153,57 @@ def anadir_alias(
     existente = conn.execute(
         "SELECT id, fila_id FROM alias WHERE tabla = ? AND alias_norm = ?", (tabla, norma)
     ).fetchone()
+    if existente is None:
+        return norma, None
+    if existente["fila_id"] == fila_id:
+        return norma, int(existente["id"])
+    raise ValueError(
+        f"{alias!r} ya es alias de {tabla} {existente['fila_id']}: no se reasigna solo")
+
+
+def anadir_alias(
+    conn: sqlite3.Connection, tabla: str, alias: str, fila_id: int,
+    origen: Automatico | Persona, *, origen_alias: str = "manual", confirmado: bool = True,
+    datos: dict[str, Any] | None = None,
+) -> int:
+    """Un nombre mas con el que se reconoce una fila. Devuelve el id del alias.
+
+    Volver a anadir el mismo alias a la misma fila no hace nada.
+    """
+    _norma, existente = comprobar_alias(conn, tabla, alias, fila_id)
     if existente is not None:
-        if existente["fila_id"] == fila_id:
-            return int(existente["id"])
-        raise ValueError(
-            f"{alias!r} ya es alias de {tabla} {existente['fila_id']}: no se reasigna solo")
+        return existente
     return crear(conn, "alias", {
         "tabla": tabla, "alias": alias.strip(), "fila_id": fila_id, "origen": origen_alias,
         "confirmado": confirmado,
     }, origen, tipo="alias_alta", datos=datos)
+
+
+def reconciliar_referencias(conn: sqlite3.Connection, *, actor: int | None = None) -> int:
+    """Vuelve a resolver proveedor, cliente, Objeto y recurso con los maestros de ahora.
+
+    Lo llama quien cambia un maestro (la semilla de tarifas, el importador de
+    maestros, una correccion a mano): una factura tipada antes de que
+    existiera su proveedor o su Objeto se resuelve ahora. Un valor puesto a
+    mano no se pisa. Devuelve cuantos campos cambiaron.
+
+    Vive aqui y no en ingesta.py (que lo reexporta) porque el importador de
+    maestros escribe el registro de cuentas, y nada que escriba ese registro
+    puede importar la via de entrada de los documentos.
+    """
+    from .almacen import usuario_sistema
+    from .campos import orden
+    from .dominio import Fuente
+
+    origen = Automatico(Fuente.CALCULADO.value, actor or usuario_sistema(conn, "motor"),
+                        ref="maestros")
+    with orden(conn, origen, tipo="referencias_recalculadas") as o:
+        for fila in conn.execute(
+            "SELECT id FROM factura WHERE fusionada_en_id IS NULL ORDER BY id"
+        ).fetchall():
+            o.recalcular("factura", fila["id"], ("proveedor_id", "cliente_id"))
+        for fila in conn.execute(
+            "SELECT id FROM factura_imputacion WHERE retirada_en IS NULL ORDER BY id"
+        ).fetchall():
+            o.recalcular("factura_imputacion", fila["id"], ("objeto_id", "recurso_id"))
+    return sum(1 for e in o.resultado.efectos if e.accion in ("cambiado", "alta"))

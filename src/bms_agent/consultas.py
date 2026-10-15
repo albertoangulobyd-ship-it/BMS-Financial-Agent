@@ -367,3 +367,64 @@ def manuales(conn: sqlite3.Connection, factura_id: int) -> list[tuple[str, int, 
                 (tabla, factura_id, *sorted(FUENTES_MANUALES))):
             salida.append((tabla, fila_id, campo))
     return salida
+
+
+# ------------------------------------------------------------ paso 5: cuentas y fuentes
+
+def cuentas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """El registro de cuentas de los proveedores, con su estado como lo ve la pasada.
+
+    El IBAN entero: la consola interna lo ensena (decision 23); solo la
+    proyeccion del portal lo enmascara.
+    """
+    from . import politica
+    from .reglas import bancaria
+    from .reglas import instantanea as lecturas
+
+    politica_ = politica.politica_reglas(conn)
+    telefonos: dict[int, list[Any]] = defaultdict(list)
+    for t in lecturas.telefonos(conn):
+        telefonos[t.proveedor_id].append(t)
+    nombres = {f[0]: f[1] for f in conn.execute("SELECT id, nombre FROM proveedor")}
+    salida = []
+    for cuenta in lecturas.cuentas(conn):
+        if cuenta.titular != "proveedor":
+            continue
+        estado = bancaria.estado_cuenta(cuenta, telefonos.get(cuenta.parte_id, ()), politica_)
+        salida.append({
+            "id": cuenta.id, "proveedor_id": cuenta.parte_id,
+            "proveedor": nombres.get(cuenta.parte_id, ""), "iban": cuenta.iban,
+            "primera_fuente": cuenta.primera_fuente, "estado": estado.estado,
+            "en_exact": estado.en_exact, "pagable": estado.pagable,
+            "cambios": [t for t, _e, _i in estado.cambios],
+            "ineficaz": estado.ineficaz[1] if estado.ineficaz else None,
+        })
+    return salida
+
+
+def fuentes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Lo ultimo aceptado de cada fuente y tipo, su edad y si esta pasada (el aviso de Z1)."""
+    from datetime import date as _date
+
+    from . import politica
+    from .almacen import reloj_de
+    from .reglas.base import FRESCURA, edad
+    from .reglas.instantanea import lotes
+
+    politica_ = politica.politica_reglas(conn)
+    hoy: _date = reloj_de(conn).hoy()
+    ultimos: dict[tuple[str, str], Any] = {}
+    for lote in lotes(conn):
+        if lote.estado in ("aceptada", "parcial"):
+            ultimos[(lote.fuente, lote.tipo)] = lote
+    salida = []
+    for (fuente, tipo), lote in sorted(ultimos.items()):
+        limite = getattr(politica_, FRESCURA[fuente]) if fuente in FRESCURA else None
+        dias = edad(lote, hoy, fuente)
+        salida.append({
+            "fuente": fuente, "tipo": tipo, "importacion_id": lote.id,
+            "exportado": lote.exportado.isoformat() if lote.exportado else None,
+            "edad": dias, "unidad": "dias laborables" if fuente == "banco" else "dias",
+            "limite": limite, "caducada": None if limite is None else dias > limite,
+        })
+    return salida

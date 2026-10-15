@@ -334,3 +334,89 @@ class TipoRecurso(_Texto):
     EMPLEADO = "empleado"
     ZZP = "zzp"
     PERSONAL_PROVEEDOR = "personal_proveedor"
+
+
+class TitularCuenta(_Texto):
+    """De quien es una cuenta bancaria del registro."""
+
+    PROVEEDOR = "proveedor"
+    CLIENTE = "cliente"
+    PROPIA = "propia"
+
+
+class PrimeraFuenteCuenta(_Texto):
+    """Como entro una cuenta en el registro (spec §5.C, decision 3)."""
+
+    BASELINE = "baseline"                         # el primer maestro: la referencia de partida
+    MAESTRO_EXACT = "maestro_exact"               # un maestro de Exact posterior
+    MAESTRO_TRNSPRNT = "maestro_trnsprnt"
+    VERIFICACION_MANUAL = "verificacion_manual"   # tecleada por quien llamo al proveedor
+
+
+class TipoEventoCuenta(_Texto):
+    """Lo que le pasa a una cuenta. Las cuatro ultimas son de una persona con confirmar_iban."""
+
+    BASELINE = "baseline"
+    VISTO_EN_EXACT = "visto_en_exact"
+    AUSENTE_EN_EXACT = "ausente_en_exact"
+    VISTO_EN_TRNSPRNT = "visto_en_trnsprnt"
+    AUSENTE_EN_TRNSPRNT = "ausente_en_trnsprnt"
+    VISTO_EN_DOCUMENTO = "visto_en_documento"     # en la lista, pero la base no la admite
+    VERIFICADA = "verificada"
+    RECHAZADA = "rechazada"
+    ATESTADA = "atestada"
+    RETIRADA = "retirada"
+
+
+DECISIONES_CUENTA = frozenset({TipoEventoCuenta.VERIFICADA.value, TipoEventoCuenta.RECHAZADA.value,
+                               TipoEventoCuenta.ATESTADA.value, TipoEventoCuenta.RETIRADA.value})
+
+
+class MetodoVerificacion(_Texto):
+    LLAMADA = "llamada"
+    VIDEOLLAMADA = "videollamada"
+    VISITA = "visita"
+
+
+class DecisionFacturas(_Texto):
+    """Que se hace con las facturas que traian la cuenta que se rechaza."""
+
+    PAGAR_A_VERIFICADA = "pagar_a_verificada"
+    ANULAR = "anular"
+
+
+class FrecuenciaCiclo(_Texto):
+    SEMANAL = "semanal"
+    CUATRISEMANAL = "cuatrisemanal"
+    MENSUAL = "mensual"
+
+
+class FuenteImportacion(_Texto):
+    """De donde viene un fichero que se importa (spec §9, Lector.fuente)."""
+
+    EXTRACCIONES = "extracciones"
+    EXACT = "exact"
+    TRNSPRNT = "trnsprnt"
+    BANCO = "banco"
+    MAESTRO_CSV = "maestro_csv"     # una hoja de maestros rellenada a mano
+    PO_CSV = "po_csv"
+
+
+class TipoImportacion(_Texto):
+    """Que trae un lote (spec §9). alias es una hoja de nombres para lo que ya existe."""
+
+    PROVEEDORES = "proveedores"
+    CLIENTES = "clientes"
+    CONTACTOS = "contactos"
+    OBJETOS = "objetos"
+    RECURSOS = "recursos"
+    ALIAS = "alias"
+    CUENTAS = "cuentas"
+    TARIFAS = "tarifas"
+    ORDENES_COMPRA = "ordenes_compra"
+    CICLOS = "ciclos"
+    FACTURAS_VENTA = "facturas_venta"
+    FACTURAS_COMPRA = "facturas_compra"
+    PAGOS_EXACT = "pagos_exact"
+    EXTRACTO = "extracto"
+    PLANNING = "planning"

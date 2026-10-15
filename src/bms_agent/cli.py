@@ -17,7 +17,10 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent facturas            las facturas, la mas urgente primero
     bms-agent factura N           la ficha de una factura
     bms-agent excepciones         las excepciones sin resolver
-    bms-agent politica cargar     apunta config/prioridad.yaml en la politica
+    bms-agent politica cargar     apunta config/prioridad.yaml, reglas.yaml o empresa.yaml
+    bms-agent importar F T FICH   importa un maestro (Exact, una hoja CSV) con su mapeo
+    bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
+    bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -537,6 +540,13 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             from .excepciones import verificar as verificar_excepciones
 
             errores.extend(verificar_excepciones(conn))
+        con_cuentas = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cuenta_bancaria'"
+        ).fetchone()
+        if con_cuentas:
+            from .cuentas import verificar as verificar_cuentas
+
+            errores.extend(verificar_cuentas(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -832,8 +842,14 @@ def _cmd_facturas(args: argparse.Namespace) -> int:
     if not ruta.exists():
         print(f"No existe el almacen {ruta}", file=sys.stderr)
         return 1
+    from .consultas import fuentes
+
     with _abrir_almacen(args.db) as almacen:
         filas = listado(almacen.conn, nivel=args.nivel, limite=args.limite)
+        pasadas = [f for f in fuentes(almacen.conn) if f["caducada"]]
+    for f in pasadas:
+        print(f"AVISO (Z1): lo ultimo de {f['fuente']} ({f['tipo']}) es del {f['exportado']}, "
+              f"{f['edad']} {f['unidad']}: lo que depende de esa fuente esta sin datos")
     for f in filas:
         print(f"{_SIMBOLO.get(f['nivel'], f['nivel'])} {f['puntos']:>3}  {f['id']:>5}  "
               f"{(f['numero'] or '(sin numero)'):<18} {(f['contraparte'] or '')[:28]:<28} "
@@ -910,9 +926,9 @@ def _cmd_excepciones(args: argparse.Namespace) -> int:
 
 
 def _cmd_politica(args: argparse.Namespace) -> int:
-    """Apunta un fichero de pesos de la prioridad y recalcula con el."""
+    """Apunta un fichero de config/ (prioridad, reglas o empresa) y recalcula con el."""
     from .hallazgos import recalcular
-    from .politica import cargar_prioridad
+    from .politica import PoliticaNoValida, cargar
     from .prioridad import PesosNoValidos
 
     fichero = Path(args.fichero)
@@ -922,16 +938,140 @@ def _cmd_politica(args: argparse.Namespace) -> int:
     with _abrir_almacen(args.db) as almacen:
         try:
             with transaccion(almacen.conn):
-                pesos, nuevo = cargar_prioridad(almacen.conn, fichero)
+                resumen, nuevo = cargar(almacen.conn, fichero)
                 diferencia = recalcular(almacen.conn, motivo="manual")
-        except PesosNoValidos as exc:
+        except (PesosNoValidos, PoliticaNoValida) as exc:
             print(f"No se carga {fichero}: {exc}", file=sys.stderr)
             return 1
         _anclar(almacen)
-    print(f"{fichero}: {'cargado' if nuevo else 'ya era la version vigente'} "
-          f"(pesos {pesos.sha256()[:12]})")
+    print(f"{fichero}: {'cargado' if nuevo else 'ya era la version vigente'} ({resumen})")
     cambios = diferencia.estados.prioridades if diferencia.estados else []
     print(f"  prioridades que cambian: {len(cambios)}")
+    return 0
+
+
+def _persona_con_token(almacen, args, accion: str) -> int | None:
+    token = getattr(args, "token", None) or os.environ.get(VARIABLE_TOKEN)
+    usuario_id = _persona_de_token(almacen.conn, token, accion)
+    if usuario_id is None:
+        print("Hace falta el token de una persona activa (--token o BMS_TOKEN; "
+              "lo da `bms-agent usuario token NOMBRE`)", file=sys.stderr)
+    return usuario_id
+
+
+def _cmd_importar(args: argparse.Namespace) -> int:
+    """Importa un fichero de un maestro con su mapeo (spec §9). Cero llamadas a la API."""
+    from datetime import date, datetime, timezone
+
+    from .importadores.registrar import importar_fichero
+    from .importadores.tabular import FicheroIlegible, MapeoNoValido
+    from .permisos import PermisoDenegado
+
+    fichero = Path(args.fichero)
+    if not fichero.is_file():
+        print(f"No existe {fichero}", file=sys.stderr)
+        return 1
+    if args.exportado:
+        try:
+            dia = date.fromisoformat(args.exportado)
+        except ValueError:
+            print(f"--exportado es una fecha AAAA-MM-DD, no {args.exportado!r}", file=sys.stderr)
+            return 1
+        exportado = datetime(dia.year, dia.month, dia.day, 12, tzinfo=timezone.utc)
+    else:
+        # Sin decirlo, cuenta el dia en que se guardo el fichero: lo que mide la
+        # frescura (Z1) es cuando se saco del sistema, no cuando se importa.
+        exportado = datetime.fromtimestamp(fichero.stat().st_mtime, tz=timezone.utc)
+    with _abrir_almacen(args.db) as almacen:
+        usuario_id = _persona_con_token(almacen, args, f"importar {args.fuente}/{args.tipo}")
+        if usuario_id is None:
+            _anclar(almacen)
+            return 1
+        try:
+            r = importar_fichero(almacen, args.fuente, args.tipo, fichero,
+                                 lanzado_por=usuario_id, mapeo=args.mapeo,
+                                 exportado_en=exportado, simular=args.simular)
+        except (PermisoDenegado, MapeoNoValido, FicheroIlegible, ValueError) as exc:
+            print(f"No se importa: {exc}", file=sys.stderr)
+            _anclar(almacen)
+            return 1
+        _anclar(almacen)
+    print(f"{fichero} con el mapeo {r.mapeo}" + (" (simulado: no se ha escrito nada)"
+                                               if r.simulada else ""))
+    for lote in r.lotes:
+        if lote.repetida:
+            print(f"  {lote.tipo}: ya importado (importacion {lote.importacion_id}, "
+                  f"{lote.estado}): no se hace nada")
+            continue
+        print(f"  {lote.tipo}: {lote.estado}; {lote.filas_leidas} filas, {lote.aceptadas} "
+              f"aceptadas, {len(lote.rechazos)} rechazadas; {len(lote.nuevos)} filas nuevas, "
+              f"{len(lote.cambiados)} campos cambiados")
+        for tabla, fila_id in lote.retirados:
+            print(f"    retirado: {tabla} {fila_id} ya no esta en la foto completa (inactivo)")
+        for aviso in lote.avisos:
+            print(f"    aviso: {aviso}")
+        for tabla, fila_id, campo in lote.sin_resolver:
+            print(f"    sin resolver (M1): {tabla} {fila_id} {campo} lo puso una persona y la "
+                  "importacion dice otra cosa")
+        for maestro in lote.cuentas:
+            print(f"    cuentas: {maestro.vistas} en el fichero, {len(maestro.nuevas)} nuevas, "
+                  f"{len(maestro.ausentes)} que ya no estan"
+                  + (" (primer maestro: heredadas, por atestar)" if maestro.baseline else ""))
+        for rechazo in lote.rechazos:
+            print(f"    fila {rechazo.fila} ({rechazo.codigo}): {rechazo.motivo}")
+    if r.recalculo is not None:
+        _imprimir_recalculo(r.recalculo)
+    return 0
+
+
+_IBAN = {"verificar": "verificar_iban", "rechazar": "rechazar_iban",
+         "atestar": "atestar_iban", "telefono": "fijar_telefono_verificacion"}
+
+
+def _cmd_iban(args: argparse.Namespace) -> int:
+    """El registro de cuentas: verlo, verificar, rechazar, atestar y el telefono de verificacion."""
+    if args.accion == "listar":
+        from .consultas import cuentas
+
+        ruta = _ruta_db(args.db)
+        if not ruta.exists():
+            print(f"No existe el almacen {ruta}", file=sys.stderr)
+            return 1
+        with _abrir_almacen(args.db) as almacen:
+            filas = cuentas(almacen.conn)
+        for c in filas:
+            marcas = [m for m, si in (("pagable", c["pagable"]), ("en Exact", c["en_exact"]))
+                      if si]
+            print(f"{c['id']:>5} {c['proveedor'][:30]:<30} {c['iban']:<34} {c['estado']:<11}"
+                  f"{', '.join(marcas)}"
+                  + (f"  cambio sin verificar: {c['cambios']}" if c["cambios"] else "")
+                  + (f"  verificacion que no vale: {c['ineficaz']}" if c["ineficaz"] else ""))
+        if not filas:
+            print("El registro de cuentas esta vacio: entra con `bms-agent importar exact "
+                  "proveedores FICHERO`.")
+        return 0
+    args.nombre = _IBAN[args.accion]
+    return _cmd_accion(args)
+
+
+def _cmd_fuentes(args: argparse.Namespace) -> int:
+    """De cuando es lo ultimo de cada fuente, y si esta pasada de su limite (Z1)."""
+    from .consultas import fuentes
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = fuentes(almacen.conn)
+    for f in filas:
+        estado = "PASADA" if f["caducada"] else "al dia" if f["caducada"] is False else ""
+        print(f"{f['fuente']:<12} {f['tipo']:<12} exportado {f['exportado'] or '-':<10} "
+              f"({f['edad']} {f['unidad']}, limite "
+              f"{f['limite'] if f['limite'] is not None else '-'}) "
+              f"{estado}")
+    if not filas:
+        print("Todavia no se ha importado ninguna fuente.")
     return 0
 
 
@@ -1161,9 +1301,47 @@ def main(argv: list[str] | None = None) -> int:
     p_excepciones.add_argument("--db", help=_AYUDA_DB)
     p_excepciones.set_defaults(func=_cmd_excepciones)
 
-    p_politica = sub.add_parser("politica", help="la politica: pesos de la prioridad")
+    p_imp = sub.add_parser(
+        "importar", help="importa un fichero de un maestro (Exact, una hoja CSV) con su mapeo")
+    p_imp.add_argument("fuente", help="exact, trnsprnt o maestro_csv")
+    p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas o "
+                                    "ciclos")
+    p_imp.add_argument("fichero")
+    p_imp.add_argument("--mapeo", help="un fichero de mapeo (por defecto, el de "
+                                       "config/importacion que reconoce sus columnas)")
+    p_imp.add_argument("--simular", action="store_true",
+                       help="dice lo que seria nuevo, cambiaria o se rechazaria, sin escribir")
+    p_imp.add_argument("--exportado", help="dia en que se saco del sistema (AAAA-MM-DD); por "
+                                           "defecto, el del fichero")
+    p_imp.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+    p_imp.add_argument("--db", help=_AYUDA_DB)
+    p_imp.set_defaults(func=_cmd_importar)
+
+    p_iban = sub.add_parser("iban", help="el registro de cuentas: listar, verificar, rechazar, "
+                                         "atestar, telefono")
+    sub_iban = p_iban.add_subparsers(dest="accion", required=True)
+    p_listar = sub_iban.add_parser("listar", help="las cuentas de los proveedores y su estado")
+    p_listar.add_argument("--db", help=_AYUDA_DB)
+    for corto, nombre in _IBAN.items():
+        accion = ACCIONES[nombre]
+        p_una = sub_iban.add_parser(corto, help=accion.descripcion)
+        for parametro in accion.parametros:
+            p_una.add_argument(f"--{parametro.nombre.replace('_', '-')}", dest=parametro.nombre,
+                               required=parametro.obligatorio and parametro.nombre != "motivo",
+                               help=parametro.ayuda or parametro.tipo)
+        p_una.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+        p_una.add_argument("--peticion", help="identificador de la peticion")
+        p_una.add_argument("--db", help=_AYUDA_DB)
+    p_iban.set_defaults(func=_cmd_iban)
+
+    p_fuentes = sub.add_parser("fuentes", help="de cuando es lo ultimo de cada fuente (Z1)")
+    p_fuentes.add_argument("--db", help=_AYUDA_DB)
+    p_fuentes.set_defaults(func=_cmd_fuentes)
+
+    p_politica = sub.add_parser("politica", help="la politica: prioridad, reglas y empresa")
     sub_politica = p_politica.add_subparsers(dest="accion", required=True)
-    p_cargar = sub_politica.add_parser("cargar", help="apunta un fichero de pesos y recalcula")
+    p_cargar = sub_politica.add_parser(
+        "cargar", help="apunta prioridad.yaml, reglas.yaml o empresa.yaml y recalcula")
     p_cargar.add_argument("fichero", nargs="?", default="config/prioridad.yaml")
     p_cargar.add_argument("--db", help=_AYUDA_DB)
     p_politica.set_defaults(func=_cmd_politica)

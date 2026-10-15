@@ -509,6 +509,10 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"personas": consultas.personas(conn)})
                 elif partes == ["objetos"]:
                     self._json(200, {"objetos": consultas.objetos(conn)})
+                elif partes == ["fuentes"]:
+                    self._json(200, {"fuentes": consultas.fuentes(conn)})
+                elif partes == ["cuentas"]:
+                    self._json(200, {"cuentas": consultas.cuentas(conn)})
                 elif partes == ["acciones"]:
                     self._json(200, {"acciones": [
                         {"nombre": a.nombre, "permiso": a.permiso, "descripcion": a.descripcion,

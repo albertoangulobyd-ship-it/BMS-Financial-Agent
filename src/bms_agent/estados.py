@@ -250,7 +250,10 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     """
     cambios = Cambios()
     facturas = _facturas(conn)
-    if not facturas:
+    # Sin facturas puede haber trabajo: desde el paso 5, excepciones de una
+    # importacion o de un proveedor (F0, F5, Z2...), con su prioridad.
+    if not facturas and conn.execute("SELECT 1 FROM excepcion WHERE estado <> 'resuelta' "
+                                     "LIMIT 1").fetchone() is None:
         return cambios
     # Los pesos con que se calcula quedan siempre en politica_version: si no se
     # cargo ningun fichero, se apuntan los del codigo la primera vez que se usan.

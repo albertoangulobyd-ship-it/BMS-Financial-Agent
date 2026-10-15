@@ -94,6 +94,32 @@ def _preparar_cerrar(conn, admin) -> None:
     assert _hallazgo(conn, "B4")["estado"] == "desaparecido"
 
 
+# Paso 5. La cuenta que se verifica la teclea la persona: no es la del documento de las
+# facturas del escenario (NL02ABNA0123456789), que no puede salir de su sitio.
+IBAN_TECLEADO = "NL44RABO0123456789"
+BELASTINGDIENST = "NL86INGB0002445588"
+
+
+def _preparar_atestar(conn, admin) -> None:
+    proveedor = conn.execute("SELECT id FROM proveedor").fetchone()[0]
+    servicios.ejecutar(conn, "verificar_iban", {
+        "proveedor_id": proveedor, "iban": IBAN_TECLEADO, "telefono": "010 1234567",
+        "motivo": "Llamado al numero de siempre"}, usuario_id=admin)
+
+
+def _preparar_retirar_beneficiario(conn, admin) -> None:
+    servicios.ejecutar(conn, "anadir_beneficiario", {
+        "iban": BELASTINGDIENST, "nombre": "Belastingdienst", "motivo": "Pagos de BTW"},
+        usuario_id=admin)
+
+
+def _beneficiario(conn) -> tuple[int, int]:
+    """El beneficiario de la preparacion y su rev (0, 0 sin preparar: la orden se deniega antes
+    de buscarlo)."""
+    fila = conn.execute("SELECT id, rev FROM beneficiario_conocido").fetchone()
+    return (fila[0], fila[1]) if fila else (0, 0)
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -166,6 +192,23 @@ CASOS = [
     ("subir_prioridad", "subir_prioridad", "resolver_aviso", lambda c, i: {
         "entidad_id": i["c"], "nivel": "urgente", "motivo": "El proveedor amenaza con parar"},
      None),
+    ("verificar_iban", "verificar_iban", "confirmar_iban", lambda c, i: {
+        "proveedor_id": i["proveedor"], "iban": IBAN_TECLEADO, "telefono": "010 1234567",
+        "motivo": "Llamado al numero del maestro"}, None),
+    ("rechazar_iban", "rechazar_iban", "confirmar_iban", lambda c, i: {
+        "proveedor_id": i["proveedor"], "iban": IBAN_TECLEADO,
+        "motivo": "El proveedor no reconoce la cuenta"}, None),
+    ("atestar_iban", "atestar_iban", "confirmar_iban", lambda c, i: {
+        "proveedor_id": i["proveedor"], "iban": IBAN_TECLEADO,
+        "motivo": "Comprobada con los pagos de 2025"}, _preparar_atestar),
+    ("fijar_telefono_verificacion", "fijar_telefono_verificacion", "confirmar_iban",
+     lambda c, i: {"proveedor_id": i["proveedor"], "telefono": "010 1234567",
+                   "rev": _rev(c, "proveedor", i["proveedor"])}, None),
+    ("anadir_beneficiario", "anadir_beneficiario", "admin", lambda c, i: {
+        "iban": BELASTINGDIENST, "nombre": "Belastingdienst", "motivo": "Pagos de BTW"}, None),
+    ("retirar_beneficiario", "retirar_beneficiario", "admin", lambda c, i: {
+        "beneficiario_id": _beneficiario(c)[0], "rev": _beneficiario(c)[1],
+        "motivo": "Ya no se paga"}, _preparar_retirar_beneficiario),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -189,7 +232,11 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "esperar_externo": "resolver_aviso", "resolver_excepcion": "resolver_aviso",
         "cerrar_hallazgo": "resolver_aviso", "anular_hallazgo": "anular_aviso",
         "firmar_anulacion": "anular_aviso",
-        "subir_prioridad": "resolver_aviso", "recalcular": "ver_facturas"}
+        "subir_prioridad": "resolver_aviso", "recalcular": "ver_facturas",
+        # Paso 5.
+        "verificar_iban": "confirmar_iban", "rechazar_iban": "confirmar_iban",
+        "atestar_iban": "confirmar_iban", "fijar_telefono_verificacion": "confirmar_iban",
+        "anadir_beneficiario": "admin", "retirar_beneficiario": "admin"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,
@@ -536,7 +583,8 @@ def test_un_maestro_de_exact_no_se_corrige_aqui(escenario) -> None:
     conn = escenario.conn
     ids = _ids(conn)
     admin = permisos.usuario_por_nombre(conn, "Ana")
-    with pytest.raises(servicios.DatosNoValidos, match="paso 5"):
+    # El telefono de verificacion tiene su orden (con confirmar_iban), no corregir_maestro.
+    with pytest.raises(servicios.DatosNoValidos, match="fijar_telefono_verificacion"):
         servicios.ejecutar(conn, "corregir_maestro", {
             "tabla": "proveedor", "fila_id": ids["proveedor"],
             "campo": "telefono_verificacion", "valor": "+31 10 123 4567",

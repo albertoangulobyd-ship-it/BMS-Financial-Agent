@@ -1,0 +1,34 @@
+# Hoja de tarifas pactadas, de compra (a un proveedor o a un recurso) y de
+# venta (a un cliente o en un Objeto), con su vigencia.
+#
+# Una tarifa en otra moneda no entra y bloquea la importacion (X1): el almacen
+# no tiene columna de moneda, y lo que no esta en euros no se guarda como
+# importe. El literal impreso queda como el original del valor.
+version: 1
+fuente: maestro_csv
+tipo: tarifas
+formato: "csv:maestro-tarifas-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Richting, Soort werk, Tarief]
+completo: false
+registros:
+  tarifas:
+    campos:
+      sentido: {columna: Richting, obligatorio: true, valores: {Inkoop: compra, Verkoop: venta}}
+      proveedor_ref: {columna: Leverancier}
+      recurso_ref: {columna: Medewerker}
+      cliente_ref: {columna: Klant}
+      objeto_ref: {columna: Object}
+      tipo_servicio: {columna: Soort werk}
+      tipo_turno: {columna: Dienst}
+      unidad: {columna: Eenheid, valores: {uur: hora, stuk: stuk, dag: dia}, por_defecto: hora}
+      tarifa: {columna: Tarief, tipo: decimal, obligatorio: true, crudo_de: tarifa_crudo}
+      moneda: {columna: Valuta}
+      vigente_desde: {columna: Geldig vanaf, tipo: fecha}
+      vigente_hasta: {columna: Geldig tot, tipo: fecha}

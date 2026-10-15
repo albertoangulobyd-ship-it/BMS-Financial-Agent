@@ -1,9 +1,15 @@
 """El catalogo: cada regla del motor con su metadato, tal como lo fija spec.md §7.
 
 Solo estan las reglas que ya se evaluan. Las demas del §7 llegan con su paso
-(A y F2-F10 con el maestro, K con el banco, P con las ordenes de compra, G y
-V con el planning...), y entran aqui cuando su evaluacion existe: una regla
-listada que no se evalua daria por bueno lo que nadie ha mirado.
+(K y F7 con el banco, P con las ordenes de compra, G y V con el planning...),
+y entran aqui cuando su evaluacion existe: una regla listada que no se evalua
+daria por bueno lo que nadie ha mirado. El paso 5 trae las del maestro y del
+registro de cuentas: A0, A2, A5, A7, A8, E1, E2, F0, F2-F6, F8, F9, U1, Q2,
+Q3, Q4, Z1, Z2 y X1 tambien sobre las importaciones de maestros.
+
+F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
+(lo heredado del primer maestro, de nivel atencion), escrita como regla para
+que tenga su hallazgo, su excepcion y su prioridad como las demas.
 
 De cada regla: que hace un fallo (B, R o A, y si cambia en las facturas de
 venta), si se puede anular, si es pegajosa (su hallazgo no se cierra solo),
@@ -20,12 +26,14 @@ from __future__ import annotations
 import hashlib
 import json
 
-from ..dominio import Calidad, EntradaPrioridad
-from . import aritmetica, bancaria, calidad, iva, planning, unicidad
-from .base import B, LEE_POR_FACTURA, R, Regla, por_factura
+from ..dominio import AmbitoHallazgo, Calidad, EntradaPrioridad
+from . import aritmetica, anomalias, bancaria, calidad, identidad, iva, planning, unicidad
+from .base import A, B, LEE_POR_FACTURA, R, Regla, por_factura
 
 _P = EntradaPrioridad
 _C = Calidad
+_PROVEEDOR = AmbitoHallazgo.PROVEEDOR.value
+_IMPORTACION = AmbitoHallazgo.IMPORTACION.value
 
 
 def _de_factura(id_: str, funcion, lee: frozenset[str], **metadatos) -> Regla:
@@ -41,10 +49,56 @@ CATALOGO: tuple[Regla, ...] = (
                 descripcion="Falta un campo obligatorio para el sentido de la factura: número, "
                             "contraparte, fecha, periodo, base, IVA o régimen, total. Bloquea "
                             "si falta el número, el total o la contraparte."),
-    _de_factura("X1", calidad.x1, calidad.LEE_X1,
-                titulo="Moneda", familia="calidad", severidad=B, pegajosa=True,
-                calidad=_C.ANOMALIA.value,
-                descripcion="La factura no está en euros: queda fuera de todos los totales."),
+    Regla("Q2", "Lectura dudosa sin verificar", "calidad", calidad.EVALUAR_Q["Q2"],
+          calidad.LEE_Q2, severidad=R, calidad=_C.DUDOSO.value,
+          descripcion="Un campo crítico se leyó con duda (low_confidence_fields o un literal "
+                      "que no se pudo leer) y nadie lo ha verificado."),
+    Regla("Q3", "Texto sospechoso en el documento", "calidad", calidad.EVALUAR_Q["Q3"],
+          calidad.LEE_Q3, severidad=A, anulable=True, crea_excepcion=True,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Las notas del documento traen texto dirigido a quien lo procesa (un "
+                      "IBAN, cambiar datos, llamar): señal de un intento de inyección."),
+    Regla("Q4", "Original no guardado", "calidad", calidad.EVALUAR_Q["Q4"], calidad.LEE_Q4,
+          severidad=A, anulable=True, calidad=_C.FALTANTE.value,
+          descripcion="El original del documento no está en el almacén."),
+    Regla("X1", "Moneda", "calidad", calidad.x1_todo,
+          calidad.LEE_X1 | LEE_POR_FACTURA | calidad.LEE_X1_IMPORTACIONES,
+          severidad=B, pegajosa=True, calidad=_C.ANOMALIA.value,
+          descripcion="La factura no está en euros: queda fuera de todos los totales. En un "
+                      "maestro, una fila con un importe en otra moneda no entra y bloquea su "
+                      "importación."),
+    Regla("Z1", "Fuente pasada de frescura", "calidad", calidad.z1, calidad.LEE_Z1,
+          severidad=A, calidad=_C.ANOMALIA.value, ambito=_IMPORTACION,
+          descripcion="Lo último de una fuente es más viejo que su límite (banco 3 días "
+                      "laborables, Exact y TRNSPRNT 7 días): lo que depende de ella queda sin "
+                      "datos."),
+    Regla("Z2", "Filas de importación rechazadas", "calidad", calidad.z2, calidad.LEE_Z2,
+          severidad=R, calidad=_C.FALTANTE.value, ambito=_IMPORTACION,
+          descripcion="La última importación de una fuente rechazó filas (o entera), o trae "
+                      "una parte, un Objeto o un recurso que no existe: nada se crea solo."),
+    Regla("A0", "Contraparte desconocida", "identidad", identidad.EVALUAR["A0"],
+          identidad.LEE_A0, severidad=R, calidad=_C.FALTANTE.value,
+          descripcion="Ningún proveedor o cliente del maestro coincide exactamente (btw-id, "
+                      "KvK o alias confirmado), o coincide más de uno."),
+    Regla("A2", "Distinto del maestro", "identidad", identidad.EVALUAR["A2"],
+          identidad.LEE_A2 | identidad.SOLO_TEXTO_A2, solo_texto=identidad.SOLO_TEXTO_A2,
+          severidad=R, anulable=True, calidad=_C.DISCREPANCIA.value,
+          descripcion="El nombre, el KvK o el btw-id impresos no dicen lo mismo que el maestro "
+                      "de la contraparte (un alias confirmado cuenta como su nombre)."),
+    Regla("A5", "btw-id", "identidad", identidad.EVALUAR["A5"], identidad.LEE_A5,
+          severidad=B, calidad=_C.FALTANTE.value,
+          descripcion="Una compra sin btw-id que no dice KOR bloquea; un btw-id neerlandés que "
+                      "no es NL + nueve cifras + B + dos cifras retiene."),
+    Regla("A7", "Datos cambiados respecto a su historia", "identidad", identidad.EVALUAR["A7"],
+          identidad.LEE_A7, severidad=R, anulable=True, pegajosa=True,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Lo que imprime un proveedor cambia respecto a su factura anterior: "
+                      "btw-id o KvK retienen, nombre o dirección avisan."),
+    Regla("A8", "Destinatario", "identidad", identidad.EVALUAR["A8"], identidad.LEE_A8,
+          severidad=R, anulable=True, calidad=_C.DISCREPANCIA.value,
+          descripcion="La factura no va dirigida a BM Support BV (config/empresa.yaml); una "
+                      "que llega por la vía de salida y no emite BM Support BV está mal "
+                      "encaminada y bloquea."),
     # Duplicados
     Regla("B2", "Número de factura repetido", "unicidad", unicidad.b2, unicidad.LEE_B2,
           solo_texto=unicidad.SOLO_TEXTO,
@@ -86,6 +140,15 @@ CATALOGO: tuple[Regla, ...] = (
                 titulo="Total", familia="aritmetica", severidad=B,
                 calidad=_C.DISCREPANCIA.value,
                 descripcion="La base más la cuota es el total (0,02)."),
+    Regla("E1", "Régimen distinto del maestro", "iva", iva.EVALUAR_E["E1"],
+          iva.LEE_E1, severidad=R, anulable=True, entrada_prioridad=_P.IVA_BLANDA.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="El régimen de IVA de la factura no es el que el maestro tiene "
+                      "registrado del proveedor."),
+    Regla("E2", "Cambio de régimen", "iva", iva.EVALUAR_E["E2"],
+          iva.LEE_E2, severidad=R, anulable=True, pegajosa=True,
+          entrada_prioridad=_P.IVA_BLANDA.value, calidad=_C.ANOMALIA.value,
+          descripcion="El régimen cambia respecto a la factura anterior del mismo proveedor."),
     _de_factura("E3", iva.e3, iva.LEE_E3,
                 titulo="IVA con KOR", familia="iva", severidad=B,
                 entrada_prioridad=_P.IVA_DURA.value, calidad=_C.DISCREPANCIA.value,
@@ -95,16 +158,63 @@ CATALOGO: tuple[Regla, ...] = (
                 entrada_prioridad=_P.IVA_DURA.value, calidad=_C.DISCREPANCIA.value,
                 descripcion="Con IVA trasladado no hay cuota y figura el btw-id del receptor."),
     # Datos de pago
+    Regla("F0", "Cuentas heredadas sin atestar", "bancaria", bancaria.f0, bancaria.LEE_F0,
+          severidad=R, pegajosa=True, entrada_prioridad=_P.IBAN.value, calidad=_C.DUDOSO.value,
+          ambito=_IMPORTACION,
+          descripcion="Las cuentas del primer maestro se aceptan como referencia pero nadie "
+                      "las ha comprobado: una tarea, de nivel atención, para atestarlas."),
     _de_factura("F1", bancaria.f1, bancaria.LEE_F1,
                 titulo="IBAN", familia="bancaria", severidad=B, pegajosa=True,
                 entrada_prioridad=_P.IBAN.value, calidad=_C.DISCREPANCIA.value,
                 descripcion="El IBAN impreso pasa el dígito de control módulo 97."),
+    Regla("F2", "IBAN no pagable", "bancaria", bancaria.EVALUAR["F2"], bancaria.LEE_F2,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="El IBAN de la factura no es una cuenta pagable de su proveedor: "
+                      "verificada, atestada o heredada, en el último maestro de Exact y sin un "
+                      "cambio por verificar."),
+    Regla("F3", "IBAN nuevo o cambiado", "bancaria", bancaria.EVALUAR["F3"], bancaria.LEE_F3,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="El IBAN de la factura es nuevo para el proveedor, o está rechazado: "
+                      "verificación telefónica al número del maestro de antes del documento."),
+    Regla("F4", "IBAN de un tercero o factoring", "bancaria", bancaria.EVALUAR["F4"],
+          bancaria.LEE_F4, severidad=B, pegajosa=True, crea_excepcion=True,
+          entrada_prioridad=_P.IBAN.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="El IBAN está registrado para otro titular, o la factura habla de "
+                      "factoring, cesión o G-rekening. Bloquea y se escala."),
+    Regla("F5", "Cuenta cambiada en el maestro", "bancaria", bancaria.f5, bancaria.LEE_F5,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value, ambito=_PROVEEDOR,
+          descripcion="Una cuenta añadida, cambiada o quitada en un maestro posterior al "
+                      "primero, sin verificar por teléfono."),
+    Regla("F6", "Exact y TRNSPRNT no coinciden", "bancaria", bancaria.f6, bancaria.LEE_F6,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value, ambito=_PROVEEDOR,
+          descripcion="Exact y TRNSPRNT dicen cuentas distintas del mismo proveedor."),
+    Regla("F8", "Verificación que no vale", "bancaria", bancaria.f8, bancaria.LEE_F8,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value, ambito=_PROVEEDOR,
+          descripcion="La llamada no fue al teléfono del maestro de antes del documento, el "
+                      "teléfono cambió dentro del enfriamiento o quien verificó no tenía el "
+                      "permiso."),
+    Regla("F9", "Teléfono de verificación cambiado", "bancaria", bancaria.f9, bancaria.LEE_F9,
+          severidad=A, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.ANOMALIA.value, ambito=_PROVEEDOR,
+          descripcion="El teléfono de verificación de un proveedor acaba de cambiar: empieza "
+                      "el enfriamiento."),
     # Planning
     Regla("G3", "Tarifa distinta por el mismo trabajo", "planning", planning.g3,
-          planning.LEE_G3, solo_texto=planning.SOLO_TEXTO_G3, severidad=R, anulable=True, entrada_prioridad=_P.PLANNING.value,
+          planning.LEE_G3, solo_texto=planning.SOLO_TEXTO_G3, severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value,
           calidad=_C.ANOMALIA.value,
           descripcion="Sin tarifa pactada ni planning, contra el histórico: la misma "
                       "contraparte cobra otra tarifa por el mismo trabajo en el mismo Objeto."),
+    # Relaciones y anomalias
+    Regla("U1", "Importe inusual", "anomalias", anomalias.EVALUAR_U1, anomalias.LEE_U1,
+          severidad=A, anulable=True, crea_excepcion=True, calidad=_C.ANOMALIA.value,
+          descripcion="La base se sale de lo habitual de la contraparte (mediana y MAD de sus "
+                      "facturas anteriores; con menos de tres, sin datos)."),
 )
 
 POR_ID: dict[str, Regla] = {regla.id: regla for regla in CATALOGO}

@@ -47,14 +47,16 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import __version__, estados, excepciones
+from . import politica as politicas
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .auditoria import registrar
 from .campos import FaltaMotivo, Persona
 from .dominio import (
     ESTADOS_PENDIENTES,
+    AmbitoHallazgo,
     EstadoHallazgo,
     MotivoEjecucion,
     Permiso,
@@ -111,9 +113,13 @@ class Transicion:
     nota: str | None = None
 
 
-@dataclass(frozen=True)
-class CambioEvaluacion:
-    """Un resultado de una regla que cambio con la pasada (None: no estaba, o ya no esta)."""
+class CambioEvaluacion(NamedTuple):
+    """Un resultado de una regla que cambio con la pasada (None: no estaba, o ya no esta).
+
+    Una tupla con nombre y no una dataclass congelada: la primera pasada de un
+    historico crea una por cada resultado (decenas de miles), y una dataclass
+    congelada tarda diez veces mas en construirse.
+    """
 
     regla: str
     tabla: str
@@ -259,20 +265,23 @@ def _escribir_evaluaciones(conn: sqlite3.Connection, ejecucion_id: int,
               "FROM evaluacion")}
     volcar = json.JSONEncoder(sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode
     nuevas, viejas = [], []
+    sacar, nueva = anteriores.pop, nuevas.append
+    # La tupla se desempaqueta en vez de leer sus campos uno a uno: son decenas
+    # de miles de vueltas en la primera pasada de un historico.
     for r in resultados:
+        regla, tabla, fila_id, resultado, detalle, valores_r = r[:6]
         clave = r.clave_hallazgo
-        valores = (volcar(dict(r.valores)) if r.valores and r.resultado in _CON_VALORES
+        valores = (volcar(dict(valores_r)) if valores_r and resultado in _CON_VALORES
                    else None)
-        previa = anteriores.pop((r.tabla, r.fila_id, r.regla, clave), None)
+        previa = sacar((tabla, fila_id, regla, clave), None)
         if previa is not None:
-            if previa[1:] == (r.resultado, r.detalle, valores):
+            if previa[1:] == (resultado, detalle, valores):
                 continue
             viejas.append((previa[0],))
-        if cambios is not None and (previa is None or previa[1] != r.resultado):
-            cambios.append(CambioEvaluacion(r.regla, r.tabla, r.fila_id, clave,
-                                            None if previa is None else previa[1], r.resultado))
-        nuevas.append((ejecucion_id, r.regla, r.tabla, r.fila_id, clave, r.resultado, r.detalle,
-                       valores))
+        if cambios is not None and (previa is None or previa[1] != resultado):
+            cambios.append(CambioEvaluacion(regla, tabla, fila_id, clave,
+                                            None if previa is None else previa[1], resultado))
+        nueva((ejecucion_id, regla, tabla, fila_id, clave, resultado, detalle, valores))
     viejas.extend((previa[0],) for previa in anteriores.values())
     if cambios is not None:
         cambios.extend(CambioEvaluacion(r, t, f, c, previa[1], None)
@@ -323,6 +332,15 @@ class _Previo:
 
 _COLUMNAS_DATOS = ("regla_version", "tabla", "fila_id", "factura_id", "severidad", "pegajosa",
                    "anulable", "titulo", "detalle", "valores_json")
+
+
+def _ambito(tabla: str, de_la_regla: str) -> str:
+    """De que entidad es un hallazgo: la de su fila, si es una entidad (una importacion, un
+    proveedor), o la de su regla. X1 mira facturas y tambien importaciones de maestros."""
+    return tabla if tabla in _AMBITOS else de_la_regla
+
+
+_AMBITOS = frozenset(AmbitoHallazgo.valores())
 
 
 def _anulable(regla: Any, sentido: str | None) -> int:
@@ -376,7 +394,7 @@ class _Pasada:
         reloj = reloj_de(conn)
         self.hoy = reloj.hoy()
         self.ahora = marca(reloj.ahora())
-        self.politica = politica or Politica()
+        self.politica = politica or politicas.politica_reglas(conn)
         self.diferencia = Diferencia()
 
     def ejecutar(self) -> Diferencia:
@@ -473,7 +491,7 @@ class _Pasada:
             "valores_json, estado, primera_vez_en, ultima_vez_en, ultima_ejecucion_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (d.clave, regla.id, regla.version, huella, d.tabla, d.fila_id, d.factura_id,
-             d.severidad, regla.calidad, regla.ambito, int(regla.pegajosa),
+             d.severidad, regla.calidad, _ambito(d.tabla, regla.ambito), int(regla.pegajosa),
              _anulable(regla, sentido), regla.titulo, d.detalle, _valores_json(d.valores),
              ABIERTO, self.ahora, self.ahora, self.ejecucion_id)).lastrowid)
         _escribir_objetivos(self.conn, hallazgo_id, _objetivos_de(d))
@@ -800,15 +818,19 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
 
 
 def resolver(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
-             datos: dict[str, Any] | None = None) -> int:
+             datos: dict[str, Any] | None = None,
+             permiso: str = Permiso.RESOLVER_AVISO.value) -> int:
     """Una persona con resolver_aviso cierra un hallazgo cuya condicion ha desaparecido.
 
     Es la unica forma de cerrar uno de una regla pegajosa. Uno abierto no se
-    resuelve: se corrige el dato (y entonces desaparece) o se anula.
+    resuelve: se corrige el dato (y entonces desaparece) o se anula. Los de
+    las cuentas bancarias (familia F) los cierra tambien quien los hizo
+    desaparecer con su verificacion o su rechazo, con confirmar_iban
+    (`permiso`, lo pide servicios.py): es esa decision la que los resuelve.
     """
     motivo = (persona.motivo or "").strip()
     with orden_auditada(conn):
-        exigir(conn, persona.usuario_id, Permiso.RESOLVER_AVISO.value,
+        exigir(conn, persona.usuario_id, permiso,
                accion="cerrar un hallazgo cuya condicion ha desaparecido")
         hallazgo = _hallazgo(conn, hallazgo_id)
         if hallazgo["estado"] != DESAPARECIDO:
@@ -959,6 +981,7 @@ def _aceptado_sin_anulacion(tipo: str, usuario: int | None, anulacion: tuple | N
 
 def _ahora_del_motor(conn: sqlite3.Connection) -> dict[str, tuple[motor.Detectado, str]]:
     """Los hallazgos que da el motor sobre el almacen de ahora, por clave, con su huella."""
-    instantanea = instantaneas.construir(conn, hoy=reloj_de(conn).hoy())
+    instantanea = instantaneas.construir(conn, hoy=reloj_de(conn).hoy(),
+                                         politica=politicas.politica_reglas(conn))
     return {d.clave: (d, huella) for d, huella in calcular(conn, instantanea)}
 

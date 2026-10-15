@@ -22,12 +22,18 @@ from pathlib import Path
 
 import pytest
 from test_reglas import factura, instantanea, linea
+from test_reglas_paso5 import escenarios as escenarios_paso5
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
+    CambioTelefono,
+    Cuenta,
+    EventoCuenta,
     Factura,
     Instantanea,
     Linea,
+    Lote,
+    Parte,
     Politica,
     Relacion,
     Resultado,
@@ -39,12 +45,12 @@ REGLAS = Path(__file__).resolve().parent.parent / "src" / "bms_agent" / "reglas"
 
 # Lo unico que puede importar una regla. instantanea.py es el que lee la base.
 PERMITIDOS = frozenset({
-    "__future__", "collections", "collections.abc", "dataclasses", "datetime", "decimal",
-    "enum", "functools", "hashlib", "itertools", "json", "math", "operator", "re", "types",
-    "typing",
+    "__future__", "bisect", "collections", "collections.abc", "dataclasses", "datetime",
+    "decimal", "enum", "fractions", "functools", "hashlib", "itertools", "json", "math",
+    "operator", "re", "types", "typing",
 })
 PROPIOS = frozenset({"base", "calidad", "aritmetica", "iva", "bancaria", "unicidad", "planning",
-                     "catalogo", "motor"})
+                     "catalogo", "motor", "anomalias", "identidad", "normas"})
 DEL_PAQUETE = frozenset({"dominio"})
 LLAMADAS_PROHIBIDAS = frozenset({"open", "eval", "exec", "compile", "__import__", "input",
                                  "print", "breakpoint", "globals"})
@@ -128,7 +134,9 @@ def test_solo_instantanea_lee_la_base() -> None:
 # --- el proxy que apunta lo que se lee ---
 
 _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
-          TramoIva: "tramo_iva", Relacion: "relacion", Politica: "politica"}
+          TramoIva: "tramo_iva", Relacion: "relacion", Politica: "politica",
+          Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
+          CambioTelefono: "cambio_telefono", Lote: "lote"}
 
 
 class Grabadora:
@@ -201,6 +209,8 @@ def _escenarios() -> list[Instantanea]:
         instantanea(*todas, relaciones=[Relacion(31, 32, "sustituye")]),
         instantanea(factura(50, lineas=())),
         instantanea(factura(51, fusionada_en_id=None, lineas=(), base_cent=None)),
+        # Paso 5: con maestros, registro de cuentas, telefonos e importaciones.
+        *escenarios_paso5(),
     ]
 
 

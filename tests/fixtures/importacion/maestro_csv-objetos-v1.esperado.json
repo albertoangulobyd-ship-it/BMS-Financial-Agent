@@ -1,0 +1,97 @@
+{
+  "mapeo": "maestro_csv-objetos-v1",
+  "fuente": "maestro_csv",
+  "tipo": "objetos",
+  "lotes": [
+    {
+      "tipo": "objetos",
+      "formato": "csv:maestro-objetos-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Code": "Rijnhaven",
+            "Naam": "Rijnhaven terminal",
+            "Klant": "10001",
+            "PO verplicht": "ja",
+            "Actief vanaf": "01-01-2026",
+            "Actief tot": ""
+          },
+          "codigo": "Rijnhaven",
+          "nombre": "Rijnhaven terminal",
+          "cliente_ref": "10001",
+          "requiere_po": true,
+          "activo_desde": "2026-01-01",
+          "activo_hasta": null
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Code": "Waalhaven",
+            "Naam": "",
+            "Klant": "Havenbedrijf Rotterdam BV",
+            "PO verplicht": "nee",
+            "Actief vanaf": "",
+            "Actief tot": ""
+          },
+          "codigo": "Waalhaven",
+          "nombre": "Waalhaven",
+          "cliente_ref": "Havenbedrijf Rotterdam BV",
+          "requiere_po": false,
+          "activo_desde": null,
+          "activo_hasta": null
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Code": "Schiedam",
+            "Naam": "Schiedam centrum",
+            "Klant": "10002",
+            "PO verplicht": "",
+            "Actief vanaf": "15-03-2026",
+            "Actief tot": "31-12-2026"
+          },
+          "codigo": "Schiedam",
+          "nombre": "Schiedam centrum",
+          "cliente_ref": "10002",
+          "requiere_po": null,
+          "activo_desde": "2026-03-15",
+          "activo_hasta": "2026-12-31"
+        },
+        {
+          "fila": 5,
+          "crudo": {
+            "Code": "IJsselmonde",
+            "Naam": "IJsselmonde Café",
+            "Klant": "10009",
+            "PO verplicht": "",
+            "Actief vanaf": "",
+            "Actief tot": ""
+          },
+          "codigo": "IJsselmonde",
+          "nombre": "IJsselmonde Café",
+          "cliente_ref": "10009",
+          "requiere_po": null,
+          "activo_desde": null,
+          "activo_hasta": null
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 6,
+          "codigo": "fila",
+          "motivo": "'32-13-2026' no es una fecha (%d-%m-%Y o %Y-%m-%d)",
+          "crudo": {
+            "Code": "Zuidplein",
+            "Naam": "Zuidplein",
+            "Klant": "",
+            "PO verplicht": "",
+            "Actief vanaf": "32-13-2026",
+            "Actief tot": ""
+          }
+        }
+      ]
+    }
+  ]
+}

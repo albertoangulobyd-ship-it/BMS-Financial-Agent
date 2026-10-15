@@ -1,0 +1,118 @@
+{
+  "mapeo": "exact-clientes-v1",
+  "fuente": "exact",
+  "tipo": "clientes",
+  "lotes": [
+    {
+      "tipo": "clientes",
+      "formato": "csv:exact-debiteuren-v1",
+      "completo": true,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Debiteurnummer": "10001",
+            "Naam": "Havenbedrijf Rotterdam BV",
+            "KvK-nummer": "24000001",
+            "Btw-nummer": "NL009999999B01",
+            "Btw-behandeling": "Normaal",
+            "Verleggen toegestaan": "nee",
+            "PO verplicht": "ja",
+            "Betalingsconditie": "30 dagen",
+            "Status": "Actief",
+            "IBAN": "NL57RABO0111222333",
+            "Tenaamstelling": "Havenbedrijf Rotterdam"
+          },
+          "id_externo": "10001",
+          "nombre": "Havenbedrijf Rotterdam BV",
+          "kvk": "24000001",
+          "btw_id": "NL009999999B01",
+          "plazo_pago_dias": 30,
+          "requiere_po": true,
+          "tratamiento_iva_defecto": "estandar",
+          "verlegd_elegible": false,
+          "activo": true
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Debiteurnummer": "10002",
+            "Naam": "Bouwgroep Schiedam VOF",
+            "KvK-nummer": "",
+            "Btw-nummer": "NL008888888B01",
+            "Btw-behandeling": "Verlegd",
+            "Verleggen toegestaan": "ja",
+            "PO verplicht": "nee",
+            "Betalingsconditie": "45",
+            "Status": "Actief",
+            "IBAN": "",
+            "Tenaamstelling": ""
+          },
+          "id_externo": "10002",
+          "nombre": "Bouwgroep Schiedam VOF",
+          "kvk": null,
+          "btw_id": "NL008888888B01",
+          "plazo_pago_dias": 45,
+          "requiere_po": false,
+          "tratamiento_iva_defecto": "autoliquidacion",
+          "verlegd_elegible": true,
+          "activo": true
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Debiteurnummer": "10003",
+            "Naam": "Gemeente Voorbeeld",
+            "KvK-nummer": "",
+            "Btw-nummer": "",
+            "Btw-behandeling": "Vrijgesteld",
+            "Verleggen toegestaan": "",
+            "PO verplicht": "",
+            "Betalingsconditie": "60",
+            "Status": "Geblokkeerd",
+            "IBAN": "",
+            "Tenaamstelling": ""
+          },
+          "id_externo": "10003",
+          "nombre": "Gemeente Voorbeeld",
+          "kvk": null,
+          "btw_id": null,
+          "plazo_pago_dias": 60,
+          "requiere_po": null,
+          "tratamiento_iva_defecto": "exento",
+          "verlegd_elegible": false,
+          "activo": false
+        }
+      ],
+      "rechazos": []
+    },
+    {
+      "tipo": "cuentas",
+      "formato": "csv:exact-debiteuren-v1",
+      "completo": true,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Debiteurnummer": "10001",
+            "Naam": "Havenbedrijf Rotterdam BV",
+            "KvK-nummer": "24000001",
+            "Btw-nummer": "NL009999999B01",
+            "Btw-behandeling": "Normaal",
+            "Verleggen toegestaan": "nee",
+            "PO verplicht": "ja",
+            "Betalingsconditie": "30 dagen",
+            "Status": "Actief",
+            "IBAN": "NL57RABO0111222333",
+            "Tenaamstelling": "Havenbedrijf Rotterdam"
+          },
+          "titular": "cliente",
+          "parte_ref": "10001",
+          "iban": "NL57RABO0111222333",
+          "nombre_titular": "Havenbedrijf Rotterdam"
+        }
+      ],
+      "rechazos": []
+    }
+  ]
+}

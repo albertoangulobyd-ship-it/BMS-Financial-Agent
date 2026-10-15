@@ -1,0 +1,33 @@
+# Tolerancias y umbrales de las reglas (spec §7, validacion-facturas.md §4).
+#
+# Se aplica con `bms-agent politica cargar config/reglas.yaml`: queda en la
+# politica con su hash, y su valor entra en la huella de cada hallazgo de una
+# regla que lo usa (aflojar una tolerancia hace que una anulacion ya no
+# valga). Mientras no se carga, valen los mismos valores desde el codigo
+# (reglas.base.Politica). Lo que bloquea, lo que no se anula y lo que es
+# pegajoso no esta aqui: no se puede relajar desde un fichero.
+
+aritmetica:
+  # Redondeo admitido por linea y por factura (D2, D2b, D3, D4).
+  tolerancia_linea: "0.01"
+  tolerancia_factura: "0.02"
+
+duplicados:
+  # B3: el mismo total como mucho a estos dias, con esta diferencia.
+  ventana_dias: 14
+  tolerancia: "0.01"
+
+cuentas:
+  # true: lo heredado del primer maestro no se paga hasta atestarlo o
+  # verificarlo por telefono (decision 3, lo estricto de D2).
+  solo_verificadas: false
+  # Tras un cambio del telefono de verificacion, dias en que no vale ninguna
+  # verificacion por telefono de ese proveedor (decision 4, F8 y F9).
+  enfriamiento_telefono_dias: 14
+
+frescura:
+  # Edad maxima de cada fuente antes de Z1 (decision 7). Pasada, las reglas
+  # que dependen de ella dan sin datos, nunca ok.
+  exact_dias: 7
+  trnsprnt_dias: 7
+  extractos_dias_laborables: 3

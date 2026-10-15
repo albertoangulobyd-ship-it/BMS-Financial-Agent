@@ -231,6 +231,18 @@ def test_leer_pide_un_token_personal_con_ver_facturas(servidor) -> None:
     assert sum("ver_facturas" in m for m in motivos) == 4
 
 
+def test_el_registro_de_cuentas_y_las_fuentes_por_la_api(servidor) -> None:
+    """Paso 5: lo que ensena la consola del registro de cuentas y de la frescura (Z1)."""
+    puerto, tokens, _f, _db = servidor
+    for ruta, clave in (("/api/v2/cuentas", "cuentas"), ("/api/v2/fuentes", "fuentes")):
+        assert _pedir(puerto, "GET", ruta)[0] == 401
+        assert _leer(puerto, ruta, tokens["nadie"])[0] == 403
+        estado, cabeceras, datos = _leer(puerto, ruta, tokens["carla"])
+        assert estado == 200 and cabeceras["content-type"].startswith("application/json")
+        assert datos == {clave: []}           # sin ningun maestro importado todavia
+    assert "pintarFuentes" in consola_assets.SCRIPT
+
+
 def test_otra_web_no_llena_la_auditoria_con_lecturas_sin_token(servidor) -> None:
     """Un <img src> de otra web llega sin Origin y sin token: 401, y nada escrito."""
     puerto, _tokens, _f, db = servidor

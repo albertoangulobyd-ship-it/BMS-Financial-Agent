@@ -229,6 +229,14 @@ def _titulo(hallazgos: list[_Pendiente]) -> str:
 
 
 def _descripcion(conn: sqlite3.Connection, tabla: str, fila_id: int) -> str | None:
+    if tabla in ("proveedor", "cliente"):
+        fila = conn.execute(f"SELECT nombre FROM {tabla} WHERE id = ?", (fila_id,)).fetchone()
+        return f"{tabla.capitalize()} {fila['nombre']}" if fila else None
+    if tabla == "importacion":
+        fila = conn.execute("SELECT fuente, tipo, iniciada_en FROM importacion WHERE id = ?",
+                            (fila_id,)).fetchone()
+        return (f"Importación {fila_id} de {fila['fuente']}/{fila['tipo']} "
+                f"({fila['iniciada_en'][:10]})") if fila else None
     if tabla != "factura":
         return None
     fila = conn.execute(

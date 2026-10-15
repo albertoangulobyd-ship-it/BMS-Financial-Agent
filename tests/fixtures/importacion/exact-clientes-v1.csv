@@ -1,0 +1,4 @@
+﻿Debiteurnummer;Naam;KvK-nummer;Btw-nummer;Btw-behandeling;Verleggen toegestaan;PO verplicht;Betalingsconditie;Status;IBAN;Tenaamstelling
+10001;Havenbedrijf Rotterdam BV;24000001;NL009999999B01;Normaal;nee;ja;30 dagen;Actief;NL57RABO0111222333;Havenbedrijf Rotterdam
+10002;Bouwgroep Schiedam VOF;;NL008888888B01;Verlegd;ja;nee;45;Actief;;
+10003;Gemeente Voorbeeld;;;Vrijgesteld;;;60;Geblokkeerd;;

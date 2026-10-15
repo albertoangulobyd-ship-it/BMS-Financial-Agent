@@ -67,6 +67,7 @@ from .dominio import (
     FUENTES_AUTOMATICAS,
     ClaseReferencia,
     EstadoRelacion,
+    FrecuenciaCiclo,
     Fuente,
     FuenteRelacion,
     FuenteTarifa,
@@ -423,6 +424,26 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "fuente": _r(ENUM, valores=FuenteTarifa.valores(), **_FIJO),
         "documento_id": _r(REF, **_FIJO),
     }, suplir=_ADMIN, corregir=_ADMIN),
+    # Paso 5. El IBAN de un beneficiario que no es proveedor lo teclea una
+    # persona con admin al darlo de alta; no se cambia despues (se retira y se
+    # da de alta otro), igual que una cuenta del registro.
+    "beneficiario_conocido": _tabla("beneficiario_conocido", {
+        "iban": _r(TEXTO, **_FIJO),
+        "nombre": _r(TEXTO),
+        "motivo": _r(TEXTO),
+        "creado_por": _r(REF, **_FIJO),
+        "creado_en": _r(INSTANTE, **_FIJO),
+        "retirada_en": _r(INSTANTE, **_FIJO),
+    }, suplir=_ADMIN, corregir=_ADMIN),
+    "ciclo_facturacion": _tabla("ciclo_facturacion", {
+        "cliente_id": _r(REF),
+        "objeto_id": _r(REF),
+        "frecuencia": _r(ENUM, valores=FrecuenciaCiclo.valores()),
+        "ancla": _r(FECHA),
+        "dias_gracia": _r(ENTERO, defecto=0),
+        "vigente_desde": _r(FECHA),
+        "vigente_hasta": _r(FECHA),
+    }, suplir=_ADMIN, corregir=_ADMIN),
     "factura": _tabla("factura", {
         "sentido": _r(ENUM, valores=Sentido.valores(), **_FIJO),
         "tipo": _r(ENUM, valores=TipoFactura.valores(), externo=True),
@@ -560,7 +581,8 @@ TABLAS_CONTROLADAS: tuple[str, ...] = tuple(REGISTRO)
 # nadie a mano en la V1: llega por un documento o por una importacion.
 PERMISO_ALTA: dict[str, str | None] = {
     "proveedor": _ADMIN, "cliente": _ADMIN, "contacto": _ADMIN, "recurso": _ADMIN,
-    "tarifa_acordada": _ADMIN, "objeto": _OBJETO, "alias": _OBJETO, "factura": None,
+    "tarifa_acordada": _ADMIN, "beneficiario_conocido": _ADMIN, "ciclo_facturacion": _ADMIN,
+    "objeto": _OBJETO, "alias": _OBJETO, "factura": None,
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
 }
@@ -573,6 +595,7 @@ ESTRUCTURA: dict[str, frozenset[str]] = {
     "contacto": frozenset({"proveedor_id", "cliente_id"}),
     "alias": frozenset({"tabla"}),
     "tarifa_acordada": frozenset({"sentido", "documento_id"}),
+    "beneficiario_conocido": frozenset({"iban", "creado_por", "creado_en"}),
     "factura_linea": frozenset({"factura_id", "orden"}),
     "factura_imputacion": frozenset({"factura_id", "linea_id"}),
     "factura_iva": frozenset({"factura_id"}),

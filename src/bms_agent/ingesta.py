@@ -45,6 +45,7 @@ from .almacen.unidades import json_canonico, sha256_texto
 from .campos import Automatico, Leido
 from .checks import check_currency
 from .dominio import FUENTES_AUTOMATICAS, Fuente, Sentido, TipoFactura, TratamientoIva
+from .identidad import reconciliar_referencias  # noqa: F401 (su sitio de antes)
 from .parsing import (
     ParseError,
     detectar_moneda,
@@ -608,28 +609,6 @@ def tipar_pendientes(conn: sqlite3.Connection) -> list[Tipado]:
         except (sqlite3.Error, ValueError, TypeError, LookupError) as exc:
             resultados.append(Tipado(documento_id, None, "error", f"{type(exc).__name__}: {exc}"))
     return resultados
-
-
-def reconciliar_referencias(conn: sqlite3.Connection, *, actor: int | None = None) -> int:
-    """Vuelve a resolver proveedor, cliente, Objeto y recurso con los maestros de ahora.
-
-    Lo llama quien cambia un maestro (la semilla de tarifas, las
-    importaciones del paso 5): una factura tipada antes de que existiera su
-    Objeto se imputa ahora. Un valor puesto a mano no se pisa. Devuelve
-    cuantos campos cambiaron.
-    """
-    origen = Automatico(Fuente.CALCULADO.value, actor or usuario_sistema(conn, "motor"),
-                        ref="maestros")
-    with campos.orden(conn, origen, tipo="referencias_recalculadas") as o:
-        for fila in conn.execute(
-            "SELECT id FROM factura WHERE fusionada_en_id IS NULL ORDER BY id"
-        ).fetchall():
-            o.recalcular("factura", fila["id"], ("proveedor_id", "cliente_id"))
-        for fila in conn.execute(
-            "SELECT id FROM factura_imputacion WHERE retirada_en IS NULL ORDER BY id"
-        ).fetchall():
-            o.recalcular("factura_imputacion", fila["id"], ("objeto_id", "recurso_id"))
-    return sum(1 for e in o.resultado.efectos if e.accion in ("cambiado", "alta"))
 
 
 # ------------------------------------------------------------- la pasada

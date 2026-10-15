@@ -19,6 +19,8 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import islice
+from operator import itemgetter
 from typing import Any
 
 from .base import (
@@ -43,18 +45,21 @@ def evaluar(instantanea: Instantanea,
             reglas: Sequence[Regla] = CATALOGO) -> tuple[Resultado, ...]:
     """Cada regla sobre la instantanea, con los resultados en un orden fijo."""
     # La clave de orden no formatea la clave del hallazgo (son decenas de miles):
-    # (grupo, clave) identifica lo mismo dentro de una regla y una fila.
-    ordenados: list[tuple[int, str, int, str, str, Resultado]] = []
+    # (grupo, clave) identifica lo mismo dentro de una regla y una fila. Va en
+    # su propia tupla para compararla sin recortar nada: con ochenta mil
+    # resultados, recortar cada par para buscar duplicados se notaba.
+    # Con listas por comprension y los campos por posicion (tabla, fila_id,
+    # grupo, clave): un generador por resultado se notaba en ochenta mil.
+    ordenados: list[tuple[tuple[int, str, int, str, str], Resultado]] = []
     for posicion, regla in enumerate(reglas):
-        ordenados.extend((posicion, r.tabla, r.fila_id, r.grupo or "", r.clave, r)
-                         for r in regla.evaluar(instantanea))
-    ordenados.sort(key=lambda e: e[:5])
-    for anterior, siguiente in zip(ordenados, ordenados[1:]):
-        if anterior[:5] == siguiente[:5]:
-            r = siguiente[5]
+        ordenados.extend([((posicion, r[1], r[2], r[7] or "", r[6]), r)
+                          for r in regla.evaluar(instantanea)])
+    ordenados.sort(key=itemgetter(0))
+    for (anterior, _r), (siguiente, r) in zip(ordenados, islice(ordenados, 1, None)):
+        if anterior == siguiente:
             raise ResultadoDuplicado(f"{r.regla} dio dos resultados para {r.tabla} {r.fila_id} "
                                      f"con la clave {r.clave_hallazgo}")
-    return tuple(e[5] for e in ordenados)
+    return tuple(map(itemgetter(1), ordenados))
 
 
 @dataclass(frozen=True)
@@ -164,7 +169,7 @@ _DERIVADOS_FACTURA = {
 }
 _DERIVADOS_LINEA = {"objeto": ("objeto_doc",)}
 _SIN_FUENTE = frozenset({"id", "orden", "lineas", "desglose", "ilegibles", "no_solicitados",
-                         "anulada", "fusionada_en_id"})
+                         "anulada", "fusionada_en_id", "dudosos", "sin_original"})
 
 
 def campos_de_fuente(regla: Regla) -> dict[str, tuple[str, ...]]:

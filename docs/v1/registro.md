@@ -1783,3 +1783,359 @@ Desviaciones nuevas, y por qué:
   opciones**, no solo de `--token` y `--valor`: un motivo o una nota pueden
   empezar por un guion. Las abreviaturas de argparse (`--tok`) no se juntan;
   la forma documentada es el nombre entero.
+
+## Paso 5
+
+Maestros y registro de cuentas bancarias. **1167 tests pasan** (684
+funciones de test; eran 1061 y 630 al cerrar el paso 4), ninguno llama a la
+API y ninguno escribe fuera de una carpeta temporal. Entran los importadores
+de maestros (un marco común, mapeos YAML versionados con su test de
+contrato), el registro de cuentas con su línea base, atestación y
+verificación por teléfono, y veintiuna reglas nuevas (A0, A2, A5, A7, A8,
+E1, E2, U1, Q2, Q3, Q4, Z1, Z2, F0, F2, F3, F4, F5, F6, F8, F9) más X1 sobre
+las importaciones. Cinco mil facturas se recalculan en 1,5-1,9 s la primera
+vez y en 1,25-1,6 s las siguientes (ocho medidas de cada caso en este
+contenedor, que es ruidoso: el código del paso 4 mide 1,5-1,7 s y 1,2-1,4 s
+en las mismas condiciones). Ver "Lo que deben saber los pasos siguientes".
+
+### Qué se construyó
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `cuentas.py` | **El único que escribe `cuenta_bancaria` y `cuenta_evento`.** `apuntar_maestro()` (lo que trae una importación completa de cuentas: altas, `baseline` si es el primer maestro de Exact de ese tipo de titular, `visto_en_*` por cada una y `ausente_en_*` por las que traía la anterior y esta no), `decidir()` (verificar, rechazar o atestar una o varias cuentas una persona con `confirmar_iban`, con motivo; si la cuenta no está y se pide, la da de alta como `verificacion_manual`), `cuenta_de`, `telefono_ref` y `verificar()` (cada fila contra la foto de su evento de auditoría). Ninguna función recibe un IBAN de una extracción |
+| `importadores/base.py` | El marco del §9: `Lector` (protocolo: `reconoce`, `leer`), `LoteLeido` (registros canónicos, rechazos con su fila, código y crudo, hash, mapeo, de cuándo es, si es una foto completa), `Rechazo` y `ATOMICOS` (los tipos que entran todo o nada) |
+| `importadores/canonico.py` | Los registros canónicos (pydantic, `extra='forbid'`, congelados, Decimal y date, con la fila y el crudo): `ProveedorCanonico`, `ClienteCanonico`, `CuentaBancariaCanonica` (sin ningún campo de estado; el IBAN pasa el módulo 97 o la fila no se lee), `ObjetoCanonico`, `RecursoCanonico`, `AliasCanonico`, `TarifaCanonica` (con la moneda del fichero), `CicloCanonico` y `MODELOS` |
+| `importadores/tabular.py` | El lector de CSV guiado por un mapeo: `Mapeo`/`Registro`/`Campo`, `mapeo_de_yaml` (rechaza un campo que el registro canónico no tiene), `mapeos()`, `decodificar` (utf-8-sig y cp1252, en el orden del mapeo), separador decimal y de miles, formatos de fecha, mapas de valores, campos derivados (`unir`), valores fijos, `omitir_si_vacio`, `LectorTabular` (`reconoce` por la huella de la cabecera), `lectores()`, `elegir_mapeo()` y `contrato()` (lo que fija el test de contrato) |
+| `importadores/registrar.py` | **`registrar_lote`, el único escritor de lo que trae una importación** (ver más abajo), los escritores por tipo (proveedores y clientes por su número del sistema o adoptando el que ya se conocía por btw-id, KvK o alias; Objetos, recursos, alias, tarifas por su clave natural, ciclos), `_cuentas` (todo o nada), `_retirar_ausentes` (la foto completa), `importacion_previa` e `importar_fichero` (la orden entera: elegir el mapeo, leer, registrar cada lote, reconciliar las facturas y recalcular, en una transacción; `simular` lo deshace) |
+| `reglas/normas.py` | Las normalizaciones puras (btw-id, KvK, nombre, IBAN, `parece_iban`, teléfono con el prefijo de país como 0): las comparten las reglas (que no pueden importar nada de fuera de `reglas/`) e `identidad.py`, que las reexporta |
+| `reglas/identidad.py` | A0, A2, A5, A7 y A8 |
+| `reglas/anomalias.py` | U1 con el método exacto de la especificación, en aritmética entera (mediana doblada y MAD por cuatro), con la mediana de las desviaciones buscada sobre la lista ordenada sin construirla y un atajo por conteo cuando basta para decir que no es raro |
+| `scripts/regenerar_contratos.py` | Escribe el JSON esperado de cada mapeo (y de la semilla) desde su fichero de ejemplo; se ejecuta solo cuando un mapeo cambia a propósito |
+| `config/importacion/*.yaml` | Siete mapeos: `exact-proveedores-v1` (acreedores con su cuenta, condiciones de pago, código de IVA y el teléfono de verificación), `exact-clientes-v1`, `maestro_csv-objetos-v1`, `-recursos-v1`, `-alias-v1`, `-tarifas-v1` y `-ciclos-v1` |
+| `config/reglas.yaml`, `config/empresa.yaml` | Las tolerancias, el interruptor de las cuentas, el enfriamiento y la frescura (iguales a `reglas.base.Politica`; un test lo comprueba); la identidad de BM Support BV (`btw_id`, `kvk` y `cuentas_propias` por rellenar) |
+
+**Tablas** (migración `0005_maestros_cuentas.sql`), STRICT, con clave
+entera y sin columnas REAL:
+
+| Tabla | Clase | Qué no se puede hacer |
+| --- | --- | --- |
+| `cuenta_bancaria` | SOLO ALTA (`UPDATE` y `DELETE` abortan) | Darla de alta alguien que no sea el usuario de sistema importador con una importación de ese maestro en curso y en su evento, o una persona activa con `confirmar_iban` en ese momento y en su propia orden (`verificacion_manual`); dos filas para el mismo titular e IBAN; un IBAN con otra forma; `primera_fuente` de maestro sin importación o manual con ella |
+| `cuenta_evento` | SOLO ESCRITURA | `UPDATE` y `DELETE`; `verificada`, `rechazada`, `atestada` o `retirada` sin una persona con `confirmar_iban` en ese instante, fuera de su orden o del importador; `verificada` sin método ni teléfono llamado; `baseline`, `visto_en_*` o `ausente_en_*` sin la importación en curso del importador; `visto_en_documento` nunca (está en la lista del §5.C, pero lo que dice un documento no entra) |
+| `beneficiario_conocido` | Controlada (rev y guarda generada) | Dos vigentes con el mismo IBAN; cambiar el IBAN, quién o cuándo; borrarla (se retira) |
+| `ciclo_facturacion` | Controlada | Un ciclo sin cliente ni Objeto; vigencias al revés; otra frecuencia que semanal, cuatrisemanal o mensual |
+
+Y la vista `v_cuenta_estado` (estado registrado y si la trae el último
+Exact), y un índice parcial de los campos dudosos para la instantánea.
+
+**El registro de cuentas** (decisiones 3 y 4). El estado de una cuenta no
+está en su fila: lo dicen sus eventos, y lo calcula una función pura
+(`reglas.bancaria.estado_cuenta`) que usan las reglas, las órdenes y las
+consultas:
+
+- El primer maestro de Exact es la **línea base**: sus cuentas quedan
+  `heredada`, aceptadas como referencia y enseñadas sin verificar, y nace
+  una sola tarea (F0, sobre esa importación, de nivel atención) para
+  atestarlas.
+- Lo que un maestro posterior **añade, quita o vuelve a traer** es un cambio
+  que bloquea (F5) hasta que una persona lo verifica por teléfono o lo
+  rechaza; otra importación que lo deje como estaba no lo cierra.
+- **Pagable** = verificada, atestada o heredada **y** presente en la última
+  importación de Exact que la miró **y** sin un cambio pendiente. Con
+  `cuentas.solo_verificadas: true` (lo estricto de D2) lo heredado deja de
+  serlo.
+- Una **verificación por teléfono cuenta** si el número llamado es el que
+  tenía el maestro antes de que llegara lo que la motivó (el documento de la
+  factura, o el fichero de la importación del maestro), si el teléfono no
+  cambió en los `cuentas.enfriamiento_telefono_dias` (14) anteriores y si
+  quien llamó tenía `confirmar_iban`. Si no, queda apuntada y no cuenta
+  (F8). Cambiar el teléfono abre el enfriamiento (F9).
+
+**`registrar_lote` garantiza** (§9): repetir el mismo fichero no hace nada
+(fuente, tipo y hash); el fichero va al almacén de documentos; cuentas todo
+o nada, el resto fila a fila con lo rechazado en la importación (Z2); cada
+valor por `campos.py` con fuente `importacion` y referencia `importacion:N`;
+un valor puesto a mano no se pisa (queda como automático y el campo sin
+resolver); un campo de Exact solo lo escribe Exact; ningún estado decidido
+(ni el modelo canónico tiene el campo ni la base lo admite del importador);
+un IBAN solo entra como fila de `cuenta_bancaria` y evento `visto_en_*`; lo
+que falta en una foto completa queda `ausente_*` (cuentas) o inactivo
+(proveedores y clientes de ese sistema, y solo si la foto entró entera);
+una referencia desconocida rechaza la fila y nada se crea solo (coincidencia
+exacta); la ejecuta el importador y la lanza una persona con
+`importar_datos`, y quedan los dos; `exportado_en` mide la frescura; las
+reglas se recalculan en la misma transacción.
+
+**Reglas nuevas** (`reglas/catalogo.py`, en el orden del §7):
+
+| Regla | Qué mira | Al fallar |
+| --- | --- | --- |
+| Q2 | Un campo crítico leído con duda que nadie ha verificado | Retiene; no se anula |
+| Q3 | Las notas del documento traen texto dirigido a quien lo procesa (dos clases de marcas, o una instrucción al sistema) | Aviso con excepción; se anula. La evidencia dice qué clase de cosa se vio, nunca el texto |
+| Q4 | El original del documento no está en el almacén | Aviso; se anula |
+| X1 | Además de las facturas: una fila de un maestro con un importe en otra moneda (no entra) | Bloquea la importación; pegajosa |
+| Z1 | Una fuente pasada de su límite de frescura (Exact 7 días, TRNSPRNT 7, banco 3 laborables) | Aviso sobre su última importación y aviso en `bms-agent facturas`, `bms-agent fuentes` y la consola; A2, E1, F2 y F3 dan sin datos en vez de ok |
+| Z2 | La última importación de una fuente y tipo rechazó filas o entera | Retiene la importación |
+| A0 | La contraparte no se conoce o es ambigua (sin datos hasta que entra el maestro de su tipo) | Retiene; no se anula |
+| A2 | Lo impreso (btw-id, KvK, nombre o un alias confirmado) no es lo del maestro de la contraparte resuelta | Retiene; se anula |
+| A5 | Una compra sin btw-id que no dice KOR (bloquea); un btw-id neerlandés con otra forma (retiene) | |
+| A7 | Lo impreso cambia respecto a la factura anterior del mismo proveedor: btw-id o KvK retienen, nombre o dirección avisan | Se anula; pegajosa |
+| A8 | No va dirigida a BM Support BV (`config/empresa.yaml`); una de salida que no emite BMS está mal encaminada (bloquea) | Retiene; se anula |
+| E1 | El régimen de la factura no es el que el maestro tiene del proveedor | Retiene; se anula (IVA blando) |
+| E2 | El régimen cambia respecto a la factura anterior | Retiene; se anula; pegajosa (IVA blando) |
+| U1 | La base se sale de lo habitual de la contraparte (el método del §7) | Aviso con excepción; se anula |
+| F0 | Cuentas heredadas del primer maestro sin atestar | Retiene la importación de partida (la tarea de atención) |
+| F2 | El IBAN de la factura no es una cuenta pagable de su proveedor | Bloquea |
+| F3 | El IBAN es nuevo para el proveedor, o está rechazado | Bloquea |
+| F4 | El IBAN está registrado para otro titular, o la factura habla de factoring, cesión o G-rekening | Bloquea con excepción |
+| F5 | Una cuenta añadida, quitada o vuelta a traer por un maestro posterior al primero | Bloquea, sobre el proveedor |
+| F6 | Exact y TRNSPRNT no dicen las mismas cuentas de un proveedor | Bloquea, sobre el proveedor |
+| F8 | La última verificación de una cuenta no cuenta | Bloquea, sobre el proveedor |
+| F9 | El teléfono de verificación cambió hace menos que el enfriamiento | Aviso, sobre el proveedor |
+
+Todas las F son pegajosas y ninguna se anula (la base ya lo exigía para
+cualquier F). Se cierran con una verificación, un rechazo, una atestación o
+un cambio en los datos: la orden de IBAN que hace desaparecer un hallazgo F
+lo resuelve en la misma orden, firmada por quien decidió.
+
+**Órdenes nuevas** (`servicios.ACCIONES`):
+
+| Orden | Permiso | Qué hace |
+| --- | --- | --- |
+| `verificar_iban` | `confirmar_iban` | Verificar por teléfono una cuenta de un proveedor (la nueva de una factura o la del maestro). El IBAN lo teclea la persona; la orden dice si la verificación cuenta y por qué no. Quien cambió el teléfono de ese proveedor no verifica con él si hay otra persona con el permiso |
+| `rechazar_iban` | `confirmar_iban` | Rechazar una cuenta; con la factura que la traía, decir si se paga a la verificada (sus F2 y F3 dejan de bloquearla si el proveedor tiene una pagable) o se anula |
+| `atestar_iban` | `confirmar_iban` | Atestar una cuenta heredada, o todas las que faltan (la tarea de F0) |
+| `fijar_telefono_verificacion` | `confirmar_iban` | El teléfono al que se llama; cambiarlo abre el enfriamiento. `corregir_maestro` ya no lo toca |
+| `anadir_beneficiario`, `retirar_beneficiario` | `admin` | Un beneficiario que no es proveedor (Belastingdienst, nóminas, alquiler), para F7 (paso 7) |
+
+**CLI**
+
+- `bms-agent importar <fuente> <tipo> <fichero> [--mapeo M] [--simular]
+  [--exportado AAAA-MM-DD] [--token T]`: con el token de una persona con
+  `importar_datos`. Dice por lote lo que entró, lo rechazado con su fila y
+  su código, lo que quedó sin resolver (M1), las cuentas nuevas y ausentes,
+  y lo retirado. Sin `--exportado` cuenta el día en que se guardó el fichero.
+- `bms-agent iban listar|verificar|rechazar|atestar|telefono`: el registro
+  con su estado (pagable, en Exact, cambio sin verificar, verificación que
+  no vale) y las cuatro órdenes de cuentas.
+- `bms-agent fuentes`: de cuándo es lo último de cada fuente y tipo, su
+  edad, su límite y si está pasada.
+- `bms-agent politica cargar` acepta también `config/reglas.yaml` y
+  `config/empresa.yaml` (por su nombre); `db verificar` comprueba también el
+  registro de cuentas (`cuentas.verificar`).
+- `GET /api/v2/cuentas` y `/api/v2/fuentes`; la consola enseña el aviso de
+  frescura arriba.
+
+**Cambios**
+
+- `reglas/base.py`: `Politica` lleva el interruptor de las cuentas, el
+  enfriamiento, la frescura y la identidad de la empresa; `Factura` lleva
+  `documento_id`, `emisor_direccion_doc`, `kor_mencionada`, `notas_doc`,
+  `dudosos` y `sin_original`; nuevos `Parte`, `Cuenta`, `EventoCuenta`,
+  `CambioTelefono` y `Lote`, que la `Instantanea` trae (`proveedores`,
+  `clientes`, `cuentas`, `telefonos`, `lotes`); `solo_objeciones`, `fallo`,
+  `sin_datos`, `dias_laborables`, `ultimo_lote_valido`, `edad`, `caducada`,
+  `importado`.
+- `reglas/instantanea.py` lee todo eso (los maestros con sus alias ya
+  normalizados; las cuentas con cada evento, si quien decidió tenía el
+  permiso en ese instante y cuándo llegó lo que lo motivó; la historia del
+  teléfono; las importaciones con sus rechazos).
+- `reglas/bancaria.py`: el estado de una cuenta, la eficacia de una
+  verificación, el `Registro` de una pasada y las reglas F;
+  `validar_iban` con una tabla de `str.translate` y solo ASCII.
+- `reglas/calidad.py` (Q2-Q4, X1 de importaciones, Z1, Z2), `reglas/iva.py`
+  (E1, E2), `reglas/catalogo.py`, `reglas/motor.py`.
+- `politica.py`: `politica_reglas(conn)` (la `Politica` de los últimos
+  `reglas.yaml` y `empresa.yaml` cargados; sin ninguno, la del código),
+  `empresa(conn)`, `cargar()` por nombre de fichero y `PoliticaNoValida`.
+- `hallazgos.py`: la pasada evalúa con `politica_reglas`; el ámbito de un
+  hallazgo sale de la regla (importación, proveedor); `resolver` acepta el
+  permiso con que se cierra (las F, con `confirmar_iban`).
+- `servicios.py`: las seis órdenes y el cierre de las F que desaparecen con
+  ellas; `excepciones.py` describe las excepciones de una importación, un
+  proveedor o un cliente; `estados.py` calcula la prioridad de esas
+  excepciones aunque no haya ninguna factura; `prioridad.py` no cuenta dos
+  veces los dudosos cuando ya está Q2.
+- `identidad.py`: `comprobar_alias` y `reconciliar_referencias` (antes en
+  `ingesta.py`, que la reexporta).
+- `importadores/tarifas.py`: `leer_semilla()` (puro, en registros
+  canónicos) y `contrato_semilla()`; `sembrar_tarifas` lee por él.
+- `dominio.py`: `TitularCuenta`, `PrimeraFuenteCuenta`, `TipoEventoCuenta`,
+  `DECISIONES_CUENTA`, `MetodoVerificacion`, `DecisionFacturas`,
+  `FrecuenciaCiclo`, `FuenteImportacion`, `TipoImportacion`.
+- `campos.py`: `beneficiario_conocido` y `ciclo_facturacion` en el
+  registro (alta con `admin`).
+- `reglas/unicidad.py`: B3 y B4 recorren la ventana por posición en vez de
+  copiar la cola de la lista en cada vuelta (era cuadrático con un
+  proveedor de miles de facturas). `hallazgos.CambioEvaluacion` es una
+  tupla con nombre, el motor ordena con listas por comprensión, y la
+  instantánea normaliza cada texto impreso una vez por pasada. Todo por
+  velocidad, sin cambiar lo que hacen.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Una propiedad: ninguna extracción, tampoco `03-con-inyeccion`, crea ni cambia una fila de `cuenta_bancaria` | `test_cuentas.py::test_ninguna_extraccion_crea_ni_cambia_una_cuenta_del_registro` (con el registro ya lleno del maestro de Exact: las siete fixtures v1 y doce extracciones al azar de proveedores del maestro, con IBAN válidos y no en la cabecera y en las notas e instrucciones de cambiar la cuenta; tras la ingesta, el recálculo y una persona trabajando las facturas, `cuenta_bancaria` y `cuenta_evento` son fila a fila las de antes, y F3 bloqueó lo que no era suyo); `test_alcance_v1.py::test_el_unico_escritor_de_cuentas_no_se_alcanza_desde_la_extraccion` (solo `cuentas.py` tiene SQL que escribe esas tablas, nada de la extracción ni de la ingesta lo importa, ni directa ni indirectamente, y él no importa nada que produzca una extracción) y `test_un_iban_de_un_documento_no_sale_nunca_de_su_sitio` (sigue en pie) |
+| La fixture de inyección queda Bloqueada por F2/F3 y además da Q3 | `test_cuentas.py::test_la_factura_con_inyeccion_queda_bloqueada_y_avisa` (resuelta contra Koster del maestro: F2 y F3 bloquean, Q3 avisa y se puede anular, ninguno de sus dos IBAN está en el registro, y la excepción de la factura es Bloqueada) y `test_reglas_paso5.py::test_q3_avisa_de_las_notas_de_la_fixture_de_inyeccion_y_no_de_una_nota_inocente` |
+| Un IBAN cambiado en un Exact posterior bloquea con F5 y sigue abierto tras la siguiente importación | `test_cuentas.py::test_un_iban_cambiado_en_un_maestro_posterior_bloquea_y_sigue_abierto` (dos F5 sobre el proveedor, la cuenta nueva y la que desapareció; la excepción del proveedor es Bloqueada; la importación siguiente, con otro cambio, los deja abiertos y son los mismos; la verificación al número del maestro de antes resuelve el de la nueva y el rechazo de la vieja, el suyo) |
+| Una verificación con el teléfono cambiado tres días antes no cuenta (F8) | `test_cuentas.py::test_una_verificacion_tres_dias_despues_de_cambiar_el_telefono_no_cuenta` (F9 avisa al cambiarlo; la llamada al número nuevo a los tres días no cuenta por el enfriamiento y la del viejo porque no es el del maestro; F8 bloquea; quien cambió el teléfono no puede verificar; pasado el enfriamiento la llamada cuenta y F8 se resuelve) y `test_reglas_paso5.py::test_eficacia_de_una_verificacion_por_telefono` |
+| El importador no puede escribir un estado `verificada` | `test_importadores.py::test_ningun_mapeo_puede_leer_un_estado_de_cuenta` (un mapeo con `estado` no carga, la cuenta canónica no admite el campo ni un IBAN sin su módulo 97) y `test_ni_el_importador_ni_nadie_sin_confirmar_iban_escribe_una_cuenta_verificada` (la base rechaza la fila del importador y la de nadie, y un alta de cuenta fuera de una importación en curso) |
+| Cada mapeo tiene su test de contrato, y reimportar un fichero no hace nada | `test_importadores.py::test_cada_mapeo_lee_su_ejemplo_como_dice_su_contrato` (los siete, campo a campo contra su JSON), `test_cada_mapeo_tiene_su_ejemplo_y_su_contrato`, `test_la_semilla_de_tarifas_lee_como_dice_su_contrato`, `test_cada_lector_reconoce_su_formato_por_la_cabecera_y_no_otro` y `test_importar_otra_vez_el_mismo_fichero_no_hace_nada` (cada fila de cada tabla, igual) |
+
+Además: el primer maestro y su línea base (procedencia, quién, F0 y Z2), la
+foto completa que retira (y no retira si la foto no entró entera), simular
+sin escribir nada, las cuentas todo o nada, M1 (lo puesto a mano no se
+pisa), el permiso de importar, una referencia desconocida que rechaza sin
+crear nada, la tarifa en dólares (X1 sobre la importación), recursos, alias
+y ciclos, y la CLI entera (`test_importadores.py`); cada regla nueva, rama a
+rama, con el método de U1 contra la fuerza bruta (`test_reglas_paso5.py`);
+la pureza y lo que lee cada regla con escenarios de maestros, cuentas,
+teléfonos e importaciones (`test_pureza_reglas.py`); atestar todo lo
+heredado (una tarea de nivel atención, resuelta), rechazar con "pagar a la
+verificada", los campos críticos y la política que se copian, y el dominio
+contra la base (`test_cuentas.py`); las seis órdenes en la matriz de
+permisos, contra cada usuario de sistema y en la suite de alcance
+(`test_servicios.py`, `test_alcance_v1.py`); y la API de cuentas y fuentes
+(`test_consola.py`).
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración es la 0005**, no la 0004 que numera el §11: la 0004 es la
+   del paso 4 (lo previsto en el registro del paso 3).
+2. **`tarifa_acordada` no se crea**: llegó en la 0002 con la semilla. La
+   importación escribe en ella con `fuente = 'maestro'` y su clave natural
+   (sentido, a quién, dónde, trabajo, turno, unidad y desde).
+3. **Las reglas de factura del paso 5 escriben solo lo que objetan** (un
+   fallo o un sin_datos), no un ok ni un no_aplica
+   (`reglas.base.solo_objeciones`). Catorce reglas más con un resultado por
+   factura no cabían en los dos segundos de la puerta del paso 3: cada fila
+   de la caché cuesta unos 13 µs entre la pasada y la escritura. Que una de
+   esas reglas no diga nada de una factura es que no tiene nada que objetar;
+   un hallazgo cuya regla deja de dar fallo se cierra (o queda desaparecido)
+   igual. `test_la_cache_tiene_un_resultado_por_regla_y_fila_tambien_los_que_pasan`
+   lo exige ahora solo a las reglas de los pasos 3 y 4.
+4. **F0 es una regla nueva** ("cuentas heredadas sin atestar"). La decisión
+   3 pide una tarea de atestación de nivel atención: es un hallazgo que
+   retiene, sobre la importación de partida, que abre su excepción (nivel
+   atención) y que resuelve `atestar_iban`. Retiene y no avisa porque un
+   aviso sin excepción no es una tarea; no retiene ninguna factura.
+5. **A7 es pegajosa entera**; el §7 dice "pegajosa para btw-id y KvK". Lo
+   pegajoso es de la regla (catálogo y base), no del resultado, y separar
+   A7 en dos reglas cambiaría su identidad. Un cambio de nombre o de
+   dirección queda abierto hasta que una persona lo mira, y se puede anular.
+6. **`visto_en_documento` está en el CHECK pero un disparador lo rechaza**:
+   la lista del §5.C lo nombra, y la regla 1 de arquitectura.md dice que lo
+   que imprime un documento no entra en el registro. Que un IBAN se vio en
+   una factura ya lo dicen `factura.iban_doc` y sus hallazgos.
+7. **Las cuentas de los clientes se registran** (vienen en el fichero de
+   clientes de Exact) **pero las reglas F miran solo las de proveedores**,
+   que son las que se pagan. Las de clientes cuentan para F4 (un proveedor
+   que factura a la cuenta de un cliente) y servirán al cruce con el banco
+   (paso 7).
+8. **F6 está escrita pero no se dispara todavía**: no hay mapeo de cuentas
+   de TRNSPRNT (su formato no se conoce; llega con el paso 10). Compara solo
+   proveedores con datos de las dos fuentes.
+9. **M1 no es una regla del catálogo**. Lo que la importación no pisa queda
+   como valor automático con el campo sin resolver: en una factura lo cuenta
+   `factura_estado.sin_resolver` (paso 4); en un maestro lo dice la
+   importación (`ResultadoLote.sin_resolver`, en la CLI "sin resolver
+   (M1)") y queda en su procedencia. Una regla M1 sobre los maestros, si
+   hace falta, va con la consola de maestros.
+10. **El lector lleva su mapeo**: `LectorTabular(mapeo, tipo)` y
+    `leer(contenido, nombre, *, exportado_en)`, en vez de pasar el mapeo a
+    `leer()`; un mapeo da un lector por tipo de registro (el fichero de
+    acreedores de Exact da proveedores y cuentas, dos lotes y dos
+    importaciones). `LoteLeido` lleva además `fuente`.
+11. **`registrar_lote(almacen, lote, *, lanzado_por: int, ...)`**: recibe el
+    `Almacen` y no la conexión, porque guarda el fichero en el almacén de
+    documentos, y el id de la persona.
+12. **La semilla sigue fuera de `registrar_lote`**, pero lee por el mismo
+    marco (`leer_semilla`, registros canónicos, con su test de contrato). Es
+    un fichero de configuración que se vuelve a aplicar con cada versión
+    (queda en `politica_version`) y que puede dar de alta clientes y
+    Objetos; una importación es única por hash y no crea nada sola.
+13. **`alias` es un tipo de importación** (`TipoImportacion.ALIAS`): el §9
+    habla de "Objects, resources and aliases" pero su lista de tipos no lo
+    tiene.
+14. **Z2 no mira las importaciones de `out/`** (fuente `extracciones`): lo
+    rechazado allí ya lo dice la ingesta.
+15. **Una foto de cuentas vacía no retira nada**: un fichero de Exact sin
+    ninguna cuenta de un tipo de titular es casi seguro una exportación sin
+    la columna, no un maestro que las borró todas.
+16. **La foto completa retira proveedores y clientes como inactivos**
+    (nunca los borra) y solo si entró entera: una fila rechazada puede ser
+    la de uno que sí está.
+17. **Q3 avisa con dos clases de marcas distintas o con una frase dirigida
+    al sistema**. Una sola marca ("vragen? e-mail ...", el IBAN de siempre al
+    pie) es casi siempre inocente, y una alerta que salta siempre se ignora.
+18. **A0 da sin_datos hasta que entra el maestro de su tipo**, y A8 cuando
+    el documento no dice a quién va dirigido (o la versión del esquema no lo
+    pidió): sin fuente no hay comprobación, y sin_datos nunca cuenta como ok.
+19. **Lo que depende de la frescura de Exact** (A2, E1, F2 y F3) da sin_datos
+    con Exact caducado. A0 no: que una contraparte no esté en el maestro no
+    depende de su edad.
+20. **U1, A7 y E2 comparan con las facturas anteriores por fecha de factura
+    (y por id)** de la misma contraparte y sentido, sin abonos (U1) ni
+    anuladas o fusionadas.
+21. **El exportado por defecto**: la CLI usa la fecha del fichero; por
+    código, sin `exportado_en`, cuenta el día de la importación.
+22. **`config/reglas.yaml` vale desde que se carga** (`politica_version`),
+    no por parámetro con fechas de efecto; la tabla ya lleva
+    `vigente_desde`.
+23. **`reconciliar_referencias` vive en `identidad.py`** (la usan la
+    ingesta, la semilla, las órdenes y ahora el importador) y
+    `ingesta.py` la reexporta; las normalizaciones, en `reglas/normas.py`.
+24. **Tests que cambian, y por qué**: `test_campos.py` busca las guardas en
+    todas las migraciones (antes solo en la 0002); en `test_alcance_v1.py`
+    la prueba del grafo de imports mira quién **escribe** las tablas de
+    cuentas (la instantánea de las reglas las lee y se alcanza desde la
+    ingesta, que recalcula); `test_almacen.py` cuenta `cuenta_bancaria` y
+    `cuenta_evento` entre las de solo escritura; `test_reglas.py` tiene el
+    catálogo nuevo y las familias pegajosas con E2 y A7; `test_pureza_reglas.py`
+    admite `bisect` y `fractions`, conoce los módulos y tipos nuevos y pasa
+    por escenarios con maestros; `test_hallazgos.py` y `test_excepciones.py`
+    cuentan los Q3 y Q4 de las fixtures (el `out/` de prueba no trae PDF) y
+    la caché dispersa; `test_servicios.py` tiene las seis órdenes nuevas, y
+    el teléfono de verificación tiene su orden en vez de "paso 5".
+
+### Lo que deben saber los pasos siguientes
+
+- **Solo `cuentas.py` escribe el registro de cuentas**; un test lo exige
+  por el SQL de cada módulo. Una orden nueva sobre cuentas llama a
+  `cuentas.decidir` dentro de `servicios.ejecutar`.
+- **Un formato nuevo** es un YAML en `config/importacion/<fuente>-<tipo>-vN.yaml`,
+  un ejemplo anonimizado en `tests/fixtures/importacion/<id>.csv` y su
+  JSON esperado (`python scripts/regenerar_contratos.py <id>`, mirando el
+  diff); el test de contrato lo recoge solo. Un tipo nuevo es un modelo en
+  `canonico.MODELOS` y un escritor en `registrar.ESCRITORES` (o un lote
+  atómico, como `cuentas`).
+- **Paso 6 (extracción v2)**: `recipient_name` y `recipient_vat_number`
+  alimentan A8 (y E4); `kor_mentioned`, A5; `supplier_address`, A7;
+  `document_notes`, Q3; `low_confidence_fields`, Q2. Un registro v1 da
+  sin_datos donde no se pidió.
+- **Paso 7 (banco)**: F7 lee `estado_cuenta(...).pagable` y
+  `beneficiario_conocido`; las cuentas de la empresa están en
+  `config/empresa.yaml` (`cuentas_propias`, `politica.empresa(conn)`), y
+  `cuenta_bancaria` ya admite `titular = 'propia'` (nadie la escribe
+  todavía). Z1 ya mide el banco en días laborables y `extracto` ya es
+  atómico.
+- **Paso 8 (ventas)**: F10 compara con `cuentas_propias`; A8 ya trata la
+  vía de salida.
+- **Pasos 9 y 10**: las tarifas pactadas importadas están en
+  `tarifa_acordada` con `fuente = 'maestro'` y los ciclos en
+  `ciclo_facturacion`; G3 sigue siendo solo el histórico. TRNSPRNT trae su
+  mapeo de cuentas y con él F6.
+- **Las reglas de factura nuevas** se escriben con `solo_objeciones`: solo
+  fallo o sin_datos, con lo que cruzan facturas calculado una vez en su
+  `preparar`. `bancaria.registro()` se calcula una vez por regla F (seis
+  por pasada); con un registro grande, compartirlo.
+- **Un parámetro nuevo de política** va en `politica._REGLAS`, en
+  `config/reglas.yaml` y en `Politica` con el mismo valor: un test compara
+  los tres.
+- **La velocidad**: la puerta de dos segundos sigue, con el margen del paso
+  4 y en un contenedor que a veces pierde un tercio de golpe. Lo que se
+  añada a la pasada tiene que leer de una vez y escribir solo lo que
+  cambia; antes de añadir una regla por factura, medir con
+  `tests/test_rendimiento.py` varias veces.

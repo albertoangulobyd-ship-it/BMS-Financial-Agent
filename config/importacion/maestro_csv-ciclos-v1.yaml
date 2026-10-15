@@ -1,0 +1,26 @@
+# Hoja de ciclos de facturacion: cada cuanto se factura a un cliente o en un
+# Objeto, desde que dia y con cuantos dias de gracia (V8, paso 10).
+version: 1
+fuente: maestro_csv
+tipo: ciclos
+formato: "csv:maestro-ciclos-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Klant, Object, Frequentie]
+completo: false
+registros:
+  ciclos:
+    campos:
+      cliente_ref: {columna: Klant}
+      objeto_ref: {columna: Object}
+      frecuencia:
+        columna: Frequentie
+        obligatorio: true
+        valores: {Wekelijks: semanal, Vierwekelijks: cuatrisemanal, Maandelijks: mensual}
+      ancla: {columna: Anker, tipo: fecha}
+      dias_gracia: {columna: Dagen marge, tipo: entero, por_defecto: 0}
+      vigente_desde: {columna: Geldig vanaf, tipo: fecha}
+      vigente_hasta: {columna: Geldig tot, tipo: fecha}

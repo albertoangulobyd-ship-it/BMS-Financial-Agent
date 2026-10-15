@@ -40,12 +40,15 @@ export ANTHROPIC_API_KEY=sk-ant-...
 bms-agent extract facturas/    # deja los PDF ahí primero; lo ya leído no se paga
 bms-agent importar-out         # lleva out/ al almacén (datos/) y lo tipa, sin llamar a la API
 bms-agent sembrar              # clientes, Objetos y tarifas de venta de config/tarifas.yaml
+bms-agent importar exact proveedores acreedores.csv --token ...   # maestros (--simular: qué cambiaría)
+bms-agent iban listar          # el registro de cuentas; iban verificar|rechazar|atestar|telefono
+bms-agent fuentes              # de cuándo es lo último de cada fuente (Z1)
 bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
 bms-agent usuario token Ana    # su token personal (solo se guarda su hash)
 bms-agent facturas             # la más urgente primero; `factura 12` da la ficha
 bms-agent accion marcar_revisada --factura-id 12 --huella ... --token ...   # las órdenes
-bms-agent politica cargar config/prioridad.yaml   # los pesos de la prioridad, con su hash
+bms-agent politica cargar config/prioridad.yaml   # pesos, reglas.yaml o empresa.yaml, con su hash
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
 bms-agent extract --estricta facturas/   # para medir otro modelo o prompt
 bms-agent score                # precisión contra respuestas escritas a mano

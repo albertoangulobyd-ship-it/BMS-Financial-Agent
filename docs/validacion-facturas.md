@@ -86,11 +86,14 @@ Columna **Fuente**: de dónde sale el dato con el que se compara.
 **Qué evalúa ya el motor de reglas.** Desde el paso 3 de la V1, el código
 evalúa sobre el almacén Q1 (campos obligatorios), X1, B2, B3, B4, D1, D2,
 D2b, D3, D4, E3, E4, F1 y G3 contra el histórico (sin tarifa pactada ni
-planning). Su metadato (qué hace un fallo, si se puede anular, si el
-hallazgo es pegajoso) está en `src/bms_agent/reglas/catalogo.py`, que sigue
-la tabla del §7 de la [especificación](v1/spec.md); las tolerancias, en
-`reglas.base.Politica`, con los valores del apartado 4. Las demás reglas
-entran en el motor con el paso que trae sus datos.
+planning). Desde el paso 5, con los maestros importados y el registro de
+cuentas: Q2, Q3, Q4, Z1, Z2, A0, A2, A5, A7, A8, E1, E2, U1, F0, F2, F3,
+F4, F5, F6, F8 y F9 (y X1 también sobre las importaciones). Su metadato
+(qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
+`src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
+[especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
+con los valores del apartado 4 (y los de `config/reglas.yaml`). Las demás
+reglas entran en el motor con el paso que trae sus datos.
 
 ### A · Identidad del proveedor
 

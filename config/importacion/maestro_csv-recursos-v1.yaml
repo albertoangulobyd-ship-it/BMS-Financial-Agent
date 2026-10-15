@@ -1,0 +1,23 @@
+# Hoja de recursos (quien trabaja: empleados, zzp'ers, personal de un proveedor).
+#
+# Cada recurso nuevo se reconoce despues por su nombre (alias confirmado). El
+# proveedor se nombra por su numero de acreedor de Exact, btw-id, KvK o alias.
+version: 1
+fuente: maestro_csv
+tipo: recursos
+formato: "csv:maestro-recursos-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  fila_cabecera: 1
+cabecera: [Naam, Soort, Leverancier]
+completo: false
+registros:
+  recursos:
+    campos:
+      nombre: {columna: Naam, obligatorio: true}
+      tipo:
+        columna: Soort
+        valores: {Medewerker: empleado, ZZP: zzp, Inleen: personal_proveedor}
+      proveedor_ref: {columna: Leverancier}
+      activo: {columna: Actief, tipo: bool, por_defecto: true}

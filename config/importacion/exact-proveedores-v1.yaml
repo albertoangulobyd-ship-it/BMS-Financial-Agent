@@ -1,0 +1,50 @@
+# Exportacion de acreedores de Exact Online (Crediteuren) a CSV.
+#
+# De cada fila salen un proveedor y, si trae IBAN, su cuenta. Los proveedores
+# entran fila a fila; las cuentas, enteras o ninguna (la foto del maestro: la
+# que falta en ella cuenta como retirada). El campo libre que la empresa usa
+# como telefono de verificacion ("Telefoon verificatie") es el numero al que
+# se llama antes de aceptar una cuenta nueva o cambiada.
+#
+# Un formato nuevo de Exact es otro fichero (exact-proveedores-v2.yaml) con su
+# ejemplo y su JSON esperado en tests/fixtures/importacion/.
+version: 1
+fuente: exact
+tipo: proveedores
+formato: "csv:exact-crediteuren-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+# Las columnas que tiene que traer el fichero para reconocerlo como este formato.
+cabecera: [Crediteurnummer, Naam, KvK-nummer, Btw-nummer, Btw-code, Betalingsconditie, IBAN,
+           Telefoon verificatie]
+completo: true
+registros:
+  proveedores:
+    campos:
+      id_externo: {columna: Crediteurnummer, obligatorio: true}
+      nombre: {columna: Naam, obligatorio: true}
+      tipo: {columna: Soort, valores: {ZZP: zzp, Bedrijf: empresa}}
+      kvk: {columna: KvK-nummer}
+      btw_id: {columna: Btw-nummer}
+      regimen_iva:
+        columna: Btw-code
+        valores: {VH21: estandar, VL9: estandar, VERL: autoliquidacion, KOR: kor, VRIJ: exento,
+                  "0": tipo_cero}
+      plazo_pago_dias: {columna: Betalingsconditie, tipo: entero}
+      # Derivado: la direccion completa, de tres columnas.
+      direccion: {unir: [Adres, Postcode, Plaats], separador: ", "}
+      email_facturacion: {columna: E-mail facturen}
+      telefono_verificacion: {columna: Telefoon verificatie}
+      activo: {columna: Status, valores: {Actief: true, Geblokkeerd: false}, por_defecto: true}
+  cuentas:
+    fijos: {titular: proveedor}
+    omitir_si_vacio: [iban]
+    campos:
+      parte_ref: {columna: Crediteurnummer, obligatorio: true}
+      iban: {columna: IBAN, tipo: iban}
+      nombre_titular: {columna: Tenaamstelling}

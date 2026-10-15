@@ -69,6 +69,11 @@ def _cuentas(conn) -> dict[str, int]:
                       "anulacion", "ejecucion_reglas", "evento")}
 
 
+# Las reglas de factura del paso 5: escriben solo lo que objetan (registro, paso 5).
+SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "F2", "F3", "F4",
+                   "U1"}
+
+
 # Una factura de Van Dijk con otro numero, otro total y un periodo que se pisa
 # con el de la 01 (31-08 a 06-09), en la misma obra (Rijnhaven).
 SOLAPADA = dict(
@@ -109,14 +114,17 @@ def test_una_pasada_detecta_cada_fallo_con_su_causa(tipado) -> None:
                            (usd,)).fetchone()[0]
     [detectado] = hallazgos.historia(conn, x1["id"])
     assert (detectado["tipo"], detectado["causa_evento_id"]) == ("detectado", tipado_)
-    assert [t.tipo for t in diferencia.transiciones] == ["detectado"]
+    # Paso 5: ademas de X1, el aviso de inyeccion de la 03 (Q3) y el de cada factura cuyo
+    # original no esta guardado (Q4: el out/ de prueba no trae los PDF).
+    assert {t.tipo for t in diferencia.transiciones} == {"detectado"}
+    assert sorted(t.regla for t in diferencia.transiciones) == ["Q3", *["Q4"] * 7, "X1"]
 
     ejecucion = conn.execute("SELECT * FROM ejecucion_reglas").fetchone()
     assert (ejecucion["motivo"], ejecucion["hoy"]) == ("manual", "2026-10-14")
     assert ejecucion["terminada_en"] is not None and ejecucion["actor"] == usuario_sistema(
         conn, "motor")
     assert ejecucion["catalogo_sha256"] == catalogo.sha256()
-    assert json.loads(ejecucion["resumen_json"])["pendientes"] == {"abierto": 1}
+    assert json.loads(ejecucion["resumen_json"])["pendientes"] == {"abierto": 9}
 
 
 def test_la_cache_tiene_un_resultado_por_regla_y_fila_tambien_los_que_pasan(tipado) -> None:
@@ -133,9 +141,14 @@ def test_la_cache_tiene_un_resultado_por_regla_y_fila_tambien_los_que_pasan(tipa
     reglas_por_factura = {f["fila_id"]: set() for f in filas}
     for f in filas:
         reglas_por_factura[f["fila_id"]].add(f["regla"])
-    assert all(len(r) == len(catalogo.CATALOGO) for r in reglas_por_factura.values())
-    [fallo] = [f for f in filas if f["resultado"] == "fallo"]
-    assert fallo["clave"] == _hallazgo(conn, "X1")["clave"]
+    # Las reglas de factura de los pasos 3 y 4 escriben todo resultado; las del paso 5 solo
+    # lo que objetan (un fallo o un sin_datos), y las de entidad no van por factura.
+    completas = {r.id for r in catalogo.CATALOGO if r.ambito == "factura"} - SOLO_OBJECIONES
+    assert all(r >= completas for r in reglas_por_factura.values())
+    assert not {f["resultado"] for f in filas if f["regla"] in SOLO_OBJECIONES} - {
+        "fallo", "sin_datos"}
+    fallos = {f["regla"]: f["clave"] for f in filas if f["resultado"] == "fallo"}
+    assert fallos["X1"] == _hallazgo(conn, "X1")["clave"]
 
 
 def test_recalcular_dos_veces_no_crea_nada_dos_veces(tipado) -> None:
@@ -359,7 +372,7 @@ def test_resolver_los_maestros_no_abre_ni_cierra_ningun_hallazgo(almacen, tmp_pa
     assert {f.parte for f in sin_resolver.facturas} == {"btw:NL001234567B01"}
     assert all(l.objeto.startswith("doc:") for f in sin_resolver.facturas for l in f.lineas)
     antes = {f["clave"]: f["estado"] for f in conn.execute("SELECT clave, estado FROM hallazgo")}
-    assert {c.split("|")[0] for c in antes} == {"B2", "B4", "G3"}
+    assert {c.split("|")[0] for c in antes} == {"B2", "B4", "G3", "Q4"}
     ana = persona(conn, "Ana", "administracion")
     for clave in antes:
         hallazgos.anular(conn, _hallazgo(conn, clave)["id"], Persona(ana, MOTIVO))
@@ -754,7 +767,7 @@ def test_cada_orden_de_entrada_termina_recalculando(tmp_path, out_v1, capsys) ->
     assert main(["importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"),
                  "--db", str(db)]) == 0
     salida = capsys.readouterr().out
-    assert "Reglas: " in salida and "Hallazgos: 1 nuevos" in salida
+    assert "Reglas: " in salida and "Hallazgos: 9 nuevos" in salida      # X1, Q3 y 7 Q4
     assert main(["ingestar", "--db", str(db)]) == 0
     assert main(["sembrar", "--tarifas", str(TARIFAS_V1), "--db", str(db)]) == 0
     assert _ejecuciones(db) == ["importacion", "ingesta", "importacion"]
@@ -774,7 +787,7 @@ def test_recalcular_por_la_cli(tmp_path, out_v1, capsys) -> None:
     capsys.readouterr()
     assert main(["recalcular", "--simular", "--db", str(db)]) == 0
     salida = capsys.readouterr().out
-    assert "Simulacion: no se ha escrito nada" in salida and "1 abiertos" in salida
+    assert "Simulacion: no se ha escrito nada" in salida and "9 abiertos" in salida
     assert _ejecuciones(db) == ["importacion"]
     assert main(["recalcular", "--diaria", "--db", str(db)]) == 0
     assert "Hallazgos: ninguno cambia" in capsys.readouterr().out

@@ -1,0 +1,23 @@
+# Hoja de alias: otros nombres con que los documentos nombran algo que ya existe.
+#
+# Un alias apunta a una fila que tiene que existir (no se crea nada) y nunca
+# es un IBAN. Uno que ya es de otra fila no se reasigna: la fila no entra.
+version: 1
+fuente: maestro_csv
+tipo: alias
+formato: "csv:maestro-alias-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  fila_cabecera: 1
+cabecera: [Tabel, Alias, Verwijst naar]
+completo: false
+registros:
+  alias:
+    campos:
+      tabla:
+        columna: Tabel
+        obligatorio: true
+        valores: {Leverancier: proveedor, Klant: cliente, Object: objeto, Medewerker: recurso}
+      alias: {columna: Alias, obligatorio: true}
+      destino_ref: {columna: Verwijst naar, obligatorio: true}

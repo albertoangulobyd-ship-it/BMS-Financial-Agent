@@ -1,0 +1,68 @@
+{
+  "mapeo": "maestro_csv-ciclos-v1",
+  "fuente": "maestro_csv",
+  "tipo": "ciclos",
+  "lotes": [
+    {
+      "tipo": "ciclos",
+      "formato": "csv:maestro-ciclos-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Klant": "10001",
+            "Object": "",
+            "Frequentie": "Maandelijks",
+            "Anker": "01-01-2026",
+            "Dagen marge": "10",
+            "Geldig vanaf": "01-01-2026",
+            "Geldig tot": ""
+          },
+          "cliente_ref": "10001",
+          "objeto_ref": null,
+          "frecuencia": "mensual",
+          "ancla": "2026-01-01",
+          "dias_gracia": 10,
+          "vigente_desde": "2026-01-01",
+          "vigente_hasta": null
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Klant": "",
+            "Object": "Schiedam",
+            "Frequentie": "Vierwekelijks",
+            "Anker": "05-01-2026",
+            "Dagen marge": "7",
+            "Geldig vanaf": "",
+            "Geldig tot": ""
+          },
+          "cliente_ref": null,
+          "objeto_ref": "Schiedam",
+          "frecuencia": "cuatrisemanal",
+          "ancla": "2026-01-05",
+          "dias_gracia": 7,
+          "vigente_desde": null,
+          "vigente_hasta": null
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 4,
+          "codigo": "fila",
+          "motivo": "frecuencia: 'Tweewekelijks' no es uno de Wekelijks, Vierwekelijks, Maandelijks",
+          "crudo": {
+            "Klant": "10002",
+            "Object": "",
+            "Frequentie": "Tweewekelijks",
+            "Anker": "",
+            "Dagen marge": "",
+            "Geldig vanaf": "",
+            "Geldig tot": ""
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "mapeo": "maestro_csv-alias-v1",
+  "fuente": "maestro_csv",
+  "tipo": "alias",
+  "lotes": [
+    {
+      "tipo": "alias",
+      "formato": "csv:maestro-alias-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Tabel": "Object",
+            "Alias": "Rijnhaven Noord",
+            "Verwijst naar": "Rijnhaven"
+          },
+          "tabla": "objeto",
+          "alias": "Rijnhaven Noord",
+          "destino_ref": "Rijnhaven"
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Tabel": "Leverancier",
+            "Alias": "Van Dijk Bouwtechniek",
+            "Verwijst naar": "20001"
+          },
+          "tabla": "proveedor",
+          "alias": "Van Dijk Bouwtechniek",
+          "destino_ref": "20001"
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Tabel": "Klant",
+            "Alias": "Havenbedrijf",
+            "Verwijst naar": "10001"
+          },
+          "tabla": "cliente",
+          "alias": "Havenbedrijf",
+          "destino_ref": "10001"
+        },
+        {
+          "fila": 5,
+          "crudo": {
+            "Tabel": "Medewerker",
+            "Alias": "P. Jansen",
+            "Verwijst naar": "Piet"
+          },
+          "tabla": "recurso",
+          "alias": "P. Jansen",
+          "destino_ref": "Piet"
+        },
+        {
+          "fila": 6,
+          "crudo": {
+            "Tabel": "Object",
+            "Alias": "NL91 ABNA 0417 1643 00",
+            "Verwijst naar": "Rijnhaven"
+          },
+          "tabla": "objeto",
+          "alias": "NL91 ABNA 0417 1643 00",
+          "destino_ref": "Rijnhaven"
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 7,
+          "codigo": "fila",
+          "motivo": "falta destino_ref",
+          "crudo": {
+            "Tabel": "Leverancier",
+            "Alias": "Ander",
+            "Verwijst naar": ""
+          }
+        }
+      ]
+    }
+  ]
+}

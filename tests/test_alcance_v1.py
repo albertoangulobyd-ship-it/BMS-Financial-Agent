@@ -364,11 +364,18 @@ EXTRACCION = ("bms_agent.extract", "bms_agent.schema", "bms_agent.prompts",
               "bms_agent.documents", "bms_agent.parsing", "bms_agent.cache",
               "bms_agent.ingesta", "bms_agent.importadores.extracciones",
               "bms_agent.almacen.extracciones", "bms_agent.almacen.documentos")
-# La infraestructura generica que todas las escrituras comparten. Si algun dia
-# registra cuenta_bancaria, la propiedad de abajo exige que sea con permiso de
-# persona (confirmar_iban) y que lo automatico no pueda darla de alta.
-GENERICOS = ("bms_agent.campos", "bms_agent.almacen", "bms_agent.almacen.evidencia",
-             "bms_agent.auditoria", "bms_agent.permisos", "bms_agent.dominio")
+# De esos, los que producen lo que dice un documento. parsing (leer un
+# literal) y almacen.documentos (el almacen de originales) son
+# infraestructura que todo el paquete comparte: el registro de cuentas llega
+# a ellos por el paquete almacen, sin tocar ninguna extraccion.
+PRODUCEN_EXTRACCION = tuple(m for m in EXTRACCION
+                            if m not in ("bms_agent.parsing", "bms_agent.almacen.documentos"))
+# Lo que escribe en el registro de cuentas: una sentencia que inserta, cambia
+# o borra filas de cuenta_bancaria o cuenta_evento. Leerlas (la instantanea
+# de las reglas, las consultas) no es escribirlas.
+_ESCRIBE_CUENTAS = re.compile(
+    r"\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)"
+    r"\s+(?:cuenta_bancaria|cuenta_evento)\b", re.IGNORECASE)
 
 
 def _importa(nombre: str, ruta: Path) -> set[str]:
@@ -400,34 +407,33 @@ def _alcanzables(desde: tuple[str, ...]) -> set[str]:
     return vistos
 
 
-def _nombra_cuenta_bancaria(ruta: Path) -> bool:
-    """Si el codigo (no sus docstrings) nombra la tabla, en SQL o como identificador."""
+def _escribe_cuentas(ruta: Path) -> bool:
+    """Si el codigo (no sus docstrings) escribe en el registro de cuentas, en SQL."""
     arbol = ast.parse(ruta.read_text(encoding="utf-8"))
     docstrings = {id(n.value) for n in ast.walk(arbol)
                   if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
-    for nodo in ast.walk(arbol):
-        if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str) and (
-                id(nodo) not in docstrings and "cuenta_bancaria" in nodo.value):
-            return True
-        if isinstance(nodo, (ast.Name, ast.Attribute, ast.FunctionDef, ast.alias)):
-            texto = getattr(nodo, "id", None) or getattr(nodo, "attr", None) or getattr(
-                nodo, "name", "")
-            if "cuenta_bancaria" in str(texto):
-                return True
-    return False
+    return any(isinstance(nodo, ast.Constant) and isinstance(nodo.value, str)
+               and id(nodo) not in docstrings and _ESCRIBE_CUENTAS.search(nodo.value)
+               for nodo in ast.walk(arbol))
 
 
-def test_ningun_import_de_la_extraccion_llega_a_cuenta_bancaria() -> None:
+def test_el_unico_escritor_de_cuentas_no_se_alcanza_desde_la_extraccion() -> None:
+    """Puerta del paso 5: solo cuentas.py escribe el registro de cuentas; nada de la
+    extraccion ni de la ingesta lo importa (ni directa ni indirectamente), y el no importa
+    nada que produzca una extraccion. El IBAN de un documento no tiene camino hasta alli."""
     assert set(EXTRACCION) <= set(MODULOS)
+    escritores = sorted(m for m, r in MODULOS.items() if _escribe_cuentas(r))
+    assert escritores == ["bms_agent.cuentas"]
     alcanzables = _alcanzables(EXTRACCION)
     assert "bms_agent.campos" in alcanzables           # el grafo se recorre de verdad
-    assert not [m for m in sorted(alcanzables - set(GENERICOS))
-                if _nombra_cuenta_bancaria(MODULOS[m])]
-    # Lo que escribe en cuenta_bancaria (paso 7) no puede importar la extraccion.
-    escritores = [m for m, r in MODULOS.items()
-                  if m not in GENERICOS and _nombra_cuenta_bancaria(r)]
-    for escritor in escritores:
-        assert not _alcanzables((escritor,)) & set(EXTRACCION), escritor
+    assert "bms_agent.reglas.instantanea" in alcanzables   # lee el registro, no lo escribe
+    assert not alcanzables & set(escritores)
+    assert not _alcanzables(tuple(escritores)) & set(PRODUCEN_EXTRACCION)
+    # Y la base lo sostiene sin el codigo: el alta automatica de una cuenta solo la hace
+    # una importacion de un maestro en curso (disparador cuenta_bancaria_alta).
+    sql = (SRC / "almacen" / "sql" / "0005_maestros_cuentas.sql").read_text(encoding="utf-8")
+    assert "CREATE TRIGGER cuenta_bancaria_alta" in sql
+    assert "CREATE TRIGGER cuenta_evento_sin_documento" in sql
 
 
 def _iban_valido(azar: random.Random) -> str:

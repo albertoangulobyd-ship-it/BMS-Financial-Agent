@@ -472,7 +472,9 @@ def _suelo(e: Entradas, dias_btw: int | None, vencida: int) -> tuple[str, list[s
                 if h.severidad == _R]
     if e.excepcion_abierta:
         atencion.append("excepción abierta")
-    if e.dudosos:
+    # Desde el paso 5 los dudosos son tambien la regla Q2: si su hallazgo esta,
+    # ya lo dice su linea de "retenida", y no se cuenta dos veces.
+    if e.dudosos and not any(h.regla == "Q2" for h in abiertos):
         atencion.append(f"{e.dudosos} campo{'s' if e.dudosos > 1 else ''} dudoso"
                         f"{'s' if e.dudosos > 1 else ''} sin verificar (Q2)")
     if e.sin_resolver:
