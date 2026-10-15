@@ -369,6 +369,38 @@ def _diferencias(copia: Factura, buena: Factura) -> dict[str, list[Any]]:
     return salida
 
 
+def _por_que_no_se_unio(instantanea: Instantanea, copia: Factura, buena: Factura,
+                        con_pagos: frozenset[int], con_relacion: frozenset[int]) -> list[str]:
+    """Por que un PDF con el numero de una venta de Exact no se unio a ella.
+
+    Lo mismo que mira relaciones.sincronizar antes de unir: otra contraparte
+    (o sin resolver), un pago apuntado o una relacion confirmada en el PDF (se
+    perderian al unirlo), o un PDF que no emite BM Support BV (A8).
+    """
+    from .identidad import es_la_empresa
+    from .normas import normalizar_btw, normalizar_nombre
+
+    motivos = []
+    if copia.parte is None or copia.parte != buena.parte:
+        motivos.append("parte")
+    if copia.id in con_pagos:
+        motivos.append("pagos")
+    if copia.id in con_relacion:
+        motivos.append("relacion")
+    politica = instantanea.politica
+    if copia.sentido == "saliente" and not es_la_empresa(
+            normalizar_nombre(copia.emisor_nombre_doc), normalizar_btw(copia.emisor_btw_doc),
+            politica.empresa_nombres, politica.empresa_btw):
+        motivos.append("emisor")
+    return motivos
+
+
+_POR_QUE = {"parte": "la contraparte no es la misma o no está resuelta",
+            "pagos": "el PDF ya lleva pagos apuntados, que se perderían",
+            "relacion": "el PDF ya lleva una relación confirmada, que se perdería",
+            "emisor": "el PDF no dice que lo emita BM Support BV"}
+
+
 def m3(instantanea: Instantanea) -> list[Resultado]:
     """M3: la venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (retiene).
 
@@ -386,6 +418,10 @@ def m3(instantanea: Instantanea) -> list[Resultado]:
         if (f.origen in ESTRUCTURADAS and f.numero_norm is not None and not f.anulada
                 and f.fusionada_en_id is None):
             por_numero.setdefault((f.sentido, f.numero_norm), []).append(f)
+    con_pagos = frozenset(a.factura_id for a in instantanea.aplicaciones
+                          if a.estado in ("propuesta", "confirmada"))
+    con_relacion = frozenset(i for r in instantanea.relaciones for i in (r.origen_id,
+                                                                        r.destino_id))
     salida: list[Resultado] = []
     for copia in instantanea.facturas:
         if copia.origen in ESTRUCTURADAS or copia.anulada:
@@ -413,12 +449,19 @@ def m3(instantanea: Instantanea) -> list[Resultado]:
             if not otras:
                 continue
             buena = otras[0]
+            motivos = _por_que_no_se_unio(instantanea, copia, buena, con_pagos, con_relacion)
+            por_que = "; ".join(_POR_QUE[m] for m in motivos) or "una persona deshizo la unión"
+            if "parte" in motivos:
+                por_que += f": {copia.parte_nombre}"
             detalle = (f"El PDF {copia.numero or copia.id} tiene el número de la factura "
                        f"{buena.id} de {buena.origen.capitalize()} y no se ha podido unir a ella "
-                       "(la contraparte no es la misma o no está resuelta: "
-                       f"{copia.parte_nombre}).")
-            valores = {"copia": copia.id, "factura": buena.id, "distintos": {
-                "parte": [buena.parte, copia.parte]}}
+                       f"({por_que}). Hasta unirlas, la venta cuenta dos veces.")
+            distintos: dict[str, Any] = {}
+            if "parte" in motivos:
+                distintos["parte"] = [buena.parte, copia.parte]
+            if motivos != ["parte"] and motivos:
+                distintos["union"] = [m for m in motivos if m != "parte"]
+            valores = {"copia": copia.id, "factura": buena.id, "distintos": distintos}
             objetivos = (Objetivo("factura", buena.id),
                          Objetivo("factura", copia.id, None, RELACIONADO))
             pareja = (buena, copia)
@@ -433,6 +476,11 @@ LEE_M3 = frozenset({
     "factura.fusionada_en_id", "factura.sentido", "factura.numero_norm", "factura.numero",
     "factura.parte", "factura.parte_nombre",
     *(f"factura.{c}" for c, _n in _COMPARADOS),
+    # Por que no se unio (revision del paso 8): pagos, relaciones y el emisor.
+    "instantanea.aplicaciones", "aplicacion.factura_id", "aplicacion.estado",
+    "instantanea.relaciones", "relacion.origen_id", "relacion.destino_id",
+    "instantanea.politica", "politica.empresa_nombres", "politica.empresa_btw",
+    "factura.emisor_nombre_doc", "factura.emisor_btw_doc",
 })
 SOLO_TEXTO_M3 = frozenset({"factura.numero", "factura.parte_nombre"})
 

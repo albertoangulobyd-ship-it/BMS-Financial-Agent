@@ -180,7 +180,7 @@ def anadir_alias(
 
 
 def reconciliar_referencias(conn: sqlite3.Connection, *, actor: int | None = None) -> int:
-    """Vuelve a resolver proveedor, cliente, Objeto y recurso con los maestros de ahora.
+    """Vuelve a resolver proveedor, cliente, contacto, Objeto y recurso con los maestros de ahora.
 
     Lo llama quien cambia un maestro (la semilla de tarifas, el importador de
     maestros, una correccion a mano): una factura tipada antes de que
@@ -201,7 +201,7 @@ def reconciliar_referencias(conn: sqlite3.Connection, *, actor: int | None = Non
         for fila in conn.execute(
             "SELECT id FROM factura WHERE fusionada_en_id IS NULL ORDER BY id"
         ).fetchall():
-            o.recalcular("factura", fila["id"], ("proveedor_id", "cliente_id"))
+            o.recalcular("factura", fila["id"], ("proveedor_id", "cliente_id", "contacto_id"))
         for fila in conn.execute(
             "SELECT id FROM factura_imputacion WHERE retirada_en IS NULL ORDER BY id"
         ).fetchall():

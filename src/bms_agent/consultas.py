@@ -473,6 +473,16 @@ def _cuenta(f: Any) -> bool:
     return not (f.anulada or f.fusionada or f.sustituida)
 
 
+def _pago_cuenta(f: Any) -> bool:
+    """Si lo pagado de una factura cuenta en lo pagado: tambien el de una sustituida.
+
+    Una factura sustituida o corregida sale de lo facturado y de lo pendiente,
+    pero si ya se pago el dinero salio del banco: esconderlo haria ver la nueva
+    como la unica deuda y nada pagado (R3 lo dice).
+    """
+    return not (f.anulada or f.fusionada)
+
+
 def _mediana(valores: list[int]) -> int | None:
     if not valores:
         return None
@@ -538,7 +548,7 @@ def _resumen(conn: sqlite3.Connection, lectura: _Lectura, facturas: list[Any]) -
     del_ano = [f for f in cuentan if f.fecha_factura is not None
                and f.fecha_factura.year == hoy.year]
     bases = _bases(conn, [f.id for f in cuentan])
-    pagos = [a for f in cuentan for a in lectura.pagos_de(f)]
+    pagos = [a for f in facturas if _pago_cuenta(f) for a in lectura.pagos_de(f)]
     pagado_ano = sum(a.importe_cent for a in pagos if a.fecha_pago.year == hoy.year)
     pendiente = _sumas(abiertas, "pendiente_cent")
     vencido = _sumas(vencidas, "pendiente_cent")
@@ -659,7 +669,7 @@ def _pagos(lectura: _Lectura, facturas: list[Any]) -> list[dict[str, Any]]:
                "fecha": a.fecha_pago.isoformat(), "importe_cent": a.importe_cent,
                "importe": _euros(a.importe_cent), "fuente": a.fuente,
                "movimiento_id": a.movimiento_id}
-              for f in facturas if _cuenta(f) for a in lectura.pagos_de(f)]
+              for f in facturas if _pago_cuenta(f) for a in lectura.pagos_de(f)]
     salida.sort(key=lambda p: (p["fecha"], p["aplicacion_id"]), reverse=True)
     return salida
 
@@ -694,16 +704,22 @@ def _avisos(conn: sqlite3.Connection, tabla: str, parte_id: int,
 
 
 def _ibanes(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
-    """Las cuentas del registro (con su estado) y los IBAN que han impreso sus facturas."""
+    """Las cuentas del registro (con su estado) y los IBAN que han impreso sus facturas.
+
+    La primera y la ultima fecha son las de las facturas fechadas: una sin
+    fecha legible cuenta en el numero, pero no deja la primera sin fecha.
+    """
     from .reglas.normas import normalizar_iban
 
     impresos: dict[str, dict[str, Any]] = {}
     for iban, fecha in conn.execute(
             "SELECT iban_doc, fecha_factura FROM factura WHERE proveedor_id = ? "
-            "AND iban_doc IS NOT NULL ORDER BY fecha_factura, id", (proveedor_id,)):
+            "AND iban_doc IS NOT NULL ORDER BY fecha_factura IS NULL, fecha_factura, id",
+            (proveedor_id,)):
         clave = normalizar_iban(iban) or iban
         visto = impresos.setdefault(clave, {"iban": clave, "primera": fecha, "ultima": fecha,
                                             "facturas": 0})
+        visto["primera"] = visto["primera"] or fecha
         visto["ultima"] = fecha or visto["ultima"]
         visto["facturas"] += 1
     return {"registro": [c for c in cuentas(conn) if c["proveedor_id"] == proveedor_id],
@@ -740,9 +756,39 @@ def _vista(conn: sqlite3.Connection, tabla: str, parte_id: int) -> dict[str, Any
         "pagos": _pagos(lectura, facturas),
         "avisos": _avisos(conn, tabla, parte_id, facturas),
     }
+    vista["prioridad"] = _prioridades(conn, tabla).get(parte_id, _SIN_PRIORIDAD)
     if tabla == "proveedor":
         vista["ibanes"] = _ibanes(conn, parte_id)
+    else:
+        # §4 "Potential unbilled work": lo trabajado que no se ha facturado sale del
+        # planning (V6, paso 10). Hasta entonces no hay con que contarlo: sin datos, nunca
+        # cero (cero diria que no hay nada sin facturar).
+        vista["trabajo_sin_facturar"] = {
+            "estado": "sin_datos",
+            "detalle": "Sin el planning no se puede saber qué trabajo falta por facturar "
+                       "(llega con el paso 10, V6)."}
     return vista
+
+
+# Lo que dice la cache de prioridad de una parte sin nada pendiente: normal, sin puntos.
+_SIN_PRIORIDAD = {"nivel": "normal", "puntos": 0, "motivos": [], "vencimiento": None,
+                  "importe_cent": None}
+
+
+def _prioridades(conn: sqlite3.Connection, tabla: str) -> dict[int, dict[str, Any]]:
+    """El nivel, los puntos y los motivos de cada proveedor o cliente (la cache prioridad).
+
+    Los calcula estados.recalcular con prioridad.agregar (lo mas urgente de
+    sus facturas y lo que se le suba a mano); aqui solo se leen, como la
+    ficha de una factura lee factura_estado.
+    """
+    return {fila["entidad_id"]: {"nivel": fila["nivel"], "puntos": fila["puntos"],
+                                 "motivos": json.loads(fila["motivos_json"]),
+                                 "vencimiento": fila["vencimiento"],
+                                 "importe_cent": fila["importe_cent"]}
+            for fila in conn.execute("SELECT entidad_id, nivel, puntos, motivos_json, "
+                                     "vencimiento, importe_cent FROM prioridad "
+                                     "WHERE entidad = ?", (tabla,))}
 
 
 def proveedor(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
@@ -762,11 +808,14 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
     for f in lectura.facturas:
         if getattr(f, columna) is not None:
             por_parte[getattr(f, columna)].append(f)
+    prioridades = _prioridades(conn, tabla)
     salida = []
+    claves = {}
     for fila in conn.execute(f"SELECT id, nombre, exact_id, activo FROM {tabla} "
                              "ORDER BY nombre, id"):
         facturas = por_parte.get(fila["id"], [])
         resumen = _resumen(conn, lectura, facturas)
+        p = prioridades.get(fila["id"], _SIN_PRIORIDAD)
         salida.append({
             "id": fila["id"], "nombre": fila["nombre"], "exact_id": fila["exact_id"],
             "activo": bool(fila["activo"]), "facturas": resumen["facturas"],
@@ -774,7 +823,15 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
             "vencido_cent": resumen["vencido_cent"], "vencido": resumen["vencido"],
             "ano_facturado_cent": resumen["ano_facturado"]["total_cent"],
             "siempre_facturado_cent": resumen["siempre_facturado"]["total_cent"],
+            "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"],
         })
+        claves[fila["id"]] = prioridad.clave_orden(
+            p["nivel"], p["puntos"], date.fromisoformat(p["vencimiento"])
+            if p["vencimiento"] else None, p["importe_cent"], fila["id"])
+    # El orden de todas las listas (§8): nivel, puntos, vencimiento, importe. A igualdad
+    # (las que no tienen nada pendiente), por nombre.
+    orden = {fila["id"]: i for i, fila in enumerate(salida)}
+    salida.sort(key=lambda f: (claves[f["id"]][:-1], orden[f["id"]]))
     return salida
 
 

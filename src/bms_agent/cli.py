@@ -132,6 +132,11 @@ def carpeta_out(out: Path, ruta: str) -> Path:
     return out / CARPETA_SALIENTES if ruta == "saliente" else out
 
 
+def _carpeta_de_la_otra_via(out_dir: Path, ruta: str) -> Path:
+    """La carpeta de out/ de la otra via: lo leido alli ya esta pagado (extract no lo repite)."""
+    return out_dir.parent if ruta == "saliente" else out_dir / CARPETA_SALIENTES
+
+
 def _ruta_db(valor: str | None) -> Path:
     return Path(valor) if valor else ruta_por_defecto()
 
@@ -182,6 +187,7 @@ def extraer_carpeta(
         r, ingesta = ingestar_pasada(
             client, pdfs, out_dir, almacen=almacen, model=model, politica=politica,
             forzar=forzar, informar=_imprimir_paso, ruta=ruta,
+            otras_vias=[_carpeta_de_la_otra_via(out_dir, ruta)],
         )
     else:
         r = extraer_pasada(

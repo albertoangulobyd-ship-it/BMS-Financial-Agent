@@ -770,8 +770,22 @@ def _dividir_linea(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 # ------------------------------------------------------------ anular y fusionar
 
 def _anular_factura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
-    """Anular una factura que no se paga ni se cuenta (no emite ningun abono)."""
+    """Anular una factura que no se paga ni se cuenta (no emite ningun abono).
+
+    No se anula el origen de una relacion confirmada (el abono que acredita,
+    la factura que sustituye o corrige): la relacion dejaria de mover nada sin
+    que nadie lo decidiera, y la original volveria a deber lo acreditado o a
+    contar entera. Se retira antes la relacion, a la vista. La original si se
+    anula: es lo que pide R3.
+    """
     _motivo(ctx, "anular una factura")
+    vivas = [f[0] for f in ctx.conn.execute(
+        "SELECT id FROM factura_relacion WHERE origen_id = ? AND estado = 'confirmada' "
+        "AND retirada_en IS NULL AND tipo <> 'relacionada' ORDER BY id", (d["factura_id"],))]
+    if vivas:
+        raise DatosNoValidos(f"la factura {d['factura_id']} es el origen de la relacion "
+                             f"{', '.join(map(str, vivas))}: retirala antes (retirar_relacion) "
+                             "para que deje de mover nada a la vista")
     resultado = campos.fijar(ctx.conn, "factura", d["factura_id"], {"anulada": True},
                              ctx.persona, tipo="factura_anulada", rev_esperada=d["rev"],
                              datos=ctx.datos_evento)
@@ -783,8 +797,19 @@ def _fusionar_factura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 
     Quien fusiona cierra en la misma orden el B2 que la fusion deja
     desaparecido, si tiene resolver_aviso; si no, queda para quien lo tenga.
+
+    No se fusiona una factura con una relacion confirmada o un pago apuntado:
+    una fusionada no cuenta, y lo que lleva tampoco. El pago desapareceria de
+    lo pagado y la relacion de lo acreditado sin que nadie lo moviera.
     """
     _motivo(ctx, "fusionar una factura")
+    lleva = relaciones.lo_que_lleva(ctx.conn, d["factura_id"])
+    if lleva["relaciones"] or lleva["pagos"]:
+        que = [f"la relacion {', '.join(map(str, lleva['relaciones']))}"] if lleva[
+            "relaciones"] else []
+        que += [f"el pago {', '.join(map(str, lleva['pagos']))}"] if lleva["pagos"] else []
+        raise DatosNoValidos(f"la factura {d['factura_id']} lleva {' y '.join(que)}: retiralo "
+                             "antes (o fusiona la otra en esta), o se perderia al fusionarla")
     resultado = campos.fijar(ctx.conn, "factura", d["factura_id"],
                              {"fusionada_en_id": d["destino_id"]}, ctx.persona,
                              tipo="factura_fusionada", rev_esperada=d["rev"],

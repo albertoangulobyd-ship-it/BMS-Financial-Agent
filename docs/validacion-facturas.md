@@ -197,7 +197,7 @@ vez de dar por buenos unos euros que nadie ha visto.
 | --- | --- | --- | --- |
 | M1 | Un valor manual distinto del último valor automático, sin verificar | procedencia | Atención (campo sin resolver); no es una regla del catálogo, sale de la procedencia de cada campo |
 | M2 | Una línea que una persona editó o excluyó no aparece en la extracción vigente: no se pudo casar por su huella con ninguna línea nueva | procedencia, extracción | Retención; se anula con motivo o se cierra excluyendo la línea |
-| M3 | Una venta de Exact y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo o periodo), o tienen el mismo número y no se pudieron unir | Exact, extracción | Retención, calidad «discrepancia»; cuenta la de Exact y una persona mira la diferencia |
+| M3 | Una venta de Exact y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo o periodo), o tienen el mismo número y no se pudieron unir (otro cliente o sin resolver, el PDF ya lleva un pago o una relación confirmada, o no lo emite BM Support BV), y dice por qué | Exact, extracción | Retención, calidad «discrepancia»; cuenta la de Exact y una persona mira la diferencia |
 
 **M2 existe porque una lectura nueva no puede llevarse por delante lo que
 escribió una persona.** Al activar una reextracción (paso 6), las ediciones
@@ -256,7 +256,7 @@ sustituida o corregida sale de los totales, de la caja y del IVA.
 | --- | --- | --- | --- |
 | R1 | Un abono o una corrección nombra una factura de la misma contraparte que no está (o que está repetida) | extracción, historial | Retención |
 | R2 | Los abonos confirmados le quitan a una factura más de lo que vale, o un abono se aplica por más de lo que vale | relaciones | Retención; pegajosa, no se anula |
-| R3 | La original y la que la sustituye (o corrige) están las dos pendientes o las dos pagadas | relaciones, pagos | Bloqueo; pegajosa, no se anula. Se resuelve anulando o abonando la original |
+| R3 | La original y la que la sustituye (o corrige) están las dos pendientes, las dos pagadas, o la original pagada y la nueva pendiente (lo pagado no se descuenta de la nueva) | relaciones, pagos | Bloqueo; pegajosa, no se anula. Se resuelve anulando o abonando la original (o pagando solo la diferencia) |
 | R4 | Un abono sin ninguna relación confirmada que diga a qué factura abona | relaciones | Aviso |
 | R5 | Una relación propuesta espera a una persona | relaciones | Aviso |
 

@@ -1061,3 +1061,422 @@ def test_un_listado_nuevo_de_exact_pone_al_dia_la_venta_y_sus_lineas(ventas, tmp
                                      "valor": "3000,00", "rev": _rev(conn, v101),
                                      "motivo": MOTIVO})
     _limpio(conn)
+
+
+# ============================================================ revision del paso 8
+
+def _clientes_y_objetos(almacen) -> int:
+    """Los clientes y los Objetos del maestro, sin el listado de ventas. Devuelve a Ana."""
+    conn = almacen.conn
+    ana = persona(conn, "Ana", "administrador")
+    cuentas_propias(almacen, ana)
+    importar_fichero(almacen, "exact", "clientes", EXACT_CLIENTES, lanzado_por=ana)
+    importar_fichero(almacen, "maestro_csv", "objetos", OBJETOS, lanzado_por=ana)
+    return ana
+
+
+def _listado(tmp_path, nombre: str, *, sin: bytes | None = None):
+    contenido = VENTAS.read_bytes()
+    if sin is not None:
+        contenido = b"\n".join(f for f in contenido.split(b"\n") if sin not in f)
+    fichero = tmp_path / nombre
+    fichero.write_bytes(contenido)
+    return fichero
+
+
+def _abono_pdf_c2026_0005(sha: str = "cc") -> dict:
+    return _documento(sha, numero="C2026-0005", base="-248,00", iva="-52,08", total="-300,08",
+                      tipo="credit_note", fecha="2026-10-05",
+                      citadas=(("V2026-0101", "credits"),), iban=CUENTA_PROPIA,
+                      lineas=[_linea("Correctie montagewerk Rijnhaven", "-4", "62,00",
+                                     "-248,00", objeto="Rijnhaven")])
+
+
+def test_el_pdf_de_un_abono_ya_confirmado_no_se_une_solo_ni_acredita_dos_veces(
+        almacen, tmp_path) -> None:
+    """El PDF del abono C2026-0005 llega antes que Exact lo exporte y una persona confirma
+    lo que abona. Cuando llega el listado de Exact, el PDF no se une solo a su abono (la
+    relacion confirmada se perderia, o contaria en una copia), no se propone otra vez el
+    mismo abono sobre la de Exact y no se puede enlazar a mano: la original no se acredita
+    dos veces por un solo abono. M3 dice por que no se unieron."""
+    conn = almacen.conn
+    ana = _clientes_y_objetos(almacen)
+    importar_fichero(almacen, "exact", "facturas_venta",
+                     _listado(tmp_path, "v1.csv", sin=b"C2026-0005"), lanzado_por=ana)
+    v101 = factura_de(conn, "V2026-0101")
+    pdf = _entrar(almacen, "saliente", _abono_pdf_c2026_0005())
+    _confirmar(conn, _relacion(conn, pdf, v101))
+    assert _estado(conn, v101)[:2] == ("pendiente", 514976 - 30008)
+    importar_fichero(almacen, "exact", "facturas_venta", _listado(tmp_path, "v2.csv"),
+                     lanzado_por=ana)
+    hallazgos.recalcular(conn)
+    exact = conn.execute("SELECT id FROM factura WHERE numero = 'C2026-0005' AND origen = "
+                         "'exact'").fetchone()[0]
+    assert conn.execute("SELECT fusionada_en_id FROM factura WHERE id = ?",
+                        (pdf,)).fetchone()[0] is None
+    assert [(r["origen_id"], r["estado"]) for r in conn.execute(
+        "SELECT * FROM factura_relacion WHERE retirada_en IS NULL ORDER BY id")] == [
+        (pdf, "confirmada")]
+    assert _estado(conn, v101)[:2] == ("pendiente", 514976 - 30008)
+    [m3] = _hallazgos(conn, "M3", pdf)
+    assert _hallazgos(conn, "M3", exact) == [m3]
+    assert json.loads(m3["valores_json"])["distintos"] == {"union": ["relacion"]}
+    assert "relación confirmada" in m3["detalle"]
+    with pytest.raises(relaciones.RelacionNoValida, match="mismo numero"):
+        _orden(conn, "enlazar_facturas", {"origen_id": exact, "destino_id": v101,
+                                          "tipo": "acredita", "motivo": MOTIVO})
+    # Ni una persona puede fusionar el PDF mientras lleve la relacion: se perderia.
+    with pytest.raises(servicios.DatosNoValidos, match="lleva la relacion"):
+        _orden(conn, "fusionar_factura", {"factura_id": pdf, "destino_id": exact,
+                                          "rev": _rev(conn, pdf), "motivo": MOTIVO})
+    # El camino: retirar la del PDF, unirlo a la de Exact y confirmar la de Exact.
+    relacion = _relacion(conn, pdf, v101)
+    _orden(conn, "retirar_relacion", {"relacion_id": relacion["id"], "rev": relacion["rev"],
+                                      "motivo": "La cuenta el abono de Exact"})
+    _orden(conn, "fusionar_factura", {"factura_id": pdf, "destino_id": exact,
+                                      "rev": _rev(conn, pdf), "motivo": MOTIVO})
+    hallazgos.recalcular(conn)
+    _confirmar(conn, _relacion(conn, exact, v101))
+    assert _estado(conn, v101)[:2] == ("pendiente", 514976 - 30008)
+    _limpio(conn)
+
+
+def test_el_pdf_de_una_venta_ya_cobrada_no_se_une_solo_y_el_cobro_no_se_pierde(
+        almacen, tmp_path) -> None:
+    """El PDF de V2026-0101 entra por la via de salida y se marca cobrado antes de que
+    llegue el listado de Exact. Unirlo dejaria el cobro en una copia que no cuenta y la
+    venta pendiente entera otra vez: no se une, M3 lo dice, y el cobro sigue a la vista."""
+    conn = almacen.conn
+    ana = _clientes_y_objetos(almacen)
+    pdf = _entrar(almacen, "saliente", _copia_de_v2026_0101("b1"))
+    _pagar(conn, pdf)
+    assert _estado(conn, pdf)[:2] == ("pagada", 0)
+    importar_fichero(almacen, "exact", "facturas_venta", _listado(tmp_path, "v.csv"),
+                     lanzado_por=ana)
+    hallazgos.recalcular(conn)
+    v101 = conn.execute("SELECT id FROM factura WHERE numero = 'V2026-0101' AND origen = "
+                        "'exact'").fetchone()[0]
+    assert conn.execute("SELECT fusionada_en_id FROM factura WHERE id = ?",
+                        (pdf,)).fetchone()[0] is None
+    assert _estado(conn, pdf)[:2] == ("pagada", 0)
+    [m3] = _hallazgos(conn, "M3", pdf)
+    assert _hallazgos(conn, "M3", v101) == [m3]
+    assert json.loads(m3["valores_json"])["distintos"] == {"union": ["pagos"]}
+    cliente = conn.execute("SELECT cliente_id FROM factura WHERE id = ?", (v101,)).fetchone()[0]
+    assert consultas.cliente(conn, cliente)["siempre_pagado_cent"] == 514976
+    with pytest.raises(servicios.DatosNoValidos, match="lleva el pago"):
+        _orden(conn, "fusionar_factura", {"factura_id": pdf, "destino_id": v101,
+                                          "rev": _rev(conn, pdf), "motivo": MOTIVO})
+    _limpio(conn)
+
+
+def test_un_pdf_que_no_emite_bms_no_se_une_a_la_venta_y_queda_bloqueado(ventas) -> None:
+    """Un documento de otro con el numero y el cliente de una venta de Exact no es nuestra
+    copia: no se une, y A8 lo bloquea como mal encaminado."""
+    conn = ventas.conn
+    v101 = factura_de(conn, "V2026-0101")
+    ajena = _entrar(ventas, "saliente", _copia_de_v2026_0101(
+        "e7", emisor="Fraude Holding BV", emisor_btw="NL123456789B01"))
+    assert conn.execute("SELECT fusionada_en_id FROM factura WHERE id = ?",
+                        (ajena,)).fetchone()[0] is None
+    [a8] = _hallazgos(conn, "A8", ajena)
+    assert a8["severidad"] == "bloqueo"
+    [m3] = _hallazgos(conn, "M3", ajena)
+    assert _hallazgos(conn, "M3", v101) == [m3]
+    assert json.loads(m3["valores_json"])["distintos"] == {"union": ["emisor"]}
+
+
+def test_una_compra_sin_emisor_dejada_en_la_carpeta_de_ventas_queda_bloqueada(compras) -> None:
+    """Por la via de salida, un documento que no dice quien lo emite y va dirigido a BM
+    Support BV es una compra mal encaminada: A8 bloquea (antes daba sin datos)."""
+    conn = compras.conn
+    venta = _entrar(compras, "saliente", _documento(
+        "f9", numero="2026-7000", base="500,00", iva="105,00", total="605,00",
+        lineas=[_linea("Montagewerk", "10", "50,00", "500,00")], emisor=None, emisor_btw=None,
+        receptor=EMPRESA, receptor_btw=None))
+    [a8] = _hallazgos(conn, "A8", venta)
+    assert a8["severidad"] == "bloqueo" and "compra mal encaminada" in a8["detalle"]
+    assert _estado(conn, venta)[2] == "bloqueada"
+    # Sin emisor y dirigida a un cliente, sigue sin datos: no hay nada que la haga una compra.
+    otra = _entrar(compras, "saliente", _documento(
+        "f8", numero="V2026-0700", base="500,00", iva="105,00", total="605,00",
+        lineas=[_linea("Montagewerk", "10", "50,00", "500,00")], emisor=None, emisor_btw=None))
+    assert not _hallazgos(conn, "A8", otra)
+    assert conn.execute("SELECT resultado FROM evaluacion WHERE regla = 'A8' AND tabla = "
+                        "'factura' AND fila_id = ?", (otra,)).fetchone()[0] == "sin_datos"
+
+
+def test_una_relacion_cuyo_origen_esta_anulado_no_mueve_nada(compras) -> None:
+    """Un abono enlazado no se anula sin retirar antes su relacion; y si el origen de una
+    relacion confirmada esta anulado (o fusionado), la relacion no mueve nada: ni baja lo
+    pendiente de la original ni la saca de los totales."""
+    conn = compras.conn
+    original, abono = factura_de(conn, "2026-4471"), factura_de(conn, "CN-2026-031")
+    proveedor = _proveedor_de(conn, "2026-4471")
+    _orden(conn, "enlazar_facturas", {"origen_id": abono, "destino_id": original,
+                                      "tipo": "acredita", "motivo": MOTIVO})
+    assert _estado(conn, original)[:2] == ("pendiente", 290279 - 12251)
+    with pytest.raises(servicios.DatosNoValidos, match="origen de la relacion"):
+        _orden(conn, "anular_factura", {"factura_id": abono, "rev": _rev(conn, abono),
+                                        "motivo": "Abono emitido por error"})
+    # Por debajo de la orden (lo que hubiera en una base anterior): anulado, no acredita.
+    campos.fijar(conn, "factura", abono, {"anulada": True},
+                 campos.Persona(_ana(conn), "Abono emitido por error"))
+    hallazgos.recalcular(conn)
+    assert _estado(conn, original)[:2] == ("pendiente", 290279)
+    assert tuple(conn.execute("SELECT acreditado_cent, pendiente_cent FROM v_factura_saldo "
+                              "WHERE factura_id = ?", (original,)).fetchone()) == (0, 290279)
+    assert consultas.proveedor(conn, proveedor)["pendiente_cent"] == 290279
+    assert conn.execute("SELECT pendiente_cent FROM v_proveedor_totales WHERE proveedor_id = ?",
+                        (proveedor,)).fetchone()[0] == 290279
+    [relacion] = relaciones.de_factura(conn, original)
+    assert (relacion["estado"], relacion["mueve"]) == ("confirmada", False)
+    # Y no se enlaza ni se confirma nada desde una factura anulada.
+    with pytest.raises(relaciones.RelacionNoValida, match="anulada"):
+        _orden(conn, "enlazar_facturas", {"origen_id": abono, "destino_id": factura_de(
+            conn, "2026-018"), "tipo": "relacionada", "motivo": MOTIVO})
+
+
+def test_una_sustituta_anulada_devuelve_la_original_a_los_totales(compras) -> None:
+    conn = compras.conn
+    original, nueva = factura_de(conn, "2026-4471"), _sustituta(compras, citar=False)
+    proveedor = _proveedor_de(conn, "2026-4471")
+    _orden(conn, "enlazar_facturas", {"origen_id": nueva, "destino_id": original,
+                                      "tipo": "sustituye", "motivo": MOTIVO})
+    assert _estado(conn, original)[:2] == ("anulada", 0)
+    with pytest.raises(servicios.DatosNoValidos, match="origen de la relacion"):
+        _orden(conn, "anular_factura", {"factura_id": nueva, "rev": _rev(conn, nueva),
+                                        "motivo": "La nueva era un error del proveedor"})
+    campos.fijar(conn, "factura", nueva, {"anulada": True},
+                 campos.Persona(_ana(conn), "La nueva era un error del proveedor"))
+    hallazgos.recalcular(conn)
+    # La original vuelve a contar: en lo abierto, en el IVA y en los totales.
+    assert _estado(conn, original)[:2] == ("pendiente", 290279)
+    assert original in {f[0] for f in conn.execute("SELECT factura_id FROM v_iva_vigente")}
+    vista = consultas.proveedor(conn, proveedor)
+    assert original in {f["id"] for f in vista["abiertas_detalle"]}
+    assert vista["pendiente_cent"] == conn.execute(
+        "SELECT pendiente_cent FROM v_proveedor_totales WHERE proveedor_id = ?",
+        (proveedor,)).fetchone()[0] == 290279 - 12251
+
+
+def test_una_original_ya_pagada_y_sustituida_bloquea_y_su_pago_sigue_a_la_vista(
+        compras) -> None:
+    """Van Dijk corrige una factura ya pagada: la nueva llega pendiente entera. R3 bloquea
+    (se pagaria el trabajo dos veces), la original sigue pagada y lo pagado no desaparece de
+    la vista del proveedor ni de la vista SQL."""
+    conn = compras.conn
+    original = factura_de(conn, "2026-4471")
+    proveedor = _proveedor_de(conn, "2026-4471")
+    _pagar(conn, original)
+    nueva = _sustituta(compras, citar=False)
+    _orden(conn, "enlazar_facturas", {"origen_id": nueva, "destino_id": original,
+                                      "tipo": "corrige", "motivo": MOTIVO})
+    assert _estado(conn, original)[:2] == ("pagada", 0)
+    assert _estado(conn, nueva) == ("pendiente", 242000, "bloqueada")
+    [r3] = _hallazgos(conn, "R3", nueva)
+    assert _hallazgos(conn, "R3", original) == [r3]
+    assert r3["severidad"] == "bloqueo" and "ya está pagada" in r3["detalle"]
+    assert (r3["pegajosa"], r3["anulable"]) == (1, 0)
+    vista = consultas.proveedor(conn, proveedor)
+    assert vista["siempre_pagado_cent"] == 290279
+    assert [p["factura_id"] for p in vista["pagos"]] == [original]
+    assert conn.execute("SELECT pagado_cent FROM v_proveedor_totales WHERE proveedor_id = ?",
+                        (proveedor,)).fetchone()[0] == 290279
+    # Sigue fuera de lo facturado: cuenta la nueva.
+    assert vista["siempre_facturado"]["total_cent"] == 242000 - 12251
+    _limpio(conn)
+
+
+def test_una_propuesta_que_retiro_el_sistema_se_propone_otra_vez(compras) -> None:
+    """Un reenvio con el numero de la original hace ambigua la cita del abono y el sistema
+    retira la propuesta; fusionado el reenvio, la cita vuelve a casar con una sola factura y
+    se propone otra vez (lo que retira el sistema no es lo que rechaza una persona)."""
+    conn = compras.conn
+    original = factura_de(conn, "2026-4471")
+    abono = _entrar(compras, "entrante", _documento(
+        "c4", numero="CN-2026-040", base="-100,00", iva="-21,00", total="-121,00",
+        emisor=VAN_DIJK, emisor_btw=VAN_DIJK_BTW, receptor=EMPRESA, receptor_btw=None,
+        fecha="2026-09-25", tipo="credit_note", citadas=(("2026-4471", "credits"),),
+        lineas=[_linea("Creditering", "1", "-100,00", "-100,00")]))
+    primera = _relacion(conn, abono, original)
+    assert primera["estado"] == "propuesta"
+    reenvio = _entrar(compras, "entrante", _documento(
+        "c5", numero="2026-4471", base="2.399,00", iva="503,79", total="2.902,79",
+        emisor=VAN_DIJK, emisor_btw=VAN_DIJK_BTW, receptor=EMPRESA, receptor_btw=None,
+        fecha="2026-09-08", desde="2026-08-31", hasta="2026-09-06",
+        lineas=[_linea("Montagewerk", "1", "2.399,00", "2.399,00")]))
+    assert _relacion(conn, abono, original)["retirada_en"] is not None
+    assert _hallazgos(conn, "R1", abono)
+    _orden(conn, "fusionar_factura", {"factura_id": reenvio, "destino_id": original,
+                                      "rev": _rev(conn, reenvio), "motivo": MOTIVO})
+    hallazgos.recalcular(conn)
+    otra = _relacion(conn, abono, original)
+    assert otra["id"] != primera["id"]
+    assert (otra["estado"], otra["retirada_en"]) == ("propuesta", None)
+    assert _hallazgos(conn, "R5", abono) and not _hallazgos(conn, "R1", abono)
+    # Lo que retira una persona, en cambio, se queda asi.
+    _orden(conn, "retirar_relacion", {"relacion_id": otra["id"], "rev": otra["rev"],
+                                      "motivo": "No es su abono"})
+    hallazgos.recalcular(conn)
+    assert _relacion(conn, abono, original)["id"] == otra["id"]
+    _limpio(conn)
+
+
+def test_con_tolerancia_la_vista_sql_es_lo_que_queda_en_bruto(compras) -> None:
+    """Con una tolerancia de 0,05, un pago 0,03 corto deja la factura pagada en la cache y en
+    las vistas de consultas (no esta pendiente); v_proveedor_totales suma lo que queda en
+    bruto, sin la tolerancia, que es de la politica (migracion 0009)."""
+    conn = compras.conn
+    carpeta = compras.documentos.raiz.parent / "reglas"
+    carpeta.mkdir()
+    texto = (RAIZ / "config" / "reglas.yaml").read_text(encoding="utf-8")
+    (carpeta / "reglas.yaml").write_text(texto.replace('tolerancia: "0.00"', 'tolerancia: "0.05"'),
+                                         encoding="utf-8")
+    from bms_agent import politica
+
+    politica.cargar(conn, carpeta / "reglas.yaml", _ana(conn))
+    original = factura_de(conn, "2026-4471")
+    proveedor = _proveedor_de(conn, "2026-4471")
+    _pagar(conn, original, importe="2902,76")
+    assert _estado(conn, original)[:2] == ("pagada", 3)
+    vista = consultas.proveedor(conn, proveedor)
+    assert original not in {f["id"] for f in vista["abiertas_detalle"]}
+    assert vista["pendiente_cent"] == -12251
+    assert conn.execute("SELECT pendiente_cent FROM v_proveedor_totales WHERE proveedor_id = ?",
+                        (proveedor,)).fetchone()[0] == -12251 + 3
+
+
+def test_un_listado_de_ventas_rechazado_no_cuenta_como_nuevo_lo_que_se_deshizo(
+        ventas, tmp_path) -> None:
+    """Un listado cuya primera factura es nueva y cuya segunda no entra (vuelve una linea que
+    Exact ya retiro) no entra entero; el evento de la importacion no cuenta como nuevas las
+    filas de la factura que se deshizo."""
+    conn = ventas.conn
+    filas = VENTAS.read_text(encoding="utf-8-sig").splitlines()
+    cabecera, linea1, linea2, v102 = filas[0], filas[1], filas[2], filas[3]
+    sin_linea2 = tmp_path / "ventas-2.csv"
+    sin_linea2.write_text("\n".join([cabecera, linea1]) + "\n", encoding="utf-8")
+    r = importar_fichero(ventas, "exact", "facturas_venta", sin_linea2, lanzado_por=_ana(conn))
+    assert [lote.estado for lote in r.lotes] == ["aceptada"]
+    nueva = v102.replace("V2026-0102", "V2026-0099")
+    otra_vez = tmp_path / "ventas-3.csv"
+    otra_vez.write_text("\n".join([cabecera, nueva, linea1, linea2]) + "\n", encoding="utf-8")
+    r = importar_fichero(ventas, "exact", "facturas_venta", otra_vez, lanzado_por=_ana(conn))
+    [lote] = r.lotes
+    assert lote.estado == "rechazada" and "ya se retiro" in lote.rechazos[0].motivo
+    assert not conn.execute("SELECT 1 FROM factura WHERE numero = 'V2026-0099'").fetchall()
+    assert (lote.nuevos, lote.cambiados) == ([], [])
+    datos = json.loads(conn.execute("SELECT datos_json FROM evento WHERE id = ?",
+                                    (lote.evento_id,)).fetchone()[0])
+    assert (datos["estado"], datos["nuevos"], datos["cambiados"]) == ("rechazada", 0, 0)
+
+
+def test_la_primera_fecha_de_un_iban_impreso_no_la_borra_una_factura_sin_fecha(compras) -> None:
+    conn = compras.conn
+    van_dijk = _proveedor_de(conn, "2026-4471")
+    _entrar(compras, "entrante", _documento(
+        "d7", numero="2026-4999", base="100,00", iva="21,00", total="121,00", fecha=None,
+        emisor=VAN_DIJK, emisor_btw=VAN_DIJK_BTW, receptor=EMPRESA, receptor_btw=None,
+        iban="NL02 ABNA 0123 4567 89", lineas=[_linea("Montagewerk", "1", "100,00", "100,00")]))
+    fechas = sorted(f[0] for f in conn.execute(
+        "SELECT fecha_factura FROM factura WHERE proveedor_id = ? AND iban_doc IS NOT NULL "
+        "AND fecha_factura IS NOT NULL", (van_dijk,)))
+    [impreso] = consultas.proveedor(conn, van_dijk)["ibanes"]["impresos"]
+    assert (impreso["primera"], impreso["ultima"]) == (fechas[0], fechas[-1])
+    assert impreso["primera"] is not None
+    assert impreso["facturas"] == len(fechas) + 1
+
+
+def test_un_pdf_ya_leido_por_la_otra_via_no_se_paga_otra_vez(tmp_path, monkeypatch,
+                                                             capsys) -> None:
+    """out/ y out/salientes/ son dos carpetas, pero un PDF leido por una via no vuelve a la
+    API por la otra: ya esta pagado, y el documento conserva la via por la que entro."""
+    import anthropic
+    from test_extraccion_pasada import PDF, ClienteFalso
+
+    from bms_agent.almacen import preparar
+    from bms_agent.cli import main
+
+    pdfs = tmp_path / "carpeta"
+    pdfs.mkdir()
+    (pdfs / "a.pdf").write_bytes(PDF)
+    cliente = ClienteFalso()
+    monkeypatch.setattr(anthropic, "Anthropic", lambda *a, **k: cliente)
+    db = tmp_path / "datos" / "bms.sqlite3"
+    out = tmp_path / "out"
+    assert main(["extract", str(pdfs), "--out", str(out), "--db", str(db)]) == 0
+    assert cliente.llamadas == 1
+    capsys.readouterr()
+    assert main(["extract", str(pdfs), "--salientes", "--out", str(out), "--db", str(db)]) == 0
+    salida = capsys.readouterr().out
+    assert cliente.llamadas == 1
+    assert "0 extraidos, 1 reutilizados" in salida and "otra via" in salida
+    assert not (out / "salientes").exists() or not list((out / "salientes").glob("*.json"))
+    with preparar(db) as almacen:
+        assert almacen.conn.execute("SELECT ruta_declarada FROM documento").fetchone()[0] \
+            == "entrante"
+    # Y al reves: lo leido por la via de salida no se paga por la de entrada.
+    otra = tmp_path / "otra"
+    otra.mkdir()
+    (otra / "b.pdf").write_bytes(PDF)
+    out2, db2 = tmp_path / "out2", tmp_path / "datos2" / "bms.sqlite3"
+    assert main(["extract", str(otra), "--salientes", "--out", str(out2), "--db", str(db2)]) == 0
+    assert main(["extract", str(otra), "--out", str(out2), "--db", str(db2)]) == 0
+    assert cliente.llamadas == 2
+
+
+def test_las_listas_de_partes_van_en_el_orden_de_prioridad_y_lo_dicen(compras) -> None:
+    """§8: las listas se ordenan por nivel, puntos, vencimiento e importe (prioridad.clave_orden),
+    y cada parte dice su nivel y sus puntos, de la cache prioridad. La vista de un cliente dice
+    que el trabajo sin facturar no se puede saber todavia (sin datos hasta el planning)."""
+    from bms_agent.prioridad import RANGO
+
+    conn = compras.conn
+    lista = consultas.proveedores(conn)
+    ultimo = lista[-1]
+    [factura] = [f[0] for f in conn.execute(
+        "SELECT id FROM factura WHERE proveedor_id = ? AND anulada = 0 ORDER BY id LIMIT 1",
+        (ultimo["id"],))]
+    _orden(conn, "subir_prioridad", {"entidad_id": factura, "nivel": "urgente",
+                                     "motivo": "el proveedor amenaza con parar la obra"})
+    lista = consultas.proveedores(conn)
+    rangos = [(-RANGO[p["nivel"]], -p["puntos"]) for p in lista]
+    assert rangos == sorted(rangos)
+    subido = next(p for p in lista if p["id"] == ultimo["id"])
+    assert RANGO[subido["nivel"]] >= RANGO["urgente"]
+    assert lista.index(subido) < len(lista) - 1 or len(lista) == 1
+    vista = consultas.proveedor(conn, ultimo["id"])
+    assert vista["prioridad"]["nivel"] == subido["nivel"]
+    assert vista["prioridad"]["puntos"] == subido["puntos"]
+    importar_fichero(compras, "exact", "clientes", EXACT_CLIENTES, lanzado_por=_ana(conn))
+    [haven] = [c["id"] for c in consultas.clientes(conn) if c["nombre"] == HAVEN]
+    assert consultas.cliente(conn, haven)["trabajo_sin_facturar"]["estado"] == "sin_datos"
+
+
+def test_una_venta_de_exact_tiene_su_contacto_del_maestro_y_su_fecha_de_envio_a_mano(
+        ventas, tmp_path) -> None:
+    """huecos.md §2: el contacto de una venta sale del maestro (por su nombre exacto, en el
+    mismo cliente), y la fecha de envio, que Exact no exporta, la apunta una persona."""
+    conn = ventas.conn
+    v101 = factura_de(conn, "V2026-0101")
+    assert conn.execute("SELECT contacto_id FROM factura WHERE id = ?",
+                        (v101,)).fetchone()[0] is None
+    contactos = tmp_path / "contactos.csv"
+    contactos.write_text("Relatie;Soort relatie;Naam;E-mail;Telefoon;Functie;Actief\n"
+                         "10001;Klant;M.  Visser;m.visser@havenbedrijf.example;;Inkoop;ja\n"
+                         "10002;Klant;M. Visser;;;;ja\n", encoding="utf-8")
+    importar_fichero(ventas, "maestro_csv", "contactos", contactos, lanzado_por=_ana(conn))
+    [visser] = [f[0] for f in conn.execute(
+        "SELECT c.id FROM contacto AS c JOIN cliente AS k ON k.id = c.cliente_id "
+        "WHERE k.exact_id = '10001'")]
+    assert conn.execute("SELECT contacto_id FROM factura WHERE id = ?",
+                        (v101,)).fetchone()[0] == visser
+    _orden(conn, "fijar_campo", {"tabla": "factura", "fila_id": v101, "campo": "fecha_envio",
+                                 "valor": "2026-10-02", "rev": _rev(conn, v101),
+                                 "motivo": "Enviada por correo, copia en el buzon"})
+    assert conn.execute("SELECT fecha_envio FROM factura WHERE id = ?",
+                        (v101,)).fetchone()[0] == "2026-10-02"
+    assert campos.procedencia(conn, "factura", v101)["fecha_envio"]["fuente"].startswith(
+        "manual")
+    _limpio(conn)

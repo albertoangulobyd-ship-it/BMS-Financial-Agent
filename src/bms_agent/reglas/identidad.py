@@ -272,6 +272,29 @@ def _normas(contexto: dict[str, Any], nombre: str | None,
     return hecho
 
 
+def es_la_empresa(nombre: str | None, btw: str | None, nombres: tuple[str, ...] | frozenset[str],
+                  btw_empresa: str | None) -> bool | None:
+    """Si un nombre y un BTW (ya normalizados) son los de BM Support BV; None si no dicen nada.
+
+    Lo que se imprime tiene que ser de la empresa: un nombre que no es uno de
+    los suyos, o un BTW que no es el suyo, basta para que no lo sea. Lo usan A8
+    y relaciones.sincronizar (que solo une a una venta de Exact la copia en PDF
+    que emite BM Support BV), para que las dos digan lo mismo.
+    """
+    if nombre is None and btw is None:
+        return None
+    return not ((nombre is not None and nombre not in nombres)
+                or (btw is not None and bool(btw_empresa) and btw != btw_empresa))
+
+
+def _nombra_a_la_empresa(nombre: str | None, btw: str | None,
+                         nombres: tuple[str, ...] | frozenset[str],
+                         btw_empresa: str | None) -> bool:
+    """Si un nombre o un BTW (normalizados) es el de BM Support BV: basta uno de los dos."""
+    return (nombre is not None and nombre in nombres) or (
+        btw is not None and bool(btw_empresa) and btw == btw_empresa)
+
+
 # Lo que llega estructurado de su sistema no es un documento con emisor y
 # receptor impresos: una venta de Exact la emite BM Support BV por ser de su
 # administracion. A8 mira documentos.
@@ -284,17 +307,30 @@ def a8(factura: Factura, contexto: dict[str, Any]) -> list[Resultado]:
     En la via de salida, que el emisor no sea BM Support BV es que el
     documento esta mal encaminado: bloquea (spec §7 y §8). La direccion la
     puso la via, no el modelo, asi que un PDF de un proveedor dejado en la
-    carpeta de ventas es una venta mal encaminada, nunca una compra.
+    carpeta de ventas es una venta mal encaminada, nunca una compra. Si no
+    dice quien la emite pero va dirigida a BM Support BV, es una compra dejada
+    en la carpeta de ventas: tambien bloquea (sin emisor no hay nada que la
+    haga una venta, y lo que si dice es que la recibe la empresa).
     """
     nombres, btw_empresa = contexto["nombres"], contexto["btw"]
     if factura.origen in _DE_SU_SISTEMA:
         return []
     if factura.sentido == SALIENTE:
         nombre, btw = _normas(contexto, factura.emisor_nombre_doc, factura.emisor_btw_doc)
-        if nombre is None and btw is None:
+        emite = es_la_empresa(nombre, btw, nombres, btw_empresa)
+        if emite is None:
+            receptor, receptor_btw = _normas(contexto, factura.receptor_nombre_doc,
+                                             factura.receptor_btw_doc)
+            if _nombra_a_la_empresa(receptor, receptor_btw, nombres, btw_empresa):
+                return [fallo("A8", factura, "Llegó por la vía de salida, no dice quién la "
+                                             "emite y va dirigida a BM Support BV: es una "
+                                             "compra mal encaminada.",
+                              valores={"emisor": None, "receptor": receptor,
+                                       "receptor_btw": receptor_btw}, severidad=B,
+                              objetivos=(Objetivo("factura", factura.id,
+                                                  "receptor_nombre_doc"),))]
             return [sin_datos("A8", factura, "La factura de salida no dice quién la emite.")]
-        if (nombre is not None and nombre not in nombres) or (
-                btw is not None and btw_empresa and btw != btw_empresa):
+        if not emite:
             return [fallo("A8", factura, "Llegó por la vía de salida y no la emite BM Support "
                                          "BV: está mal encaminada.",
                           valores={"emisor": nombre, "btw": btw}, severidad=B,

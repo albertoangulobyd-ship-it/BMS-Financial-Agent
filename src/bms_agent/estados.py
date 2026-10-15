@@ -128,10 +128,16 @@ def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
     tolerancia) es acreditada si nada se pago (`solo_abonos`), o anulada si
     el abono la anula, y si no pagada; si no, pendiente o vencida por su
     vencimiento, tambien con un pago parcial o un abono parcial.
+
+    Una sustituida que ya se pago con dinero sigue pagada: sale de los
+    totales igual, pero el dinero salio del banco y no se esconde detras de
+    "anulada" (R3 dice que la nueva esta pendiente entera).
     """
     if fusionada:
         return None
-    if anulada or sustituida:
+    if anulada:
+        return ANULADA
+    if sustituida and not (pagada and not solo_abonos):
         return ANULADA
     if pagada:
         if solo_abonos:

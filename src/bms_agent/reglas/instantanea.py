@@ -318,14 +318,29 @@ def _pagado(total: int | None, propias: list[Aplicacion] | None,
 # ------------------------------------------------------------ paso 8: relaciones y citas
 
 def relaciones(conn: sqlite3.Connection) -> tuple[tuple[Relacion, ...], tuple[Relacion, ...]]:
-    """Las relaciones vivas (ni retiradas ni rechazadas): las confirmadas y las propuestas."""
+    """Las relaciones vivas (ni retiradas ni rechazadas): las confirmadas y las propuestas.
+
+    Una confirmada solo mueve algo mientras sus dos facturas cuentan: si su
+    origen esta anulado (el abono emitido por error, la sustituta que se
+    retiro) o una de las dos esta fusionada en otra (es la copia de otra), no
+    esta entre las confirmadas. Si no, un abono anulado seguiria bajando lo
+    pendiente de la original, o una sustituta anulada la seguiria sacando de
+    los totales, sin que nada lo dijera. Es lo mismo que v_factura_relaciones
+    (migracion 0009).
+    """
     confirmadas, propuestas = [], []
-    for id_, origen, destino, tipo, importe, estado, fuente in _filas(
-            conn, "SELECT id, origen_id, destino_id, tipo, importe_cent, estado, fuente "
-                  "FROM factura_relacion WHERE retirada_en IS NULL AND estado <> 'rechazada' "
-                  "ORDER BY id"):
+    for id_, origen, destino, tipo, importe, estado, fuente, vigente in _filas(
+            conn, "SELECT r.id, r.origen_id, r.destino_id, r.tipo, r.importe_cent, r.estado, "
+                  "r.fuente, o.anulada = 0 AND o.fusionada_en_id IS NULL "
+                  "AND d.fusionada_en_id IS NULL "
+                  "FROM factura_relacion AS r JOIN factura AS o ON o.id = r.origen_id "
+                  "JOIN factura AS d ON d.id = r.destino_id "
+                  "WHERE r.retirada_en IS NULL AND r.estado <> 'rechazada' ORDER BY r.id"):
         relacion = Relacion(origen, destino, tipo, id_, importe, fuente)
-        (confirmadas if estado == "confirmada" else propuestas).append(relacion)
+        if estado != "confirmada":
+            propuestas.append(relacion)
+        elif vigente:
+            confirmadas.append(relacion)
     return tuple(confirmadas), tuple(propuestas)
 
 

@@ -3144,8 +3144,8 @@ Desviaciones nuevas, y por qué:
 ## Paso 8
 
 Facturas de venta, relaciones entre facturas y las vistas de proveedores y
-clientes. **1534 tests pasan** (913 funciones de test; eran 1467 y 877 al
-cerrar el paso 7), ninguno llama a la API y ninguno escribe fuera de una
+clientes. **1550 tests pasan** tras la revisión (929 funciones de test; eran
+1534 y 913 al cerrar el paso, y 1467 y 877 al cerrar el paso 7), ninguno llama a la API y ninguno escribe fuera de una
 carpeta temporal. Cinco mil facturas se recalculan en 1,57-1,83 s la primera
 vez y en 1,35-1,52 s las siguientes (seis medidas en este contenedor; el paso
 7 medía 1,73-1,88 s y 1,50-1,55 s): casar las copias y proponer relaciones
@@ -3201,6 +3201,7 @@ consultas):
 
 | Tipo | Efecto |
 | --- | --- |
+| (todas) | Solo mientras sus dos facturas cuentan: una relación cuyo origen está anulado, o con una de las dos fusionada en otra, no mueve nada (revisión, migración 0009) |
 | `acredita`, `anula` | El abono le quita a la original lo que dice la relación (o el abono entero) y se gasta ese importe del abono. Las dos siguen en los totales y en el IVA, cada una en su fecha: se compensan. Si cubre lo que quedaba sin pagarse nada, la original queda `acreditada` (`anulada` si el abono la anula); si no, le baja lo pendiente |
 | `sustituye`, `corrige` | La original sale de juego: de los totales, de la caja, del IVA, de los agregados de prioridad y de las reglas (salvo R3, que la mira para eso). Su estado de pago es `anulada` |
 | `relacionada` | Nada, y tampoco calla un duplicado |
@@ -3211,12 +3212,12 @@ consultas):
 | --- | --- | --- |
 | R1 | Un abono o una corrección nombra una factura de la misma contraparte que no está, o que está repetida | Retención; se anula |
 | R2 | Los abonos confirmados le quitan a una factura más de lo que vale, o un abono se aplica por más de lo que vale | Retención; pegajosa, no se anula |
-| R3 | La original y la que la sustituye (o corrige) están las dos pendientes o las dos pagadas | Bloqueo; pegajosa, no se anula |
+| R3 | La original y la que la sustituye (o corrige) están las dos pendientes, las dos pagadas, o la original pagada y la nueva pendiente | Bloqueo; pegajosa, no se anula |
 | R4 | Un abono sin ninguna relación confirmada que diga a qué abona | Aviso |
 | R5 | Una relación propuesta espera a una persona (sobre las dos facturas) | Aviso |
 | V7 | En las ventas, el caso de B2 (mismo número a la misma contraparte) o el de B3 (mismo importe a pocos días, otro número): facturar dos veces | Retención; se anula; pegajosa; suelo urgente |
 | F10 | Una venta lleva un IBAN que no es una cuenta de BM Support BV (`cuentas_propias`); sin cuentas propias cargadas, sin datos | Retención; pegajosa, no se anula |
-| M3 | Una venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo, periodo), o tienen el mismo número y no se pudieron unir | Retención, calidad «discrepancia»; se anula |
+| M3 | Una venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo, periodo), o tienen el mismo número y no se pudieron unir (y dice por qué) | Retención, calidad «discrepancia»; se anula |
 
 D1, D2 y D2b ya retenían en una venta (`severidad_saliente`, paso 3); ahora
 hay ventas que lo prueban. A8 ya bloqueaba una venta que no emite BM Support
@@ -3270,7 +3271,9 @@ y el de pagos, el importe típico (media y mediana), el plazo de pago (media y
 mediana de días) y los pagos que llegaron tarde, los avisos activos (los
 hallazgos pendientes de sus facturas y de él, y sus excepciones abiertas) y,
 en un proveedor, las cuentas del registro con su estado y, aparte, los IBAN
-que imprimen sus facturas con su primera y última fecha. Salen de lo mismo que
+que imprimen sus facturas con su primera y última fecha; su nivel, sus
+puntos y sus motivos (la caché `prioridad`), y en un cliente el trabajo sin
+facturar, que da sin datos hasta el planning (revisión). Salen de lo mismo que
 las reglas y la caché (`estados.facturas`: vencimiento efectivo, saldo con la
 fuente que manda y lo acreditado), con el `hoy` del reloj del almacén.
 
@@ -3374,8 +3377,16 @@ escenarios en la prueba de pureza.
     de M1 y M2. Para comparar, el PDF de una venta que también llegó de
     Exact o TRNSPRNT **se une solo a ella** (`fusionada_en_id`, fuente
     `calculado`) cuando tienen el mismo sentido, número normalizado y
-    contraparte resuelta: cuenta la de Exact (§10: el PDF de una venta solo
-    se lee si no hay fuente estructurada) y la copia no suma dos veces. M3
+    contraparte resuelta, el PDF lo emite BM Support BV y no lleva ni un pago
+    apuntado ni una relación confirmada (revisión): cuenta la de Exact y la
+    copia no suma dos veces. **El §10 no se cumple en la lectura**: dice que
+    el PDF de una venta solo se lee si no hay fuente estructurada, y
+    `extract --salientes` lee (y paga) cada PDF de la carpeta aunque Exact ya
+    tenga esa venta. No se puede saber qué venta es un PDF sin leerlo (el
+    número sale de la lectura), y negarse a leer la carpeta entera cuando hay
+    un listado de Exact dejaría sin leer las ventas que Exact no exporta. Lo
+    que sigue al §10 es el recuento (cuenta la de Exact), y un PDF ya leído
+    por cualquiera de las dos vías no se vuelve a pagar. M3
     compara fecha, base, IVA, total, tipo y periodo, y también avisa de un PDF
     con el número de una venta de Exact que no se pudo unir (otro cliente, o
     sin resolver). `deshacer_fusion` es la orden nueva que lo deshace; con el
@@ -3484,3 +3495,101 @@ el almacén entero. Al escribirlos y repasar el código salió esto:
   está fusionada en ella.
 - **La consola** tiene ya relaciones y vistas de proveedor y cliente; la vista
   de pagos y la del flujo de caja siguen pendientes (paso 7).
+
+### Correcciones de la revisión
+
+La revisión del paso 8 dejó dieciocho hallazgos. Dos estaban dichos dos
+veces (la copia en PDF de un abono confirmado que se une sola y acredita dos
+veces, y la relación que sigue moviendo dinero con su origen anulado), así
+que son dieciséis. Cada uno se reprodujo antes de tocarlo (con los scripts
+del revisor y con el test nuevo contra el código del paso 8: los tests nuevos
+de lo que se arregla fallan sin las correcciones). Todos eran reales. Doce se
+arreglan en el código con su test; uno se documenta, con un test que lo fija
+(lo pendiente bruto de las vistas SQL con tolerancia); y tres no se cambian y
+se apuntan como desviaciones con su razón (el §10 en la lectura, D2/D3/D4 en
+las ventas y el recurso desconocido de una venta de Exact). **1550 tests pasan** (929 funciones de test; eran
+1534 y 913). Sin una sola llamada a la API. Cinco mil facturas se recalculan
+en 1,51-1,63 s la primera vez y en 1,31-1,46 s las siguientes (seis medidas):
+lo mismo que antes.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| **Mayor** (dos hallazgos). `sincronizar` unía sola a su abono de Exact la copia en PDF que ya tenía una relación confirmada: la relación seguía contando desde la copia, se proponía la misma sobre el de Exact y confirmarla acreditaba dos veces la original, por debajo de su total (sin R2) | Desviación 20: `_copias` no une una copia con una relación confirmada (una propuesta sí: se retira en la misma orden y se propone sobre la de Exact). `_propuestas` no propone lo que ya tiene una gemela (otra factura con el número y la contraparte del origen) con ese destino, y `enlazar`/`confirmar` se niegan (`RelacionNoValida`). `fusionar_factura` no fusiona una factura con una relación confirmada o un pago apuntado. M3 dice por qué no se unieron (`distintos.union`) | `test_ventas.py::test_el_pdf_de_un_abono_ya_confirmado_no_se_une_solo_ni_acredita_dos_veces` |
+| **Mayor.** La misma unión se tragaba un cobro apuntado en el PDF: la venta volvía a estar pendiente entera y el cobro quedaba en una copia que nadie cuenta | Desviación 20: `_copias` no une una copia con un pago propuesto o confirmado; M3 lo dice y el cobro sigue a la vista | `test_el_pdf_de_una_venta_ya_cobrada_no_se_une_solo_y_el_cobro_no_se_pierde` |
+| **Mayor** (dos hallazgos). Una relación confirmada seguía moviendo dinero con su origen anulado: un abono anulado seguía acreditando y una sustituta anulada seguía sacando a la original de los totales, la caja y el IVA, sin ningún hallazgo | Desviación 21: `instantanea.relaciones` (y con ella `relaciones.efectos`, las cachés, la caja y las consultas) solo cuenta como confirmada la que tiene su origen sin anular y ninguna de las dos fusionada; `v_factura_relaciones` dice lo mismo en la migración nueva **0009** (la 0008 no se edita). `anular_factura` no anula el origen de una relación confirmada que mueve algo (se retira antes, a la vista), `_comprobar` no enlaza ni confirma desde una factura anulada, y `relaciones.de_factura` dice si cada relación `mueve` | `test_una_relacion_cuyo_origen_esta_anulado_no_mueve_nada`, `test_una_sustituta_anulada_devuelve_la_original_a_los_totales` |
+| **Mayor.** Una original ya pagada con una corrección o sustitución confirmada pasaba a «anulada», su pago desaparecía de las vistas y la nueva salía pendiente entera, sin R3 | Desviación 22: R3 tiene un tercer caso (la original pagada con dinero y la nueva pendiente: bloquea, pegajosa, no se anula; «abona la original o paga solo la diferencia»). Una sustituida pagada con dinero queda `pagada`, no `anulada`; lo pagado de una sustituida cuenta en lo pagado de `consultas` (y en sus pagos) y en `pagado_cent` de `v_proveedor_totales` y `v_cliente_totales` (0009); lo facturado y lo pendiente siguen sin ella | `test_una_original_ya_pagada_y_sustituida_bloquea_y_su_pago_sigue_a_la_vista`, `test_reglas_paso8.py::test_r3_la_original_y_la_que_la_sustituye_no_se_pagan_las_dos` |
+| Una propuesta que el sistema retiró porque la cita se volvió ambigua (un reenvío con el mismo número) no se volvía a proponer nunca | `_propuestas` no cuenta en lo que «ya hubo» una propuesta retirada por el sistema (la retirada con fuente `calculado` en `cambio_campo`); lo que rechazó o retiró una persona sigue sin proponerse | `test_una_propuesta_que_retiro_el_sistema_se_propone_otra_vez` |
+| El evento de un listado de ventas rechazado contaba como nuevas las filas de las facturas que la transacción deshizo | `_Contexto.marca` y `olvidar_desde`: si una factura no entra, se olvida lo anotado desde antes de la transacción | `test_un_listado_de_ventas_rechazado_no_cuenta_como_nuevo_lo_que_se_deshizo` |
+| Con tolerancia de pago, `v_proveedor_totales` y `v_cliente_totales` no dan lo mismo que `consultas` ni que la caché | Desviación 23: se documenta (en la 0009 y aquí) que lo pendiente de las vistas SQL es el bruto, sin la tolerancia, que es de la política y vive en Python; el test lo fija con 0,05 | `test_con_tolerancia_la_vista_sql_es_lo_que_queda_en_bruto` |
+| La primera fecha de un IBAN impreso quedaba vacía si la primera factura no tenía fecha | `_ibanes` ordena las sin fecha al final y no deja la primera vacía | `test_la_primera_fecha_de_un_iban_impreso_no_la_borra_una_factura_sin_fecha` |
+| **Mayor** para el dinero, menor en el código. `extract --salientes` y `extract` tenían cachés separadas: el mismo PDF por la otra vía se pagaba otra vez, y no cambiaba nada (el documento conserva su vía) | `extraer_pasada(otras_vias=...)`: la CLI le pasa la carpeta de la otra vía (`out/` o `out/salientes/`); lo leído allí se reutiliza sin coste y se avisa de que la vía no cambia. Con `--force`, no | `test_un_pdf_ya_leido_por_la_otra_via_no_se_paga_otra_vez` |
+| Un PDF de otro emisor con el número y el cliente de una venta de Exact se unía solo a ella: A8 no lo bloqueaba nunca y no quedaba ningún hallazgo | `_copias` solo une la copia que emite BM Support BV (`reglas.identidad.es_la_empresa`, la misma prueba que A8); si no, A8 bloquea y M3 dice `emisor` | `test_un_pdf_que_no_emite_bms_no_se_une_a_la_venta_y_queda_bloqueado`, `test_reglas_paso8.py::test_m3_dice_por_que_no_se_unio_la_copia` |
+| En la vía de salida, un documento sin emisor y dirigido a BM Support BV (una compra dejada en la carpeta de ventas) daba sin datos | A8: sin emisor y con el receptor de la empresa (nombre o btw-id), bloquea como compra mal encaminada | `test_una_compra_sin_emisor_dejada_en_la_carpeta_de_ventas_queda_bloqueada`, `test_reglas_paso8.py::test_a8_una_venta_sin_emisor_dirigida_a_bms_es_una_compra_mal_encaminada` |
+| El §10 dice que el PDF de una venta solo se lee si no hay fuente estructurada, y la desviación 10 lo daba por cumplido | No se cambia el código: la desviación 10 dice ahora que la lectura no lo cumple y por qué (un PDF no dice qué venta es sin leerlo); lo que sigue al §10 es el recuento, y un PDF ya leído por cualquier vía no se paga otra vez (hallazgo anterior) | — |
+| La vista de un cliente no tenía «trabajo sin facturar» (§4) y ninguna vista ni lista decía la prioridad de la parte, ni las listas iban en el orden del §8 | `consultas`: cada vista lleva `prioridad` (nivel, puntos, motivos, de la caché `prioridad`), la del cliente `trabajo_sin_facturar` en sin datos hasta el planning (V6, paso 10; nunca cero), y las listas llevan nivel, puntos y motivos y se ordenan con `prioridad.clave_orden` (a igualdad, por nombre) | `test_las_listas_de_partes_van_en_el_orden_de_prioridad_y_lo_dicen` |
+| D2, D3 y D4 no se anulan en las ventas, y el registro del paso 3 dejaba al paso 8 relajarlas | No se cambia: desviación 24 | — |
+| Un recurso (Medewerker) que no se conoce en una venta de Exact se quedaba sin recurso y sin hallazgo | No se cambia: desviación 25 | — |
+| Una venta de Exact no podía tener fecha de envío ni contacto del maestro | `fecha_envio` deja de ser de Exact (`externo`): Exact no la exporta, y una persona la apunta con su procedencia (huecos.md §2). `contacto_id` se calcula del nombre de contacto por su nombre exacto entre los contactos activos de la misma contraparte (uno solo), y se vuelve a resolver al importar contactos (`RESUELVEN`, `reconciliar_referencias`) | `test_una_venta_de_exact_tiene_su_contacto_del_maestro_y_su_fecha_de_envio_a_mano` |
+
+**Tests existentes cambiados, y por qué**: ninguno cambia lo que prueba.
+`test_reglas_paso8.py::test_r3_...` gana el caso de la original pagada (el de
+la nueva pagada y la original sin pagar sigue sin saltar: es lo normal), y
+`test_reglas_paso8.escenarios` gana una instantánea con R3 en su caso nuevo,
+A8 de una compra sin emisor en la vía de salida y M3 de copias que no se
+unieron por un pago, una relación o el emisor, para que la prueba de pureza
+pase por esas ramas.
+
+Desviaciones nuevas, y por qué:
+
+20. **Una copia en PDF que ya lleva dinero no se une sola.** Ni un pago
+    (propuesto o confirmado) ni una relación confirmada: moverlos a la venta
+    de Exact es decidir a qué factura van, y eso es de una persona. Hasta
+    entonces las dos cuentan y M3 retiene diciendo por qué; el camino es
+    retirar el pago o la relación de la copia, fusionarla a mano y confirmar
+    lo de la de Exact. `fusionar_factura` exige lo mismo a una persona, y no
+    se puede enlazar la de Exact con la misma original mientras su gemela lo
+    esté (sería el mismo abono dos veces).
+21. **Una relación solo mueve algo mientras sus dos facturas cuentan.** Con
+    el origen anulado o una de las dos fusionada no mueve nada, en Python y
+    en SQL (0009). La original anulada sí deja que la relación mueva (es lo
+    que pide R3: anular la que se sustituye). Anular el origen de una
+    relación que mueve algo se niega; la relación se retira antes, a la
+    vista. No hay una regla nueva para una relación así: por las órdenes ya
+    no se llega a ella, y la que quede de antes de la 0009 simplemente deja
+    de mover (`de_factura` dice `mueve: false`).
+22. **R3 salta también con la original pagada y la nueva pendiente**, y la
+    sustituida pagada sigue «pagada» y su pago a la vista. No se descuenta lo
+    pagado de la nueva: sería decidir que ese dinero paga la nueva, y quizá
+    el proveedor lo abone o lo devuelva. La nueva pagada con la original sin
+    pagar sigue sin saltar, como decía el test del paso 8 («lo normal»).
+23. **Lo pendiente de `v_proveedor_totales` y `v_cliente_totales` es el
+    bruto.** La tolerancia de pago es de la política (reglas.yaml) y una vista
+    no la conoce; con la de por defecto (0,00) dicen lo mismo que `consultas`
+    y la caché, como prueba la propiedad. Con otra, la diferencia es lo que
+    queda dentro de la tolerancia de cada factura pagada.
+24. **D2, D3 y D4 no se anulan tampoco en las ventas**, como dice la tabla del
+    §7 («no override» sin distinguir el sentido). La decisión 12 da la lista
+    dura de la base (D2/D3/D4/D6 en las compras); no pide que en las ventas
+    se anulen. Una venta con la aritmética mal se corrige donde nace (en
+    Exact, o el campo leído del PDF), nunca se acepta: una venta mal sumada
+    que se da por buena es un IVA declarado mal (paso 11).
+25. **Un recurso desconocido en una venta de Exact no es un hallazgo
+    todavía.** La línea guarda el texto (`recurso_doc`) y queda sin recurso,
+    como la de un PDF; el recurso solo lo leen las reglas del planning (V1-V6,
+    paso 10), que lo convertirán en hallazgo junto con la línea sin Objeto
+    (V2). Rechazar el listado por un nombre de empleado dejaría sin importar
+    ventas ya emitidas (decisión 6 pide todo o nada por lo que falsea el
+    dinero, no por un dato que nadie lee aún). Se amplía así la desviación 15.
+
+Lo que deben saber los pasos siguientes, además de lo de arriba:
+
+- **Lo que mueve una relación** sigue saliendo de un solo sitio, pero ahora
+  `instantanea.relaciones` filtra las confirmadas que no mueven nada (origen
+  anulado, alguna fusionada). Quien lea `factura_relacion` a mano para sumar
+  algo tiene que usar `v_factura_relaciones` (0009) o ese filtro.
+- **Unir una copia** (`_copias`) o fusionar a mano exige que la copia no
+  lleve pagos ni relaciones confirmadas; el paso que añada otra cosa que
+  mueva dinero sobre una factura (una PO consumida, paso 9) debe sumarla a
+  `relaciones.lo_que_lleva`.
+- **La vista de un cliente** devuelve `trabajo_sin_facturar` en sin datos: el
+  paso 10 lo rellena con V6.

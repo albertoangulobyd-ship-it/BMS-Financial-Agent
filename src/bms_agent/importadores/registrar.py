@@ -61,8 +61,8 @@ from .base import ATOMICOS, LoteLeido, Rechazo
 from .tabular import LectorTabular, Mapeo, cargar_mapeo, elegir_mapeo, lectores
 
 # Lo que cambia como se resuelven las facturas: despues de importarlo se
-# vuelven a resolver proveedor, cliente, Objeto y recurso.
-RESUELVEN = frozenset({"proveedores", "clientes", "objetos", "recursos", "alias"})
+# vuelven a resolver proveedor, cliente, contacto, Objeto y recurso.
+RESUELVEN = frozenset({"proveedores", "clientes", "contactos", "objetos", "recursos", "alias"})
 SISTEMAS = ("exact", "trnsprnt")
 _ORIGEN_DOCUMENTO = {"exact": "exact", "trnsprnt": "trnsprnt", "banco": "banco"}
 _RUTA_DOCUMENTO = {"extracto": "banco", "planning": "planning"}
@@ -135,6 +135,16 @@ class _Contexto:
     def orden(self, fila: int, tabla: str):
         return campos.orden(self.conn, self.origen, tipo="maestro_importado", tabla=tabla,
                             datos={"importacion_id": self.importacion_id, "fila": fila})
+
+    def marca(self) -> tuple[int, int, int]:
+        """Cuanto lleva anotado: para olvidar lo de una transaccion que se deshace."""
+        r = self.resultado
+        return len(r.nuevos), len(r.cambiados), len(r.sin_resolver)
+
+    def olvidar_desde(self, marca: tuple[int, int, int]) -> None:
+        """Olvida lo anotado desde `marca`: la transaccion que lo escribio se deshizo."""
+        r = self.resultado
+        del r.nuevos[marca[0]:], r.cambiados[marca[1]:], r.sin_resolver[marca[2]:]
 
     def anotar(self, resultado: campos.ResultadoOrden) -> None:
         self.resultado.nuevos.extend(resultado.creadas)
@@ -805,13 +815,18 @@ def _facturas_venta(ctx: _Contexto) -> list[Rechazo]:
                                     dict(registro.crudo)))
     if rechazos:
         return rechazos
+    # Si una factura no entra se deshacen todas: lo anotado de las anteriores
+    # tampoco entro, y el evento de la importacion no lo cuenta como nuevo.
+    marca = ctx.marca()
     try:
         with transaccion(conn):
             for registro in lote.registros:
                 _factura_venta(ctx, registro, clientes[registro.fila])
     except RechazoFila as exc:
+        ctx.olvidar_desde(marca)
         return [Rechazo(0, str(exc), None, exc.codigo)]
     except (ValueError, LookupError, TypeError, sqlite3.IntegrityError) as exc:
+        ctx.olvidar_desde(marca)
         codigo = "sistema" if isinstance(exc, campos.CampoDeOtroSistema) else "fila"
         return [Rechazo(0, f"no entra ninguna factura: {exc}", None, codigo)]
     return []

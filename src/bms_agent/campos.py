@@ -235,6 +235,25 @@ def _cliente_id(ctx: Contexto) -> Any:
     return Leido(r.fila_id, ref=f"identidad:{r.por}" if r.fila_id else None)
 
 
+def _contacto_id(ctx: Contexto) -> Any:
+    """La persona de contacto del maestro que el documento (o Exact) nombra.
+
+    Solo por el nombre exacto (sin mayusculas ni espacios de mas) entre los
+    contactos activos de esa misma contraparte, y solo si es uno: un nombre
+    parecido o repetido no es una identidad (huecos.md §2, "Contact person":
+    el contacto sale del maestro). Sin contraparte o sin nombre, ninguno.
+    """
+    nombre = " ".join(str(ctx.fila.get("contacto_nombre_doc") or "").split()).lower()
+    columna = "cliente_id" if ctx.fila.get("sentido") == Sentido.SALIENTE.value else "proveedor_id"
+    parte = ctx.fila.get(columna)
+    if not nombre or parte is None:
+        return None
+    filas = [f[0] for f in ctx.conn.execute(
+        f"SELECT id, nombre FROM contacto WHERE {columna} = ? AND activo = 1 ORDER BY id",
+        (parte,)) if " ".join(f[1].split()).lower() == nombre]
+    return Leido(filas[0], ref="contacto:nombre") if len(filas) == 1 else None
+
+
 def _unidad(ctx: Contexto) -> Any:
     from .parsing import es_unidad_hora
 
@@ -497,7 +516,9 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "cliente_id": _r(REF, obligatorio=SALIENTE, critico=True, externo=True,
                          calculo=_cliente_id,
                          depende_de=("sentido", "receptor_btw_doc", "receptor_nombre_doc")),
-        "contacto_id": _r(REF),
+        "contacto_id": _r(REF, calculo=_contacto_id,
+                          depende_de=("sentido", "contacto_nombre_doc", "proveedor_id",
+                                      "cliente_id")),
         "emisor_nombre_doc": _r(TEXTO, critico=True, externo=True),
         "emisor_direccion_doc": _r(TEXTO, externo=True),
         "emisor_kvk_doc": _r(TEXTO, externo=True),
@@ -507,7 +528,9 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "contacto_nombre_doc": _r(TEXTO, externo=True),
         "fecha_factura": _r(FECHA, obligatorio=AMBOS, critico=True, externo=True),
         "fecha_recepcion": _r(FECHA),
-        "fecha_envio": _r(FECHA, externo=True),
+        # Exact no exporta cuando se envio una venta: no es su dato, y una persona lo
+        # apunta con su procedencia (huecos.md §2, "Date sent", a mano si falta).
+        "fecha_envio": _r(FECHA),
         "periodo_inicio": _r(FECHA, obligatorio=AMBOS, critico=True, externo=True),
         "periodo_fin": _r(FECHA, obligatorio=AMBOS, critico=True, externo=True),
         "fecha_vencimiento": _r(FECHA, externo=True),

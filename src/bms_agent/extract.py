@@ -392,6 +392,7 @@ def extraer_pasada(
     resultado: ResultadoPasada | None = None,
     almacen: Almacen | None = None,
     ruta: str = "entrante",
+    otras_vias: Iterable[str | Path] = (),
 ) -> ResultadoPasada:
     """Extrae los PDF que no tengan ya una extraccion reutilizable.
 
@@ -411,6 +412,13 @@ def extraer_pasada(
     ya esta en out/ y `importar-out` la recupera; no se vuelve a pagar.
     `ruta` es la via de entrada (entrante o saliente): la pone quien llama,
     nunca el modelo, y decide la direccion de la factura (ingesta.py).
+
+    `otras_vias` son las carpetas de out/ de las otras vias (out/ y
+    out/salientes/ se guardan aparte). Un PDF ya leido por la otra via no
+    vuelve a la API con CONSERVAR ni con ESTRICTA (si coincide): ya esta
+    pagado, y leerlo otra vez no cambia nada porque un documento conserva la
+    via por la que entro la primera vez (registrar_documento). Se reutiliza
+    esa extraccion y se avisa de que la via no cambia. Con forzar, no.
     """
     model = model or config.model_id()
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
@@ -422,6 +430,10 @@ def extraer_pasada(
     # vigentes, pero estan pagadas: una de estas mismas versiones no se paga
     # otra vez.
     releidas = {} if forzar else indexar(Path(out_dir) / _CARPETA_CANDIDATAS)
+    de_otra_via: dict[str, list[CachedExtraction]] = {}
+    for carpeta in () if forzar else otras_vias:
+        for sha, guardadas in indexar(carpeta).items():
+            de_otra_via.setdefault(sha, []).extend(guardadas)
 
     for ruta_pdf in rutas:
         ruta_pdf = Path(ruta_pdf)
@@ -438,9 +450,18 @@ def extraer_pasada(
             indice.get(doc.sha256), politica=politica, model=model,
             prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
         ) or next((e for e in releidas.get(doc.sha256, []) if e.matches(*actual)), None)
+        otra_via = None
+        if guardada is None and doc.sha256 in de_otra_via:
+            guardada = otra_via = reutilizable(
+                de_otra_via[doc.sha256], politica=politica, model=model,
+                prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION)
         if guardada is not None:
             resultado.reutilizadas += 1
-            avisar("cache", ruta_pdf.name, _detalle_cache(guardada, model))
+            detalle = _detalle_cache(guardada, model)
+            if otra_via is not None:
+                detalle += (f"; ya leido por la otra via ({Path(guardada.path).parent.name}/): "
+                            "el documento conserva la via por la que entro")
+            avisar("cache", ruta_pdf.name, detalle)
             if almacen is not None:
                 _al_almacen(almacen, doc, ruta_pdf, Path(guardada.path), "out_v1", resultado,
                             avisar, via_entrada=ruta)

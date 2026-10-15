@@ -22,7 +22,8 @@ Las reglas:
 - R2 (retiene, pegajosa, no se anula): los abonos le quitan a una factura mas
   de lo que vale, o un abono se gasta en mas de lo que vale.
 - R3 (bloquea, pegajosa, no se anula): la original y la que la sustituye
-  estan las dos pendientes (las dos se pagarian) o las dos pagadas.
+  estan las dos pendientes (las dos se pagarian), las dos pagadas, o la
+  original pagada y la nueva pendiente (lo pagado no cuenta en la nueva).
 - R4 (aviso): un abono sin ninguna relacion confirmada que diga que abona.
 - R5 (aviso): una relacion propuesta espera a que una persona la confirme o
   la rechace.
@@ -249,12 +250,17 @@ def _pagada(f: Factura) -> bool:
 
 
 def r3(instantanea: Instantanea) -> list[Resultado]:
-    """R3: la original y la que la sustituye (o corrige), las dos pendientes o las dos pagadas.
+    """R3: la original y la que la sustituye (o corrige), las dos vivas: pendientes o pagadas.
 
     Las dos pendientes es el riesgo de pagar dos veces el mismo trabajo: la
     original sigue en la contabilidad hasta que un abono la anule. Las dos
-    pagadas es que ya se pago dos veces. La lee aunque la original este
-    fuera de juego (sustituida): para eso existe.
+    pagadas es que ya se pago dos veces. La original ya pagada y la nueva
+    entera por pagar (lo habitual cuando un proveedor corrige una factura ya
+    pagada) pagaria el trabajo otra vez: lo pagado de la original no se
+    descuenta de la nueva, y decidir a que factura va ese dinero es de una
+    persona (abonar la original, o pagar solo la diferencia). La nueva pagada
+    y la original sin pagar es lo normal: no salta. La lee aunque la original
+    este fuera de juego (sustituida): para eso existe.
     """
     tolerancia = tolerancia_cent(instantanea.politica.tolerancia_pago)
     facturas = {f.id: f for f in instantanea.facturas}
@@ -265,15 +271,22 @@ def r3(instantanea: Instantanea) -> list[Resultado]:
         nueva, original = facturas[r.origen_id], facturas[r.destino_id]
         if nueva.anulada or nueva.fusionada_en_id is not None:
             continue
-        if _abierta(nueva, tolerancia) and _abierta(original, tolerancia):
+        abierta_nueva, abierta_original = _abierta(nueva, tolerancia), _abierta(original,
+                                                                                 tolerancia)
+        pagada_original = _pagada(original)
+        hacer = "Anula o abona la original."
+        if abierta_nueva and abierta_original:
             que = "las dos están pendientes: se pagaría el mismo trabajo dos veces"
-        elif _pagada(nueva) and _pagada(original):
+        elif _pagada(nueva) and pagada_original:
             que = "las dos están pagadas"
+        elif pagada_original and abierta_nueva:
+            que = ("la original ya está pagada y la nueva está pendiente entera: lo pagado no "
+                   "se descuenta de la nueva y se pagaría el mismo trabajo dos veces")
+            hacer = "Abona la original o paga solo la diferencia."
         else:
             continue
         menor, mayor = sorted((nueva.id, original.id))
-        detalle = (f"{_numero(nueva)} sustituye a {_numero(original)} y {que}. Anula o abona la "
-                   "original.")
+        detalle = f"{_numero(nueva)} sustituye a {_numero(original)} y {que}. {hacer}"
         valores = {"nueva": nueva.id, "original": original.id, "tipo": r.tipo,
                    "pendiente_cent": [nueva.total_cent - nueva.pagado_cent - nueva.acreditado_cent
                                       if nueva.total_cent is not None else None,

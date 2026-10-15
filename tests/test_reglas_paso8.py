@@ -178,6 +178,11 @@ def test_r3_la_original_y_la_que_la_sustituye_no_se_pagan_las_dos() -> None:
     # Una pagada y la otra no: lo normal (se pago la nueva).
     assert not resultados("R3", inst(factura(1), factura(2, numero_norm="N2"),
                                      relaciones=relacion, aplicaciones=pagos[1:]))
+    # Pero la original pagada y la nueva pendiente entera (revision del paso 8): lo pagado no
+    # se descuenta de la nueva y el trabajo se pagaria otra vez.
+    [a, b] = resultados("R3", inst(factura(1), factura(2, numero_norm="N2"),
+                                   relaciones=relacion, aplicaciones=pagos[:1]))
+    assert {a.fila_id, b.fila_id} == {1, 2} and "ya está pagada" in a.detalle
 
 
 # ------------------------------------------------------------ R4 y R5
@@ -255,6 +260,25 @@ def test_m3_la_venta_de_exact_y_su_pdf_no_dicen_lo_mismo() -> None:
     assert fallos and fallos[0].valores["distintos"] == {"parte": ["cliente:3", "cliente:9"]}
 
 
+def test_a8_una_venta_sin_emisor_dirigida_a_bms_es_una_compra_mal_encaminada() -> None:
+    [r] = resultados("A8", inst(venta(1, emisor_nombre_doc=None, emisor_btw_doc=None,
+                                      receptor_nombre_doc="BM Support BV")))
+    assert (r.resultado, r.severidad) == ("fallo", "bloqueo")
+    [r] = resultados("A8", inst(venta(1, emisor_nombre_doc=None, emisor_btw_doc=None)))
+    assert r.resultado == "sin_datos"
+
+
+def test_m3_dice_por_que_no_se_unio_la_copia() -> None:
+    exact = venta(1, origen="exact")
+    pagada = venta(2, numero_norm=exact.numero_norm)
+    ajena = venta(3, numero_norm=exact.numero_norm, emisor_nombre_doc="Fraude Holding BV")
+    por_copia = {r.fila_id: r for r in resultados(
+        "M3", inst(exact, pagada, ajena, aplicaciones=[aplicacion(1, 2, 41140)]))
+        if r.fila_id != 1}
+    assert por_copia[2].valores["distintos"] == {"union": ["pagos"]}
+    assert por_copia[3].valores["distintos"] == {"union": ["emisor"]}
+
+
 def test_a8_no_mira_el_emisor_de_una_venta_de_exact() -> None:
     """Exact no imprime emisor: una venta suya no esta mal encaminada."""
     assert not resultados("A8", inst(venta(1, origen="exact", emisor_nombre_doc=None)))
@@ -291,4 +315,15 @@ def escenarios() -> list[Instantanea]:
         inst(exact, copia, suelta, *dobles, *compras, relaciones=relaciones,
              propuestas=propuestas, citas=citas),
         inst(exact, copia, *dobles, politica=Politica()),
+        # Revision del paso 8: R3 con la original pagada, A8 de una compra sin emisor en la
+        # via de salida y M3 de copias que no se unieron (pagos, relacion, emisor).
+        inst(factura(20), factura(21, numero_norm="N21"), exact,
+             venta(22, numero_norm=exact.numero_norm),
+             venta(23, numero_norm=exact.numero_norm, emisor_nombre_doc="Fraude Holding BV"),
+             venta(24, numero_norm=exact.numero_norm), venta(25, numero_norm="V25"),
+             venta(26, numero_norm="V26", emisor_nombre_doc=None, emisor_btw_doc=None,
+                   receptor_nombre_doc="BM Support BV"),
+             relaciones=[Relacion(21, 20, "sustituye", id=7), Relacion(25, 24, "relacionada",
+                                                                        id=8)],
+             aplicaciones=[aplicacion(1, 20, 41140), aplicacion(2, 22, 41140)]),
     ]

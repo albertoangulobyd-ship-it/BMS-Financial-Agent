@@ -140,10 +140,28 @@ def _copias(conn: sqlite3.Connection) -> list[tuple[int, int]]:
     dos (lo que exige tambien el disparador de fusion). No se fusiona lo que
     una persona deshizo a mano, ni una factura en la que ya hay otras
     fusionadas.
+
+    Tampoco una copia que ya lleva algo que mueve dinero: una relacion
+    confirmada o un pago apuntado (propuesto o confirmado). Una relacion
+    propuesta no lo impide: la propuso el sistema por una cita de la copia, y
+    al unirla se retira en la misma orden y se propone sobre la de Exact.
+    Fusionarla dejaria ese pago o esa relacion en una factura que ya no
+    cuenta: el pago se perderia de la venta, que volveria a estar pendiente,
+    y la relacion se propondria otra vez sobre la de Exact (y al confirmarla
+    acreditaria dos veces). Moverlos es decidir a que factura van, y eso es
+    de una persona: M3 dice que no se pudieron unir. Y una venta solo se une
+    si el PDF lo emite BM Support BV (lo mismo que mira A8): un documento de
+    otro con el numero y el cliente de una venta no es "nuestra copia", y
+    unirlo callaria el bloqueo de A8.
     """
+    from .politica import politica_reglas
+    from .reglas.identidad import es_la_empresa
+    from .reglas.normas import normalizar_btw, normalizar_nombre
+
     manuales = ", ".join("?" * len(FUENTES_MANUALES))
     filas = _filas(
-        conn, "SELECT c.id, min(e.id) FROM factura AS c JOIN factura AS e "
+        conn, "SELECT c.id, min(e.id), c.sentido, c.emisor_nombre_doc, c.emisor_btw_doc "
+              "FROM factura AS c JOIN factura AS e "
               "ON e.sentido = c.sentido AND e.numero_norm = c.numero_norm "
               "WHERE c.origen = 'extraccion' AND e.origen IN ('exact', 'trnsprnt') "
               "AND c.numero_norm IS NOT NULL AND c.anulada = 0 AND e.anulada = 0 "
@@ -155,8 +173,43 @@ def _copias(conn: sqlite3.Connection) -> list[tuple[int, int]]:
               "AND NOT EXISTS (SELECT 1 FROM factura AS x WHERE x.fusionada_en_id = c.id) "
               "AND NOT EXISTS (SELECT 1 FROM procedencia_campo AS p WHERE p.tabla = 'factura' "
               f"  AND p.fila_id = c.id AND p.campo = 'fusionada_en_id' AND p.fuente IN ({manuales})) "
+              f"AND NOT EXISTS ({_CON_RELACION_CONFIRMADA.format(f='c.id')}) "
+              f"AND NOT EXISTS ({_CON_PAGO_VIVO.format(f='c.id')}) "
               "GROUP BY c.id ORDER BY c.id", tuple(sorted(FUENTES_MANUALES)))
-    return [(c, e) for c, e in filas]
+    if not filas:
+        return []
+    empresa = politica_reglas(conn)
+    salida = []
+    for copia, factura, sentido, emisor, emisor_btw in filas:
+        if sentido == "saliente" and not es_la_empresa(
+                normalizar_nombre(emisor), normalizar_btw(emisor_btw),
+                empresa.empresa_nombres, empresa.empresa_btw):
+            continue
+        salida.append((copia, factura))
+    return salida
+
+
+# Lo que no deja unir una copia a su factura (ni fusionar una factura a mano):
+# una relacion confirmada o un pago apuntado. `{f}` es la columna con el id.
+_CON_RELACION_CONFIRMADA = ("SELECT 1 FROM factura_relacion AS rv WHERE rv.retirada_en IS NULL "
+                            "AND rv.estado = 'confirmada' "
+                            "AND (rv.origen_id = {f} OR rv.destino_id = {f})")
+_CON_PAGO_VIVO = ("SELECT 1 FROM aplicacion_pago AS av WHERE av.factura_id = {f} "
+                  "AND av.estado IN ('propuesta', 'confirmada')")
+
+
+def lo_que_lleva(conn: sqlite3.Connection, factura_id: int) -> dict[str, list[int]]:
+    """Las relaciones confirmadas y los pagos apuntados de una factura: lo que se perderia al
+    fusionarla (una fusionada no cuenta, y lo que lleva tampoco)."""
+    return {
+        "relaciones": [f[0] for f in _filas(
+            conn, "SELECT id FROM factura_relacion WHERE retirada_en IS NULL "
+                  "AND estado = 'confirmada' AND (origen_id = ? OR destino_id = ?) ORDER BY id",
+            (factura_id, factura_id))],
+        "pagos": [f[0] for f in _filas(
+            conn, "SELECT id FROM aplicacion_pago WHERE factura_id = ? "
+                  "AND estado IN ('propuesta', 'confirmada') ORDER BY id", (factura_id,))],
+    }
 
 
 def tipo_de_cita(relacion_doc: str | None, tipo_factura: str) -> str:
@@ -176,7 +229,16 @@ def _propuestas(conn: sqlite3.Connection, facturas: dict[int, dict[str, Any]],
     contraparte y el mismo sentido (una fusionada no cuenta: es la copia de
     otra). No se vuelve a proponer lo que ya hubo entre las dos, en
     cualquier sentido y estado: lo que una persona rechazo o retiro se queda
-    asi.
+    asi. Lo que retiro el sistema si (una propuesta que una cita dejo de
+    sostener porque el numero casaba con dos facturas): cuando la cita vuelve
+    a casar con una sola, se propone otra vez. Si no, una ambiguedad pasajera
+    (un reenvio que luego se fusiona) callaria la propuesta para siempre.
+
+    Tampoco se propone lo que ya tiene su gemela: si otra factura con el mismo
+    numero y la misma contraparte que el origen (el PDF de un abono que no se
+    pudo unir a su abono de Exact, M3) ya tiene una relacion viva con ese
+    destino, proponerla otra vez es invitar a acreditar dos veces con el mismo
+    abono.
     """
     por_numero: dict[tuple[str, str, str], list[int]] = defaultdict(list)
     for f in facturas.values():
@@ -184,7 +246,16 @@ def _propuestas(conn: sqlite3.Connection, facturas: dict[int, dict[str, Any]],
                 and f["fusionada_en_id"] is None and f["id"] not in copias):
             por_numero[(f["sentido"], f["parte"], f["numero_norm"])].append(f["id"])
     ya = {frozenset((o, d)) for o, d in _filas(
-        conn, "SELECT origen_id, destino_id FROM factura_relacion")}
+        conn, "SELECT r.origen_id, r.destino_id FROM factura_relacion AS r "
+              "WHERE NOT (r.estado = 'propuesta' AND r.retirada_en IS NOT NULL AND EXISTS ("
+              "  SELECT 1 FROM cambio_campo AS c WHERE c.tabla = 'factura_relacion' "
+              "  AND c.fila_id = r.id AND c.campo = 'retirada_en' "
+              "  AND c.valor_nuevo IS NOT NULL AND c.valor_nuevo <> 'null' "
+              "  AND c.fuente_nueva = 'calculado'))")}
+    origenes_de: dict[int, set[int]] = defaultdict(set)
+    for o, d in _filas(conn, "SELECT origen_id, destino_id FROM factura_relacion "
+                             "WHERE retirada_en IS NULL AND estado <> 'rechazada'"):
+        origenes_de[d].add(o)
     nuevas: list[tuple[int, int, str, str, str | None]] = []
     sostenidas: set[tuple[int, int]] = set()
     for _id, factura_id, numero_norm, relacion, texto in _filas(
@@ -201,6 +272,10 @@ def _propuestas(conn: sqlite3.Connection, facturas: dict[int, dict[str, Any]],
         destino = destinos[0]
         sostenidas.add((factura_id, destino))
         if frozenset((factura_id, destino)) in ya:
+            continue
+        gemelas = set(por_numero.get((origen["sentido"], origen["parte"],
+                                      origen["numero_norm"]), ())) - {factura_id}
+        if gemelas & origenes_de.get(destino, set()):
             continue
         ya.add(frozenset((factura_id, destino)))
         fuente = "extraccion" if origen["origen"] == "extraccion" else "exact"
@@ -261,7 +336,9 @@ def _comprobar(facturas: dict[int, dict[str, Any]], origen_id: int, destino_id: 
     sustituye o corrige es una factura. Ninguna de las dos esta fusionada en
     otra (seria su copia), y las dos son de la misma contraparte: enlazar
     facturas de dos proveedores serviria para callar un duplicado o bajar un
-    saldo que no es suyo.
+    saldo que no es suyo. El origen no esta anulado: un abono o una sustituta
+    anulados no mueven nada (instantanea.relaciones no los cuenta), y
+    confirmarlos solo dejaria una relacion que parece decir algo que no hace.
     """
     if origen_id == destino_id:
         raise RelacionNoValida("una factura no se relaciona consigo misma")
@@ -278,6 +355,9 @@ def _comprobar(facturas: dict[int, dict[str, Any]], origen_id: int, destino_id: 
         if f["fusionada_en_id"] is not None:
             raise RelacionNoValida(f"la factura {f['id']} esta fusionada en la "
                                    f"{f['fusionada_en_id']}: se relaciona esa")
+    if origen["anulada"]:
+        raise RelacionNoValida(f"la factura {origen_id} esta anulada: no abona, corrige ni "
+                               "sustituye a ninguna")
     if origen["parte"] is None or origen["parte"] != destino["parte"]:
         raise RelacionNoValida("las dos facturas tienen que ser de la misma contraparte (y decir "
                                "cual es)")
@@ -297,6 +377,37 @@ def _comprobar(facturas: dict[int, dict[str, Any]], origen_id: int, destino_id: 
         raise RelacionNoValida(f"una relacion {tipo} no lleva importe")
     if tipo in RELACIONES_QUE_SUSTITUYEN and origen["tipo"] == NOTA_CREDITO:
         raise RelacionNoValida(f"{tipo}: la que sustituye o corrige es una factura, no un abono")
+
+
+def _gemela_con_relacion(conn: sqlite3.Connection, facturas: dict[int, dict[str, Any]],
+                         origen_id: int, destino_id: int) -> int | None:
+    """Otra factura con el numero y la contraparte del origen que ya mueve algo en el destino.
+
+    Es la copia que no se pudo unir (M3): el PDF de un abono y el mismo abono
+    de Exact. Enlazar las dos con la original la acreditaria dos veces por un
+    solo abono, por debajo de lo que vale (R2 no lo veria).
+    """
+    origen = facturas[origen_id]
+    if origen["numero_norm"] is None or origen["parte"] is None:
+        return None
+    for (otra,) in _filas(conn, "SELECT origen_id FROM factura_relacion WHERE destino_id = ? "
+                                "AND estado = 'confirmada' AND retirada_en IS NULL "
+                                "AND origen_id <> ? ORDER BY id", (destino_id, origen_id)):
+        f = facturas.get(otra)
+        if (f is not None and f["fusionada_en_id"] is None and not f["anulada"]
+                and (f["sentido"], f["parte"], f["numero_norm"])
+                == (origen["sentido"], origen["parte"], origen["numero_norm"])):
+            return otra
+    return None
+
+
+def _sin_gemela(conn: sqlite3.Connection, facturas: dict[int, dict[str, Any]], origen_id: int,
+                destino_id: int) -> None:
+    gemela = _gemela_con_relacion(conn, facturas, origen_id, destino_id)
+    if gemela is not None:
+        raise RelacionNoValida(f"la factura {gemela} tiene el mismo numero que la {origen_id} y "
+                               f"ya esta relacionada con la {destino_id}: es la misma factura "
+                               "dos veces (M3); unelas o retira esa relacion antes")
 
 
 def _viva_entre(conn: sqlite3.Connection, a: int, b: int, excepto: int | None = None) -> int | None:
@@ -325,7 +436,9 @@ def enlazar(conn: sqlite3.Connection, persona: Persona, *, origen_id: int, desti
     with orden_auditada(conn):
         exigir(conn, persona.usuario_id, Permiso.ANULAR_ACREDITAR.value,
                accion="enlazar dos facturas")
-        _comprobar(_partes(conn), origen_id, destino_id, tipo, _importe(importe))
+        facturas = _partes(conn)
+        _comprobar(facturas, origen_id, destino_id, tipo, _importe(importe))
+        _sin_gemela(conn, facturas, origen_id, destino_id)
         viva = _viva_entre(conn, origen_id, destino_id)
         if viva is not None:
             raise RelacionNoValida(f"entre las facturas {origen_id} y {destino_id} ya esta la "
@@ -371,8 +484,10 @@ def _decidir(conn: sqlite3.Connection, persona: Persona, relacion_id: int, rev: 
         if estado == CONFIRMADA:
             nuevo_tipo = tipo or relacion["tipo"]
             importe_cent = _importe(importe) if importe is not None else relacion["importe_cent"]
-            _comprobar(_partes(conn), relacion["origen_id"], relacion["destino_id"], nuevo_tipo,
+            facturas = _partes(conn)
+            _comprobar(facturas, relacion["origen_id"], relacion["destino_id"], nuevo_tipo,
                        importe_cent)
+            _sin_gemela(conn, facturas, relacion["origen_id"], relacion["destino_id"])
             if tipo is not None:
                 valores["tipo"] = tipo
             if importe is not None:
@@ -404,10 +519,17 @@ def retirar(conn: sqlite3.Connection, persona: Persona, *, relacion_id: int, rev
 # ------------------------------------------------------------ lectura
 
 def de_factura(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
-    """Las relaciones de una factura (como origen o como destino), con su estado."""
+    """Las relaciones de una factura (como origen o como destino), con su estado.
+
+    `mueve` dice si mueve algo ahora: una confirmada y viva cuyo origen no
+    esta anulado y cuyas facturas no estan fusionadas en otra
+    (instantanea.relaciones).
+    """
     salida = []
     for r in conn.execute(
-            "SELECT r.*, o.numero AS origen_numero, d.numero AS destino_numero "
+            "SELECT r.*, o.numero AS origen_numero, d.numero AS destino_numero, "
+            "r.estado = 'confirmada' AND r.retirada_en IS NULL AND o.anulada = 0 "
+            "AND o.fusionada_en_id IS NULL AND d.fusionada_en_id IS NULL AS mueve "
             "FROM factura_relacion AS r JOIN factura AS o ON o.id = r.origen_id "
             "JOIN factura AS d ON d.id = r.destino_id "
             "WHERE r.origen_id = ? OR r.destino_id = ? ORDER BY r.id", (factura_id, factura_id)):
@@ -417,6 +539,7 @@ def de_factura(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]
             "origen_id": r["origen_id"], "origen_numero": r["origen_numero"],
             "destino_id": r["destino_id"], "destino_numero": r["destino_numero"],
             "evidencia_doc": r["evidencia_doc"], "retirada": r["retirada_en"] is not None,
+            "mueve": bool(r["mueve"]),
             "papel": "origen" if r["origen_id"] == factura_id else "destino",
         })
     return salida
