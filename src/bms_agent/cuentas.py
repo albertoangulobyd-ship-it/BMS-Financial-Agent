@@ -225,17 +225,33 @@ def cuenta_de(conn: sqlite3.Connection, titular: str, parte_id: int,
 
 def telefono_ref(conn: sqlite3.Connection, proveedor_id: int, antes_de: str,
                  telefono: str | None) -> int | None:
-    """El cambio que puso en el maestro el numero llamado, si era el de antes del documento."""
+    """El cambio que puso en el maestro el numero llamado, si era el de antes del documento.
+
+    El alta (rev 0) cuenta como de antes de cualquier documento, como en
+    reglas.bancaria.telefono_antes_de.
+    """
     fila = conn.execute(
         "SELECT c.id, c.valor_nuevo FROM cambio_campo AS c JOIN evento AS e ON e.id = c.evento_id "
         "WHERE c.tabla = 'proveedor' AND c.fila_id = ? AND c.campo = 'telefono_verificacion' "
-        "AND e.en < ? ORDER BY c.id DESC LIMIT 1", (proveedor_id, antes_de)).fetchone()
+        "AND (e.en < ? OR c.rev = 0) ORDER BY c.id DESC LIMIT 1",
+        (proveedor_id, antes_de)).fetchone()
     if fila is None or fila["valor_nuevo"] is None:
         return None
     valor = json.loads(fila["valor_nuevo"])
     if normalizar_telefono(valor) != normalizar_telefono(telefono):
         return None
     return int(fila["id"])
+
+
+def _heredada_sin_tocar(conn: sqlite3.Connection, cuenta_id: int) -> bool:
+    """Lo unico que se atesta: llego con el primer maestro, sigue en Exact, nunca falto de el
+    y nadie ha decidido nada sobre ella (ni una verificacion que no conto). La base lo repite
+    en el disparador cuenta_evento_atestada."""
+    tipos = [f[0] for f in conn.execute(
+        "SELECT tipo FROM cuenta_evento WHERE cuenta_id = ? ORDER BY id", (cuenta_id,))]
+    exact = [t for t in tipos if t in ("visto_en_exact", "ausente_en_exact")]
+    return ("baseline" in tipos and not set(tipos) & set(DECISIONES_CUENTA)
+            and "ausente_en_exact" not in tipos and bool(exact) and exact[-1] == "visto_en_exact")
 
 
 def decidir(
@@ -250,7 +266,8 @@ def decidir(
 
     Un IBAN que el registro no tiene solo se da de alta si `crear` (una
     verificacion o un rechazo de un IBAN que la persona teclea tras llamar):
-    entra como verificacion_manual. Atestar es solo para lo que ya esta. El
+    entra como verificacion_manual. Atestar es solo para lo heredado sin
+    tocar (`_heredada_sin_tocar`). El
     numero llamado se guarda normalizado, y `telefono_ref` apunta al cambio
     que lo puso en el maestro si era el de antes de `llegada` (lo que motivo
     la verificacion). La base comprueba que quien firma tiene el permiso y
@@ -300,6 +317,9 @@ def decidir(
                 resultado.creada = cuenta_id
             else:
                 cuenta_id = int(fila["id"])
+                if decision.tipo == "atestada" and not _heredada_sin_tocar(conn, cuenta_id):
+                    raise ValueError(f"la cuenta {limpio} no es una heredada sin tocar: se "
+                                     "verifica por telefono, no se atesta")
             resultado.cuentas.append(cuenta_id)
             eventos[siguiente_evento] = {
                 "cuenta_id": cuenta_id, "tipo": decision.tipo,

@@ -111,8 +111,15 @@ def _instante(texto: str) -> datetime:
 
 
 def telefono_antes_de(telefonos: Sequence[CambioTelefono], instante: str) -> CambioTelefono | None:
-    """El valor del telefono de verificacion que tenia el maestro justo antes de un instante."""
-    anteriores = [t for t in telefonos if t.en < instante]
+    """El valor del telefono de verificacion que tenia el maestro justo antes de un instante.
+
+    El alta (el numero con que el maestro dio de alta al proveedor) cuenta como
+    de antes de cualquier documento: es el primero que hubo, y sin el un
+    documento registrado antes de la primera importacion (el atraso del primer
+    dia) o la cuenta de un proveedor que llega con su alta no se podrian
+    verificar nunca. Solo un cambio de verdad se compara con el instante.
+    """
+    anteriores = [t for t in telefonos if t.alta or t.en < instante]
     return anteriores[-1] if anteriores else None
 
 
@@ -126,19 +133,19 @@ def cambio_reciente(telefonos: Sequence[CambioTelefono], instante: str,
 
 
 def eficacia(evento: EventoCuenta, telefonos: Sequence[CambioTelefono],
-             politica: Politica) -> str | None:
+             politica: Politica, referencia: str | None = None) -> str | None:
     """Por que una verificacion por telefono no cuenta (F8), o None si cuenta.
 
     El numero llamado tiene que ser el que tenia el maestro antes de que
-    llegara lo que motivo la verificacion (el documento con el IBAN nuevo, o
-    la importacion que lo cambio): un estafador que cambia el IBAN y el
-    telefono a la vez no puede hacer que se le llame a el. Y tras un cambio
-    del telefono hay un enfriamiento: ninguna verificacion por telefono vale
-    hasta que pasa.
+    llegara lo que motivo la verificacion (`referencia`: el documento con el
+    IBAN nuevo, o la importacion que lo cambio; ver `referencia_de`): un
+    estafador que cambia el IBAN y el telefono a la vez no puede hacer que se
+    le llame a el. Y tras un cambio del telefono hay un enfriamiento: ninguna
+    verificacion por telefono vale hasta que pasa.
     """
     if not evento.con_permiso:
         return "quien la hizo no tenia confirmar_iban"
-    referencia = evento.llegada or evento.en
+    referencia = referencia or evento.llegada or evento.en
     antes = telefono_antes_de(telefonos, referencia)
     if antes is None or antes.valor is None:
         return "el maestro no tenia telefono de verificacion antes del documento que la motivo"
@@ -153,6 +160,27 @@ def eficacia(evento: EventoCuenta, telefonos: Sequence[CambioTelefono],
     return None
 
 
+def referencia_de(evento: EventoCuenta, cuenta: Cuenta, pendiente: EventoCuenta | None,
+                  aceptada_en: str | None) -> str:
+    """El instante del que vale el telefono para una verificacion: lo primero que la motivo.
+
+    Lo que motiva verificar una cuenta no lo elige quien verifica: es lo
+    primero de (1) el documento o la importacion que nombra la orden, (2) la
+    importacion que abrio el cambio del maestro mas antiguo sin verificar (no
+    la ultima que volvio a ver la cuenta: cada importacion de rutina la
+    vuelve a ver) y (3) el primer documento del proveedor con ese IBAN, si
+    llego antes de que la cuenta se aceptara. Nunca despues de la llamada.
+    """
+    candidatos = [evento.en]
+    if evento.llegada:
+        candidatos.append(evento.llegada)
+    if pendiente is not None:
+        candidatos.append(pendiente.llegada or pendiente.en)
+    if cuenta.primer_documento and (aceptada_en is None or cuenta.primer_documento < aceptada_en):
+        candidatos.append(cuenta.primer_documento)
+    return min(candidatos)
+
+
 @dataclass(frozen=True)
 class EstadoCuenta:
     """Lo que dicen los eventos de una cuenta, con la politica de hoy.
@@ -164,7 +192,10 @@ class EstadoCuenta:
     `cambios`: lo que cambio en el maestro despues del primero y nadie ha
     verificado ni rechazado (F5), como (tipo, id del evento, importacion).
     `ineficaz`: la ultima verificacion, si no cuenta y no hay otra decision
-    despues (F8), con el motivo.
+    despues (F8), con el motivo. `atestable`: heredada, en Exact, sin cambios
+    y sin ninguna decision de nadie (tampoco una verificacion que no conto):
+    lo unico que se atesta (decision 3). `referencia`: el instante del que
+    valia el telefono para la ultima verificacion (`referencia_de`).
     """
 
     estado: str
@@ -173,6 +204,8 @@ class EstadoCuenta:
     ineficaz: tuple[EventoCuenta, str] | None
     baseline: int | None
     pagable: bool
+    atestable: bool = False
+    referencia: str | None = None
 
 
 def estado_cuenta(cuenta: Cuenta, telefonos: Sequence[CambioTelefono],
@@ -182,41 +215,69 @@ def estado_cuenta(cuenta: Cuenta, telefonos: Sequence[CambioTelefono],
     Pagable es: verificada, atestada o heredada (heredada no, con
     iban_solo_verificadas), presente en la ultima importacion de Exact que la
     miro y sin un cambio del maestro pendiente de verificar.
+
+    Una atestacion solo vale sobre lo heredado que nadie ha tocado: sin
+    cambios pendientes y sin ninguna decision antes (ni un rechazo ni una
+    verificacion que no conto). Si no, no existe: atestar no deshace un
+    rechazo ni tapa un F8.
     """
     baseline = next((e.importacion_id for e in cuenta.eventos if e.tipo == "baseline"), None)
     decision: str | None = None
     en_exact: bool | None = None
     cambios: list[tuple[str, int, int | None]] = []
+    pendientes: list[EventoCuenta] = []
     ineficaz: tuple[EventoCuenta, str] | None = None
+    aceptada_en: str | None = None
+    tocada = False
     vista_antes = False
+    ultima_referencia: str | None = None
     for evento in cuenta.eventos:
-        if evento.tipo in DECISIONES:
+        if evento.tipo == "baseline":
+            aceptada_en = aceptada_en or evento.llegada or evento.en
+        elif evento.tipo in DECISIONES:
             # Una verificacion que no cuenta (tambien la de quien no tenia el
             # permiso) es F8; cualquier otra decision sin permiso no existe.
             if evento.tipo == "verificada":
-                motivo = eficacia(evento, telefonos, politica)
+                ultima_referencia = referencia_de(
+                    evento, cuenta, pendientes[0] if pendientes else None, aceptada_en)
+                motivo = eficacia(evento, telefonos, politica, ultima_referencia)
+                tocada = True
                 if motivo is not None:
                     ineficaz = (evento, motivo)
                     continue
             elif not evento.con_permiso:
                 continue
+            elif evento.tipo == "atestada" and (baseline is None or tocada or cambios):
+                continue
+            tocada = True
             decision, ineficaz = evento.tipo, None
             if evento.tipo in ("verificada", "rechazada"):
-                cambios = []
+                cambios, pendientes = [], []
+            if evento.tipo in ("verificada", "atestada"):
+                aceptada_en = aceptada_en or evento.en
+            else:
+                aceptada_en = None
         elif evento.tipo in (VISTO_EXACT, AUSENTE_EXACT):
+            cambio = None
             if evento.tipo == AUSENTE_EXACT:
-                cambios.append(("retirada_del_maestro", evento.id, evento.importacion_id))
+                cambio = "retirada_del_maestro"
             elif not vista_antes and evento.importacion_id != baseline and decision != "verificada":
-                cambios.append(("anadida_al_maestro", evento.id, evento.importacion_id))
+                cambio = "anadida_al_maestro"
             elif en_exact is False and decision != "verificada":
-                cambios.append(("vuelve_al_maestro", evento.id, evento.importacion_id))
+                cambio = "vuelve_al_maestro"
+            if cambio is not None:
+                cambios.append((cambio, evento.id, evento.importacion_id))
+                pendientes.append(evento)
             vista_antes = vista_antes or evento.tipo == VISTO_EXACT
             en_exact = evento.tipo == VISTO_EXACT
     estado = decision or (HEREDADA if baseline is not None else REGISTRADA)
     aceptado = {"verificada", "atestada"} | (
         set() if politica.iban_solo_verificadas else {HEREDADA})
     pagable = bool(en_exact) and not cambios and estado in aceptado
-    return EstadoCuenta(estado, en_exact, tuple(cambios), ineficaz, baseline, pagable)
+    atestable = (estado == HEREDADA and bool(en_exact) and not cambios and not tocada
+                 and ineficaz is None)
+    return EstadoCuenta(estado, en_exact, tuple(cambios), ineficaz, baseline, pagable,
+                        atestable, ultima_referencia)
 
 
 # ------------------------------------------------------------ F0, F2-F6, F8, F9 (paso 5)
@@ -337,6 +398,7 @@ def f2(factura: Factura, r: Registro) -> list[Resultado]:
 LEE_REGISTRO = LEE_LOTES | LEE_CADUCIDAD | frozenset({
     "instantanea.cuentas", "instantanea.telefonos", "instantanea.politica",
     "cuenta.id", "cuenta.titular", "cuenta.parte_id", "cuenta.iban", "cuenta.eventos",
+    "cuenta.primer_documento",
     "evento_cuenta.id", "evento_cuenta.tipo", "evento_cuenta.en",
     "evento_cuenta.importacion_id", "evento_cuenta.con_permiso",
     "evento_cuenta.telefono_usado", "evento_cuenta.llegada",
@@ -355,7 +417,10 @@ def f3(factura: Factura, r: Registro) -> list[Resultado]:
 
     Necesita la llamada al telefono del maestro de antes del documento. Sin
     proveedor resuelto no se mira (ya bloquea F2); sin cuentas del maestro,
-    tampoco (F2 da sin_datos).
+    tampoco (F2 da sin_datos). Una cuenta es conocida si un maestro la trajo
+    (lo que cambio en el lo dice F5) o si una persona la acepto con una
+    decision que cuenta: una fila que solo tiene una verificacion que no
+    conto (F8) sigue siendo un IBAN nuevo.
     """
     if (factura.sentido != ENTRANTE or not factura.iban_doc or factura.proveedor_id is None
             or not r.hay_maestro):
@@ -364,19 +429,30 @@ def f3(factura: Factura, r: Registro) -> list[Resultado]:
     if iban is None:
         return []
     cuenta = _del_proveedor(r, factura, iban)
-    if cuenta is not None and r.estados[cuenta.id].estado != "rechazada":
+    if cuenta is not None and _conocida(r.estados[cuenta.id]):
         if r.caducada:
             return [sin_datos("F3", factura, "El maestro de Exact está pasado de su límite de "
                                              "frescura: no se compara con él.")]
         return []
     if _rechazada_para(cuenta, factura):
         return []
-    motivo = ("está rechazada para este proveedor" if cuenta is not None
-              else "es nueva para este proveedor")
+    if cuenta is None:
+        motivo = "es nueva para este proveedor"
+    elif r.estados[cuenta.id].estado == "rechazada":
+        motivo = "está rechazada para este proveedor"
+    else:
+        motivo = "es nueva para este proveedor: ninguna verificación que cuente la aceptó"
     return [fallo("F3", factura, f"La cuenta {iban} {motivo}: verificar por teléfono al número "
                                  "que tenía el maestro antes de esta factura, nunca al que trae.",
                   valores={"iban": iban, "registrada": cuenta is not None},
                   objetivos=_objetivo_iban(factura))]
+
+
+def _conocida(estado: EstadoCuenta) -> bool:
+    """Si una cuenta del registro ya no es un IBAN nuevo para F3."""
+    if estado.estado == "rechazada":
+        return False
+    return estado.en_exact is not None or estado.estado in ("verificada", "atestada", HEREDADA)
 
 
 LEE_F3 = LEE_F2
@@ -440,8 +516,7 @@ def f0(instantanea: Instantanea) -> list[Resultado]:
     for proveedor in r.por_proveedor.values():
         for cuenta in proveedor:
             estado = r.estados[cuenta.id]
-            if (estado.baseline is not None and estado.estado == HEREDADA and estado.en_exact
-                    and not estado.cambios):
+            if estado.atestable:
                 pendientes[estado.baseline].append(cuenta)
     salida = []
     for importacion_id, cuentas_ in sorted(pendientes.items()):
@@ -461,11 +536,32 @@ def f5(instantanea: Instantanea) -> list[Resultado]:
     Hasta que una persona la verifica por telefono (o la rechaza). No se
     cierra porque otro maestro la vuelva a dejar como estaba: lo que se
     cambio en el maestro sin que nadie llamara sigue sin verificar.
+
+    El trabajo es del proveedor (un hallazgo por cuenta), pero bloquea tambien
+    cada factura de compra en juego de ese proveedor, imprima el IBAN que
+    imprima o ninguno: se paga desde el maestro, y el maestro tiene un cambio
+    que nadie ha verificado (§7 y §8: la familia F es un suelo Bloqueada).
     """
     r = registro(instantanea)
     salida = []
     textos = {"anadida_al_maestro": "se añadió", "retirada_del_maestro": "desapareció",
               "vuelve_al_maestro": "volvió"}
+    con_cambios: dict[int, list[str]] = defaultdict(list)
+    for proveedor_id, cuentas_ in sorted(r.por_proveedor.items()):
+        for cuenta in cuentas_:
+            if r.estados[cuenta.id].cambios:
+                con_cambios[proveedor_id].append(cuenta.iban)
+    for factura in instantanea.facturas:
+        if (factura.sentido != ENTRANTE or factura.anulada
+                or factura.fusionada_en_id is not None or factura.proveedor_id not in con_cambios):
+            continue
+        ibans = sorted(con_cambios[factura.proveedor_id])
+        salida.append(fallo(
+            "F5", factura, f"El maestro de este proveedor tiene un cambio de cuenta sin "
+                           f"verificar ({', '.join(ibans)}): no se paga hasta verificarlo por "
+                           "teléfono al número de antes del cambio.",
+            valores={"proveedor": factura.proveedor_id, "cuentas": ibans},
+            objetivos=(Objetivo("factura", factura.id),)))
     for proveedor_id, cuentas_ in sorted(r.por_proveedor.items()):
         for cuenta in cuentas_:
             cambios = r.estados[cuenta.id].cambios
@@ -558,7 +654,8 @@ def f9(instantanea: Instantanea) -> list[Resultado]:
 
 
 LEE_F0 = LEE_REGISTRO
-LEE_F5 = LEE_REGISTRO
+LEE_F5 = LEE_REGISTRO | LEE_EN_JUEGO | frozenset({
+    "factura.id", "factura.sentido", "factura.proveedor_id"})
 LEE_F8 = LEE_REGISTRO
 LEE_F6 = frozenset({"instantanea.cuentas", "cuenta.titular", "cuenta.eventos", "cuenta.parte_id",
                     "cuenta.iban", "evento_cuenta.tipo"})

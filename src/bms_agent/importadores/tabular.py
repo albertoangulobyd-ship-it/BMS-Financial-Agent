@@ -45,7 +45,8 @@ DIRECTORIO_MAPEOS = Path(__file__).resolve().parents[3] / "config" / "importacio
 TIPOS_CAMPO = ("texto", "entero", "decimal", "fecha", "bool", "iban")
 _BOOL = {"ja": True, "j": True, "yes": True, "y": True, "si": True, "sí": True, "true": True,
          "1": True, "x": True, "nee": False, "n": False, "no": False, "false": False, "0": False}
-_ENTERO = re.compile(r"-?\d+")
+# Un entero y, si acaso, una unidad sin cifras ni separadores detras.
+_ENTERO = re.compile(r"(-?[0-9]+)(?:\s*[^\W\d][^\d]*)?")
 
 
 class MapeoNoValido(ValueError):
@@ -98,6 +99,7 @@ class Mapeo:
     completo: bool
     registros: tuple[Registro, ...]
     tipo_mime: str = "text/csv"
+    texto: str = field(default="", repr=False)     # el YAML tal cual, para politica_version
 
     def registro(self, tipo: str) -> Registro:
         for registro in self.registros:
@@ -160,7 +162,8 @@ def mapeo_de_yaml(texto: str, identificador: str) -> Mapeo:
     if not registros:
         raise MapeoNoValido(f"{identificador}: no da ningun registro")
     return Mapeo(
-        id=identificador, sha256=sha256_texto(texto), version=int(datos["version"]),
+        id=identificador, sha256=sha256_texto(texto), texto=texto,
+        version=int(datos["version"]),
         fuente=str(datos["fuente"]), tipo=str(datos["tipo"]), formato=str(datos["formato"]),
         codificaciones=tuple(lectura.get("codificaciones") or ("utf-8-sig", "cp1252")),
         delimitador=str(lectura.get("delimitador", ";")),
@@ -222,11 +225,31 @@ class ValorNoValido(ValueError):
         self.codigo = codigo
 
 
+def _forma_numero(mapeo: Mapeo) -> re.Pattern[str]:
+    """La forma exacta de un numero con los separadores que declara el mapeo.
+
+    Los miles van en grupos de tres cifras detras de uno a tres, y el decimal
+    solo una vez y al final: con coma decimal y punto de miles, "42.50" no es
+    4250 sino un fichero exportado con otra configuracion regional, y se
+    rechaza en vez de leerse cien veces mayor.
+    """
+    decimal = re.escape(mapeo.separador_decimal)
+    entero = r"[0-9]+"
+    if mapeo.separador_miles:
+        miles = re.escape(mapeo.separador_miles)
+        entero = rf"(?:[0-9]{{1,3}}(?:{miles}[0-9]{{3}})+|[0-9]+)"
+    return re.compile(rf"[+-]?{entero}(?:{decimal}[0-9]+)?")
+
+
 def _decimal(texto: str, mapeo: Mapeo) -> Decimal:
     moneda = detectar_moneda(texto)
     if moneda is not None and moneda != "EUR":
         raise ValorNoValido(f"{texto!r} no está en euros ({moneda})", "X1")
     limpio = re.sub(r"(?i)eur|€|\s", "", texto)
+    if not _forma_numero(mapeo).fullmatch(limpio):
+        raise ValorNoValido(f"{texto!r} no es un importe con decimal "
+                            f"{mapeo.separador_decimal!r} y miles "
+                            f"{mapeo.separador_miles or 'sin separar'!r}")
     if mapeo.separador_miles:
         limpio = limpio.replace(mapeo.separador_miles, "")
     limpio = limpio.replace(mapeo.separador_decimal, ".")
@@ -234,6 +257,18 @@ def _decimal(texto: str, mapeo: Mapeo) -> Decimal:
         return Decimal(limpio)
     except InvalidOperation:
         raise ValorNoValido(f"{texto!r} no es un importe") from None
+
+
+def _entero(texto: str, campo: Campo) -> int:
+    """Un entero entero, con su unidad detras si la lleva ("30 dagen", "14 dagen netto").
+
+    "2,5" o "1.000" no son un plazo de dias: se rechazan en vez de quedarse
+    con la primera cifra (2 o 1).
+    """
+    numero = _ENTERO.fullmatch(texto.strip())
+    if numero is None:
+        raise ValorNoValido(f"{campo.nombre}: {texto!r} no es un numero entero")
+    return int(numero.group(1))
 
 
 def _fecha(texto: str, mapeo: Mapeo) -> date:
@@ -256,10 +291,7 @@ def _convertir(texto: str, campo: Campo, mapeo: Mapeo) -> Any:
     if campo.tipo == "texto":
         return texto
     if campo.tipo == "entero":
-        numero = _ENTERO.search(texto)
-        if numero is None:
-            raise ValorNoValido(f"{campo.nombre}: {texto!r} no lleva un numero")
-        return int(numero.group(0))
+        return _entero(texto, campo)
     if campo.tipo == "decimal":
         return _decimal(texto, mapeo)
     if campo.tipo == "fecha":

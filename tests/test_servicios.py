@@ -79,14 +79,16 @@ def _ids(conn) -> dict[str, int]:
     }
 
 
-def _preparar_revertir(conn, admin) -> None:
+def _preparar_revertir(almacen, admin) -> None:
+    conn = almacen.conn
     a = factura_de(conn, "2026-4471")
     servicios.ejecutar(conn, "fijar_campo", {
         "tabla": "factura", "fila_id": a, "campo": "fecha_vencimiento", "valor": "2026-10-20",
         "rev": _rev(conn, "factura", a), "motivo": MOTIVO}, usuario_id=admin)
 
 
-def _preparar_cerrar(conn, admin) -> None:
+def _preparar_cerrar(almacen, admin) -> None:
+    conn = almacen.conn
     b = factura_de(conn, "2026-4480")
     servicios.ejecutar(conn, "fijar_campo", {
         "tabla": "factura", "fila_id": b, "campo": "periodo_inicio", "valor": "2026-09-07",
@@ -100,14 +102,30 @@ IBAN_TECLEADO = "NL44RABO0123456789"
 BELASTINGDIENST = "NL86INGB0002445588"
 
 
-def _preparar_atestar(conn, admin) -> None:
-    proveedor = conn.execute("SELECT id FROM proveedor").fetchone()[0]
-    servicios.ejecutar(conn, "verificar_iban", {
-        "proveedor_id": proveedor, "iban": IBAN_TECLEADO, "telefono": "010 1234567",
-        "motivo": "Llamado al numero de siempre"}, usuario_id=admin)
+# Solo se atesta lo heredado del primer maestro: la preparacion importa el de Exact, que
+# adopta al proveedor del escenario por su btw-id y trae su cuenta. Otra que la de los
+# documentos del escenario, para que se vea que ninguna orden saca esa de su sitio.
+IBAN_HEREDADO = "NL91ABNA0417164300"
 
 
-def _preparar_retirar_beneficiario(conn, admin) -> None:
+def _proveedor_de(conn, iban: str) -> int | None:
+    fila = conn.execute("SELECT proveedor_id FROM cuenta_bancaria WHERE iban = ?",
+                        (iban,)).fetchone()
+    return fila[0] if fila else None
+
+
+def _preparar_atestar(almacen, admin) -> None:
+    from bms_agent.importadores.registrar import importar_fichero
+
+    origen = RAIZ / "tests" / "fixtures" / "importacion" / "exact-proveedores-v1.csv"
+    fichero = almacen.documentos.raiz.parent / "acreedores-escenario.csv"
+    fichero.write_bytes(origen.read_bytes().replace(b"NL02 ABNA 0123 4567 89",
+                                                    IBAN_HEREDADO.encode()))
+    importar_fichero(almacen, "exact", "proveedores", fichero, lanzado_por=admin)
+
+
+def _preparar_retirar_beneficiario(almacen, admin) -> None:
+    conn = almacen.conn
     servicios.ejecutar(conn, "anadir_beneficiario", {
         "iban": BELASTINGDIENST, "nombre": "Belastingdienst", "motivo": "Pagos de BTW"},
         usuario_id=admin)
@@ -199,7 +217,7 @@ CASOS = [
         "proveedor_id": i["proveedor"], "iban": IBAN_TECLEADO,
         "motivo": "El proveedor no reconoce la cuenta"}, None),
     ("atestar_iban", "atestar_iban", "confirmar_iban", lambda c, i: {
-        "proveedor_id": i["proveedor"], "iban": IBAN_TECLEADO,
+        "proveedor_id": _proveedor_de(c, IBAN_HEREDADO) or i["proveedor"], "iban": IBAN_HEREDADO,
         "motivo": "Comprobada con los pagos de 2025"}, _preparar_atestar),
     ("fijar_telefono_verificacion", "fijar_telefono_verificacion", "confirmar_iban",
      lambda c, i: {"proveedor_id": i["proveedor"], "telefono": "010 1234567",
@@ -245,7 +263,7 @@ def test_cada_orden_pide_su_permiso(escenario, caso, orden, permiso, datos, prep
     conn = escenario.conn
     admin = permisos.usuario_por_nombre(conn, "Ana")
     if preparar is not None:
-        preparar(conn, admin)
+        preparar(escenario, admin)
     ids = _ids(conn)
     # Una persona con todos los permisos menos ese.
     resto = set(Permiso.valores()) - {permiso}
@@ -699,10 +717,19 @@ def test_las_ordenes_no_llaman_a_la_api(tmp_path, out_v1) -> None:
     db = tmp_path / "datos" / "bms.sqlite3"
     for argumentos in (
         ("importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"), "--db", str(db)),
-        ("usuario", "crear", "Ana", "--rol", "administracion", "--db", str(db)),
+        ("usuario", "crear", "Ana", "--rol", "administrador", "--db", str(db)),
         ("facturas", "--db", str(db)),
         ("excepciones", "--db", str(db)),
-        ("politica", "cargar", str(RAIZ / "config" / "prioridad.yaml"), "--db", str(db)),
+    ):
+        proceso = _sin_api(*argumentos)
+        assert proceso.returncode == 0, (argumentos, proceso.stdout, proceso.stderr)
+    # La politica la carga una persona con admin, con su token (paso 5).
+    proceso = _sin_api("usuario", "token", "Ana", "--db", str(db))
+    assert proceso.returncode == 0, proceso.stderr
+    token = proceso.stdout.splitlines()[1].strip()
+    for argumentos in (
+        ("politica", "cargar", str(RAIZ / "config" / "prioridad.yaml"), "--db", str(db),
+         "--token", token),
         ("db", "verificar", "--db", str(db)),
     ):
         proceso = _sin_api(*argumentos)
@@ -981,7 +1008,7 @@ def test_la_segunda_firma_es_una_orden_de_la_otra_persona(almacen, tmp_path, rel
 def test_cerrar_un_hallazgo_pide_la_evidencia_que_se_vio(escenario) -> None:
     conn = escenario.conn
     admin = permisos.usuario_por_nombre(conn, "Ana")
-    _preparar_cerrar(conn, admin)
+    _preparar_cerrar(escenario, admin)
     b4 = _hallazgo(conn, "B4")
     with pytest.raises(servicios.DatosNoValidos, match="huella"):
         servicios.ejecutar(conn, "cerrar_hallazgo", {
@@ -1043,3 +1070,85 @@ def test_una_anulada_no_cuenta_en_su_proveedor_ni_en_su_trimestre(escenario) -> 
         usuario_id=admin)
     for entidad in (("proveedor", ids["proveedor"]), ("trimestre", 20263)):
         assert "2 facturas" in motivos(*entidad), entidad
+
+
+# ------------------------------------------------------------ paso 5: la politica la carga admin
+
+def _reglas_yaml(tmp_path, **cambios: str):
+    texto = (RAIZ / "config" / "reglas.yaml").read_text(encoding="utf-8")
+    for viejo, nuevo in cambios.items():
+        assert viejo in texto, viejo
+        texto = texto.replace(viejo, nuevo)
+    carpeta = tmp_path / "otra"
+    carpeta.mkdir(exist_ok=True)
+    ruta = carpeta / "reglas.yaml"
+    ruta.write_text(texto, encoding="utf-8")
+    return ruta
+
+
+def test_la_politica_la_carga_una_persona_con_admin(db, tmp_path) -> None:
+    from bms_agent import politica
+
+    ana = persona(db, "Ana", "administracion")
+    jefa = persona(db, "Jefa", "administrador")
+    ruta = RAIZ / "config" / "reglas.yaml"
+    for quien in (None, ana, usuario_sistema(db, "sistema")):
+        with pytest.raises(PermisoDenegado):
+            politica.cargar(db, ruta, quien)
+    assert politica.vigente(db, "reglas.yaml") is None
+    _resumen, nuevo = politica.cargar(db, ruta, jefa)
+    assert nuevo and politica.vigente(db, "reglas.yaml")["cargada_por"] == jefa
+
+
+@pytest.mark.parametrize("viejo, nuevo", [
+    ("enfriamiento_telefono_dias: 14", "enfriamiento_telefono_dias: 0"),
+    ("enfriamiento_telefono_dias: 14", "enfriamiento_telefono_dias: 3"),
+    ("exact_dias: 7", "exact_dias: 100000"),
+    ("trnsprnt_dias: 7", "trnsprnt_dias: 0"),
+    ("extractos_dias_laborables: 3", "extractos_dias_laborables: 60"),
+    ('tolerancia_factura: "0.02"', 'tolerancia_factura: "1000000"'),
+    ('tolerancia_linea: "0.01"', 'tolerancia_linea: "5"'),
+    ("ventana_dias: 14", "ventana_dias: 0"),
+])
+def test_un_fichero_de_reglas_no_puede_quitar_los_controles(db, tmp_path, viejo, nuevo) -> None:
+    """El enfriamiento del telefono, la frescura y las tolerancias tienen limites que ningun
+    fichero cruza: si no, un reglas.yaml desactivaba F8, Z1 o la aritmetica."""
+    from bms_agent import politica
+
+    jefa = persona(db, "Jefa", "administrador")
+    with pytest.raises(politica.PoliticaNoValida):
+        politica.cargar(db, _reglas_yaml(tmp_path, **{viejo: nuevo}), jefa)
+    assert politica.vigente(db, "reglas.yaml") is None
+
+
+def test_un_fichero_de_reglas_dentro_de_los_limites_se_carga(db, tmp_path) -> None:
+    from bms_agent import politica
+
+    jefa = persona(db, "Jefa", "administrador")
+    ruta = _reglas_yaml(tmp_path, **{"enfriamiento_telefono_dias: 14":
+                                     "enfriamiento_telefono_dias: 21",
+                                     "exact_dias: 7": "exact_dias: 3"})
+    politica.cargar(db, ruta, jefa)
+    vigente = politica.politica_reglas(db)
+    assert (vigente.enfriamiento_telefono_dias, vigente.frescura_exact_dias) == (21, 3)
+
+
+def test_politica_cargar_por_la_cli_pide_el_token_de_admin(tmp_path, capsys) -> None:
+    from bms_agent.cli import main
+
+    db = tmp_path / "datos" / "bms.sqlite3"
+    assert main(["db", "init", "--db", str(db)]) == 0
+    assert main(["usuario", "crear", "Ana", "--rol", "administracion", "--db", str(db)]) == 0
+    assert main(["usuario", "crear", "Jefa", "--rol", "administrador", "--db", str(db)]) == 0
+    capsys.readouterr()
+    tokens = {}
+    for nombre in ("Ana", "Jefa"):
+        assert main(["usuario", "token", nombre, "--db", str(db)]) == 0
+        tokens[nombre] = capsys.readouterr().out.splitlines()[1].strip()
+    fichero = str(RAIZ / "config" / "reglas.yaml")
+    assert main(["politica", "cargar", fichero, "--db", str(db)]) == 1
+    assert "token" in capsys.readouterr().err
+    assert main(["politica", "cargar", fichero, "--db", str(db), "--token", tokens["Ana"]]) == 1
+    assert "admin" in capsys.readouterr().err
+    assert main(["politica", "cargar", fichero, "--db", str(db), "--token", tokens["Jefa"]]) == 0
+    assert "cargado" in capsys.readouterr().out

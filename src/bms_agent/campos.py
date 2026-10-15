@@ -1172,8 +1172,15 @@ class Orden:
             return False
 
         if valor == actual:
-            nuevo = {**automatico, "fuente": origen.fuente, "fuente_ref": ref,
-                     "dudoso": int(leido.dudoso)}
+            # El mismo valor de otra fuente automatica no es un cambio (no hay
+            # cambio_campo): la procedencia sigue diciendo de donde salio el
+            # valor (la fuente de su ultimo cambio, que verificar_controladas
+            # compara) y apunta la nueva como automatica. Asi una importacion
+            # que adopta un cliente de la semilla con activo por defecto no
+            # deja una procedencia que su historia no explica.
+            nuevo = {**automatico, "dudoso": int(leido.dudoso)}
+            if procedencia["fuente"] == origen.fuente:
+                nuevo["fuente_ref"] = ref
             if any(procedencia[c] != v for c, v in nuevo.items()):
                 procedencia.update(nuevo)
                 estado.procedencia_tocada.add(nombre)

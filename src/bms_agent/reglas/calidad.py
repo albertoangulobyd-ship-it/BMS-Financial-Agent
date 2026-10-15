@@ -245,10 +245,15 @@ MARCAS_INYECCION: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
-# Una marca sola casi siempre es inocente ("vragen? e-mail ..."; el IBAN de
-# siempre repetido al pie): Q3 avisa con dos clases distintas, o con una
-# frase dirigida al sistema, que no tiene lectura inocente en una factura.
+# Una marca sola casi siempre es inocente ("vragen? e-mail ..."), y los datos
+# de pago de siempre al pie ("IBAN NL02 ... t.n.v. ...", "bankrekening: ...")
+# traen el IBAN y la palabra a la vez: son una sola clase, la de los datos de
+# pago, y con "llamar" siguen siendo un pie inocente. Q3 avisa con una frase
+# dirigida al sistema, que no tiene lectura inocente en una factura, o con un
+# cambio de datos junto a otra clase ("ons rekeningnummer is gewijzigd").
 MARCA_FUERTE = "instrucciones al sistema"
+MARCA_CAMBIO = "un cambio de datos"
+_DATOS_DE_PAGO = frozenset({"un IBAN", "cuenta bancaria"})
 
 
 def marcas_de_inyeccion(texto: str | None) -> list[str]:
@@ -260,7 +265,10 @@ def marcas_de_inyeccion(texto: str | None) -> list[str]:
 
 def sospechoso(marcas: Sequence[str]) -> bool:
     """Si las marcas de unas notas bastan para avisar (Q3)."""
-    return MARCA_FUERTE in marcas or len(set(marcas)) >= 2
+    if MARCA_FUERTE in marcas:
+        return True
+    clases = {"datos de pago" if m in _DATOS_DE_PAGO else m for m in marcas}
+    return MARCA_CAMBIO in clases and len(clases) >= 2
 
 
 def q3(factura: Factura, _contexto: Any) -> list[Resultado]:

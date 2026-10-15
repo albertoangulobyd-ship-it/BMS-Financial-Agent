@@ -90,7 +90,7 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
     assert {(m.fuente, m.tipo) for m in MAPEOS} == {
         ("exact", "proveedores"), ("exact", "clientes"), ("maestro_csv", "objetos"),
         ("maestro_csv", "recursos"), ("maestro_csv", "alias"), ("maestro_csv", "tarifas"),
-        ("maestro_csv", "ciclos")}
+        ("maestro_csv", "ciclos"), ("maestro_csv", "contactos")}
 
 
 def test_la_semilla_de_tarifas_lee_como_dice_su_contrato() -> None:
@@ -342,7 +342,7 @@ def test_una_tarifa_en_otra_moneda_no_entra_y_la_importacion_queda_bloqueada(alm
 
 @pytest.mark.parametrize("mapeo_id, tabla", [
     ("maestro_csv-recursos-v1", "recurso"), ("maestro_csv-alias-v1", "alias"),
-    ("maestro_csv-ciclos-v1", "ciclo_facturacion")])
+    ("maestro_csv-ciclos-v1", "ciclo_facturacion"), ("maestro_csv-contactos-v1", "contacto")])
 def test_recursos_alias_y_ciclos_entran_fila_a_fila(almacen, ana, mapeo_id, tabla) -> None:
     conn = almacen.conn
     _maestros_base(almacen, ana)
@@ -396,3 +396,125 @@ def test_importar_y_ver_el_registro_por_la_cli(tmp_path, capsys) -> None:
     assert main(["fuentes", "--db", str(db)]) == 0
     assert "exact" in capsys.readouterr().out
     assert main(["db", "verificar", "--db", str(db)]) == 0
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+def _mapeo(mapeo_id: str):
+    return next(m for m in MAPEOS if m.id == mapeo_id)
+
+
+@pytest.mark.parametrize("texto", ["42.50", "1.5", "45.5 EUR", "1.0745", "12,34,56", "1.074.5",
+                                   "1,074.00"])
+def test_un_importe_que_no_tiene_la_forma_del_mapeo_se_rechaza(texto) -> None:
+    """Con coma decimal y punto de miles, "42.50" no son 4250 euros: no se lee."""
+    from bms_agent.importadores.tabular import ValorNoValido, _decimal
+
+    with pytest.raises(ValorNoValido):
+        _decimal(texto, _mapeo("maestro_csv-tarifas-v1"))
+
+
+@pytest.mark.parametrize("texto, valor", [("1.074,00", "1074.00"), ("42,50", "42.50"),
+                                          ("1.000", "1000"), ("1074", "1074"),
+                                          ("-12,5", "-12.5"), ("€ 1.234.567,89", "1234567.89"),
+                                          ("45,50 EUR", "45.50")])
+def test_un_importe_con_la_forma_del_mapeo_se_lee(texto, valor) -> None:
+    from decimal import Decimal
+
+    from bms_agent.importadores.tabular import _decimal
+
+    assert _decimal(texto, _mapeo("maestro_csv-tarifas-v1")) == Decimal(valor)
+
+
+@pytest.mark.parametrize("texto", ["2,5", "1.000", "30/60", "14 of 30", "dagen"])
+def test_un_entero_tiene_que_ser_un_entero_entero(texto) -> None:
+    from bms_agent.importadores.tabular import Campo, ValorNoValido, _convertir
+
+    campo = Campo("plazo_pago_dias", columna="x", tipo="entero")
+    with pytest.raises(ValorNoValido):
+        _convertir(texto, campo, _mapeo("exact-proveedores-v1"))
+
+
+@pytest.mark.parametrize("texto, valor", [("30", 30), ("30 dagen", 30), ("14 dagen netto", 14),
+                                          (" 21 ", 21)])
+def test_un_entero_con_su_unidad_se_lee(texto, valor) -> None:
+    from bms_agent.importadores.tabular import Campo, _convertir
+
+    campo = Campo("plazo_pago_dias", columna="x", tipo="entero")
+    assert _convertir(texto, campo, _mapeo("exact-proveedores-v1")) == valor
+
+
+def test_una_fecha_de_exportacion_futura_no_se_admite(almacen, ana, reloj) -> None:
+    """Un fichero que dice ser de manana haria que Exact no caducase nunca (Z1)."""
+    from datetime import timedelta
+
+    conn = almacen.conn
+    antes = _contenido_de(conn)
+    with pytest.raises(ValueError, match="futuro"):
+        importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana,
+                         exportado_en=reloj.ahora() + timedelta(days=1))
+    assert _contenido_de(conn) == antes
+    # El mismo dia si (la CLI pone las doce del dia que se le dice).
+    r = importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana,
+                         exportado_en=reloj.ahora() + timedelta(hours=3))
+    assert r.lotes[0].importacion_id is not None and not r.lotes[0].repetida
+
+
+def test_cada_mapeo_usado_queda_en_la_politica(almacen, ana) -> None:
+    from bms_agent import politica
+
+    conn = almacen.conn
+    importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana)
+    fila = politica.vigente(conn, "importacion/exact-proveedores-v1.yaml")
+    texto = (CONFIG / "exact-proveedores-v1.yaml").read_text(encoding="utf-8")
+    assert fila is not None and fila["contenido"] == texto
+    sha = conn.execute("SELECT DISTINCT mapeo_sha256 FROM importacion WHERE fuente = 'exact'"
+                       ).fetchall()
+    assert [s[0] for s in sha] == [fila["sha256"]]
+    # Otra importacion con el mismo mapeo no lo apunta otra vez.
+    importar_fichero(almacen, "exact", "clientes", EXACT_CLIENTES, lanzado_por=ana)
+    importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana)
+    assert conn.execute("SELECT count(*) FROM politica_version WHERE fichero = ?",
+                        ("importacion/exact-proveedores-v1.yaml",)).fetchone()[0] == 1
+
+
+def test_los_contactos_entran_por_su_proveedor_o_su_cliente(almacen, ana, tmp_path) -> None:
+    conn = almacen.conn
+    _maestros_base(almacen, ana)
+    r = importar_fichero(almacen, "maestro_csv", "contactos",
+                         _fichero("maestro_csv-contactos-v1"), lanzado_por=ana)
+    [lote] = r.lotes
+    assert lote.estado == "parcial"
+    assert {x.codigo for x in lote.rechazos} == {"referencia"}
+    filas = conn.execute("SELECT c.nombre, p.exact_id, c.telefono FROM contacto AS c "
+                         "LEFT JOIN proveedor AS p ON p.id = c.proveedor_id ORDER BY c.id"
+                         ).fetchall()
+    assert ("Marieke de Boer", "20001", "010-1234599") in [tuple(f) for f in filas]
+    # El telefono de un contacto no es el de verificacion: ese no lo toca.
+    assert conn.execute("SELECT telefono_verificacion FROM proveedor WHERE exact_id = '20001'"
+                        ).fetchone()[0] == "010-1234567"
+    # Otra vez el mismo contacto con otro correo: el mismo, cambiado.
+    antes = conn.execute("SELECT count(*) FROM contacto").fetchone()[0]
+    importar_fichero(almacen, "maestro_csv", "contactos",
+                     _variante(tmp_path, "contactos-2.csv",
+                               _fichero("maestro_csv-contactos-v1"),
+                               {"m.deboer@vandijk.example": "marieke@vandijk.example"}),
+                     lanzado_por=ana)
+    assert conn.execute("SELECT count(*) FROM contacto").fetchone()[0] == antes
+    assert conn.execute("SELECT email FROM contacto WHERE nombre = 'Marieke de Boer'"
+                        ).fetchone()[0] == "marieke@vandijk.example"
+    assert campos.verificar_controladas(conn) == []
+
+
+def test_adoptar_una_fila_con_un_valor_por_defecto_deja_su_historia_entera(almacen, ana) -> None:
+    """Un proveedor dado de alta a mano (activo por defecto) que Exact adopta por su btw-id:
+    el mismo valor de otra fuente no es un cambio, y la procedencia sigue cuadrando con su
+    historia (db verificar)."""
+    conn = almacen.conn
+    jefa = persona(conn, "Jefa", "administrador")
+    campos.crear(conn, "proveedor", {"nombre": "Bouwtechniek Van Dijk BV",
+                                     "btw_id": "NL001234567B01"}, Persona(jefa))
+    importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana)
+    assert conn.execute("SELECT exact_id FROM proveedor WHERE btw_id = 'NL001234567B01'"
+                        ).fetchone()[0] == "20001"
+    assert campos.verificar_controladas(conn) == []

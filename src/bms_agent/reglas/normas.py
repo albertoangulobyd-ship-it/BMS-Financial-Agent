@@ -14,6 +14,7 @@ from typing import Any
 _NO_ALFANUMERICO = re.compile(r"[^0-9A-Za-z]")
 _SIN_PUNTUACION = re.compile(r"[^\w\s]")
 _NO_DIGITO = re.compile(r"\D")
+_CERO_ENTRE_PARENTESIS = re.compile(r"\(\s*0\s*\)")      # +31 (0)10 ...
 
 
 def normalizar_btw(texto: Any) -> str | None:
@@ -56,14 +57,15 @@ def parece_iban(texto: Any) -> bool:
 def normalizar_telefono(texto: Any) -> str | None:
     """Los digitos de un numero neerlandes, con el prefijo de pais como un 0.
 
-    '+31 6 1234 5678', '0031-6-12345678' y '06 12345678' son el mismo numero:
-    la verificacion compara el numero llamado con el del maestro, y no puede
-    depender de como se escribio.
+    '+31 6 1234 5678', '0031-6-12345678', '+31 (0)6 1234 5678' y '06 12345678'
+    son el mismo numero: la verificacion compara el numero llamado con el del
+    maestro, y no puede depender de como se escribio. El "(0)" es el cero del
+    prefijo que no se marca desde fuera: se quita antes de contar las cifras.
     """
-    digitos = _NO_DIGITO.sub("", str(texto or ""))
+    texto = _CERO_ENTRE_PARENTESIS.sub("", str(texto or "")).strip()
+    digitos = _NO_DIGITO.sub("", texto)
     if not digitos:
         return None
-    texto = str(texto).strip()
     if digitos.startswith("0031"):
         return "0" + digitos[4:]
     if texto.startswith("+31") or (digitos.startswith("31") and len(digitos) == 11):

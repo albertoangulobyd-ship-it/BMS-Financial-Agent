@@ -1,0 +1,6 @@
+Relatie;Soort relatie;Naam;E-mail;Telefoon;Functie;Actief
+20001;Leverancier;Marieke de Boer;m.deboer@vandijk.example;010-1234599;Crediteurenadministratie;ja
+20003;Leverancier;Henk Koster;;06-22223333;Eigenaar;ja
+10001;Klant;Sara Jansen;s.jansen@havenbedrijf.example;;Inkoop;ja
+10002;Klant;Oud contact;;;;nee
+99999;Leverancier;Onbekend Persoon;;;;ja

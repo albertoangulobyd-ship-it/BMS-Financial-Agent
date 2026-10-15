@@ -46,7 +46,13 @@ from .base import (
     Relacion,
     TramoIva,
 )
-from .normas import normalizar_btw, normalizar_kvk, normalizar_nombre, normalizar_telefono
+from .normas import (
+    normalizar_btw,
+    normalizar_iban,
+    normalizar_kvk,
+    normalizar_nombre,
+    normalizar_telefono,
+)
 
 _COLUMNAS_FACTURA = (
     "f.id", "f.sentido", "f.tipo", "f.numero", "f.numero_norm", "f.proveedor_id", "f.cliente_id",
@@ -289,20 +295,50 @@ def partes(conn: sqlite3.Connection, tabla: str) -> tuple[Parte, ...]:
     return tuple(salida)
 
 
+# Cuando llego un documento: recibido_en puede ser la fecha del fichero (el
+# mtime), que pone quien lo manda y puede estar en el futuro; registrado_en
+# es cuando entro aqui. Vale la primera de las dos: una fecha posterior haria
+# valer un telefono puesto despues de que el documento llegara (F8).
+LLEGADA_DOCUMENTO = "min(coalesce({d}.recibido_en, {d}.registrado_en), {d}.registrado_en)"
+
+
+def primeros_documentos(conn: sqlite3.Connection) -> dict[tuple[int, str], str]:
+    """Por proveedor e IBAN impreso (normalizado), cuando llego el primer documento que lo traia.
+
+    Es lo que motiva verificar una cuenta aunque la orden no nombre la factura
+    (bancaria.referencia_de): quien verifica no elige el documento.
+    """
+    salida: dict[tuple[int, str], str] = {}
+    for proveedor_id, iban_doc, llegada in _filas(
+            conn, "SELECT f.proveedor_id, f.iban_doc, "
+                  f"min({LLEGADA_DOCUMENTO.format(d='d')}) FROM factura AS f "
+                  "JOIN documento AS d ON d.id = f.documento_id "
+                  "WHERE f.proveedor_id IS NOT NULL AND f.iban_doc IS NOT NULL "
+                  "GROUP BY f.proveedor_id, f.iban_doc"):
+        iban = normalizar_iban(iban_doc)
+        if iban is None or llegada is None:
+            continue
+        clave = (proveedor_id, iban)
+        if clave not in salida or llegada < salida[clave]:
+            salida[clave] = llegada
+    return salida
+
+
 def cuentas(conn: sqlite3.Connection) -> tuple[Cuenta, ...]:
     """El registro de cuentas con sus eventos, en orden.
 
     Para una decision de una persona: si tenia confirmar_iban en ese
     momento (el rol vigente entonces, aunque hoy este de baja) y cuando
     llego lo que la motivo (el documento de la factura, o el fichero de la
-    importacion del maestro).
+    importacion del maestro). De cada cuenta de proveedor, cuando llego el
+    primer documento suyo con ese IBAN.
     """
     eventos: dict[int, list[EventoCuenta]] = defaultdict(list)
     for (id_, cuenta_id, tipo, importacion_id, documento_id, usuario_id, telefono, en,
          decision, llegada_doc, llegada_imp, con_permiso) in _filas(
             conn, "SELECT e.id, e.cuenta_id, e.tipo, e.importacion_id, e.documento_id, "
                   "e.usuario_id, e.telefono_usado, e.en, e.decision_facturas, "
-                  "coalesce(d.recibido_en, d.registrado_en), "
+                  f"{LLEGADA_DOCUMENTO.format(d='d')}, "
                   "coalesce(di.registrado_en, i.iniciada_en), "
                   "e.usuario_id IS NOT NULL AND EXISTS ("
                   "  SELECT 1 FROM usuario AS u JOIN usuario_rol AS ur ON ur.usuario_id = u.id "
@@ -320,9 +356,12 @@ def cuentas(conn: sqlite3.Connection) -> tuple[Cuenta, ...]:
             usuario_id=usuario_id, con_permiso=bool(con_permiso),
             telefono_usado=normalizar_telefono(telefono), llegada=llegada_doc or llegada_imp,
             decision_facturas=decision))
+    documentos = primeros_documentos(conn)
     return tuple(
         Cuenta(id=id_, titular=titular, parte_id=proveedor_id or cliente_id, iban=iban,
-               primera_fuente=primera, eventos=tuple(eventos.get(id_, ())))
+               primera_fuente=primera, eventos=tuple(eventos.get(id_, ())),
+               primer_documento=documentos.get((proveedor_id, iban))
+               if proveedor_id is not None else None)
         for id_, titular, proveedor_id, cliente_id, iban, primera in _filas(
             conn, "SELECT id, titular, proveedor_id, cliente_id, iban, primera_fuente "
                   "FROM cuenta_bancaria WHERE titular <> 'propia' ORDER BY id"))
@@ -367,8 +406,10 @@ def lotes(conn: sqlite3.Connection) -> tuple[Lote, ...]:
         lista = tuple(
             (int(r.get("fila") or 0), str(r.get("codigo") or "fila"), str(r.get("motivo") or ""))
             for r in json.loads(rechazos or "[]") if isinstance(r, dict))
+        # Nunca mas fresco que cuando se importo: una fecha de exportacion
+        # futura (una errata, un fichero copiado) haria que no caducase nunca (Z1).
         salida.append(Lote(id=id_, fuente=fuente, tipo=tipo, estado=estado,
-                           exportado=_dia(exportado or iniciada),
+                           exportado=_dia(min(exportado or iniciada, iniciada)),
                            filas_rechazadas=rechazadas, rechazos=lista,
                            ultimo=ultimo[(fuente, tipo)] == id_))
     return tuple(salida)

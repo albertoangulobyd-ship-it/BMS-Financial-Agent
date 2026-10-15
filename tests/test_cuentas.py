@@ -332,3 +332,278 @@ def test_el_dominio_de_las_cuentas_y_las_importaciones_es_el_de_la_base(db) -> N
     assert set(dominio.DecisionFacturas.valores()) == check("cuenta_evento", "decision_facturas")
     assert set(dominio.FrecuenciaCiclo.valores()) == check("ciclo_facturacion", "frecuencia")
     assert dominio.DECISIONES_CUENTA == {"verificada", "rechazada", "atestada", "retirada"}
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+DE_VRIES_IBAN = {"NL44RABO0123456789;J. de Vries": f"{NUEVO};J. de Vries"}
+
+
+def _verificar(conn, persona_id: int, proveedor_id: int, iban: str, telefono: str, *,
+               factura_id: int | None = None, motivo: str = "Llamado") -> dict:
+    datos = {"proveedor_id": proveedor_id, "iban": iban, "telefono": telefono, "motivo": motivo}
+    if factura_id is not None:
+        datos["factura_id"] = factura_id
+    return servicios.ejecutar(conn, "verificar_iban", datos, usuario_id=persona_id).detalle
+
+
+def test_un_iban_cambiado_y_despues_el_telefono_se_verifica_al_de_antes_del_cambio(
+        maestro, reloj, tmp_path) -> None:
+    """La verificacion de un cambio de Exact va al telefono de antes de la importacion que lo
+    trajo, no al de antes de la ultima importacion que vio la cuenta: un telefono cambiado
+    despues del IBAN no vale aunque pase el enfriamiento y lleguen mas importaciones."""
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    de_vries = _proveedor(conn, "20002")
+    reloj.avanzar(days=1)
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a2.csv", DE_VRIES_IBAN), lanzado_por=ana)
+    reloj.avanzar(days=1)
+    telefono = {**DE_VRIES_IBAN, "06-11112222": "06-99998888"}
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a3.csv", telefono), lanzado_por=ana)
+    reloj.avanzar(days=18)
+    rutina = {**telefono, "facturen@vandijk.example": "x@vandijk.example"}
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a4.csv", rutina), lanzado_por=ana)
+    reloj.avanzar(days=1)
+    d = _verificar(conn, bea, de_vries, NUEVO, "06 9999 8888")
+    assert d["eficaz"] is False and "no es el que tenia" in d["motivo_ineficaz"]
+    nueva = cuentas.cuenta_de(conn, "proveedor", de_vries, NUEVO)["id"]
+    clave = f"F5|proveedor:{de_vries}|cuenta:{nueva}"
+    assert {h["clave"]: h["estado"] for h in _de(conn, "F5", "proveedor", de_vries)}[clave] == (
+        "abierto")
+    # La verificacion queda apuntada contra la importacion que trajo el cambio.
+    primera_cambio = conn.execute("SELECT min(importacion_id) FROM cuenta_evento WHERE "
+                                  "cuenta_id = ? AND tipo = 'visto_en_exact'",
+                                  (nueva,)).fetchone()[0]
+    assert conn.execute("SELECT importacion_id FROM cuenta_evento WHERE cuenta_id = ? AND "
+                        "tipo = 'verificada'", (nueva,)).fetchone()[0] == primera_cambio
+    # Al numero de antes del cambio (y fuera del enfriamiento del nuevo), si cuenta.
+    d = _verificar(conn, bea, de_vries, NUEVO, "06 1111 2222")
+    assert d["eficaz"] is True and d["pagable"] is True
+
+
+def test_un_iban_y_un_telefono_cambiados_en_el_mismo_exact_no_se_verifican_con_el_nuevo(
+        maestro, reloj, tmp_path) -> None:
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    de_vries = _proveedor(conn, "20002")
+    reloj.avanzar(days=1)
+    ataque = {**DE_VRIES_IBAN, "06-11112222": "06-99998888"}
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a2.csv", ataque), lanzado_por=ana)
+    reloj.avanzar(days=15)
+    otra = {**ataque, "facturen@vandijk.example": "x@vandijk.example"}
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a3.csv", otra), lanzado_por=ana)
+    reloj.avanzar(days=1)
+    d = _verificar(conn, bea, de_vries, NUEVO, "06-99998888")
+    assert d["eficaz"] is False and d["pagable"] is False
+    assert {h["estado"] for h in _de(conn, "F5", "proveedor", de_vries)} == {"abierto"}
+
+
+def test_una_factura_registrada_antes_del_primer_maestro_se_puede_verificar(almacen, reloj,
+                                                                          tmp_path) -> None:
+    """El atraso del primer dia: el telefono con que el primer maestro dio de alta al
+    proveedor es de antes de cualquier documento."""
+    conn = almacen.conn
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+    _cargar(almacen, tmp_path / "out", _fixture("03-con-inyeccion"))
+    reloj.avanzar(hours=1)
+    importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana)
+    reloj.avanzar(days=30)
+    f = factura_de(conn, "2026-0912")
+    koster = _proveedor(conn, "20003")
+    d = _verificar(conn, bea, koster, "NL75INGB0002445689", "0182-555123", factura_id=f)
+    assert d["eficaz"] is True and d["estado"] == "verificada"
+    _ = ana
+
+
+def test_sin_nombrar_la_factura_vale_el_telefono_de_antes_del_documento(maestro, reloj,
+                                                                       tmp_path) -> None:
+    """Quien verifica no elige que lo motivo: el primer documento del proveedor que traia ese
+    IBAN cuenta aunque la orden no nombre la factura."""
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    _cargar(maestro, tmp_path / "out", _fixture("03-con-inyeccion"))
+    hallazgos.recalcular(conn)
+    koster = _proveedor(conn, "20003")
+    reloj.avanzar(days=1)
+    rev = conn.execute("SELECT rev FROM proveedor WHERE id = ?", (koster,)).fetchone()[0]
+    servicios.ejecutar(conn, "fijar_telefono_verificacion", {
+        "proveedor_id": koster, "telefono": "0612345678", "rev": rev,
+        "motivo": "Nos dio otro numero"}, usuario_id=ana)
+    reloj.avanzar(days=15)
+    d = _verificar(conn, bea, koster, "NL75INGB0002445689", "0612345678")
+    assert d["eficaz"] is False and "no es el que tenia" in d["motivo_ineficaz"]
+    d = _verificar(conn, bea, koster, "NL75INGB0002445689", "0182-555123")
+    assert d["eficaz"] is True
+
+
+def test_una_fecha_de_fichero_futura_no_mueve_el_telefono_de_referencia(maestro, reloj,
+                                                                       tmp_path,
+                                                                       pdfs_ejemplo) -> None:
+    """recibido_en puede ser el mtime del fichero, que pone quien lo manda: vale el primero
+    de recibido_en y registrado_en."""
+    import os
+
+    from bms_agent.importadores.extracciones import importar_out
+    from bms_agent.ingesta import tipar_pendientes
+
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    futuro = reloj.ahora().timestamp() + 40 * 86400
+    os.utime(pdfs_ejemplo / "03-con-inyeccion.pdf", (futuro, futuro))
+    carpeta = tmp_path / "out"
+    carpeta.mkdir()
+    registro = _fixture("03-con-inyeccion")
+    (carpeta / "03.json").write_text(json.dumps(registro), encoding="utf-8")
+    importar_out(maestro, carpeta, pdfs_ejemplo)
+    tipar_pendientes(conn)
+    hallazgos.recalcular(conn)
+    assert conn.execute("SELECT recibido_en > registrado_en FROM documento WHERE "
+                        "recibido_fuente = 'mtime'").fetchone()[0] == 1
+    f = factura_de(conn, "2026-0912")
+    koster = _proveedor(conn, "20003")
+    reloj.avanzar(days=1)
+    rev = conn.execute("SELECT rev FROM proveedor WHERE id = ?", (koster,)).fetchone()[0]
+    servicios.ejecutar(conn, "fijar_telefono_verificacion", {
+        "proveedor_id": koster, "telefono": "0612345678", "rev": rev,
+        "motivo": "Nos dio otro numero"}, usuario_id=ana)
+    reloj.avanzar(days=15)
+    d = _verificar(conn, bea, koster, "NL75INGB0002445689", "0612345678", factura_id=f)
+    assert d["eficaz"] is False
+
+
+def test_no_se_atesta_una_cuenta_rechazada_ni_una_mal_verificada(maestro, reloj) -> None:
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    de_vries = _proveedor(conn, "20002")
+    servicios.ejecutar(conn, "rechazar_iban", {"proveedor_id": de_vries,
+                                               "iban": "NL44RABO0123456789",
+                                               "motivo": "fraude: no es suya"}, usuario_id=bea)
+    reloj.avanzar(minutes=5)
+    with pytest.raises(servicios.DatosNoValidos, match="heredada"):
+        servicios.ejecutar(conn, "atestar_iban", {"proveedor_id": de_vries,
+                                                  "iban": "NL44RABO0123456789",
+                                                  "motivo": "atestada"}, usuario_id=ana)
+    # Una verificacion que no cuenta tampoco se tapa atestando: queda F8.
+    bakker = _proveedor(conn, "20004")
+    d = _verificar(conn, bea, bakker, "NL67INGB0006543210", "0000000")
+    assert d["eficaz"] is False
+    with pytest.raises(servicios.DatosNoValidos, match="heredada"):
+        servicios.ejecutar(conn, "atestar_iban", {"proveedor_id": bakker,
+                                                  "iban": "NL67INGB0006543210",
+                                                  "motivo": "atestada"}, usuario_id=ana)
+    # Atestar todo lo heredado deja fuera las dos.
+    d = servicios.ejecutar(conn, "atestar_iban", {"motivo": "Lo demas"}, usuario_id=ana)
+    assert d.detalle["atestadas"] == 3
+    [f8] = _de(conn, "F8", "proveedor", bakker)
+    assert f8["estado"] == "abierto"
+    # Ni cuentas.decidir ni la base admiten la atestacion de una cuenta rechazada.
+    with pytest.raises(ValueError, match="heredada"):
+        cuentas.decidir(conn, campos.Persona(ana, "otra vez"), titular="proveedor",
+                        objetivos=[(de_vries, "NL44RABO0123456789")],
+                        decision=cuentas.Decision("atestada"))
+    assert cuentas.verificar(conn) == []
+
+
+def test_la_base_no_admite_atestar_lo_que_no_es_heredado(maestro) -> None:
+    import sqlite3
+
+    from bms_agent.almacen import transaccion
+    from bms_agent.auditoria import registrar
+
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    de_vries = _proveedor(conn, "20002")
+    servicios.ejecutar(conn, "rechazar_iban", {"proveedor_id": de_vries,
+                                               "iban": "NL44RABO0123456789",
+                                               "motivo": "no es suya"}, usuario_id=bea)
+    cuenta_id = cuentas.cuenta_de(conn, "proveedor", de_vries, "NL44RABO0123456789")["id"]
+    with pytest.raises(sqlite3.IntegrityError, match="heredada"):
+        with transaccion(conn):
+            evento = registrar(conn, tipo="cuenta_atestada", actor=ana, usuario_id=ana,
+                               tabla="proveedor", fila_id=de_vries, motivo="por detras")
+            conn.execute("INSERT INTO cuenta_evento (cuenta_id, tipo, usuario_id, en, "
+                         "evento_id) VALUES (?, 'atestada', ?, ?, ?)",
+                         (cuenta_id, ana, "2026-10-14T09:30:00+00:00", evento))
+
+
+def test_una_verificacion_que_no_cuenta_no_cierra_f3(maestro, tmp_path) -> None:
+    conn = maestro.conn
+    _ana, bea = _ids(conn)
+    _cargar(maestro, tmp_path / "out", _fixture("03-con-inyeccion"))
+    hallazgos.recalcular(conn)
+    f = factura_de(conn, "2026-0912")
+    koster = _proveedor(conn, "20003")
+    d = servicios.ejecutar(conn, "verificar_iban", {
+        "proveedor_id": koster, "iban": "NL75 INGB 0002 4456 89", "factura_id": f,
+        "telefono": "0612345678", "motivo": "Llamado al numero que trae la factura"},
+        usuario_id=bea)
+    assert d.detalle["eficaz"] is False
+    assert "F3" not in {h["regla"] for h in d.hallazgos.get("cerrados", [])}
+    assert {"F2", "F3"} <= {h["regla"] for h in _de_factura(conn, f)}
+    [f3] = conn.execute("SELECT estado FROM hallazgo WHERE factura_id = ? AND regla = 'F3'",
+                        (f,)).fetchall()
+    assert f3["estado"] == "abierto"
+
+
+def test_una_decision_sobre_una_cuenta_no_cierra_hallazgos_de_otro_proveedor(maestro,
+                                                                           reloj) -> None:
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    van_dijk, bakker = _proveedor(conn, "20001"), _proveedor(conn, "20004")
+    rev = conn.execute("SELECT rev FROM proveedor WHERE id = ?", (van_dijk,)).fetchone()[0]
+    servicios.ejecutar(conn, "fijar_telefono_verificacion", {
+        "proveedor_id": van_dijk, "telefono": "010 7777777", "rev": rev,
+        "motivo": "otro numero"}, usuario_id=ana)
+    reloj.avanzar(days=15)
+    d = servicios.ejecutar(conn, "atestar_iban", {"proveedor_id": bakker,
+                                                  "iban": "NL67INGB0006543210",
+                                                  "motivo": "Bakker comprobado"}, usuario_id=bea)
+    [f9] = _de(conn, "F9", "proveedor", van_dijk)
+    assert f9["estado"] == "desaparecido"
+    cerrados = d.hallazgos.get("cerrados", [])
+    assert f9["id"] in {h["hallazgo_id"] for h in cerrados}           # desaparecido, sin firma
+    assert len({h["hallazgo_id"] for h in cerrados}) == len(cerrados)  # cada uno una vez
+
+
+def test_un_cambio_pendiente_en_el_maestro_bloquea_las_facturas_del_proveedor(
+        maestro, reloj, tmp_path) -> None:
+    """Aunque la factura no imprima IBAN: se paga desde el maestro, que tiene un cambio sin
+    verificar."""
+    conn = maestro.conn
+    ana, bea = _ids(conn)
+    de_vries = _proveedor(conn, "20002")
+    reloj.avanzar(days=1)
+    importar_fichero(maestro, "exact", "proveedores",
+                     _exact_cambiado(tmp_path, "a2.csv", DE_VRIES_IBAN), lanzado_por=ana)
+    registro = _variante(_fixture("01-limpia"), "sin-iban", supplier_name="J. de Vries",
+                         vat_number="NL002345678B01", iban=None, invoice_number="DV-1",
+                         document_notes=None)
+    _cargar(maestro, tmp_path / "out", registro)
+    hallazgos.recalcular(conn)
+    f = factura_de(conn, "DV-1")
+    assert conn.execute("SELECT proveedor_id FROM factura WHERE id = ?", (f,)).fetchone()[0] == (
+        de_vries)
+    abiertos = {h["regla"]: h for h in _de_factura(conn, f)}
+    assert abiertos["F5"]["severidad"] == "bloqueo"
+    assert conn.execute("SELECT nivel FROM factura_estado WHERE factura_id = ?",
+                        (f,)).fetchone()[0] == "bloqueada"
+    # Verificada la nueva y rechazada la vieja, la factura deja de tenerlo.
+    reloj.avanzar(days=1)
+    _verificar(conn, bea, de_vries, NUEVO, "06 1111 2222")
+    servicios.ejecutar(conn, "rechazar_iban", {"proveedor_id": de_vries,
+                                               "iban": "NL44RABO0123456789",
+                                               "motivo": "Ya no es suya"}, usuario_id=bea)
+    assert "F5" not in {h["regla"] for h in _de_factura(conn, f)}
+    assert conn.execute("SELECT estado FROM hallazgo WHERE factura_id = ? AND regla = 'F5'",
+                        (f,)).fetchone()[0] == "resuelto"
+
+
+def test_la_vista_de_cuentas_no_dice_un_estado_sino_la_ultima_decision(maestro) -> None:
+    columnas = [c[1] for c in maestro.conn.execute("PRAGMA table_info(v_cuenta_estado)")]
+    assert "ultima_decision" in columnas and "estado_registrado" not in columnas

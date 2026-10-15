@@ -37,6 +37,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .. import campos, cuentas, identidad
 from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
@@ -47,7 +48,7 @@ from ..auditoria import registrar
 from ..campos import Automatico, Leido
 from ..dominio import Fuente, Permiso
 from ..permisos import exigir, orden_auditada
-from ..reloj import marca
+from ..reloj import ZONA_EMPRESA, marca
 from .base import ATOMICOS, LoteLeido, Rechazo
 from .tabular import LectorTabular, Mapeo, cargar_mapeo, elegir_mapeo, lectores
 
@@ -220,6 +221,23 @@ def _parte(ctx: _Contexto, registro: Any, tabla: str) -> None:
     ctx.anotar(o.resultado)
 
 
+def _contacto(ctx: _Contexto, registro: Any) -> None:
+    """Un contacto, por su proveedor o cliente y su nombre (sin distinguir mayusculas)."""
+    conn = ctx.conn
+    parte_id = referencia_parte(conn, registro.titular, registro.parte_ref)
+    columna = f"{registro.titular}_id"
+    fila_id = _unica(conn, f"SELECT id FROM contacto WHERE {columna} = ? "
+                           "AND lower(trim(nombre)) = lower(trim(?))", (parte_id, registro.nombre))
+    valores = {"email": registro.email, "telefono": registro.telefono,
+               "funcion": registro.funcion, "activo": registro.activo}
+    with ctx.orden(registro.fila, "contacto") as o:
+        if fila_id is None:
+            o.crear("contacto", {columna: parte_id, "nombre": registro.nombre.strip(), **valores})
+        else:
+            o.fijar("contacto", fila_id, valores)
+    ctx.anotar(o.resultado)
+
+
 def _objeto(ctx: _Contexto, registro: Any) -> None:
     conn = ctx.conn
     cliente_id = (referencia_parte(conn, "cliente", registro.cliente_ref)
@@ -342,7 +360,7 @@ def _ciclo(ctx: _Contexto, registro: Any) -> None:
 ESCRITORES = {
     "proveedores": lambda ctx, r: _parte(ctx, r, "proveedor"),
     "clientes": lambda ctx, r: _parte(ctx, r, "cliente"),
-    "objetos": _objeto, "recursos": _recurso, "alias": _alias, "tarifas": _tarifa,
+    "contactos": _contacto, "objetos": _objeto, "recursos": _recurso, "alias": _alias, "tarifas": _tarifa,
     "ciclos": _ciclo,
 }
 
@@ -495,6 +513,23 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
     return resultado
 
 
+def _exportado_no_futuro(conn: sqlite3.Connection, lote: LoteLeido) -> None:
+    """Un fichero no se saca de su sistema despues de importarlo.
+
+    exportado_en mide la frescura (Z1): una fecha futura (una errata en
+    --exportado, la fecha de un fichero copiado) haria que la fuente no
+    caducase nunca y que A2, E1, F2 y F3 siguieran dando ok contra un maestro
+    de cualquier edad. Se compara por dia en la zona de la empresa.
+    """
+    if lote.exportado_en is None:
+        return
+    reloj = reloj_de(conn)
+    dia = lote.exportado_en.astimezone(ZoneInfo(ZONA_EMPRESA)).date()
+    if dia > reloj.hoy():
+        raise ValueError(f"el fichero dice estar exportado el {dia.isoformat()}, en el futuro: "
+                         "revisa la fecha (--exportado)")
+
+
 def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
                    simular: bool = False, contenido: bytes | None = None,
                    nombre: str | None = None, tipo_mime: str = "text/csv") -> ResultadoLote:
@@ -508,6 +543,7 @@ def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
     with orden_auditada(conn):
         exigir(conn, lanzado_por, Permiso.IMPORTAR_DATOS.value,
                accion=f"importar {lote.fuente}/{lote.tipo}")
+        _exportado_no_futuro(conn, lote)
         previa = importacion_previa(conn, lote)
         if previa is not None:
             return ResultadoLote(lote.fuente, lote.tipo, lote.formato,
@@ -561,6 +597,13 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
                 almacen, lote, lanzado_por=lanzado_por, nombre=ruta.name,
                 contenido=None if simular else contenido, tipo_mime=elegido.tipo_mime))
         nuevas = [r for r in resultado.lotes if not r.repetida]
+        if nuevas and elegido.texto:
+            # El mapeo aplicado queda en la politica con su texto (§5, tabla 2):
+            # importacion.mapeo_sha256 apunta a el. Solo si cambio desde el ultimo.
+            from .. import politica
+
+            politica.registrar(conn, f"importacion/{elegido.id}.yaml", elegido.texto,
+                               lanzado_por)
         if any(r.tipo in RESUELVEN for r in nuevas):
             resultado.referencias = identidad.reconciliar_referencias(conn)
         if nuevas:

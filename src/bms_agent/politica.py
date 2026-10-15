@@ -136,6 +136,24 @@ _REGLAS: dict[str, dict[str, tuple[str, type]]] = {
 }
 
 
+# Los limites que ningun reglas.yaml cruza (spec §6: politica.py no relaja lo
+# duro). Dentro de ellos el umbral es del negocio (§12, pregunta 7); fuera,
+# el fichero desactivaria un control: un enfriamiento de 0 dias quita F8 tras
+# un cambio de telefono, una frescura de cien mil dias quita Z1 y deja a A2,
+# E1, F2 y F3 dando ok contra un maestro de cualquier edad, y una tolerancia
+# de un millon da por buena cualquier suma.
+_LIMITES: dict[str, tuple[Decimal | int, Decimal | int]] = {
+    "tolerancia_linea": (Decimal("0"), Decimal("1.00")),
+    "tolerancia_factura": (Decimal("0"), Decimal("1.00")),
+    "ventana_duplicado_dias": (7, 365),
+    "tolerancia_duplicado": (Decimal("0"), Decimal("100.00")),
+    "enfriamiento_telefono_dias": (7, 90),
+    "frescura_exact_dias": (1, 31),
+    "frescura_trnsprnt_dias": (1, 31),
+    "frescura_banco_dias_laborables": (1, 10),
+}
+
+
 @dataclass(frozen=True)
 class Empresa:
     """La identidad de BM Support BV (config/empresa.yaml). Lo que falta se queda en None."""
@@ -183,7 +201,14 @@ def ajustes_de_reglas(texto: str | None) -> dict[str, Any]:
             if clave not in _REGLAS[seccion]:
                 raise PoliticaNoValida(f"reglas.yaml: {seccion}.{clave} no se ajusta desde aqui")
             campo, tipo = _REGLAS[seccion][clave]
-            salida[campo] = _valor(texto_valor, tipo, f"{seccion}.{clave}")
+            valor = _valor(texto_valor, tipo, f"{seccion}.{clave}")
+            if campo in _LIMITES:
+                minimo, maximo = _LIMITES[campo]
+                if not minimo <= valor <= maximo:
+                    raise PoliticaNoValida(f"reglas.yaml: {seccion}.{clave} = {valor} esta fuera "
+                                           f"de lo que se admite ({minimo} a {maximo}): "
+                                           "desactivaria el control")
+            salida[campo] = valor
     return salida
 
 
@@ -248,14 +273,19 @@ def empresa(conn: sqlite3.Connection) -> Empresa:
 
 
 def cargar(conn: sqlite3.Connection, ruta: str | Path,
-           usuario_id: int | None = None) -> tuple[str, bool]:
+           usuario_id: int | None) -> tuple[str, bool]:
     """Valida y apunta un fichero de config/ por su nombre. Devuelve un resumen y si era nuevo.
 
     prioridad.yaml (los pesos), reglas.yaml (tolerancias, frescura, el
     interruptor de las cuentas y el enfriamiento del telefono) o empresa.yaml
-    (la identidad de BM Support BV). Un fichero que no tiene la forma que se
-    espera no se apunta.
+    (la identidad de BM Support BV, que A8 y F10 comparan). Lo carga una
+    persona con admin (spec §6: la politica es de admin) y queda como quien la
+    cargo. Un fichero que no tiene la forma que se espera, o que cruza los
+    limites de _LIMITES, no se apunta.
     """
+    from .permisos import exigir
+
+    exigir(conn, usuario_id, "admin", accion="cargar la politica")
     ruta = Path(ruta)
     texto = ruta.read_text(encoding="utf-8")
     if ruta.name == FICHERO_PRIORIDAD:

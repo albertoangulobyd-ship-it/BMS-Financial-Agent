@@ -70,8 +70,9 @@ def persona_decide(id_: int, tipo: str, en: str, **datos) -> EventoCuenta:
 
 
 def cuenta(id_: int, iban: str, *eventos: EventoCuenta, titular: str = "proveedor",
-           parte_id: int = 1, primera: str = "baseline") -> Cuenta:
-    return Cuenta(id_, titular, parte_id, iban, primera, tuple(eventos))
+           parte_id: int = 1, primera: str = "baseline",
+           primer_documento: str | None = None) -> Cuenta:
+    return Cuenta(id_, titular, parte_id, iban, primera, tuple(eventos), primer_documento)
 
 
 def telefono(cambio_id: int, valor: str | None, en: str, *, proveedor: int = 1,
@@ -240,7 +241,8 @@ def test_q3_avisa_de_las_notas_de_la_fixture_de_inyeccion_y_no_de_una_nota_inoce
     # La evidencia dice que clase de cosa se vio, nunca el IBAN que trae el texto.
     assert "NL91" not in str(r.valores) and "NL91" not in r.detalle
     assert marcas_de_inyeccion("Vragen? E-mail ons.") == ["llamar o confirmar"]
-    assert not sospechoso(["llamar o confirmar"]) and sospechoso(["un IBAN", "cuenta bancaria"])
+    assert not sospechoso(["llamar o confirmar"])
+    assert sospechoso(["un IBAN", "cuenta bancaria", "un cambio de datos"])
     assert catalogo.regla("Q3").crea_excepcion and catalogo.regla("Q3").anulable
 
 
@@ -525,3 +527,104 @@ def test_f5_f6_f8_f9_sobre_el_proveedor() -> None:
     # Pasado el enfriamiento, F9 se va; el alta del telefono no lo abre nunca.
     despues = maestros(hoy=date(2026, 10, 24))
     assert resultados("F9", despues) == []
+
+
+# ------------------------------------------------------------ correcciones de la revision
+
+def test_el_telefono_con_el_cero_entre_parentesis_es_el_mismo_numero() -> None:
+    for texto in ("+31 (0)10 1234567", "0031 (0)10 1234567", "+31(0)101234567", "010-1234567",
+                  "+31 10 123 4567"):
+        assert normalizar_telefono(texto) == "0101234567", texto
+    assert normalizar_telefono("0031 (0)6 1234 5678") == "0612345678"
+    assert normalizar_telefono("(010) 1234567") == "0101234567"
+
+
+def test_q3_no_avisa_de_los_datos_de_pago_de_siempre_al_pie() -> None:
+    for pie in ("Gelieve te betalen op IBAN NL02 ABNA 0123 4567 89 o.v.v. factuurnummer.",
+                "Bankrekening: NL02ABNA0123456789",
+                "IBAN NL02ABNA0123456789 t.n.v. Van Dijk. Vragen? Bel 010-1234567."):
+        assert not sospechoso(marcas_de_inyeccion(pie)), pie
+    assert not sospechoso(["un IBAN", "cuenta bancaria"])
+    assert sospechoso(["un IBAN", "un cambio de datos"])
+    assert sospechoso(["cuenta bancaria", "un cambio de datos"])
+    inst = maestros(compra(1, notas_doc="Ons rekeningnummer is gewijzigd: NL91 ABNA 0417 "
+                                        "1643 00."),
+                    compra(2, notas_doc="Betalen op IBAN NL02 ABNA 0123 4567 89."))
+    assert [r.fila_id for r in resultados("Q3", inst)] == [1]
+
+
+def test_el_telefono_del_alta_es_de_antes_de_cualquier_documento() -> None:
+    """El atraso del primer dia: un documento registrado antes de la primera importacion."""
+    del_primer_dia = persona_decide(1, "verificada", "2026-10-13T09:00:00+00:00",
+                                    telefono=TEL_ANTES, llegada="2025-12-01T08:00:00+00:00")
+    tel = (telefono(1, TEL_ANTES, "2026-01-05T10:00:00+00:00", alta=True),)
+    assert eficacia(del_primer_dia, tel, Politica()) is None
+    # Un cambio de verdad (no el alta) despues del documento sigue sin valer.
+    tel = tel + (telefono(2, TEL_NUEVO, "2026-01-10T10:00:00+00:00"),)
+    al_nuevo = dataclasses.replace(del_primer_dia, telefono_usado=TEL_NUEVO)
+    assert "no es el que tenia" in eficacia(al_nuevo, tel, Politica())
+
+
+def test_la_referencia_de_una_verificacion_es_lo_primero_que_la_motivo() -> None:
+    """El cambio pendiente mas antiguo, el primer documento con ese IBAN y la propia llegada:
+    vale el telefono de antes del primero de todos."""
+    tel = (telefono(1, TEL_ANTES, "2026-01-05T10:00:00+00:00", alta=True),
+           telefono(2, TEL_NUEVO, "2026-09-02T10:00:00+00:00"))
+    llamada = persona_decide(9, "verificada", "2026-10-13T09:00:00+00:00", telefono=TEL_NUEVO,
+                             llegada="2026-10-10T08:00:00+00:00", importacion=3)
+    # Un cambio de Exact del 1-9, vuelto a ver el 10-10: vale el telefono de antes del 1-9.
+    cambio = cuenta(2, K_NUEVA_EN_EXACT,
+                    evento(5, "visto_en_exact", "2026-09-01T08:00:00+00:00", importacion=2,
+                           llegada="2026-09-01T08:00:00+00:00"),
+                    evento(6, "visto_en_exact", "2026-10-10T08:00:00+00:00", importacion=3,
+                           llegada="2026-10-10T08:00:00+00:00"),
+                    llamada, primera="maestro_exact")
+    estado = estado_cuenta(cambio, tel, Politica())
+    assert estado.ineficaz is not None and "no es el que tenia" in estado.ineficaz[1]
+    # Una cuenta tecleada a mano sin factura en la orden: el documento del 1-9 que la traia.
+    manual = cuenta(3, K_DESCONOCIDA,
+                    dataclasses.replace(llamada, llegada=None, importacion_id=None),
+                    primera="verificacion_manual", primer_documento="2026-09-01T08:00:00+00:00")
+    assert estado_cuenta(manual, tel, Politica()).ineficaz is not None
+    # Un documento que llego cuando la cuenta ya era la heredada no motiva nada.
+    heredada = registro_de_cuentas()[0]
+    heredada = dataclasses.replace(
+        heredada, primer_documento="2026-10-12T09:00:00+00:00",
+        eventos=heredada.eventos + (dataclasses.replace(llamada, llegada=None,
+                                                        importacion_id=None),))
+    assert estado_cuenta(heredada, tel, Politica()).ineficaz is None
+
+
+def test_una_atestacion_de_lo_que_no_es_heredado_no_cuenta() -> None:
+    heredada = registro_de_cuentas()[0]
+    rechazada_y_atestada = dataclasses.replace(heredada, eventos=heredada.eventos + (
+        persona_decide(20, "rechazada", "2026-10-13T09:00:00+00:00"),
+        persona_decide(21, "atestada", "2026-10-13T10:00:00+00:00")))
+    estado = estado_cuenta(rechazada_y_atestada, TEL_1, Politica())
+    assert (estado.estado, estado.pagable) == ("rechazada", False)
+    # Ni tapa una verificacion que no conto.
+    mal_verificada = dataclasses.replace(heredada, eventos=heredada.eventos + (
+        persona_decide(20, "verificada", "2026-10-13T09:00:00+00:00", telefono="0000000"),
+        persona_decide(21, "atestada", "2026-10-13T10:00:00+00:00")))
+    estado = estado_cuenta(mal_verificada, TEL_1, Politica())
+    assert estado.ineficaz is not None and estado.estado == "heredada"
+    assert not estado.atestable
+    assert estado_cuenta(heredada, TEL_1, Politica()).atestable
+    # La que anadio un maestro posterior tampoco se atesta.
+    assert not estado_cuenta(registro_de_cuentas()[1], TEL_1, Politica()).atestable
+
+
+def test_f3_sigue_con_una_cuenta_que_solo_tiene_una_verificacion_que_no_conto() -> None:
+    inst = maestros(compra(110, iban_doc=K_MANUAL_MAL))
+    [r] = resultados("F3", inst)
+    assert r.fila_id == 110 and r.resultado == "fallo"
+
+
+def test_f5_bloquea_las_facturas_del_proveedor_con_un_cambio_pendiente() -> None:
+    inst = maestros(compra(1, iban_doc=None), compra(2),
+                    compra(3, proveedor_id=2, parte="proveedor:2", iban_doc=None),
+                    factura(4, sentido="saliente", cliente_id=3, parte="cliente:3"))
+    r = resultados("F5", inst)
+    assert sorted((x.tabla, x.fila_id) for x in r) == [("factura", 1), ("factura", 2),
+                                                        ("proveedor", 1)]
+    assert {x.resultado for x in r} == {"fallo"}

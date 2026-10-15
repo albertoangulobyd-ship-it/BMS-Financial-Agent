@@ -17,7 +17,7 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent facturas            las facturas, la mas urgente primero
     bms-agent factura N           la ficha de una factura
     bms-agent excepciones         las excepciones sin resolver
-    bms-agent politica cargar     apunta config/prioridad.yaml, reglas.yaml o empresa.yaml
+    bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
     bms-agent importar F T FICH   importa un maestro (Exact, una hoja CSV) con su mapeo
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
@@ -928,6 +928,7 @@ def _cmd_excepciones(args: argparse.Namespace) -> int:
 def _cmd_politica(args: argparse.Namespace) -> int:
     """Apunta un fichero de config/ (prioridad, reglas o empresa) y recalcula con el."""
     from .hallazgos import recalcular
+    from .permisos import PermisoDenegado, orden_auditada
     from .politica import PoliticaNoValida, cargar
     from .prioridad import PesosNoValidos
 
@@ -936,12 +937,17 @@ def _cmd_politica(args: argparse.Namespace) -> int:
         print(f"No existe {fichero}", file=sys.stderr)
         return 1
     with _abrir_almacen(args.db) as almacen:
+        usuario_id = _persona_con_token(almacen, args, "cargar la politica")
+        if usuario_id is None:
+            _anclar(almacen)
+            return 1
         try:
-            with transaccion(almacen.conn):
-                resumen, nuevo = cargar(almacen.conn, fichero)
-                diferencia = recalcular(almacen.conn, motivo="manual")
-        except (PesosNoValidos, PoliticaNoValida) as exc:
+            with orden_auditada(almacen.conn):
+                resumen, nuevo = cargar(almacen.conn, fichero, usuario_id)
+                diferencia = recalcular(almacen.conn, motivo="manual", usuario_id=usuario_id)
+        except (PesosNoValidos, PoliticaNoValida, PermisoDenegado) as exc:
             print(f"No se carga {fichero}: {exc}", file=sys.stderr)
+            _anclar(almacen)
             return 1
         _anclar(almacen)
     print(f"{fichero}: {'cargado' if nuevo else 'ya era la version vigente'} ({resumen})")
@@ -980,8 +986,11 @@ def _cmd_importar(args: argparse.Namespace) -> int:
         exportado = datetime(dia.year, dia.month, dia.day, 12, tzinfo=timezone.utc)
     else:
         # Sin decirlo, cuenta el dia en que se guardo el fichero: lo que mide la
-        # frescura (Z1) es cuando se saco del sistema, no cuando se importa.
-        exportado = datetime.fromtimestamp(fichero.stat().st_mtime, tz=timezone.utc)
+        # frescura (Z1) es cuando se saco del sistema, no cuando se importa. Una
+        # fecha de fichero futura (un reloj mal puesto) cuenta como ahora; una
+        # --exportado futura la rechaza el importador.
+        exportado = min(datetime.fromtimestamp(fichero.stat().st_mtime, tz=timezone.utc),
+                        datetime.now(timezone.utc))
     with _abrir_almacen(args.db) as almacen:
         usuario_id = _persona_con_token(almacen, args, f"importar {args.fuente}/{args.tipo}")
         if usuario_id is None:
@@ -1344,6 +1353,7 @@ def main(argv: list[str] | None = None) -> int:
         "cargar", help="apunta prioridad.yaml, reglas.yaml o empresa.yaml y recalcula")
     p_cargar.add_argument("fichero", nargs="?", default="config/prioridad.yaml")
     p_cargar.add_argument("--db", help=_AYUDA_DB)
+    p_cargar.add_argument("--token", help="el token de una persona con admin (o BMS_TOKEN)")
     p_politica.set_defaults(func=_cmd_politica)
 
     argv = sys.argv[1:] if argv is None else list(argv)

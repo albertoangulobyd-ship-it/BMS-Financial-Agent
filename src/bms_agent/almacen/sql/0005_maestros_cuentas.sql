@@ -146,6 +146,23 @@ WHEN NEW.tipo IN ('baseline', 'visto_en_exact', 'ausente_en_exact', 'visto_en_tr
      OR (SELECT estado FROM importacion WHERE id = NEW.importacion_id) IS NOT 'en_curso')
 BEGIN SELECT RAISE(ABORT, 'lo que trae un maestro lo apunta el importador, con su importacion en curso'); END;
 
+-- Atestar es solo para lo heredado sin tocar (decision 3): una cuenta del
+-- primer maestro que sigue en Exact, que nunca falto de el y sobre la que
+-- nadie ha decidido nada (tampoco una verificacion que no conto). Atestar una
+-- rechazada, una que trajo un maestro posterior o una mal verificada la haria
+-- pagable sin llamar a nadie.
+CREATE TRIGGER cuenta_evento_atestada BEFORE INSERT ON cuenta_evento
+WHEN NEW.tipo = 'atestada' AND (
+        NOT EXISTS (SELECT 1 FROM cuenta_evento
+                    WHERE cuenta_id = NEW.cuenta_id AND tipo = 'baseline')
+     OR EXISTS (SELECT 1 FROM cuenta_evento WHERE cuenta_id = NEW.cuenta_id
+                  AND tipo IN ('verificada', 'rechazada', 'atestada', 'retirada',
+                               'ausente_en_exact'))
+     OR (SELECT tipo FROM cuenta_evento WHERE cuenta_id = NEW.cuenta_id
+           AND tipo IN ('visto_en_exact', 'ausente_en_exact') ORDER BY id DESC LIMIT 1)
+            IS NOT 'visto_en_exact')
+BEGIN SELECT RAISE(ABORT, 'solo se atesta una cuenta heredada sin tocar: lo demas se verifica por telefono'); END;
+
 CREATE TRIGGER cuenta_evento_sin_documento BEFORE INSERT ON cuenta_evento
 WHEN NEW.tipo = 'visto_en_documento'
 BEGIN SELECT RAISE(ABORT, 'lo que dice un documento no entra en el registro de cuentas: se queda en la factura'); END;
@@ -155,12 +172,13 @@ BEGIN SELECT RAISE(ABORT, 'cuenta_evento es de solo escritura: no se modifica');
 CREATE TRIGGER cuenta_evento_sin_delete BEFORE DELETE ON cuenta_evento
 BEGIN SELECT RAISE(ABORT, 'cuenta_evento es de solo escritura: no se borra'); END;
 
--- El estado registrado de cada cuenta: la ultima decision de una persona y,
--- sin ninguna, heredada (llego con el primer maestro) o registrada sin
--- verificar. en_exact dice si la trae la ultima importacion aceptada de Exact
--- que la miro. Si una verificacion cuenta (el numero era el del maestro de
--- antes del documento, fuera del enfriamiento) no lo dice la vista: lo
--- decide la regla F8, con la politica de cada pasada.
+-- La ultima decision de una persona sobre cada cuenta y, sin ninguna,
+-- heredada (llego con el primer maestro) o registrada sin verificar; y si la
+-- trae la ultima importacion aceptada de Exact que la miro. NO es el estado
+-- de la cuenta ni dice si es pagable: una verificacion que no cuenta (F8), un
+-- cambio del maestro sin verificar (F5) o una atestacion que no vale solo los
+-- ve reglas.bancaria.estado_cuenta, con los telefonos y la politica de cada
+-- pasada. Por eso la columna se llama ultima_decision.
 CREATE VIEW v_cuenta_estado AS
 SELECT c.id AS cuenta_id, c.titular, c.proveedor_id, c.cliente_id, c.iban, c.primera_fuente,
        coalesce(
@@ -169,7 +187,7 @@ SELECT c.id AS cuenta_id, c.titular, c.proveedor_id, c.cliente_id, c.iban, c.pri
             ORDER BY e.id DESC LIMIT 1),
            CASE WHEN EXISTS (SELECT 1 FROM cuenta_evento AS e WHERE e.cuenta_id = c.id
                                AND e.tipo = 'baseline')
-                THEN 'heredada' ELSE 'registrada' END) AS estado_registrado,
+                THEN 'heredada' ELSE 'registrada' END) AS ultima_decision,
        coalesce(
            (SELECT e.tipo = 'visto_en_exact' FROM cuenta_evento AS e WHERE e.cuenta_id = c.id
               AND e.tipo IN ('visto_en_exact', 'ausente_en_exact')

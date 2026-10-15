@@ -1,0 +1,30 @@
+# Hoja de contactos: las personas con las que se habla en un proveedor o un cliente.
+#
+# El proveedor o el cliente se nombra por su numero de Exact, btw-id, KvK o
+# alias, y tiene que existir (no se crea nada). Un contacto es el mismo si
+# tiene el mismo nombre en la misma relacion. Su telefono es para hablar con
+# el: el de verificacion de las cuentas es otro campo del proveedor, con su
+# propia orden y su enfriamiento, y esta hoja no lo toca.
+version: 1
+fuente: maestro_csv
+tipo: contactos
+formato: "csv:maestro-contactos-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  fila_cabecera: 1
+cabecera: [Relatie, Soort relatie, Naam, E-mail, Telefoon, Functie]
+completo: false
+registros:
+  contactos:
+    campos:
+      titular:
+        columna: Soort relatie
+        obligatorio: true
+        valores: {Leverancier: proveedor, Klant: cliente}
+      parte_ref: {columna: Relatie, obligatorio: true}
+      nombre: {columna: Naam, obligatorio: true}
+      email: {columna: E-mail}
+      telefono: {columna: Telefoon}
+      funcion: {columna: Functie}
+      activo: {columna: Actief, tipo: bool, por_defecto: true}

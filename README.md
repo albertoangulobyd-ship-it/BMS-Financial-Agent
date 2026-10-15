@@ -48,7 +48,7 @@ bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
 bms-agent usuario token Ana    # su token personal (solo se guarda su hash)
 bms-agent facturas             # la más urgente primero; `factura 12` da la ficha
 bms-agent accion marcar_revisada --factura-id 12 --huella ... --token ...   # las órdenes
-bms-agent politica cargar config/prioridad.yaml   # pesos, reglas.yaml o empresa.yaml, con su hash
+bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, reglas o empresa, con su hash
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
 bms-agent extract --estricta facturas/   # para medir otro modelo o prompt
 bms-agent score                # precisión contra respuestas escritas a mano

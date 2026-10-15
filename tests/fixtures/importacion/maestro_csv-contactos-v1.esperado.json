@@ -1,0 +1,110 @@
+{
+  "mapeo": "maestro_csv-contactos-v1",
+  "fuente": "maestro_csv",
+  "tipo": "contactos",
+  "lotes": [
+    {
+      "tipo": "contactos",
+      "formato": "csv:maestro-contactos-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Relatie": "20001",
+            "Soort relatie": "Leverancier",
+            "Naam": "Marieke de Boer",
+            "E-mail": "m.deboer@vandijk.example",
+            "Telefoon": "010-1234599",
+            "Functie": "Crediteurenadministratie",
+            "Actief": "ja"
+          },
+          "titular": "proveedor",
+          "parte_ref": "20001",
+          "nombre": "Marieke de Boer",
+          "email": "m.deboer@vandijk.example",
+          "telefono": "010-1234599",
+          "funcion": "Crediteurenadministratie",
+          "activo": true
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Relatie": "20003",
+            "Soort relatie": "Leverancier",
+            "Naam": "Henk Koster",
+            "E-mail": "",
+            "Telefoon": "06-22223333",
+            "Functie": "Eigenaar",
+            "Actief": "ja"
+          },
+          "titular": "proveedor",
+          "parte_ref": "20003",
+          "nombre": "Henk Koster",
+          "email": null,
+          "telefono": "06-22223333",
+          "funcion": "Eigenaar",
+          "activo": true
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Relatie": "10001",
+            "Soort relatie": "Klant",
+            "Naam": "Sara Jansen",
+            "E-mail": "s.jansen@havenbedrijf.example",
+            "Telefoon": "",
+            "Functie": "Inkoop",
+            "Actief": "ja"
+          },
+          "titular": "cliente",
+          "parte_ref": "10001",
+          "nombre": "Sara Jansen",
+          "email": "s.jansen@havenbedrijf.example",
+          "telefono": null,
+          "funcion": "Inkoop",
+          "activo": true
+        },
+        {
+          "fila": 5,
+          "crudo": {
+            "Relatie": "10002",
+            "Soort relatie": "Klant",
+            "Naam": "Oud contact",
+            "E-mail": "",
+            "Telefoon": "",
+            "Functie": "",
+            "Actief": "nee"
+          },
+          "titular": "cliente",
+          "parte_ref": "10002",
+          "nombre": "Oud contact",
+          "email": null,
+          "telefono": null,
+          "funcion": null,
+          "activo": false
+        },
+        {
+          "fila": 6,
+          "crudo": {
+            "Relatie": "99999",
+            "Soort relatie": "Leverancier",
+            "Naam": "Onbekend Persoon",
+            "E-mail": "",
+            "Telefoon": "",
+            "Functie": "",
+            "Actief": "ja"
+          },
+          "titular": "proveedor",
+          "parte_ref": "99999",
+          "nombre": "Onbekend Persoon",
+          "email": null,
+          "telefono": null,
+          "funcion": null,
+          "activo": true
+        }
+      ],
+      "rechazos": []
+    }
+  ]
+}

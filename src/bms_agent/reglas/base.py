@@ -239,7 +239,13 @@ class EventoCuenta:
 
 @dataclass(frozen=True, slots=True)
 class Cuenta:
-    """Una cuenta del registro con sus eventos en orden. `parte_id` es su proveedor o cliente."""
+    """Una cuenta del registro con sus eventos en orden. `parte_id` es su proveedor o cliente.
+
+    `primer_documento`: cuando llego el primer documento de su proveedor que
+    imprimia este IBAN (None si ninguno). Si llego antes de que la cuenta se
+    aceptara, es lo que motiva verificarla aunque la orden no nombre la
+    factura: el telefono que vale es el de antes de ese documento (F8).
+    """
 
     id: int
     titular: str
@@ -247,6 +253,7 @@ class Cuenta:
     iban: str
     primera_fuente: str
     eventos: tuple[EventoCuenta, ...]
+    primer_documento: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

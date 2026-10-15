@@ -63,6 +63,23 @@ class ClienteCanonico(Canonico):
     activo: bool = True
 
 
+class ContactoCanonico(Canonico):
+    """Una persona de contacto de un proveedor o un cliente.
+
+    Su telefono es para hablar con ella, nunca el de verificacion de las
+    cuentas: ese es un campo del proveedor con su propia orden y su
+    enfriamiento (F8, F9), y ningun contacto lo cambia.
+    """
+
+    titular: Literal["proveedor", "cliente"]
+    parte_ref: str
+    nombre: str
+    email: str | None = None
+    telefono: str | None = None
+    funcion: str | None = None
+    activo: bool = True
+
+
 class CuentaBancariaCanonica(Canonico):
     """Una cuenta de un proveedor o un cliente segun su maestro. No lleva ningun estado."""
 
@@ -134,7 +151,7 @@ class CicloCanonico(Canonico):
 
 MODELOS: dict[str, type[Canonico]] = {
     "proveedores": ProveedorCanonico, "clientes": ClienteCanonico,
-    "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
+    "contactos": ContactoCanonico, "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
     "recursos": RecursoCanonico, "alias": AliasCanonico, "tarifas": TarifaCanonica,
     "ciclos": CicloCanonico,
 }

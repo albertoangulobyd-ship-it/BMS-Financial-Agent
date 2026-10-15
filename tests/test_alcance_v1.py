@@ -141,7 +141,7 @@ def test_ninguna_orden_crea_facturas_ni_paga_ni_presenta(escenario, caso, orden,
     conn = escenario.conn
     ana = usuario_por_nombre(conn, "Ana")
     if preparar is not None:
-        preparar(conn, ana)
+        preparar(escenario, ana)
     ids = _ids(conn)
     facturas = [tuple(f) for f in conn.execute(
         "SELECT id, origen, sentido, numero FROM factura ORDER BY id")]
