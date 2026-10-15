@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 from . import config
-from .almacen import ruta_por_defecto
+from .almacen import ruta_por_defecto, transaccion
 from .cache import CONSERVAR, ESTRICTA, indexar, reutilizable
 from .documents import UnsupportedDocument, iter_pdfs, load_pdf
 from .extract import build_request, extraer_pasada
@@ -49,6 +49,8 @@ def _cmd_schema(args: argparse.Namespace) -> int:
 
 
 _AYUDA_DB = "almacen SQLite (por defecto: BMS_DB o datos/bms.sqlite3)"
+_AYUDA_OUT = ("lee esta carpeta de extracciones tal cual, sin correcciones, en vez del "
+              "almacen (sin --out: el almacen, o out/ si aun no hay almacen)")
 
 _ETIQUETAS_PASO = {"omitido": "omitido", "cache": "cache", "error": "ERROR", "ok": "ok"}
 
@@ -194,14 +196,23 @@ def _cmd_score(args: argparse.Namespace) -> int:
 
 
 def _leer(args: argparse.Namespace):
-    """Los registros del almacen (o de out/ si no hay almacen), y de donde salen."""
+    """Los registros que pide la orden, y de donde salen.
+
+    `--db` lee ese almacen; `--out` sin `--db`, esa carpeta tal cual (quien
+    la nombra quiere verla a ella); sin ninguno, el almacen por defecto, o
+    out/ si todavia no hay almacen. Con los dos manda el almacen, y se dice.
+    """
     from .legado import leer_registros
 
-    lectura = leer_registros(args.out, _ruta_db(args.db))
+    out = args.out if args.out is not None else "out"
+    if args.out is not None and args.db is not None:
+        print(f"Se pidio --db: se lee el almacen y no {args.out}/")
+    lectura = leer_registros(out, _ruta_db(args.db),
+                             out_pedido=args.out is not None and args.db is None)
     print(lectura.explicacion())
     if not lectura.registros:
         donde = (f"el almacen {lectura.ruta_db}" if lectura.desde == "almacen"
-                 else f"{args.out}/")
+                 else f"{out}/")
         print(f"No hay extracciones en {donde}", file=sys.stderr)
     return lectura.registros
 
@@ -493,8 +504,12 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
         print(f"No se puede abrir el almacen: {exc}", file=sys.stderr)
         return 2
     with almacen:
-        r = importar_out(almacen, out_dir, pdfs)
-        tipado = _tipar(almacen)
+        # Una orden, una transaccion (spec §4): importar y tipar van juntos, y
+        # cada fichero y cada documento en su SAVEPOINT, asi que uno que falla
+        # no se lleva a los demas y un fallo de la orden no deja nada a medias.
+        with transaccion(almacen.conn):
+            r = importar_out(almacen, out_dir, pdfs)
+            tipado = _tipar(almacen)
         _anclar(almacen)
 
     print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
@@ -625,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
     p_score.set_defaults(func=_cmd_score)
 
     p_report = sub.add_parser("report", help="genera un informe HTML de lo extraido")
-    p_report.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_report.add_argument("--out", help=_AYUDA_OUT)
     p_report.add_argument(
         "--file", default="informe.html", help="fichero de salida (por defecto: informe.html)"
     )
@@ -633,7 +648,7 @@ def main(argv: list[str] | None = None) -> int:
     p_report.set_defaults(func=_cmd_report)
 
     p_panel = sub.add_parser("panel", help="panel con todo el historico y sus anomalias")
-    p_panel.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_panel.add_argument("--out", help=_AYUDA_OUT)
     p_panel.add_argument(
         "--file", default="panel.html", help="fichero de salida (por defecto: panel.html)"
     )
@@ -644,7 +659,7 @@ def main(argv: list[str] | None = None) -> int:
     p_panel.set_defaults(func=_cmd_panel)
 
     p_export = sub.add_parser("export", help="exporta los datos del panel a JSON")
-    p_export.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_export.add_argument("--out", help=_AYUDA_OUT)
     p_export.add_argument("--file", default="datos.json", help="fichero JSON de salida")
     p_export.add_argument(
         "--tarifas", default="config/tarifas.yaml",
@@ -656,7 +671,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sim = sub.add_parser(
         "simulador", help="simulador de tarifas de venta, con recalculo en vivo"
     )
-    p_sim.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_sim.add_argument("--out", help=_AYUDA_OUT)
     p_sim.add_argument("--file", default="simulador.html", help="fichero de salida")
     p_sim.add_argument(
         "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de partida"

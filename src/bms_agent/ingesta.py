@@ -44,7 +44,7 @@ from .almacen.extracciones import en_orden_de_out
 from .almacen.unidades import json_canonico, sha256_texto
 from .campos import Automatico, Leido
 from .checks import check_currency
-from .dominio import Fuente, Sentido, TipoFactura, TratamientoIva
+from .dominio import FUENTES_AUTOMATICAS, Fuente, Sentido, TipoFactura, TratamientoIva
 from .parsing import (
     ParseError,
     detectar_moneda,
@@ -374,12 +374,6 @@ def _fecha_recepcion(documento: sqlite3.Row) -> Leido:
     return Leido(dia, fuente=Fuente.CALCULADO.value, ref=f"documento:{documento['id']}")
 
 
-def _activas(conn: sqlite3.Connection, tabla: str, factura_id: int) -> list[sqlite3.Row]:
-    return conn.execute(
-        f"SELECT * FROM {tabla} WHERE factura_id = ? AND retirada_en IS NULL ORDER BY id",
-        (factura_id,)).fetchall()
-
-
 def _de_la_extraccion(conn: sqlite3.Connection, tabla: str, fila_id: int) -> bool:
     """La fila la puso una extraccion y nadie la ha tocado a mano."""
     fuentes = {f[0] for f in conn.execute(
@@ -453,8 +447,11 @@ def tipar_documento(
             factura_id = existente["id"]
             o.tabla, o.fila_id, o.factura_id = "factura", factura_id, factura_id
             o.fijar("factura", factura_id, {**estructura, **cabecera})
-            conflictos = _actualizar_lineas(o, conn, factura_id, lineas)
-            _actualizar_hijas(o, conn, factura_id, referencias, desglose)
+            conflictos, por_indice = _actualizar_lineas(o, conn, factura_id, lineas)
+            conflictos_hijas = _actualizar_hijas(o, conn, factura_id, referencias, desglose,
+                                                 por_indice)
+            if conflictos_hijas:
+                o.datos["filas_con_edicion_manual_sin_casar"] = conflictos_hijas
             if conflictos:
                 o.datos["lineas_con_edicion_manual_sin_casar"] = conflictos
             detalle = f"{len(lineas)} lineas"
@@ -467,20 +464,19 @@ def tipar_documento(
 def _crear_lineas(
     o: campos.Orden, factura_id: int, lineas: list[dict[str, Leido]], *, desde: int,
 ) -> dict[int, int]:
-    """Cada linea con su imputacion por defecto. Devuelve indice -> linea_id."""
+    """Cada linea con su imputacion por defecto. Devuelve indice en `lineas` -> linea_id."""
     calculado = Fuente.CALCULADO.value
     ids = {}
-    for desplazamiento, valores in enumerate(lineas):
-        orden = desde + desplazamiento
+    for indice, valores in enumerate(lineas):
         linea_id = o.crear("factura_linea", {
             "factura_id": Leido(factura_id, fuente=calculado),
-            "orden": Leido(orden, fuente=calculado), **valores,
+            "orden": Leido(desde + indice, fuente=calculado), **valores,
         })
         o.crear("factura_imputacion", {
             "factura_id": Leido(factura_id, fuente=calculado),
             "linea_id": Leido(linea_id, fuente=calculado),
         })
-        ids[orden - 1] = linea_id
+        ids[indice] = linea_id
     return ids
 
 
@@ -498,65 +494,103 @@ def _crear_hijas(o: campos.Orden, factura_id: int,
         o.crear("factura_iva", {"factura_id": Leido(factura_id, fuente=calculado), **valores})
 
 
-def _actualizar_lineas(o: campos.Orden, conn: sqlite3.Connection, factura_id: int,
-                       lineas: list[dict[str, Leido]]) -> list[int]:
+def _actualizar_lineas(
+    o: campos.Orden, conn: sqlite3.Connection, factura_id: int, lineas: list[dict[str, Leido]],
+) -> tuple[list[int], dict[int, int]]:
     """Casa por posicion las lineas de la extraccion nueva con las que puso una extraccion.
 
+    Se casan todas las que puso una extraccion, tambien las que una persona
+    excluyo: si se dejaran fuera, cada linea detras de la excluida se
+    correria un puesto y la excluida volveria como activa. Una excluida
+    casada recibe los valores nuevos y sigue excluida. Las que retiro una
+    extraccion anterior porque ya no venian no cuentan: estan al final, y si
+    vuelven a venir entran como lineas nuevas.
+
     Cada campo sigue la regla de siempre: lo que una persona corrigio no se
-    pisa. Las lineas que ya no vienen se retiran, salvo que una persona las
-    haya editado: esas se conservan y se devuelven (casarlas por su huella
-    es del paso 6, y mientras tanto no se pierde lo que una persona
-    escribio). Una linea anadida a mano no se toca.
+    pisa. Las lineas que ya no vienen se retiran (con su imputacion), salvo
+    que una persona las haya editado: esas se conservan y se devuelven
+    (casarlas por su huella es del paso 6, y mientras tanto no se pierde lo
+    que una persona escribio). Una linea anadida a mano no se toca.
+
+    Devuelve las conservadas (su orden) y, para cada indice de la extraccion
+    nueva, la linea con la que caso o que se creo.
     """
-    previas = [f for f in _activas(conn, "factura_linea", factura_id)
-               if _vino_de_extraccion(conn, f["id"])]
-    for fila, valores in zip(previas, lineas):
+    previas = _de_extracciones(conn, "factura_linea", factura_id)
+    por_indice = {}
+    for indice, (fila, valores) in enumerate(zip(previas, lineas)):
         o.fijar("factura_linea", fila["id"], valores)
+        por_indice[indice] = fila["id"]
     ocupados = {f["orden"] for f in conn.execute(
         "SELECT orden FROM factura_linea WHERE factura_id = ?", (factura_id,))}
     for indice, valores in enumerate(lineas[len(previas):], start=len(previas)):
         orden = indice + 1 if indice + 1 not in ocupados else max(ocupados) + 1
         ocupados.add(orden)
-        _crear_lineas(o, factura_id, [valores], desde=orden)
+        por_indice[indice] = _crear_lineas(o, factura_id, [valores], desde=orden)[0]
     conflictos = []
     for fila in previas[len(lineas):]:
+        if fila["retirada_en"] is not None:
+            continue
         if not _de_la_extraccion(conn, "factura_linea", fila["id"]):
             conflictos.append(fila["orden"])
             continue
-        o.retirar("factura_linea", fila["id"])
-        for imputacion in conn.execute(
-            "SELECT id FROM factura_imputacion WHERE linea_id = ? AND retirada_en IS NULL",
-            (fila["id"],),
-        ).fetchall():
-            o.retirar("factura_imputacion", imputacion["id"])
-    return conflictos
+        o.retirar("factura_linea", fila["id"])         # y su imputacion (campos)
+    return conflictos, por_indice
 
 
-def _vino_de_extraccion(conn: sqlite3.Connection, linea_id: int) -> bool:
-    fila = conn.execute(
-        "SELECT fuente_original FROM procedencia_campo WHERE tabla = 'factura_linea' "
-        "AND fila_id = ? AND campo = 'orden'", (linea_id,)).fetchone()
-    return fila is not None and fila["fuente_original"] != Fuente.MANUAL_ENTRADA.value
+def _de_extracciones(conn: sqlite3.Connection, tabla: str, factura_id: int) -> list[sqlite3.Row]:
+    """Las filas de una hija de la factura que puso una extraccion, en su orden.
+
+    Las activas y las que retiro una persona; no las que retiro una
+    extraccion porque ya no venian, ni las que creo una persona.
+    """
+    orden = "orden, id" if tabla == "factura_linea" else "id"
+    filas = conn.execute(
+        f"SELECT * FROM {tabla} WHERE factura_id = ? ORDER BY {orden}", (factura_id,)).fetchall()
+    resultado = []
+    for fila in filas:
+        procedencia = campos.procedencia(conn, tabla, fila["id"])
+        alta = procedencia.get("factura_id")
+        if alta is None or alta["fuente_original"] not in FUENTES_AUTOMATICAS:
+            continue
+        retirada = procedencia.get("retirada_en")
+        if fila["retirada_en"] is not None and (
+                retirada is None or retirada["fuente"] in FUENTES_AUTOMATICAS):
+            continue
+        resultado.append(fila)
+    return resultado
 
 
 def _actualizar_hijas(o: campos.Orden, conn: sqlite3.Connection, factura_id: int,
                       referencias: list[tuple[int | None, dict[str, Leido]]],
-                      desglose: list[dict[str, Leido]]) -> None:
-    """Referencias y desglose de IVA, casados por posicion como las lineas."""
-    lineas = {f["orden"] - 1: f["id"] for f in _activas(conn, "factura_linea", factura_id)}
+                      desglose: list[dict[str, Leido]], lineas: dict[int, int]) -> list[str]:
+    """Referencias y desglose de IVA, casados por posicion como las lineas.
+
+    Igual que las lineas: entran en el casado todas las filas que puso una
+    extraccion, tambien las que una persona edito o retiro (si se dejaran
+    fuera, los valores nuevos caerian en la fila de al lado y se duplicaria
+    una). Lo que una persona puso en una fila no se pisa; una fila editada
+    que ya no viene se conserva y se devuelve. Una referencia nueva de una
+    linea se ata a la linea con la que caso ese indice (`lineas`).
+    """
+    conflictos = []
     for tabla, nuevas in (("factura_referencia", referencias),
                           ("factura_iva", [(None, v) for v in desglose])):
-        existentes = [f for f in _activas(conn, tabla, factura_id)
-                      if _de_la_extraccion(conn, tabla, f["id"])]
+        existentes = _de_extracciones(conn, tabla, factura_id)
         for fila, (_indice, valores) in zip(existentes, nuevas):
             o.fijar(tabla, fila["id"], valores)
         for fila in existentes[len(nuevas):]:
+            if fila["retirada_en"] is not None:
+                continue
+            if not _de_la_extraccion(conn, tabla, fila["id"]):
+                conflictos.append(f"{tabla}:{fila['id']}")
+                continue
             o.retirar(tabla, fila["id"])
         sobrantes = nuevas[len(existentes):]
         if tabla == "factura_referencia":
             _crear_hijas(o, factura_id, sobrantes, [], lineas)
         else:
             _crear_hijas(o, factura_id, [], [v for _i, v in sobrantes], lineas)
+    return conflictos
 
 
 def tipar_pendientes(conn: sqlite3.Connection) -> list[Tipado]:

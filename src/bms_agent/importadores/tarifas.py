@@ -27,6 +27,7 @@ import yaml
 
 from .. import campos
 from ..almacen import reloj_de, transaccion, usuario_sistema
+from ..almacen.evidencia import foto
 from ..almacen.unidades import sha256_texto
 from ..auditoria import registrar
 from ..campos import Automatico, Leido
@@ -65,7 +66,8 @@ def _politica(conn: sqlite3.Connection, nombre: str, texto: str, sha256: str,
     ).lastrowid)
     registrar(conn, tipo="politica_cargada", actor=sistema, usuario_id=usuario_id,
               tabla="politica_version", fila_id=fila_id,
-              datos={"fichero": nombre, "sha256": sha256})
+              datos={"fichero": nombre, "sha256": sha256,
+                     "fila": foto(conn, "politica_version", fila_id)})
     return True
 
 
@@ -141,7 +143,10 @@ def sembrar_tarifas(
                     "SELECT id, tarifa_e4 FROM tarifa_acordada WHERE sentido = 'venta' "
                     "AND fuente = 'config' AND objeto_id IS ? AND tipo_servicio = ? "
                     "AND vigente_hasta IS NULL", (objeto_id, trabajo)).fetchone()
-                literal = Leido(tarifa, crudo=entrada.get("tarifa"))
+                # El literal es el texto que leyo parse_amount: un numero YAML
+                # (tarifa: 62.5) llega como float, y un float no entra en el
+                # JSON canonico.
+                literal = Leido(tarifa, crudo=str(entrada.get("tarifa")))
                 if existente is None:
                     o.crear("tarifa_acordada", {
                         "sentido": "venta", "objeto_id": objeto_id, "tipo_servicio": trabajo,

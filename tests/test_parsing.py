@@ -12,6 +12,7 @@ from bms_agent.parsing import (
     detectar_moneda,
     es_unidad_hora,
     normalize_iban,
+    normalizar_referencia,
     parse_amount,
     parse_importe,
     parse_iso_date,
@@ -319,3 +320,28 @@ def test_x1_no_da_por_euros_lo_que_no_ha_podido_leer() -> None:
                                 "lines": [{"line_total_raw": "Fr. 2'500.00"}]})
     assert resultado.status == "sin datos"
     assert check_currency({"total_incl_vat_raw": "€ 2.500,00x"}).status == "ok"
+
+
+@pytest.mark.parametrize("raw, esperado", [
+    ("2026-4471", "20264471"),
+    ("2026 4471", "20264471"),
+    ("2026/4471", "20264471"),
+    ("2026.4471", "20264471"),
+    ("2026_4471", "20264471"),
+    ("2026 4471", "20264471"),          # espacio duro
+    ("2026 4471", "20264471"),          # espacio fino
+    ("cn-2026-031", "CN2026031"),            # mayusculas
+    ("2026-012", "2026012"),                 # los ceros a la izquierda se quedan
+    ("2026-12", "202612"),
+    ("PO 2026-17", "PO202617"),
+    ("", None),
+    ("  ", None),
+    (" - / . _ ", None),
+    (None, None),
+])
+def test_normalizar_referencia(raw, esperado) -> None:
+    assert normalizar_referencia(raw) == esperado
+
+
+def test_normalizar_referencia_no_junta_lo_que_no_es_lo_mismo() -> None:
+    assert normalizar_referencia("2026-012") != normalizar_referencia("2026-12")

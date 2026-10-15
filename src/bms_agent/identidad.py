@@ -79,12 +79,20 @@ class Resolucion:
         return self.fila_id is None and len(self.candidatos) > 1
 
 
-_BTW_SQL = "upper(replace(replace(replace(btw_id, ' ', ''), '.', ''), '-', ''))"
-_KVK_SQL = "replace(replace(kvk, ' ', ''), '.', '')"
+def _ids(conn: sqlite3.Connection, tabla: str, columna: str, clave: str,
+         normalizar: Any) -> tuple[int, ...]:
+    """Las filas cuyo btw-id o KvK, normalizado igual que el del documento, es la clave.
 
-
-def _ids(conn: sqlite3.Connection, sql: str, parametros: tuple) -> tuple[int, ...]:
-    return tuple(f[0] for f in conn.execute(sql, parametros))
+    Los dos lados pasan por la misma funcion: un maestro escrito
+    "NL/001234567/B01" o "KvK 8765-4321" es el mismo numero que el
+    documento, y la coincidencia sigue siendo exacta. Se compara en Python
+    porque la normalizacion es la de aqui, no una cadena de replace() en SQL
+    que se quedaria corta con el primer separador nuevo.
+    """
+    return tuple(
+        f["id"] for f in conn.execute(
+            f"SELECT id, {columna} FROM {tabla} WHERE {columna} IS NOT NULL ORDER BY id")
+        if normalizar(f[columna]) == clave)
 
 
 def _por_alias(conn: sqlite3.Connection, tabla: str, texto: Any) -> int | None:
@@ -105,7 +113,7 @@ def resolver_parte(
         raise ValueError(f"{tabla} no es una parte (proveedor o cliente)")
     clave = normalizar_btw(btw)
     if clave:
-        ids = _ids(conn, f"SELECT id FROM {tabla} WHERE {_BTW_SQL} = ? ORDER BY id", (clave,))
+        ids = _ids(conn, tabla, "btw_id", clave, normalizar_btw)
         if len(ids) == 1:
             return Resolucion(ids[0], "btw", ids)
         if ids:
@@ -113,7 +121,7 @@ def resolver_parte(
     if tabla == "proveedor":
         numero = normalizar_kvk(kvk)
         if numero:
-            ids = _ids(conn, f"SELECT id FROM {tabla} WHERE {_KVK_SQL} = ? ORDER BY id", (numero,))
+            ids = _ids(conn, tabla, "kvk", numero, normalizar_kvk)
             if len(ids) == 1:
                 return Resolucion(ids[0], "kvk", ids)
             if ids:

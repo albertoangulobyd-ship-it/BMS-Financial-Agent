@@ -20,7 +20,10 @@ Separacion de funciones (§3.13): `si_hay_dos()` decide con la politica "si
 hay dos": quien hizo algo no puede ser quien lo revisa cuando hay otra
 persona con el permiso; si es la unica, se permite y queda marcado como
 autorrevisado. Exigirlo siempre bloquearia una administracion de una
-persona.
+persona. Una negativa es SeparacionDeFunciones, un PermisoDenegado mas, y
+queda registrada igual. En el paso 2 la unica revision es verificar un
+campo; los predicados SOD1-SOD5 llegan con las ordenes que separan (ver el
+registro, paso 2) y se escriben encima de `separacion()`.
 
 La CLI local actua como el operador del fichero (`por=None`, actor
 'sistema'): quien la ejecuta ya tiene la base. Las personas con nombre y
@@ -72,8 +75,13 @@ class PermisoDenegado(PermissionError):
         self.registrada = False
 
 
-class SeparacionDeFunciones(PermissionError):
-    """La misma persona no puede hacer y revisar cuando hay otra que puede."""
+class SeparacionDeFunciones(PermisoDenegado):
+    """La misma persona no puede hacer y revisar cuando hay otra que puede.
+
+    Es una denegacion como las demas: queda en la auditoria con resultado
+    'denegado' (un intento de aprobarse a uno mismo tiene que verse), y quien
+    captura PermisoDenegado la captura tambien.
+    """
 
 
 def _ahora(conn: sqlite3.Connection) -> str:

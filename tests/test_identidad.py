@@ -107,3 +107,18 @@ def test_el_objeto_por_codigo_o_alias(db) -> None:
     anadir_alias(db, "objeto", "Rijnhaven Oost", rijnhaven, origen)
     assert resolver_objeto(db, "rijnhaven oost").fila_id == rijnhaven
     assert resolver_objeto(db, None).fila_id is None
+
+
+@pytest.mark.parametrize("kvk, btw", [
+    ("8765-4321", "NL/001234567/B01"),
+    ("KvK 87654321", "nl 001234567 b01"),
+    ("8765.4321", "NL_001234567_B01"),
+])
+def test_el_maestro_se_normaliza_como_el_documento(db, kvk, btw) -> None:
+    """Un maestro escrito con otros separadores sigue siendo el mismo numero, y exacto."""
+    origen = Automatico("maestro", usuario_sistema(db, "importador"))
+    proveedor = campos.crear(db, "proveedor", {"nombre": "Van Dijk", "kvk": kvk, "btw_id": btw},
+                             origen)
+    assert resolver_parte(db, "proveedor", kvk="87654321").fila_id == proveedor
+    assert resolver_parte(db, "proveedor", btw="NL001234567B01").fila_id == proveedor
+    assert resolver_parte(db, "proveedor", kvk="87654322").fila_id is None

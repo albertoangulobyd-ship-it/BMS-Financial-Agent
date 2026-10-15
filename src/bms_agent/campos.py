@@ -16,7 +16,9 @@ Como decide `fijar` el origen de cada valor (spec §6):
 
 - Una fuente automatica (extraccion, importacion, planning, maestro,
   calculado) nunca pisa un valor manual: solo actualiza valor_automatico, y
-  si los dos no coinciden el campo queda "sin resolver" (M1).
+  si los dos no coinciden el campo queda "sin resolver" (M1). Una
+  verificacion se hizo frente a la lectura de entonces: un automatico nuevo
+  que contradice el valor manual la deja sin efecto, y vuelve M1.
 - Un valor de una persona es manual_entrada si el campo no tenia original
   automatico, y manual_correccion si lo tenia. Lo decide el sistema, no
   quien edita. Cambiar un valor que ya existe exige el permiso de corregir y
@@ -26,6 +28,12 @@ Como decide `fijar` el origen de cada valor (spec §6):
 - Un campo cuyo dueno es Exact o TRNSPRNT (el maestro o la factura vienen de
   alli) no se edita aqui: la correccion va en ese sistema.
 - El valor original y su literal impreso no cambian nunca.
+- Crear una fila pide lo mismo que fijar sus campos despues: el permiso
+  propio de cada campo, nada que no se edite y la atribucion 'manual'.
+
+Cada orden lleva en su evento la foto de cada procedencia que escribe; la
+guarda de procedencia_campo exige que la fila sea esa foto, y
+`verificar_controladas` compara despues cada fila con la ultima.
 
 El registro (REGISTRO) dice de cada campo su tipo, si es obligatorio en cada
 sentido, si se puede editar, que permiso hace falta para suplirlo y para
@@ -114,6 +122,10 @@ class Conflicto(RuntimeError):
     """La fila cambio desde que quien edita la leyo (rev distinta)."""
 
 
+class FusionNoValida(ValueError):
+    """Una factura solo se fusiona en otra de su mismo sentido y su misma parte, sin cadenas."""
+
+
 # ------------------------------------------------------------ registro
 
 Calculo = Callable[["Contexto"], Any]
@@ -131,6 +143,8 @@ class Campo:
     permiso_corregir: str | None = None
     externo: bool = False          # su dueno es Exact/TRNSPRNT cuando la fila viene de alli
     critico: bool = False
+    propio: bool = False           # tiene su propio permiso, no el de su tabla
+    motivo_siempre: bool = False   # cambiarlo pide motivo aunque este vacio (ciclo de vida)
     calculo: Calculo | None = None
     depende_de: tuple[str, ...] = ()          # campos de la misma fila
     depende_del_padre: tuple[str, ...] = ()   # campos de la fila padre (PADRES)
@@ -165,6 +179,7 @@ def _tabla(
     return {
         nombre: Campo(
             tabla=tabla, nombre=nombre, tipo=opciones.pop("tipo"),
+            propio="suplir" in opciones or "corregir" in opciones,
             permiso_suplir=opciones.pop("suplir", suplir),
             permiso_corregir=opciones.pop("corregir", corregir),
             **opciones,
@@ -448,11 +463,14 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "kor_mencionada": _r(BOOL, externo=True),
         "autoliquidacion_mencionada": _r(BOOL, externo=True),
         "referencia_pago": _r(TEXTO, externo=True),
-        "iban_doc": _r(TEXTO, critico=True, externo=True),
+        # El IBAN impreso es evidencia, no un dato que se arregla: una persona
+        # no lo edita (se verifica o se rechaza el IBAN, paso 5), asi que F3
+        # nunca deja de ver lo que dice el documento.
+        "iban_doc": _r(TEXTO, critico=True, externo=True, **_FIJO),
         "moneda_doc": _r(TEXTO, **_FIJO),
         "notas_doc": _r(TEXTO, **_FIJO),
-        "anulada": _r(BOOL, suplir=_ANULAR, corregir=_ANULAR, defecto=0),
-        "fusionada_en_id": _r(REF, suplir=_ANULAR, corregir=_ANULAR),
+        "anulada": _r(BOOL, suplir=_ANULAR, corregir=_ANULAR, defecto=0, motivo_siempre=True),
+        "fusionada_en_id": _r(REF, suplir=_ANULAR, corregir=_ANULAR, motivo_siempre=True),
     }, suplir=_SUPLIR, corregir=_EDITAR),
     "factura_linea": _tabla("factura_linea", {
         "factura_id": _r(REF, **_FIJO),
@@ -501,7 +519,7 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "tipo_turno": _r(TEXTO, calculo=_tipo_turno, depende_del_padre=("tipo_turno_doc",)),
         "facturable": _r(BOOL),
         "retirada_en": _r(INSTANTE, **_FIJO),
-    }, suplir=_EDITAR, corregir=_EDITAR),
+    }, suplir=_SUPLIR, corregir=_EDITAR),
     "factura_iva": _tabla("factura_iva", {
         "factura_id": _r(REF, **_FIJO),
         "tipo_iva_pb": _r(PB, externo=True),
@@ -546,6 +564,34 @@ PERMISO_ALTA: dict[str, str | None] = {
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
 }
+
+# Lo que no se edita pero si da quien crea una fila a mano: a que fila
+# pertenece y a que apunta. El resto de los campos que no se editan (los
+# calculos, la huella, la retirada, los ids de Exact y TRNSPRNT) no los pone
+# una persona ni al crear.
+ESTRUCTURA: dict[str, frozenset[str]] = {
+    "contacto": frozenset({"proveedor_id", "cliente_id"}),
+    "alias": frozenset({"tabla"}),
+    "tarifa_acordada": frozenset({"sentido", "documento_id"}),
+    "factura_linea": frozenset({"factura_id", "orden"}),
+    "factura_imputacion": frozenset({"factura_id", "linea_id"}),
+    "factura_iva": frozenset({"factura_id"}),
+    "factura_referencia": frozenset({"factura_id", "linea_id"}),
+    "factura_relacion": frozenset({"origen_id", "destino_id"}),
+}
+
+# La columna que dice de donde viene una fila, y lo que vale cuando la crea
+# una persona. Nadie firma a mano una fila como de Exact, del maestro o de
+# la configuracion.
+ATRIBUCION: dict[str, tuple[str, str]] = {
+    "alias": ("origen", OrigenAlias.MANUAL.value),
+    "tarifa_acordada": ("fuente", FuenteTarifa.MANUAL.value),
+    "factura_relacion": ("fuente", FuenteRelacion.MANUAL.value),
+}
+
+# Las hijas de una factura que son del dueno de la factura: si la factura es
+# de Exact o de TRNSPRNT, una persona no les anade ni les quita filas.
+HIJAS_DEL_DUENO = ("factura_linea", "factura_iva", "factura_referencia")
 
 # Como se retira una fila: con una marca de tiempo o desactivandola.
 RETIRADA: dict[str, str] = {
@@ -735,6 +781,15 @@ _COLUMNAS_PROCEDENCIA = (
     "dudoso", "rev_campo", "cambiado_en", "cambiado_por", "verificado_por", "verificado_en",
     "verificado_rev",
 )
+_ORIGINALES = ("valor_original", "valor_original_crudo", "fuente_original")
+
+# La clave de los datos del evento con la foto de cada procedencia que la
+# orden escribe ("tabla:fila_id:campo" -> sus columnas).
+FOTOS_PROCEDENCIA = "procedencia"
+
+
+def clave_procedencia(tabla: str, fila_id: int, nombre: str) -> str:
+    return f"{tabla}:{fila_id}:{nombre}"
 
 
 class Orden:
@@ -820,6 +875,7 @@ class Orden:
             raise KeyError(f"{tabla} no tiene los campos {', '.join(sorted(desconocidos))}")
         if isinstance(self.origen, Persona):
             self._exigir(_permiso_alta(tabla, valores), f"dar de alta {tabla}")
+            valores = self._alta_de_persona(tabla, valores)
         fila_id = self._nuevo_id(tabla)
         estado = _Fila(tabla, fila_id, True, 0, {c: None for c in REGISTRO[tabla]}, {}, {})
         self._filas[(tabla, fila_id)] = estado
@@ -839,6 +895,45 @@ class Orden:
                 self._poner(estado, nombre, Leido(definicion.defecto, ref="defecto"),
                             Automatico(Fuente.CALCULADO.value, self.actor), alta=True)
         return fila_id
+
+    def _alta_de_persona(self, tabla: str, valores: Mapping[str, Any]) -> dict[str, Any]:
+        """Lo que una persona puede dar al crear una fila: lo mismo que podria fijar despues.
+
+        El permiso de la tabla (PERMISO_ALTA) cubre el contenido corriente de
+        la fila; un campo con permiso propio (la PO, el Objeto, el telefono de
+        verificacion) lo pide tambien al crear, porque si no crear seria la
+        forma de saltarselo. Un campo que no se edita no se da, salvo la
+        estructura; la atribucion es siempre 'manual'; y una hija de una
+        factura de Exact o de TRNSPRNT no se crea aqui.
+        """
+        salida = dict(valores)
+        atribucion = ATRIBUCION.get(tabla)
+        if atribucion is not None:
+            columna, manual = atribucion
+            dado = salida.get(columna)
+            if dado is not None and str(getattr(dado, "value", dado)) != manual:
+                raise CampoNoEditable(
+                    f"{tabla}.{columna} de una fila creada a mano es {manual!r}, no {dado!r}")
+            salida[columna] = manual
+        if tabla in HIJAS_DEL_DUENO and salida.get("factura_id") is not None:
+            dueno = self._dueno(self._cargar("factura", salida["factura_id"]))
+            if dueno is not None:
+                raise CampoDeOtroSistema(
+                    f"la factura {salida['factura_id']} viene de {dueno}: sus {tabla} se "
+                    "cambian alli")
+        estructura = ESTRUCTURA.get(tabla, frozenset())
+        for nombre, valor in salida.items():
+            definicion = REGISTRO[tabla][nombre]
+            if valor is None or nombre in estructura or (
+                    atribucion is not None and nombre == atribucion[0]):
+                continue
+            if not definicion.editable:
+                raise CampoNoEditable(
+                    f"{tabla}.{nombre} lo pone el sistema: tampoco se da al crear la fila")
+            if definicion.propio:
+                self._exigir(_permiso(definicion, salida, corregir=False),
+                             f"rellenar {tabla}.{nombre}")
+        return salida
 
     def fijar(self, tabla: str, fila_id: int, valores: Mapping[str, Any],
               *, rev_esperada: int | None = None) -> None:
@@ -870,6 +965,10 @@ class Orden:
             self._exigir(_permiso_alta(tabla, estado.valores), f"retirar {tabla}")
             if not (self.origen.motivo or "").strip():
                 raise FaltaMotivo(f"retirar {tabla} {fila_id} exige un motivo")
+            dueno = self._dueno(estado)
+            if dueno is not None:
+                raise CampoDeOtroSistema(
+                    f"{tabla} {fila_id} viene de {dueno}: se retira alli")
         if (tabla, fila_id) not in self._orden:
             self._orden.append((tabla, fila_id))
         if self.tabla is None:
@@ -878,6 +977,13 @@ class Orden:
         if estado.valores[columna] not in (None, 1):
             return                                    # ya estaba retirada
         self._poner(estado, columna, valor, self.origen, forzar=True)
+        # Una linea excluida no puede seguir imputada: sus imputaciones se
+        # retiran con ella, en la misma orden y con el mismo motivo, como hace
+        # la ingesta con una linea que desaparece.
+        for tabla_hija, (tabla_padre, columna_padre) in PADRES.items():
+            if tabla_padre == tabla:
+                for hija in self._hijas_activas(tabla_hija, columna_padre, fila_id):
+                    self.retirar(tabla_hija, hija)
 
     def recalcular(self, tabla: str, fila_id: int, nombres: tuple[str, ...] | None = None) -> None:
         """Vuelve a calcular los campos calculados de una fila (por defecto, todos).
@@ -925,8 +1031,9 @@ class Orden:
             decision = separacion(self.conn, permiso, autor, self.origen.usuario_id)
             if decision == "denegado":
                 raise SeparacionDeFunciones(
+                    self.origen.usuario_id, permiso,
                     f"{tabla}.{nombre} lo cambio esta misma persona y hay otra con el permiso "
-                    f"{permiso}: lo verifica la otra")
+                    f"{permiso}: lo verifica la otra", f"verificar {tabla}.{nombre}")
             if decision == "autorrevisado":
                 self._autorrevisados.append(f"{tabla}:{fila_id}:{nombre}")
             procedencia.update(verificado_por=self.origen.usuario_id, verificado_en=self.ahora,
@@ -1023,8 +1130,16 @@ class Orden:
         automatico = {"valor_automatico": _json(valor), "fuente_automatica": origen.fuente,
                       "fuente_automatica_ref": ref}
         if procedencia["fuente"] not in FUENTES_AUTOMATICAS:
-            # Lo manual gana: el automatico solo se apunta.
+            # Lo manual gana: el automatico solo se apunta. Si el automatico
+            # nuevo contradice el valor manual y no es el que habia cuando se
+            # verifico, la verificacion ya no vale: se verifico frente a otra
+            # lectura, y el campo vuelve a estar sin resolver (M1).
             nuevo = {**automatico, "dudoso": int(leido.dudoso)}
+            if (procedencia["verificado_por"] is not None
+                    and automatico["valor_automatico"] is not None
+                    and automatico["valor_automatico"] != procedencia["valor_automatico"]
+                    and automatico["valor_automatico"] != procedencia["valor_actual"]):
+                nuevo.update(verificado_por=None, verificado_en=None, verificado_rev=None)
             if any(procedencia[c] != v for c, v in nuevo.items()):
                 procedencia.update(nuevo)
                 estado.procedencia_tocada.add(nombre)
@@ -1102,9 +1217,14 @@ class Orden:
                                                  procedencia["fuente"] if procedencia else None))
             return False
         motivo = (persona.motivo or "").strip()
+        if definicion.motivo_siempre and not motivo:
+            raise FaltaMotivo(
+                f"{estado.tabla}.{nombre} cambia la vida de la fila: exige un motivo")
         if (actual is not None or fuente == Fuente.MANUAL_CORRECCION.value) and not motivo:
             raise FaltaMotivo(
                 f"cambiar {estado.tabla}.{nombre} exige un motivo: ya tenia un valor")
+        if estado.tabla == "factura" and nombre == "fusionada_en_id" and valor is not None:
+            self._comprobar_fusion(estado, valor)
 
         rev = self._rev_nueva(estado)
         if procedencia is None:
@@ -1128,6 +1248,41 @@ class Orden:
         estado.valores[nombre] = valor
         self.resultado.efectos.append(Efecto(estado.tabla, estado.id, nombre, accion, fuente))
         return valor != actual
+
+    def _comprobar_fusion(self, estado: _Fila, destino_id: int) -> None:
+        """Una fusion une un duplicado con su factura: mismo sentido, misma parte, sin cadenas.
+
+        Sin esto, fusionar serviria para quitar de en medio cualquier factura
+        (la de un proveedor en la de otro, o dos entre si). La parte tiene que
+        estar resuelta en las dos: dos facturas sin proveedor no se sabe que
+        sean del mismo. La migracion 0002 lo exige tambien con un disparador.
+        """
+        destino = self._cargar("factura", destino_id).valores
+        sentido = estado.valores["sentido"]
+        parte = "proveedor_id" if sentido == Sentido.ENTRANTE.value else "cliente_id"
+        fusionadas_aqui = [i for (t, i), e in self._filas.items()
+                           if t == "factura" and i != estado.id
+                           and e.valores.get("fusionada_en_id") == estado.id]
+        if not fusionadas_aqui:
+            fusionadas_aqui = [f[0] for f in self.conn.execute(
+                "SELECT id FROM factura WHERE fusionada_en_id = ? AND id <> ?",
+                (estado.id, estado.id))]
+        problema = None
+        if destino_id == estado.id:
+            problema = "una factura no se fusiona en si misma"
+        elif destino.get("fusionada_en_id") is not None:
+            problema = (f"la factura {destino_id} ya esta fusionada en la "
+                        f"{destino['fusionada_en_id']}: se fusiona en esa")
+        elif fusionadas_aqui:
+            problema = (f"en la factura {estado.id} hay otras fusionadas "
+                        f"({', '.join(map(str, fusionadas_aqui))}): no se encadenan")
+        elif destino.get("sentido") != sentido:
+            problema = "una compra y una venta no se fusionan"
+        elif estado.valores.get(parte) is None or destino.get(parte) != estado.valores.get(parte):
+            problema = (f"las dos facturas tienen que ser del mismo {parte[:-3]}, "
+                        "y estar resuelto en las dos")
+        if problema is not None:
+            raise FusionNoValida(problema)
 
     def _rev_nueva(self, estado: _Fila) -> int:
         return 0 if estado.nueva else estado.rev + 1
@@ -1188,7 +1343,7 @@ class Orden:
 
     def escribir(self) -> ResultadoOrden:
         cambios: list[Cambio] = []
-        solo_procedencia: list[str] = []
+        fotos: dict[str, dict[str, Any]] = {}
         for clave in self._orden:
             estado = self._filas[clave]
             factura_id = _factura_de(estado)
@@ -1206,15 +1361,19 @@ class Orden:
                         motivo=_motivo_de(self.origen, procedencia),
                         factura_id=factura_id,
                     ))
-                elif nombre in estado.procedencia_tocada:
-                    solo_procedencia.append(f"{estado.tabla}:{estado.id}:{nombre}")
+                if nombre in estado.procedencia_tocada:
+                    fotos[clave_procedencia(estado.tabla, estado.id, nombre)] = {
+                        c: procedencia[c] for c in _COLUMNAS_PROCEDENCIA}
         nuevas = [self._filas[c] for c in self._orden if self._filas[c].nueva]
-        if not cambios and not solo_procedencia and not nuevas:
+        if not cambios and not fotos and not nuevas:
             return self.resultado
 
         datos = dict(self.datos)
-        if solo_procedencia:
-            datos["campos"] = sorted(solo_procedencia)
+        if fotos:
+            # La procedencia de cada campo tocado, tal como queda: la guarda de
+            # procedencia_campo exige que la fila sea esta foto, y como el
+            # evento esta en la cadena, db verificar puede comparar despues.
+            datos[FOTOS_PROCEDENCIA] = fotos
         if self._autorrevisados:
             datos["autorrevisados"] = sorted(self._autorrevisados)
         persona = self.origen if isinstance(self.origen, Persona) else None
@@ -1271,8 +1430,7 @@ class Orden:
                     f"VALUES ({', '.join('?' * len(columnas))})",
                     (estado.tabla, estado.id, nombre, *(fila[c] for c in _COLUMNAS_PROCEDENCIA)))
             else:
-                mutables = [c for c in _COLUMNAS_PROCEDENCIA if c not in (
-                    "valor_original", "valor_original_crudo", "fuente_original")]
+                mutables = [c for c in _COLUMNAS_PROCEDENCIA if c not in _ORIGINALES]
                 self.conn.execute(
                     f"UPDATE procedencia_campo SET {', '.join(f'{c} = ?' for c in mutables)} "
                     "WHERE tabla = ? AND fila_id = ? AND campo = ?",
@@ -1371,13 +1529,19 @@ def anadir_nota(conn: sqlite3.Connection, tabla: str, fila_id: int, texto: str,
     with orden_auditada(conn):
         exigir(conn, persona.usuario_id, _SUPLIR, accion="anadir una nota")
         factura_id = fila_id if tabla == "factura" else None
+        # La nota entra despues de su evento (la base lo exige), asi que su
+        # foto se escribe antes, con lo que va a tener: es evidencia, y db
+        # verificar la compara con la fila (almacen/evidencia.py).
+        fila = {"tabla": tabla, "fila_id": fila_id, "texto": texto,
+                "usuario_id": persona.usuario_id, "en": marca(reloj_de(conn).ahora())}
         evento = registrar(conn, tipo="nota_anadida", actor=persona.usuario_id,
                            usuario_id=persona.usuario_id, tabla=tabla, fila_id=fila_id,
-                           factura_id=factura_id, peticion_id=persona.peticion_id)
+                           factura_id=factura_id, peticion_id=persona.peticion_id,
+                           datos={"fila": fila})
         cursor = conn.execute(
             "INSERT INTO nota (tabla, fila_id, texto, usuario_id, en, evento_id) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (tabla, fila_id, texto, persona.usuario_id, marca(reloj_de(conn).ahora()), evento))
+            "VALUES (:tabla, :fila_id, :texto, :usuario_id, :en, :evento_id)",
+            {**fila, "evento_id": evento})
         return int(cursor.lastrowid)
 
 
@@ -1450,9 +1614,11 @@ def verificar_controladas(conn: sqlite3.Connection) -> list[str]:
 
     Cada columna tiene que valer lo que dejo su ultimo cambio_campo, la rev
     de la fila tiene que ser la del ultimo cambio, y la procedencia de cada
-    campo tiene que decir el mismo valor y la misma fuente. Asi se ve una
-    fila editada por detras (con los disparadores borrados), una metida sin
-    su historia o una procedencia retocada para esconder un valor manual.
+    campo tiene que decir el mismo valor y la misma fuente, y ser entera la
+    ultima foto que dejo un evento de ella (`verificar_procedencia`). Asi se
+    ve una fila editada por detras (con los disparadores borrados), una
+    metida sin su historia, una procedencia retocada para esconder un valor
+    manual, un original reescrito o una verificacion inventada.
     """
     problemas: list[str] = []
     for tabla, campos in REGISTRO.items():
@@ -1503,4 +1669,64 @@ def verificar_controladas(conn: sqlite3.Connection) -> list[str]:
                         f"{tabla} {fila['id']}: {nombre} tiene valor y no tiene procedencia")
         for fila_id in sorted(set(revs) - existentes):
             problemas.append(f"{tabla} {fila_id} tiene historia y ya no existe: se ha borrado")
+    return problemas + verificar_procedencia(conn)
+
+
+def _fotos_de_procedencia(
+    conn: sqlite3.Connection,
+) -> dict[str, list[tuple[sqlite3.Row, dict[str, Any]]]]:
+    """Cada foto de procedencia de la auditoria, por campo y en orden, con su evento."""
+    fotos: dict[str, list[tuple[sqlite3.Row, dict[str, Any]]]] = {}
+    for evento in conn.execute(
+        "SELECT id, tipo, actor, usuario_id, datos_json FROM evento "
+        "WHERE json_type(datos_json, ?) = 'object' ORDER BY id", (f"$.{FOTOS_PROCEDENCIA}",),
+    ):
+        for clave, foto in json.loads(evento["datos_json"])[FOTOS_PROCEDENCIA].items():
+            fotos.setdefault(clave, []).append((evento, foto))
+    return fotos
+
+
+def verificar_procedencia(conn: sqlite3.Connection) -> list[str]:
+    """Que cada procedencia sea la ultima foto suya que dejo un evento, y nada mas.
+
+    Cada orden de campos.py pone en su evento la foto de cada procedencia que
+    escribe, y el evento esta en la cadena. Asi, sin fiarse de los
+    disparadores, se ve una procedencia metida o borrada por detras, una
+    columna cambiada (el valor automatico, la marca de dudoso, quien
+    verifico), un original que ya no es el de la primera foto, y una
+    verificacion que no hizo la persona que dice: el evento en el que
+    aparece tiene que ser de esa persona.
+    """
+    problemas: list[str] = []
+    fotos = _fotos_de_procedencia(conn)
+    vistas = set()
+    for fila in conn.execute("SELECT * FROM procedencia_campo ORDER BY id"):
+        clave = clave_procedencia(fila["tabla"], fila["fila_id"], fila["campo"])
+        vistas.add(clave)
+        historia = fotos.get(clave)
+        if not historia:
+            problemas.append(f"la procedencia de {clave} no tiene evento: se ha metido por detras")
+            continue
+        ultimo, foto = historia[-1]
+        distintas = [c for c in _COLUMNAS_PROCEDENCIA if foto.get(c) != fila[c]]
+        if distintas:
+            problemas.append(
+                f"la procedencia de {clave}: {', '.join(distintas)} no es lo que registro el "
+                f"evento {ultimo['id']} (se ha modificado por detras)")
+        primera = historia[0][1]
+        if any(f.get(c) != primera.get(c) for _e, f in historia for c in _ORIGINALES):
+            problemas.append(f"la procedencia de {clave}: el original cambio entre sus eventos")
+        antes: tuple[Any, Any] = (None, None)
+        for evento, f in historia:
+            ahora = (f.get("verificado_por"), f.get("verificado_en"))
+            if ahora[0] is not None and ahora != antes and (
+                    evento["usuario_id"] != ahora[0] or evento["actor"] != ahora[0]):
+                problemas.append(
+                    f"la procedencia de {clave}: la verificacion del evento {evento['id']} "
+                    f"no la hizo la persona {ahora[0]}")
+            antes = ahora
+    for clave in sorted(set(fotos) - vistas):
+        problemas.append(
+            f"la procedencia de {clave} la registro el evento {fotos[clave][0][0]['id']} "
+            "y ya no existe: se ha borrado")
     return problemas

@@ -17,7 +17,7 @@
 --     <tabla>_sin_delete: una fila no se borra; se retira (retirada_en) o se
 --     desactiva (activo = 0).
 --   procedencia_campo: una fila por campo, mutable, pero solo dentro de un
---     evento que nombra ese campo (por un cambio_campo o en datos.campos).
+--     evento que lleva su foto (datos.procedencia).
 --   SOLO ESCRITURA: nota.
 --
 -- "Evento en curso" es el ultimo evento: campos.py registra primero el evento
@@ -183,7 +183,8 @@ CREATE TABLE tarifa_acordada (
 -- interpreta. iban_doc es lo que dice el documento; nunca se usa para pagar.
 -- No hay clave unica de (proveedor, numero) a proposito: B2 tiene que poder
 -- ver un duplicado. Una factura fusionada en otra conserva su fila con
--- fusionada_en_id y queda fuera de todos los totales.
+-- fusionada_en_id; sale de los totales con el motor de reglas (paso 3), y
+-- nunca de los avisos.
 CREATE TABLE factura (
     id                         INTEGER PRIMARY KEY,
     sentido                    TEXT NOT NULL CHECK (sentido IN ('entrante', 'saliente')),
@@ -256,6 +257,32 @@ CREATE TRIGGER factura_extraccion_del_documento_update BEFORE UPDATE OF extracci
 WHEN NEW.extraccion_vigente_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM extraccion WHERE id = NEW.extraccion_vigente_id AND documento_id = NEW.documento_id)
 BEGIN SELECT RAISE(ABORT, 'la extraccion vigente no es de este documento'); END;
+
+-- Fusionar es unir un duplicado con su factura, no una forma de quitar una
+-- factura de en medio: mismo sentido, misma parte (resuelta en las dos), y
+-- sin cadenas ni ciclos (la de destino no esta fusionada, y en la que se
+-- fusiona no hay otras).
+CREATE TRIGGER factura_fusion_valida BEFORE INSERT ON factura
+WHEN NEW.fusionada_en_id IS NOT NULL AND (
+    (SELECT fusionada_en_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NULL
+    OR EXISTS (SELECT 1 FROM factura WHERE fusionada_en_id = NEW.id AND id <> NEW.id)
+    OR (SELECT sentido FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.sentido
+    OR (NEW.sentido = 'entrante' AND (NEW.proveedor_id IS NULL
+        OR (SELECT proveedor_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.proveedor_id))
+    OR (NEW.sentido = 'saliente' AND (NEW.cliente_id IS NULL
+        OR (SELECT cliente_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.cliente_id)))
+BEGIN SELECT RAISE(ABORT, 'una factura se fusiona en otra de su sentido y su misma parte, que no este fusionada, y sin cadenas'); END;
+
+CREATE TRIGGER factura_fusion_valida_update BEFORE UPDATE OF fusionada_en_id ON factura
+WHEN NEW.fusionada_en_id IS NOT NULL AND (
+    (SELECT fusionada_en_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NULL
+    OR EXISTS (SELECT 1 FROM factura WHERE fusionada_en_id = NEW.id AND id <> NEW.id)
+    OR (SELECT sentido FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.sentido
+    OR (NEW.sentido = 'entrante' AND (NEW.proveedor_id IS NULL
+        OR (SELECT proveedor_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.proveedor_id))
+    OR (NEW.sentido = 'saliente' AND (NEW.cliente_id IS NULL
+        OR (SELECT cliente_id FROM factura WHERE id = NEW.fusionada_en_id) IS NOT NEW.cliente_id)))
+BEGIN SELECT RAISE(ABORT, 'una factura se fusiona en otra de su sentido y su misma parte, que no este fusionada, y sin cadenas'); END;
 
 -- Lo que dice el papel, linea a linea; las reglas de aritmetica leen esto.
 -- orden es la posicion en la extraccion que la creo (1, 2, 3...).
@@ -453,19 +480,36 @@ CREATE TABLE procedencia_campo (
 
 CREATE INDEX procedencia_campo_fuente ON procedencia_campo (fuente);
 
--- Solo dentro del evento en curso, y solo si ese evento nombra el campo: por
--- un cambio_campo suyo, o en la lista datos.campos ("tabla:fila_id:campo"),
--- que es lo que usan una verificacion o un valor automatico que no gana.
+-- Solo dentro del evento en curso, y solo tal como lo dice ese evento: la orden
+-- pone en sus datos la foto de cada procedencia que escribe
+-- (datos.procedencia."tabla:fila_id:campo", todas sus columnas), y la fila
+-- tiene que ser exactamente esa foto. Asi ninguna columna (el valor
+-- automatico, la marca de dudoso, quien verifico) cambia sin que el evento
+-- diga a que valor, y db verificar puede comparar despues con la cadena.
 CREATE TRIGGER procedencia_campo_guarda_insert BEFORE INSERT ON procedencia_campo
 WHEN NOT EXISTS (
-        SELECT 1 FROM cambio_campo
-        WHERE evento_id = (SELECT max(id) FROM evento)
-          AND tabla = NEW.tabla AND fila_id = NEW.fila_id AND campo = NEW.campo)
- AND NOT EXISTS (
-        SELECT 1 FROM json_each(coalesce(
-            (SELECT datos_json FROM evento ORDER BY id DESC LIMIT 1), '{}'), '$.campos')
-        WHERE value = NEW.tabla || ':' || NEW.fila_id || ':' || NEW.campo)
-BEGIN SELECT RAISE(ABORT, 'procedencia_campo solo cambia dentro del evento que nombra ese campo'); END;
+        SELECT 1 FROM (
+            SELECT json_extract(datos_json, '$.procedencia."' || NEW.tabla || ':' || NEW.fila_id
+                                || ':' || NEW.campo || '"') AS f
+            FROM evento WHERE id = (SELECT max(id) FROM evento))
+        WHERE json_type(f) = 'object'
+          AND json_extract(f, '$.fuente') IS NEW.fuente
+          AND json_extract(f, '$.fuente_ref') IS NEW.fuente_ref
+          AND json_extract(f, '$.valor_actual') IS NEW.valor_actual
+          AND json_extract(f, '$.valor_original') IS NEW.valor_original
+          AND json_extract(f, '$.valor_original_crudo') IS NEW.valor_original_crudo
+          AND json_extract(f, '$.fuente_original') IS NEW.fuente_original
+          AND json_extract(f, '$.valor_automatico') IS NEW.valor_automatico
+          AND json_extract(f, '$.fuente_automatica') IS NEW.fuente_automatica
+          AND json_extract(f, '$.fuente_automatica_ref') IS NEW.fuente_automatica_ref
+          AND json_extract(f, '$.dudoso') IS NEW.dudoso
+          AND json_extract(f, '$.rev_campo') IS NEW.rev_campo
+          AND json_extract(f, '$.cambiado_en') IS NEW.cambiado_en
+          AND json_extract(f, '$.cambiado_por') IS NEW.cambiado_por
+          AND json_extract(f, '$.verificado_por') IS NEW.verificado_por
+          AND json_extract(f, '$.verificado_en') IS NEW.verificado_en
+          AND json_extract(f, '$.verificado_rev') IS NEW.verificado_rev)
+BEGIN SELECT RAISE(ABORT, 'procedencia_campo solo cambia dentro del evento que lleva su foto'); END;
 
 CREATE TRIGGER procedencia_campo_guarda_update BEFORE UPDATE ON procedencia_campo
 WHEN NEW.id IS NOT OLD.id OR NEW.tabla IS NOT OLD.tabla OR NEW.fila_id IS NOT OLD.fila_id
@@ -473,15 +517,29 @@ WHEN NEW.id IS NOT OLD.id OR NEW.tabla IS NOT OLD.tabla OR NEW.fila_id IS NOT OL
   OR NEW.valor_original IS NOT OLD.valor_original
   OR NEW.valor_original_crudo IS NOT OLD.valor_original_crudo
   OR NEW.fuente_original IS NOT OLD.fuente_original
-  OR (NOT EXISTS (
-        SELECT 1 FROM cambio_campo
-        WHERE evento_id = (SELECT max(id) FROM evento)
-          AND tabla = NEW.tabla AND fila_id = NEW.fila_id AND campo = NEW.campo)
-      AND NOT EXISTS (
-        SELECT 1 FROM json_each(coalesce(
-            (SELECT datos_json FROM evento ORDER BY id DESC LIMIT 1), '{}'), '$.campos')
-        WHERE value = NEW.tabla || ':' || NEW.fila_id || ':' || NEW.campo))
-BEGIN SELECT RAISE(ABORT, 'procedencia_campo solo cambia dentro del evento que nombra ese campo, y su original no cambia nunca'); END;
+  OR NOT EXISTS (
+        SELECT 1 FROM (
+            SELECT json_extract(datos_json, '$.procedencia."' || NEW.tabla || ':' || NEW.fila_id
+                                || ':' || NEW.campo || '"') AS f
+            FROM evento WHERE id = (SELECT max(id) FROM evento))
+        WHERE json_type(f) = 'object'
+          AND json_extract(f, '$.fuente') IS NEW.fuente
+          AND json_extract(f, '$.fuente_ref') IS NEW.fuente_ref
+          AND json_extract(f, '$.valor_actual') IS NEW.valor_actual
+          AND json_extract(f, '$.valor_original') IS NEW.valor_original
+          AND json_extract(f, '$.valor_original_crudo') IS NEW.valor_original_crudo
+          AND json_extract(f, '$.fuente_original') IS NEW.fuente_original
+          AND json_extract(f, '$.valor_automatico') IS NEW.valor_automatico
+          AND json_extract(f, '$.fuente_automatica') IS NEW.fuente_automatica
+          AND json_extract(f, '$.fuente_automatica_ref') IS NEW.fuente_automatica_ref
+          AND json_extract(f, '$.dudoso') IS NEW.dudoso
+          AND json_extract(f, '$.rev_campo') IS NEW.rev_campo
+          AND json_extract(f, '$.cambiado_en') IS NEW.cambiado_en
+          AND json_extract(f, '$.cambiado_por') IS NEW.cambiado_por
+          AND json_extract(f, '$.verificado_por') IS NEW.verificado_por
+          AND json_extract(f, '$.verificado_en') IS NEW.verificado_en
+          AND json_extract(f, '$.verificado_rev') IS NEW.verificado_rev)
+BEGIN SELECT RAISE(ABORT, 'procedencia_campo solo cambia dentro del evento que lleva su foto, y su original no cambia nunca'); END;
 
 CREATE TRIGGER procedencia_campo_sin_delete BEFORE DELETE ON procedencia_campo
 BEGIN SELECT RAISE(ABORT, 'procedencia_campo no se borra'); END;

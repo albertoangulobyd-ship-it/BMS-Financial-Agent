@@ -565,8 +565,10 @@ están al lado de la base. Como `out/` sigue siendo la fuente, se rehacen con
 ## Paso 2
 
 Núcleo tipado, una sola vía de escritura, procedencia de cada campo y
-permisos. **537 tests pasan** (385 funciones de test; eran 414 y 295),
-ninguno llama a la API y ninguno escribe fuera de una carpeta temporal.
+permisos. **582 tests pasan** (406 funciones de test; eran 414 y 295 al
+terminar el paso 1, y 537 y 385 antes de la revisión), ninguno llama a la
+API y ninguno escribe fuera de una carpeta temporal. Lo que cambió con la
+revisión está al final, en «Correcciones de la revisión».
 
 ### Qué se construyó
 
@@ -715,16 +717,21 @@ y `db verificar`.
 9. **El motivo se exige al cambiar cualquier valor que ya existe** (también
    una entrada manual sobre otra, deshacer y retirar una fila), no solo en
    `manual_correccion`. Rellenar un campo vacío sin original automático no
-   lo pide. Es la lectura prudente de la pregunta 10 del §12, que sigue
-   abierta.
+   lo pide, salvo los campos del ciclo de vida de la factura (`anulada`,
+   `fusionada_en_id`, marcados `motivo_siempre`), que lo piden siempre. Es
+   la lectura prudente de la pregunta 10 del §12, que sigue abierta.
 10. **Suplir o corregir, para el permiso**: corrige quien cambia un valor
     que existe o un campo con original automático (también un literal
     ilegible: arreglar una mala lectura es corregir la extracción, y pide
     `editar_extraccion`). Imputar a un Objeto o a un recurso pide
     `cambiar_objeto`; una PO o la clase de una referencia, `cambiar_po`;
     anular o fusionar, `anular_acreditar`; los maestros, `admin`, salvo el
-    teléfono de verificación, que pide `confirmar_iban`. Nadie crea una
-    factura a mano (llega por un documento o por una importación).
+    teléfono de verificación, que pide `confirmar_iban`. Rellenar un campo
+    vacío de una imputación (`facturable`, por ejemplo) es
+    `anadir_informacion`, como en el resto de la factura; crearla o
+    dividirla sigue siendo `editar_extraccion`. Nadie crea una factura a
+    mano (llega por un documento o por una importación). El IBAN impreso
+    (`iban_doc`) no lo edita nadie: es evidencia (ver las correcciones).
 11. **Dueño Exact o TRNSPRNT**: una fila es de Exact o de TRNSPRNT cuando
     tiene su `exact_id`/`trnsprnt_id` o la factura tiene ese `origen`; sus
     campos marcados como `externo` no los edita una persona, y una fuente
@@ -736,11 +743,15 @@ y `db verificar`.
     del `ROLLBACK` cuando es la transacción de fuera.
 13. **La extracción vigente** sigue la regla de `load_records` (la más
     reciente), y una nueva se aplica como fuente automática: lo corregido se
-    queda y su nuevo valor automático queda apuntado. Las líneas se casan por
-    posición entre las que puso una extracción; las que ya no vienen se
-    retiran salvo que una persona las editara (se conservan, se dice en el
-    resultado y en el evento). El paso 6 cambia esto por la puerta de
-    activación y el casado por huella.
+    queda y su nuevo valor automático queda apuntado. Las líneas, las
+    referencias y el desglose de IVA se casan por posición entre **todas**
+    las filas que puso una extracción, también las que una persona editó o
+    excluyó (una excluida recibe los valores nuevos y sigue excluida); no
+    cuentan las que retiró una extracción anterior porque ya no venían. Las
+    que ya no vienen se retiran salvo que una persona las editara (se
+    conservan, se dice en el resultado y en el evento). Una referencia de
+    línea se ata a la línea con la que casó su índice. El paso 6 cambia esto
+    por la puerta de activación y el casado por huella.
 14. **`registros_resueltos` saca el literal de la extracción vigente**,
     guiado por la referencia de la procedencia (`extraccion:N` en la
     cabecera, `extraccion:N:lines[i]` en una línea), no de
@@ -779,7 +790,10 @@ y `db verificar`.
     `panel`, `report` y `export`: si no, el sitio propio y el panel
     enseñarían cosas distintas. `/api/datos` sigue dando la foto de
     referencia sin correcciones (probado). `score` y `coste` siguen en
-    `out/`: miden extracciones, no facturas.
+    `out/`: miden extracciones, no facturas. En `panel`, `report`, `export`
+    y `simulador`, un `--out` explícito sin `--db` lee esa carpeta tal cual
+    (y lo dice); con `--db`, manda el almacén y se avisa de que `--out` no
+    se usa; sin ninguno, el almacén por defecto o, si no existe, `out/`.
 22. **La CLI local actúa como el operador del fichero** (`por=None`, actor
     `sistema`) al crear personas y roles: quien la ejecuta ya tiene la base.
     Los tokens de las personas llegan con el servidor (paso 4).
@@ -843,7 +857,16 @@ y `db verificar`.
   `campos`); `servicios.py` (paso 4) envuelve sus órdenes en
   `campos.orden`/`permisos.orden_auditada` para que la denegación quede.
   La separación de funciones es `permisos.separacion(conn, permiso, autor,
-  revisor)`.
+  revisor)`; una negativa es `SeparacionDeFunciones`, que es un
+  `PermisoDenegado` y queda en la auditoría igual. Los predicados SOD1–SOD5
+  se escriben encima de ella en el paso que trae cada orden (ver las
+  correcciones).
+- **Procedencia**: cada orden pone en su evento la foto de cada
+  procedencia que escribe (`datos.procedencia."tabla:fila:campo"`, todas
+  las columnas). La guarda de `procedencia_campo` exige que la fila sea
+  esa foto, y `campos.verificar_procedencia` (dentro de
+  `verificar_controladas`) compara cada fila con su última foto. Quien
+  escriba una procedencia fuera de `campos.orden` no puede: no hay atajo.
 - **Fixtures** (`tests/conftest.py`): `tipado` (las siete fixtures v1
   importadas y tipadas), `persona(conn, nombre, *roles)` y
   `factura_de(conn, numero)`.
@@ -851,3 +874,55 @@ y `db verificar`.
   extracción (8), la proyección de venta contra el almacén (9), el año de
   la semana impresa (10), el desglose de IVA de una factura v1 (11) y lo
   del panel de la desviación 24 (3).
+
+### Correcciones de la revisión
+
+La revisión del paso 2 dejó veinte hallazgos; varios eran el mismo visto
+desde dos sitios (M1 tras verificar, la separación de funciones sin
+auditar, la normalización de btw-id y KvK). Cada uno se reprodujo antes de
+tocarlo, con un test que falla con el commit del paso 2 y pasa ahora: 21
+funciones de test nuevas (45 casos), de las que 20 casos fallan con el
+commit anterior; los de `semana_iso` y `normalizar_referencia` ya pasaban,
+porque lo que faltaba era el test.
+Todos eran reales salvo una parte de uno (la línea conservada sin casar,
+abajo), que se deja para el paso 6 y se dice por qué.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| Una línea excluida volvía como activa tras otra extracción, y las de detrás se corrían un puesto | El casado por posición cuenta todas las líneas que puso una extracción, también las excluidas por una persona; una excluida casada recibe los valores nuevos y sigue excluida. `_crear_lineas` y el casado devuelven índice → línea, y las referencias de línea se atan con eso, no con `orden - 1` | `test_ingesta.py::test_una_linea_excluida_sigue_excluida_tras_otra_extraccion`, `test_una_referencia_de_linea_va_a_la_linea_con_la_que_caso` |
+| Una referencia o un IVA editados salían del casado, y los valores nuevos caían en la fila de al lado y duplicaban otra | `_actualizar_hijas` casa como las líneas (todas las filas de extracción, editadas o no); una editada que ya no viene se conserva y va en `filas_con_edicion_manual_sin_casar` del evento | `test_una_referencia_y_un_iva_editados_no_corren_a_los_demas` |
+| Un valor manual verificado no volvía a M1 cuando una extracción nueva lo contradecía (aparecía dos veces) | En la rama «lo manual gana», un automático nuevo distinto del anterior y del valor manual anula la verificación (`verificado_*` a NULL); `estado_campo` y `v_factura_ediciones` vuelven a dar sin resolver. La misma lectura otra vez no la anula | `test_campos.py::test_una_extraccion_que_contradice_lo_verificado_vuelve_a_m1` |
+| Excluir una línea dejaba su imputación activa | `Orden.retirar` retira también las hijas activas de `PADRES`, en la misma orden y con el mismo motivo; la ingesta ya no lo hace aparte | `test_retirar_una_linea_retira_su_imputacion` |
+| Corregir `factura.iban_doc` quitaba la parada F3 | `iban_doc` no es editable: es lo que dice el papel; se verifica o se rechaza el IBAN (paso 5), no se corrige. Verificar la lectura sigue siendo posible. `registros_resueltos` saca `iban` siempre del literal de la extracción vigente (`legado.IMPRESO`) | `test_el_iban_del_documento_no_se_corrige_y_f3_lo_sigue_viendo` |
+| Fusionar no pedía motivo, admitía ciclos y facturas de otro proveedor, y la fusionada desaparecía de todos los lectores | `anulada` y `fusionada_en_id` piden motivo siempre (`motivo_siempre`). `campos` (`FusionNoValida`) y dos disparadores nuevos de la 0002 (`factura_fusion_valida`, alta y cambio) exigen el mismo sentido, la misma parte resuelta en las dos, que el destino no esté fusionado y que en la fusionada no haya otras. `registros_resueltos` ya no quita las fusionadas: las reglas de hoy no saben de fusiones, y quitarla escondía sus avisos; sacarla de los totales y no de los avisos es del paso 3 | `test_fusionar_exige_motivo_misma_parte_y_sin_cadenas` |
+| Crear una fila se saltaba el permiso de cada campo, lo no editable y el dueño | `Orden._alta_de_persona`: un campo con permiso propio (`Campo.propio`: la PO, el Objeto, el teléfono de verificación…) lo pide también al crear; un campo no editable no se da salvo la estructura (`ESTRUCTURA`: a qué factura, línea o fila pertenece); la atribución (`ATRIBUCION`: `alias.origen`, `tarifa_acordada.fuente`, `factura_relacion.fuente`) es siempre `manual`; y una persona no crea ni retira hijas de una factura de Exact o TRNSPRNT (`HIJAS_DEL_DUENO`), ni retira una fila de otro sistema | `test_crear_una_fila_pide_lo_mismo_que_fijarla`, `test_las_lineas_de_una_factura_de_exact_no_se_tocan_aqui` |
+| `db verificar` no comprobaba el original, el valor automático ni la verificación de la procedencia, y la guarda dejaba cambiar cualquier columna si el último evento nombraba el campo | Cada orden pone en su evento la foto de cada procedencia que escribe (`datos.procedencia`, sustituye a `datos.campos`). Las guardas de `procedencia_campo` exigen que la fila sea exactamente esa foto. `campos.verificar_procedencia` compara cada fila con su última foto, que el original no cambie entre fotos, que una verificación nueva salga en un evento de la persona que verificó, y ve las metidas y las borradas | `test_db_verificar_ve_una_procedencia_reescrita_por_detras`, `test_la_guarda_de_procedencia_exige_la_foto_del_evento` |
+| Una negativa por separación de funciones no quedaba en la auditoría (aparecía dos veces) | `SeparacionDeFunciones` es un `PermisoDenegado` (con permiso y acción), así que `orden_auditada` la registra como cualquier denegación | `test_una_separacion_de_funciones_denegada_queda_en_la_auditoria` |
+| Rellenar un campo vacío de una imputación pedía `editar_extraccion` | `factura_imputacion` suple con `anadir_informacion` (§6); corregir, crear y dividir siguen en `editar_extraccion` | `test_rellenar_una_imputacion_es_anadir_informacion` |
+| `nota` y `politica_version` no se comprobaban contra su auditoría | Las dos están en `evidencia.COLUMNAS`/`EVENTOS`. La nota lleva su foto en `nota_anadida` (escrita antes de la fila, porque la fila va después de su evento; se enlaza por `nota.evento_id`, `evidencia.POR_EVENTO`, para que el evento siga siendo de la fila anotada y salga en su historial). La política lleva su foto en `politica_cargada`, y su texto se rehashea contra `sha256` como el de una extracción | `test_db_verificar_ve_una_nota_o_una_politica_tocadas_por_detras` |
+| btw-id y KvK se normalizaban distinto en el documento y en el maestro (aparecía dos veces) | `identidad._ids` normaliza los dos lados con `normalizar_btw`/`normalizar_kvk`, en Python: el maestro es pequeño y así no hay una cadena de `replace()` que se quede corta | `test_identidad.py::test_el_maestro_se_normaliza_como_el_documento` (tres formas) |
+| `sembrar` fallaba con una tarifa numérica en el YAML | El literal se guarda como el texto que leyó `parse_amount` (`str(...)`) | `test_una_tarifa_numerica_en_el_yaml_se_siembra` |
+| `panel`, `report`, `export` y `simulador` ignoraban un `--out` explícito si había almacén | `--out` ya no tiene valor por defecto en esas órdenes: explícito y sin `--db`, se lee esa carpeta y se dice; con `--db`, el almacén, y se avisa. `serve` no cambia: su `--out` es donde escribe las extracciones, que también entran en el almacén, así que `/api/datos` del almacén enseña lo mismo | `test_equivalencia_legado.py::test_un_out_pedido_se_lee_aunque_haya_almacen` |
+| `importar-out` ya no era una transacción | Importar y tipar van en una sola transacción de la orden; cada fichero y cada documento, en su SAVEPOINT (un documento que falla queda como error y no se lleva a los demás) | `test_importar_out_es_una_sola_transaccion` |
+| `semana_iso` y `normalizar_referencia` sin tests | Tests de los bordes de año ISO (2027-01-01 es 2026-W53, 2024-12-30 es 2025-W01), ceros a la izquierda, espacio duro y fino, mayúsculas, vacío y solo separadores | `test_reloj.py`, `test_parsing.py::test_normalizar_referencia` |
+| SOD1–SOD5 no existen como predicados | No se escriben aún, y es a propósito: la especificación los nombra (§3.13, §6) pero no los define, y en el paso 2 la única revisión que existe es verificar un campo, que ya pasa por `separacion()`. Cada separación llega con la orden que separa, escrita encima de `separacion()`: anular un aviso con segundo firmante (pasos 3 y 4), revisar una factura (paso 4), verificar o atestar un IBAN y el teléfono de verificación (paso 5), confirmar un pago (paso 7) y el estado del BTW (paso 11) | — |
+
+Lo que no se hizo, y por qué: **una línea que una persona editó y que la
+extracción nueva ya no trae no queda «sin resolver»**. Se conserva (no se
+pierde lo que escribió nadie) y se dice en el resultado y en el evento
+(`lineas_con_edicion_manual_sin_casar`), pero M1 compara un valor manual con
+un valor automático, y aquí el automático es «esta línea no existe»: no hay
+un valor que apuntar sin pisar los campos automáticos de la línea (que
+cambiarían los totales). Lo resuelve el paso 6, con la puerta de activación
+y el casado por huella, que decide qué línea es cuál.
+
+**La migración 0002 se corrige en su sitio** (las guardas de
+`procedencia_campo` y los dos disparadores de fusión), contra la regla de
+que un fichero aplicado no se edita: el commit del paso 2 no ha salido de
+esta rama y ninguna base la tiene aplicada fuera de los tests. Una base
+local creada con la versión anterior la rechaza `migrar` por el hash; se
+rehace con `bms-agent importar-out`, que no gasta API.
+
+**Tests existentes cambiados**: `test_verificar_vale_para_la_version_que_se_verifico`
+verificaba y corregía `iban_doc`, que ya no se corrige a mano; ahora lo hace
+con `emisor_kvk_doc` (lo que prueba no cambia).

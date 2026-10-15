@@ -135,10 +135,18 @@ def _cabecera(conn: sqlite3.Connection, factura: dict[str, Any], datos: dict[str
     procedencias = campos.procedencia(conn, "factura", factura["id"])
     salida = dict(datos)
     for clave, columna, lector in ingesta.CABECERA:
+        if clave in IMPRESO:
+            continue
         if clave in datos or procedencias.get(columna) is not None:
             salida[clave] = _valor(clave, columna, lector, factura, procedencias, datos,
                                    extraccion_id, CABECERA)
     return salida
+
+
+# Lo que sale siempre como lo imprimio el documento de la extraccion vigente,
+# sea cual sea el valor tipado: el IBAN. detectar_ibanes (F3) compara lo que
+# dicen los documentos, y un valor puesto por alguien no es un documento.
+IMPRESO = frozenset({"iban"})
 
 
 def _lineas(conn: sqlite3.Connection, factura_id: int, datos: dict[str, Any],
@@ -207,8 +215,10 @@ def registros_resueltos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     Mismo orden que registros_legado (el de out/), un registro por
     documento. Un documento que todavia no tiene factura tipada sale tal
     como se extrajo, para que nada desaparezca del panel (`sin_tipar()` dice
-    cuantos hay). Una factura fusionada en otra no sale: no suma en ningun
-    total.
+    cuantos hay). Una factura fusionada en otra tambien sale: las reglas de
+    hoy no saben de fusiones, y quitarla del registro quitaria sus avisos
+    (F3, B2, E...) de todos los lectores. Sacarla de los totales y no de los
+    avisos es del motor de reglas (paso 3).
     """
     por_documento = {
         f["documento_id"]: dict(f) for f in conn.execute(
@@ -220,10 +230,7 @@ def registros_resueltos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     for registro in registros_legado(conn):
         documento_id = sha_a_documento.get(registro.get("source_sha256"))
         factura = por_documento.get(documento_id)
-        if factura is None:
-            salida.append(registro)
-        elif factura["fusionada_en_id"] is None:
-            salida.append(_resuelto(conn, factura))
+        salida.append(registro if factura is None else _resuelto(conn, factura))
     return salida
 
 
@@ -244,12 +251,15 @@ class Lectura:
     """Los registros que leen el panel, el informe y la exportacion, y de donde salen."""
 
     registros: list[dict[str, Any]]
-    desde: str                 # almacen | out
+    desde: str                 # almacen | out | out_pedido
     ruta_db: Path
     out_dir: Path
     sin_tipar: int = 0
 
     def explicacion(self) -> str:
+        if self.desde == "out_pedido":
+            return (f"Se lee {self.out_dir}/ tal cual, sin correcciones, porque se pidio con "
+                    "--out (sin --out se lee el almacen)")
         if self.desde == "out":
             return (f"No hay almacen en {self.ruta_db}: se lee {self.out_dir}/ tal cual, sin "
                     "correcciones (crealo con `bms-agent importar-out`)")
@@ -260,17 +270,22 @@ class Lectura:
         return texto
 
 
-def leer_registros(out_dir: str | Path, ruta_db: str | Path) -> Lectura:
-    """Del almacen si existe; de out/ solo si no hay almacen, y lo dice.
+def leer_registros(out_dir: str | Path, ruta_db: str | Path, *,
+                   out_pedido: bool = False) -> Lectura:
+    """Del almacen si existe; de out/ si no hay almacen o si se pidio esa carpeta, y lo dice.
 
     Con almacen, son los registros resueltos: los valores corregidos a mano
     llegan al panel, al informe y a la exportacion. out/ queda como respaldo
-    para quien todavia no ha creado el almacen.
+    para quien todavia no ha creado el almacen, y una carpeta pedida
+    expresamente (`--out muestras/`) se lee tal cual: quien la nombra quiere
+    ver esa carpeta, no el almacen.
     """
     from .almacen import preparar
     from .report import load_records
 
     ruta_db, out_dir = Path(ruta_db), Path(out_dir)
+    if out_pedido:
+        return Lectura(load_records(out_dir), "out_pedido", ruta_db, out_dir)
     if not ruta_db.exists():
         return Lectura(load_records(out_dir), "out", ruta_db, out_dir)
     with preparar(ruta_db) as almacen:

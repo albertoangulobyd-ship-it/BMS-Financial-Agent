@@ -398,3 +398,146 @@ def test_tipar_sembrar_y_leer_del_almacen_no_llaman_a_la_api(out_v1, tmp_path) -
     ):
         proceso = _sin_api(*argumentos)
         assert proceso.returncode == 0, (argumentos, proceso.stdout, proceso.stderr)
+
+
+# --- correcciones de la revision del paso 2 ---
+
+def _reextraer(almacen, out_v1, nombre: str, registro: dict) -> list:
+    (out_v1 / nombre).write_text(json.dumps(registro, indent=2), encoding="utf-8")
+    importar_out(almacen, out_v1, None)
+    return ingesta.tipar_pendientes(almacen.conn)
+
+
+def _filas(conn, tabla, factura_id, columnas):
+    return [tuple(f) for f in conn.execute(
+        f"SELECT {columnas} FROM {tabla} WHERE factura_id = ? ORDER BY id", (factura_id,))]
+
+
+def test_una_linea_excluida_sigue_excluida_tras_otra_extraccion(tipado, out_v1) -> None:
+    conn = tipado.conn
+    ana = persona(conn, "Ana", "administracion")
+    f = factura_de(conn, "2026-4471")
+    segunda = _lineas(conn, f)[1]["id"]
+    campos.retirar(conn, "factura_linea", segunda, Persona(ana, "no se factura"))
+    antes = _filas(conn, "factura_linea", f, "id, orden, descripcion_doc, huella_linea, retirada_en")
+    imputaciones = _filas(conn, "factura_imputacion", f, "id, linea_id, retirada_en")
+
+    nueva = _registro("01-limpia", model="claude-opus-5-5", extracted_at="2026-10-01T08:00:00+00:00")
+    [actualizada] = [t for t in _reextraer(tipado, out_v1, "01-limpia-z.json", nueva)
+                     if t.accion == "actualizada"]
+    assert actualizada.factura_id == f
+    # Ni vuelve la excluida, ni se corre ninguna, ni aparece una cuarta.
+    assert _filas(conn, "factura_linea", f,
+                  "id, orden, descripcion_doc, huella_linea, retirada_en") == antes
+    assert _filas(conn, "factura_imputacion", f, "id, linea_id, retirada_en") == imputaciones
+    [resuelto] = [r for r in registros_resueltos(conn) if r["source_name"] == "01-limpia.pdf"]
+    assert [l["description"] for l in resuelto["extraction"]["lines"]] == [
+        "Montagewerk, locatie Rijnhaven", "Reisuren, locatie Schiedam"]
+    assert campos.verificar_controladas(conn) == []
+
+
+def _v2(sha: str, extraido: str, referencias: list, desglose: list, lineas: int = 3,
+        referencia_de_linea: dict | None = None) -> dict:
+    registro = _registro("01-limpia", source_sha256=sha, source_name="v2.pdf", schema_version="2",
+                         extracted_at=extraido)
+    x = registro["extraction"]
+    x.update(document_type="invoice", currency_raw="EUR", recipient_name=None,
+             recipient_vat_number=None, supplier_contact_person=None,
+             recipient_contact_person=None, payment_terms_raw=None, related_invoices=None,
+             references=referencias, vat_breakdown=desglose)
+    x["lines"] = x["lines"][:lineas]
+    for indice, linea in enumerate(x["lines"]):
+        linea.update(employee_name=None, work_date=None, rate_type_raw=None, vat_rate_raw="21%",
+                     order_reference_raw=(referencia_de_linea or {}).get(indice))
+    return registro
+
+
+def _otra_extraccion(almacen, documento_id: int, registro: dict) -> None:
+    conn = almacen.conn
+    with transaccion(conn):
+        registrar_extraccion(conn, leer_registro(json.dumps(registro, indent=2)),
+                             documento_id=documento_id, via="api",
+                             actor=usuario_sistema(conn, "extractor"))
+
+
+def test_una_referencia_y_un_iva_editados_no_corren_a_los_demas(almacen) -> None:
+    conn = almacen.conn
+    referencias = [{"label": "Kenmerk", "value": "A-1"}, {"label": "Kenmerk", "value": "B-2"}]
+    desglose = [{"rate_raw": "21%", "base_raw": "2.000,00", "vat_raw": "420,00"},
+                {"rate_raw": "9%", "base_raw": "399,00", "vat_raw": "35,91"}]
+    documento = _documento_por_ruta(
+        almacen, "entrante", _v2("e" * 64, "2026-10-01T08:00:00+00:00", referencias, desglose))
+    [tipado] = [t for t in ingesta.tipar_pendientes(conn) if t.documento_id == documento]
+    f = tipado.factura_id
+    ana = persona(conn, "Ana", "administracion")
+    primera = _filas(conn, "factura_referencia", f, "id")[0][0]
+    campos.fijar(conn, "factura_referencia", primera, {"clase": "po"}, Persona(ana, "es la PO"))
+    iva = _filas(conn, "factura_iva", f, "id")[0][0]
+    campos.fijar(conn, "factura_iva", iva, {"rubrica": "1a"}, Persona(ana))
+
+    _otra_extraccion(almacen, documento,
+                     _v2("e" * 64, "2026-10-02T08:00:00+00:00", referencias, desglose))
+    assert [t.accion for t in ingesta.tipar_pendientes(conn) if t.documento_id == documento] == [
+        "actualizada"]
+    assert _filas(conn, "factura_referencia", f, "valor_doc, clase, retirada_en") == [
+        ("A-1", "po", None), ("B-2", "ref_cliente", None)]
+    assert _filas(conn, "factura_iva", f, "tipo_iva_pb, base_cent, rubrica, retirada_en") == [
+        (2100, 200000, "1a", None), (900, 39900, None, None)]
+    assert campos.verificar_controladas(conn) == []
+
+
+def test_una_referencia_de_linea_va_a_la_linea_con_la_que_caso(almacen) -> None:
+    """Con huecos en orden (una linea que se fue y volvio), la referencia no se pierde."""
+    conn = almacen.conn
+    documento = _documento_por_ruta(almacen, "entrante",
+                                    _v2("f" * 64, "2026-10-01T08:00:00+00:00", [], []))
+    ingesta.tipar_pendientes(conn)
+    _otra_extraccion(almacen, documento,
+                     _v2("f" * 64, "2026-10-02T08:00:00+00:00", [], [], lineas=2))
+    ingesta.tipar_pendientes(conn)
+    _otra_extraccion(almacen, documento,
+                     _v2("f" * 64, "2026-10-03T08:00:00+00:00", [], [],
+                         referencia_de_linea={2: "PO 2026-17"}))
+    ingesta.tipar_pendientes(conn)
+    f = conn.execute("SELECT id FROM factura WHERE documento_id = ?", (documento,)).fetchone()[0]
+    activas = [l for l in _lineas(conn, f) if l["retirada_en"] is None]
+    assert [l["orden"] for l in activas] == [1, 2, 4]
+    [referencia] = conn.execute("SELECT linea_id FROM factura_referencia WHERE factura_id = ?",
+                                (f,)).fetchall()
+    assert referencia[0] == activas[2]["id"]
+
+
+def test_una_tarifa_numerica_en_el_yaml_se_siembra(tipado, tmp_path) -> None:
+    from bms_agent.facturacion import cargar_tarifas
+
+    fichero = tmp_path / "tarifas.yaml"
+    fichero.write_text("obras:\n  Rijnhaven:\n    cliente: Haven BV\n"
+                       "tarifas:\n  - {obra: Rijnhaven, trabajo: montagewerk, tarifa: 62.5}\n",
+                       encoding="utf-8")
+    assert cargar_tarifas(str(fichero)).tarifas[("rijnhaven", "montagewerk")] == Decimal("62.5")
+    r = sembrar_tarifas(tipado.conn, fichero)
+    assert (r.tarifas_nuevas, r.avisos) == (1, [])
+    tarifa = tipado.conn.execute("SELECT id, tarifa_e4 FROM tarifa_acordada").fetchone()
+    assert tarifa["tarifa_e4"] == 625000
+    assert _p(tipado.conn, "tarifa_acordada", tarifa["id"], "tarifa_e4")[
+        "valor_original_crudo"] == "62.5"
+
+
+def test_importar_out_es_una_sola_transaccion(tmp_path, out_v1, monkeypatch) -> None:
+    """Importar y tipar van juntos: si la orden falla al final, no queda nada a medias."""
+    from bms_agent.cli import main
+
+    original = ingesta.tipar_pendientes
+
+    def tipar_y_fallar(conn):
+        original(conn)
+        raise RuntimeError("se fue la luz")
+
+    monkeypatch.setattr(ingesta, "tipar_pendientes", tipar_y_fallar)
+    db = tmp_path / "datos" / "bms.sqlite3"
+    with pytest.raises(RuntimeError):
+        main(["importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"), "--db", str(db)])
+    with preparar(db) as almacen:
+        conn = almacen.conn
+        assert conn.execute("SELECT count(*) FROM extraccion").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM factura").fetchone()[0] == 0

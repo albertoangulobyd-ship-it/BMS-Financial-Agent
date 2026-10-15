@@ -19,6 +19,9 @@ encuentra `db verificar` de tres formas:
 
 Una tabla nueva de evidencia (paso 2 en adelante) anade aqui sus columnas y
 sus tipos de evento, y su escritor pone `foto()` en los datos del evento.
+Las del paso 2 son politica_version y nota. La procedencia de los campos de
+las tablas controladas tiene su propia comprobacion, con la misma idea
+(campos.verificar_procedencia).
 """
 
 from __future__ import annotations
@@ -54,6 +57,10 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     "rol": ("nombre", "descripcion"),
     "rol_permiso": ("rol_id", "permiso"),
     "usuario_rol": ("usuario_id", "rol_id", "desde", "hasta"),
+    # Paso 2: la politica cargada (sin su texto, que cubre sha256 y se
+    # rehashea aparte, como una extraccion) y las notas de las personas.
+    "politica_version": ("sha256", "fichero", "vigente_desde", "cargada_en", "cargada_por"),
+    "nota": ("tabla", "fila_id", "texto", "usuario_id", "en"),
 }
 
 # Filas que no se comprueban contra un evento porque no lo tienen: las
@@ -70,7 +77,14 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "rol": ("rol_creado", ()),
     "rol_permiso": ("rol_permiso_anadido", ()),
     "usuario_rol": ("rol_asignado", ("rol_cerrado",)),
+    "politica_version": ("politica_cargada", ()),
+    "nota": ("nota_anadida", ()),
 }
+
+# Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
+# evento apunte a la fila: el evento de una nota es de la fila anotada, para
+# que salga en su historial. La foto la lleva igual el evento.
+POR_EVENTO: dict[str, str] = {"nota": "evento_id"}
 
 
 _FALTA = object()
@@ -104,7 +118,7 @@ def _eventos_de_evidencia(conn: sqlite3.Connection) -> dict[tuple[str, int], lis
         f"SELECT id, tipo, tabla, fila_id, datos_json FROM evento WHERE tipo IN ({marcas}) "
         "ORDER BY id", tipos,
     ):
-        if evento["tabla"] in EVENTOS and evento["tipo"] in (
+        if evento["tabla"] in EVENTOS and evento["tabla"] not in POR_EVENTO and evento["tipo"] in (
             EVENTOS[evento["tabla"]][0], *EVENTOS[evento["tabla"]][1]
         ):
             por_fila.setdefault((evento["tabla"], evento["fila_id"]), []).append(evento)
@@ -136,6 +150,27 @@ def _comprobar_fila(
 
 
 
+def _verificar_por_evento(conn: sqlite3.Connection, tabla: str, columna: str) -> list[str]:
+    """Una tabla de POR_EVENTO: cada fila igual a la foto de su evento, cada evento con fila."""
+    alta = EVENTOS[tabla][0]
+    eventos = {e["id"]: e for e in conn.execute(
+        "SELECT id, tipo, datos_json FROM evento WHERE tipo = ?", (alta,))}
+    problemas = []
+    con_fila = set()
+    for fila_id, evento_id in conn.execute(f"SELECT id, {columna} FROM {tabla} ORDER BY id"):
+        evento = eventos.get(evento_id)
+        if evento is None or evento_id in con_fila:
+            problemas.append(
+                f"{tabla} {fila_id} no tiene su evento {alta}: se ha metido por detras")
+            continue
+        con_fila.add(evento_id)
+        problemas.extend(_comprobar_fila(tabla, fila_id, foto(conn, tabla, fila_id), [evento]))
+    for evento_id in sorted(set(eventos) - con_fila):
+        problemas.append(
+            f"el evento {evento_id} registro una fila de {tabla} que ya no existe: se ha borrado")
+    return problemas
+
+
 def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
     """Lo que no cuadra entre las filas de evidencia y su auditoria. Vacio si nada."""
     problemas = []
@@ -146,8 +181,18 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
                 "el texto se ha modificado"
             )
 
+    for fila in conn.execute("SELECT id, contenido, sha256 FROM politica_version"):
+        if sha256_texto(fila["contenido"]) != fila["sha256"]:
+            problemas.append(
+                f"politica_version {fila['id']}: su contenido no da su sha256: "
+                "el texto se ha modificado"
+            )
+
+    for tabla, columna in POR_EVENTO.items():
+        problemas.extend(_verificar_por_evento(conn, tabla, columna))
+
     eventos = _eventos_de_evidencia(conn)
-    for tabla in EVENTOS:
+    for tabla in (t for t in EVENTOS if t not in POR_EVENTO):
         filtro = f" WHERE {FILTROS[tabla]}" if tabla in FILTROS else ""
         ids = [f[0] for f in conn.execute(f"SELECT id FROM {tabla}{filtro} ORDER BY id")]
         for fila_id in ids:

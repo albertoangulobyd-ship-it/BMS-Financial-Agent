@@ -326,3 +326,27 @@ def test_api_datos_lee_del_almacen(tmp_path, out_v1) -> None:
     with preparar(db) as almacen:
         esperado = construir_datos(registros_resueltos(almacen.conn))
     assert cuerpo == json.loads(json.dumps(esperado)) and len(cuerpo["filas"]) == 7
+
+
+def test_un_out_pedido_se_lee_aunque_haya_almacen(tmp_path, out_v1, capsys, monkeypatch) -> None:
+    """`--out muestras/` sin `--db` lee esa carpeta: quien la nombra quiere verla a ella."""
+    import shutil
+
+    from bms_agent.cli import main
+
+    db = _crear_almacen(tmp_path, out_v1)
+    monkeypatch.setenv("BMS_DB", str(db))
+    muestras = tmp_path / "muestras"
+    muestras.mkdir()
+    shutil.copy2(out_v1 / "01-limpia.json", muestras / "01-limpia.json")
+    capsys.readouterr()
+    destino = tmp_path / "datos.json"
+    assert main(["export", "--out", str(muestras), "--file", str(destino)]) == 0
+    assert "porque se pidio con --out" in capsys.readouterr().out
+    assert len(json.loads(destino.read_text(encoding="utf-8"))["filas"]) == 1
+    assert main(["export", "--file", str(destino)]) == 0
+    assert f"Leyendo del almacen {db}" in capsys.readouterr().out
+    assert len(json.loads(destino.read_text(encoding="utf-8"))["filas"]) == 7
+    assert main(["export", "--out", str(muestras), "--db", str(db), "--file", str(destino)]) == 0
+    salida = capsys.readouterr().out
+    assert f"no {muestras}/" in salida and f"Leyendo del almacen {db}" in salida
