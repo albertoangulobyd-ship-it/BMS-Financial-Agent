@@ -1,0 +1,5 @@
+﻿Dagboek;Relatiecode;Factuurnummer;Factuurbedrag;Openstaand;Betaald;Betaaldatum;Valuta
+Inkoop;20001;2026-4471;2.903,79;0,00;;10-10-2026;EUR
+Inkoop;20001;2026-4480;1.452,00;452,00;;;EUR
+Verkoop;10001;V2026-0012;1.500,00;;1.500,00;13-10-2026;EUR
+Inkoop;20001;2026-9999;1.000,00;abc;;;EUR

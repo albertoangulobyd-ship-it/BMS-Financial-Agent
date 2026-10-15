@@ -23,8 +23,9 @@ Las del paso 2 son politica_version y nota; la del paso 3, anulacion (la
 foto la escribe hallazgos.anular antes de la fila, como la de una nota); las
 del paso 4, revision y prioridad_manual (igual); las del paso 6, reextraccion
 (como importacion, con un evento por cada cambio mientras espera su lote),
-reextraccion_resultado, activacion y linea_sin_casar (como una nota). La
-procedencia de los campos
+reextraccion_resultado, activacion y linea_sin_casar (como una nota); las
+del paso 7, extracto_bancario (como importacion) y sus movimientos, que van
+todos en el evento de su extracto (`MOVIMIENTOS`). La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar).
@@ -88,7 +89,25 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
                    "usuario_id", "en"),
     "linea_sin_casar": ("factura_id", "linea_id", "extraccion_id", "excluida", "campos_json",
                         "en"),
+    # Paso 7: un extracto del banco. Sus movimientos van en el mismo evento.
+    "extracto_bancario": (
+        "importacion_id", "cuenta_propia_iban", "identificador", "secuencia", "moneda",
+        "saldo_inicial_cent", "saldo_final_cent", "fecha_saldo_inicial", "fecha_saldo_final",
+        "desde", "hasta", "con_saldos", "entradas", "formato",
+    ),
 }
+
+# Los movimientos de un extracto no tienen un evento cada uno (un extracto trae
+# cientos): van todos en el evento de alta de su extracto, en
+# datos["movimientos"] por su id. Una fila sin foto alli, o una foto sin fila,
+# es algo metido o borrado por detras.
+MOVIMIENTOS = "movimiento_bancario"
+COLUMNAS_MOVIMIENTO: tuple[str, ...] = (
+    "importacion_id", "extracto_id", "cuenta_propia_iban", "posicion", "fecha_contable",
+    "fecha_valor", "importe_cent", "importe_crudo", "moneda", "contraparte_iban",
+    "contraparte_nombre_doc", "concepto_doc", "referencia_estructurada", "referencia_e2e",
+    "ref_banco", "remesa", "huella",
+)
 
 # Filas que no se comprueban contra un evento porque no lo tienen: las
 # siembra una migracion, que ya esta fijada por su hash.
@@ -114,6 +133,7 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "reextraccion_resultado": ("reextraccion_resultado", ()),
     "activacion": ("extraccion_activada", ()),
     "linea_sin_casar": ("linea_sin_casar", ()),
+    "extracto_bancario": ("extracto_registrado", ()),
 }
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
@@ -131,7 +151,7 @@ _NOMBRES = {"table": "la tabla", "view": "la vista", "index": "el indice", "trig
 
 def foto(conn: sqlite3.Connection, tabla: str, fila_id: int) -> dict[str, Any]:
     """Las columnas de una fila de evidencia, para los datos de su evento."""
-    columnas = COLUMNAS[tabla]
+    columnas = COLUMNAS_MOVIMIENTO if tabla == MOVIMIENTOS else COLUMNAS[tabla]
     fila = conn.execute(
         f"SELECT {', '.join(columnas)} FROM {tabla} WHERE id = ?", (fila_id,)
     ).fetchone()
@@ -209,6 +229,36 @@ def _verificar_por_evento(conn: sqlite3.Connection, tabla: str, columna: str) ->
     return problemas
 
 
+def _verificar_movimientos(conn: sqlite3.Connection) -> list[str]:
+    """Cada movimiento igual a la foto que lleva el evento de su extracto, y ninguna foto suelta."""
+    fotos: dict[int, dict[str, Any]] = {}
+    for evento in conn.execute(
+            "SELECT id, datos_json FROM evento WHERE tipo = ? AND tabla = 'extracto_bancario'",
+            (EVENTOS["extracto_bancario"][0],)):
+        movimientos = _datos(evento).get("movimientos") or {}
+        if isinstance(movimientos, dict):
+            for clave, valor in movimientos.items():
+                if str(clave).isdigit() and isinstance(valor, dict):
+                    fotos[int(clave)] = valor
+    problemas = []
+    ids = [f[0] for f in conn.execute(f"SELECT id FROM {MOVIMIENTOS} ORDER BY id")]
+    for fila_id in ids:
+        esperada = fotos.get(fila_id)
+        if esperada is None:
+            problemas.append(f"{MOVIMIENTOS} {fila_id} no esta en el evento de su extracto: se ha "
+                             "metido por detras")
+            continue
+        actual = foto(conn, MOVIMIENTOS, fila_id)
+        distintas = [c for c in COLUMNAS_MOVIMIENTO if esperada.get(c, _FALTA) != actual[c]]
+        if distintas:
+            problemas.append(f"{MOVIMIENTOS} {fila_id}: {', '.join(distintas)} no es lo que "
+                             "registro el evento de su extracto: se ha modificado por detras")
+    for fila_id in sorted(set(fotos) - set(ids)):
+        problemas.append(f"el movimiento {fila_id} esta en el evento de su extracto y ya no "
+                         "existe: se ha borrado")
+    return problemas
+
+
 def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
     """Lo que no cuadra entre las filas de evidencia y su auditoria. Vacio si nada."""
     problemas = []
@@ -243,6 +293,8 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
                     f"el evento {lista[0]['id']} registro {tabla} {fila_id}, que ya no existe: "
                     "se ha borrado"
                 )
+
+    problemas.extend(_verificar_movimientos(conn))
 
     aplicadas = {f["fila_id"]: _datos(f) for f in conn.execute(
         "SELECT fila_id, datos_json FROM evento WHERE tipo = 'migracion_aplicada' "

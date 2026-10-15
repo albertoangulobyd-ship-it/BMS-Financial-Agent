@@ -90,7 +90,9 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
     assert {(m.fuente, m.tipo) for m in MAPEOS} == {
         ("exact", "proveedores"), ("exact", "clientes"), ("maestro_csv", "objetos"),
         ("maestro_csv", "recursos"), ("maestro_csv", "alias"), ("maestro_csv", "tarifas"),
-        ("maestro_csv", "ciclos"), ("maestro_csv", "contactos")}
+        ("maestro_csv", "ciclos"), ("maestro_csv", "contactos"),
+        # Paso 7: lo pagado segun Exact y los CSV de movimientos de ING y Rabobank.
+        ("exact", "pagos_exact"), ("banco", "extracto")}
 
 
 def test_la_semilla_de_tarifas_lee_como_dice_su_contrato() -> None:

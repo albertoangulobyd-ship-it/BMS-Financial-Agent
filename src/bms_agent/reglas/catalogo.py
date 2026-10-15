@@ -10,6 +10,9 @@ Q3, Q4, Z1, Z2 y X1 tambien sobre las importaciones de maestros.
 M2 tampoco esta en la tabla del §7: es "las ediciones de linea que no se
 pueden casar se convierten en hallazgos" del §10 (paso 6), al lado de M1.
 
+El paso 7 trae los pagos (K1-K8) y F7, y X1 tambien sobre los movimientos del
+banco.
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -30,13 +33,14 @@ import hashlib
 import json
 
 from ..dominio import AmbitoHallazgo, Calidad, EntradaPrioridad
-from . import aritmetica, anomalias, bancaria, calidad, identidad, iva, planning, unicidad
+from . import aritmetica, anomalias, bancaria, calidad, identidad, iva, pagos, planning, unicidad
 from .base import A, B, LEE_POR_FACTURA, R, Regla, por_factura
 
 _P = EntradaPrioridad
 _C = Calidad
 _PROVEEDOR = AmbitoHallazgo.PROVEEDOR.value
 _IMPORTACION = AmbitoHallazgo.IMPORTACION.value
+_MOVIMIENTO = AmbitoHallazgo.MOVIMIENTO.value
 
 
 def _de_factura(id_: str, funcion, lee: frozenset[str], **metadatos) -> Regla:
@@ -200,6 +204,12 @@ CATALOGO: tuple[Regla, ...] = (
           severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
           calidad=_C.DISCREPANCIA.value, ambito=_PROVEEDOR,
           descripcion="Exact y TRNSPRNT dicen cuentas distintas del mismo proveedor."),
+    Regla("F7", "Cargo a una cuenta no pagable", "bancaria", bancaria.f7, bancaria.LEE_F7,
+          severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value, ambito=_MOVIMIENTO,
+          descripcion="Un cargo del banco a un proveedor (casado con una factura suya, o a una "
+                      "cuenta registrada para él) fue a una cuenta que no es pagable para él, "
+                      "y no es un beneficiario conocido ni una cuenta propia."),
     Regla("F8", "Verificación que no vale", "bancaria", bancaria.f8, bancaria.LEE_F8,
           severidad=B, pegajosa=True, entrada_prioridad=_P.IBAN.value,
           calidad=_C.DISCREPANCIA.value, ambito=_PROVEEDOR,
@@ -211,6 +221,40 @@ CATALOGO: tuple[Regla, ...] = (
           calidad=_C.ANOMALIA.value, ambito=_PROVEEDOR,
           descripcion="El teléfono de verificación de un proveedor acaba de cambiar: empieza "
                       "el enfriamiento."),
+    # Pagos (paso 7)
+    Regla("K1", "Vencida", "pagos", pagos.EVALUAR["K1"], pagos.LEE_K1, severidad=A,
+          anulable=True, crea_excepcion=True, entrada_prioridad=_P.DIAS_VENCIDA.value,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Sin pagar pasado su vencimiento: una compra desde el día siguiente, una "
+                      "venta pasados los días de la política. Sin extractos que cubran desde su "
+                      "fecha, sin datos."),
+    Regla("K2", "Pagado distinto del saldo", "pagos", pagos.EVALUAR["K2"], pagos.LEE_K2,
+          severidad=R, severidad_saliente=A, pegajosa=True, calidad=_C.DISCREPANCIA.value,
+          descripcion="Lo confirmado no deja el saldo a cero: un pago parcial (la factura sigue "
+                      "pendiente o vencida con lo que queda) o de más."),
+    Regla("K3", "Pagada a mano sin rastro en el banco", "pagos", pagos.EVALUAR["K3"],
+          pagos.LEE_K3, severidad=A, anulable=True, calidad=_C.FALTANTE.value,
+          descripcion="Marcada pagada a mano y, pasados los días de la política, ningún "
+                      "extracto trae el pago."),
+    Regla("K4", "Pago doble", "pagos", pagos.k4, pagos.LEE_K4, severidad=B, pegajosa=True,
+          entrada_prioridad=_P.DUPLICADO.value, calidad=_C.ANOMALIA.value,
+          descripcion="Dos cargos a la misma cuenta, por el mismo importe y con la misma "
+                      "referencia en pocos días, o una factura pagada de más con dos cargos."),
+    Regla("K5", "Pagada estando Bloqueada", "pagos", pagos.EVALUAR["K5"], pagos.LEE_K5,
+          severidad=R, pegajosa=True, calidad=_C.ANOMALIA.value,
+          descripcion="Se pagó un día en que la factura tenía un hallazgo que bloquea, "
+                      "pendiente y sin anular."),
+    Regla("K6", "Extractos que no encadenan", "pagos", pagos.k6, pagos.LEE_K6, severidad=B,
+          pegajosa=True, calidad=_C.FALTANTE.value, ambito=_IMPORTACION,
+          descripcion="El saldo de apertura de un extracto no es el de cierre del anterior, o "
+                      "falta un número: lo pagado desde ahí no se da por bueno."),
+    Regla("K7", "Movimiento sin casar", "pagos", pagos.k7, pagos.LEE_K7, severidad=A,
+          anulable=True, calidad=_C.FALTANTE.value, ambito=_MOVIMIENTO,
+          descripcion="Un movimiento del banco que, pasados los días de la política, no está "
+                      "casado con ninguna factura."),
+    Regla("K8", "Banco y Exact no coinciden", "pagos", pagos.EVALUAR["K8"], pagos.LEE_K8,
+          severidad=R, calidad=_C.DISCREPANCIA.value,
+          descripcion="El banco y Exact dicen importes pagados distintos de la misma factura."),
     # Planning
     Regla("G3", "Tarifa distinta por el mismo trabajo", "planning", planning.g3,
           planning.LEE_G3, solo_texto=planning.SOLO_TEXTO_G3, severidad=R, anulable=True,

@@ -1,0 +1,36 @@
+# El CSV de movimientos de la banca por internet de ING (Mijn ING, "Af/Bij").
+#
+# Va "sin saldos": no trae saldo de apertura ni de cierre, asi que con el no se
+# comprueba la continuidad de los extractos (K6). Cada cuenta del fichero es un
+# extracto. El signo lo da la columna "Af Bij": Af es un cargo, Bij un abono; un
+# texto distinto rechaza la fila. ING exporta solo euros.
+#
+# Para la continuidad y las remesas desglosadas, mejor el CAMT.053 o el MT940.
+version: 1
+fuente: banco
+tipo: extracto
+formato: "csv:ing-af-bij-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ","
+  separador_decimal: ","
+  formatos_fecha: ["%Y%m%d", "%d-%m-%Y"]
+  fila_cabecera: 1
+cabecera: [Datum, Naam / Omschrijving, Rekening, Tegenrekening, Af Bij, Bedrag (EUR),
+           Mededelingen]
+completo: false
+registros:
+  movimientos:
+    fijos: {moneda: EUR}
+    campos:
+      cuenta_propia_iban: {columna: Rekening, obligatorio: true}
+      fecha_contable: {columna: Datum, tipo: fecha, obligatorio: true}
+      importe:
+        columna: Bedrag (EUR)
+        tipo: decimal
+        obligatorio: true
+        crudo_de: importe_crudo
+        signo: {columna: Af Bij, negativo: [Af], positivo: [Bij]}
+      contraparte_iban: {columna: Tegenrekening}
+      contraparte_nombre: {columna: Naam / Omschrijving}
+      concepto: {columna: Mededelingen}

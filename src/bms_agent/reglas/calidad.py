@@ -370,11 +370,28 @@ def x1_importaciones(instantanea: Instantanea) -> list[Resultado]:
     return salida
 
 
+def x1_movimientos(instantanea: Instantanea) -> list[Resultado]:
+    """X1 sobre el banco (paso 7): un movimiento en otra moneda que el euro.
+
+    Entra con su literal y su moneda, sin importe: no cuenta en ningun saldo
+    ni en el flujo de caja, no se casa con ninguna factura y bloquea hasta que
+    una persona lo mire (pegajosa).
+    """
+    return [Resultado("X1", "movimiento", m.id, FALLO,
+                      f"Un movimiento del {m.fecha.isoformat()} en {m.moneda}: no entra en "
+                      "ninguna suma ni se casa con ninguna factura.", {"moneda": m.moneda},
+                      "", None, None, (Objetivo("movimiento", m.id),))
+            for m in instantanea.movimientos if m.moneda != "EUR"]
+
+
 def x1_todo(instantanea: Instantanea) -> list[Resultado]:
-    return por_factura("X1", x1)(instantanea) + x1_importaciones(instantanea)
+    return (por_factura("X1", x1)(instantanea) + x1_importaciones(instantanea)
+            + x1_movimientos(instantanea))
 
 
-LEE_X1_IMPORTACIONES = frozenset({"instantanea.lotes", "lote.ultimo", "lote.rechazos", "lote.id"})
+LEE_X1_IMPORTACIONES = frozenset({"instantanea.lotes", "lote.ultimo", "lote.rechazos", "lote.id",
+                                  "instantanea.movimientos", "movimiento.id",
+                                  "movimiento.moneda", "movimiento.fecha"})
 
 
 def z1(instantanea: Instantanea) -> list[Resultado]:

@@ -12,6 +12,9 @@ que nombra cada linea, y que campos traen un literal que no se pudo leer.
 Desde el paso 5 lee tambien los maestros (proveedores y clientes con sus
 alias confirmados), el registro de cuentas con sus eventos, la historia del
 telefono de verificacion de cada proveedor y las importaciones de maestros.
+Desde el paso 7, los extractos y movimientos del banco, lo pagado de cada
+factura (con su vencimiento efectivo y su saldo), los beneficiarios conocidos
+y los dias en que cada factura con algun pago estuvo Bloqueada.
 Solo lee: lo que escribe el registro de cuentas es cuentas.py, y nada de la
 via de entrada de los documentos llega alli.
 
@@ -25,28 +28,33 @@ import json
 import sqlite3
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from .. import compat
 from ..dominio import FUENTES_MANUALES, Sentido
-from ..parsing import detectar_moneda
+from ..parsing import detectar_moneda, normalizar_referencia
 from ..reloj import ZONA_EMPRESA
 from .base import (
+    Aplicacion,
+    Bloqueo,
     CambioTelefono,
     Cuenta,
     EventoCuenta,
+    Extracto,
     Factura,
     Instantanea,
     Linea,
     LineaSinCasar,
     Lote,
+    Movimiento,
     Parte,
     Politica,
     Relacion,
     TramoIva,
 )
+from .pagos import saldo, tolerancia_cent
 from .normas import (
     normalizar_btw,
     normalizar_iban,
@@ -229,6 +237,13 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
     facturas = []
     dudosos = _dudosos(conn)
     sin_casar = _sin_casar(conn)
+    politica = politica or Politica()
+    pagos = aplicaciones(conn)
+    por_factura: dict[int, list[Aplicacion]] = defaultdict(list)
+    for a in pagos:
+        por_factura[a.factura_id].append(a)
+    vence = vencimientos(conn)
+    tolerancia = tolerancia_cent(politica.tolerancia_pago)
     for fila in _filas(conn, f"SELECT {', '.join(_COLUMNAS_FACTURA)} FROM factura AS f "
                              "LEFT JOIN extraccion AS e ON e.id = f.extraccion_vigente_id "
                              "LEFT JOIN documento AS d ON d.id = f.documento_id "
@@ -260,15 +275,31 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             documento_id=documento_id, emisor_direccion_doc=direccion,
             kor_mencionada=None if kor is None else bool(kor), notas_doc=notas,
             dudosos=dudosos.get(id_, vacio), sin_original=bool(sin_original),
-            sin_casar=sin_casar.get(id_, ())))
+            sin_casar=sin_casar.get(id_, ()), vencimiento=vence.get(id_),
+            **_pagado(total, por_factura.get(id_), tolerancia)))
 
     relaciones = tuple(Relacion(o, d, t) for o, d, t in _filas(
         conn, "SELECT origen_id, destino_id, tipo FROM factura_relacion "
               "WHERE estado = 'confirmada' AND retirada_en IS NULL ORDER BY id"))
-    return Instantanea(hoy=hoy, politica=politica or Politica(), facturas=tuple(facturas),
+    return Instantanea(hoy=hoy, politica=politica, facturas=tuple(facturas),
                        relaciones=relaciones, proveedores=partes(conn, "proveedor"),
                        clientes=partes(conn, "cliente"), cuentas=cuentas(conn),
-                       telefonos=telefonos(conn), lotes=lotes(conn))
+                       telefonos=telefonos(conn), lotes=lotes(conn), extractos=extractos(conn),
+                       movimientos=movimientos(conn), aplicaciones=pagos,
+                       beneficiarios=beneficiarios(conn),
+                       bloqueos=bloqueos(conn, {a.factura_id for a in pagos
+                                                if a.estado == "confirmada"}))
+
+
+_SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
+
+
+def _pagado(total: int | None, propias: list[Aplicacion] | None,
+            tolerancia: int) -> dict[str, Any]:
+    if not propias:
+        return _SIN_PAGOS
+    s = saldo(total, propias, tolerancia)
+    return {"pagado_cent": s.pagado_cent, "fuente_pago": s.fuente, "pagada": s.pagada}
 
 
 # ------------------------------------------------------------ paso 5: maestros y cuentas
@@ -434,4 +465,124 @@ def lotes(conn: sqlite3.Connection) -> tuple[Lote, ...]:
                            exportado=_dia(min(exportado or iniciada, iniciada)),
                            filas_rechazadas=rechazadas, rechazos=lista,
                            ultimo=ultimo[(fuente, tipo)] == id_))
+    return tuple(salida)
+
+
+# ------------------------------------------------------------ paso 7: vencimientos, banco y pagos
+
+def vencimientos(conn: sqlite3.Connection) -> dict[int, date | None]:
+    """El vencimiento efectivo de cada factura: el impreso o, si no hay, la fecha mas el plazo.
+
+    El plazo que la ingesta calcula de las condiciones impresas (v2) es lo que
+    dice el proveedor, no lo acordado: solo vale si el maestro no tiene plazo.
+    Si no, un "per omgaande" impreso haria vencer la factura el dia de su
+    fecha. El que fija una persona o una importacion en la factura si manda
+    sobre el maestro. Lo usan las reglas de pagos, las caches de estado y el
+    flujo de caja: una sola cuenta.
+    """
+    plazos = {("proveedor", i): p for i, p in _filas(
+        conn, "SELECT id, plazo_pago_dias FROM proveedor WHERE plazo_pago_dias IS NOT NULL")}
+    plazos.update({("cliente", i): p for i, p in _filas(
+        conn, "SELECT id, plazo_pago_dias FROM cliente WHERE plazo_pago_dias IS NOT NULL")})
+    del_documento = {f[0] for f in _filas(
+        conn, "SELECT fila_id FROM procedencia_campo WHERE tabla = 'factura' "
+              "AND campo = 'plazo_pago_dias' AND fuente = 'calculado' "
+              "AND fuente_ref = 'condiciones_pago_doc'")}
+    salida: dict[int, date | None] = {}
+    for id_, sentido, proveedor_id, cliente_id, fecha, impreso, plazo in _filas(
+            conn, "SELECT id, sentido, proveedor_id, cliente_id, fecha_factura, "
+                  "fecha_vencimiento, plazo_pago_dias FROM factura"):
+        entrante = sentido == Sentido.ENTRANTE.value
+        acordado = plazos.get(("proveedor", proveedor_id) if entrante else ("cliente", cliente_id))
+        if plazo is None or (id_ in del_documento and acordado is not None):
+            plazo = acordado
+        if impreso is not None:
+            salida[id_] = date.fromisoformat(impreso)
+        elif fecha is not None and plazo is not None:
+            salida[id_] = date.fromisoformat(fecha) + timedelta(days=plazo)
+        else:
+            salida[id_] = None
+    return salida
+
+
+def aplicaciones(conn: sqlite3.Connection) -> tuple[Aplicacion, ...]:
+    """Lo pagado de cada factura (aplicacion_pago), en orden."""
+    filas = _filas(conn, "SELECT id, factura_id, movimiento_id, importe_cent, fecha_pago, "
+                         "fuente, metodo, estado FROM aplicacion_pago ORDER BY id")
+    return tuple(Aplicacion(id_, factura_id, movimiento_id, importe, date.fromisoformat(fecha),
+                            fuente, metodo, estado)
+                 for id_, factura_id, movimiento_id, importe, fecha, fuente, metodo, estado
+                 in filas)
+
+
+def extractos(conn: sqlite3.Connection) -> tuple[Extracto, ...]:
+    filas = _filas(conn, "SELECT id, importacion_id, cuenta_propia_iban, secuencia, "
+                         "saldo_inicial_cent, saldo_final_cent, desde, hasta, con_saldos "
+                         "FROM extracto_bancario ORDER BY id")
+    return tuple(Extracto(id_, importacion, cuenta, secuencia, inicial, final, _fecha(desde),
+                          _fecha(hasta), bool(saldos))
+                 for id_, importacion, cuenta, secuencia, inicial, final, desde, hasta, saldos
+                 in filas)
+
+
+def movimientos(conn: sqlite3.Connection) -> tuple[Movimiento, ...]:
+    """Los movimientos del banco. `referencia`: la estructurada o el concepto, normalizados."""
+    return tuple(Movimiento(id_, extracto_id, cuenta, date.fromisoformat(fecha), importe, moneda,
+                            contraparte, nombre,
+                            normalizar_referencia(estructurada) or normalizar_referencia(concepto))
+                 for (id_, extracto_id, cuenta, fecha, importe, moneda, contraparte, nombre,
+                      estructurada, concepto) in _filas(
+                     conn, "SELECT id, extracto_id, cuenta_propia_iban, fecha_contable, "
+                           "importe_cent, moneda, contraparte_iban, contraparte_nombre_doc, "
+                           "referencia_estructurada, concepto_doc FROM movimiento_bancario "
+                           "ORDER BY id"))
+
+
+def beneficiarios(conn: sqlite3.Connection) -> frozenset[str]:
+    """Los IBAN de quien se paga sin ser proveedor (vigentes)."""
+    return frozenset(f[0] for f in _filas(
+        conn, "SELECT iban FROM beneficiario_conocido WHERE retirada_en IS NULL"))
+
+
+_PENDIENTE = frozenset({"abierto", "desaparecido"})
+
+
+def bloqueos(conn: sqlite3.Connection, facturas: set[int]) -> tuple[Bloqueo, ...]:
+    """Los dias en que cada una de estas facturas tuvo un hallazgo que bloquea pendiente.
+
+    Sale de la historia de cada hallazgo (hallazgo_evento): pendiente desde
+    que se abre o reabre, hasta que se anula, se cierra o se resuelve. No
+    cuentan los de los pagos (K) ni F7: los provoca el propio pago, y K5
+    diria que se pago bloqueada por el hallazgo que abrio ese mismo pago.
+    """
+    if not facturas:
+        return ()
+    hallazgos: dict[int, tuple[str, set[int]]] = {}
+    for hallazgo_id, regla, factura_id in _filas(
+            conn, "SELECT id, regla, factura_id FROM hallazgo WHERE severidad = 'bloqueo' "
+                  "AND regla NOT LIKE 'K%' AND regla <> 'F7'"):
+        hallazgos[hallazgo_id] = (regla, {factura_id} if factura_id is not None else set())
+    if not hallazgos:
+        return ()
+    for hallazgo_id, fila_id in _filas(
+            conn, "SELECT hallazgo_id, fila_id FROM hallazgo_objetivo WHERE tabla = 'factura'"):
+        if hallazgo_id in hallazgos:
+            hallazgos[hallazgo_id][1].add(fila_id)
+    tramos: dict[int, list[tuple[date, date | None]]] = defaultdict(list)
+    abierto: dict[int, date] = {}
+    for hallazgo_id, estado, en in _filas(
+            conn, "SELECT hallazgo_id, estado, en FROM hallazgo_evento ORDER BY id"):
+        if hallazgo_id not in hallazgos:
+            continue
+        if estado in _PENDIENTE:
+            abierto.setdefault(hallazgo_id, _dia(en))
+        elif hallazgo_id in abierto:
+            tramos[hallazgo_id].append((abierto.pop(hallazgo_id), _dia(en)))
+    for hallazgo_id, desde in abierto.items():
+        tramos[hallazgo_id].append((desde, None))
+    salida = []
+    for hallazgo_id, lista in sorted(tramos.items()):
+        regla, suyas = hallazgos[hallazgo_id]
+        for factura_id in sorted(suyas & facturas):
+            salida.extend(Bloqueo(factura_id, regla, desde, hasta) for desde, hasta in lista)
     return tuple(salida)

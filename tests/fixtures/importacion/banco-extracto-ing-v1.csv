@@ -1,0 +1,6 @@
+"Datum","Naam / Omschrijving","Rekening","Tegenrekening","Code","Af Bij","Bedrag (EUR)","Mutatiesoort","Mededelingen"
+"20261012","Bouwtechniek Van Dijk BV","NL60INGB0009988776","NL02ABNA0123456789","OV","Af","2903,79","Overschrijving","Factuur 2026-4471"
+"20261013","Havenbedrijf Schiedam","NL60INGB0009988776","NL39RABO0300065264","OV","Bij","1500,00","Overschrijving","Betaling factuur V2026-0012"
+"20261013","ING kosten","NL60INGB0009988776","","DV","Af","0,50","Diversen","Kosten zakelijk betalen"
+"20261013","ING kosten","NL60INGB0009988776","","DV","Af","0,50","Diversen","Kosten zakelijk betalen"
+"20261014","Onbekend","NL60INGB0009988776","NL36INGB0007654321","OV","Plus","10,00","Overschrijving","fila con signo raro"

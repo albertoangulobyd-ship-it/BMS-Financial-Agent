@@ -220,6 +220,10 @@ def _imprimir_recalculo(diferencia, *, detalle: bool = False) -> None:
     if diferencia.retenidos:
         print(f"  {len(diferencia.retenidos)} se quedan como estaban: su regla no ha podido "
               "mirar (sin datos)")
+    conciliacion = getattr(diferencia, "conciliacion", None)
+    if conciliacion is not None and (conciliacion.automaticas or conciliacion.propuestas):
+        print(f"Banco: {len(conciliacion.automaticas)} pago(s) casado(s) solo(s), "
+              f"{len(conciliacion.propuestas)} propuesta(s) para confirmar")
     pendientes = diferencia.pendientes
     print(f"  pendientes: {pendientes.get('abierto', 0)} abiertos, "
           f"{pendientes.get('aceptado', 0)} aceptados, "
@@ -1316,6 +1320,114 @@ def _cmd_fuentes(args: argparse.Namespace) -> int:
     return 0
 
 
+def _euros(cent: int | None) -> str:
+    if cent is None:
+        return "-"
+    from .almacen.unidades import de_cent
+    from .reglas.base import euros_texto
+
+    return euros_texto(de_cent(cent))
+
+
+def _cmd_pagos(args: argparse.Namespace) -> int:
+    """Los movimientos del banco, lo que esta sin casar y las propuestas por confirmar."""
+    from . import pagos
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        if args.factura is not None:
+            datos = pagos.de_factura(conn, args.factura)
+            s = datos["saldo"]
+            if s is None:
+                print(f"No hay factura {args.factura}", file=sys.stderr)
+                return 1
+            print(f"Factura {args.factura}: total {_euros(s['total_cent'])}, pagado "
+                  f"{_euros(s['pagado_cent'])} ({s['fuente'] or 'nada'}), quedan "
+                  f"{_euros(s['pendiente_cent'])}" + (" (pagada)" if s["pagada"] else ""))
+            for a in datos["aplicaciones"]:
+                print(f"  pago {a['id']} (rev {a['rev']}): {_euros(a['importe_cent'])} del "
+                      f"{a['fecha_pago']}, {a['fuente']}/{a['metodo']}, {a['estado']}"
+                      + (f", movimiento {a['movimiento_id']}" if a["movimiento_id"] else "")
+                      + (f" ({a['regla']})" if a["regla"] else ""))
+            return 0
+        if args.propuestas:
+            filas = pagos.propuestas(conn)
+            for f in filas:
+                print(f"pago {f['id']} (rev {f['rev']}): {_euros(f['importe_cent'])} del "
+                      f"{f['fecha_pago']} a la factura {f['numero'] or f['factura_id']} "
+                      f"(movimiento {f['movimiento_id']}, coincide {f['regla']})")
+            if not filas:
+                print("No hay pagos propuestos por confirmar.")
+            return 0
+        filas = pagos.movimientos(conn, sin_casar=args.sin_casar, limite=args.limite)
+        for m in filas:
+            quien = m["contraparte_nombre_doc"] or m["contraparte_iban"] or "-"
+            estado = ("casado" if m["confirmadas"] else
+                      "propuesto" if m["propuestas"] else "sin casar")
+            importe = (_euros(m["importe_cent"]) if m["importe_cent"] is not None
+                       else m["importe_crudo"])
+            print(f"{m['id']:>6} {m['fecha_contable']} {importe:>14} {quien[:30]:<30} {estado}")
+        if not filas:
+            print("No hay movimientos" + (" sin casar." if args.sin_casar else "."))
+    return 0
+
+
+def _cmd_flujo_caja(args: argparse.Namespace) -> int:
+    """El flujo de caja: lo esperado por ventanas, lo movido y el estimado aparte."""
+    import json
+    from datetime import date
+
+    from . import flujo_caja
+    from .almacen import reloj_de
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    try:
+        desde = date.fromisoformat(args.desde) if args.desde else None
+        hasta = date.fromisoformat(args.hasta) if args.hasta else None
+        hoy = date.fromisoformat(args.hoy) if args.hoy else None
+    except ValueError as exc:
+        print(f"Una fecha se escribe AAAA-MM-DD: {exc}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            datos = flujo_caja.flujo(almacen.conn, hoy or reloj_de(almacen.conn).hoy(),
+                                     desde=desde, hasta=hasta)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(datos, ensure_ascii=False, indent=2))
+        return 0
+    nombres = {"vencido": "vencido", "semana": "esta semana", "mes": "este mes",
+               "proximos_30": "proximos 30 dias", "periodo": "periodo", "sin_fecha": "sin fecha",
+               "total": "total"}
+    print(f"Flujo de caja a {datos['hoy']} ({datos['facturas']} facturas en juego)")
+    print(f"  {'':<18} {'entrada':>14} {'salida':>14} {'neto':>14}")
+    for clave, nombre in nombres.items():
+        entrada = datos["esperado"]["entrada"][clave]
+        if entrada is None:
+            continue
+        salida = datos["esperado"]["salida"][clave]
+        print(f"  {nombre:<18} {_euros(entrada):>14} {_euros(salida):>14} "
+              f"{_euros(datos['esperado']['neto'][clave]):>14}")
+    real = datos["real"]
+    for clave, nombre in (("semana", "semana en curso"), ("mes", "mes en curso"),
+                          ("periodo", "periodo")):
+        if real["cobrado"][clave] is None:
+            continue
+        print(f"  cobrado/pagado {nombre}: {_euros(real['cobrado'][clave])} / "
+              f"{_euros(real['pagado'][clave])}")
+    print(f"  estimado: {datos['estimado']['nota']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -1551,13 +1663,14 @@ def main(argv: list[str] | None = None) -> int:
     p_excepciones.set_defaults(func=_cmd_excepciones)
 
     p_imp = sub.add_parser(
-        "importar", help="importa un fichero de un maestro (Exact, una hoja CSV) con su mapeo")
-    p_imp.add_argument("fuente", help="exact, trnsprnt o maestro_csv")
-    p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas o "
-                                    "ciclos")
+        "importar", help="importa un fichero de un maestro, del banco o de pagos de Exact")
+    p_imp.add_argument("fuente", help="exact, trnsprnt, maestro_csv o banco")
+    p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas, "
+                                    "ciclos, pagos_exact (exact) o extracto (banco)")
     p_imp.add_argument("fichero")
     p_imp.add_argument("--mapeo", help="un fichero de mapeo (por defecto, el de "
-                                       "config/importacion que reconoce sus columnas)")
+                                       "config/importacion que reconoce sus columnas); para el "
+                                       "banco, tambien camt053, mt940 o mt940:ing|abn|rabobank")
     p_imp.add_argument("--simular", action="store_true",
                        help="dice lo que seria nuevo, cambiaria o se rechazaria, sin escribir")
     p_imp.add_argument("--exportado", help="dia en que se saco del sistema (AAAA-MM-DD); por "
@@ -1582,6 +1695,23 @@ def main(argv: list[str] | None = None) -> int:
         p_una.add_argument("--peticion", help="identificador de la peticion")
         p_una.add_argument("--db", help=_AYUDA_DB)
     p_iban.set_defaults(func=_cmd_iban)
+
+    p_pagos = sub.add_parser("pagos", help="movimientos del banco, lo sin casar y las propuestas")
+    p_pagos.add_argument("--sin-casar", action="store_true", help="solo lo que no casa con nada")
+    p_pagos.add_argument("--propuestas", action="store_true",
+                         help="los pagos propuestos por confirmar")
+    p_pagos.add_argument("--factura", type=int, help="lo pagado de una factura, con su saldo")
+    p_pagos.add_argument("--limite", type=int, default=200)
+    p_pagos.add_argument("--db", help=_AYUDA_DB)
+    p_pagos.set_defaults(func=_cmd_pagos)
+
+    p_flujo = sub.add_parser("flujo-caja", help="lo esperado por cobrar y pagar, y lo movido")
+    p_flujo.add_argument("--desde", metavar="AAAA-MM-DD", help="un periodo propio, con --hasta")
+    p_flujo.add_argument("--hasta", metavar="AAAA-MM-DD")
+    p_flujo.add_argument("--hoy", metavar="AAAA-MM-DD", help="otro dia que hoy (Amsterdam)")
+    p_flujo.add_argument("--json", action="store_true")
+    p_flujo.add_argument("--db", help=_AYUDA_DB)
+    p_flujo.set_defaults(func=_cmd_flujo_caja)
 
     p_fuentes = sub.add_parser("fuentes", help="de cuando es lo ultimo de cada fuente (Z1)")
     p_fuentes.add_argument("--db", help=_AYUDA_DB)

@@ -49,7 +49,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, NamedTuple
 
-from . import __version__, estados, excepciones
+from . import __version__, estados, excepciones, pagos
 from . import politica as politicas
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .auditoria import registrar
@@ -147,6 +147,8 @@ class Diferencia:
     cambios_evaluacion: list[CambioEvaluacion] = field(default_factory=list)
     excepciones: Any = None
     estados: Any = None
+    # Paso 7: lo que la pasada caso del banco antes de evaluar (pagos.conciliar).
+    conciliacion: Any = None
 
     def de_tipo(self, *tipos: str) -> list[Transicion]:
         return [t for t in self.transiciones if t.tipo in tipos]
@@ -399,6 +401,11 @@ class _Pasada:
 
     def ejecutar(self) -> Diferencia:
         conn = self.conn
+        # Lo primero, casar el banco con las facturas (paso 7): lo que se casa
+        # ahora es lo que las reglas de pagos ven en esta misma pasada, y su
+        # evento es la causa de lo que abra o cierre.
+        self.diferencia.conciliacion = pagos.conciliar(conn,
+                                                       tolerancia=self.politica.tolerancia_pago)
         instantanea = instantaneas.construir(conn, hoy=self.hoy, politica=self.politica)
         resultados = motor.evaluar(instantanea)
         detectados = calcular(conn, instantanea, resultados)
@@ -460,7 +467,8 @@ class _Pasada:
                             if r.resultado == SIN_DATOS and r.tabla == "factura")
         self.diferencia.estados = estados.recalcular(conn, hoy=self.hoy,
                                                      ejecucion_id=self.ejecucion_id,
-                                                     sin_datos=dict(sin_datos))
+                                                     sin_datos=dict(sin_datos),
+                                                     politica_reglas=self.politica)
         conn.execute("UPDATE ejecucion_reglas SET terminada_en = ?, resumen_json = ? WHERE id = ?",
                      (self.ahora, motor.canonico(self.diferencia.resumen()), self.ejecucion_id))
         return self.diferencia

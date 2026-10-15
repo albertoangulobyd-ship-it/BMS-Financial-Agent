@@ -573,6 +573,7 @@ def _codigo_de(error: Exception) -> int | None:
     from .estados import NoSube
     from .excepciones import BloqueoAbierto, EstadoNoValido as EstadoExcepcion
     from .hallazgos import EstadoNoValido as EstadoHallazgo, NoAnulable
+    from .pagos import PagoNoValido
     from .revision import NoRevisable
 
     if isinstance(error, permisos.PermisoDenegado):
@@ -584,7 +585,8 @@ def _codigo_de(error: Exception) -> int | None:
     if isinstance(error, (Conflicto, servicios.PeticionRepetida)):
         return 409
     if isinstance(error, (BloqueoAbierto, EstadoExcepcion, EstadoHallazgo, NoAnulable,
-                          NoRevisable, NoSube, CampoDeOtroSistema, CampoNoEditable)):
+                          NoRevisable, NoSube, CampoDeOtroSistema, CampoNoEditable,
+                          PagoNoValido)):
         return 409
     if isinstance(error, LookupError):
         return 404

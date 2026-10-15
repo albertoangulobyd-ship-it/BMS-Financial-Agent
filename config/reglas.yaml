@@ -31,3 +31,18 @@ frescura:
   exact_dias: 7
   trnsprnt_dias: 7
   extractos_dias_laborables: 3
+
+pagos:
+  # Una factura esta pagada cuando lo confirmado deja su saldo dentro de esto
+  # (decision 5); un pago parcial la deja pendiente o vencida con su saldo (K2).
+  tolerancia: "0.00"
+  # K1: una venta cuenta como vencida pasados estos dias de su vencimiento (una
+  # compra, desde el dia siguiente).
+  dias_vencida_venta: 14
+  # K3: dias que un pago marcado a mano puede estar sin rastro en un extracto.
+  dias_pago_sin_extracto: 7
+  # K7: dias que un movimiento del banco puede quedar sin casar con una factura.
+  dias_movimiento_sin_casar: 7
+  # K4: dos cargos iguales a la misma contraparte con la misma referencia en
+  # menos de estos dias son un pago doble.
+  ventana_doble_pago_dias: 30

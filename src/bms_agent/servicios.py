@@ -26,8 +26,8 @@ denegado, despues del ROLLBACK.
 
 Lo que no hay aqui, a proposito (spec §21): ninguna orden crea ni prepara una
 factura, paga, aprueba un pago o presenta el BTW. Marcar una factura pagada
-llega con los pagos (paso 7); el IBAN y su verificacion, con el registro de
-cuentas (paso 5); el estado del BTW, con el paso 11.
+(paso 7) apunta lo que ya se pago fuera; el IBAN y su verificacion, con el
+registro de cuentas (paso 5); el estado del BTW, con el paso 11.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import campos, cuentas, estados, excepciones, hallazgos, revision
+from . import campos, cuentas, estados, excepciones, hallazgos, pagos, revision
 from .almacen import reloj_de
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb, json_canonico, sha256_texto
 from .auditoria import registrar
@@ -1244,6 +1244,42 @@ def _retirar_beneficiario(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(resultado.evento_id)
 
 
+# ------------------------------------------------------------ pagos (paso 7)
+
+def _factura_de_pago(conn: sqlite3.Connection, aplicacion_id: int) -> int:
+    fila = conn.execute("SELECT factura_id FROM aplicacion_pago WHERE id = ?",
+                        (aplicacion_id,)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay aplicacion de pago {aplicacion_id}")
+    return int(fila[0])
+
+
+def _marcar_pagada(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Apuntar a mano que una factura se pago (con o sin su movimiento del banco)."""
+    importe = valor_de_entrada(campos.campo("aplicacion_pago", "importe_cent"), d.get("importe"))
+    resultado = pagos.marcar_pagada(
+        ctx.conn, ctx.persona, factura_id=d["factura_id"], importe=importe,
+        fecha_pago=date.fromisoformat(d["fecha_pago"]) if d.get("fecha_pago") else None,
+        movimiento_id=d.get("movimiento_id"), rev=d["rev"], datos=ctx.datos_evento)
+    creada = next((i for t, i in resultado.creadas if t == "aplicacion_pago"), None)
+    return Hecho(resultado.evento_id, facturas={d["factura_id"]},
+                 detalle={"aplicacion_id": creada})
+
+
+def _confirmar_pago(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    factura_id = _factura_de_pago(ctx.conn, d["aplicacion_id"])
+    resultado = pagos.confirmar_pago(ctx.conn, ctx.persona, aplicacion_id=d["aplicacion_id"],
+                                     rev=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, facturas={factura_id})
+
+
+def _retirar_pago(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    factura_id = _factura_de_pago(ctx.conn, d["aplicacion_id"])
+    resultado = pagos.retirar_pago(ctx.conn, ctx.persona, aplicacion_id=d["aplicacion_id"],
+                                   rev=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, facturas={factura_id})
+
+
 # ------------------------------------------------------------ el catalogo
 
 def _p(nombre: str, tipo: str = ENTERO, obligatorio: bool = True, ayuda: str = "") -> Parametro:
@@ -1378,6 +1414,20 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Retirar un beneficiario conocido (no se borra).",
            (_p("beneficiario_id"), _p("rev"), _MOTIVO), _retirar_beneficiario,
            motivo="obligatorio", rev=True),
+    Accion("marcar_pagada", P.MARCAR_PAGADA.value,
+           "Apuntar que una factura se pago (fuera de lo que el sistema ve, o enlazando un "
+           "movimiento del banco que no se caso solo). No paga nada: apunta lo que ya se pago.",
+           (_p("factura_id"), _p("importe", VALOR, False, "por defecto, lo que queda"),
+            _p("fecha_pago", FECHA, False, "por defecto, hoy o la del movimiento"),
+            _p("movimiento_id", ENTERO, False), _p("rev"), _MOTIVO),
+           _marcar_pagada, motivo="obligatorio", rev=True),
+    Accion("confirmar_pago", P.MARCAR_PAGADA.value,
+           "Confirmar un pago que el sistema propuso al casar un movimiento del banco.",
+           (_p("aplicacion_id"), _p("rev"), _MOTIVO), _confirmar_pago, rev=True),
+    Accion("retirar_pago", P.MARCAR_PAGADA.value,
+           "Retirar un pago propuesto, enlazado o marcado a mano que no es (no se borra).",
+           (_p("aplicacion_id"), _p("rev"), _MOTIVO), _retirar_pago, motivo="obligatorio",
+           rev=True),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),

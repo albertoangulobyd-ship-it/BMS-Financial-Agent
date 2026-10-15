@@ -1,0 +1,34 @@
+# El CSV de movimientos de la banca por internet de Rabobank.
+#
+# Va "sin saldos" (K6 no se evalua con el), aunque traiga "Saldo na trn": no
+# se usa para la continuidad. El importe lleva su signo; la moneda, su columna
+# (lo que no es EUR entra con su literal y da X1). Cada cuenta del fichero es
+# un extracto.
+version: 1
+fuente: banco
+tipo: extracto
+formato: "csv:rabobank-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ","
+  separador_decimal: ","
+  formatos_fecha: ["%Y-%m-%d", "%d-%m-%Y"]
+  fila_cabecera: 1
+cabecera: [IBAN/BBAN, Munt, Volgnr, Datum, Rentedatum, Bedrag, Tegenrekening IBAN/BBAN,
+           Naam tegenpartij, Omschrijving-1]
+completo: false
+registros:
+  movimientos:
+    campos:
+      cuenta_propia_iban: {columna: IBAN/BBAN, obligatorio: true}
+      moneda: {columna: Munt, por_defecto: EUR}
+      fecha_contable: {columna: Datum, tipo: fecha, obligatorio: true}
+      fecha_valor: {columna: Rentedatum, tipo: fecha}
+      importe: {columna: Bedrag, tipo: decimal, obligatorio: true, crudo_de: importe_crudo}
+      contraparte_iban: {columna: Tegenrekening IBAN/BBAN}
+      contraparte_nombre: {columna: Naam tegenpartij}
+      concepto: {unir: [Omschrijving-1, Omschrijving-2, Omschrijving-3], separador: " "}
+      referencia_estructurada: {columna: Betalingskenmerk}
+      referencia_e2e: {columna: Transactiereferentie}
+      ref_banco: {columna: Volgnr}
+      remesa: {columna: Batch ID}

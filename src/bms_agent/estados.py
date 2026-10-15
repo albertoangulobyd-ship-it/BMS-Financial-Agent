@@ -4,8 +4,9 @@ Despues de poner al dia los hallazgos y las excepciones, la pasada
 (hallazgos.recalcular) calcula aqui, para cada factura, lo que dicen de ella
 los demas modulos y lo deja en una fila que se puede filtrar con SQL:
 
-- su estado de pago (sin pagos importados hasta el paso 7: pendiente o
-  vencida por su vencimiento efectivo, anulada si se anulo);
+- su estado de pago: anulada si se anulo; pagada si lo confirmado deja su
+  saldo en la tolerancia (reglas.pagos.saldo, paso 7); si no, pendiente o
+  vencida por su vencimiento efectivo, con lo que queda por pagar;
 - su estado de revision (revision.py), con la huella de su contenido;
 - su calidad de dato, sus marcas de edicion manual, sus campos dudosos y sus
   cambios sin resolver;
@@ -30,7 +31,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from . import politica, prioridad, revision
@@ -49,7 +50,9 @@ from .dominio import (
 )
 from .permisos import exigir, orden_auditada
 from .prioridad import Entradas, Hallazgo, Hija, Pesos, Subida
-from .reglas import catalogo
+from .reglas import catalogo, instantanea
+from .reglas.base import Politica
+from .reglas.pagos import saldo, tolerancia_cent
 from .reloj import marca, trimestre_de
 
 _PIDEN_REVISION = frozenset({Severidad.BLOQUEO.value, Severidad.RETENCION.value})
@@ -57,6 +60,7 @@ _PIDEN_REVISION = frozenset({Severidad.BLOQUEO.value, Severidad.RETENCION.value}
 PENDIENTE = EstadoPago.PENDIENTE.value
 VENCIDA = EstadoPago.VENCIDA.value
 ANULADA = EstadoPago.ANULADA.value
+PAGADA = EstadoPago.PAGADA.value
 EN_JUEGO = frozenset({PENDIENTE, VENCIDA})
 REVISADA = EstadoRevision.REVISADA.value
 ENTRANTE = Sentido.ENTRANTE.value
@@ -108,23 +112,16 @@ def _fecha(texto: str | None) -> date | None:
     return None if texto is None else date.fromisoformat(texto)
 
 
-def vencimiento_efectivo(impreso: date | None, fecha_factura: date | None,
-                         plazo_dias: int | None) -> date | None:
-    """El vencimiento impreso o, si no lo hay, la fecha de la factura mas el plazo de pago."""
-    if impreso is not None:
-        return impreso
-    if fecha_factura is not None and plazo_dias is not None:
-        return fecha_factura + timedelta(days=plazo_dias)
-    return None
-
-
 def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
-                hoy: date) -> str | None:
-    """Sin pagos (hasta el paso 7): anulada, o pendiente/vencida por su vencimiento."""
+                hoy: date, pagada: bool = False) -> str | None:
+    """Anulada; pagada si lo confirmado deja su saldo en la tolerancia (reglas.pagos.saldo); si
+    no, pendiente o vencida por su vencimiento, tambien con un pago parcial (paso 7)."""
     if fusionada:
         return None
     if anulada:
         return ANULADA
+    if pagada:
+        return PAGADA
     if vencimiento is not None and vencimiento < hoy:
         return VENCIDA
     return PENDIENTE
@@ -215,51 +212,51 @@ class _Factura:
     total_cent: int | None
     anulada: bool
     fusionada: bool
+    pendiente_cent: int | None = None
+    pagada: bool = False
 
 
-def _facturas(conn: sqlite3.Connection) -> list[_Factura]:
-    plazos = {("proveedor", i): p for i, p in _filas(
-        conn, "SELECT id, plazo_pago_dias FROM proveedor WHERE plazo_pago_dias IS NOT NULL")}
-    plazos.update({("cliente", i): p for i, p in _filas(
-        conn, "SELECT id, plazo_pago_dias FROM cliente WHERE plazo_pago_dias IS NOT NULL")})
-    # El plazo que la ingesta calcula de las condiciones impresas (v2) es lo
-    # que dice el proveedor, no lo acordado: solo vale si el maestro no tiene
-    # plazo. Si no, un "per omgaande" impreso haria vencer la factura el dia
-    # de su fecha. El que fija una persona o una importacion en la factura si
-    # manda sobre el maestro.
-    del_documento = {f[0] for f in _filas(
-        conn, "SELECT fila_id FROM procedencia_campo WHERE tabla = 'factura' "
-              "AND campo = 'plazo_pago_dias' AND fuente = 'calculado' "
-              "AND fuente_ref = 'condiciones_pago_doc'")}
+def _facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
+    """Las facturas con su vencimiento efectivo y su saldo (lo que queda por pagar).
+
+    El vencimiento y el saldo son los de las reglas (instantanea.vencimientos y
+    reglas.pagos.saldo): la cache dice lo mismo que K1 y K2.
+    """
+    vence = instantanea.vencimientos(conn)
+    por_factura: dict[int, list] = defaultdict(list)
+    for a in instantanea.aplicaciones(conn):
+        por_factura[a.factura_id].append(a)
     salida = []
-    for (id_, sentido, numero, emisor, receptor, proveedor_id, cliente_id, fecha, impreso,
-         plazo, base, total, anulada, fusionada) in _filas(
+    for (id_, sentido, numero, emisor, receptor, proveedor_id, cliente_id, fecha, base, total,
+         anulada, fusionada) in _filas(
             conn, "SELECT id, sentido, numero, emisor_nombre_doc, receptor_nombre_doc, "
-                  "proveedor_id, cliente_id, fecha_factura, fecha_vencimiento, plazo_pago_dias, "
-                  "base_cent, total_cent, anulada, fusionada_en_id FROM factura ORDER BY id"):
+                  "proveedor_id, cliente_id, fecha_factura, base_cent, total_cent, anulada, "
+                  "fusionada_en_id FROM factura ORDER BY id"):
         entrante = sentido == ENTRANTE
-        acordado = plazos.get(("proveedor", proveedor_id) if entrante else ("cliente", cliente_id))
-        if plazo is None or (id_ in del_documento and acordado is not None):
-            plazo = acordado
-        fecha_ = _fecha(fecha)
+        s = saldo(total, por_factura.get(id_, ()), tolerancia)
         salida.append(_Factura(
             id=id_, sentido=sentido, numero=numero, parte=emisor if entrante else receptor,
-            proveedor_id=proveedor_id, cliente_id=cliente_id, fecha_factura=fecha_,
-            vencimiento=vencimiento_efectivo(_fecha(impreso), fecha_, plazo),
+            proveedor_id=proveedor_id, cliente_id=cliente_id, fecha_factura=_fecha(fecha),
+            vencimiento=vence.get(id_),
             importe_cent=base if base is not None else total, total_cent=total,
-            anulada=bool(anulada), fusionada=fusionada is not None))
+            anulada=bool(anulada), fusionada=fusionada is not None,
+            pendiente_cent=s.pendiente_cent, pagada=s.pagada))
     return salida
 
 
 def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
-               pesos: Pesos | None = None, sin_datos: dict[int, int] | None = None) -> Cambios:
+               pesos: Pesos | None = None, sin_datos: dict[int, int] | None = None,
+               politica_reglas: Politica | None = None) -> Cambios:
     """Rehace factura_estado y prioridad. Lo llama la pasada del motor, en su transaccion.
 
     `sin_datos` son las reglas sin datos de cada factura; la pasada ya las
     tiene contadas y se ahorra volver a leer la cache de evaluaciones.
+    `politica_reglas` da la tolerancia con que una factura esta pagada (la de
+    la pasada; sin ella, la vigente).
     """
     cambios = Cambios()
-    facturas = _facturas(conn)
+    reglas_ = politica_reglas or politica.politica_reglas(conn)
+    facturas = _facturas(conn, tolerancia_cent(reglas_.tolerancia_pago))
     # Sin facturas puede haber trabajo: desde el paso 5, excepciones de una
     # importacion o de un proveedor (F0, F5, Z2...), con su prioridad.
     if not facturas and conn.execute("SELECT 1 FROM excepcion WHERE estado <> 'resuelta' "
@@ -298,7 +295,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         huella = huellas.get(f.id)
         estado_rev = revision.estado(ultima, huella,
                                      pide or n_sin_resolver > 0 or n_dudosos > 0)
-        pago = estado_pago(f.anulada, f.fusionada, f.vencimiento, hoy)
+        pago = estado_pago(f.anulada, f.fusionada, f.vencimiento, hoy, f.pagada)
         excepcion = excepciones.get(f.id)
         esperando = excepcion is not None and excepcion[1] == "esperando_externo"
         entradas = Entradas(
@@ -316,7 +313,8 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         dias = (hoy - f.vencimiento).days if pago == VENCIDA else None
         filas_estado[f.id] = (
             pago,
-            f.total_cent if pago in EN_JUEGO else (0 if pago == ANULADA else None),
+            f.pendiente_cent if pago in EN_JUEGO or pago == PAGADA else (
+                0 if pago == ANULADA else None),
             f.vencimiento.isoformat() if f.vencimiento else None, dias, estado_rev,
             calidad(calidades.get(f.id, []), n_dudosos, n_sin_resolver,
                     campos_.criticos_verificados),
@@ -400,11 +398,10 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             factura.importe_cent if factura else None,
             [excepcion_id, [h.texto for h in hallazgos], resultado.nivel, resultado.puntos])
 
-    # Lo que no esta en juego (anulada, fusionada en otra) no cuenta en su
-    # proveedor, cliente, Objeto ni trimestre: no se paga ni se declara. Su
-    # trabajo pendiente, si lo tiene, sigue en su excepcion. Paso 7: una pagada
-    # tampoco cuenta.
-    en_juego = {f.id for f in facturas if not (f.anulada or f.fusionada)}
+    # Lo que no esta en juego (anulada, fusionada en otra, pagada) no cuenta en
+    # su proveedor, cliente, Objeto ni trimestre: no se paga ni se reclama. Su
+    # trabajo pendiente, si lo tiene, sigue en su excepcion.
+    en_juego = {f.id for f in facturas if not (f.anulada or f.fusionada or f.pagada)}
     hijas: dict[tuple[str, int], list[Hija]] = defaultdict(list)
     for f in facturas:
         if f.id not in en_juego:

@@ -100,3 +100,16 @@ def proximo_limite_btw(dia: date, hoy: date) -> date:
         ano, trimestre = (ano + 1, 1) if trimestre == 4 else (ano, trimestre + 1)
         limite = limite_btw(ano, trimestre)
     return limite
+
+
+def semana_de(dia: date) -> tuple[date, date]:
+    """La semana ISO de un dia, de lunes a domingo (en la zona de la empresa: es una fecha)."""
+    lunes = dia - timedelta(days=dia.weekday())
+    return lunes, lunes + timedelta(days=6)
+
+
+def mes_de(dia: date) -> tuple[date, date]:
+    """El mes natural de un dia, del primero al ultimo."""
+    primero = dia.replace(day=1)
+    siguiente = date(primero.year + (primero.month == 12), primero.month % 12 + 1, 1)
+    return primero, siguiente - timedelta(days=1)

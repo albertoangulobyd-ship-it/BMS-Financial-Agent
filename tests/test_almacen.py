@@ -62,7 +62,8 @@ SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "ex
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
                   "prioridad_manual", "cuenta_bancaria", "cuenta_evento",
                   "reextraccion_resultado", "activacion", "linea_sin_casar")
-EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion")
+EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
+             "movimiento_bancario")
 
 
 def _tablas(conn) -> list[str]:
@@ -316,6 +317,25 @@ def _poblar(almacen: Almacen) -> None:
         conn.execute("INSERT INTO linea_sin_casar (factura_id, linea_id, extraccion_id, "
                      "excluida, campos_json, en, evento_id) VALUES (?, ?, ?, 0, '[]', ?, ?)",
                      (leida, linea, extraccion, AHORA, sin_casar))
+        # Paso 7: un extracto del banco con un movimiento, de una importacion
+        # que el importador abre y cierra.
+        importador = usuario_sistema(conn, "importador")
+        banco = conn.execute(
+            "INSERT INTO importacion (fuente, tipo, formato, fichero_sha256, iniciada_en, "
+            "actor) VALUES ('banco', 'extracto', 'camt053:001.02', ?, ?, ?)",
+            ("7" * 64, AHORA, importador)).lastrowid
+        extracto = conn.execute(
+            "INSERT INTO extracto_bancario (importacion_id, cuenta_propia_iban, moneda, "
+            "saldo_inicial_cent, saldo_final_cent, con_saldos, entradas, formato) "
+            "VALUES (?, 'NL60INGB0009988776', 'EUR', 100, 50, 1, 1, 'camt053:001.02')",
+            (banco,)).lastrowid
+        conn.execute(
+            "INSERT INTO movimiento_bancario (importacion_id, extracto_id, cuenta_propia_iban, "
+            "posicion, fecha_contable, importe_cent, importe_crudo, moneda, huella) "
+            "VALUES (?, ?, 'NL60INGB0009988776', 1, '2026-10-12', -50, '0.50', 'EUR', ?)",
+            (banco, extracto, "8" * 64))
+        conn.execute("UPDATE importacion SET estado = 'aceptada', terminada_en = ? WHERE id = ?",
+                     (AHORA, banco))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)

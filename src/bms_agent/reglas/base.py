@@ -87,6 +87,21 @@ class Politica:
     empresa_nombres: tuple[str, ...] = ("bm support bv",)
     empresa_btw: str | None = None
     empresa_kvk: str | None = None
+    # Paso 7. Las cuentas de la empresa (config/empresa.yaml): un traspaso
+    # entre ellas no es un pago de nadie (K7, F7).
+    empresa_ibans: tuple[str, ...] = ()
+    # Una factura esta pagada cuando lo confirmado deja su saldo dentro de
+    # esto (decision 5; por defecto, al centimo).
+    tolerancia_pago: Decimal = Decimal("0.00")
+    # K1: una venta es "vencida" pasados estos dias de su vencimiento.
+    dias_vencida_venta: int = 14
+    # K3: dias sin rastro en el banco de un pago marcado a mano.
+    dias_pago_sin_extracto: int = 7
+    # K7: dias que un movimiento puede estar sin casar con ninguna factura.
+    dias_movimiento_sin_casar: int = 7
+    # K4: dos cargos iguales a la misma contraparte con la misma referencia en
+    # menos de estos dias son un pago doble.
+    ventana_doble_pago_dias: int = 30
 
     def valor(self, nombre: str) -> str:
         """El parametro como texto, para la huella (sin floats ni ambiguedad)."""
@@ -205,6 +220,14 @@ class Factura:
     sin_original: bool = False
     # Paso 6: las lineas editadas que la extraccion vigente no pudo casar (M2).
     sin_casar: tuple[LineaSinCasar, ...] = ()
+    # Paso 7: el vencimiento efectivo (el impreso, o la fecha mas el plazo,
+    # del maestro antes que del papel) y lo que se ha pagado de ella segun la
+    # fuente que manda (banco, Exact, a mano). `pagada` si lo confirmado deja
+    # su saldo dentro de la tolerancia (reglas.pagos.saldo).
+    vencimiento: date | None = None
+    pagado_cent: int = 0
+    fuente_pago: str | None = None
+    pagada: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,13 +333,74 @@ class Lote:
     ultimo: bool
 
 
+@dataclass(frozen=True, slots=True)
+class Extracto:
+    """Un extracto de una cuenta propia. `con_saldos` falso en los CSV del banco."""
+
+    id: int
+    importacion_id: int
+    cuenta: str
+    secuencia: int | None
+    saldo_inicial_cent: int | None
+    saldo_final_cent: int | None
+    desde: date | None
+    hasta: date | None
+    con_saldos: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Movimiento:
+    """Un movimiento del banco. `importe_cent` None si no esta en euros (X1); con signo.
+
+    `referencia` es lo que lo identifica como pago de algo, ya normalizado:
+    la referencia estructurada o, si no hay, el concepto (K4).
+    """
+
+    id: int
+    extracto_id: int
+    cuenta: str
+    fecha: date
+    importe_cent: int | None
+    moneda: str
+    contraparte_iban: str | None
+    contraparte_nombre: str | None
+    referencia: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Aplicacion:
+    """Lo que se pago de una factura: con su movimiento si es del banco. Importe en el signo
+    de la factura."""
+
+    id: int
+    factura_id: int
+    movimiento_id: int | None
+    importe_cent: int
+    fecha_pago: date
+    fuente: str
+    metodo: str
+    estado: str
+
+
+@dataclass(frozen=True, slots=True)
+class Bloqueo:
+    """Unos dias en que una factura estuvo Bloqueada: un hallazgo que bloquea, pendiente y sin
+    anular, de `desde` a `hasta` (los dos incluidos; None si sigue). Para K5."""
+
+    factura_id: int
+    regla: str
+    desde: date
+    hasta: date | None
+
+
 @dataclass(frozen=True)
 class Instantanea:
     """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py.
 
     Desde el paso 5, tambien los maestros (`proveedores`, `clientes`), el
     registro de cuentas con sus eventos, la historia de los telefonos de
-    verificacion y las importaciones de maestros.
+    verificacion y las importaciones de maestros; desde el paso 7, el banco y
+    lo pagado.
     """
 
     hoy: date
@@ -328,6 +412,14 @@ class Instantanea:
     cuentas: tuple[Cuenta, ...] = ()
     telefonos: tuple[CambioTelefono, ...] = ()
     lotes: tuple[Lote, ...] = ()
+    # Paso 7: el banco, lo pagado de cada factura, a quien se paga sin ser
+    # proveedor (beneficiario_conocido) y los dias en que cada factura con
+    # algun pago estuvo Bloqueada.
+    extractos: tuple[Extracto, ...] = ()
+    movimientos: tuple[Movimiento, ...] = ()
+    aplicaciones: tuple[Aplicacion, ...] = ()
+    beneficiarios: frozenset[str] = frozenset()
+    bloqueos: tuple[Bloqueo, ...] = ()
 
 
 # ------------------------------------------------------------ resultados

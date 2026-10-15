@@ -35,6 +35,7 @@ import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -43,7 +44,14 @@ from .. import campos, cuentas, identidad
 from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
 from ..almacen.documentos import registrar_documento
 from ..almacen.evidencia import foto
-from ..almacen.unidades import json_canonico
+from ..almacen.unidades import (
+    FueraDeRango,
+    PerdidaDePrecision,
+    a_cent,
+    de_cent,
+    json_canonico,
+    sha256_texto,
+)
 from ..auditoria import registrar
 from ..campos import Automatico, Leido
 from ..dominio import Fuente, Permiso
@@ -398,6 +406,232 @@ def _cuentas(ctx: _Contexto) -> list[Rechazo]:
     return []
 
 
+# ------------------------------------------------------------ los extractos del banco (paso 7)
+
+def huella_movimiento(cuenta: str, m: Any, ocurrencia: int) -> str:
+    """La huella de un movimiento: lo que dice el banco de el y cuantos identicos van antes.
+
+    La posicion entre filas identicas del mismo fichero entra en la huella:
+    dos comisiones iguales del mismo dia son dos movimientos, y el mismo
+    fichero (o otro que repite el mismo dia) no las mete dos veces.
+    """
+    return sha256_texto(json_canonico([
+        cuenta, m.fecha_contable.isoformat(),
+        m.fecha_valor.isoformat() if m.fecha_valor else None, str(m.importe), m.importe_crudo,
+        m.moneda,
+        m.contraparte_iban, m.contraparte_nombre, m.concepto, m.referencia_estructurada,
+        m.referencia_e2e, m.ref_banco, m.remesa, ocurrencia]))
+
+
+def _extractos(ctx: _Contexto) -> list[Rechazo]:
+    """Los extractos de un fichero del banco: todos o ninguno.
+
+    La cuenta de cada extracto tiene que ser de BM Support BV
+    (config/empresa.yaml, cuentas_propias): un extracto de otra cuenta rechaza
+    el fichero entero. Un extracto que ya estaba (misma cuenta, secuencia,
+    fechas y saldos) no se vuelve a dar de alta, y un movimiento cuya huella
+    ya esta no entra otra vez.
+    """
+    from .. import politica
+
+    lote, conn = ctx.lote, ctx.conn
+    if lote.fuente != "banco":
+        return [Rechazo(0, f"un extracto llega del banco, no de {lote.fuente}")]
+    if lote.rechazos:
+        return []
+    propias = set(politica.empresa(conn).cuentas_propias)
+    if not propias:
+        return [Rechazo(0, "config/empresa.yaml no tiene cuentas propias: no se sabe si el "
+                           "extracto es de BM Support BV", None, "cuenta_ajena")]
+    ajenas = [Rechazo(e.fila, f"la cuenta {e.cuenta_propia_iban} no es de BM Support BV "
+                              "(config/empresa.yaml): el fichero no entra", dict(e.crudo),
+                      "cuenta_ajena")
+              for e in lote.registros if e.cuenta_propia_iban not in propias]
+    if ajenas:
+        return ajenas
+    preparados = []
+    vistos: dict[str, int] = defaultdict(int)
+    posicion = 0
+    try:
+        for extracto in lote.registros:
+            filas = []
+            for m in extracto.movimientos:
+                posicion += 1
+                clave = huella_movimiento(extracto.cuenta_propia_iban, m, 0)
+                vistos[clave] += 1
+                importe = a_cent(m.importe) if m.moneda == "EUR" else None
+                filas.append((posicion, m, importe,
+                              huella_movimiento(extracto.cuenta_propia_iban, m, vistos[clave])))
+            preparados.append((extracto, filas,
+                               a_cent(extracto.saldo_inicial) if extracto.saldo_inicial is not None
+                               else None,
+                               a_cent(extracto.saldo_final) if extracto.saldo_final is not None
+                               else None))
+    except (PerdidaDePrecision, FueraDeRango) as exc:
+        return [Rechazo(0, f"un importe no cabe en centimos: {exc}")]
+    actor = ctx.actor
+    for extracto, filas, inicial, final in preparados:
+        existente = conn.execute(
+            "SELECT id FROM extracto_bancario WHERE cuenta_propia_iban = ? AND secuencia IS ? "
+            "AND desde IS ? AND hasta IS ? AND saldo_inicial_cent IS ? AND saldo_final_cent IS ? "
+            "AND con_saldos = ?",
+            (extracto.cuenta_propia_iban, extracto.secuencia,
+             extracto.desde.isoformat() if extracto.desde else None,
+             extracto.hasta.isoformat() if extracto.hasta else None, inicial, final,
+             int(extracto.con_saldos))).fetchone()
+        huellas = [h for *_resto, h in filas]
+        ya = set()
+        for inicio in range(0, len(huellas), 500):
+            trozo = huellas[inicio:inicio + 500]
+            ya.update(f[0] for f in conn.execute(
+                f"SELECT huella FROM movimiento_bancario WHERE huella IN "
+                f"({', '.join('?' * len(trozo))})", trozo))
+        nuevas = [f for f in filas if f[3] not in ya]
+        if existente is not None and not nuevas:
+            ctx.resultado.avisos.append(
+                f"el extracto {extracto.identificador or extracto.fila} de "
+                f"{extracto.cuenta_propia_iban} ya estaba (extracto {existente[0]}): no entra "
+                "otra vez")
+            continue
+        extracto_id = int(conn.execute(
+            "INSERT INTO extracto_bancario (importacion_id, cuenta_propia_iban, identificador, "
+            "secuencia, moneda, saldo_inicial_cent, saldo_final_cent, fecha_saldo_inicial, "
+            "fecha_saldo_final, desde, hasta, con_saldos, entradas, formato) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ctx.importacion_id, extracto.cuenta_propia_iban, extracto.identificador,
+             extracto.secuencia, extracto.moneda, inicial, final,
+             extracto.fecha_saldo_inicial.isoformat() if extracto.fecha_saldo_inicial else None,
+             extracto.fecha_saldo_final.isoformat() if extracto.fecha_saldo_final else None,
+             extracto.desde.isoformat() if extracto.desde else None,
+             extracto.hasta.isoformat() if extracto.hasta else None, int(extracto.con_saldos),
+             len(filas), extracto.formato)).lastrowid)
+        ctx.resultado.nuevos.append(("extracto_bancario", extracto_id))
+        fotos = {}
+        for posicion_, m, importe, huella in nuevas:
+            movimiento_id = int(conn.execute(
+                "INSERT INTO movimiento_bancario (importacion_id, extracto_id, cuenta_propia_iban, "
+                "posicion, fecha_contable, fecha_valor, importe_cent, importe_crudo, moneda, "
+                "contraparte_iban, contraparte_nombre_doc, concepto_doc, referencia_estructurada, "
+                "referencia_e2e, ref_banco, remesa, huella) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ctx.importacion_id, extracto_id, extracto.cuenta_propia_iban, posicion_,
+                 m.fecha_contable.isoformat(),
+                 m.fecha_valor.isoformat() if m.fecha_valor else None, importe, m.importe_crudo,
+                 m.moneda, m.contraparte_iban, m.contraparte_nombre, m.concepto,
+                 m.referencia_estructurada, m.referencia_e2e, m.ref_banco, m.remesa,
+                 huella)).lastrowid)
+            fotos[str(movimiento_id)] = foto(conn, "movimiento_bancario", movimiento_id)
+            ctx.resultado.nuevos.append(("movimiento_bancario", movimiento_id))
+        if len(nuevas) < len(filas):
+            ctx.resultado.avisos.append(
+                f"{len(filas) - len(nuevas)} movimiento(s) del extracto "
+                f"{extracto.identificador or extracto.fila} ya estaban: no entran otra vez")
+        registrar(conn, tipo="extracto_registrado", actor=actor, usuario_id=ctx.persona,
+                  tabla="extracto_bancario", fila_id=extracto_id,
+                  datos={"importacion_id": ctx.importacion_id,
+                         "repetidos": len(filas) - len(nuevas),
+                         "fila": foto(conn, "extracto_bancario", extracto_id),
+                         "movimientos": fotos})
+    return []
+
+
+# ------------------------------------------------------------ lo pagado segun Exact (paso 7)
+
+def _factura_de_exact(conn: sqlite3.Connection, registro: Any) -> int:
+    """La factura que nombra una fila de Exact: por el numero de Exact de su parte y su numero."""
+    from ..parsing import normalizar_referencia
+
+    tabla, columna, sentido = (("proveedor", "proveedor_id", "entrante")
+                               if registro.sentido == "compra"
+                               else ("cliente", "cliente_id", "saliente"))
+    partes = [f[0] for f in conn.execute(f"SELECT id FROM {tabla} WHERE exact_id = ?",
+                                         (registro.parte_ref.strip(),))]
+    if not partes:
+        raise RechazoFila(f"no hay ningun {tabla} con el numero {registro.parte_ref!r} de Exact",
+                          "referencia")
+    numero = normalizar_referencia(registro.numero)
+    facturas = [f[0] for f in conn.execute(
+        f"SELECT id FROM factura WHERE sentido = ? AND numero_norm = ? AND {columna} IN "
+        f"({', '.join('?' * len(partes))}) AND fusionada_en_id IS NULL ORDER BY id",
+        (sentido, numero, *partes))]
+    if len(facturas) != 1:
+        raise RechazoFila(f"la factura {registro.numero} de {tabla} {registro.parte_ref} "
+                          + ("no esta en el almacen" if not facturas else "esta repetida")
+                          + ": su pago no se aplica", "referencia")
+    return facturas[0]
+
+
+def _pagado_segun_exact(conn: sqlite3.Connection, registro: Any, factura_id: int) -> Decimal:
+    if registro.importe_pagado is not None:
+        return registro.importe_pagado
+    if registro.importe_abierto is None:
+        raise RechazoFila("la fila no dice ni lo pagado ni lo abierto")
+    if registro.importe_factura is not None:
+        return registro.importe_factura - registro.importe_abierto
+    total = conn.execute("SELECT total_cent FROM factura WHERE id = ?", (factura_id,)).fetchone()[0]
+    if total is None:
+        raise RechazoFila("la factura no tiene total en euros: no se sabe lo pagado")
+    return de_cent(total) - registro.importe_abierto
+
+
+def _pagos_exact(ctx: _Contexto) -> tuple[list[Rechazo], int]:
+    """Lo que Exact dice que se ha pagado de cada factura, como aplicaciones de fuente exact.
+
+    Una fila que no se lee, o un importe en otra moneda, rechaza el fichero
+    entero (decision 6: un fichero de pagos a medias da estados falsos). Una
+    fila de una factura que aqui no esta no se aplica y queda como rechazo
+    (Z2); las demas si: a una factura que no esta no se le puede dar ningun
+    estado falso. Si Exact dice otro importe que la ultima vez, la aplicacion
+    de antes se retira y se escribe otra.
+    """
+    lote, conn = ctx.lote, ctx.conn
+    if lote.fuente != "exact":
+        return [Rechazo(0, f"lo pagado segun Exact llega de Exact, no de {lote.fuente}")], 0
+    if lote.rechazos:
+        return [], 0
+    otras = [Rechazo(r.fila, f"esta en {r.moneda}: lo que no esta en euros no entra",
+                     dict(r.crudo), "X1")
+             for r in lote.registros if (r.moneda or "").strip().upper() not in _EUROS]
+    if otras:
+        return otras, 0
+    rechazos: list[Rechazo] = []
+    aceptadas = 0
+    fecha_lote = (lote.exportado_en.astimezone(ZoneInfo(ZONA_EMPRESA)).date()
+                  if lote.exportado_en else reloj_de(conn).hoy())
+    for registro in lote.registros:
+        try:
+            with transaccion(conn):
+                factura_id = _factura_de_exact(conn, registro)
+                pagado = _pagado_segun_exact(conn, registro, factura_id)
+                actuales = conn.execute(
+                    "SELECT id, importe_cent FROM aplicacion_pago WHERE factura_id = ? "
+                    "AND fuente = 'exact' AND estado = 'confirmada' ORDER BY id",
+                    (factura_id,)).fetchall()
+                if sum(f[1] for f in actuales) != a_cent(pagado):
+                    with campos.orden(conn, ctx.origen, tipo="pagos_exact_importados",
+                                      tabla="aplicacion_pago", factura_id=factura_id,
+                                      datos={"importacion_id": ctx.importacion_id,
+                                             "fila": registro.fila}) as o:
+                        for fila in actuales:
+                            o.retirar("aplicacion_pago", fila[0])
+                        if pagado != 0:
+                            o.crear("aplicacion_pago", {
+                                "factura_id": factura_id, "importacion_id": ctx.importacion_id,
+                                "importe_cent": pagado,
+                                "fecha_pago": registro.fecha_pago or fecha_lote,
+                                "fuente": "exact", "metodo": "automatica",
+                                "regla": "exact: pagado" if registro.importe_pagado is not None
+                                else "exact: factura menos lo abierto"})
+                    ctx.anotar(o.resultado)
+        except RechazoFila as exc:
+            rechazos.append(Rechazo(registro.fila, str(exc), dict(registro.crudo), exc.codigo))
+        except (PerdidaDePrecision, FueraDeRango) as exc:
+            rechazos.append(Rechazo(registro.fila, str(exc), dict(registro.crudo)))
+        else:
+            aceptadas += 1
+    return rechazos, aceptadas
+
+
 # ------------------------------------------------------------ la foto completa de un sistema
 
 _PARTES = {"proveedores": "proveedor", "clientes": "cliente"}
@@ -445,7 +679,7 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
                nombre: str | None, tipo_mime: str) -> ResultadoLote:
     conn = almacen.conn
     resultado = ResultadoLote(lote.fuente, lote.tipo, lote.formato,
-                              filas_leidas=lote.filas_leidas)
+                              filas_leidas=lote.filas_leidas, avisos=list(lote.avisos))
     actor = usuario_sistema(conn, "importador")
     ahora = marca(reloj_de(conn).ahora())
     documento_id = None
@@ -470,6 +704,13 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
         propios = _cuentas(ctx)
         rechazos.extend(propios)
         aceptadas = 0 if (propios or lote.rechazos) else len(lote.registros)
+    elif lote.tipo == "extracto":
+        propios = _extractos(ctx)
+        rechazos.extend(propios)
+        aceptadas = 0 if (propios or lote.rechazos) else len(lote.registros)
+    elif lote.tipo == "pagos_exact":
+        propios, aceptadas = _pagos_exact(ctx)
+        rechazos.extend(propios)
     elif lote.tipo in ATOMICOS or lote.tipo not in ESCRITORES:
         rechazos.append(Rechazo(0, f"el tipo {lote.tipo} todavia no se importa"))
         aceptadas = 0
@@ -492,7 +733,9 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
     resultado.rechazos, resultado.aceptadas = rechazos, aceptadas
     if not rechazos:
         resultado.estado = "aceptada"
-    elif aceptadas and lote.tipo not in ATOMICOS:
+    elif aceptadas and (lote.tipo not in ATOMICOS or lote.tipo == "pagos_exact"):
+        # Lo pagado segun Exact entra salvo las filas de facturas que aqui no
+        # estan (ver _pagos_exact); lo que no se lee lo rechaza entero.
         resultado.estado = "parcial"
     else:
         resultado.estado = "rechazada"
@@ -573,6 +816,12 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
     """
     from ..hallazgos import recalcular
 
+    if (fuente, tipo) == ("banco", "extracto"):
+        from .banco import importar_extracto
+
+        formato = mapeo.id if isinstance(mapeo, Mapeo) else (str(mapeo) if mapeo else None)
+        return importar_extracto(almacen, ruta, lanzado_por=lanzado_por, formato=formato,
+                                 exportado_en=exportado_en, simular=simular)
     ruta = Path(ruta)
     contenido = ruta.read_bytes()
     if isinstance(mapeo, Mapeo):

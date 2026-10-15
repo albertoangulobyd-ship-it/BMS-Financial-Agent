@@ -133,6 +133,11 @@ _REGLAS: dict[str, dict[str, tuple[str, type]]] = {
     "frescura": {"exact_dias": ("frescura_exact_dias", int),
                  "trnsprnt_dias": ("frescura_trnsprnt_dias", int),
                  "extractos_dias_laborables": ("frescura_banco_dias_laborables", int)},
+    "pagos": {"tolerancia": ("tolerancia_pago", Decimal),
+              "dias_vencida_venta": ("dias_vencida_venta", int),
+              "dias_pago_sin_extracto": ("dias_pago_sin_extracto", int),
+              "dias_movimiento_sin_casar": ("dias_movimiento_sin_casar", int),
+              "ventana_doble_pago_dias": ("ventana_doble_pago_dias", int)},
 }
 
 
@@ -151,6 +156,14 @@ _LIMITES: dict[str, tuple[Decimal | int, Decimal | int]] = {
     "frescura_exact_dias": (1, 31),
     "frescura_trnsprnt_dias": (1, 31),
     "frescura_banco_dias_laborables": (1, 10),
+    # Paso 7: una tolerancia de pago de mas de un euro daria por pagada una
+    # factura a la que le falta dinero; una ventana de pago doble de menos de
+    # una semana no veria el mismo pago repetido a la semana siguiente.
+    "tolerancia_pago": (Decimal("0"), Decimal("1.00")),
+    "dias_vencida_venta": (0, 90),
+    "dias_pago_sin_extracto": (1, 30),
+    "dias_movimiento_sin_casar": (1, 60),
+    "ventana_doble_pago_dias": (7, 90),
 }
 
 
@@ -252,7 +265,8 @@ def politica_de(reglas: str | None, empresa_texto: str | None) -> Politica:
         empresa_.nombre, *empresa_.otros_nombres)) if n}))
     return Politica(**ajustes_de_reglas(reglas), empresa_nombres=nombres,
                     empresa_btw=normalizar_btw(empresa_.btw_id),
-                    empresa_kvk=normalizar_kvk(empresa_.kvk))
+                    empresa_kvk=normalizar_kvk(empresa_.kvk),
+                    empresa_ibans=tuple(sorted(empresa_.cuentas_propias)))
 
 
 def politica_reglas(conn: sqlite3.Connection) -> Politica:

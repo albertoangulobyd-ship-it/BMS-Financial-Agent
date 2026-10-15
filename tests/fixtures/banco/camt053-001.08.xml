@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>BMS-20261014-01</MsgId>
+      <CreDtTm>2026-10-14T08:00:00+02:00</CreDtTm>
+    </GrpHdr>
+    <Stmt>
+      <Id>STMT-102</Id>
+      <ElctrncSeqNb>102</ElctrncSeqNb>
+      <LglSeqNb>102</LglSeqNb>
+      <FrToDt>
+        <FrDtTm>2026-10-14T00:00:00+02:00</FrDtTm>
+        <ToDtTm>2026-10-14T23:59:59+02:00</ToDtTm>
+      </FrToDt>
+      <Acct>
+        <Id><IBAN>NL60INGB0009988776</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">4923.31</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-10-14</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">5823.31</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-10-14</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">600.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-10-14</Dt></BookgDt>
+        <ValDt><Dt>2026-10-14</Dt></ValDt>
+        <AcctSvcrRef>ING-0004</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>E2E-B077</EndToEndId><AcctSvcrRef>ING-0004-1</AcctSvcrRef></Refs>
+            <Amt Ccy="EUR">600.00</Amt>
+            <CdtDbtInd>DBIT</CdtDbtInd>
+            <RltdPties>
+              <Cdtr><Pty><Nm>Schilderwerken Bakker</Nm></Pty></Cdtr>
+              <CdtrAcct><Id><IBAN>NL67INGB0006543210</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Factuur B-2026-077 deel 1</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">1500.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-10-14</Dt></BookgDt>
+        <AcctSvcrRef>ING-0005</AcctSvcrRef>
+        <NtryDtls>
+          <Btch><NbOfTxs>2</NbOfTxs></Btch>
+          <TxDtls>
+            <Refs><EndToEndId>KLANT-1</EndToEndId></Refs>
+            <Amt Ccy="EUR">1000.00</Amt>
+            <CdtDbtInd>CRDT</CdtDbtInd>
+            <RltdPties>
+              <Dbtr><Pty><Nm>Havenbedrijf Schiedam</Nm></Pty></Dbtr>
+              <DbtrAcct><Id><IBAN>NL39RABO0300065264</IBAN></Id></DbtrAcct>
+            </RltdPties>
+            <RmtInf><Strd><CdtrRefInf><Ref>RF18539007547034</Ref></CdtrRefInf></Strd></RmtInf>
+          </TxDtls>
+          <TxDtls>
+            <Refs><EndToEndId>KLANT-2</EndToEndId></Refs>
+            <Amt Ccy="EUR">500.00</Amt>
+            <CdtDbtInd>CRDT</CdtDbtInd>
+            <RltdPties>
+              <Dbtr><Pty><Nm>Havenbedrijf Schiedam</Nm></Pty></Dbtr>
+              <DbtrAcct><Id><IBAN>NL39RABO0300065264</IBAN></Id></DbtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Betaling V2026-0013</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

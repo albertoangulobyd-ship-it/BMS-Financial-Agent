@@ -9,8 +9,8 @@ Paso 5: F0 (lo heredado sin atestar), F2 (el IBAN de la factura no es
 pagable), F3 (es nuevo o esta rechazado), F4 (es de otro, o hay factoring),
 F5 (el maestro cambio una cuenta despues del primero), F6 (Exact y TRNSPRNT
 no coinciden), F8 (una verificacion que no cuenta) y F9 (el telefono de
-verificacion acaba de cambiar). F7 y F10 llegan con el banco (paso 7) y las
-ventas (paso 8).
+verificacion acaba de cambiar). Paso 7: F7 (un cargo del banco a un proveedor
+fue a una cuenta que no es pagable para el). F10 llega con las ventas (paso 8).
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any
 from .base import (
     ENTRANTE,
     FALLO,
+    RELACIONADO,
     LEE_CADUCIDAD,
     LEE_EN_JUEGO,
     LEE_LOTES,
@@ -540,7 +541,8 @@ def f5(instantanea: Instantanea) -> list[Resultado]:
     El trabajo es del proveedor (un hallazgo por cuenta), pero bloquea tambien
     cada factura de compra en juego de ese proveedor, imprima el IBAN que
     imprima o ninguno: se paga desde el maestro, y el maestro tiene un cambio
-    que nadie ha verificado (§7 y §8: la familia F es un suelo Bloqueada).
+    que nadie ha verificado (§7 y §8: la familia F es un suelo Bloqueada). Una
+    pagada no (paso 7): su dinero ya salio.
     """
     r = registro(instantanea)
     salida = []
@@ -552,8 +554,10 @@ def f5(instantanea: Instantanea) -> list[Resultado]:
             if r.estados[cuenta.id].cambios:
                 con_cambios[proveedor_id].append(cuenta.iban)
     for factura in instantanea.facturas:
+        # Una pagada ya no sale del maestro: el cambio no la pone en riesgo (paso 7).
         if (factura.sentido != ENTRANTE or factura.anulada
-                or factura.fusionada_en_id is not None or factura.proveedor_id not in con_cambios):
+                or factura.fusionada_en_id is not None or factura.proveedor_id not in con_cambios
+                or factura.pagada):
             continue
         ibans = sorted(con_cambios[factura.proveedor_id])
         salida.append(fallo(
@@ -655,7 +659,7 @@ def f9(instantanea: Instantanea) -> list[Resultado]:
 
 LEE_F0 = LEE_REGISTRO
 LEE_F5 = LEE_REGISTRO | LEE_EN_JUEGO | frozenset({
-    "factura.id", "factura.sentido", "factura.proveedor_id"})
+    "factura.id", "factura.sentido", "factura.proveedor_id", "factura.pagada"})
 LEE_F8 = LEE_REGISTRO
 LEE_F6 = frozenset({"instantanea.cuentas", "cuenta.titular", "cuenta.eventos", "cuenta.parte_id",
                     "cuenta.iban", "evento_cuenta.tipo"})
@@ -669,3 +673,79 @@ EVALUAR = {
     "F3": solo_objeciones(f3, registro),
     "F4": solo_objeciones(f4, _preparar_f4),
 }
+
+
+# ------------------------------------------------------------ F7 (paso 7)
+
+def f7(instantanea: Instantanea) -> list[Resultado]:
+    """F7: un cargo del banco a un proveedor fue a una cuenta que no es pagable para el (bloquea).
+
+    El cargo es de un proveedor si esta casado (confirmado o propuesto) con una
+    factura suya, o si su cuenta de destino esta registrada para un solo
+    proveedor. Pagable es lo de F2: verificada, atestada o heredada, en el
+    ultimo Exact y sin cambios por verificar. Un traspaso a una cuenta propia o
+    un pago a un beneficiario conocido (Belastingdienst, nominas, alquiler) no
+    es un pago a un proveedor. El hallazgo va sobre el movimiento, y toca las
+    facturas con que esta casado.
+    """
+    r = registro(instantanea)
+    ajenos = frozenset(instantanea.politica.empresa_ibans) | instantanea.beneficiarios
+    proveedor_de = {f.id: f.proveedor_id for f in instantanea.facturas if f.sentido == ENTRANTE}
+    nombres = {p.id: p.nombre for p in instantanea.proveedores}
+    casadas: dict[int, set[int]] = defaultdict(set)
+    for a in instantanea.aplicaciones:
+        if a.movimiento_id is not None and a.estado != "retirada" and a.factura_id in proveedor_de:
+            casadas[a.movimiento_id].add(a.factura_id)
+    salida = []
+    for m in instantanea.movimientos:
+        if m.importe_cent is None or m.importe_cent >= 0 or (
+                m.contraparte_iban is not None and m.contraparte_iban in ajenos):
+            continue
+        facturas = sorted(casadas.get(m.id, ()))
+        proveedores = {proveedor_de[f] for f in facturas if proveedor_de[f] is not None}
+        if m.contraparte_iban is not None:
+            registrados = {c.parte_id for c in r.por_iban.get(m.contraparte_iban, ())
+                           if c.titular == "proveedor"}
+            if len(registrados) == 1:
+                proveedores |= registrados
+        for proveedor_id in sorted(proveedores):
+            suyas = [f for f in facturas if proveedor_de[f] == proveedor_id]
+            objetivos = (Objetivo("movimiento", m.id), *(
+                Objetivo("factura", f, None, RELACIONADO) for f in suyas))
+            clave = f"proveedor:{proveedor_id}"
+            if m.contraparte_iban is None:
+                salida.append(Resultado("F7", "movimiento", m.id, SIN_DATOS,
+                                        "El banco no dice a qué cuenta fue el cargo.", {}, clave))
+                continue
+            if not r.hay_maestro or r.caducada:
+                salida.append(Resultado(
+                    "F7", "movimiento", m.id, SIN_DATOS, "Sin un maestro de Exact al día no se "
+                    "sabe qué cuentas son pagables.", {}, clave))
+                continue
+            cuenta = next((c for c in r.por_proveedor.get(proveedor_id, ())
+                           if c.iban == m.contraparte_iban), None)
+            estado = r.estados[cuenta.id] if cuenta is not None else None
+            if estado is not None and estado.pagable:
+                continue
+            motivo = ("no está registrada para él" if estado is None
+                      else f"está {estado.estado}" + (" con un cambio sin verificar"
+                                                       if estado.cambios else ""))
+            nombre = nombres.get(proveedor_id, f"el proveedor {proveedor_id}")
+            salida.append(Resultado(
+                "F7", "movimiento", m.id, FALLO,
+                f"El cargo del {m.fecha.isoformat()} a {m.contraparte_iban} es un pago a "
+                f"{nombre} y esa cuenta no es pagable: {motivo}.",
+                {"proveedor": proveedor_id, "iban": m.contraparte_iban,
+                 "estado": estado.estado if estado else None, "facturas": suyas},
+                clave, None, None, objetivos))
+    return salida
+
+
+LEE_F7 = LEE_REGISTRO | frozenset({
+    "instantanea.movimientos", "instantanea.aplicaciones", "instantanea.beneficiarios",
+    "instantanea.facturas", "instantanea.proveedores", "politica.empresa_ibans",
+    "factura.id", "factura.sentido", "factura.proveedor_id", "parte.id", "parte.nombre",
+    "aplicacion.movimiento_id", "aplicacion.estado", "aplicacion.factura_id",
+    "movimiento.id", "movimiento.importe_cent", "movimiento.contraparte_iban",
+    "movimiento.fecha",
+})

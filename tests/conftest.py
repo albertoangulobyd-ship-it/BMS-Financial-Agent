@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import shutil
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -118,3 +119,112 @@ def persona(conn, nombre: str, *roles: str) -> int:
 
 def factura_de(conn, numero: str) -> int:
     return conn.execute("SELECT id FROM factura WHERE numero = ?", (numero,)).fetchone()[0]
+
+
+# ------------------------------------------------------------ paso 7: el banco
+
+CUENTA_PROPIA = "NL60INGB0009988776"
+OTRA_CUENTA_PROPIA = "NL93RABO0987654321"
+
+
+def cuentas_propias(almacen, usuario_id: int, *ibans: str) -> None:
+    """Carga config/empresa.yaml con estas cuentas propias (por defecto las dos de las
+    fixtures del banco), como `politica cargar`."""
+    from bms_agent import politica
+
+    ibans = ibans or (CUENTA_PROPIA, OTRA_CUENTA_PROPIA)
+    texto = (RAIZ / "config" / "empresa.yaml").read_text(encoding="utf-8").replace(
+        "cuentas_propias: []", "cuentas_propias:\n" + "".join(f"  - {i}\n" for i in ibans))
+    carpeta = almacen.documentos.raiz.parent / "politica-prueba"
+    carpeta.mkdir(exist_ok=True)
+    ruta = carpeta / "empresa.yaml"
+    ruta.write_text(texto, encoding="utf-8")
+    politica.cargar(almacen.conn, ruta, usuario_id)
+
+
+def apunte(importe: str, fecha: str = "2026-10-12", *, iban: str | None = None,
+           nombre: str | None = None, concepto: str | None = None, ref: str | None = None,
+           e2e: str | None = None, moneda: str = "EUR", estado: str = "BOOK",
+           detalles: tuple[dict, ...] = (), ref_banco: str | None = None) -> dict:
+    """Un apunte de un CAMT.053: importe con signo (negativo, un cargo). Con `detalles`, una
+    remesa: un apunte con varias transacciones (cada una, un apunte sin fecha)."""
+    return {"importe": Decimal(importe), "fecha": fecha, "iban": iban, "nombre": nombre,
+            "concepto": concepto, "ref": ref, "e2e": e2e, "moneda": moneda, "estado": estado,
+            "detalles": tuple(detalles), "ref_banco": ref_banco}
+
+
+def _tx(a: dict, cargo: bool, con_importe: bool) -> str:
+    parte, cuenta = ("Cdtr", "CdtrAcct") if cargo else ("Dbtr", "DbtrAcct")
+    trozos = ["<TxDtls>"]
+    if a["e2e"]:
+        trozos.append(f"<Refs><EndToEndId>{a['e2e']}</EndToEndId></Refs>")
+    if con_importe:
+        trozos.append(f"<AmtDtls><TxAmt><Amt Ccy=\"{a['moneda']}\">{abs(a['importe']):.2f}"
+                      "</Amt></TxAmt></AmtDtls>")
+    if a["nombre"] or a["iban"]:
+        trozos.append("<RltdPties>")
+        if a["nombre"]:
+            trozos.append(f"<{parte}><Nm>{a['nombre']}</Nm></{parte}>")
+        if a["iban"]:
+            trozos.append(f"<{cuenta}><Id><IBAN>{a['iban']}</IBAN></Id></{cuenta}>")
+        trozos.append("</RltdPties>")
+    if a["concepto"] or a["ref"]:
+        trozos.append("<RmtInf>")
+        if a["concepto"]:
+            trozos.append(f"<Ustrd>{a['concepto']}</Ustrd>")
+        if a["ref"]:
+            trozos.append(f"<Strd><CdtrRefInf><Ref>{a['ref']}</Ref></CdtrRefInf></Strd>")
+        trozos.append("</RmtInf>")
+    trozos.append("</TxDtls>")
+    return "".join(trozos)
+
+
+def camt053(*apuntes: dict, cuenta: str = CUENTA_PROPIA, inicial: str = "10000.00",
+            final: str | None = None, secuencia: int | None = 1, version: str = "001.02",
+            identificador: str = "STMT-1", desde: str = "2026-10-12",
+            hasta: str = "2026-10-13") -> bytes:
+    """Un CAMT.053 de prueba. El saldo final, si no se da, es el inicial mas los apuntes
+    contabilizados en euros (el extracto cuadra)."""
+    if final is None:
+        final = str(Decimal(inicial) + sum(
+            (a["importe"] for a in apuntes if a["estado"] == "BOOK" and a["moneda"] == "EUR"),
+            Decimal(0)))
+
+    def saldo(codigo: str, importe: str, dia: str) -> str:
+        valor = Decimal(importe)
+        return (f"<Bal><Tp><CdOrPrtry><Cd>{codigo}</Cd></CdOrPrtry></Tp>"
+                f"<Amt Ccy=\"EUR\">{abs(valor):.2f}</Amt>"
+                f"<CdtDbtInd>{'DBIT' if valor < 0 else 'CRDT'}</CdtDbtInd>"
+                f"<Dt><Dt>{dia}</Dt></Dt></Bal>")
+
+    entradas = []
+    for i, a in enumerate(apuntes, start=1):
+        cargo = a["importe"] < 0
+        txs = ([_tx(d, cargo, True) for d in a["detalles"]] if a["detalles"]
+               else [_tx(a, cargo, False)])
+        lote = f"<Btch><NbOfTxs>{len(a['detalles'])}</NbOfTxs></Btch>" if a["detalles"] else ""
+        entradas.append(
+            f"<Ntry><Amt Ccy=\"{a['moneda']}\">{abs(a['importe']):.2f}</Amt>"
+            f"<CdtDbtInd>{'DBIT' if cargo else 'CRDT'}</CdtDbtInd><Sts>{a['estado']}</Sts>"
+            f"<BookgDt><Dt>{a['fecha']}</Dt></BookgDt>"
+            f"<AcctSvcrRef>{a['ref_banco'] or f'{identificador}-{i}'}</AcctSvcrRef>"
+            f"<NtryDtls>{lote}{''.join(txs)}</NtryDtls></Ntry>")
+    secuencia_xml = "" if secuencia is None else f"<ElctrncSeqNb>{secuencia}</ElctrncSeqNb>"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.{version}"><BkToCstmrStmt>'
+        f"<GrpHdr><MsgId>{identificador}</MsgId><CreDtTm>{hasta}T18:00:00</CreDtTm></GrpHdr>"
+        f"<Stmt><Id>{identificador}</Id>{secuencia_xml}"
+        f"<FrToDt><FrDtTm>{desde}T00:00:00</FrDtTm><ToDtTm>{hasta}T23:59:59</ToDtTm></FrToDt>"
+        f"<Acct><Id><IBAN>{cuenta}</IBAN></Id><Ccy>EUR</Ccy></Acct>"
+        f"{saldo('OPBD', inicial, desde)}{saldo('CLBD', final, hasta)}"
+        f"{''.join(entradas)}</Stmt></BkToCstmrStmt></Document>").encode("utf-8")
+
+
+def importar_camt(almacen, usuario_id: int, contenido: bytes, nombre: str = "extracto.xml"):
+    """Importa un CAMT.053 como lo haria `bms-agent importar banco extracto`."""
+    from bms_agent.importadores.registrar import importar_fichero
+
+    ruta = almacen.documentos.raiz.parent / nombre
+    ruta.write_bytes(contenido)
+    return importar_fichero(almacen, "banco", "extracto", ruta, lanzado_por=usuario_id)

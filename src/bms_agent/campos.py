@@ -66,11 +66,14 @@ from .auditoria import Cambio, registrar
 from .dominio import (
     FUENTES_AUTOMATICAS,
     ClaseReferencia,
+    EstadoAplicacion,
     EstadoRelacion,
     FrecuenciaCiclo,
     Fuente,
+    FuenteAplicacion,
     FuenteRelacion,
     FuenteTarifa,
+    MetodoAplicacion,
     OrigenAlias,
     OrigenFactura,
     Permiso,
@@ -334,6 +337,23 @@ def _clase(ctx: Contexto) -> Any:
     return clasificar_referencia(ctx.fila.get("etiqueta_doc"))
 
 
+def _estado_aplicacion(ctx: Contexto) -> Any:
+    """El estado de una aplicacion de pago sale de como se hizo, no de quien lo escribe.
+
+    Retirada si se retiro; confirmada si la caso el sistema del todo
+    (automatica), la puso una persona (manual) o una persona confirmo la
+    propuesta; propuesta si no. Asi confirmar es rellenar quien y cuando, y
+    nadie escribe a mano un estado.
+    """
+    fila = ctx.fila
+    if fila.get("retirada_en"):
+        return EstadoAplicacion.RETIRADA.value
+    if (fila.get("metodo") in (MetodoAplicacion.AUTOMATICA.value, MetodoAplicacion.MANUAL.value)
+            or fila.get("confirmada_por") is not None):
+        return EstadoAplicacion.CONFIRMADA.value
+    return EstadoAplicacion.PROPUESTA.value
+
+
 # ------------------------------------------------------------ las tablas
 
 _EDITAR = Permiso.EDITAR_EXTRACCION.value
@@ -343,6 +363,7 @@ _OBJETO = Permiso.CAMBIAR_OBJETO.value
 _PO = Permiso.CAMBIAR_PO.value
 _ANULAR = Permiso.ANULAR_ACREDITAR.value
 _IBAN = Permiso.CONFIRMAR_IBAN.value
+_PAGADA = Permiso.MARCAR_PAGADA.value
 
 _FIJO = {"editable": False}
 
@@ -573,6 +594,28 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "evidencia_doc": _r(TEXTO, **_FIJO),
         "retirada_en": _r(INSTANTE, **_FIJO),
     }, suplir=_ANULAR, corregir=_ANULAR),
+    # Paso 7. Lo que se pago de una factura. Nada de lo que la identifica
+    # cambia despues de escribirla (a que factura y movimiento va, cuanto, de
+    # cuando y de donde): se retira y se escribe otra. Una persona solo la
+    # confirma (rellena quien y cuando), la retira o escribe una manual.
+    "aplicacion_pago": _tabla("aplicacion_pago", {
+        "factura_id": _r(REF, **_FIJO),
+        "movimiento_id": _r(REF, **_FIJO),
+        "importacion_id": _r(REF, **_FIJO),
+        "importe_cent": _r(CENT, **_FIJO),
+        "fecha_pago": _r(FECHA, **_FIJO),
+        "fuente": _r(ENUM, valores=FuenteAplicacion.valores(), **_FIJO),
+        "metodo": _r(ENUM, valores=MetodoAplicacion.valores(), **_FIJO),
+        "estado": _r(ENUM, valores=EstadoAplicacion.valores(), editable=False,
+                     calculo=_estado_aplicacion,
+                     depende_de=("metodo", "confirmada_por", "retirada_en")),
+        "regla": _r(TEXTO, **_FIJO),
+        "motivo": _r(TEXTO),
+        "evidencia_documento_id": _r(REF, **_FIJO),
+        "confirmada_por": _r(REF),
+        "confirmada_en": _r(INSTANTE),
+        "retirada_en": _r(INSTANTE, **_FIJO),
+    }, suplir=_PAGADA, corregir=_PAGADA),
 }
 
 TABLAS_CONTROLADAS: tuple[str, ...] = tuple(REGISTRO)
@@ -585,6 +628,7 @@ PERMISO_ALTA: dict[str, str | None] = {
     "objeto": _OBJETO, "alias": _OBJETO, "factura": None,
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
+    "aplicacion_pago": _PAGADA,
 }
 
 # Lo que no se edita pero si da quien crea una fila a mano: a que fila
@@ -601,6 +645,10 @@ ESTRUCTURA: dict[str, frozenset[str]] = {
     "factura_iva": frozenset({"factura_id"}),
     "factura_referencia": frozenset({"factura_id", "linea_id"}),
     "factura_relacion": frozenset({"origen_id", "destino_id"}),
+    # Una aplicacion manual la da entera quien la escribe (la base exige que
+    # sea manual y que la confirme ella); despues no cambia.
+    "aplicacion_pago": frozenset({"factura_id", "movimiento_id", "importe_cent", "fecha_pago",
+                                  "fuente", "metodo", "evidencia_documento_id"}),
 }
 
 # La columna que dice de donde viene una fila, y lo que vale cuando la crea
@@ -999,7 +1047,12 @@ class Orden:
         valor = datetime.fromisoformat(self.ahora) if columna == "retirada_en" else False
         if estado.valores[columna] not in (None, 1):
             return                                    # ya estaba retirada
-        self._poner(estado, columna, valor, self.origen, forzar=True)
+        cambia = self._poner(estado, columna, valor, self.origen, forzar=True)
+        # Lo que se calcula de la retirada (el estado de una aplicacion de pago)
+        # cambia con ella, en la misma escritura: si no, la fila quedaria a medias.
+        if cambia and any(columna in d.depende_de for d in REGISTRO[tabla].values()
+                          if d.calculo is not None):
+            self._propagar(estado, {columna})
         # Una linea excluida no puede seguir imputada: sus imputaciones se
         # retiran con ella, en la misma orden y con el mismo motivo, como hace
         # la ingesta con una linea que desaparece.

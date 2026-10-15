@@ -1,0 +1,94 @@
+{
+  "mapeo": "exact-pagos_exact-v1",
+  "fuente": "exact",
+  "tipo": "pagos_exact",
+  "lotes": [
+    {
+      "tipo": "pagos_exact",
+      "formato": "csv:exact-partidas-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Dagboek": "Inkoop",
+            "Relatiecode": "20001",
+            "Factuurnummer": "2026-4471",
+            "Factuurbedrag": "2.903,79",
+            "Openstaand": "0,00",
+            "Betaald": "",
+            "Betaaldatum": "10-10-2026",
+            "Valuta": "EUR"
+          },
+          "sentido": "compra",
+          "parte_ref": "20001",
+          "numero": "2026-4471",
+          "importe_factura": "2903.79",
+          "importe_abierto": "0.00",
+          "importe_pagado": null,
+          "fecha_pago": "2026-10-10",
+          "moneda": "EUR"
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Dagboek": "Inkoop",
+            "Relatiecode": "20001",
+            "Factuurnummer": "2026-4480",
+            "Factuurbedrag": "1.452,00",
+            "Openstaand": "452,00",
+            "Betaald": "",
+            "Betaaldatum": "",
+            "Valuta": "EUR"
+          },
+          "sentido": "compra",
+          "parte_ref": "20001",
+          "numero": "2026-4480",
+          "importe_factura": "1452.00",
+          "importe_abierto": "452.00",
+          "importe_pagado": null,
+          "fecha_pago": null,
+          "moneda": "EUR"
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Dagboek": "Verkoop",
+            "Relatiecode": "10001",
+            "Factuurnummer": "V2026-0012",
+            "Factuurbedrag": "1.500,00",
+            "Openstaand": "",
+            "Betaald": "1.500,00",
+            "Betaaldatum": "13-10-2026",
+            "Valuta": "EUR"
+          },
+          "sentido": "venta",
+          "parte_ref": "10001",
+          "numero": "V2026-0012",
+          "importe_factura": "1500.00",
+          "importe_abierto": null,
+          "importe_pagado": "1500.00",
+          "fecha_pago": "2026-10-13",
+          "moneda": "EUR"
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 5,
+          "codigo": "fila",
+          "motivo": "'abc' no es un importe con decimal ',' y miles '.'",
+          "crudo": {
+            "Dagboek": "Inkoop",
+            "Relatiecode": "20001",
+            "Factuurnummer": "2026-9999",
+            "Factuurbedrag": "1.000,00",
+            "Openstaand": "abc",
+            "Betaald": "",
+            "Betaaldatum": "",
+            "Valuta": "EUR"
+          }
+        }
+      ]
+    }
+  ]
+}

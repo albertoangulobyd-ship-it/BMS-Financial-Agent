@@ -15,7 +15,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import RAIZ, TARIFAS_V1, factura_de, persona
+from conftest import RAIZ, TARIFAS_V1, apunte, camt053, cuentas_propias, factura_de, \
+    importar_camt, persona
 from test_hallazgos import SOLAPADA, _cargar, _hallazgo, _registro
 
 from bms_agent import campos, consultas, hallazgos, permisos, servicios
@@ -138,6 +139,27 @@ def _beneficiario(conn) -> tuple[int, int]:
     return (fila[0], fila[1]) if fila else (0, 0)
 
 
+# Paso 7. El banco paga la limpia (c) desde una cuenta que no esta en el registro: casan
+# la referencia y el importe, no la contraparte, y queda una propuesta. La cuenta no es la
+# de los documentos del escenario, que no puede salir de su sitio.
+IBAN_PAGADO = "NL53RABO0333444555"
+
+
+def _preparar_propuesta(almacen, admin) -> None:
+    cuentas_propias(almacen, admin)
+    importar_camt(almacen, admin, camt053(apunte(
+        "-2902.79", "2026-10-12", iban=IBAN_PAGADO, nombre="Bouwtechniek Van Dijk",
+        concepto="Factuur 2026-3001")))
+    assert almacen.conn.execute("SELECT count(*) FROM aplicacion_pago WHERE estado = "
+                                "'propuesta'").fetchone()[0] == 1
+
+
+def _aplicacion(conn) -> tuple[int, int]:
+    """La propuesta de la preparacion y su rev (0, 0 sin preparar)."""
+    fila = conn.execute("SELECT id, rev FROM aplicacion_pago ORDER BY id").fetchone()
+    return (fila[0], fila[1]) if fila else (0, 0)
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -227,6 +249,15 @@ CASOS = [
     ("retirar_beneficiario", "retirar_beneficiario", "admin", lambda c, i: {
         "beneficiario_id": _beneficiario(c)[0], "rev": _beneficiario(c)[1],
         "motivo": "Ya no se paga"}, _preparar_retirar_beneficiario),
+    ("marcar_pagada", "marcar_pagada", "marcar_pagada", lambda c, i: {
+        "factura_id": i["c"], "importe": "1000.00", "fecha_pago": "2026-10-01",
+        "rev": _rev(c, "factura", i["c"]), "motivo": "Pagada en efectivo, recibo en la carpeta"},
+     None),
+    ("confirmar_pago", "confirmar_pago", "marcar_pagada", lambda c, i: {
+        "aplicacion_id": _aplicacion(c)[0], "rev": _aplicacion(c)[1]}, _preparar_propuesta),
+    ("retirar_pago", "retirar_pago", "marcar_pagada", lambda c, i: {
+        "aplicacion_id": _aplicacion(c)[0], "rev": _aplicacion(c)[1],
+        "motivo": "Es el pago de otra factura"}, _preparar_propuesta),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -254,7 +285,10 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         # Paso 5.
         "verificar_iban": "confirmar_iban", "rechazar_iban": "confirmar_iban",
         "atestar_iban": "confirmar_iban", "fijar_telefono_verificacion": "confirmar_iban",
-        "anadir_beneficiario": "admin", "retirar_beneficiario": "admin"}
+        "anadir_beneficiario": "admin", "retirar_beneficiario": "admin",
+        # Paso 7.
+        "marcar_pagada": "marcar_pagada", "confirmar_pago": "marcar_pagada",
+        "retirar_pago": "marcar_pagada"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,
@@ -870,7 +904,8 @@ def test_subir_la_prioridad_de_algo_que_no_existe_no_entra(escenario, entidad, e
 @pytest.mark.parametrize("tabla, fila_id, error", [
     ("proveedor", 999999, LookupError), ("cliente", 999999, LookupError),
     ("trimestre", 20260, LookupError), ("orden_compra", 1, ValueError),
-    ("movimiento", 1, ValueError),
+    # Paso 7: el movimiento del banco ya tiene su tabla (movimiento_bancario).
+    ("movimiento", 1, LookupError),
 ])
 def test_una_excepcion_a_mano_es_de_algo_que_existe(escenario, tabla, fila_id, error) -> None:
     conn = escenario.conn

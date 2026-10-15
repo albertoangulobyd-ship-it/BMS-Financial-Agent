@@ -136,6 +136,12 @@ def usuario_sistema(conn: sqlite3.Connection, nombre: str) -> int:
     return int(fila[0])
 
 
+# La tabla de una entidad que no se llama como ella: un hallazgo o una
+# excepcion de un movimiento del banco dicen "movimiento" (la lista de la
+# migracion 0003), y la tabla es movimiento_bancario (paso 7).
+TABLA_DE_ENTIDAD = {"movimiento": "movimiento_bancario"}
+
+
 class EntidadNoDisponible(ValueError):
     """La entidad es de una tabla que llega en un paso posterior: todavia no se le apunta nada."""
 
@@ -154,12 +160,13 @@ def comprobar_entidad(conn: sqlite3.Connection, entidad: str, fila_id: int) -> N
             raise LookupError(f"{fila_id} no es un trimestre: se escribe ano * 10 + trimestre "
                               "(20263 es el T3 de 2026)")
         return
+    tabla = TABLA_DE_ENTIDAD.get(entidad, entidad)
     existe = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-                          (entidad,)).fetchone()
+                          (tabla,)).fetchone()
     if existe is None:
         raise EntidadNoDisponible(f"{entidad} todavia no esta en el almacen (llega en un paso "
                                   "posterior): no se le apunta nada")
-    if conn.execute(f"SELECT 1 FROM {entidad} WHERE id = ?", (fila_id,)).fetchone() is None:
+    if conn.execute(f"SELECT 1 FROM {tabla} WHERE id = ?", (fila_id,)).fetchone() is None:
         raise LookupError(f"no hay {entidad} {fila_id}")
 
 

@@ -2706,3 +2706,342 @@ Lo que deben saber los pasos siguientes, además de lo de arriba:
 - **C5** (plazo impreso más corto que el acordado) tiene ya los dos datos:
   `factura.plazo_pago_dias` calculado de `condiciones_pago_doc` y el del
   maestro.
+
+## Paso 7
+
+Banco, pagos y flujo de caja: los extractos (CAMT.053 .001.02 y .001.08,
+MT940 con el `:86:` de ING, ABN AMRO y Rabobank, y los CSV de ING y
+Rabobank), lo pagado según Exact, casar el banco con las facturas, el saldo
+de cada una, las órdenes de pago de las personas, las reglas K1-K8 y F7 y el
+flujo de caja. **Nada de esto paga, aprueba ni prepara un pago**: apunta lo
+que ya se pagó (el banco, Exact o una persona lo dice) y lo compara. **1447
+tests pasan** (858 funciones de test; eran 1321 y 769 al cerrar el paso 6).
+Cinco mil facturas se recalculan en 1,73-1,88 s la primera vez y en
+1,50-1,55 s las siguientes (tres medidas en este contenedor, sin
+movimientos): las reglas K cuestan 0,03 s entre todas y casar sale enseguida
+si no hay movimientos; el resto es la variación del contenedor y el saldo
+por factura en las cachés.
+
+### Qué se construyó
+
+**Migración `0007_banco_pagos.sql`** (la siguiente libre: la §11 dice 0005,
+que ya era del paso 5). Tres tablas:
+
+- `extracto_bancario`: un extracto de una cuenta propia, de una
+  importación del banco (`fuente = 'banco'`, `tipo = 'extracto'`), con su
+  identificador, secuencia, moneda, saldos de apertura y cierre con sus
+  fechas, el periodo, `con_saldos` (0 en los CSV), cuántos apuntes trae y su
+  formato (`camt053:001.02`, `mt940:ing`, `csv:ing-af-bij-v1`...). Solo la da
+  de alta el importador con su importación en curso; es evidencia: ni
+  UPDATE ni DELETE.
+- `movimiento_bancario`: cada movimiento, con su posición en el fichero, las
+  fechas contable y valor, el importe en céntimos (NULL si no está en euros,
+  y entonces el literal y la moneda dicen lo que era: X1), la contraparte
+  (IBAN y nombre tal como los trae el banco), el concepto, la referencia
+  estructurada, el end-to-end, la referencia del banco, la remesa si venía
+  en un apunte agrupado y una `huella` única. Entra con su extracto (misma
+  importación, misma cuenta, en curso) y es evidencia.
+- `aplicacion_pago`: lo que un pago aplica a una factura. `fuente` (banco,
+  exact, manual), `metodo` (automatica, propuesta, manual) y `estado`
+  (propuesta, confirmada, retirada), con el importe en el signo de la
+  factura, la fecha del pago, el movimiento (si es del banco) o la
+  importación (si es de Exact), la regla con la que se casó, el motivo y
+  quién la confirmó y cuándo. Es una tabla controlada (`campos.py`, con sus
+  guardas generadas): los CHECK atan fuente, método y estado (banco ⇔
+  movimiento; exact ⇔ importación y automática; manual ⇒ quién y motivo;
+  propuesta ⇒ nadie la ha confirmado) y los disparadores dicen quién puede
+  qué: lo automático y lo propuesto solo lo escriben `motor` o `importador`;
+  lo manual y una confirmación, una persona activa con `marcar_pagada` en su
+  propio evento; una confirmación solo sobre una propuesta sin confirmar ni
+  retirar; lo que identifica el pago (factura, movimiento, importe, fecha,
+  fuente, método) no cambia nunca. Nada se borra: se retira.
+
+Y la vista `v_factura_saldo` (lo pagado por fuente, la fuente que manda, lo
+pagado y lo pendiente de cada factura), para leer con SQL.
+
+**Dominio y `campos.py`.** `FuenteAplicacion`, `MetodoAplicacion`,
+`EstadoAplicacion` y `PRECEDENCIA_PAGO` (banco > exact > manual).
+`aplicacion_pago` en el registro: todo fijo salvo el motivo y quién y cuándo
+confirmó; el `estado` se calcula de método, confirmación y retirada (nadie
+escribe un estado). Su alta pide `marcar_pagada`. `Orden.retirar` recalcula
+ahora lo que depende de la columna de retirada (ver desviación 23).
+
+**Lectores** (`importadores/`), puros, bytes dentro y registros canónicos
+fuera:
+
+- `camt053.py`: `xml.etree.ElementTree`, sin espacio de nombres fijo. Antes
+  de leer, `comprobar_seguro` rechaza cualquier declaración (`<!DOCTYPE`,
+  `<!ENTITY`, `<!ELEMENT`...), en los bytes y en el texto decodificado
+  (también UTF-16); solo admite comentarios y CDATA. Solo las versiones
+  .001.02 y .001.08: otra se rechaza entera. Cada `TxDtls` es un movimiento
+  (un apunte agrupado da uno por transacción, con la referencia del apunte
+  en `remesa`), y se comprueba al leer que las transacciones suman su apunte
+  y que los apuntes contabilizados suman la diferencia de saldos. Los
+  apuntes sin contabilizar (PDNG, INFO) no entran y se avisan. La
+  secuencia es `ElctrncSeqNb` (o `LglSeqNb`), los saldos OPBD (o PRCD) y
+  CLBD, la contraparte el acreedor de un cargo o el deudor de un abono.
+- `mt940.py`: `:20:` abre un extracto, `:25:` da la cuenta (el IBAN se busca
+  con su dígito de control, también con la moneda pegada), `:28C:` la
+  secuencia, `:60F:`/`:62F:` los saldos y cada `:61:` un apunte. El `:86:` se
+  lee con el perfil de su banco (`PERFILES`: ing, abn, rabobank), elegido por
+  el código del banco de la cuenta o pedido (`--mapeo mt940:rabobank`):
+  `/CNTP/` (cuenta/BIC/nombre/ciudad), `/IBAN/` y `/NAME/` sueltos, `/REMI/`
+  (`USTD//` libre o `STRD/CUR/` estructurada) y `/EREF/`; Rabobank deja a
+  veces la cuenta en la línea complementaria del `:61:`. Sin perfil, el
+  `:86:` entero es el concepto, con aviso.
+- `banco.py`: elige el lector por el contenido (un XML, un `:20:`, las
+  columnas de un mapeo) o por `--mapeo`, agrupa los CSV en un extracto sin
+  saldos por cuenta y tiene la orden entera (`importar_extracto`, con
+  `--simular`).
+- Mapeos `banco-extracto-ing-v1.yaml` (Af/Bij: el signo en otra columna,
+  la opción nueva `signo` de `tabular.py`) y `banco-extracto-rabobank-v1.yaml`,
+  y `exact-pagos_exact-v1.yaml` (las partidas abiertas y pagadas de Exact:
+  Factuurbedrag, Openstaand, Betaald, Betaaldatum), con sus fixtures y su
+  contrato `.esperado.json` como los del paso 5.
+
+**Registrar** (`importadores/registrar.py`). Un extracto entra entero o
+nada: la cuenta tiene que estar en `cuentas_propias` de `config/empresa.yaml`
+(sin ninguna cargada, no entra nada), un movimiento cuya huella ya está no
+entra otra vez y un extracto que ya estaba entero se avisa y no se repite.
+La huella es el SHA-256 de la cuenta, las fechas, el importe con su signo,
+el literal, la moneda, la contraparte, el concepto, las referencias, la
+remesa y **la ocurrencia** (cuántas veces apareció ese mismo movimiento antes
+en el fichero): dos comisiones iguales del mismo día son dos, y el mismo
+fichero (o uno que se solapa) no las duplica. Cada extracto deja un evento
+`extracto_registrado` con la foto del extracto y de cada movimiento, y
+`db verificar` compara cada movimiento con su foto (`evidencia.py`). Los
+pagos de Exact: una fila ilegible o en otra moneda rechaza el fichero; la
+fila de una factura que aquí no está queda rechazada (Z2) y las demás se
+aplican (estado `parcial`); si Exact dice otro importe que la última vez, lo
+de antes se retira y se escribe lo nuevo.
+
+**`pagos.py`**. Casar (`conciliar`, al principio de cada pasada del motor):
+cada movimiento que no está cubierto se compara con las facturas en juego del
+sentido que le toca por tres cosas, la referencia (el número de la factura o
+su referencia de pago en la referencia estructurada, el end-to-end o el
+concepto, por palabras y pares de palabras), el importe (lo que queda del
+movimiento es lo que queda de la factura) y la contraparte (la cuenta está en
+el registro de ese proveedor o cliente). Con las tres y una sola factura, el
+pago es automático y queda confirmado; con dos de tres y una sola factura con
+dos, es una propuesta por el importe que se puede aplicar; con menos, nada.
+Un traspaso entre cuentas propias y un pago a un beneficiario conocido no se
+casan; lo que una persona retiró no se vuelve a proponer. El índice por
+referencia e importe hace que casar no sea movimientos × facturas.
+`saldos(conn)` da el saldo de cada factura. Órdenes: `marcar_pagada` (motivo
+obligatorio; por defecto lo que queda y hoy; nunca una fecha futura, ni una
+factura anulada, fusionada o sin total en euros; con `movimiento_id` enlaza un
+movimiento del banco a mano), `confirmar_pago` (solo una propuesta) y
+`retirar_pago` (motivo obligatorio; lo de Exact se corrige en Exact).
+Consultas: `de_factura`, `movimientos` (`sin_casar`), `propuestas`.
+
+**Reglas.** `reglas/pagos.py` (puro): `saldo()`, la única cuenta de lo pagado
+que usan las reglas, las cachés y el flujo; `roturas()` de la cadena de
+extractos; K1-K8 con sus `lee` declarados. F7 en `bancaria.py`; X1 mira
+también los movimientos (`calidad.x1_movimientos`). La instantánea trae
+`extractos`, `movimientos`, `aplicaciones`, `beneficiarios` y `bloqueos`
+(los intervalos en que cada factura tuvo un hallazgo que bloquea, sacados de
+`hallazgo_evento`), y cada `Factura` su `vencimiento`, `pagado_cent`,
+`fuente_pago` y `pagada`. `config/reglas.yaml` gana la sección `pagos`
+(`tolerancia: "0.00"`, `dias_vencida_venta: 14`, `dias_pago_sin_extracto: 7`,
+`dias_movimiento_sin_casar: 7`, `ventana_doble_pago_dias: 30`, con sus
+límites en `politica._LIMITES`); los valores por defecto son los de
+`Politica`.
+
+| Regla | Qué dice | Severidad | Ámbito |
+| --- | --- | --- | --- |
+| K1 | Vencida sin pagar: una compra desde el día siguiente, una venta pasados 14 días; sin un extracto que cubra desde su fecha (ni un Exact de pagos al día), sin datos | aviso, anulable, abre excepción | factura |
+| K2 | Lo confirmado no deja el saldo a cero: parcial o de más | retención (aviso en una venta), pegajosa | factura |
+| K3 | Marcada pagada a mano y, pasados 7 días con extractos al día, el banco no la trae | aviso, anulable | factura |
+| K4 | Dos cargos a la misma cuenta, mismo importe y misma referencia en 30 días; o una factura pagada de más con dos o más cargos | bloqueo, pegajosa | movimiento / factura |
+| K5 | Pagada un día en que tenía un hallazgo que bloquea, pendiente y sin anular | retención, pegajosa | factura (uno por pago) |
+| K6 | La cadena de extractos de una cuenta se rompe (saldo que no encadena o secuencia que salta) | bloqueo, pegajosa | importación, y las facturas pagadas desde la rotura |
+| K7 | Movimiento sin casar pasados 7 días | aviso, anulable | movimiento |
+| K8 | El banco y Exact dicen importes pagados distintos | retención | factura |
+| F7 | Un cargo a un proveedor (casado con una factura suya, o a una cuenta registrada solo para él) fue a una cuenta que no es pagable para él, y no es un beneficiario conocido ni una cuenta propia | bloqueo, pegajosa; las facturas casadas, al menos urgentes | movimiento, y sus facturas como relacionadas |
+
+**Estados y prioridad** (`estados.py`). `estado_pago` es `pagada` cuando el
+saldo queda en la tolerancia; un pago parcial deja `pendiente` o `vencida`,
+y `pendiente_cent` es lo que queda. Una pagada sale de juego: deja de sumar
+en los agregados, de correr plazo y de ser vencida, y F5 por factura no la
+mira. El vencimiento efectivo (el impreso, o la fecha más el plazo) está en
+`instantanea.vencimientos(conn)`, una sola vez para cachés, reglas y flujo.
+`hallazgos._Pasada.ejecutar` casa antes de evaluar y la `Diferencia` lleva la
+`conciliacion`.
+
+**`flujo_caja.py`**. Lo esperado son las facturas en juego por lo que les
+queda, en euros, por su vencimiento efectivo; «entrada» lo que se cobra
+(ventas y abonos de proveedores) y «salida» lo que se paga. Ventanas desde
+`hoy` (inyectado; Amsterdam): vencido, esta semana (de hoy al domingo),
+este mes (de hoy al último día), próximos 30 días (hoy y 29 más), un
+periodo pedido (con lo que venció en él), sin fecha y total, con el neto de
+cada una. Lo movido (cobrado y pagado) son los pagos confirmados de la fuente
+que manda, de lunes a hoy, del día 1 a hoy o en el periodo. El trabajo sin
+facturar y el planificado van en una línea aparte, `estimado`, que hoy dice
+que no hay datos (`None`, nunca cero). `calcular` es puro; `flujo(conn, hoy)`
+lee el almacén. `reloj.semana_de` y `reloj.mes_de` dan la semana ISO y el mes.
+
+**Órdenes, CLI y servidor.** `servicios.ACCIONES` gana `marcar_pagada`,
+`confirmar_pago` y `retirar_pago`, las tres con `marcar_pagada`, `rev` y
+motivo (obligatorio para marcar y retirar): salen solas en `bms-agent
+accion …`, en `POST /api/v2/acciones` y en la lista de acciones; un
+`PagoNoValido` es un 409. CLI nueva: `bms-agent importar banco extracto
+<fichero> [--mapeo camt053|mt940[:ing|abn|rabobank]|<mapeo>]`, `bms-agent
+importar exact pagos_exact <fichero>`, `bms-agent pagos [--sin-casar |
+--propuestas | --factura N]` y `bms-agent flujo-caja [--hoy] [--desde
+--hasta] [--json]`; `recalcular` dice lo que casó.
+
+**Tests nuevos**: `test_banco.py` (lectores, importación, evidencia,
+pagos de Exact), `test_pagos.py` (casar, saldo, órdenes y K sobre el almacén
+entero, y la CLI), `test_flujo_caja.py` y `test_reglas_paso7.py` (cada
+regla K y F7 sobre instantáneas, y los escenarios de la prueba de pureza).
+`conftest.py` gana un constructor de CAMT.053 (`camt053`, `apunte`),
+`cuentas_propias` e `importar_camt`.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Fixtures CAMT .001.02 y .001.08, con TxDtls agrupados | `test_banco.py::test_camt_001_02_cada_transaccion_de_un_apunte_agrupado_es_un_movimiento`, `test_camt_001_08_lee_los_cobros_agrupados_y_la_referencia_estructurada`, `test_las_dos_fixtures_entran_y_quedan_como_evidencia` (las dos fixtures de `tests/fixtures/banco/`, en cadena, con `db verificar` limpio), `test_un_apunte_agrupado_que_no_suman_sus_transacciones_no_entra`, `test_un_extracto_cuyos_apuntes_no_dan_los_saldos_no_entra`, `test_otra_version_de_camt_no_se_lee_a_medias` |
+| Un DOCTYPE se rechaza | `test_un_xml_con_doctype_o_entity_no_se_lee` (bomba de entidades, DTD externo, XXE, ENTITY suelta, en minúsculas y con espacio: ni se lee ni deja una importación), `test_un_doctype_en_utf16_tambien_se_ve` |
+| Una cuenta propia ajena se rechaza | `test_un_extracto_de_una_cuenta_que_no_es_de_bm_support_no_entra` (también con un extracto bueno en el mismo fichero), `test_sin_cuentas_propias_en_la_politica_no_entra_ningun_extracto` |
+| Una fila que no está en euros da X1 | `test_un_movimiento_en_otra_moneda_entra_con_su_literal_y_da_x1`, `test_los_csv_del_banco_entran_sin_saldos_y_k6_no_los_mira` (la fila en dólares de Rabobank), `test_un_pago_de_exact_en_otra_moneda_rechaza_el_fichero`, `test_reglas_paso7.py::test_x1_un_movimiento_en_otra_moneda` |
+| Una rotura de la cadena bloquea (K6) | `test_pagos.py::test_un_salto_en_la_secuencia_de_extractos_bloquea_k6` (la importación y la factura pagada después quedan Bloqueadas; al llegar el que faltaba, K6 deja de verse), `test_un_saldo_que_no_encadena_bloquea_k6`, `test_reglas_paso7.py::test_k6_la_cadena_de_extractos`, `test_k6_bloquea_el_extracto_y_lo_pagado_desde_la_rotura` |
+| Un cargo doble da K4 | `test_pagos.py::test_dos_cargos_iguales_son_un_pago_doble_k4` (el par de movimientos, y la factura pagada de más si alguien enlaza el segundo), `test_reglas_paso7.py::test_k4_dos_cargos_iguales_a_la_misma_cuenta_y_referencia_son_un_pago_doble`, `test_k4_una_factura_pagada_de_mas_con_dos_cargos` |
+| Un pago parcial sigue Pendiente con su saldo y K2 | `test_pagos.py::test_un_pago_parcial_deja_la_factura_pendiente_con_su_saldo_y_k2` (y el flujo de caja con lo que queda), `test_un_pago_parcial_de_una_vencida_la_deja_vencida`, `test_pagada_solo_dentro_de_la_tolerancia` (0,00 por defecto; 0,01 cargada en la política), `test_reglas_paso7.py::test_k2_un_pago_parcial_deja_el_saldo_y_retiene` |
+| Un pago mientras está Bloqueada da K5 | `test_pagos.py::test_pagar_una_factura_bloqueada_da_k5` (el pago de antes del bloqueo no; el de ese día sí), `test_reglas_paso7.py::test_k5_pagada_mientras_estaba_bloqueada` |
+| Ventanas del flujo con una fecha fija de domingo a lunes y a fin de mes | `test_flujo_caja.py::test_de_domingo_a_lunes_la_semana_empieza_otra_vez` (2026-10-18 → 2026-10-19), `test_de_fin_de_mes_al_primero_el_mes_empieza_otra_vez` (2026-10-31 → 2026-11-01), `test_lo_movido_de_la_semana_y_el_mes_hasta_hoy`, `test_un_periodo_pedido_lleva_tambien_lo_que_vencio_en_el`, `test_semana_y_mes_del_reloj` |
+
+Además: los repetidos (`test_los_movimientos_repetidos_no_entran_y_dos_iguales_son_dos`),
+`--simular`, un movimiento cambiado por detrás que `db verificar` ve, MT940
+de los tres bancos y uno sin perfil, los CSV sin saldos y uno con una fila
+ilegible, los pagos de Exact (todo o nada, Z2, la reimportación que retira),
+casar automático y propuesta, lo que no se casa (K7, ni el traspaso propio
+ni Hacienda), retirar y enlazar a mano, marcar pagada (motivo, fecha futura,
+X1, K3, conflicto de `rev`), Exact frente al banco (precedencia y K8), la
+base que no deja escribir pagos por fuera, ningún usuario de sistema que
+confirme, la matriz de permisos con las tres órdenes nuevas y la CLI de
+punta a punta.
+
+### Desviaciones de la especificación, y por qué
+
+1. **Migración 0007, no 0005.** La §11 numera las migraciones como si cada
+   paso tuviera la suya desde el 3; 0005 y 0006 ya eran de los pasos 5 y 6.
+2. **Columnas de más.** `posicion`, `importe_crudo`, `referencia_estructurada`,
+   `referencia_e2e`, `ref_banco`, `remesa` en el movimiento; `identificador`,
+   `fecha_saldo_*`, `entradas` y `formato` en el extracto; `importacion_id`,
+   `regla`, `retirada_en` y `rev` en la aplicación. Son lo que hace falta
+   para casar, para la huella, para K6 y para explicar cada pago.
+3. **Los pagos de Exact no son todo o nada del todo.** Una fila ilegible o en
+   otra moneda rechaza el fichero (decisión 6), pero la fila de una factura
+   que aquí no está se rechaza sola (Z2) y las demás se aplican: a una
+   factura que no existe no se le puede dar un estado falso, y esperar a
+   tenerlas todas dejaría sin estado las que sí están.
+4. **K1 y K3 dicen sin datos sin un extracto al día.** Sin un extracto que
+   cubra desde la fecha de la factura (K1) o los días siguientes al pago
+   (K3), o con el banco pasado de frescura, no se sabe si se pagó: decir
+   «vencida» o «sin rastro» sería adivinar.
+5. **K5 no cuenta los bloqueos de K ni de F7**, y mira días enteros: un pago
+   no puede estar «hecho mientras Bloqueada» por un K4 o un K6 que solo
+   existen por ese mismo pago. Un hallazgo que se anula deja de contar desde
+   la anulación.
+6. **K6 bloquea la importación y las facturas pagadas con movimientos del
+   extracto roto o de los siguientes de la cuenta**, no las que siguen sin
+   pagar (no hay nada que dar por bueno). Una secuencia que vuelve a 1 con
+   el año no es una rotura. Los CSV no tienen saldos: K6 no los mira.
+7. **K4 pide cuenta y referencia** y deja fuera las cuentas propias y los
+   beneficiarios conocidos: dos alquileres o dos nóminas iguales no son un
+   pago doble. Añade el caso de una factura pagada de más con dos o más
+   cargos, que es el mismo error visto desde la factura.
+8. **F7 mira también las propuestas y los cargos a una cuenta registrada
+   solo para un proveedor**: si el pago ya salió a una cuenta que no es
+   pagable, da igual que nadie lo haya confirmado todavía. Sin IBAN de la
+   contraparte, o sin un maestro al día, dice sin datos.
+9. **Una propuesta lleva como mucho lo que queda** de la factura y del
+   movimiento: proponer más dejaría un K2 de más que nadie hizo.
+10. **Casar va en cada pasada del motor**, no solo al importar: una cuenta
+    registrada o una factura que llega después casan los movimientos que
+    esperaban. Es idempotente y sale enseguida si no hay movimientos.
+11. **`estados.py` usa `reglas.pagos.saldo`, no `v_factura_saldo`.** Es la
+    misma cuenta escrita una vez en Python, compartida con las reglas y el
+    flujo (y con la tolerancia de la política, que la vista no conoce). La
+    vista queda para leer con SQL; todavía no resta abonos (paso 8).
+12. **El estado de una aplicación se calcula** (de método, confirmación y
+    retirada): confirmar es rellenar quién y cuándo, y nadie escribe un
+    estado a mano.
+13. **`retirar_pago` y enlazar un movimiento a mano** no están en la lista de
+    la §11 («marcar pagada», «confirmar»): sin retirar, una propuesta
+    equivocada o una marca a mano mal puesta solo se podrían deshacer
+    borrando, y lo que el sistema no pudo casar solo se podría marcar sin el
+    movimiento. Retirar no borra.
+14. **CSV de ING y Rabobank, no de ABN AMRO.** ABN AMRO exporta su banca por
+    internet como TXT o MT940 sin cabecera de columnas; su MT940 tiene
+    perfil.
+15. **El perfil MT940 se elige por el banco de la cuenta** (INGB, ABNA,
+    RABO), o se pide con `--mapeo mt940:<banco>`; otro banco se lee con el
+    `:86:` entero como concepto y un aviso.
+16. **La misma cuenta en dos formatos puede duplicar movimientos.** Un CAMT y
+    un CSV del mismo día no dan la misma huella (traen campos distintos); K4
+    es la red. Conviene importar cada cuenta siempre en el mismo formato.
+17. **La huella lleva la referencia del banco**: un banco que cambiara la
+    referencia de un apunte entre dos extractos que se solapan duplicaría
+    ese movimiento (y K4 lo diría).
+18. **La foto de cada movimiento va en el evento de su extracto**, no en un
+    evento por movimiento: un extracto de mil apuntes es un evento, y `db
+    verificar` compara cada fila con su foto igual.
+19. **El vencimiento efectivo pasó de `estados.py` a
+    `instantanea.vencimientos`**, para que cachés, reglas y flujo lo calculen
+    igual.
+20. **Las ventanas del flujo**: «esta semana» es de hoy al domingo y «este
+    mes» de hoy al último día (lo de antes de hoy es «vencido», aparte);
+    «próximos 30 días» cuenta hoy. Lo cobrado y pagado va de lunes a hoy y
+    del día 1 a hoy. La §11 no las define; así ninguna factura cuenta dos
+    veces en la misma columna y lo vencido no se esconde en la semana.
+21. **El estimado es `None` hasta el planning** (paso 10): cero diría que no
+    hay trabajo sin facturar, y no se sabe.
+22. **Un fichero con DOCTYPE no deja importación**: se rechaza antes de
+    leerlo, y la orden termina con el error (como un fichero sin columnas
+    reconocibles en el paso 5).
+23. **`campos.Orden.retirar` recalcula lo que depende de la retirada.**
+    Hasta ahora ningún campo calculado dependía de `retirada_en`; el estado
+    de una aplicación sí, y retirarla dejaba la fila a medias (el CHECK de
+    la base lo paraba). Solo recalcula si algún campo depende de esa
+    columna, así que las demás tablas no cambian.
+
+**Tests existentes cambiados, y por qué**: `test_almacen.py` añade
+`extracto_bancario` y `movimiento_bancario` a la evidencia (y una fila de
+cada a `_poblar`); `test_servicios.py` añade las tres órdenes a la matriz del
+§6 y a `CASOS` (con una propuesta preparada desde un CAMT cuya cuenta no es
+la de los documentos del escenario), y una excepción a mano de un
+`movimiento` que no existe da ahora `LookupError` (la tabla ya existe); en
+`test_hallazgos.py`, K1, K2, K3, K4, K5 y K8 son de las que solo dicen
+objeciones; `test_importadores.py` cuenta los mapeos nuevos;
+`test_reglas.py` y `test_pureza_reglas.py` ganan F7 y K1-K8 en el catálogo,
+sus ámbitos, cuál abre excepción, cuáles no se anulan, los tipos nuevos de
+la instantánea y los escenarios del paso 7. Ninguno prueba menos que antes.
+
+### Lo que deben saber los pasos siguientes
+
+- **Paso 8 (ventas y abonos)**: un abono que acredita entero marca la
+  original como acreditada y uno parcial le reduce el saldo:
+  `reglas.pagos.saldo` (y `v_factura_saldo`) tienen que restar lo acreditado
+  de las relaciones confirmadas, y `estado_pago` ganar «acreditada». Casar
+  ventas ya funciona (un abono del banco cobra una venta; un cargo paga un
+  abono a un cliente) y `flujo_caja.direccion` ya trata los abonos. F10
+  compara con `cuentas_propias`, que ya exige el importador del banco.
+- **Paso 10 (planning)**: la línea `estimado` del flujo de caja espera el
+  trabajo sin facturar y el planificado, aparte de lo facturado.
+- **Escribir un pago** es siempre `campos.orden` sobre `aplicacion_pago`
+  (las guardas y los disparadores paran cualquier otra vía); nada fuera de
+  `pagos.py` y `registrar.py` lo hace. Ningún código ejecuta, prepara ni
+  aprueba un pago: la suite de alcance lo sigue comprobando.
+- **Importar el banco pide `cuentas_propias`** cargadas con `bms-agent
+  politica cargar config/empresa.yaml`; sin ellas no entra ningún extracto.
+- **Los bloqueos de K5** salen de `hallazgo_evento`: una regla nueva que
+  bloquee cuenta sola, salvo que sea de pagos (K) o F7.
+- **La consola** no tiene todavía una vista de pagos ni del flujo de caja:
+  las órdenes ya están en `/api/v2/acciones`, y `pagos.movimientos`,
+  `pagos.propuestas`, `pagos.de_factura` y `flujo_caja.flujo` son las
+  lecturas que necesitará.
+- **El rendimiento**: con movimientos, casar es por índice (referencia e
+  importe), no movimientos × facturas; K4 y K6 recorren los movimientos y
+  los extractos una vez por pasada.

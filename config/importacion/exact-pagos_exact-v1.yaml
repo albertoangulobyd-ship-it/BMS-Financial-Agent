@@ -1,0 +1,37 @@
+# Lo pagado de cada factura segun Exact Online: un listado de partidas
+# (openstaande posten / betalingen) exportado a CSV.
+#
+# Cada fila es una factura de compra (Inkoop) o de venta (Verkoop), por el
+# numero de Exact de su proveedor o cliente y su numero de factura. Dice lo
+# pagado ("Betaald") o lo que queda abierto ("Openstaand", con el importe de
+# la factura). Una fila que no se lee, o en otra moneda, rechaza el fichero
+# entero; una fila de una factura que aqui no esta no se aplica (Z2). Lo del
+# banco manda sobre esto, y esto sobre lo marcado a mano.
+#
+# El formato real de la exportacion de Exact no se conoce todavia: este mapeo
+# esta hecho contra un ejemplo sintetico. El de verdad es otro fichero
+# (exact-pagos_exact-v2.yaml) con su ejemplo y su contrato.
+version: 1
+fuente: exact
+tipo: pagos_exact
+formato: "csv:exact-partidas-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Dagboek, Relatiecode, Factuurnummer, Factuurbedrag, Openstaand, Valuta]
+completo: false
+registros:
+  pagos_exact:
+    campos:
+      sentido: {columna: Dagboek, obligatorio: true, valores: {Inkoop: compra, Verkoop: venta}}
+      parte_ref: {columna: Relatiecode, obligatorio: true}
+      numero: {columna: Factuurnummer, obligatorio: true}
+      importe_factura: {columna: Factuurbedrag, tipo: decimal}
+      importe_abierto: {columna: Openstaand, tipo: decimal}
+      importe_pagado: {columna: Betaald, tipo: decimal}
+      fecha_pago: {columna: Betaaldatum, tipo: fecha}
+      moneda: {columna: Valuta, por_defecto: EUR}

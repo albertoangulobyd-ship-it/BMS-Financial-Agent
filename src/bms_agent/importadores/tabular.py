@@ -71,6 +71,9 @@ class Campo:
     por_defecto: Any = None
     obligatorio: bool = False
     crudo_de: str | None = None        # guarda el literal de otra columna (tarifa_crudo)
+    # El signo de un importe que el fichero da en otra columna (el "Af/Bij" de
+    # ING): (columna, textos que lo hacen negativo, textos que lo hacen positivo).
+    signo: tuple[str, tuple[str, ...], tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +115,7 @@ def _campo(nombre: str, definicion: Any, donde: str) -> Campo:
     if not isinstance(definicion, dict):
         raise MapeoNoValido(f"{donde}.{nombre}: se espera un mapa")
     conocidas = {"columna", "unir", "primera", "separador", "tipo", "valores", "por_defecto",
-                 "obligatorio", "crudo_de"}
+                 "obligatorio", "crudo_de", "signo"}
     sobran = set(definicion) - conocidas
     if sobran:
         raise MapeoNoValido(f"{donde}.{nombre}: no se entiende {', '.join(sorted(sobran))}")
@@ -125,6 +128,14 @@ def _campo(nombre: str, definicion: Any, donde: str) -> Campo:
         raise MapeoNoValido(f"{donde}.{nombre}: dice de donde sale con columna, unir o primera "
                             "(uno solo)")
     valores = definicion.get("valores")
+    signo = definicion.get("signo")
+    if signo is not None:
+        if (tipo != "decimal" or not isinstance(signo, dict) or not signo.get("columna")
+                or set(signo) - {"columna", "negativo", "positivo"}):
+            raise MapeoNoValido(f"{donde}.{nombre}: signo es {{columna, negativo, positivo}} de "
+                                "un decimal")
+        signo = (str(signo["columna"]), tuple(str(v) for v in signo.get("negativo") or ()),
+                 tuple(str(v) for v in signo.get("positivo") or ()))
     return Campo(nombre=nombre, columna=definicion.get("columna"),
                  unir=tuple(definicion.get("unir") or ()),
                  primera=tuple(definicion.get("primera") or ()),
@@ -132,7 +143,7 @@ def _campo(nombre: str, definicion: Any, donde: str) -> Campo:
                  valores={str(k): v for k, v in valores.items()} if valores else None,
                  por_defecto=definicion.get("por_defecto"),
                  obligatorio=bool(definicion.get("obligatorio", False)),
-                 crudo_de=definicion.get("crudo_de"))
+                 crudo_de=definicion.get("crudo_de"), signo=signo)
 
 
 def mapeo_de_yaml(texto: str, identificador: str) -> Mapeo:
@@ -325,9 +336,24 @@ def valores_de_fila(registro: Registro, fila: dict[str, str], mapeo: Mapeo) -> d
                 salida[campo.nombre] = campo.por_defecto
             continue
         salida[campo.nombre] = _convertir(texto, campo, mapeo)
+        if campo.signo is not None:
+            salida[campo.nombre] = _con_signo(salida[campo.nombre], campo, fila)
         if campo.crudo_de is not None:
             salida[campo.crudo_de] = texto
     return salida
+
+
+def _con_signo(valor: Decimal, campo: Campo, fila: dict[str, str]) -> Decimal:
+    """El importe con el signo que dice otra columna. Un texto que no esta en ninguna lista no
+    se adivina: la fila se rechaza."""
+    columna, negativo, positivo = campo.signo
+    texto = fila.get(columna, "").strip()
+    if texto.lower() in {v.lower() for v in negativo}:
+        return -abs(valor)
+    if texto.lower() in {v.lower() for v in positivo}:
+        return abs(valor)
+    raise ValorNoValido(f"{campo.nombre}: {columna} dice {texto!r}, que no es "
+                        f"{' ni '.join([*negativo, *positivo])}")
 
 
 @dataclass(frozen=True)

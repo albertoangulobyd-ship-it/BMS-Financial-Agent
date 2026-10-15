@@ -25,7 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..reglas.bancaria import validar_iban
-from ..reglas.normas import normalizar_iban
+from ..reglas.normas import normalizar_iban, parece_iban
 
 Regimen = Literal["estandar", "autoliquidacion", "kor", "exento", "tipo_cero", "desconocido"]
 
@@ -149,9 +149,109 @@ class CicloCanonico(Canonico):
     vigente_hasta: date | None = None
 
 
+# ------------------------------------------------------------ banco y pagos (paso 7)
+
+def _iban_o_nada(valor: str | None) -> str | None:
+    """La cuenta de la contraparte si tiene forma de IBAN; si no (un numero antiguo, nada), None.
+
+    Es lo que dice el banco de adonde fue o de donde vino el dinero: sirve
+    para casar y para comparar con el registro (F7). No se comprueba el
+    digito de control: si el banco da un IBAN raro, eso es lo que paso.
+    """
+    limpio = normalizar_iban(valor)
+    return limpio if limpio and parece_iban(limpio) else None
+
+
+class MovimientoCanonico(Canonico):
+    """Un apunte del banco (o una transaccion de un apunte agrupado). importe con signo:
+    un cargo es negativo. moneda es la del apunte: lo que no es EUR no entra en ninguna suma."""
+
+    cuenta_propia_iban: str | None = None
+    fecha_contable: date
+    fecha_valor: date | None = None
+    importe: Decimal
+    importe_crudo: str
+    moneda: str = "EUR"
+    contraparte_iban: str | None = None
+    contraparte_nombre: str | None = None
+    concepto: str | None = None
+    referencia_estructurada: str | None = None
+    referencia_e2e: str | None = None
+    ref_banco: str | None = None
+    remesa: str | None = None
+
+    @field_validator("moneda")
+    @classmethod
+    def _moneda(cls, valor: str) -> str:
+        texto = (valor or "").strip().upper()
+        if len(texto) != 3 or not texto.isalpha():
+            raise ValueError(f"{valor!r} no es un codigo de moneda")
+        return texto
+
+    @field_validator("cuenta_propia_iban")
+    @classmethod
+    def _propia(cls, valor: str | None) -> str | None:
+        return normalizar_iban(valor)
+
+    @field_validator("contraparte_iban")
+    @classmethod
+    def _contraparte(cls, valor: str | None) -> str | None:
+        return _iban_o_nada(valor)
+
+
+class ExtractoCanonico(Canonico):
+    """Un extracto de una cuenta: sus saldos, su numero de secuencia y sus movimientos.
+
+    `con_saldos` es falso en los CSV del banco: no traen saldo de apertura ni
+    de cierre fiables, y con ellos no se evalua la continuidad (K6).
+    """
+
+    cuenta_propia_iban: str
+    identificador: str | None = None
+    secuencia: int | None = None
+    moneda: str = "EUR"
+    saldo_inicial: Decimal | None = None
+    saldo_final: Decimal | None = None
+    fecha_saldo_inicial: date | None = None
+    fecha_saldo_final: date | None = None
+    desde: date | None = None
+    hasta: date | None = None
+    con_saldos: bool = True
+    formato: str
+    movimientos: tuple[MovimientoCanonico, ...] = ()
+
+    @field_validator("cuenta_propia_iban")
+    @classmethod
+    def _propia(cls, valor: str) -> str:
+        limpio = normalizar_iban(valor) or ""
+        if not validar_iban(limpio):
+            raise ValueError(f"{limpio!r} no es un IBAN que pase el digito de control")
+        return limpio
+
+
+class PagoExactCanonico(Canonico):
+    """Lo que dice Exact de lo pagado de una factura: el importe pagado, o lo que queda abierto.
+
+    `sentido` es el diario: compra (crediteuren) o venta (debiteuren).
+    `parte_ref` es el numero de Exact del proveedor o el cliente; `numero`, el
+    de la factura como lo imprime. Con importe_pagado vale ese; si no, lo
+    pagado es la factura menos lo abierto.
+    """
+
+    sentido: Literal["compra", "venta"]
+    parte_ref: str
+    numero: str
+    importe_factura: Decimal | None = None
+    importe_abierto: Decimal | None = None
+    importe_pagado: Decimal | None = None
+    fecha_pago: date | None = None
+    moneda: str | None = None
+
+
 MODELOS: dict[str, type[Canonico]] = {
     "proveedores": ProveedorCanonico, "clientes": ClienteCanonico,
     "contactos": ContactoCanonico, "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
     "recursos": RecursoCanonico, "alias": AliasCanonico, "tarifas": TarifaCanonica,
-    "ciclos": CicloCanonico,
+    "ciclos": CicloCanonico, "movimientos": MovimientoCanonico,
+    "pagos_exact": PagoExactCanonico,
 }

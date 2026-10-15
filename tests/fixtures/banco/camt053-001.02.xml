@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>BMS-20261013-01</MsgId>
+      <CreDtTm>2026-10-13T18:00:00</CreDtTm>
+    </GrpHdr>
+    <Stmt>
+      <Id>STMT-101</Id>
+      <ElctrncSeqNb>101</ElctrncSeqNb>
+      <CreDtTm>2026-10-13T18:00:00</CreDtTm>
+      <FrToDt>
+        <FrDtTm>2026-10-12T00:00:00</FrDtTm>
+        <ToDtTm>2026-10-13T23:59:59</ToDtTm>
+      </FrToDt>
+      <Acct>
+        <Id><IBAN>NL60INGB0009988776</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">10000.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-10-12</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">4923.31</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-10-13</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">2902.79</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-12</Dt></BookgDt>
+        <ValDt><Dt>2026-10-12</Dt></ValDt>
+        <AcctSvcrRef>ING-0001</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>E2E-4471</EndToEndId></Refs>
+            <RltdPties>
+              <Cdtr><Nm>Bouwtechniek Van Dijk BV</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>NL02ABNA0123456789</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Factuur 2026-4471</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">2173.40</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-13</Dt></BookgDt>
+        <ValDt><Dt>2026-10-13</Dt></ValDt>
+        <AcctSvcrRef>ING-0002</AcctSvcrRef>
+        <NtryDtls>
+          <Btch><NbOfTxs>2</NbOfTxs></Btch>
+          <TxDtls>
+            <Refs><EndToEndId>E2E-018</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">1520.00</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Cdtr><Nm>J. de Vries</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>NL44RABO0123456789</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>2026-018</Ustrd></RmtInf>
+          </TxDtls>
+          <TxDtls>
+            <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">653.40</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Cdtr><Nm>Loodgietersbedrijf Smit</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>NL03RABO0312456789</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Factuur 2026-112</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">0.50</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-13</Dt></BookgDt>
+        <AcctSvcrRef>ING-0003</AcctSvcrRef>
+        <AddtlNtryInf>Kosten zakelijk betalen</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">99.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>PDNG</Sts>
+        <BookgDt><Dt>2026-10-13</Dt></BookgDt>
+        <AddtlNtryInf>Nog niet geboekt</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

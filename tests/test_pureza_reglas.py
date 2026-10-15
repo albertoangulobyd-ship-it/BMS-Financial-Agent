@@ -23,17 +23,22 @@ from pathlib import Path
 import pytest
 from test_reglas import factura, instantanea, linea
 from test_reglas_paso5 import escenarios as escenarios_paso5
+from test_reglas_paso7 import escenarios as escenarios_paso7
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
+    Aplicacion,
+    Bloqueo,
     CambioTelefono,
     Cuenta,
     EventoCuenta,
+    Extracto,
     Factura,
     Instantanea,
     Linea,
     LineaSinCasar,
     Lote,
+    Movimiento,
     Parte,
     Politica,
     Relacion,
@@ -51,7 +56,7 @@ PERMITIDOS = frozenset({
     "operator", "re", "types", "typing",
 })
 PROPIOS = frozenset({"base", "calidad", "aritmetica", "iva", "bancaria", "unicidad", "planning",
-                     "catalogo", "motor", "anomalias", "identidad", "normas"})
+                     "catalogo", "motor", "anomalias", "identidad", "normas", "pagos"})
 DEL_PAQUETE = frozenset({"dominio"})
 LLAMADAS_PROHIBIDAS = frozenset({"open", "eval", "exec", "compile", "__import__", "input",
                                  "print", "breakpoint", "globals"})
@@ -137,7 +142,9 @@ def test_solo_instantanea_lee_la_base() -> None:
 _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           TramoIva: "tramo_iva", Relacion: "relacion", Politica: "politica",
           Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
-          CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar"}
+          CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar",
+          Extracto: "extracto", Movimiento: "movimiento", Aplicacion: "aplicacion",
+          Bloqueo: "bloqueo"}
 
 
 class Grabadora:
@@ -218,6 +225,8 @@ def _escenarios() -> list[Instantanea]:
             LineaSinCasar(600, 1, True, False, ("factura_linea.descripcion_doc",)),
             LineaSinCasar(601, 2, False, True, ("factura_linea.retirada_en",)),
             LineaSinCasar(602, 3, False, False, ("factura_imputacion.objeto_id",))))),
+        # Paso 7: extractos, movimientos, pagos aplicados y bloqueos (K1-K8, F7).
+        *escenarios_paso7(),
     ]
 
 

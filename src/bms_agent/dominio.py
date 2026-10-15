@@ -420,3 +420,33 @@ class TipoImportacion(_Texto):
     PAGOS_EXACT = "pagos_exact"
     EXTRACTO = "extracto"
     PLANNING = "planning"
+
+
+class FuenteAplicacion(_Texto):
+    """De donde sale que una factura se pago (spec §5.E). Manda el banco, luego Exact, luego
+    lo manual."""
+
+    BANCO = "banco"
+    EXACT = "exact"
+    MANUAL = "manual"
+
+
+class MetodoAplicacion(_Texto):
+    """Como se encontro el pago: casado del todo por el sistema, propuesto, o puesto a mano."""
+
+    AUTOMATICA = "automatica"
+    PROPUESTA = "propuesta"
+    MANUAL = "manual"
+
+
+class EstadoAplicacion(_Texto):
+    """Solo lo confirmado cuenta para el saldo. No hay ningun estado de "aprobado para pagar"."""
+
+    PROPUESTA = "propuesta"
+    CONFIRMADA = "confirmada"
+    RETIRADA = "retirada"
+
+
+# Que fuente manda en el saldo de una factura, de mas a menos (decision 5 y §9).
+PRECEDENCIA_PAGO = (FuenteAplicacion.BANCO.value, FuenteAplicacion.EXACT.value,
+                    FuenteAplicacion.MANUAL.value)

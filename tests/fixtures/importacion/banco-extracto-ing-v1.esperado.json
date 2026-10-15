@@ -1,0 +1,140 @@
+{
+  "mapeo": "banco-extracto-ing-v1",
+  "fuente": "banco",
+  "tipo": "extracto",
+  "lotes": [
+    {
+      "tipo": "movimientos",
+      "formato": "csv:ing-af-bij-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "Datum": "20261012",
+            "Naam / Omschrijving": "Bouwtechniek Van Dijk BV",
+            "Rekening": "NL60INGB0009988776",
+            "Tegenrekening": "NL02ABNA0123456789",
+            "Code": "OV",
+            "Af Bij": "Af",
+            "Bedrag (EUR)": "2903,79",
+            "Mutatiesoort": "Overschrijving",
+            "Mededelingen": "Factuur 2026-4471"
+          },
+          "cuenta_propia_iban": "NL60INGB0009988776",
+          "fecha_contable": "2026-10-12",
+          "fecha_valor": null,
+          "importe": "-2903.79",
+          "importe_crudo": "2903,79",
+          "moneda": "EUR",
+          "contraparte_iban": "NL02ABNA0123456789",
+          "contraparte_nombre": "Bouwtechniek Van Dijk BV",
+          "concepto": "Factuur 2026-4471",
+          "referencia_estructurada": null,
+          "referencia_e2e": null,
+          "ref_banco": null,
+          "remesa": null
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "Datum": "20261013",
+            "Naam / Omschrijving": "Havenbedrijf Schiedam",
+            "Rekening": "NL60INGB0009988776",
+            "Tegenrekening": "NL39RABO0300065264",
+            "Code": "OV",
+            "Af Bij": "Bij",
+            "Bedrag (EUR)": "1500,00",
+            "Mutatiesoort": "Overschrijving",
+            "Mededelingen": "Betaling factuur V2026-0012"
+          },
+          "cuenta_propia_iban": "NL60INGB0009988776",
+          "fecha_contable": "2026-10-13",
+          "fecha_valor": null,
+          "importe": "1500.00",
+          "importe_crudo": "1500,00",
+          "moneda": "EUR",
+          "contraparte_iban": "NL39RABO0300065264",
+          "contraparte_nombre": "Havenbedrijf Schiedam",
+          "concepto": "Betaling factuur V2026-0012",
+          "referencia_estructurada": null,
+          "referencia_e2e": null,
+          "ref_banco": null,
+          "remesa": null
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "Datum": "20261013",
+            "Naam / Omschrijving": "ING kosten",
+            "Rekening": "NL60INGB0009988776",
+            "Tegenrekening": "",
+            "Code": "DV",
+            "Af Bij": "Af",
+            "Bedrag (EUR)": "0,50",
+            "Mutatiesoort": "Diversen",
+            "Mededelingen": "Kosten zakelijk betalen"
+          },
+          "cuenta_propia_iban": "NL60INGB0009988776",
+          "fecha_contable": "2026-10-13",
+          "fecha_valor": null,
+          "importe": "-0.50",
+          "importe_crudo": "0,50",
+          "moneda": "EUR",
+          "contraparte_iban": null,
+          "contraparte_nombre": "ING kosten",
+          "concepto": "Kosten zakelijk betalen",
+          "referencia_estructurada": null,
+          "referencia_e2e": null,
+          "ref_banco": null,
+          "remesa": null
+        },
+        {
+          "fila": 5,
+          "crudo": {
+            "Datum": "20261013",
+            "Naam / Omschrijving": "ING kosten",
+            "Rekening": "NL60INGB0009988776",
+            "Tegenrekening": "",
+            "Code": "DV",
+            "Af Bij": "Af",
+            "Bedrag (EUR)": "0,50",
+            "Mutatiesoort": "Diversen",
+            "Mededelingen": "Kosten zakelijk betalen"
+          },
+          "cuenta_propia_iban": "NL60INGB0009988776",
+          "fecha_contable": "2026-10-13",
+          "fecha_valor": null,
+          "importe": "-0.50",
+          "importe_crudo": "0,50",
+          "moneda": "EUR",
+          "contraparte_iban": null,
+          "contraparte_nombre": "ING kosten",
+          "concepto": "Kosten zakelijk betalen",
+          "referencia_estructurada": null,
+          "referencia_e2e": null,
+          "ref_banco": null,
+          "remesa": null
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 6,
+          "codigo": "fila",
+          "motivo": "importe: Af Bij dice 'Plus', que no es Af ni Bij",
+          "crudo": {
+            "Datum": "20261014",
+            "Naam / Omschrijving": "Onbekend",
+            "Rekening": "NL60INGB0009988776",
+            "Tegenrekening": "NL36INGB0007654321",
+            "Code": "OV",
+            "Af Bij": "Plus",
+            "Bedrag (EUR)": "10,00",
+            "Mutatiesoort": "Overschrijving",
+            "Mededelingen": "fila con signo raro"
+          }
+        }
+      ]
+    }
+  ]
+}
