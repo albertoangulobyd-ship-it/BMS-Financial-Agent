@@ -150,9 +150,15 @@ def _objetivos(miembros: Sequence[Resultado],
 # una columna tal cual. Lo que no es un valor (la lista de lineas, el id,
 # las marcas de ilegible) no tiene fuente, ni lo que solo dice si la factura
 # se evalua (anulada, fusionada): un hallazgo de una factura anulada no existe.
+# La contraparte sale de lo que imprime el documento y no de la fila del
+# maestro que la resuelve: dar de alta el proveedor no cambia quien firmo la
+# factura, y si cambiara la evidencia de un duplicado ya aceptado, cada
+# importacion de maestros reabriria lo que una persona ya miro. Si la
+# resolucion cambia el grupo, cambian las facturas del hallazgo, y eso si
+# es evidencia.
 _DERIVADOS_FACTURA = {
-    "parte": ("proveedor_id", "cliente_id", "emisor_btw_doc", "emisor_kvk_doc",
-              "emisor_nombre_doc", "receptor_btw_doc", "receptor_nombre_doc"),
+    "parte": ("emisor_btw_doc", "emisor_kvk_doc", "emisor_nombre_doc", "receptor_btw_doc",
+              "receptor_nombre_doc"),
     "parte_nombre": ("emisor_nombre_doc", "receptor_nombre_doc"),
     "moneda": ("moneda_doc",),
 }

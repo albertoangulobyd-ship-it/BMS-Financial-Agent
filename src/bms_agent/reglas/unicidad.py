@@ -125,12 +125,16 @@ def importes_repetidos(
     for _grupo, lista in sorted(por_grupo.items()):
         lista = sorted(lista, key=lambda c: (c.fecha, c.orden))
         for i, a in enumerate(lista):
+            # La ventana se corta antes de mirar nada mas: con la lista por
+            # fecha, la primera factura fuera de plazo deja fuera a todas las
+            # siguientes. Mirar antes el importe convertia a un proveedor con
+            # miles de facturas en millones de comparaciones.
             for b in lista[i + 1:]:
-                if a.numero == b.numero or abs(a.total - b.total) > politica.tolerancia_duplicado:
-                    continue
                 dias = (b.fecha - a.fecha).days
                 if dias > politica.ventana_duplicado_dias:
                     break
+                if a.numero == b.numero or abs(a.total - b.total) > politica.tolerancia_duplicado:
+                    continue
                 if not periodos_compatibles(a, b) or _par(a, b) in enlazadas:
                     continue
                 pares.append((a, b, dias))
@@ -234,7 +238,7 @@ def b2(instantanea: Instantanea) -> Iterator[Resultado]:
                                         numero=factura.numero_norm, fecha=None, total=None,
                                         inicio=None, fin=None, orden=factura.id))
     en_grupo: set[int] = set()
-    for (grupo, numero), miembros in numeros_repetidos(
+    for (_grupo, numero), miembros in numeros_repetidos(
             candidatas, vinculadas(instantanea.relaciones)):
         ids = sorted(m.ref for m in miembros)
         principal = facturas[ids[-1]]
@@ -242,11 +246,15 @@ def b2(instantanea: Instantanea) -> Iterator[Resultado]:
                    f"{_numero(principal)}.")
         objetivos = (Objetivo("factura", principal.id, "numero"),) + tuple(
             Objetivo("factura", i, "numero", RELACIONADO) for i in ids[:-1])
-        valores = {"parte": principal.parte, "numero_norm": numero, "facturas": ids}
+        # La identidad es la primera factura del grupo, y no la contraparte:
+        # "btw:NL..." pasa a "proveedor:3" cuando se da de alta el maestro, y
+        # el duplicado sigue siendo el mismo. Por lo mismo la contraparte no
+        # va en la evidencia: lo comparado es el numero y que facturas son.
+        valores = {"numero_norm": numero, "facturas": ids}
         for i in ids:
             en_grupo.add(i)
             yield Resultado("B2", "factura", i, FALLO, detalle, valores=valores,
-                            grupo=f"{grupo}|numero:{numero}", objetivos=objetivos)
+                            grupo=f"grupo:{ids[0]}", objetivos=objetivos)
     for c in candidatas:
         if c.ref not in en_grupo:
             yield Resultado("B2", "factura", c.ref, OK,
@@ -357,9 +365,11 @@ def b4(instantanea: Instantanea) -> Iterator[Resultado]:
                 f"{_numero(fb)} ({_iso(b.inicio)} a {_iso(b.fin)}) solapan {dias} día(s).")
 
     def valores(a: Candidata, b: Candidata, dias: int) -> dict:
+        # Los Objetos deciden si el par cuenta, pero no van en la evidencia:
+        # sus claves cambian al resolverse ("doc:rijnhaven" pasa a "objeto:1")
+        # y eso no cambia lo que se acepto, dos periodos que se pisan.
         return {"facturas": [a.ref, b.ref], "dias": dias,
-                "periodos": [[_iso(a.inicio), _iso(a.fin)], [_iso(b.inicio), _iso(b.fin)]],
-                "objetos": [sorted(objetos[a.ref]), sorted(objetos[b.ref])]}
+                "periodos": [[_iso(a.inicio), _iso(a.fin)], [_iso(b.inicio), _iso(b.fin)]]}
 
     en_par = {ref for a, b, _d in pares for ref in (a.ref, b.ref)}
     yield from _por_pares("B4", pares, facturas, detalle, valores,

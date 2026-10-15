@@ -76,7 +76,10 @@ BEGIN SELECT RAISE(ABORT, 'una ejecucion de reglas es evidencia de lo que se eva
 -- Que no haya dos resultados de una regla para la misma fila y clave lo
 -- comprueba el motor antes de escribir (motor.ResultadoDuplicado); aqui basta
 -- el indice de "que dicen las reglas de esta factura", que es mas barato de
--- mantener al reescribir decenas de miles de filas.
+-- mantener al reescribir decenas de miles de filas. Por lo mismo el CHECK de
+-- resultado es una cadena de OR y no un IN (...): SQLite 3.45 monta una tabla
+-- efimera para la lista en cada fila, y en setenta mil filas eso era casi la
+-- mitad de lo que costaba escribir la cache.
 CREATE TABLE evaluacion (
     id           INTEGER PRIMARY KEY,
     ejecucion_id INTEGER NOT NULL REFERENCES ejecucion_reglas(id),
@@ -84,7 +87,8 @@ CREATE TABLE evaluacion (
     tabla        TEXT NOT NULL CHECK (length(tabla) > 0),
     fila_id      INTEGER NOT NULL,
     clave        TEXT NOT NULL CHECK (length(clave) > 0),
-    resultado    TEXT NOT NULL CHECK (resultado IN ('ok', 'fallo', 'sin_datos', 'no_aplica')),
+    resultado    TEXT NOT NULL CHECK (resultado = 'ok' OR resultado = 'fallo'
+                                      OR resultado = 'sin_datos' OR resultado = 'no_aplica'),
     detalle      TEXT NOT NULL,
     valores_json TEXT CHECK (valores_json IS NULL OR json_valid(valores_json))
 ) STRICT;
@@ -135,6 +139,18 @@ WHEN NEW.id IS NOT OLD.id OR NEW.clave IS NOT OLD.clave OR NEW.regla IS NOT OLD.
           AND estado IS NEW.estado AND huella IS NEW.huella))
 BEGIN SELECT RAISE(ABORT, 'el estado y la huella de un hallazgo los dice su ultimo evento'); END;
 
+-- Lo que dice el catalogo de la regla (pegajosa, anulable) no cambia sin
+-- otra version de la regla, y la severidad no cambia sin otra evidencia: la
+-- severidad sale de los valores comparados (Q1 bloquea si falta el numero) y
+-- del sentido de la factura. Sin esto, quitar la marca pegajosa por detras
+-- dejaria al motor cerrar solo un duplicado, y bajar un bloqueo se saltaria
+-- la segunda firma.
+CREATE TRIGGER hallazgo_clasificacion BEFORE UPDATE ON hallazgo
+WHEN ((NEW.pegajosa IS NOT OLD.pegajosa OR NEW.anulable IS NOT OLD.anulable)
+      AND NEW.regla_version IS OLD.regla_version)
+  OR (NEW.severidad IS NOT OLD.severidad AND NEW.huella IS OLD.huella)
+BEGIN SELECT RAISE(ABORT, 'pegajosa y anulable cambian con la version de la regla, y la severidad con la evidencia'); END;
+
 CREATE TRIGGER hallazgo_sin_delete BEFORE DELETE ON hallazgo
 BEGIN SELECT RAISE(ABORT, 'un hallazgo no se borra: se cierra o se resuelve'); END;
 
@@ -156,7 +172,10 @@ CREATE INDEX hallazgo_objetivo_fila ON hallazgo_objetivo (tabla, fila_id);
 
 -- ---------------------------------------------------------- hallazgo_evento
 
--- La historia de cada aviso. estado es el que queda despues del evento.
+-- La historia de cada aviso. estado es el que queda despues del evento. A
+-- aceptado solo se llega con un evento aceptado, que es de una persona: uno
+-- reabierto deja el hallazgo abierto, y si vuelve a valer una anulacion, va
+-- detras su propio evento aceptado.
 -- causa_evento_id es el evento de auditoria que lo causo: la edicion o la
 -- importacion que hizo aparecer, cambiar o desaparecer la condicion, o la
 -- orden de la persona que lo acepto o lo resolvio.
@@ -181,15 +200,18 @@ CREATE TABLE hallazgo_evento (
         WHEN 'cerrado_automatico' THEN 'cerrado'
         WHEN 'resuelto' THEN 'resuelto'
         WHEN 'aceptado' THEN 'aceptado'
-        ELSE estado END),
-    CHECK (tipo <> 'reabierto' OR estado IN ('abierto', 'aceptado'))
+        WHEN 'reabierto' THEN 'abierto'
+        ELSE estado END)
 ) STRICT;
 
 CREATE INDEX hallazgo_evento_hallazgo ON hallazgo_evento (hallazgo_id, id);
 
 -- Las transiciones posibles desde el estado del ultimo evento. Una regla
 -- pegajosa no se cierra sola: su condicion desaparecida la deja
--- desaparecido, y solo una persona la resuelve.
+-- desaparecido, y solo una persona la resuelve. Dejar desaparecido uno de
+-- una regla normal es pedir de mas, no de menos, y no se impide: el motor
+-- decide con el catalogo, y una marca pegajosa tocada por detras no puede
+-- tumbar la pasada entera.
 CREATE TRIGGER hallazgo_evento_transicion BEFORE INSERT ON hallazgo_evento
 WHEN NOT (
        (NEW.tipo = 'detectado' AND NOT EXISTS (
@@ -201,7 +223,6 @@ WHEN NOT (
             SELECT estado FROM hallazgo_evento WHERE hallazgo_id = NEW.hallazgo_id
             ORDER BY id DESC LIMIT 1) IN ('abierto', 'aceptado'))
     OR (NEW.tipo = 'desaparecido'
-        AND (SELECT pegajosa FROM hallazgo WHERE id = NEW.hallazgo_id) = 1
         AND (SELECT estado FROM hallazgo_evento WHERE hallazgo_id = NEW.hallazgo_id
              ORDER BY id DESC LIMIT 1) IN ('abierto', 'aceptado'))
     OR (NEW.tipo = 'cerrado_automatico'
@@ -217,17 +238,42 @@ WHEN NOT (
 BEGIN SELECT RAISE(ABORT, 'transicion de hallazgo no permitida desde su estado (una regla pegajosa no se cierra sola)'); END;
 
 -- Lo que hace una persona lo hace una persona, y con su orden: resolver es
--- un evento suyo, y aceptar es una anulacion suya con la misma huella.
+-- un evento suyo, y aceptar es su anulacion. La que vale es la ultima que se
+-- firmo para el hallazgo (anular otra vez es como se cambia el plazo, y una
+-- anterior sin plazo no puede seguir valiendo cuando la nueva vence), con la
+-- misma huella, sin vencer, de un hallazgo que se puede anular, y con quien
+-- la firmo (y quien dio la segunda firma) con anular_aviso cuando se acepta:
+-- cuando vuelve la evidencia anulada, el evento nuevo se atribuye a esa
+-- persona, y no a alguien que ya no puede anular.
 CREATE TRIGGER hallazgo_evento_de_persona BEFORE INSERT ON hallazgo_evento
 WHEN NEW.usuario_id IS NOT NULL AND (
        (SELECT es_sistema FROM usuario WHERE id = NEW.usuario_id) IS NOT 0
     OR (NEW.tipo = 'resuelto'
         AND (SELECT usuario_id FROM evento WHERE id = NEW.causa_evento_id) IS NOT NEW.usuario_id)
-    OR (NEW.tipo = 'aceptado' AND NOT EXISTS (
-            SELECT 1 FROM anulacion
-            WHERE hallazgo_id = NEW.hallazgo_id AND huella = NEW.huella
-              AND evento_id = NEW.causa_evento_id AND usuario_id = NEW.usuario_id)))
-BEGIN SELECT RAISE(ABORT, 'resolver o aceptar un hallazgo es de una persona, con su orden y su anulacion'); END;
+    OR (NEW.tipo = 'aceptado' AND (
+            (SELECT anulable FROM hallazgo WHERE id = NEW.hallazgo_id) IS NOT 1
+         OR NOT EXISTS (
+            SELECT 1 FROM anulacion AS a
+            WHERE a.hallazgo_id = NEW.hallazgo_id AND a.huella = NEW.huella
+              AND a.evento_id = NEW.causa_evento_id AND a.usuario_id = NEW.usuario_id
+              AND a.id = (SELECT max(id) FROM anulacion WHERE hallazgo_id = NEW.hallazgo_id)
+              AND a.en <= NEW.en
+              AND (a.vigente_hasta IS NULL OR a.vigente_hasta >= date(NEW.en))
+              AND EXISTS (
+                    SELECT 1 FROM usuario AS u
+                    JOIN usuario_rol AS ur ON ur.usuario_id = u.id
+                    JOIN rol_permiso AS rp ON rp.rol_id = ur.rol_id
+                    WHERE u.id = a.usuario_id AND u.es_sistema = 0 AND u.activo = 1
+                      AND rp.permiso = 'anular_aviso'
+                      AND ur.desde <= NEW.en AND (ur.hasta IS NULL OR ur.hasta > NEW.en))
+              AND (a.segunda_firma_usuario_id IS NULL OR EXISTS (
+                    SELECT 1 FROM usuario AS u
+                    JOIN usuario_rol AS ur ON ur.usuario_id = u.id
+                    JOIN rol_permiso AS rp ON rp.rol_id = ur.rol_id
+                    WHERE u.id = a.segunda_firma_usuario_id AND u.es_sistema = 0
+                      AND u.activo = 1 AND rp.permiso = 'anular_aviso'
+                      AND ur.desde <= NEW.en AND (ur.hasta IS NULL OR ur.hasta > NEW.en)))))))
+BEGIN SELECT RAISE(ABORT, 'resolver o aceptar un hallazgo es de una persona, con su orden y su anulacion vigente'); END;
 
 CREATE TRIGGER hallazgo_evento_sin_update BEFORE UPDATE ON hallazgo_evento
 BEGIN SELECT RAISE(ABORT, 'hallazgo_evento es de solo escritura: no se modifica'); END;
@@ -282,6 +328,9 @@ BEGIN SELECT RAISE(ABORT, 'solo se anula la evidencia actual de un hallazgo abie
 
 -- Firma una persona activa con anular_aviso en ese momento (y lo mismo la
 -- segunda firma), dentro de su propia orden: el evento es el ultimo y es suyo.
+-- La segunda firma es un acto de la otra persona, no un id que escribe la
+-- primera: su evento hallazgo_segunda_firma (suyo, sobre este hallazgo y a la
+-- misma hora) va justo antes del de la orden.
 CREATE TRIGGER anulacion_de_persona BEFORE INSERT ON anulacion
 WHEN NOT EXISTS (
         SELECT 1 FROM usuario AS u
@@ -300,6 +349,13 @@ WHEN NOT EXISTS (
           AND (ur.hasta IS NULL OR ur.hasta > NEW.segunda_firma_en)))
   OR NEW.evento_id IS NOT (SELECT max(id) FROM evento)
   OR (SELECT usuario_id FROM evento WHERE id = NEW.evento_id) IS NOT NEW.usuario_id
+  OR (NEW.segunda_firma_usuario_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM evento
+        WHERE id = NEW.evento_id - 1 AND tipo = 'hallazgo_segunda_firma' AND resultado = 'ok'
+          AND usuario_id = NEW.segunda_firma_usuario_id
+          AND actor = NEW.segunda_firma_usuario_id
+          AND tabla = 'hallazgo' AND fila_id = NEW.hallazgo_id
+          AND en = NEW.segunda_firma_en))
 BEGIN SELECT RAISE(ABORT, 'una anulacion la firma una persona con anular_aviso, en su propia orden'); END;
 
 CREATE TRIGGER anulacion_sin_update BEFORE UPDATE ON anulacion

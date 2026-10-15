@@ -23,7 +23,7 @@ from bms_agent import campos, hallazgos, ingesta
 from bms_agent.almacen import preparar, transaccion, usuario_sistema
 from bms_agent.almacen.evidencia import verificar_evidencia
 from bms_agent.auditoria import registrar, verificar_cadena
-from bms_agent.campos import FaltaMotivo, Persona
+from bms_agent.campos import Automatico, FaltaMotivo, Persona
 from bms_agent.importadores.extracciones import importar_out
 from bms_agent.permisos import PermisoDenegado, SeparacionDeFunciones
 from bms_agent.reglas import catalogo, instantanea
@@ -154,20 +154,37 @@ def test_recalcular_dos_veces_no_crea_nada_dos_veces(tipado) -> None:
 def test_barajar_la_entrada_da_las_mismas_huellas(pares, tmp_path) -> None:
     conn = pares.conn
     _cargar(pares, tmp_path / "out", _registro("c", total_incl_vat_raw="2.903,79"),
-            _registro("d", invoice_number="2026-4471"))
+            _registro("d", invoice_number="2026-4471"), _registro("e", invoice_number="2026-7"))
+    # Relaciones confirmadas (B2, B3 y B4 las leen) y un desglose con dos tipos, uno mal (D3).
+    ana = persona(conn, "Ana", "administracion")
+    a = conn.execute("SELECT min(id) FROM factura").fetchone()[0]
+    b, e = factura_de(conn, "2026-4480"), factura_de(conn, "2026-7")
+    campos.crear(conn, "factura_relacion", {"origen_id": e, "destino_id": b, "tipo": "corrige",
+                                            "estado": "confirmada"}, Persona(ana, MOTIVO))
+    campos.crear(conn, "factura_relacion", {"origen_id": e, "destino_id": a,
+                                            "tipo": "relacionada", "estado": "confirmada"},
+                 Persona(ana, MOTIVO))
+    for tipo, base_, cuota in (("21", "2000.00", "420.00"), ("9", "399.00", "40.00")):
+        campos.crear(conn, "factura_iva", {"factura_id": e, "tipo_iva_pb": Decimal(tipo),
+                                           "base_cent": Decimal(base_),
+                                           "cuota_cent": Decimal(cuota)},
+                     Persona(ana, MOTIVO))
     hallazgos.recalcular(conn)
     guardadas = {f["clave"]: f["huella"] for f in conn.execute("SELECT clave, huella FROM hallazgo")}
-    assert {c.split("|")[0] for c in guardadas} >= {"B2", "B4", "D4"}
+    assert {c.split("|")[0] for c in guardadas} >= {"B2", "B4", "D3", "D4"}
 
     base = instantanea.construir(conn, hoy=date(2026, 10, 14))
+    assert len(base.relaciones) == 2 and max(len(f.desglose) for f in base.facturas) == 2
     calculadas = [(d.clave, h) for d, h in hallazgos.calcular(conn, base)]
     assert dict(calculadas) == guardadas
     azar = random.Random(7)
     for _ in range(5):
-        facturas = [dataclasses.replace(f, lineas=tuple(azar.sample(f.lineas, len(f.lineas))))
+        facturas = [dataclasses.replace(f, lineas=tuple(azar.sample(f.lineas, len(f.lineas))),
+                                        desglose=tuple(azar.sample(f.desglose, len(f.desglose))))
                     for f in base.facturas]
         azar.shuffle(facturas)
-        barajada = dataclasses.replace(base, facturas=tuple(facturas))
+        barajada = dataclasses.replace(base, facturas=tuple(facturas), relaciones=tuple(
+            azar.sample(base.relaciones, len(base.relaciones))))
         assert [(d.clave, h) for d, h in hallazgos.calcular(conn, barajada)] == calculadas
 
 
@@ -242,6 +259,31 @@ def test_un_hallazgo_pegajoso_no_se_cierra_solo(almacen, tmp_path) -> None:
     assert _hallazgo(conn, "B3")["estado"] == "desaparecido"
 
 
+def test_q1_de_una_venta_v1_se_cierra_al_corregir_lo_que_faltaba(almacen) -> None:
+    """La contraparte que v1 no pidio no retiene el hallazgo de la fecha que si falto."""
+    from test_ingesta import _documento_por_ruta
+
+    conn = almacen.conn
+    _documento_por_ruta(almacen, "saliente", _registro("venta", invoice_date=None))
+    assert [t.accion for t in ingesta.tipar_pendientes(conn)] == ["creada"]
+    hallazgos.recalcular(conn)
+    venta = conn.execute("SELECT id FROM factura").fetchone()[0]
+    q1 = _hallazgo(conn, f"Q1|factura:{venta}")
+    assert (q1["clave"], q1["estado"], q1["detalle"]) == (
+        f"Q1|factura:{venta}", "abierto", "Falta fecha de factura.")
+    ana = persona(conn, "Ana", "administracion")
+    orden = campos.fijar(conn, "factura", venta, {"fecha_factura": date(2026, 9, 30)},
+                         Persona(ana, "La fecha esta en el PDF"))
+    diferencia = hallazgos.recalcular(conn)
+    assert diferencia.retenidos == []
+    assert [(t.clave, t.tipo, t.causa_evento_id) for t in diferencia.transiciones] == [
+        (q1["clave"], "cerrado_automatico", orden.evento_id)]
+    assert _hallazgo(conn, f"Q1|factura:{venta}")["estado"] == "cerrado"
+    # Lo que no se pidio sigue diciendose, en su propia clave.
+    assert conn.execute("SELECT resultado FROM evaluacion WHERE clave = ?",
+                        (f"Q1|factura:{venta}|contraparte",)).fetchone()[0] == "sin_datos"
+
+
 def test_solo_se_resuelve_a_mano_lo_que_ha_desaparecido(pares) -> None:
     conn = pares.conn
     b4 = _hallazgo(conn, "B4")
@@ -286,6 +328,56 @@ def test_simular_dice_lo_que_cambiaria_sin_escribir_nada(almacen, tmp_path) -> N
         (t.clave, t.tipo) for t in simulada.transiciones]
 
 
+# Otra factura de Van Dijk en Rijnhaven, despues, con la hora a 45,00 (la 01 la cobra a 42,50).
+SUBIDA = dict(
+    invoice_number="2026-5000", invoice_date="2026-10-05", service_period_start="2026-09-28",
+    service_period_end="2026-10-04", subtotal_excl_vat_raw="450,00", vat_amount_raw="94,50",
+    total_incl_vat_raw="544,50",
+    lines=[{"description": "Montagewerk, locatie Rijnhaven", "quantity_raw": "10,00",
+            "unit": "uur", "unit_rate_raw": "45,00", "line_total_raw": "450,00",
+            "location": "Rijnhaven", "week_number": 40, "period_start": None,
+            "period_end": None}],
+)
+
+
+def test_resolver_los_maestros_no_abre_ni_cierra_ningun_hallazgo(almacen, tmp_path) -> None:
+    """La identidad y la evidencia de un hallazgo no dependen de lo resuelto que este.
+
+    Dar de alta el proveedor o sembrar los Objetos cambia como se llama la
+    contraparte o la obra ("btw:..." pasa a "proveedor:1", "doc:rijnhaven" a
+    "objeto:1"), pero no el duplicado ni la tarifa: ningun hallazgo se cierra,
+    ninguno nace, y las anulaciones siguen valiendo (decision 10).
+    """
+    from bms_agent.importadores.tarifas import sembrar_tarifas
+    from bms_agent.ingesta import reconciliar_referencias
+
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a"),
+            _registro("b", invoice_date="2026-09-16"), _registro("c", **SUBIDA))
+    hallazgos.recalcular(conn)
+    sin_resolver = instantanea.construir(conn, hoy=date(2026, 10, 14))
+    assert {f.parte for f in sin_resolver.facturas} == {"btw:NL001234567B01"}
+    assert all(l.objeto.startswith("doc:") for f in sin_resolver.facturas for l in f.lineas)
+    antes = {f["clave"]: f["estado"] for f in conn.execute("SELECT clave, estado FROM hallazgo")}
+    assert {c.split("|")[0] for c in antes} == {"B2", "B4", "G3"}
+    ana = persona(conn, "Ana", "administracion")
+    for clave in antes:
+        hallazgos.anular(conn, _hallazgo(conn, clave)["id"], Persona(ana, MOTIVO))
+
+    campos.crear(conn, "proveedor", {"nombre": "Bouwtechniek Van Dijk BV",
+                                     "btw_id": "NL001234567B01"},
+                 Automatico("maestro", usuario_sistema(conn, "importador")))
+    with transaccion(conn):
+        assert reconciliar_referencias(conn) > 0
+    assert sembrar_tarifas(conn, TARIFAS_V1).recalculo.transiciones == []
+    assert hallazgos.recalcular(conn).transiciones == []
+    instantanea_ = instantanea.construir(conn, hoy=date(2026, 10, 14))
+    assert {f.parte for f in instantanea_.facturas} == {"proveedor:1"}
+    assert all(l.objeto.startswith("objeto:") for f in instantanea_.facturas for l in f.lineas)
+    despues = {f["clave"]: f["estado"] for f in conn.execute("SELECT clave, estado FROM hallazgo")}
+    assert despues == dict.fromkeys(antes, "aceptado")
+
+
 # --- anular ---
 
 def test_una_anulacion_vale_mientras_la_huella_sea_la_anulada(pares) -> None:
@@ -323,6 +415,27 @@ def test_una_anulacion_vale_mientras_la_huella_sea_la_anulada(pares) -> None:
     assert hallazgos.verificar(conn) == [] and verificar_evidencia(conn) == []
 
 
+def test_un_reabierto_deja_abierto_y_la_anulacion_vuelve_con_su_evento(pares) -> None:
+    """Si vuelve la condicion con la evidencia anulada: reabierto y despues aceptado, de quien firmo."""
+    conn = pares.conn
+    b4 = _hallazgo(conn, "B4")
+    ana = persona(conn, "Ana", "administracion")
+    hallazgos.anular(conn, b4["id"], Persona(ana, "Son dos cuadrillas distintas"))
+    b = factura_de(conn, "2026-4480")
+    campos.fijar(conn, "factura", b, {"periodo_inicio": date(2026, 9, 7)},
+                 Persona(ana, "Empieza el 7"))
+    hallazgos.recalcular(conn)
+    assert _hallazgo(conn, "B4")["estado"] == "desaparecido"
+    campos.fijar(conn, "factura", b, {"periodo_inicio": date(2026, 9, 3)},
+                 Persona(ana, "No, empieza el 3"))
+    diferencia = hallazgos.recalcular(conn)
+    assert [(t.tipo, t.estado_anterior, t.estado) for t in diferencia.transiciones] == [
+        ("reabierto", "desaparecido", "abierto"), ("aceptado", "abierto", "aceptado")]
+    ultimo = hallazgos.historia(conn, b4["id"])[-1]
+    assert (ultimo["tipo"], ultimo["usuario_id"]) == ("aceptado", ana)
+    assert hallazgos.verificar(conn) == [] and verificar_evidencia(conn) == []
+
+
 def test_una_anulacion_vence(pares, reloj) -> None:
     conn = pares.conn
     b4 = _hallazgo(conn, "B4")
@@ -336,6 +449,53 @@ def test_una_anulacion_vence(pares, reloj) -> None:
     [vencida] = hallazgos.recalcular(conn).transiciones
     assert (vencida.tipo, vencida.nota) == ("reabierto", "la anulacion ha vencido")
     assert _hallazgo(conn, "B4")["estado"] == "abierto"
+
+
+def test_acortar_el_plazo_de_una_anulacion_hace_que_venza(pares, reloj) -> None:
+    """Vale la ultima anulacion: una anterior sin plazo no la sobrevive."""
+    conn = pares.conn
+    b4 = _hallazgo(conn, "B4")
+    ana = persona(conn, "Ana", "administracion")
+    hallazgos.anular(conn, b4["id"], Persona(ana, MOTIVO))
+    hallazgos.anular(conn, b4["id"], Persona(ana, "Solo hasta manana, luego revisar"),
+                     vigente_hasta=date(2026, 10, 15))
+    reloj.avanzar(days=1)
+    assert hallazgos.recalcular(conn).transiciones == []
+    reloj.avanzar(days=4)
+    [vencida] = hallazgos.recalcular(conn).transiciones
+    assert (vencida.tipo, vencida.nota) == ("reabierto", "la anulacion ha vencido")
+    assert _hallazgo(conn, "B4")["estado"] == "abierto"
+    assert hallazgos.verificar(conn) == []
+
+
+def test_una_anulacion_no_vuelve_si_quien_la_firmo_ya_no_puede_anular(pares, reloj) -> None:
+    """El evento aceptado nuevo seria de esa persona: si ya no tiene el permiso, queda abierto."""
+    from bms_agent import permisos
+
+    conn = pares.conn
+    b4 = _hallazgo(conn, "B4")
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+    hallazgos.anular(conn, b4["id"], Persona(ana, "Son dos cuadrillas distintas"))
+    b = factura_de(conn, "2026-4480")
+    campos.fijar(conn, "factura", b, {"periodo_fin": date(2026, 9, 8)},
+                 Persona(bea, "Acaba el 8"))
+    assert [t.tipo for t in hallazgos.recalcular(conn).transiciones] == ["reabierto"]
+    reloj.avanzar(minutes=1)
+    permisos.cerrar_rol(conn, ana, "administracion")
+    reloj.avanzar(minutes=1)
+    campos.fijar(conn, "factura", b, {"periodo_fin": date(2026, 9, 9)},
+                 Persona(bea, "Acaba el 9"))
+    assert [t.tipo for t in hallazgos.recalcular(conn).transiciones] == ["cambio_evidencia"]
+    assert _hallazgo(conn, "B4")["estado"] == "abierto"
+    # Ni la base lo admite: aceptar es de alguien que puede anular cuando se acepta.
+    anulacion = conn.execute("SELECT * FROM anulacion").fetchone()
+    with pytest.raises(sqlite3.IntegrityError, match="anulacion vigente"):
+        with transaccion(conn):
+            conn.execute("INSERT INTO hallazgo_evento (hallazgo_id, tipo, estado, huella, "
+                         "causa_evento_id, usuario_id, en) VALUES (?, 'aceptado', 'aceptado', "
+                         "?, ?, ?, '2026-10-14T09:33:00+00:00')",
+                         (b4["id"], anulacion["huella"], anulacion["evento_id"], ana))
 
 
 def test_anular_pide_el_permiso_y_un_motivo_de_diez_caracteres(pares) -> None:
@@ -370,6 +530,7 @@ def test_lo_que_no_se_anula_no_se_anula(almacen, tmp_path) -> None:
             hallazgos.anular(conn, h["id"], Persona(ana, MOTIVO))
         # Tampoco por detras, ni cambiando la marca: la lista dura esta en la base.
         conn.execute("DROP TRIGGER hallazgo_guarda_update")
+        conn.execute("DROP TRIGGER hallazgo_clasificacion")
         conn.execute("UPDATE hallazgo SET anulable = 1 WHERE id = ?", (h["id"],))
         with pytest.raises(sqlite3.IntegrityError, match="no se puede anular"):
             with transaccion(conn):
@@ -382,8 +543,9 @@ def test_lo_que_no_se_anula_no_se_anula(almacen, tmp_path) -> None:
         from bms_agent.almacen.migrar import disponibles
 
         sql = next(m.sql for m in disponibles() if m.version == 3)
-        inicio = sql.index("CREATE TRIGGER hallazgo_guarda_update")
-        conn.executescript(sql[inicio:sql.index("END;", inicio) + 4])
+        for disparador in ("hallazgo_guarda_update", "hallazgo_clasificacion"):
+            inicio = sql.index(f"CREATE TRIGGER {disparador}")
+            conn.executescript(sql[inicio:sql.index("END;", inicio) + 4])
 
 
 def test_la_base_solo_admite_anular_la_huella_actual_y_con_permiso(pares) -> None:
@@ -428,14 +590,63 @@ def test_la_segunda_firma(almacen, tmp_path) -> None:
     with pytest.raises(SeparacionDeFunciones, match="segunda firma"):
         hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO))
     with pytest.raises(SeparacionDeFunciones):
-        hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO), segunda_firma=ana)
+        hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO), segunda_firma=Persona(ana))
     carla = persona(conn, "Carla", "consulta")
     with pytest.raises(PermisoDenegado):
-        hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO), segunda_firma=carla)
-    firmada = hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO), segunda_firma=bea)
+        hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO), segunda_firma=Persona(carla))
+    firmada = hallazgos.anular(conn, b2["id"], Persona(ana, MOTIVO),
+                               segunda_firma=Persona(bea, "Lo he visto con Ana", "pet-bea-1"))
     fila = conn.execute("SELECT * FROM anulacion WHERE id = ?", (firmada,)).fetchone()
     assert (fila["autoaprobada"], fila["segunda_firma_usuario_id"]) == (0, bea)
+    # La segunda firma es un acto de Bea: su propio evento, justo antes del de Ana.
+    firma = conn.execute("SELECT * FROM evento WHERE id = ?", (fila["evento_id"] - 1,)).fetchone()
+    assert (firma["tipo"], firma["actor"], firma["usuario_id"], firma["peticion_id"],
+            firma["fila_id"]) == ("hallazgo_segunda_firma", bea, bea, "pet-bea-1", b2["id"])
     assert hallazgos.verificar(conn) == [] and verificar_evidencia(conn) == []
+
+
+def test_la_segunda_firma_mira_todas_las_facturas_del_hallazgo(almacen, tmp_path) -> None:
+    """Un B4 cuya principal es pequena y la relacionada de 50.000 euros pide segunda firma."""
+    grande = dict(subtotal_excl_vat_raw="50.000,00", vat_amount_raw="10.500,00",
+                  total_incl_vat_raw="60.500,00",
+                  lines=[{"description": "Montagewerk, locatie Rijnhaven",
+                          "quantity_raw": "1000,00", "unit": "uur", "unit_rate_raw": "50,00",
+                          "line_total_raw": "50.000,00", "location": "Rijnhaven",
+                          "week_number": 36, "period_start": None, "period_end": None}])
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a", **grande), _registro("b", **SOLAPADA))
+    hallazgos.recalcular(conn)
+    b4 = _hallazgo(conn, "B4")
+    principal = conn.execute("SELECT base_cent FROM factura WHERE id = ?",
+                             (b4["factura_id"],)).fetchone()[0]
+    assert principal < hallazgos.IMPORTE_SEGUNDA_FIRMA_CENT
+    assert hallazgos.requiere_segunda_firma(conn, b4)
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+    with pytest.raises(SeparacionDeFunciones, match="segunda firma"):
+        hallazgos.anular(conn, b4["id"], Persona(ana, "Son dos cuadrillas distintas"))
+    hallazgos.anular(conn, b4["id"], Persona(ana, "Son dos cuadrillas distintas"),
+                     segunda_firma=Persona(bea))
+
+
+def test_la_segunda_firma_no_es_un_id_que_escribe_la_primera(almacen, tmp_path) -> None:
+    """Sin el evento de la segunda persona, la base no admite su firma."""
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a"),
+            _registro("b", invoice_date="2026-09-16"))
+    hallazgos.recalcular(conn)
+    b2 = _hallazgo(conn, "B2")
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+    with pytest.raises(sqlite3.IntegrityError, match="propia orden"):
+        with transaccion(conn):
+            evento = registrar(conn, tipo="hallazgo_anulado", actor=ana, usuario_id=ana,
+                               tabla="hallazgo", fila_id=b2["id"])
+            conn.execute(
+                "INSERT INTO anulacion (hallazgo_id, huella, motivo, usuario_id, en, "
+                "segunda_firma_usuario_id, segunda_firma_en, evento_id) VALUES "
+                "(?, ?, ?, ?, '2026-10-14T09:30:00+00:00', ?, '2026-10-14T09:30:00+00:00', ?)",
+                (b2["id"], b2["huella"], MOTIVO, ana, bea, evento))
 
 
 # --- verificar ---
@@ -463,6 +674,69 @@ def test_verificar_ve_un_hallazgo_o_una_anulacion_tocados_por_detras(pares) -> N
                      "1, ?, '2026-10-14T09:30:00+00:00')", (b4["id"], b4["huella"], ana))
     assert any("no hay una orden suya" in p for p in hallazgos.verificar(conn))
     assert verificar_cadena(conn).ok
+
+
+def test_a_aceptado_solo_se_llega_con_una_anulacion(almacen, tmp_path) -> None:
+    """Un reabierto deja el hallazgo abierto: no hay camino a aceptado sin anulacion."""
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a", total_incl_vat_raw="2.903,79"))
+    hallazgos.recalcular(conn)
+    d4 = _hallazgo(conn, "D4")
+    assert d4["anulable"] == 0
+    ejecucion = conn.execute("SELECT max(id) FROM ejecucion_reglas").fetchone()[0]
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with transaccion(conn):
+            for tipo, estado in (("cerrado_automatico", "cerrado"), ("reabierto", "aceptado")):
+                conn.execute("INSERT INTO hallazgo_evento (hallazgo_id, tipo, estado, huella, "
+                             "ejecucion_id, en) VALUES (?, ?, ?, ?, ?, "
+                             "'2026-10-14T09:31:00+00:00')",
+                             (d4["id"], tipo, estado, d4["huella"], ejecucion))
+    assert _hallazgo(conn, "D4")["estado"] == "abierto"
+
+    # Un aceptado de una persona sin su anulacion, con el disparador quitado:
+    # db verificar lo ve.
+    ana = persona(conn, "Ana", "administracion")
+    conn.execute("DROP TRIGGER hallazgo_evento_de_persona")
+    with transaccion(conn):
+        orden = registrar(conn, tipo="hallazgo_anulado", actor=ana, usuario_id=ana,
+                          tabla="hallazgo", fila_id=d4["id"])
+        conn.execute("INSERT INTO hallazgo_evento (hallazgo_id, tipo, estado, huella, "
+                     "causa_evento_id, usuario_id, en) VALUES (?, 'aceptado', 'aceptado', ?, "
+                     "?, ?, '2026-10-14T09:31:00+00:00')", (d4["id"], d4["huella"], orden, ana))
+        conn.execute("UPDATE hallazgo SET estado = 'aceptado' WHERE id = ?", (d4["id"],))
+    problemas = hallazgos.verificar(conn)
+    assert any("aceptado" in p and "no hay una anulacion" in p for p in problemas), problemas
+
+
+def test_la_marca_pegajosa_y_la_severidad_no_se_tocan_por_detras(almacen, tmp_path) -> None:
+    conn = almacen.conn
+    _cargar(almacen, tmp_path / "out", _registro("a"),
+            _registro("b", invoice_date="2026-09-16"))
+    hallazgos.recalcular(conn)
+    b2 = _hallazgo(conn, "B2")
+    for cambio in ("pegajosa = 0", "anulable = 0", "severidad = 'aviso'"):
+        with pytest.raises(sqlite3.IntegrityError, match="version de la regla"):
+            conn.execute(f"UPDATE hallazgo SET {cambio} WHERE id = ?", (b2["id"],))
+
+    # Sin el disparador: db verificar lo ve, la segunda firma se sigue pidiendo
+    # y el motor no deja que el duplicado se cierre solo.
+    conn.execute("DROP TRIGGER hallazgo_clasificacion")
+    conn.execute("UPDATE hallazgo SET pegajosa = 0, severidad = 'aviso' WHERE id = ?",
+                 (b2["id"],))
+    problemas = hallazgos.verificar(conn)
+    assert any("pegajosa" in p for p in problemas), problemas
+    conn.execute("UPDATE hallazgo SET pegajosa = 1 WHERE id = ?", (b2["id"],))
+    problemas = hallazgos.verificar(conn)
+    assert any("mas leve" in p for p in problemas), problemas
+    assert any("la que da el motor" in p for p in problemas), problemas
+    assert hallazgos.requiere_segunda_firma(conn, _hallazgo(conn, "B2"))
+    conn.execute("UPDATE hallazgo SET pegajosa = 0, severidad = 'bloqueo' WHERE id = ?",
+                 (b2["id"],))
+    ana = persona(conn, "Ana", "administracion")
+    b = max(f[0] for f in conn.execute("SELECT id FROM factura"))
+    campos.fijar(conn, "factura", b, {"numero": "2026-9999"}, Persona(ana, "Otro numero"))
+    [b2_] = [t for t in hallazgos.recalcular(conn).transiciones if t.regla == "B2"]
+    assert (b2_.tipo, b2_.estado) == ("desaparecido", "desaparecido")
 
 
 # --- las ordenes recalculan al terminar ---
@@ -569,7 +843,12 @@ def test_el_dominio_de_los_hallazgos_es_el_de_la_base(db) -> None:
 
     def check(tabla: str, columna: str) -> set[str]:
         sql = db.execute("SELECT sql FROM sqlite_master WHERE name = ?", (tabla,)).fetchone()[0]
-        lista = re.search(rf"\b{columna}\b[^\n]*?IN \(([^)]*)\)", sql, re.S).group(1)
+        en_lista = re.search(rf"\b{columna}\b[^\n]*?IN \(([^)]*)\)", sql, re.S)
+        if en_lista is None:
+            # Una cadena de OR (evaluacion.resultado: un IN es lento en cada fila).
+            definicion = re.search(rf"^\s*{columna}\b.*?\),$", sql, re.S | re.M).group(0)
+            return set(re.findall(rf"{columna} = '([^']*)'", definicion))
+        lista = en_lista.group(1)
         return {v.strip().strip("'") for v in lista.replace("\n", " ").split(",")}
 
     assert set(dominio.EstadoHallazgo.valores()) == check("hallazgo", "estado")

@@ -125,7 +125,14 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
             yield Resultado("G3", "factura", factura.id, SIN_DATOS,
                             "El documento no dice de quién es: no hay historico con que comparar.")
             continue
-        fecha = factura.fecha_factura.isoformat() if factura.fecha_factura else "0000-00-00"
+        if factura.fecha_factura is None:
+            # La referencia es la tarifa que se vio primero: una factura sin
+            # fecha no se puede poner en esa fila, y tomarla por la mas
+            # antigua haria de su tarifa la buena y senalaria a las demas.
+            yield Resultado("G3", "factura", factura.id, SIN_DATOS,
+                            "Sin fecha de factura: no se sabe qué tarifa vino antes.")
+            continue
+        fecha = factura.fecha_factura.isoformat()
         for linea in lineas_en_orden(factura):
             precio = tarifa(linea.tarifa_e4)
             if precio is None:
@@ -144,11 +151,17 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
 
     cambios = {c.grupo: c for c in cambios_de_tarifa(observaciones)}
     hallazgo_de: dict[tuple, tuple] = {}
+    # La identidad del grupo es su primera linea (la de id menor): cada linea
+    # cae en un grupo solo, y no cambia cuando la contraparte o el Objeto se
+    # resuelven contra el maestro ("doc:rijnhaven" pasa a "objeto:1"), que es
+    # justo lo que no puede cerrar un hallazgo ni quitarle su anulacion.
+    clave_de = {grupo: f"linea:{min(l.id for ls in por_factura.values() for l in ls)}"
+                for grupo, por_factura in lineas_de.items()}
 
     def hallazgo(grupo: tuple, clave: str, cambio: CambioDeTarifa) -> tuple:
         """Lo que comparten todas las facturas desviadas de un grupo, calculado una vez."""
         if grupo not in hallazgo_de:
-            parte, obra, trabajo, unidad = grupo
+            _parte, _obra, trabajo, unidad = grupo
             desviadas = sorted(set(cambio.desviadas))
             principal = desviadas[-1]
             objetivos = (Objetivo("factura", principal),) + tuple(
@@ -160,7 +173,8 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
                        f"venía a {euros_texto(cambio.anterior)} y después a "
                        + " y ".join(euros_texto(t) for t in cambio.posteriores)
                        + f", entre {cambio.primera_fecha} y {cambio.ultima_fecha}.")
-            valores = {"grupo": clave, "anterior_e4": int(cambio.anterior.scaleb(4)),
+            valores = {"grupo": clave, "trabajo": trabajo, "unidad": unidad,
+                       "anterior_e4": int(cambio.anterior.scaleb(4)),
                        "posteriores_e4": [int(t.scaleb(4)) for t in cambio.posteriores],
                        "desviadas": desviadas}
             hallazgo_de[grupo] = (detalle, valores, objetivos)
@@ -168,8 +182,8 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
 
     for factura_id in sorted(grupos_de):
         for grupo in sorted(grupos_de[factura_id]):
-            parte, obra, trabajo, unidad = grupo
-            clave = f"{parte}|{obra}|{trabajo}|{unidad}"
+            _parte, _obra, trabajo, _unidad = grupo
+            clave = clave_de[grupo]
             cambio = cambios.get(grupo)
             if cambio is None or factura_id not in cambio.desviadas:
                 yield Resultado("G3", "factura", factura_id, OK,

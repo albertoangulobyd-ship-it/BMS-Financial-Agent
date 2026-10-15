@@ -22,9 +22,12 @@ la condicion):
   persona (`resolver`, resuelto);
 - cerrado_automatico: la de una regla normal ya no se da, y se cierra;
 - aceptado: una persona con anular_aviso lo anula (`anular`), con un motivo
-  de al menos 10 caracteres; vale mientras la huella sea esa y no venza;
+  de al menos 10 caracteres; vale la ultima anulacion que se firmo, mientras
+  la huella sea la suya y no venza;
 - reabierto: cambia la evidencia de uno aceptado, vence su anulacion o
-  vuelve la condicion de uno cerrado, resuelto o desaparecido.
+  vuelve la condicion de uno cerrado, resuelto o desaparecido. Deja el
+  hallazgo abierto; si la anulacion vuelve a valer, va detras su evento
+  aceptado, y solo si quien la firmo aun puede anular.
 
 Un sin_datos no cierra nada: si la regla no ha podido mirar (un importe que
 ahora no se lee), el hallazgo se queda como estaba.
@@ -61,7 +64,7 @@ from .dominio import (
 from .permisos import SeparacionDeFunciones, exigir, orden_auditada, personas_con
 from .reglas import catalogo, motor
 from .reglas import instantanea as instantaneas
-from .reglas.base import FALLO, SIN_DATOS, Instantanea, Politica, Resultado
+from .reglas.base import FALLO, GRAVEDAD, SIN_DATOS, Instantanea, Politica, Resultado
 from .reloj import marca
 
 ABIERTO = EstadoHallazgo.ABIERTO.value
@@ -296,13 +299,38 @@ def _anulable(regla: Any, sentido: str | None) -> int:
     return int(regla.anulable_para(sentido) and not catalogo.nunca_anulable(regla.id, sentido))
 
 
-def _vigente(anulaciones: Sequence[tuple], huella: str, hoy: date) -> tuple | None:
-    """La anulacion que vale para esta huella hoy: la ultima con esa huella y sin vencer."""
-    for fila in sorted(anulaciones, key=lambda a: a[0], reverse=True):
-        _id, a_huella, hasta, _usuario, _evento_id, _en = fila
-        if a_huella == huella and (hasta is None or date.fromisoformat(hasta) >= hoy):
-            return fila
-    return None
+@dataclass(frozen=True)
+class _Anulacion:
+    id: int
+    huella: str
+    vigente_hasta: str | None
+    usuario_id: int
+    evento_id: int
+    en: str
+    segunda_firma_usuario_id: int | None
+
+    @property
+    def firmantes(self) -> frozenset[int]:
+        return frozenset(u for u in (self.usuario_id, self.segunda_firma_usuario_id)
+                         if u is not None)
+
+
+def _vigente(anulaciones: Sequence[_Anulacion], huella: str, hoy: date) -> _Anulacion | None:
+    """La anulacion que vale para esta huella hoy, o None.
+
+    Solo cuenta la ultima que se firmo para el hallazgo: anular otra vez uno
+    aceptado es como se cambia el plazo, y si se mirasen tambien las
+    anteriores, una sin plazo seguiria valiendo para siempre cuando la nueva
+    vence. Vale si es de esta huella y no ha vencido.
+    """
+    if not anulaciones:
+        return None
+    ultima = max(anulaciones, key=lambda a: a.id)
+    if ultima.huella != huella:
+        return None
+    if ultima.vigente_hasta is not None and date.fromisoformat(ultima.vigente_hasta) < hoy:
+        return None
+    return ultima
 
 
 class _Pasada:
@@ -346,10 +374,12 @@ class _Pasada:
         self.previos = {fila[1]: _Previo(*fila[:9], datos=tuple(fila[9:])) for fila in _filas(
             conn, "SELECT id, clave, regla, huella, estado, pegajosa, tabla, fila_id, factura_id, "
                   f"{', '.join(_COLUMNAS_DATOS)} FROM hallazgo")}
-        self.anulaciones: dict[int, list[tuple]] = defaultdict(list)
+        self.anulaciones: dict[int, list[_Anulacion]] = defaultdict(list)
         for fila in _filas(conn, "SELECT hallazgo_id, id, huella, vigente_hasta, usuario_id, "
-                                 "evento_id, en FROM anulacion"):
-            self.anulaciones[fila[0]].append(fila[1:])
+                                 "evento_id, en, segunda_firma_usuario_id FROM anulacion"):
+            self.anulaciones[fila[0]].append(_Anulacion(*fila[1:]))
+        self.pueden_anular = frozenset(personas_con(conn, Permiso.ANULAR_AVISO.value,
+                                                    en=self.ahora))
         self.objetivos: dict[int, set[tuple]] = defaultdict(set)
         for hallazgo_id, *objetivo in _filas(
                 conn, "SELECT hallazgo_id, tabla, fila_id, campo, papel FROM hallazgo_objetivo"):
@@ -411,50 +441,77 @@ class _Pasada:
                 ejecucion_id=self.ejecucion_id)
         self._anotar(hallazgo_id, d.clave, regla.id, d.factura_id, DETECTADO, None, ABIERTO, causa)
 
+    def _revive(self, hallazgo_id: int, huella: str) -> _Anulacion | None:
+        """La anulacion que puede volver a valer ahora, con un evento aceptado nuevo.
+
+        Ese evento se atribuye a quien la firmo: si ya no puede anular (dejo
+        el rol, se dio de baja), o no puede quien dio la segunda firma, la
+        anulacion no vuelve sola y el hallazgo queda abierto para que lo mire
+        alguien que si puede.
+        """
+        vigente = _vigente(self.anulaciones.get(hallazgo_id, ()), huella, self.hoy)
+        if vigente is None or not vigente.firmantes <= self.pueden_anular:
+            return None
+        return vigente
+
     def _seguir(self, previo: _Previo, d: motor.Detectado, huella: str) -> bool:
         """Un hallazgo que ya existia y sigue dandose. Devuelve si hubo que tocarlo."""
         regla = catalogo.regla(d.regla)
         sentido = self.sentido.get(d.factura_id)
-        vigente = _vigente(self.anulaciones.get(previo.id, ()), huella, self.hoy)
-        destino = ACEPTADO if vigente is not None else ABIERTO
         cambia = huella != previo.huella
-        tipo, nota, usuario, causa = None, None, None, self._causa(d.facturas)
+        causa = self._causa(d.facturas)
+        # (tipo, estado, usuario, causa, nota) de cada evento, en orden.
+        eventos: list[tuple[str, str, int | None, int | None, str | None]] = []
+
+        def aceptado(anulacion: _Anulacion, nota: str) -> None:
+            eventos.append((EV_ACEPTADO, ACEPTADO, anulacion.usuario_id, anulacion.evento_id,
+                            f"{nota} el {anulacion.en}"))
+
         if previo.estado == ABIERTO:
-            if destino == ACEPTADO:
-                tipo, usuario, causa = EV_ACEPTADO, vigente[3], vigente[4]
-                nota = f"vuelve la evidencia que se anulo el {vigente[5]}"
+            vuelve = self._revive(previo.id, huella)
+            if vuelve is not None:
+                aceptado(vuelve, "vuelve la evidencia que se anulo")
             elif cambia:
-                tipo = CAMBIO_EVIDENCIA
+                eventos.append((CAMBIO_EVIDENCIA, ABIERTO, None, causa, None))
         elif previo.estado == ACEPTADO:
-            if destino == ACEPTADO and cambia:
-                tipo, usuario, causa = EV_ACEPTADO, vigente[3], vigente[4]
-                nota = f"la nueva evidencia es la que se anulo el {vigente[5]}"
-            elif destino == ABIERTO:
-                tipo = REABIERTO
-                nota = "la evidencia cambio" if cambia else "la anulacion ha vencido"
+            sigue = _vigente(self.anulaciones.get(previo.id, ()), huella, self.hoy)
+            if sigue is None:
+                eventos.append((REABIERTO, ABIERTO, None, causa,
+                                "la evidencia cambio" if cambia else "la anulacion ha vencido"))
+            elif cambia:
+                vuelve = self._revive(previo.id, huella)
+                if vuelve is not None:
+                    aceptado(vuelve, "la nueva evidencia es la que se anulo")
+                else:
+                    eventos.append((REABIERTO, ABIERTO, None, causa,
+                                    "quien firmo la anulacion ya no puede anular"))
         else:
-            tipo = REABIERTO
-            nota = "la condicion vuelve a darse"
+            eventos.append((REABIERTO, ABIERTO, None, causa, "la condicion vuelve a darse"))
+            vuelve = self._revive(previo.id, huella)
+            if vuelve is not None:
+                aceptado(vuelve, "vuelve la evidencia que se anulo")
 
         objetivos = _objetivos_de(d)
         cambian_objetivos = objetivos != self.objetivos.get(previo.id, set())
         datos = (regla.version, d.tabla, d.fila_id, d.factura_id, d.severidad, int(regla.pegajosa),
                  _anulable(regla, sentido), regla.titulo, d.detalle, _valores_json(d.valores))
-        if tipo is None and not cambian_objetivos and datos == previo.datos:
+        if not eventos and not cambian_objetivos and datos == previo.datos:
             return False
-        if tipo is not None:
-            _evento(self.conn, previo.id, tipo, destino, huella, en=self.ahora, causa=causa,
-                    ejecucion_id=self.ejecucion_id, usuario_id=usuario, nota=nota)
-            self._anotar(previo.id, d.clave, regla.id, d.factura_id, tipo, previo.estado, destino,
-                         causa, nota)
+        antes = previo.estado
+        for tipo, estado, usuario, causa_evento, nota in eventos:
+            _evento(self.conn, previo.id, tipo, estado, huella, en=self.ahora,
+                    causa=causa_evento, ejecucion_id=self.ejecucion_id, usuario_id=usuario,
+                    nota=nota)
+            self._anotar(previo.id, d.clave, regla.id, d.factura_id, tipo, antes, estado,
+                         causa_evento, nota)
+            antes = estado
         self.conn.execute(
             "UPDATE hallazgo SET regla_version = ?, tabla = ?, fila_id = ?, factura_id = ?, "
             "severidad = ?, pegajosa = ?, anulable = ?, titulo = ?, detalle = ?, "
             "valores_json = ?, huella = ?, estado = ?, ultima_vez_en = ?, "
             "ultima_ejecucion_id = ? WHERE id = ?",
-            (*datos, huella if tipo is not None else previo.huella,
-             destino if tipo is not None else previo.estado, self.ahora, self.ejecucion_id,
-             previo.id))
+            (*datos, huella if eventos else previo.huella, antes, self.ahora,
+             self.ejecucion_id, previo.id))
         if cambian_objetivos:
             _escribir_objetivos(self.conn, previo.id, objetivos)
         return True
@@ -485,7 +542,10 @@ class _Pasada:
                 continue
             facturas = {f for t, f in filas if t == "factura"}
             causa = self._causa(facturas)
-            tipo, estado = ((EV_DESAPARECIDO, DESAPARECIDO) if previo.pegajosa
+            # Si es pegajosa lo dice el catalogo, no la fila: una marca tocada
+            # por detras no puede dejar que un duplicado se cierre solo.
+            pegajosa = catalogo.regla(previo.regla).pegajosa or previo.pegajosa
+            tipo, estado = ((EV_DESAPARECIDO, DESAPARECIDO) if pegajosa
                             else (CERRADO_AUTOMATICO, CERRADO))
             _evento(self.conn, previo.id, tipo, estado, previo.huella, en=self.ahora, causa=causa,
                     ejecucion_id=self.ejecucion_id)
@@ -561,35 +621,60 @@ def _fecha(valor: date | str | None) -> str | None:
     return (valor if isinstance(valor, date) else date.fromisoformat(str(valor))).isoformat()
 
 
+def _importe_mayor(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> int | None:
+    """El mayor importe (base, o total si no hay base) de las facturas que cubre el hallazgo.
+
+    Un hallazgo de grupo (B2, B3, B4, G3) cuelga de su factura mas reciente,
+    pero anularlo libera tambien las demas: un par con una factura de 50.000
+    euros pide segunda firma aunque la principal sea de 425.
+    """
+    importes = [abs(base if base is not None else total) for base, total in _filas(
+        conn, "SELECT base_cent, total_cent FROM factura WHERE id = ? OR id IN ("
+              "SELECT fila_id FROM hallazgo_objetivo WHERE hallazgo_id = ? "
+              "AND tabla = 'factura')", (hallazgo["factura_id"], hallazgo["id"]))
+        if base is not None or total is not None]
+    return max(importes) if importes else None
+
+
 def requiere_segunda_firma(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> bool:
     """Si anular este hallazgo pide la firma de una segunda persona.
 
-    Cuando la regla lo pide (B2), cuando el hallazgo bloquea y cuando el
-    importe es de 10.000 euros o mas (§3, decision 12). Solo se exige si hay
+    Cuando la regla lo pide (B2), cuando el hallazgo bloquea y cuando alguna
+    de sus facturas es de 10.000 euros o mas (§3, decision 12). Que bloquea
+    lo dice la fila o el catalogo para el sentido de la factura, lo que sea
+    mas grave: la fila sola se puede tocar por detras. Solo se exige si hay
     otra persona con anular_aviso; si no, la anulacion entra como
     autoaprobada, y queda dicho.
     """
     regla = catalogo.POR_ID.get(hallazgo["regla"])
     factura = _factura(conn, hallazgo["factura_id"])
-    importe = None
-    if factura is not None:
-        importe = (factura["base_cent"] if factura["base_cent"] is not None
-                   else factura["total_cent"])
+    sentido = factura["sentido"] if factura is not None else None
+    bloquea = hallazgo["severidad"] == Severidad.BLOQUEO.value or (
+        regla is not None and regla.severidad_para(sentido) == Severidad.BLOQUEO.value)
+    importe = _importe_mayor(conn, hallazgo)
     return bool(
-        (regla is not None and regla.segunda_firma)
-        or hallazgo["severidad"] == Severidad.BLOQUEO.value
-        or (importe is not None and abs(importe) >= IMPORTE_SEGUNDA_FIRMA_CENT))
+        (regla is not None and regla.segunda_firma) or bloquea
+        or (importe is not None and importe >= IMPORTE_SEGUNDA_FIRMA_CENT))
 
 
 def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
-           vigente_hasta: date | str | None = None, segunda_firma: int | None = None) -> int:
+           vigente_hasta: date | str | None = None,
+           segunda_firma: Persona | None = None) -> int:
     """Una persona con anular_aviso acepta la evidencia de ahora de un hallazgo. Devuelve su id.
 
-    Vale mientras la huella del hallazgo sea la que se anula y, si se da
-    `vigente_hasta`, hasta ese dia incluido. No se anula una regla que no lo
-    admite (la lista de la decision 12 y las que el catalogo marca), ni un
-    hallazgo que no este abierto o ya aceptado. El motivo es obligatorio, de
-    al menos 10 caracteres: "ok" no explica nada a quien lo lea despues.
+    Vale mientras la huella del hallazgo sea la que se anula, sea la ultima
+    anulacion que se firmo y, si se da `vigente_hasta`, hasta ese dia
+    incluido. No se anula una regla que no lo admite (la lista de la
+    decision 12 y las que el catalogo marca), ni un hallazgo que no este
+    abierto o ya aceptado. El motivo es obligatorio, de al menos 10
+    caracteres: "ok" no explica nada a quien lo lea despues.
+
+    La segunda firma es la orden de otra persona (`segunda_firma`, con su
+    propia peticion): queda como un evento suyo, hallazgo_segunda_firma,
+    justo antes del de la anulacion, y la base no admite una anulacion con
+    segunda firma sin el. Que esa persona este de verdad delante (que la
+    peticion sea suya) lo tiene que asegurar quien la llama: la consola del
+    paso 4 la autentica aparte.
     """
     motivo = (persona.motivo or "").strip()
     with orden_auditada(conn):
@@ -615,12 +700,13 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
         en = marca(reloj_de(conn).ahora())
         autoaprobada = 0
         permiso = Permiso.ANULAR_AVISO.value
+        segundo = segunda_firma.usuario_id if segunda_firma is not None else None
         if segunda_firma is not None:
-            if segunda_firma == persona.usuario_id:
+            if segundo == persona.usuario_id:
                 raise SeparacionDeFunciones(
                     persona.usuario_id, permiso, "la segunda firma tiene que ser de otra persona",
                     "anular un hallazgo")
-            exigir(conn, segunda_firma, permiso, accion="firmar en segundo lugar una anulacion")
+            exigir(conn, segundo, permiso, accion="firmar en segundo lugar una anulacion")
         elif requiere_segunda_firma(conn, hallazgo):
             if any(p != persona.usuario_id for p in personas_con(conn, permiso)):
                 raise SeparacionDeFunciones(
@@ -630,10 +716,20 @@ def anular(conn: sqlite3.Connection, hallazgo_id: int, persona: Persona, *,
         fila = {
             "hallazgo_id": hallazgo_id, "huella": hallazgo["huella"], "motivo": motivo,
             "usuario_id": persona.usuario_id, "en": en, "vigente_hasta": hasta,
-            "segunda_firma_usuario_id": segunda_firma,
-            "segunda_firma_en": en if segunda_firma is not None else None,
+            "segunda_firma_usuario_id": segundo,
+            "segunda_firma_en": en if segundo is not None else None,
             "autoaprobada": autoaprobada,
         }
+        if segunda_firma is not None:
+            firma = registrar(
+                conn, tipo="hallazgo_segunda_firma", actor=segundo, usuario_id=segundo,
+                tabla="hallazgo", fila_id=hallazgo_id, factura_id=hallazgo["factura_id"],
+                motivo=(segunda_firma.motivo or "").strip() or motivo,
+                peticion_id=segunda_firma.peticion_id,
+                datos={"clave": hallazgo["clave"], "huella": hallazgo["huella"],
+                       "firma_con": persona.usuario_id})
+            fila["segunda_firma_en"] = conn.execute(
+                "SELECT en FROM evento WHERE id = ?", (firma,)).fetchone()[0]
         evento = registrar(
             conn, tipo="hallazgo_anulado", actor=persona.usuario_id,
             usuario_id=persona.usuario_id, tabla="hallazgo", fila_id=hallazgo_id,
@@ -703,35 +799,83 @@ def pendientes(conn: sqlite3.Connection, factura_id: int | None = None) -> list[
     return conn.execute(sql + " ORDER BY id", parametros).fetchall()
 
 
+def _clasificacion(regla_id: str, regla_version: int, sentido: str | None, severidad: str,
+                   pegajosa: int, anulable: int) -> str | None:
+    """Que no cuadra entre lo que dice la fila de un hallazgo y lo que dice el catalogo.
+
+    Con la misma version de la regla, pegajosa y anulable son las del
+    catalogo, y la severidad nunca es mas leve que la de la regla para el
+    sentido de la factura (Q1 puede ser mas grave: bloquea si falta el
+    numero). Una regla que ya no esta en el catalogo, o de otra version, no
+    se compara: su fila es de cuando se evaluo.
+    """
+    regla = catalogo.POR_ID.get(regla_id)
+    if regla is None or regla.version != regla_version:
+        return None
+    if pegajosa != int(regla.pegajosa):
+        return "su marca pegajosa no es la del catalogo"
+    if anulable != _anulable(regla, sentido):
+        return "su marca anulable no es la del catalogo"
+    if GRAVEDAD.get(severidad, 99) > GRAVEDAD[regla.severidad_para(sentido)]:
+        return f"su severidad ({severidad}) es mas leve que la del catalogo"
+    return None
+
+
 def verificar(conn: sqlite3.Connection) -> list[str]:
     """Que cada hallazgo sea lo que dice su historia, sin fiarse de los disparadores.
 
     Cada hallazgo empieza con un evento detectado y su estado y su huella son
     los de su ultimo evento; lo que hizo una persona (aceptar, resolver)
-    cuelga de un evento de auditoria suyo sobre ese hallazgo. Las anulaciones
-    se comparan con la foto de su evento en almacen/evidencia.py.
+    cuelga de un evento de auditoria suyo sobre ese hallazgo. A aceptado solo
+    se llega con un evento aceptado, con una anulacion de esa huella firmada
+    antes y de una regla que se puede anular. Su clasificacion (pegajosa,
+    anulable, severidad) es la del catalogo y, si la evidencia es la de hoy,
+    la severidad es la que da el motor ahora. Las anulaciones se comparan con
+    la foto de su evento en almacen/evidencia.py.
     """
     problemas: list[str] = []
     eventos: dict[int, list[tuple]] = defaultdict(list)
     for fila in _filas(conn, "SELECT hallazgo_id, id, tipo, estado, huella, causa_evento_id, "
-                             "usuario_id FROM hallazgo_evento ORDER BY id"):
+                             "usuario_id, en FROM hallazgo_evento ORDER BY id"):
         eventos[fila[0]].append(fila[1:])
     auditoria = {f[0]: f[1:] for f in _filas(
         conn, "SELECT id, tipo, usuario_id, tabla, fila_id FROM evento "
               "WHERE tipo IN ('hallazgo_anulado', 'hallazgo_resuelto')")}
-    for hallazgo_id, clave, estado, huella in _filas(
-            conn, "SELECT id, clave, estado, huella FROM hallazgo ORDER BY id"):
+    anulaciones = {(h, e): (huella, en) for h, e, huella, en in _filas(
+        conn, "SELECT hallazgo_id, evento_id, huella, en FROM anulacion")}
+    ahora = _ahora_del_motor(conn)
+    for (hallazgo_id, clave, regla, regla_version, estado, huella, severidad, pegajosa,
+         anulable, sentido) in _filas(
+            conn, "SELECT h.id, h.clave, h.regla, h.regla_version, h.estado, h.huella, "
+                  "h.severidad, h.pegajosa, h.anulable, f.sentido FROM hallazgo AS h "
+                  "LEFT JOIN factura AS f ON f.id = h.factura_id ORDER BY h.id"):
         historia_ = eventos.pop(hallazgo_id, [])
         if not historia_:
             problemas.append(f"el hallazgo {hallazgo_id} ({clave}) no tiene historia")
             continue
         if historia_[0][1] != DETECTADO:
             problemas.append(f"el hallazgo {hallazgo_id} no empieza con su deteccion")
-        _id, _tipo, ultimo_estado, ultima_huella, _causa, _usuario = historia_[-1]
+        _id, _tipo, ultimo_estado, ultima_huella, _causa, _usuario, _en = historia_[-1]
         if (estado, huella) != (ultimo_estado, ultima_huella):
             problemas.append(f"el hallazgo {hallazgo_id}: su estado o su huella no son los de su "
                              "ultimo evento (se ha modificado por detras)")
-        for evento_id, tipo, _e, _h, causa, usuario in historia_:
+        clasificacion = _clasificacion(regla, regla_version, sentido, severidad, pegajosa,
+                                       anulable)
+        if clasificacion is not None:
+            problemas.append(f"el hallazgo {hallazgo_id} ({clave}): {clasificacion}")
+        detectado = ahora.get(clave)
+        if (detectado is not None and detectado[1] == huella
+                and detectado[0].severidad != severidad):
+            problemas.append(f"el hallazgo {hallazgo_id} ({clave}): su severidad ({severidad}) "
+                             f"no es la que da el motor ({detectado[0].severidad})")
+        for evento_id, tipo, estado_evento, huella_evento, causa, usuario, en in historia_:
+            if estado_evento == ACEPTADO:
+                problema = _aceptado_sin_anulacion(
+                    tipo, usuario, anulaciones.get((hallazgo_id, causa)), huella_evento, en,
+                    regla, sentido)
+                if problema is not None:
+                    problemas.append(f"el evento {evento_id} del hallazgo {hallazgo_id} lo deja "
+                                     f"aceptado y {problema}")
             if usuario is None or tipo not in (EV_ACEPTADO, EV_RESUELTO):
                 continue
             esperado = "hallazgo_anulado" if tipo == EV_ACEPTADO else "hallazgo_resuelto"
@@ -742,4 +886,26 @@ def verificar(conn: sqlite3.Connection) -> list[str]:
     for hallazgo_id in sorted(eventos):
         problemas.append(f"hay eventos del hallazgo {hallazgo_id}, que no existe")
     return problemas
+
+
+def _aceptado_sin_anulacion(tipo: str, usuario: int | None, anulacion: tuple | None,
+                            huella: str, en: str, regla_id: str, sentido: str | None) -> str | None:
+    """Por que un evento que deja un hallazgo aceptado no tiene detras una anulacion que valga."""
+    if tipo != EV_ACEPTADO or usuario is None:
+        return "no es una aceptacion de una persona"
+    if anulacion is None or anulacion[0] != huella:
+        return "no hay una anulacion de esa evidencia"
+    if anulacion[1] > en:
+        return "su anulacion es posterior"
+    regla = catalogo.POR_ID.get(regla_id)
+    if regla is None or not regla.anulable_para(sentido) or catalogo.nunca_anulable(
+            regla_id, sentido):
+        return "su regla no se puede anular"
+    return None
+
+
+def _ahora_del_motor(conn: sqlite3.Connection) -> dict[str, tuple[motor.Detectado, str]]:
+    """Los hallazgos que da el motor sobre el almacen de ahora, por clave, con su huella."""
+    instantanea = instantaneas.construir(conn, hoy=reloj_de(conn).hoy())
+    return {d.clave: (d, huella) for d, huella in calcular(conn, instantanea)}
 

@@ -930,11 +930,14 @@ con `emisor_kvk_doc` (lo que prueba no cambia).
 
 ## Paso 3
 
-Motor de reglas y hallazgos. **713 tests pasan** (480 funciones de test;
-eran 582 y 406 al terminar el paso 2), ninguno llama a la API y ninguno
-escribe fuera de una carpeta temporal. Cinco mil facturas se recalculan en
-1,35 s la primera vez y en 1,0 s las siguientes (en este contenedor, en
-memoria y en disco con WAL casi igual).
+Motor de reglas y hallazgos. **725 tests pasan** (491 funciones de test;
+eran 582 y 406 al terminar el paso 2, y 713 y 480 antes de la revisión),
+ninguno llama a la API y ninguno escribe fuera de una carpeta temporal.
+Cinco mil facturas se recalculan en 1,0-1,3 s la primera vez y en 0,9-1,3 s
+las siguientes, repartidas entre 400 proveedores o casi todas de uno solo
+(ocho medidas de cada caso en este contenedor, cuatro núcleos, en memoria;
+antes de la revisión eran 1,2-2,1 s y la puerta fallaba una vez de cada
+cuatro).
 
 ### Qué se construyó
 
@@ -989,10 +992,10 @@ entera y sin ninguna columna REAL:
 | --- | --- | --- |
 | `ejecucion_reglas` | Una por pasada | Borrarla; tocarla salvo cerrarla una vez (como `importacion`); actuar con un usuario que no sea de sistema; poner en `usuario_id` uno de sistema |
 | `evaluacion` | CACHE | — (se reescribe en cada pasada lo que cambia) |
-| `hallazgo` | Estado con historia | Borrarlo; nacer con un estado que no sea `abierto`; cambiar su clave, su regla o su primera vez; cambiar su estado o su huella sin que su último `hallazgo_evento` diga ese estado y esa huella |
+| `hallazgo` | Estado con historia | Borrarlo; nacer con un estado que no sea `abierto`; cambiar su clave, su regla o su primera vez; cambiar su estado o su huella sin que su último `hallazgo_evento` diga ese estado y esa huella; cambiar `pegajosa` o `anulable` sin cambiar `regla_version`, o la severidad sin cambiar la huella |
 | `hallazgo_objetivo` | CACHE | — (se rehace cuando cambian los objetivos de un hallazgo) |
-| `hallazgo_evento` | SOLO ESCRITURA | `UPDATE` y `DELETE`; una transición que no sale del estado anterior (en particular `cerrado_automatico` de una regla pegajosa, o `desaparecido` de una normal); un `aceptado` sin su anulación con la misma huella, o un `resuelto` sin un evento de esa persona; un evento de persona firmado por un usuario de sistema |
-| `anulacion` | SOLO ESCRITURA | `UPDATE` y `DELETE`; anular una regla de la lista dura (familia F, X1, E3, E4, K2, K4, K6, R2, R3 y D2/D3/D4/D6 en compras) o un hallazgo marcado no anulable; anular una huella que no es la actual o un hallazgo que no está abierto ni aceptado; firmarla sin `anular_aviso` en ese momento (y la segunda firma igual); colgarla de un evento que no es el último o que no es de quien firma; un motivo de menos de 10 caracteres |
+| `hallazgo_evento` | SOLO ESCRITURA | `UPDATE` y `DELETE`; una transición que no sale del estado anterior (en particular `cerrado_automatico` de una regla pegajosa); un `reabierto` que no deje el hallazgo `abierto`; un `aceptado` sin la última anulación del hallazgo, con la misma huella, sin vencer, de un hallazgo anulable y con quien la firmó (y quien dio la segunda firma) con `anular_aviso` en ese momento; un `resuelto` sin un evento de esa persona; un evento de persona firmado por un usuario de sistema |
+| `anulacion` | SOLO ESCRITURA | `UPDATE` y `DELETE`; anular una regla de la lista dura (familia F, X1, E3, E4, K2, K4, K6, R2, R3 y D2/D3/D4/D6 en compras) o un hallazgo marcado no anulable; anular una huella que no es la actual o un hallazgo que no está abierto ni aceptado; firmarla sin `anular_aviso` en ese momento (y la segunda firma igual); colgarla de un evento que no es el último o que no es de quien firma; una segunda firma sin el evento `hallazgo_segunda_firma` de esa persona justo antes; un motivo de menos de 10 caracteres |
 
 **El catálogo** (§7, solo lo que se evalúa en este paso):
 
@@ -1016,11 +1019,14 @@ entera y sin ninguna columna REAL:
 **Cómo decide `hallazgos.recalcular`**
 
 - La **clave** de un hallazgo es regla + objetivo + llave
-  (`D4|factura:12`, `E4|factura:12|cuota`, `B2|entrante|btw:NL…|numero:2026001`,
-  `B3|par:3-7`, `G3|<contraparte>|<obra>|<trabajo>|<unidad>`). La **huella**
+  (`D4|factura:12`, `E4|factura:12|cuota`, `Q1|factura:12|contraparte`,
+  `B2|grupo:3` (la primera factura del grupo), `B3|par:3-7`, `G3|linea:41`
+  (la primera línea del grupo)), y no cambia cuando la contraparte o el
+  Objeto se resuelven contra el maestro. La **huella**
   es el sha256 de la versión de la regla, los valores comparados, la fuente
   de cada campo que la regla lee (sus columnas en `procedencia_campo`, de las
-  facturas y líneas del hallazgo) y los parámetros de la política que usa.
+  facturas y líneas del hallazgo; la contraparte, de lo que imprime el
+  documento) y los parámetros de la política que usa.
 - Cada transición queda en `hallazgo_evento` con su **causa**: el último
   evento de auditoría que tocó alguna de sus facturas desde la pasada
   anterior (`cambio_campo.factura_id`, por encima de
@@ -1031,19 +1037,27 @@ entera y sin ninguna columna REAL:
   una regla normal, `desaparecido` en una pegajosa, que sigue pendiente
   hasta que una persona con `resolver_aviso` lo cierra (`resolver`, estado
   `resuelto`). Si vuelve a darse uno cerrado, resuelto o desaparecido,
-  `reabierto`.
+  `reabierto`, que lo deja `abierto`. Si es pegajosa lo dice el catálogo,
+  no la fila.
 - **sin_datos no cierra nada**: si la regla no pudo mirar la fila (su
   resultado, o el de una de sus facturas, es sin_datos), el hallazgo se
   queda como estaba y se dice en `Diferencia.retenidos`.
 - Una **anulación** (`anular`, permiso `anular_aviso`, motivo de 10
   caracteres o más) acepta la huella de ahora; el hallazgo pasa a `aceptado`
   mientras su huella sea esa y no venza `vigente_hasta` (incluido ese día).
-  Si la evidencia cambia o vence, `reabierto`; si vuelve exactamente la
-  evidencia anulada, vuelve a valer (evento `aceptado` atribuido a quien la
-  firmó, con su evento de auditoría como causa).
-- **Segunda firma**: la piden B2, cualquier hallazgo que bloquea y los de
-  10.000 € o más de base (decisión 12), solo si hay otra persona con
-  `anular_aviso`; sin ella, la anulación entra como `autoaprobada`.
+  Solo vale la **última** que se firmó para el hallazgo: anular otra vez es
+  como se cambia el plazo. Si la evidencia cambia o vence, `reabierto`; si
+  vuelve exactamente la evidencia anulada, vuelve a valer con un evento
+  `aceptado` nuevo atribuido a quien la firmó (con su evento de auditoría
+  como causa), y solo si esa persona, y quien dio la segunda firma, siguen
+  pudiendo anular; si no, el hallazgo queda abierto.
+- **Segunda firma**: la piden B2, cualquier hallazgo que bloquea (según la
+  fila o según el catálogo, lo más grave) y los que cubren una factura de
+  10.000 € o más de base, la principal o una relacionada (decisión 12),
+  solo si hay otra persona con `anular_aviso`; sin ella, la anulación entra
+  como `autoaprobada`. La segunda persona firma con su propia orden
+  (`segunda_firma=Persona(...)`): un evento `hallazgo_segunda_firma` suyo,
+  justo antes del de la anulación.
 
 ### La puerta, test por test
 
@@ -1056,7 +1070,7 @@ entera y sin ninguna columna REAL:
 | Un pegajoso no se cierra solo | `test_un_hallazgo_pegajoso_no_se_cierra_solo` (B2 que desaparece al corregir el número: queda `desaparecido` pasada tras pasada, sigue en los pendientes de su factura, la base rechaza un `cerrado_automatico`, una persona lo resuelve y se reabre si vuelve la condición) |
 | Una anulación deja de valer cuando cambia la huella | `test_una_anulacion_vale_mientras_la_huella_sea_la_anulada` (aceptado, se reabre al cambiar el periodo y vuelve a valer si vuelve la evidencia anulada), `test_una_anulacion_vence`, `test_la_huella_cambia_con_los_valores_las_fuentes_la_politica_y_la_version` |
 | Los tests de antes siguen en verde a través de los envoltorios | Los 582 de antes pasan (los de `test_dashboard.py`, `test_parsing.py`, `test_report.py`, la foto de referencia byte a byte y las de equivalencia, sin tocarlos); `test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture` compara el motor con checks.py en las siete fixtures |
-| 5.000 facturas se recalculan en menos de 2 s | `test_rendimiento.py::test_cinco_mil_facturas_se_recalculan_en_menos_de_dos_segundos` (la primera pasada, que crea unos 200 hallazgos, y la segunda, sin cambios) |
+| 5.000 facturas se recalculan en menos de 2 s | `test_rendimiento.py::test_cinco_mil_facturas_se_recalculan_en_menos_de_dos_segundos` (la primera pasada, que crea unos 200 hallazgos, y la segunda, sin cambios; con las facturas repartidas entre 400 proveedores y con todas de uno solo, sin dos totales iguales) |
 
 Además: el catálogo contra la tabla del §7 y la decisión 12
 (`test_el_catalogo_es_el_del_paragrafo_7`,
@@ -1108,7 +1122,9 @@ proceso sin `anthropic`.
    sin maestros, todas las facturas de hoy bloquearían por "falta la
    contraparte". "Falta" es que no hay valor ni literal: un literal que no se
    pudo leer, o un importe en otra moneda, está en el papel (eso es Q2 o
-   X1). Lo que la versión del esquema no pidió da sin_datos. El periodo vale
+   X1). Lo que la versión del esquema no pidió da sin_datos en un resultado
+   aparte (`Q1|factura:N|contraparte`), como E4: en la clave de lo que sí
+   se pidió, un sin_datos retenía el hallazgo para siempre. El periodo vale
    de la cabecera o de las líneas.
 7. **Q1 del motor y "Campos obligatorios" del panel no son la misma
    lista**: checks.py conserva la versión reducida del contrato v1 (nombre,
@@ -1130,7 +1146,10 @@ proceso sin `anthropic`.
     `config/empresa.yaml`). **E3 y E4** deducen la cuota de total − base
     cuando la factura no la imprime.
 11. **B2** agrupa por sentido, contraparte y número normalizado; dos
-    facturas con una relación confirmada no son duplicado entre sí. El §7
+    facturas con una relación confirmada no son duplicado entre sí. Su
+    clave es la primera factura del grupo (`B2|grupo:3`), no la contraparte
+    y el número: la contraparte cambia de nombre al resolverse
+    (decisión 10). El §7
     dice que se cierra fusionando o enlazando y que anularla pide segunda
     firma: las dos cosas valen (la fusionada queda no_aplica, el hallazgo
     pegajoso queda desaparecido y lo resuelve una persona).
@@ -1144,7 +1163,9 @@ proceso sin `anthropic`.
 14. **G3 de histórico** agrupa por contraparte, Objeto (el resuelto o el
     nombre impreso normalizado), tipo de trabajo y **unidad** (una tarifa
     por hora y otra por pieza no se comparan), solo en compras, y solo
-    retiene: el bloqueo por exceso es contra la tarifa pactada (paso 9).
+    retiene: el bloqueo por exceso es contra la tarifa pactada (paso 9). Su
+    clave es la primera línea del grupo (`G3|linea:41`), y una factura sin
+    fecha queda en sin_datos: no se sabe qué tarifa vino antes.
 15. **Lo del panel que el paso 2 dejó para este** (desviación 24 del paso
     2): la guarda muerta `nom:(sin` queda corregida (una factura sin nombre,
     btw-id ni KvK no se agrupa con nadie, en el panel y en el motor);
@@ -1197,6 +1218,20 @@ proceso sin `anthropic`.
     (la orden, los hallazgos y el recuento), `instalacion-windows.md` y
     `brief-diseno.md` (recuento; seguían en 537 desde antes de la revisión
     del paso 2) y `validacion-facturas.md` (qué reglas evalúa ya el motor).
+25. **La migración 0003 solo trae las tablas 35-40 del §5.F.** `excepcion`,
+    `excepcion_hallazgo`, `revision`, `prioridad_manual`, `factura_estado` y
+    la caché `prioridad` (41-44) van en la migración del paso 4, que será
+    la 0004; las que el §11 numera a partir de ahí corren un número (las
+    cuentas bancarias del paso 5 serán la 0005, los extractos del paso 7 la
+    0006, y así). El número de una migración es su orden, no su paso. Por
+    qué: sus CHECK y disparadores (una excepción `asignada` con dueño, una
+    `resuelta` con resolución, una revisión solo de una persona con
+    `revisar_factura`, una prioridad manual que solo sube) son las reglas de
+    `excepciones.py`, `revision.py` y `prioridad.py`, y `factura_estado`
+    lleva columnas de pago (`estado_pago`, `pendiente_cent`, `dias_vencida`)
+    que no tienen de dónde salir hasta el paso 7. Escribirlas sin el código
+    que las usa sería esquema sin ningún test que lo recorra, por la misma
+    razón por la que el catálogo solo lista lo que se evalúa (desviación 17).
 
 ### Lo que deben saber los pasos siguientes
 
@@ -1225,7 +1260,20 @@ proceso sin `anthropic`.
 - **Lo que el paso 4 tiene que añadir a esto**: las órdenes de anular y
   resolver con `peticion_id` (y su segunda firma en la consola), que una
   corrección que cierra un hallazgo deje el campo sin resolver hasta que lo
-  verifique otra persona (§7), y la excepción por entidad.
+  verifique otra persona (§7), y la excepción por entidad. La segunda firma
+  es la `Persona` de la otra persona, con su propia petición: la consola
+  tiene que autenticarla aparte (que esté delante, no que la primera
+  escriba su id); hasta entonces `anular` no se expone por ninguna orden.
+  Las tablas 41-44 del §5.F van en su migración, la 0004 (desviación 25).
+- **Cambiar el metadato de una regla** (pegajosa, anulable, severidad)
+  pide subir `Regla.version`: la base no deja cambiar `pegajosa` ni
+  `anulable` de un hallazgo con la misma versión, ni su severidad con la
+  misma huella, y la pasada fallaría. Con la versión cambia la huella, y
+  las anulaciones de esa regla dejan de valer, a propósito.
+- **Las claves no llevan nada que dependa de lo resuelto**: una regla de
+  grupo nueva se identifica por sus filas (la primera factura o línea del
+  grupo, o el par), no por `factura.parte` ni `linea.objeto`, y no pone en
+  sus valores nada que cambie al resolverse contra el maestro.
 - **Fusionar o enlazar (pasos 4 y 8)**: deja el B2 desaparecido; la orden
   que fusiona puede resolverlo en la misma transacción (quien fusiona es
   quien lo cierra), con `hallazgos.resolver`.
@@ -1238,4 +1286,62 @@ proceso sin `anthropic`.
   se completa con A8.
 - **Rendimiento**: unos 0,03-0,06 s por regla cada cinco mil facturas; la
   escritura de la caché es lo más caro de la primera pasada. Si una regla
-  nueva cruza facturas, que ordene por fecha y corte la ventana, como B3.
+  nueva cruza facturas, que ordene por fecha y corte la ventana antes de
+  mirar nada más, como B3 y B4 (B3 no lo hacía hasta la revisión, y un
+  proveedor con miles de facturas la volvía cuadrática). Un CHECK con
+  `IN (...)` en una tabla de decenas de miles de filas cuesta: SQLite monta
+  una tabla efímera en cada fila (la caché `evaluacion` usa una cadena de
+  `OR`).
+
+### Correcciones de la revisión
+
+La revisión del paso 3 dejó dieciséis hallazgos; dos estaban repetidos (la
+anulación anterior que sobrevive a la nueva, y las claves que cambian al
+resolver la contraparte o el Objeto), así que son catorce. Cada uno se
+reprodujo antes de tocarlo. Todos eran reales. Quedan 11 funciones de test
+nuevas y 12 casos (uno es el caso de rendimiento con un solo proveedor), y
+los 11 casos nuevos que prueban un defecto fallan con el commit del paso 3;
+los dos que miden cobertura (la equivalencia en los fallos y el barajado de
+relaciones y desglose) ya pasaban, porque lo que faltaba era el test.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| Un Q1 de una venta v1 no se cerraba nunca al corregir lo que faltaba: con la fecha puesta daba sin_datos (v1 no pidió la contraparte) en la misma clave, y `_desaparecidos` lo retenía | Lo que la versión del esquema no pidió va en su propio resultado, `Q1|factura:N|contraparte` (sin_datos), como E4 separa `cuota` y `btw_receptor`; la clave de lo que sí se pidió da ok o fallo | `test_hallazgos.py::test_q1_de_una_venta_v1_se_cierra_al_corregir_lo_que_faltaba`, `test_reglas.py::test_q1_lo_que_v1_no_pidio_es_sin_datos_y_no_un_fallo` |
+| Una anulación anterior sin plazo sobrevivía a la nueva con plazo, y el hallazgo quedaba aceptado para siempre (aparecía dos veces) | `_vigente` mira solo la última anulación del hallazgo: vale si es de esa huella y no ha vencido, sin volver a las anteriores. El disparador `hallazgo_evento_de_persona` exige lo mismo para cada evento `aceptado` | `test_acortar_el_plazo_de_una_anulacion_hace_que_venza` |
+| B3 era cuadrático por contraparte: el `continue` del importe iba antes del corte de la ventana | `importes_repetidos` corta la ventana antes de mirar el número y el importe (la lista va por fecha: el resultado es el mismo). El test de rendimiento mide también cinco mil facturas de un solo proveedor, sin dos totales iguales: con el código anterior la primera pasada tardaba 3,8 s | `test_rendimiento.py::test_cinco_mil_facturas_se_recalculan_en_menos_de_dos_segundos[1]` |
+| La clave de B2 y la de G3 llevaban la contraparte y el Objeto resueltos: dar de alta el proveedor o sembrar los Objetos cerraba el hallazgo, abría otro y perdía su anulación (aparecía dos veces) | B2 se identifica por la primera factura del grupo (`B2|grupo:3`) y G3 por la primera línea del grupo (`G3|linea:41`). Lo que depende de la resolución sale de la evidencia: `parte` de los valores de B2, los Objetos de los de B4 (deciden si el par cuenta, pero no son lo que se aceptó) y `proveedor_id`/`cliente_id` de las fuentes de la contraparte, que es la que imprime el documento | `test_resolver_los_maestros_no_abre_ni_cierra_ningun_hallazgo` (B2, B4 y G3 anulados; alta del proveedor, `reconciliar_referencias` y `sembrar`: ninguna transición, las tres siguen aceptadas) |
+| G3 daba a una factura sin fecha `0000-00-00`, que la hacía la referencia y señalaba a las demás | Una factura de compra sin fecha da sin_datos en G3 y no entra en el histórico | `test_reglas.py::test_g3_una_factura_sin_fecha_no_es_la_referencia` |
+| El test de equivalencia con el contrato v1 no comparaba ningún texto de fallo (solo había uno, X1) ni E3/E4, y los de barajado no reordenaban relaciones ni desglose | La comparación es `_comparar_con_v1`: resultado y texto de X1, D2, D2b, D4, F1, E3 y la cuota de E4, también en los fallos; un test nuevo la pasa por seis extracciones v1 hechas a mano, una por fallo. El texto de D2b se compara sin los ceros de más de la cantidad (el almacén guarda 37,50 horas como 37500 milésimas y el motor escribe 37.5; el v1, 37.50). Los dos tests de barajado reordenan también las relaciones y el desglose de cada factura, con relaciones confirmadas y un desglose de dos tipos en los datos | `test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fallo`, `test_barajar_la_entrada_no_cambia_nada`, `test_barajar_la_entrada_da_las_mismas_huellas` |
+| La segunda firma solo miraba el importe de la factura principal: un B4 con una relacionada de 50.000 € lo anulaba una persona sola | `requiere_segunda_firma` mira el mayor importe de todas las facturas del hallazgo (`hallazgo_objetivo` más la principal) | `test_la_segunda_firma_mira_todas_las_facturas_del_hallazgo` |
+| Un evento `reabierto` podía dejar en `aceptado` cualquier hallazgo, también un D4 que no se anula, sin anulación, y `verificar` no lo veía | `reabierto` deja siempre `abierto` (CHECK de `hallazgo_evento`); si la anulación vuelve a valer, va detrás su propio evento `aceptado`, que es de una persona y pasa por el disparador. Ese disparador exige además que el hallazgo sea anulable. `verificar` comprueba que todo evento que deja un hallazgo aceptado sea un `aceptado` de una persona, con una anulación de esa huella firmada antes y de una regla que se puede anular | `test_a_aceptado_solo_se_llega_con_una_anulacion`, `test_un_reabierto_deja_abierto_y_la_anulacion_vuelve_con_su_evento` |
+| `pegajosa`, `anulable` y `severidad` se podían cambiar por detrás: quitar la marca pegajosa dejaba cerrarse solo un duplicado, y bajar un bloqueo se saltaba la segunda firma | Disparador `hallazgo_clasificacion`: `pegajosa` y `anulable` no cambian sin cambiar `regla_version`, ni la severidad sin cambiar la huella. `_desaparecidos` decide con el catálogo (o la fila, si es más pegajosa), y `requiere_segunda_firma` con la severidad de la fila o la del catálogo, la más grave. `verificar` compara pegajosa, anulable y severidad con el catálogo y, si la evidencia es la de hoy, la severidad con la que da el motor ahora (eso cubre Q1, que puede ser más grave que su catálogo) | `test_la_marca_pegajosa_y_la_severidad_no_se_tocan_por_detras` |
+| Una anulación volvía a valer sola aunque quien la firmó ya no tuviera `anular_aviso`, y el evento nuevo se le atribuía | Solo vuelve si quien la firmó, y quien dio la segunda firma, pueden anular en ese momento; si no, el hallazgo queda abierto. El disparador exige lo mismo a cada evento `aceptado`. Una anulación que ya está aceptada no se reabre porque su firmante se vaya: lo que se le exige es al acto nuevo | `test_una_anulacion_no_vuelve_si_quien_la_firmo_ya_no_puede_anular` |
+| La segunda firma era un id que escribía la primera persona | `anular(..., segunda_firma=Persona(...))`: la segunda persona tiene su propio evento de auditoría, `hallazgo_segunda_firma` (actor y usuario ella, con su `peticion_id`), justo antes del de la anulación y a la misma hora que `segunda_firma_en`; el disparador `anulacion_de_persona` no admite una segunda firma sin él. Que esa persona esté de verdad delante lo tiene que autenticar la consola del paso 4; hasta entonces `anular` no se expone por ninguna orden | `test_la_segunda_firma` (el evento de Bea), `test_la_segunda_firma_no_es_un_id_que_escribe_la_primera` |
+| La migración 0003 no traía las tablas 41-44 del §5.F y el registro no lo decía | Desviación 25: van en la migración del paso 4 (la 0004) y las siguientes corren un número; el porqué está allí | — |
+| La puerta de rendimiento pasaba con poco margen y fallaba una vez de cada cuatro (2,12 s) | Lo más caro de la primera pasada era escribir la caché, y dentro de eso el CHECK `resultado IN (...)` de `evaluacion`: SQLite 3.45 monta una tabla efímera para la lista en cada fila, y en setenta mil filas eran 0,22 s de 0,53. Es una cadena de `OR` y cuesta lo mismo que no tenerlo. Ahora la primera pasada tarda 1,0-1,3 s y la segunda 0,9-1,3 s, con 400 proveedores o con uno (ocho medidas de cada caso); el umbral sigue en 2 s | `test_rendimiento.py` (los dos casos; cuatro ejecuciones seguidas en verde) |
+
+**La migración 0003 se corrige en su sitio** (el CHECK de `evaluacion`, el
+de `reabierto`, el disparador `hallazgo_clasificacion` y los de
+`hallazgo_evento_de_persona`, `hallazgo_evento_transicion` y
+`anulacion_de_persona`), como la 0002 en la revisión del paso 2: el commit
+del paso 3 no ha salido de esta rama y ninguna base la tiene aplicada fuera
+de los tests. Una base local creada con la versión anterior la rechaza
+`migrar` por el hash; se rehace con `bms-agent importar-out`, que no gasta
+API. `hallazgo_evento_transicion` ya no exige que la regla sea pegajosa para
+dejar un hallazgo `desaparecido`: el motor decide con el catálogo, dejarlo
+desaparecido es pedir de más y no de menos, y una marca tocada por detrás no
+puede tumbar la pasada entera. `cerrado_automatico` sigue exigiendo una
+regla no pegajosa.
+
+Lo que no se hizo, y por qué: **G3 del panel v1** (`dashboard.py`) sigue
+dando a una factura sin fecha `0000-00-00`. Es el contrato v1, que el §6 pide
+que no cambie, como el B4 del panel (desviación 13); el motor ya no lo hace.
+
+**Tests existentes cambiados**: `test_b2_mismo_numero_de_la_misma_contraparte_es_un_hallazgo_de_grupo`
+(la clave es `B2|grupo:1`), `test_q1_lo_que_v1_no_pidio_es_sin_datos_y_no_un_fallo`
+(dos resultados, uno por clave), `test_la_segunda_firma` (la segunda firma
+es una `Persona`), `test_lo_que_no_se_anula_no_se_anula` (quita y repone
+también `hallazgo_clasificacion` para tocar la marca), `test_el_dominio_de_los_hallazgos_es_el_de_la_base`
+(lee también la cadena de `OR` de `evaluacion.resultado`) y
+`test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture` (usa
+`_comparar_con_v1`). Ninguno prueba menos que antes.

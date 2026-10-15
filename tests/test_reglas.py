@@ -161,9 +161,16 @@ def test_q1_un_literal_ilegible_no_es_un_campo_que_falta() -> None:
 
 
 def test_q1_lo_que_v1_no_pidio_es_sin_datos_y_no_un_fallo() -> None:
+    """Lo no pedido va en su propia clave: no tapa lo que si se comprobo (como E4)."""
     venta = factura(sentido="saliente", emisor_nombre_doc="BM Support BV", parte=None,
                     no_solicitados=frozenset({"receptor_nombre_doc", "receptor_btw_doc"}))
-    assert uno("Q1", venta).resultado == "sin_datos"
+    resultados = {r.clave_hallazgo: r.resultado for r in evaluar("Q1", venta)}
+    assert resultados == {"Q1|factura:1": "ok", "Q1|factura:1|contraparte": "sin_datos"}
+    sin_fecha = dataclasses.replace(venta, fecha_factura=None)
+    resultados = {r.clave_hallazgo: r for r in evaluar("Q1", sin_fecha)}
+    assert resultados["Q1|factura:1"].resultado == "fallo"
+    assert resultados["Q1|factura:1"].detalle == "Falta fecha de factura."
+    assert resultados["Q1|factura:1|contraparte"].resultado == "sin_datos"
     pedida = dataclasses.replace(venta, no_solicitados=frozenset())
     assert uno("Q1", pedida).resultado == "fallo"
 
@@ -333,7 +340,7 @@ def test_b2_mismo_numero_de_la_misma_contraparte_es_un_hallazgo_de_grupo() -> No
     resultados = evaluar("B2", a, b, otra)
     assert {r.fila_id: r.resultado for r in resultados} == {1: "fallo", 2: "fallo", 3: "ok"}
     [h] = motor.agrupar(resultados, instantanea(a, b, otra))
-    assert h.clave == "B2|entrante|btw:NL001234567B01|numero:2026001"
+    assert h.clave == "B2|grupo:1"      # la primera factura del grupo: no cambia al resolverse
     assert (h.tabla, h.fila_id, h.facturas) == ("factura", 2, (1, 2))
     assert h.severidad == "bloqueo"
 
@@ -422,6 +429,19 @@ def test_g3_no_compara_otro_trabajo_otra_unidad_ni_dentro_de_una_factura() -> No
     assert {r.resultado for r in evaluar("G3", dos)} == {"ok"}
 
 
+def test_g3_una_factura_sin_fecha_no_es_la_referencia() -> None:
+    """Sin fecha no se sabe si vino antes: no fija la tarifa buena ni senala a las demas."""
+    sin_fecha = factura(1, fecha_factura=None,
+                        lineas=(linea(10, tarifa_e4=500000, importe_cent=40000),))
+    enero, febrero = (_con_tarifa(2, date(2026, 1, 1), 425000),
+                      _con_tarifa(3, date(2026, 2, 1), 425000))
+    resultados = {r.fila_id: r for r in evaluar("G3", sin_fecha, enero, febrero)}
+    assert {i: r.resultado for i, r in resultados.items()} == {
+        1: "sin_datos", 2: "ok", 3: "ok"}
+    assert "fecha" in resultados[1].detalle
+    assert not any("0000" in r.detalle for r in resultados.values())
+
+
 def test_g3_solo_mira_compras() -> None:
     venta = _con_tarifa(1, date(2026, 3, 5), 425000, )
     assert uno("G3", dataclasses.replace(venta, sentido="saliente")).resultado == "no_aplica"
@@ -441,28 +461,44 @@ def _variado() -> list[Factura]:
         factura(4, parte="btw:NL002345678B01", iban_doc="NL00XXXX", moneda="USD"),
         factura(5, tratamiento_iva="kor", numero=None, numero_norm=None),
         factura(6, anulada=True),
+        factura(7, numero_norm="2026001", base_cent=44000, iva_cent=8500, total_cent=52500,
+                lineas=(linea(70, importe_cent=34000), linea(71, 2, importe_cent=10000,
+                                                             cantidad_mil=1000,
+                                                             tarifa_e4=1000000)),
+                desglose=(TramoIva(70, 2100, 34000, 7140), TramoIva(71, 900, 10000, 1360))),
+        factura(8, numero_norm="2026001", fecha_factura=date(2026, 9, 16)),
     ]
 
 
+# Relaciones confirmadas: la 8 sustituye a la 1 (no son duplicado entre si) y
+# la 3 corrige a la 2.
+_RELACIONES = (Relacion(8, 1, "sustituye"), Relacion(3, 2, "corrige"))
+
+
 def test_los_resultados_salen_en_un_orden_fijo() -> None:
-    resultados = motor.evaluar(instantanea(*_variado()))
+    resultados = motor.evaluar(instantanea(*_variado(), relaciones=_RELACIONES))
     posicion = {r.id: i for i, r in enumerate(catalogo.CATALOGO)}
     claves = [(posicion[r.regla], r.tabla, r.fila_id, r.grupo or "", r.clave) for r in resultados]
     assert claves == sorted(claves)
 
 
 def test_barajar_la_entrada_no_cambia_nada() -> None:
-    """Ni los resultados ni los hallazgos dependen del orden en que llegan facturas y lineas."""
-    original = motor.evaluar(instantanea(*_variado()))
+    """Ni los resultados ni los hallazgos dependen del orden de facturas, lineas, tramos y relaciones."""
+    entrada = instantanea(*_variado(), relaciones=_RELACIONES)
+    original = motor.evaluar(entrada)
+    fallan = {r.regla for r in original if r.resultado == "fallo"}
+    assert {"B2", "B3", "B4", "D3"} <= fallan
     azar = random.Random(20261014)
     for _ in range(5):
-        facturas = [dataclasses.replace(f, lineas=tuple(azar.sample(f.lineas, len(f.lineas))))
+        facturas = [dataclasses.replace(f, lineas=tuple(azar.sample(f.lineas, len(f.lineas))),
+                                        desglose=tuple(azar.sample(f.desglose, len(f.desglose))))
                     for f in _variado()]
         azar.shuffle(facturas)
-        barajada = motor.evaluar(instantanea(*facturas))
+        relaciones = azar.sample(_RELACIONES, len(_RELACIONES))
+        barajada = motor.evaluar(instantanea(*facturas, relaciones=relaciones))
         assert barajada == original
-        assert motor.agrupar(barajada, instantanea(*facturas)) == motor.agrupar(
-            original, instantanea(*_variado()))
+        assert motor.agrupar(barajada, instantanea(*facturas, relaciones=relaciones)) == \
+            motor.agrupar(original, entrada)
 
 
 def test_dos_resultados_con_la_misma_clave_son_un_error_de_la_regla() -> None:
@@ -511,32 +547,79 @@ def test_cada_regla_dice_de_que_columnas_sale_su_huella() -> None:
 # --- el motor y el contrato v1 dicen lo mismo ---
 
 _ESTADO_V1 = {"sin datos": "sin_datos", "no aplica": "no_aplica"}
+_MISMO_TEXTO = ("X1", "D2", "D2b", "D4", "F1", "E3", "E4")
 
 
-def test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture(tipado) -> None:
-    """Las mismas comprobaciones de fondo: el mismo resultado sobre las siete fixtures.
+def _sin_ceros(texto: str) -> str:
+    """La cantidad sin ceros de mas: el almacen guarda 37,50 horas como 37500 milesimas."""
+    import re
+    from decimal import Decimal
 
-    checks.py lee los literales de registros_resueltos; el motor, los enteros
-    del almacen. X1, D2, D2b, D4 y F1 tienen que coincidir en el resultado y en
-    el texto; D3 en el resultado (en el v1, la KOR con IVA sale como E3/E4 en
-    vez de D3).
+    from bms_agent.reglas.base import compacto
+
+    return re.sub(r"\b\d+\.\d+(?= x )", lambda m: str(compacto(Decimal(m.group(0)))), texto)
+
+
+def _comparar_con_v1(conn) -> list[tuple[str, str]]:
+    """Cada resultado del motor contra el de checks.py para la misma factura.
+
+    X1, D2, D2b, D4, F1, E3 y la cuota de E4 tienen que coincidir en el
+    resultado y en el texto, tambien cuando fallan; en D2b el texto se
+    compara sin los ceros de mas de la cantidad, que el almacen no guarda.
+    D3 solo en el resultado (en el v1, la KOR con IVA sale como E3/E4 en vez
+    de D3). Devuelve lo que se comparo, como (regla, resultado).
     """
     from bms_agent.checks import run_checks
     from bms_agent.legado import registros_resueltos
     from bms_agent.reglas.instantanea import construir
 
-    conn = tipado.conn
     por_numero = {r["extraction"]["invoice_number"]: run_checks(r["extraction"])
                   for r in registros_resueltos(conn)}
     numero_de = {f["id"]: f["numero"] for f in conn.execute("SELECT id, numero FROM factura")}
-    resultados = motor.evaluar(construir(conn, hoy=HOY))
-    comparadas = 0
-    for r in resultados:
+    comparadas = []
+    for r in motor.evaluar(construir(conn, hoy=HOY)):
         legado = {c.rule: c for c in por_numero[numero_de[r.fila_id]]}
-        if r.regla in ("X1", "D2", "D2b", "D4", "F1", "D3") and r.regla in legado:
-            v1 = legado[r.regla]
-            assert _ESTADO_V1.get(v1.status, v1.status) == r.resultado, (r.regla, r.fila_id)
-            if r.regla != "D3" and r.resultado != "fallo":
-                assert v1.detail == r.detalle, (r.regla, r.fila_id)
-            comparadas += 1
-    assert comparadas == 7 * 6
+        if r.regla not in legado or r.regla not in _MISMO_TEXTO + ("D3",):
+            continue
+        if r.regla == "E4" and r.clave != "cuota":
+            continue
+        v1 = legado[r.regla]
+        assert _ESTADO_V1.get(v1.status, v1.status) == r.resultado, (r.regla, r.fila_id)
+        if r.regla in _MISMO_TEXTO:
+            esperado = _sin_ceros(v1.detail) if r.regla == "D2b" else v1.detail
+            assert r.detalle == esperado, (r.regla, r.fila_id)
+        comparadas.append((r.regla, r.resultado))
+    return comparadas
+
+
+def test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fixture(tipado) -> None:
+    """Las mismas comprobaciones de fondo: el mismo resultado sobre las siete fixtures."""
+    comparadas = _comparar_con_v1(tipado.conn)
+    assert len(comparadas) == 7 * 6 and ("X1", "fallo") in comparadas
+
+
+_LINEA_MAL = [{"description": "Montagewerk, locatie Rijnhaven", "quantity_raw": "37,50",
+               "unit": "uur", "unit_rate_raw": "42,50", "line_total_raw": "1.600,00",
+               "location": "Rijnhaven", "week_number": 36, "period_start": None,
+               "period_end": None}]
+
+
+def test_el_motor_y_el_contrato_v1_dicen_lo_mismo_de_cada_fallo(almacen, tmp_path) -> None:
+    """Las fixtures casi no fallan: una extraccion hecha a mano para cada fallo, y el mismo texto."""
+    from test_hallazgos import _cargar, _registro
+
+    _cargar(almacen, tmp_path / "out",
+            _registro("d2", invoice_number="D2-1", subtotal_excl_vat_raw="2.400,00",
+                      vat_amount_raw="504,00", total_incl_vat_raw="2.904,00"),
+            _registro("d2b", invoice_number="D2B-1", lines=_LINEA_MAL,
+                      subtotal_excl_vat_raw="1.600,00", vat_amount_raw="336,00",
+                      total_incl_vat_raw="1.936,00"),
+            _registro("d4", invoice_number="D4-1", total_incl_vat_raw="2.903,79"),
+            _registro("f1", invoice_number="F1-1", iban="NL02ABNA0123456788"),
+            _registro("e3", invoice_number="E3-1", vat_regime="kor_exempt", kor_mentioned=True),
+            _registro("e4", invoice_number="E4-1", vat_regime="reverse_charged",
+                      reverse_charge_mentioned=True))
+    fallos = {regla for regla, resultado in _comparar_con_v1(almacen.conn)
+              if resultado == "fallo"}
+    # El de X1 ya sale en las fixtures (la factura en dolares).
+    assert fallos == {"D2", "D2b", "D4", "F1", "E3", "E4"}

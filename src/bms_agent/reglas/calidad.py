@@ -96,6 +96,12 @@ def q1(factura: Factura, _politica: Politica) -> list[Resultado]:
     puede ni buscar un duplicado ni pagar); retiene por lo demas. La
     contraparte es la que imprime el documento: que el maestro la conozca es
     A0 (paso 5).
+
+    Lo que la version del esquema no pidio (la contraparte de una venta v1)
+    va en un resultado aparte, con su propia clave, como el btw-id del
+    receptor en E4: un sin_datos sobre la clave de los campos que si se
+    pidieron haria creer al motor que no pudo mirarlos, y una fecha que
+    falta y se corrige no cerraria nunca su hallazgo.
     """
     presencia = _presencia_q1(factura)
     conocidos = [(etiqueta, bool(presencia[clave]))
@@ -103,13 +109,14 @@ def q1(factura: Factura, _politica: Politica) -> list[Resultado]:
     desconocidos = [clave for clave, *_ in _OBLIGATORIOS_Q1 if presencia[clave] is None]
     faltan = [clave for clave, *_ in _OBLIGATORIOS_Q1 if presencia[clave] is False]
     valores = {"faltan": faltan, "no_solicitados": desconocidos}
+    sin_pedir = [resultado_de(
+        "Q1", factura, Comprobacion(
+            SIN_DATOS, f"La versión del esquema no pidió {etiqueta}: no se puede decir si el "
+            "documento lo trae."), valores={"no_solicitado": clave}, clave=clave)
+        for clave, etiqueta, _b, _c in _OBLIGATORIOS_Q1 if clave in desconocidos]
     comprobacion = campos_que_faltan(conocidos)
-    if comprobacion.resultado == OK and desconocidos:
-        comprobacion = Comprobacion(
-            SIN_DATOS, "La versión del esquema no pidió " + ", ".join(desconocidos)
-            + ": no se puede decir si el documento lo trae.")
     if comprobacion.resultado != FALLO:
-        return [resultado_de("Q1", factura, comprobacion, valores=valores)]
+        return [resultado_de("Q1", factura, comprobacion, valores=valores), *sin_pedir]
     bloquea = any(b for clave, _e, b, _c in _OBLIGATORIOS_Q1 if clave in faltan)
     _, columnas_parte = _contraparte(factura)
     objetivos = tuple(
@@ -117,7 +124,7 @@ def q1(factura: Factura, _politica: Politica) -> list[Resultado]:
         for clave, _e, _b, columnas in _OBLIGATORIOS_Q1 if clave in faltan
         for columna in (columnas or columnas_parte))
     return [resultado_de("Q1", factura, comprobacion, valores=valores,
-                         severidad=B if bloquea else R, objetivos=objetivos)]
+                         severidad=B if bloquea else R, objetivos=objetivos), *sin_pedir]
 
 
 LEE_Q1 = LEE_PERIODO | frozenset({
