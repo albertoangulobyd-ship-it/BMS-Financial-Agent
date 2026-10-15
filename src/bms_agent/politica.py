@@ -138,6 +138,11 @@ _REGLAS: dict[str, dict[str, tuple[str, type]]] = {
               "dias_pago_sin_extracto": ("dias_pago_sin_extracto", int),
               "dias_movimiento_sin_casar": ("dias_movimiento_sin_casar", int),
               "ventana_doble_pago_dias": ("ventana_doble_pago_dias", int)},
+    "ordenes_compra": {"aviso_consumo_pct": ("po_aviso_consumo_pct", int),
+                       "dias_caducidad": ("po_dias_caducidad", int),
+                       "margen_prevision_dias": ("po_margen_prevision_dias", int),
+                       "semanas_ritmo": ("po_semanas_ritmo", int)},
+    "tarifas": {"exceso_bloqueo_pct": ("tarifa_exceso_bloqueo_pct", int)},
 }
 
 
@@ -164,6 +169,16 @@ _LIMITES: dict[str, tuple[Decimal | int, Decimal | int]] = {
     "dias_pago_sin_extracto": (1, 30),
     "dias_movimiento_sin_casar": (1, 60),
     "ventana_doble_pago_dias": (7, 90),
+    # Paso 9: un aviso de consumo por debajo de la mitad salta con cualquier PO
+    # y uno por encima del 100 % no salta nunca; una ventana de caducidad de menos
+    # de una semana avisa cuando ya no hay tiempo; un ritmo de menos de dos
+    # semanas es ruido y uno de mas de medio ano no ve un cambio de ritmo; un
+    # exceso que bloquea por encima del 100 % no bloquearia nunca.
+    "po_aviso_consumo_pct": (1, 100),
+    "po_dias_caducidad": (7, 180),
+    "po_margen_prevision_dias": (0, 90),
+    "po_semanas_ritmo": (2, 26),
+    "tarifa_exceso_bloqueo_pct": (1, 100),
 }
 
 

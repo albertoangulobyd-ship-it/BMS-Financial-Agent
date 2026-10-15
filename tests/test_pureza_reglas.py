@@ -25,6 +25,7 @@ from test_reglas import factura, instantanea, linea
 from test_reglas_paso5 import escenarios as escenarios_paso5
 from test_reglas_paso7 import escenarios as escenarios_paso7
 from test_reglas_paso8 import escenarios as escenarios_paso8
+from test_reglas_paso9 import escenarios as escenarios_paso9
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
@@ -36,16 +37,21 @@ from bms_agent.reglas.base import (
     EventoCuenta,
     Extracto,
     Factura,
+    Imputacion,
     Instantanea,
     Linea,
     LineaSinCasar,
     Lote,
     Movimiento,
+    Objeto,
+    OrdenCompra,
     PagadoExact,
     Parte,
     Politica,
+    Referencia,
     Relacion,
     Resultado,
+    Tarifa,
     TramoIva,
     por_factura,
 )
@@ -60,7 +66,7 @@ PERMITIDOS = frozenset({
 })
 PROPIOS = frozenset({"base", "calidad", "aritmetica", "iva", "bancaria", "unicidad", "planning",
                      "catalogo", "motor", "anomalias", "identidad", "normas", "pagos",
-                     "relaciones"})
+                     "relaciones", "ordenes", "tarifas", "venta"})
 DEL_PAQUETE = frozenset({"dominio"})
 LLAMADAS_PROHIBIDAS = frozenset({"open", "eval", "exec", "compile", "__import__", "input",
                                  "print", "breakpoint", "globals"})
@@ -148,7 +154,9 @@ _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
           CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar",
           Extracto: "extracto", Movimiento: "movimiento", Aplicacion: "aplicacion",
-          Bloqueo: "bloqueo", PagadoExact: "pagado_exact", Cita: "cita"}
+          Bloqueo: "bloqueo", PagadoExact: "pagado_exact", Cita: "cita",
+          Imputacion: "imputacion", Referencia: "referencia", OrdenCompra: "orden_compra",
+          Tarifa: "tarifa", Objeto: "objeto"}
 
 
 class Grabadora:
@@ -233,6 +241,8 @@ def _escenarios() -> list[Instantanea]:
         *escenarios_paso7(),
         # Paso 8: relaciones confirmadas y propuestas, citas, ventas de Exact y sus copias.
         *escenarios_paso8(),
+        # Paso 9: ordenes de compra, imputaciones y referencias, tarifas pactadas.
+        *escenarios_paso9(),
     ]
 
 

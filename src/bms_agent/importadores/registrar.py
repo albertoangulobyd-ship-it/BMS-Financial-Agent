@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .. import campos, cuentas, identidad
+from .. import campos, cuentas, identidad, ordenes_compra
 from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
 from ..almacen.documentos import registrar_documento
 from ..almacen.evidencia import foto
@@ -377,11 +377,116 @@ def _ciclo(ctx: _Contexto, registro: Any) -> None:
     ctx.anotar(o.resultado)
 
 
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+# La hoja de PO la teclea una persona que ademas de importar puede cambiar PO.
+PIDEN_CAMBIAR_PO = frozenset({"ordenes_compra", "modificaciones_po"})
+
+
+def _en_euros(moneda: str | None, que: str) -> None:
+    if (moneda or "").strip().upper() not in _EUROS:
+        raise RechazoFila(f"{que} esta en {moneda}: lo que no esta en euros no entra", "X1")
+
+
+def _parte_de_po(conn: sqlite3.Connection, registro: Any) -> tuple[str, int]:
+    """La columna de la parte (cliente_id o proveedor_id) y su fila, como la nombra la hoja."""
+    tabla = "cliente" if registro.lado == "cliente" else "proveedor"
+    return f"{tabla}_id", referencia_parte(conn, tabla, registro.parte_ref)
+
+
+def _po_existente(conn: sqlite3.Connection, registro: Any, columna: str,
+                  parte: int) -> int | None:
+    from ..parsing import normalizar_referencia
+
+    return _unica(conn, f"SELECT id FROM orden_compra WHERE lado = ? AND {columna} = ? AND "
+                        "numero_norm = ?", (registro.lado, parte,
+                                            normalizar_referencia(registro.numero)))
+
+
+def _orden_compra(ctx: _Contexto, registro: Any) -> None:
+    """Una PO de la hoja: nueva, o la misma otra vez (con sus Objetos nuevos anadidos).
+
+    El valor y el fin originales no cambian: una fila que trae otros para una
+    PO que ya esta se rechaza y pide la modificacion, que es su propia fila y
+    deja rastro de quien, cuando y por que. Un Objeto que la hoja ya no trae
+    no se retira (no es una foto completa).
+    """
+    conn = ctx.conn
+    _en_euros(registro.moneda, "la PO")
+    columna, parte = _parte_de_po(conn, registro)
+    objetos = sorted({referencia_objeto(conn, ref) for ref in registro.objetos_ref})
+    try:
+        ordenes_compra.comprobar_objetos(conn, registro.lado, parte, objetos)
+    except ordenes_compra.PONoValida as exc:
+        raise RechazoFila(str(exc), "referencia") from None
+    if registro.fecha_inicio and registro.fecha_fin and registro.fecha_inicio > registro.fecha_fin:
+        raise RechazoFila("la PO acaba antes de empezar")
+    fila_id = _po_existente(conn, registro, columna, parte)
+    vivos: set[int] = set()
+    if fila_id is not None:
+        valor, fin = conn.execute("SELECT valor_original_cent, fecha_fin FROM orden_compra "
+                                  "WHERE id = ?", (fila_id,)).fetchone()
+        nuevo_fin = registro.fecha_fin.isoformat() if registro.fecha_fin else None
+        if valor != a_cent(registro.valor) or fin != nuevo_fin:
+            raise RechazoFila(f"la PO {registro.numero} ya esta registrada con otro valor o "
+                              "otro fin originales: lo que cambia se apunta como modificacion "
+                              "(su propia fila, con su motivo)")
+        vivos = {f[0] for f in conn.execute(
+            "SELECT objeto_id FROM orden_compra_objeto WHERE orden_compra_id = ? "
+            "AND retirada_en IS NULL", (fila_id,))}
+    with ctx.orden(registro.fila, "orden_compra") as o:
+        valores = {"fecha_emision": registro.fecha_emision,
+                   "fecha_inicio": registro.fecha_inicio, "cerrada": registro.cerrada}
+        if fila_id is None:
+            fila_id = o.crear("orden_compra", {
+                "numero": registro.numero.strip(), "lado": registro.lado, columna: parte,
+                "valor_original_cent": Leido(registro.valor, crudo=registro.valor_crudo),
+                "fecha_fin": registro.fecha_fin, "fuente": "po_csv", **valores})
+        else:
+            o.fijar("orden_compra", fila_id, valores)
+        for objeto_id in objetos:
+            if objeto_id not in vivos:
+                o.crear("orden_compra_objeto", {"orden_compra_id": fila_id,
+                                                "objeto_id": objeto_id})
+    ctx.anotar(o.resultado)
+
+
+def _modificacion_po(ctx: _Contexto, registro: Any) -> None:
+    """Una modificacion de la hoja, de una PO que ya esta. La misma otra vez no se apunta."""
+    conn = ctx.conn
+    if registro.valor_nuevo is not None:
+        _en_euros(registro.moneda, "el valor nuevo")
+    columna, parte = _parte_de_po(conn, registro)
+    po = _po_existente(conn, registro, columna, parte)
+    if po is None:
+        raise RechazoFila(f"no hay ninguna PO {registro.numero} de esa parte: la PO entra antes "
+                          "que sus modificaciones", "referencia")
+    try:
+        valor = a_cent(registro.valor_nuevo) if registro.valor_nuevo is not None else None
+    except (PerdidaDePrecision, FueraDeRango) as exc:
+        raise RechazoFila(f"el valor nuevo no es un importe en centimos: {exc}") from None
+    fin = registro.fecha_fin_nueva.isoformat() if registro.fecha_fin_nueva else None
+    if conn.execute(
+            "SELECT 1 FROM orden_compra_modificacion WHERE orden_compra_id = ? AND fecha = ? "
+            "AND valor_nuevo_cent IS ? AND fecha_fin_nueva IS ? AND motivo = ?",
+            (po, registro.fecha.isoformat(), valor, fin, registro.motivo.strip())).fetchone():
+        ctx.resultado.avisos.append(f"fila {registro.fila}: la modificacion de la PO "
+                                    f"{registro.numero} ya estaba apuntada")
+        return
+    modificacion = ordenes_compra.apuntar_modificacion(
+        conn, orden_compra_id=po, fecha=registro.fecha, valor_nuevo_cent=valor,
+        fecha_fin_nueva=registro.fecha_fin_nueva, motivo=registro.motivo,
+        usuario_id=ctx.persona, actor=ctx.actor, importacion_id=ctx.importacion_id,
+        datos={"importacion_id": ctx.importacion_id, "fila_importada": registro.fila})
+    ctx.resultado.nuevos.append(("orden_compra_modificacion", modificacion))
+
+
 ESCRITORES = {
     "proveedores": lambda ctx, r: _parte(ctx, r, "proveedor"),
     "clientes": lambda ctx, r: _parte(ctx, r, "cliente"),
-    "contactos": _contacto, "objetos": _objeto, "recursos": _recurso, "alias": _alias, "tarifas": _tarifa,
-    "ciclos": _ciclo,
+    "contactos": _contacto, "objetos": _objeto, "recursos": _recurso, "alias": _alias,
+    "tarifas": _tarifa, "ciclos": _ciclo, "ordenes_compra": _orden_compra,
+    "modificaciones_po": _modificacion_po,
 }
 
 
@@ -1027,6 +1132,9 @@ def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
     with orden_auditada(conn):
         exigir(conn, lanzado_por, Permiso.IMPORTAR_DATOS.value,
                accion=f"importar {lote.fuente}/{lote.tipo}")
+        if lote.tipo in PIDEN_CAMBIAR_PO:
+            exigir(conn, lanzado_por, Permiso.CAMBIAR_PO.value,
+                   accion=f"importar {lote.fuente}/{lote.tipo}")
         _exportado_no_futuro(conn, lote)
         previa = importacion_previa(conn, lote)
         if previa is not None:
@@ -1065,29 +1173,40 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
                                  exportado_en=exportado_en, simular=simular)
     ruta = Path(ruta)
     contenido = ruta.read_bytes()
-    if isinstance(mapeo, Mapeo):
-        elegido = mapeo
-    elif mapeo is not None:
-        elegido = cargar_mapeo(mapeo)
+    elegido: Mapeo | None = None
+    if fuente == "po_csv" and ruta.suffix.lower() in (".yaml", ".yml"):
+        # La hoja de PO tecleada en YAML (importadores/ordenes.py): sin mapeo.
+        from . import ordenes as yaml_po
+
+        if mapeo is not None:
+            raise ValueError("un YAML de PO no lleva mapeo: sus campos son los canonicos")
+        lotes = yaml_po.lotes(contenido, tipo, exportado_en=exportado_en)
+        mapeo_id, tipo_mime = yaml_po.FORMATO, "application/yaml"
     else:
-        elegido = elegir_mapeo(fuente, tipo, contenido, ruta.name)
-    if (elegido.fuente, elegido.tipo) != (fuente, tipo):
-        raise ValueError(f"el mapeo {elegido.id} es de {elegido.fuente}/{elegido.tipo}, no de "
-                         f"{fuente}/{tipo}")
-    if not LectorTabular(elegido, elegido.registros[0].tipo).reconoce(contenido, ruta.name):
-        raise ValueError(f"{ruta.name} no tiene las columnas del mapeo {elegido.id}")
-    lotes = [lector.leer(contenido, ruta.name, exportado_en=exportado_en)
-             for lector in lectores(elegido)]
-    resultado = ResultadoImportacion(fichero=ruta.name, mapeo=elegido.id, simulada=simular)
+        if isinstance(mapeo, Mapeo):
+            elegido = mapeo
+        elif mapeo is not None:
+            elegido = cargar_mapeo(mapeo)
+        else:
+            elegido = elegir_mapeo(fuente, tipo, contenido, ruta.name)
+        if (elegido.fuente, elegido.tipo) != (fuente, tipo):
+            raise ValueError(f"el mapeo {elegido.id} es de {elegido.fuente}/{elegido.tipo}, no "
+                             f"de {fuente}/{tipo}")
+        if not LectorTabular(elegido, elegido.registros[0].tipo).reconoce(contenido, ruta.name):
+            raise ValueError(f"{ruta.name} no tiene las columnas del mapeo {elegido.id}")
+        lotes = [lector.leer(contenido, ruta.name, exportado_en=exportado_en)
+                 for lector in lectores(elegido)]
+        mapeo_id, tipo_mime = elegido.id, elegido.tipo_mime
+    resultado = ResultadoImportacion(fichero=ruta.name, mapeo=mapeo_id, simulada=simular)
     conn = almacen.conn
 
     def hacer() -> ResultadoImportacion:
         for lote in lotes:
             resultado.lotes.append(registrar_lote(
                 almacen, lote, lanzado_por=lanzado_por, nombre=ruta.name,
-                contenido=None if simular else contenido, tipo_mime=elegido.tipo_mime))
+                contenido=None if simular else contenido, tipo_mime=tipo_mime))
         nuevas = [r for r in resultado.lotes if not r.repetida]
-        if nuevas and elegido.texto:
+        if nuevas and elegido is not None and elegido.texto:
             # El mapeo aplicado queda en la politica con su texto (§5, tabla 2):
             # importacion.mapeo_sha256 apunta a el. Solo si cambio desde el ultimo.
             from .. import politica
@@ -1105,6 +1224,9 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
     with orden_auditada(conn):
         exigir(conn, lanzado_por, Permiso.IMPORTAR_DATOS.value,
                accion=f"importar {fuente}/{tipo}")
+        if tipo in PIDEN_CAMBIAR_PO:
+            exigir(conn, lanzado_por, Permiso.CAMBIAR_PO.value,
+                   accion=f"importar {fuente}/{tipo}")
         if not simular:
             return hacer()
         try:

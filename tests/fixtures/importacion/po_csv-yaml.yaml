@@ -1,0 +1,38 @@
+# Hoja de PO tecleada en YAML (importadores/ordenes.py): las mismas PO que el
+# CSV de ejemplo, con una modificacion, y las filas que no entran.
+ordenes:
+  - numero: PO-4500123
+    lado: cliente
+    parte_ref: "10001"
+    objetos_ref: [Rijnhaven, Waalhaven]
+    fecha_emision: 2026-08-15
+    fecha_inicio: 2026-09-01
+    fecha_fin: 2026-12-31
+    valor: "10000.00"
+    moneda: EUR
+  - numero: BMS-2026-014
+    lado: proveedor
+    parte_ref: "20001"
+    objetos_ref: Rijnhaven
+    fecha_inicio: 2026-07-01
+    valor: 8000
+  - numero: PO-4500555
+    lado: cliente
+    parte_ref: "10001"
+    valor: 1250.50
+  - numero: PO-4500556
+    lado: otro
+    parte_ref: "10001"
+    valor: "100"
+modificaciones:
+  - numero: PO-4500123
+    lado: cliente
+    parte_ref: "10001"
+    fecha: 2026-10-01
+    valor_nuevo: "12500.00"
+    motivo: Uitbreiding Waalhaven
+  - numero: PO-4500123
+    lado: cliente
+    parte_ref: "10001"
+    fecha: 2026-10-01
+    motivo: Sin cambio

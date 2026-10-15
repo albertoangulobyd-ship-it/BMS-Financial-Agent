@@ -25,7 +25,8 @@ del paso 4, revision y prioridad_manual (igual); las del paso 6, reextraccion
 (como importacion, con un evento por cada cambio mientras espera su lote),
 reextraccion_resultado, activacion y linea_sin_casar (como una nota); las
 del paso 7, extracto_bancario (como importacion) y sus movimientos, que van
-todos en el evento de su extracto (`MOVIMIENTOS`). La procedencia de los campos
+todos en el evento de su extracto (`MOVIMIENTOS`); la del paso 9,
+orden_compra_modificacion (como una nota). La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar).
@@ -95,6 +96,10 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
         "saldo_inicial_cent", "saldo_final_cent", "fecha_saldo_inicial", "fecha_saldo_final",
         "desde", "hasta", "con_saldos", "entradas", "formato",
     ),
+    # Paso 9: lo que firma una persona al modificar una PO (a mano o en su hoja).
+    "orden_compra_modificacion": ("orden_compra_id", "fecha", "valor_nuevo_cent",
+                                  "fecha_fin_nueva", "motivo", "documento_id", "importacion_id",
+                                  "usuario_id", "en"),
 }
 
 # Los movimientos de un extracto no tienen un evento cada uno (un extracto trae
@@ -134,6 +139,7 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "activacion": ("extraccion_activada", ()),
     "linea_sin_casar": ("linea_sin_casar", ()),
     "extracto_bancario": ("extracto_registrado", ()),
+    "orden_compra_modificacion": ("po_modificada", ()),
 }
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
@@ -142,7 +148,8 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
 POR_EVENTO: dict[str, str] = {"nota": "evento_id", "anulacion": "evento_id",
                                "revision": "evento_id", "prioridad_manual": "evento_id",
                                "reextraccion_resultado": "evento_id",
-                               "activacion": "evento_id", "linea_sin_casar": "evento_id"}
+                               "activacion": "evento_id", "linea_sin_casar": "evento_id",
+                               "orden_compra_modificacion": "evento_id"}
 
 
 _FALTA = object()

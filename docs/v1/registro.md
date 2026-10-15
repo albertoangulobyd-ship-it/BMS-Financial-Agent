@@ -3593,3 +3593,291 @@ Lo que deben saber los pasos siguientes, además de lo de arriba:
   `relaciones.lo_que_lleva`.
 - **La vista de un cliente** devuelve `trabajo_sin_facturar` en sin datos: el
   paso 10 lo rellena con V6.
+
+## Paso 9
+
+Órdenes de compra (PO) y tarifas pactadas. **1630 tests pasan**
+(973 funciones de test; eran 1550 y 929 al cerrar el paso 8), ninguno
+llama a la API y ninguno escribe fuera de una carpeta temporal. Cinco mil
+facturas se recalculan en 1,62-1,75 s la primera vez y en 1,34-1,46 s las
+siguientes (seis medidas en este contenedor; el paso 8 medía 1,57-1,83 s y 1,35-1,52 s): sin ninguna PO registrada la sincronización no lee
+las facturas, y sin tarifas pactadas G3, G6 y V4 no miran ninguna línea
+contra lo pactado; lo que cuesta de más es leer las imputaciones en la
+instantánea (unos 20 ms).
+
+**Ni la V1 crea facturas ni nada aquí paga.** Una PO solo se registra, se
+modifica, se cierra o se imputa: lo que mueve es lo que retiene o avisa.
+
+### Qué se construyó
+
+**Migración `0010_ordenes_compra.sql`** (la siguiente libre; el §11 la
+llama 0006, pero la 0006-0009 ya son de los pasos 6-8):
+
+- `orden_compra` (controlada, guardas generadas): número (y normalizado),
+  lado (`cliente`: la que un cliente da a BM Support BV y consumen sus
+  ventas; `proveedor`: la que BM Support BV da a un proveedor y consumen sus
+  compras), la parte, fechas de emisión, inicio y fin, valor original sin
+  IVA, documento, `cerrada` y `fuente` (`manual`, `po_csv`, `exact`,
+  `trnsprnt`). Única por lado, parte y número normalizado. El número, el
+  lado, la parte, el valor original y el fin original no cambian nunca (un
+  disparador): lo que cambia se apunta como modificación.
+- `orden_compra_objeto` (controlada): los Objetos que cubre una PO; una sin
+  ninguno cubre cualquiera de su parte. Un Objeto se retira, no se borra.
+- `orden_compra_modificacion` (**solo escritura**, evidencia con la foto de
+  la fila en su evento `po_modificada`, como una nota): desde una fecha, un
+  valor nuevo, un fin nuevo o los dos, con su motivo. La base exige que la
+  firme una persona activa con `cambiar_po` en ese momento, en su propia
+  orden o en la importación en curso que ella lanzó; nunca el sistema solo.
+- `orden_compra_id` de `factura_imputacion`, `factura_referencia` y
+  `tarifa_acordada` apunta a una PO que existe (disparadores: la 0002 no
+  podía declarar la clave foránea).
+- Vistas: `v_po_vigente` (el valor y el fin de la última modificación que
+  cambia cada uno) y `v_po_consumo` (consumido, restante y porcentajes en
+  puntos básicos, sin depender de hoy).
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `ordenes_compra.py` | Lo que hace el almacén con las PO. `sincronizar()` (en cada pasada del motor, después de `relaciones.sincronizar`): casa cada referencia impresa con las PO de la parte de su factura y deja imputada cada línea a la PO que dicen sus referencias. `cargos()` (lo consumido factura a factura, la misma cuenta que la vista y que las reglas), `ordenes()`, y las órdenes de una persona: `registrar_po`, `modificar_po` (y `apuntar_modificacion`, el único escritor de modificaciones), `cerrar_po`, `cambiar_objetos` e `imputar` |
+| `reglas/ordenes.py` | Puro: valor y fin vigentes (`vigentes`), lo consumido en el orden del §7 (`cargos`, `antes_de_cada`, `situacion`), la previsión (`prevision`) y P1-P10 |
+| `reglas/tarifas.py` | Puro: qué tarifa pactada vale para una imputación (`pactada`), de lo más concreto a lo general, o si es ambigua |
+| `reglas/venta.py` | Puro: V4 |
+| `importadores/ordenes.py` | La hoja de PO en YAML: los mismos registros canónicos que el CSV, con su contrato |
+| `config/importacion/po_csv-ordenes_compra-v1.yaml`, `po_csv-modificaciones_po-v1.yaml` | Los mapeos de la hoja de PO y de la de sus modificaciones (cabeceras en neerlandés, como las demás hojas), con su ejemplo y su contrato en `tests/fixtures/importacion/` |
+
+**Lo consumido de una PO** es la base sin IVA de las imputaciones activas
+que apuntan a ella en las facturas que cuentan (ni anuladas, ni fusionadas,
+ni sustituidas o corregidas: `v_imputacion_vigente`), del sentido que
+consume su lado. Un abono resta solo cuando tiene una relación confirmada
+(`acredita` o `anula`) que dice a qué factura abona; antes, sus líneas no
+mueven la PO. Lo que no está en euros no tiene importe (X1) y no cuenta. El
+orden es el del §7: por fecha de factura y, a igual fecha, por id; una
+factura sin fecha va al final. Lo mismo en tres sitios que un test compara:
+`v_po_consumo`, `ordenes_compra.cargos` y `reglas.ordenes.cargos`.
+
+**Qué referencia es una PO lo decide el código, nunca el modelo**
+(`ordenes_compra.sincronizar`, con fuente `calculado`):
+
+- Una referencia viva casa si su valor normalizado es el número de una PO
+  del lado y la parte de su factura (una venta, las PO de su cliente; una
+  compra, las de su proveedor). Casa aunque su etiqueta dijera otra cosa; la
+  que una persona clasificó a mano como no PO (`cambiar_po`) no casa nunca.
+  Sin parte resuelta no casa con nada.
+- Una imputación toma la PO de las referencias de su línea si es una sola;
+  si no dicen ninguna, la de las de la cabecera si es una sola. Varias PO
+  distintas no se reparten adivinando: queda sin PO.
+- Un abono sin PO propia toma la de la factura que abona (con su relación
+  confirmada) si toda ella va a una sola PO.
+- Lo que una persona imputó a mano (`imputar_po`) gana siempre (M1): el
+  cálculo queda como valor automático. Solo se escribe lo que cambia; una
+  pasada sin cambios no deja evento.
+
+**Reglas nuevas**
+
+| Regla | Qué mira | Al fallar |
+| --- | --- | --- |
+| P1 | La PO imputada está cerrada, o el trabajo (fechas de la imputación, de la línea, el periodo o la fecha de la factura) cae fuera de su vigencia | Retención; se anula. Sin ningún día, sin datos |
+| P2 | Una venta sin PO (ni imputada ni impresa) donde el Objeto (o, si no dice, el cliente) la pide | Retención; se anula |
+| P3 | La PO impresa no está registrada o es de otra parte; la imputada es de otra parte o no cubre el Objeto de la línea | Retención; se anula. Sin ninguna PO de ese lado, o sin la parte resuelta, sin datos |
+| P4 | La factura carga a la PO más de lo que quedaba antes de ella (en el orden del §7) | Retención; se anula; pegajosa; suelo urgente |
+| P5 | Consumido el umbral de la política (80 %) o más | Aviso de la PO |
+| P6 | La PO ya estaba consumida entera y la factura le carga más | Retención; se anula; suelo urgente |
+| P7 | La PO caduca dentro de los días de la política (30) con valor por consumir; ya caducada, sin datos hasta el planning | Aviso de la PO; se anula; puntos de caducidad por los días que quedan |
+| P8 | El trabajo planificado por la tarifa de venta pasa lo que queda | Sin datos hasta el paso 10 |
+| P9 | Al ritmo de las últimas 8 semanas la PO se agota más de 14 días antes de su fin | Aviso de la PO |
+| P10 | Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor | Sin datos hasta el paso 10 |
+| G3 (versión 2) | La tarifa de una línea de compra contra la pactada; sin pactada, contra el histórico como antes | Retención por encima de la pactada; bloqueo (que se anula con segunda firma) por encima del exceso de la política (10 %) |
+| G6 | Una línea de un recargo (noche, fin de semana...) contra su propia tarifa pactada | Retención; se anula |
+| V4 | La tarifa de una línea de venta contra la de venta pactada, por encima y por debajo | Retención; se anula. Sin pactada, sin datos hasta el planning |
+
+Una tarifa ambigua (dos igual de concretas con precios distintos) da sin
+datos en la línea y retiene la factura con su excepción (clave `ambigua`).
+
+**La tarifa pactada que vale** (`reglas/tarifas.py`): el turno es condición
+de todos los niveles (la de noche no es la de una línea de día; «Dag» y una
+línea sin turno son lo mismo), y lo que una tarifa dice tiene que coincidir.
+Niveles: recurso y Objeto; Objeto; recurso; parte; y la general (sin parte
+ni Objeto pero con tipo de trabajo, la de `config/tarifas.yaml`). Dentro del
+primer nivel que tiene alguna gana la más concreta en lo demás (la de esa
+PO, la de esa parte, la de ese tipo de trabajo, la de esa unidad y la de
+vigencia más reciente).
+
+**Las órdenes de una persona** (todas con `cambiar_po`):
+
+| Orden | Qué hace |
+| --- | --- |
+| `registrar_po` | Una PO nueva, con sus Objetos (de su cliente, o de ninguno) |
+| `modificar_po` | Un valor nuevo, un fin nuevo o los dos, desde una fecha (por defecto hoy); motivo obligatorio |
+| `cerrar_po` | Cerrarla (`cerrada=no`, reabrirla); motivo obligatorio |
+| `objetos_po` | Añadir o retirar Objetos |
+| `corregir_po` | La fecha de emisión, la de inicio o el documento (lo demás es identidad o modificación) |
+| `imputar_po` | Imputar una línea a una PO, a otra o a ninguna: una del otro lado o de otra parte no se acepta |
+
+**La hoja de PO** entra por el marco de importación (`registrar_lote`) como
+cualquier maestro, y además de `importar_datos` pide `cambiar_po`:
+`bms-agent importar po_csv ordenes_compra hoja.csv` (o `hoja.yaml`) y
+`bms-agent importar po_csv modificaciones_po cambios.csv`. Fila a fila: lo
+que no está en euros (X1), un valor cero, una parte o un Objeto que no
+existen o un Objeto de otro cliente se rechazan (Z2). Una PO que vuelve
+igual solo añade los Objetos nuevos; una que vuelve con otro valor o con otro
+fin originales se rechaza y pide la modificación. Las modificaciones son su
+propia fila, con su motivo; la misma otra vez no se apunta dos veces. Un YAML
+con las dos listas entra como dos lotes (las PO y después sus
+modificaciones).
+
+**Lo que se lee**: `consultas.ordenes_compra` (la lista por prioridad, con
+valor, consumido, lo que queda y porcentajes), `consultas.orden_compra` (la
+ficha: sus facturas en el orden en que la consumen con lo que quedaba antes
+de cada una, sus modificaciones, la previsión, y lo planificado y lo
+trabajado sin facturar como sin datos hasta el paso 10) y `consultas.objeto`
+(el bloque de PO de la vista de un Objeto: las PO que lo cubren o a las que
+se imputa trabajo suyo, con lo consumido de la PO entera y lo de ese
+Objeto). En `/api/v2/ordenes`, `/api/v2/ordenes/<id>` y
+`/api/v2/objetos/<id>`, en la consola (lista de PO, ficha con sus órdenes,
+vista del Objeto e `imputar_po` en cada imputación) y en la CLI (`ordenes`,
+`orden N`, `objeto N`). La prioridad de una PO (caché `prioridad`, entidad
+`orden_compra`) es el máximo de las facturas imputadas a ella y de sus
+propios avisos.
+
+**Cambios en lo que había**: `campos.py` (las dos tablas controladas, sus
+permisos, y `factura_referencia.orden_compra_id` no editable: la casa el
+sistema), `reglas/base.py` (los parámetros de la política, `Imputacion`,
+`Referencia`, `OrdenCompra`, `Tarifa`, `Objeto`), `reglas/instantanea.py`
+(imputaciones, referencias, PO, tarifas y Objetos), `reglas/motor.py` (la
+fuente de una imputación y de una referencia entra en la huella),
+`reglas/planning.py` (G3 versión 2 y G6), `politica.py` y
+`config/reglas.yaml` (secciones `ordenes_compra` y `tarifas`),
+`hallazgos.py` (la sincronización y `Diferencia.ordenes`), `estados.py`,
+`excepciones.py` (la descripción de una excepción de una PO), `servicios.py`,
+`consultas.py` (la PO de cada imputación y referencia en la ficha de una
+factura), `serve.py`, `consola_assets.py`, `cli.py`,
+`importadores/registrar.py`, `importadores/canonico.py` y
+`almacen/evidencia.py`.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Aritmética del consumo: sin IVA | `test_reglas_paso9.py::test_el_consumo_es_sin_iva_con_los_abonos_confirmados_y_sin_lo_que_no_cuenta` (la base de cada línea, no el total con IVA); `test_ordenes_compra.py::test_el_abono_confirmado_resta_de_la_po_y_antes_no` (4.256,00 de V2026-0101, no 5.149,76) |
+| Los abonos confirmados restan (y los propuestos no) | Los dos anteriores, `test_un_abono_no_consume_y_libera_lo_que_abona` y `test_un_abono_sin_po_impresa_toma_la_de_la_factura_que_abona` |
+| Anuladas y sustituidas fuera | `test_el_consumo_es_sin_iva...` (anulada, sustituida, fusionada, otro lado, sin euros), `test_ordenes_compra.py::test_una_sustituida_no_consume` y `test_una_anulada_no_consume` |
+| La vista, el almacén y las reglas dicen lo mismo | `_tres_cuentas` en cada test de consumo del almacén |
+| P4 respeta el orden | `test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id` (fecha y luego id, sin fecha al final, con las facturas revueltas), `test_p4_retiene_la_factura_que_pasa_lo_que_quedaba_y_es_pegajosa` (sobre el almacén, con una modificación de valor) |
+| Los umbrales salen de la configuración | `test_ordenes_compra.py::test_los_umbrales_de_las_po_salen_de_la_configuracion` (`config/reglas.yaml` cargado con otro umbral abre P5; uno fuera de límites no se carga), `test_p5_avisa_desde_el_umbral_de_la_politica`, `test_p7_caduca_dentro_de_los_dias_de_la_politica`, `test_la_prevision_es_determinista...` (margen y semanas), `test_g3_compara_con_la_pactada...` (exceso) |
+| La caducidad con fecha fija | `test_p7_caduca_dentro_de_los_dias_de_la_politica` (hoy 2026-10-14: 27, 30, 31 y 0 días, ya caducada) y `test_la_caducidad_con_la_fecha_fija_y_la_prioridad_de_la_po` (en el almacén, con los puntos de caducidad en la prioridad de la PO) |
+| La previsión es determinista | `test_la_prevision_es_determinista_y_sale_del_ritmo_de_las_semanas` (la ventana, el ritmo y el día exactos; el mismo resultado en cualquier orden) y `test_la_prevision_empieza_en_el_inicio_de_la_po_y_sin_consumo_no_se_agota` |
+| Qué referencia es una PO lo decide el código | `test_la_referencia_impresa_casa_con_la_po_de_su_cliente_y_la_imputa`, `test_una_referencia_que_una_persona_dice_que_no_es_po_no_casa`, `test_una_referencia_que_no_casa_es_una_po_desconocida` |
+| Importar la hoja de PO (CSV o YAML), con `cambiar_po`; las modificaciones son filas aparte | `test_la_hoja_de_po_entra_por_el_marco_de_importacion`, `test_una_po_que_vuelve_con_otro_valor...`, `test_importar_la_hoja_de_po_pide_cambiar_po`, `test_la_hoja_de_po_en_yaml_da_lo_mismo_que_el_csv`, y los contratos de `test_importadores.py` |
+| Una modificación es de solo escritura y la firma quien puede | `test_una_modificacion_es_de_solo_escritura_y_la_firma_quien_puede` (y `test_almacen.py`, que la cuenta entre las tablas de solo escritura y su evidencia) |
+| Registrar, modificar e imputar | `test_registrar_cerrar_y_cubrir_objetos_de_una_po`, `test_lo_que_imputa_una_persona_gana_a_lo_que_casa_el_sistema`, y la matriz de permisos de `test_servicios.py` |
+| G3 y V4 contra lo pactado, ambigua, recargos | `test_la_tarifa_pactada_va_de_lo_mas_concreto_a_lo_general`, `test_dentro_del_nivel_gana_la_mas_concreta_y_si_no_es_ambigua`, `test_g3_compara_con_la_pactada...`, `test_g3_ambigua_da_sin_datos_y_retiene_con_su_excepcion`, `test_g3_sigue_con_el_historico_donde_no_hay_pactada`, `test_g6_un_recargo_a_su_propia_tarifa_y_sin_ella_lo_mira_g3`, `test_v4_la_venta_a_la_tarifa_pactada_ni_por_encima_ni_por_debajo`, `test_v4_con_las_tarifas_de_venta_del_maestro` |
+| El bloque de PO del Objeto, la lista y la ficha en la consola y /api/v2 | `test_la_ficha_de_la_po_y_la_vista_del_objeto`, `test_consola.py::test_las_ordenes_de_compra_y_los_objetos_por_la_api` (con HTML en los nombres, pintado como texto), `test_la_cli_ensena_las_po_su_ficha_y_la_del_objeto` |
+| Cada regla lee lo que declara | `test_pureza_reglas.py` con los escenarios del paso 9 (`test_reglas_paso9.escenarios`) |
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración es la 0010**, no la 0006 del §11: la numeración ya va por
+   la 0009.
+2. **P1 y P3 se reparten el §7.** P1 («PO válida») mira lo que es de la PO:
+   cerrada, o el trabajo fuera de su vigencia. P3 («desconocida o
+   equivocada») mira la parte y el Objeto, y la PO impresa que no está. Así
+   una PO de otro cliente no da dos retenciones por lo mismo.
+3. **P2 solo en las ventas, y lleva PO la línea que la tiene impresa.** Que
+   se pida PO lo dice el maestro de clientes y de Objetos (`requiere_po`);
+   ningún maestro dice que un proveedor la pida. Una venta con la PO impresa
+   que aún no casa no «falta»: es P3 (desconocida, o sin datos sin lista de
+   PO). Sin esto, importar el listado de Exact antes que la hoja de PO
+   retenía todas las ventas de los clientes que la piden.
+4. **Sin ninguna PO de ese lado, P3 da sin datos**: sin la lista no se sabe
+   si una PO impresa es desconocida, y retener todo el primer día no ayuda.
+5. **P4 y P6 no se pisan.** P4 es «pasa lo que quedaba» con algo por
+   consumir antes; si ya no quedaba nada, P4 no aplica y lo dice P6. Una
+   factura sin fecha no se puede poner en el orden: sin datos en las dos. Un
+   abono (lo que carga es negativo) no consume: ok.
+6. **P7 ya caducada da sin datos**: el §7 la hace R «con trabajo planificado
+   después del fin», y eso lo dice el planning (paso 10). Sin fin, no aplica.
+7. **P8 y P10 dan sin datos hasta el paso 10**: necesitan lo planificado y
+   lo trabajado sin facturar. Lo facturado de más ya lo dicen P4 y P6.
+8. **La previsión (P9)**: el ritmo es lo consumido en la ventana de
+   `semanas_ritmo` semanas que acaba hoy (desde el inicio de la PO o, si no
+   tiene, su emisión, si empezó después), y el día de agotamiento es hoy más
+   lo que queda por ese ritmo, redondeado hacia arriba en días. Sin consumo
+   en la ventana, a ese ritmo no se agota (ok). Con nada por consumir, no
+   aplica (lo dicen P5 y P6).
+9. **El valor y el fin vigentes son los de la última modificación que cambia
+   cada uno**, por su fecha y, a igual fecha, la apuntada después: una
+   modificación que solo alarga el fin no devuelve el valor al original.
+10. **Los niveles de la tarifa pactada son cinco**, no los cuatro del §7: se
+    añaden «recurso» (la tarifa propia de un zzp'er en cualquier obra; sin
+    él una tarifa por persona del maestro no se usaría nunca) y «general»
+    (la de venta de `config/tarifas.yaml`, sin cliente). El turno es una
+    condición de todos («parte + turno» del §7). El desempate dentro de un
+    nivel (la de esa PO, parte, trabajo, unidad y la vigencia más reciente)
+    es nuestro: sin él, una tarifa nueva que sustituye a la vieja sin que
+    nadie cierre la vieja sería siempre ambigua.
+11. **Una ambigua retiene, no avisa.** El §7 pide sin datos «y una
+    excepción»: la línea da sin datos y la factura una retención con clave
+    `ambigua`, que abre su excepción como cualquier retención. Con
+    `crea_excepcion`, cada aviso del histórico de G3 abriría también una.
+12. **G3 sube a la versión 2**: contra lo pactado, retiene por encima de la
+    pactada (por debajo es lo que BM Support BV prefiere pagar) y bloquea
+    pasado el `exceso_bloqueo_pct` de la política (la parte B, que se anula
+    con segunda firma). El escalón del planning (la tarifa del turno) no
+    existe aún: sin pactada, G3 sigue con el histórico como pide la puerta.
+    Cambiar de versión cambia la huella: un G3 aceptado antes se reabre una
+    vez. La contraparte, el Objeto, el recurso y la PO resueltos no entran
+    en la huella de G3, G6 y V4 (sí la tarifa elegida y su precio, en los
+    valores): dar de alta el proveedor o sembrar los Objetos no reabre nada.
+13. **G6 solo compara un recargo que tiene su propia tarifa pactada**; sin
+    ella no aplica, y G3 lo mira con el histórico (la puerta del paso 10:
+    «un recargo nocturno a su tarifa pactada no da G3»).
+14. **V4 en los dos sentidos y sin histórico**: por encima, el cliente
+    reclamará; por debajo, BM Support BV pierde dinero. Sin pactada, sin
+    datos hasta el planning (el §7 no le da histórico).
+15. **Las reglas de PO y de tarifas dan ok** de lo que miran (no solo lo que
+    objetan): un sin datos sin un resultado al lado retendría un hallazgo
+    viejo de esa misma fila.
+16. **`factura_referencia.orden_compra_id` no se edita a mano**: la casa el
+    sistema con la lista de PO. Una persona decide la clase de una referencia
+    (`cambiar_po`) o la PO de una línea (`imputar_po`).
+17. **El abono hereda la PO** de la factura que abona (con la relación
+    confirmada) cuando no imprime la suya: sin esto, el «menos los abonos
+    confirmados» del §7 casi nunca restaría.
+18. **La hoja de PO son dos ficheros** (las PO y sus modificaciones), no uno
+    con una columna de tipo: cada uno con su mapeo, su contrato y su
+    importación, y la modificación de una PO nueva entra después de ella. En
+    YAML, un fichero con las dos listas.
+19. **Los límites de la política** (`_LIMITES`): umbral de P5 entre 1 y
+    100 %, días de caducidad entre 7 y 180, margen de la previsión entre 0 y
+    90 días, semanas del ritmo entre 2 y 26, exceso de G3 entre 1 y 100 %.
+20. **La vista del Objeto** tiene por ahora su ficha y su bloque de PO; las
+    horas, ingresos y costes son de los pasos siguientes.
+21. **Una imputación a PO de una copia en PDF que se une a su venta de
+    Exact** se pierde con ella: la copia no cuenta, y las imputaciones de la
+    venta de Exact casan con sus propias referencias. Fusionar no se impide
+    por eso (no mueve dinero).
+
+### Lo que deben saber los pasos siguientes
+
+- **Paso 10 (planning)**: lo que espera al planning da sin datos y lo dice
+  («llega con el planning (paso 10)»): P8 y P10 (`reglas.ordenes._sin_planning`),
+  P7 ya caducada (trabajo planificado después del fin), V4 sin pactada (la
+  tarifa del turno), el escalón del planning de G3 (entre lo pactado y el
+  histórico, en `planning.g3`) y, en la ficha de una PO, `planificado` y
+  `sin_facturar` (`consultas._SIN_PLANNING`). La puerta del paso 10 «un
+  recargo nocturno a su tarifa pactada no da G3» ya se cumple con G6.
+- **Lo consumido de una PO** se cuenta en un solo sitio por capa:
+  `v_po_consumo` (SQL), `ordenes_compra.cargos` (almacén) y
+  `reglas.ordenes.cargos` (instantánea); un cambio en una tiene que ir a las
+  tres (el test de las tres cuentas lo vigila).
+- **Una PO solo la escribe** `ordenes_compra.py` (personas) y la importación
+  de la hoja de PO; las modificaciones, solo `apuntar_modificacion`. Si llega
+  Exact o TRNSPRNT con PO (`fuente` ya los admite), su importación tiene que
+  firmarla una persona con `cambiar_po` (la base lo exige para las
+  modificaciones).
+- **La prioridad de una PO** se calcula en `estados._avisos_de_po` como una
+  factura sin plazo ni importe; los pesos de límite y caducidad de PO son los
+  de `config/prioridad.yaml`.
+- **La consola** tiene ya las PO y el bloque de PO del Objeto; la vista
+  entera del Objeto (horas, ingresos, costes) sigue pendiente.

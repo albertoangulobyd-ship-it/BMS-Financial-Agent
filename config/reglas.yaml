@@ -46,3 +46,20 @@ pagos:
   # K4: dos cargos iguales a la misma contraparte con la misma referencia en
   # menos de estos dias son un pago doble.
   ventana_doble_pago_dias: 30
+
+ordenes_compra:
+  # P5: avisa cuando lo consumido de una PO (sin IVA) llega a este porcentaje
+  # de su valor vigente.
+  aviso_consumo_pct: 80
+  # P7: avisa cuando la PO caduca dentro de estos dias y le queda valor.
+  dias_caducidad: 30
+  # P9: avisa si, al ritmo de las ultimas semanas, la PO se agota antes de
+  # estos dias de su fin...
+  margen_prevision_dias: 14
+  # ...con el ritmo de estas semanas de facturas (por fecha de factura).
+  semanas_ritmo: 8
+
+tarifas:
+  # G3: una compra por encima de la tarifa pactada retiene; por encima de este
+  # porcentaje sobre la pactada, bloquea (y anularlo pide segunda firma).
+  exceso_bloqueo_pct: 10

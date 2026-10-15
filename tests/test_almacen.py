@@ -61,7 +61,8 @@ AHORA = "2026-10-14T09:30:00+00:00"
 SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
                   "prioridad_manual", "cuenta_bancaria", "cuenta_evento",
-                  "reextraccion_resultado", "activacion", "linea_sin_casar")
+                  "reextraccion_resultado", "activacion", "linea_sin_casar",
+                  "orden_compra_modificacion")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
              "movimiento_bancario")
 
@@ -336,6 +337,18 @@ def _poblar(almacen: Almacen) -> None:
             (banco, extracto, "8" * 64))
         conn.execute("UPDATE importacion SET estado = 'aceptada', terminada_en = ? WHERE id = ?",
                      (AHORA, banco))
+        # Paso 9: una PO de un cliente que Ana (con cambiar_po) modifica.
+        conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'cambiar_po')", (rol,))
+        cliente = campos.crear(conn, "cliente", {"nombre": "Havenbedrijf"},
+                               Automatico("importacion", importador, en_nombre_de="maestro_csv"))
+        orden = campos.crear(conn, "orden_compra", {
+            "numero": "PO-1", "lado": "cliente", "cliente_id": cliente,
+            "valor_original_cent": 1000000, "fuente": "po_csv"},
+            Automatico("importacion", importador))
+        modificado = registrar(conn, tipo="po_modificada", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO orden_compra_modificacion (orden_compra_id, fecha, "
+                     "valor_nuevo_cent, motivo, usuario_id, en, evento_id) VALUES (?, '2026-10-01', "
+                     "1200000, 'ampliacion firmada', ?, ?, ?)", (orden, persona, AHORA, modificado))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)

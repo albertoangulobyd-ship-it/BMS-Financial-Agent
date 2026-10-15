@@ -1,0 +1,690 @@
+"""Las ordenes de compra: lo consumido de cada una y las reglas P1-P10 (spec §7, paso 9).
+
+Lo consumido de una PO es la base (sin IVA) de las imputaciones activas que
+apuntan a ella, en las facturas que cuentan (ni anuladas, ni fusionadas en
+otra, ni sustituidas o corregidas por otra) del sentido que consume su lado:
+una PO de cliente la consumen las ventas a ese cliente; una de proveedor, sus
+compras. Un abono resta solo cuando tiene una relacion confirmada que dice a
+que factura abona (§7: "minus confirmed credits"); antes, sus lineas no mueven
+la PO. Lo que no esta en euros no tiene importe (X1) y no cuenta.
+
+El orden es el del §7: por fecha de factura y, a igual fecha, por id. Lo que
+queda antes de una factura es el valor vigente menos lo de las anteriores; una
+factura sin fecha va al final y no se sabe que tenia antes (sin datos).
+
+El valor y el fin vigentes son los de la ultima modificacion que los cambia
+(por su fecha y, a igual fecha, la ultima apuntada): `vigentes`. Es lo mismo
+que v_po_vigente y v_po_consumo (migracion 0010) en SQL, y un test lo compara.
+
+La prevision (P9) es determinista: el ritmo es lo consumido en las ultimas
+`po_semanas_ritmo` semanas (por fecha de factura, hasta hoy incluido; si la PO
+empezo despues, desde su inicio), y el dia de agotamiento es hoy mas lo que
+queda dividido por ese ritmo, redondeado hacia arriba en dias enteros. Sin
+consumo en la ventana no hay fecha: a ese ritmo no se agota.
+
+Lo que depende del planning (el trabajo planificado de P8, lo trabajado sin
+facturar de P10, el trabajo planificado despues del fin en P7) da sin datos
+hasta el paso 10: sin datos nunca es ok.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
+from datetime import date, timedelta
+from typing import NamedTuple
+
+from ..dominio import SENTIDO_DE_LADO, ClaseReferencia, LadoOrdenCompra
+from .base import (
+    FALLO,
+    NO_APLICA,
+    OK,
+    RELACIONADO,
+    SALIENTE,
+    SIN_DATOS,
+    Factura,
+    Imputacion,
+    Instantanea,
+    Linea,
+    Objetivo,
+    OrdenCompra,
+    Referencia,
+    Resultado,
+    en_juego,
+    euros,
+    euros_texto,
+    periodo_de,
+)
+
+CLIENTE = LadoOrdenCompra.CLIENTE.value
+PROVEEDOR = LadoOrdenCompra.PROVEEDOR.value
+PO = ClaseReferencia.PO.value
+ABONAN = frozenset({"acredita", "anula"})
+
+
+def lado_de(factura: Factura) -> str:
+    """El lado de PO que consume una factura: una venta, el del cliente; una compra, el del
+    proveedor."""
+    return CLIENTE if factura.sentido == SALIENTE else PROVEEDOR
+
+
+def parte_de(factura: Factura) -> int | None:
+    return factura.cliente_id if factura.sentido == SALIENTE else factura.proveedor_id
+
+
+# ------------------------------------------------------------ valor y fin vigentes
+
+def vigentes(valor_original: int, fin_original: date | None,
+             modificaciones: Iterable[tuple[int, date, int | None, date | None]],
+             ) -> tuple[int, date | None]:
+    """El valor y el fin vigentes: los de la ultima modificacion que cambia cada uno.
+
+    `modificaciones` son (id, fecha, valor_nuevo_cent, fecha_fin_nueva). Ultima
+    es la de fecha mayor y, a igual fecha, la apuntada despues (id mayor).
+    """
+    valor, fin = valor_original, fin_original
+    for _id, _fecha, nuevo, fin_nuevo in sorted(modificaciones, key=lambda m: (m[1], m[0])):
+        if nuevo is not None:
+            valor = nuevo
+        if fin_nuevo is not None:
+            fin = fin_nuevo
+    return valor, fin
+
+
+# ------------------------------------------------------------ lo consumido
+
+class Cargo(NamedTuple):
+    """Lo que una factura carga a una PO: la suma de sus imputaciones a ella, sin IVA."""
+
+    orden_compra_id: int
+    factura_id: int
+    fecha: date | None
+    importe_cent: int
+
+
+def en_orden(cargos: Iterable[Cargo]) -> list[Cargo]:
+    """En el orden del §7: por fecha de factura y por id; sin fecha, al final."""
+    return sorted(cargos, key=lambda c: (c.fecha is None, c.fecha or date.min, c.factura_id))
+
+
+def abonos_confirmados(relaciones: Iterable) -> frozenset[int]:
+    """Los abonos con una relacion confirmada que dice a que factura abonan (las vivas)."""
+    return frozenset(r.origen_id for r in relaciones if r.tipo in ABONAN)
+
+
+def cuenta_para_po(factura: Factura, abonos: frozenset[int]) -> bool:
+    """Si las imputaciones de una factura consumen PO: en juego, y si es un abono, confirmado."""
+    return en_juego(factura) and (factura.tipo == "factura" or factura.id in abonos)
+
+
+def cargos(instantanea: Instantanea) -> dict[int, list[Cargo]]:
+    """Por PO, lo que le carga cada factura que cuenta, en el orden del §7."""
+    if not instantanea.ordenes:
+        return {}
+    lados = {o.id: o.lado for o in instantanea.ordenes}
+    abonos = abonos_confirmados(instantanea.relaciones)
+    sumas: dict[tuple[int, int], int] = defaultdict(int)
+    fechas: dict[int, date | None] = {}
+    for f in instantanea.facturas:
+        if not f.imputaciones or not cuenta_para_po(f, abonos):
+            continue
+        for i in f.imputaciones:
+            if i.orden_compra_id is None or i.importe_cent is None:
+                continue
+            lado = lados.get(i.orden_compra_id)
+            if lado is None or SENTIDO_DE_LADO[lado] != f.sentido:
+                continue
+            sumas[(i.orden_compra_id, f.id)] += i.importe_cent
+            fechas[f.id] = f.fecha_factura
+    salida: dict[int, list[Cargo]] = defaultdict(list)
+    for (po, factura_id), importe in sumas.items():
+        salida[po].append(Cargo(po, factura_id, fechas[factura_id], importe))
+    return {po: en_orden(lista) for po, lista in salida.items()}
+
+
+def pb(parte: int, total: int) -> int:
+    """Un porcentaje en puntos basicos, truncado hacia cero (como la division entera de SQLite)."""
+    cociente = abs(parte) * 10000 // total
+    return cociente if parte >= 0 else -cociente
+
+
+class Situacion(NamedTuple):
+    """El valor vigente de una PO, lo consumido, lo que queda y los porcentajes (en pb)."""
+
+    valor_cent: int
+    consumido_cent: int
+    restante_cent: int
+    consumido_pb: int
+    restante_pb: int
+
+
+def situacion(orden: OrdenCompra, cargos_po: Sequence[Cargo]) -> Situacion:
+    consumido = sum(c.importe_cent for c in cargos_po)
+    restante = orden.valor_cent - consumido
+    return Situacion(orden.valor_cent, consumido, restante, pb(consumido, orden.valor_cent),
+                     pb(restante, orden.valor_cent))
+
+
+def antes_de_cada(orden: OrdenCompra, cargos_po: Sequence[Cargo]) -> list[tuple[Cargo, int]]:
+    """Cada cargo (en orden) con lo que quedaba de la PO antes de el."""
+    salida, consumido = [], 0
+    for c in cargos_po:
+        salida.append((c, orden.valor_cent - consumido))
+        consumido += c.importe_cent
+    return salida
+
+
+class Prevision(NamedTuple):
+    """El ritmo de consumo de una PO y cuando se agotaria a ese ritmo (P9)."""
+
+    desde: date
+    dias: int
+    consumido_cent: int
+    agotamiento: date | None
+
+
+def prevision(orden: OrdenCompra, cargos_po: Sequence[Cargo], hoy: date,
+              semanas: int) -> Prevision:
+    """El ritmo de las ultimas `semanas` y el dia en que se agotaria (ver el docstring)."""
+    desde = hoy - timedelta(days=semanas * 7 - 1)
+    inicio = orden.fecha_inicio or orden.fecha_emision
+    if inicio is not None and inicio > desde:
+        desde = inicio
+    dias = (hoy - desde).days + 1
+    en_ventana = sum(c.importe_cent for c in cargos_po
+                     if c.fecha is not None and desde <= c.fecha <= hoy)
+    restante = orden.valor_cent - sum(c.importe_cent for c in cargos_po)
+    if restante <= 0:
+        return Prevision(desde, max(dias, 0), en_ventana, hoy)
+    if dias <= 0 or en_ventana <= 0:
+        return Prevision(desde, max(dias, 0), en_ventana, None)
+    dias_hasta = -(-restante * dias // en_ventana)
+    return Prevision(desde, dias, en_ventana, hoy + timedelta(days=dias_hasta))
+
+
+# ------------------------------------------------------------ ayudas de las reglas
+
+def _por_id(instantanea: Instantanea) -> dict[int, OrdenCompra]:
+    return {o.id: o for o in instantanea.ordenes}
+
+
+def _po_texto(orden: OrdenCompra) -> str:
+    return f"la PO {orden.numero}"
+
+
+def _mayus(texto: str) -> str:
+    """La primera letra en mayuscula, sin tocar las demas (capitalize las baja)."""
+    return texto[:1].upper() + texto[1:]
+
+
+def _pct(puntos: int) -> str:
+    """Unos puntos basicos como porcentaje con coma: 8125 es 81,25 %."""
+    signo = "-" if puntos < 0 else ""
+    return f"{signo}{abs(puntos) // 100},{abs(puntos) % 100:02d} %"
+
+
+def _lineas(factura: Factura) -> dict[int, Linea]:
+    return {l.id: l for l in factura.lineas}
+
+
+def dias_de_trabajo(i: Imputacion, linea: Linea | None,
+                    factura: Factura) -> tuple[date | None, date | None]:
+    """De que dias es el trabajo de una imputacion: los suyos, los de su linea, el periodo de
+    la factura o, si no hay nada, la fecha de la factura."""
+    desde = i.fecha_inicio or (linea.fecha_trabajo or linea.fecha_inicio if linea else None)
+    hasta = i.fecha_fin or (linea.fecha_trabajo or linea.fecha_fin if linea else None)
+    if desde is None or hasta is None:
+        inicio, fin = periodo_de(factura)
+        desde, hasta = desde or inicio, hasta or fin
+    if desde is None and hasta is None:
+        desde = hasta = factura.fecha_factura
+    return desde or hasta, hasta or desde
+
+
+def _de_po(factura: Factura) -> dict[int, list[Imputacion]]:
+    salida: dict[int, list[Imputacion]] = defaultdict(list)
+    for i in factura.imputaciones:
+        if i.orden_compra_id is not None:
+            salida[i.orden_compra_id].append(i)
+    return salida
+
+
+def _objetivo_po(orden: OrdenCompra) -> Objetivo:
+    return Objetivo("orden_compra", orden.id, None, RELACIONADO)
+
+
+# ------------------------------------------------------------ P1: PO valida
+
+def p1(instantanea: Instantanea) -> list[Resultado]:
+    """Cada PO a la que se imputa una factura esta abierta y cubre los dias del trabajo.
+
+    Que la PO sea de la parte y cubra el Objeto lo mira P3 (una PO de otro).
+    Un resultado por factura y PO: ok, fallo o sin datos (sin ningun dia).
+    """
+    ordenes = _por_id(instantanea)
+    if not ordenes:
+        return []
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if not f.imputaciones or not en_juego(f):
+            continue
+        lineas = _lineas(f)
+        for po_id, imputaciones in sorted(_de_po(f).items()):
+            orden = ordenes[po_id]
+            clave = f"po:{po_id}"
+            problemas, fuera = [], []
+            sin_dias = []
+            for i in imputaciones:
+                desde, hasta = dias_de_trabajo(i, lineas.get(i.linea_id), f)
+                if desde is None:
+                    sin_dias.append(i.id)
+                    continue
+                if ((orden.fecha_inicio is not None and desde < orden.fecha_inicio)
+                        or (orden.fecha_fin is not None and hasta > orden.fecha_fin)):
+                    fuera.append([i.id, desde.isoformat(), hasta.isoformat()])
+            if orden.cerrada:
+                problemas.append(f"{_po_texto(orden)} está cerrada")
+            if fuera:
+                problemas.append(
+                    f"trabajo del {fuera[0][1]} al {fuera[-1][2]} fuera de su vigencia "
+                    f"({orden.fecha_inicio.isoformat() if orden.fecha_inicio else '…'} a "
+                    f"{orden.fecha_fin.isoformat() if orden.fecha_fin else '…'})")
+            valores = {"po": po_id, "numero": orden.numero, "cerrada": orden.cerrada,
+                       "inicio": orden.fecha_inicio.isoformat() if orden.fecha_inicio else None,
+                       "fin": orden.fecha_fin.isoformat() if orden.fecha_fin else None,
+                       "fuera": fuera}
+            if problemas:
+                salida.append(Resultado("P1", "factura", f.id, FALLO,
+                                        _mayus("; ".join(problemas)) + ".", valores, clave,
+                                        objetivos=(_objetivo_po(orden),)))
+            elif sin_dias:
+                salida.append(Resultado("P1", "factura", f.id, SIN_DATOS,
+                                        "No se sabe de qué días es el trabajo imputado a "
+                                        f"{_po_texto(orden)}.", valores, clave))
+            else:
+                salida.append(Resultado("P1", "factura", f.id, OK,
+                                        f"{_mayus(_po_texto(orden))} cubre el trabajo.",
+                                        clave=clave))
+    return salida
+
+
+LEE_P1 = frozenset({
+    "instantanea.ordenes", "instantanea.facturas", "factura.id", "factura.imputaciones",
+    "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.lineas",
+    "factura.periodo_inicio", "factura.periodo_fin", "factura.fecha_factura",
+    "linea.id", "linea.fecha_trabajo", "linea.fecha_inicio", "linea.fecha_fin",
+    "imputacion.id", "imputacion.linea_id", "imputacion.orden_compra_id",
+    "imputacion.fecha_inicio", "imputacion.fecha_fin",
+    "orden_compra.id", "orden_compra.numero", "orden_compra.cerrada",
+    "orden_compra.fecha_inicio", "orden_compra.fecha_fin",
+})
+
+
+# ------------------------------------------------------------ P2: falta la PO
+
+def _requisitos(instantanea: Instantanea) -> tuple[dict[int, bool | None], dict]:
+    clientes = {c.id: c.requiere_po for c in instantanea.clientes}
+    objetos = {o.id: o for o in instantanea.objetos}
+    return clientes, objetos
+
+
+def es_po(r: Referencia) -> bool:
+    """Una referencia que el codigo da por PO: caso con una registrada, o su clase lo dice
+    (la etiqueta impresa o una persona)."""
+    return r.orden_compra_id is not None or r.clase == PO
+
+
+def p2(instantanea: Instantanea) -> list[Resultado]:
+    """Una venta sin PO donde el Objeto (o, si no dice, el cliente) la pide.
+
+    Solo en las ventas: que un cliente o un Objeto pida PO es del maestro de
+    clientes y Objetos; ningun maestro dice que un proveedor la pida. Lleva
+    PO la imputacion que apunta a una, o la que tiene una PO impresa en su
+    linea o en la cabecera: si esa PO es buena lo dicen P1 y P3, no P2. Un
+    resultado por venta en juego a la que se le pide: ok o fallo.
+    """
+    clientes, objetos = _requisitos(instantanea)
+    if not any(clientes.values()) and not any(o.requiere_po for o in objetos.values()):
+        return []
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if f.sentido != SALIENTE or not en_juego(f):
+            continue
+        del_cliente = clientes.get(f.cliente_id) if f.cliente_id is not None else None
+        en_cabecera = any(r.linea_id is None and es_po(r) for r in f.referencias)
+        en_linea = {r.linea_id for r in f.referencias if r.linea_id is not None and es_po(r)}
+        sin_po, pedida = [], False
+        for i in f.imputaciones:
+            objeto = objetos.get(i.objeto_id) if i.objeto_id is not None else None
+            pide = (objeto.requiere_po if objeto is not None and objeto.requiere_po is not None
+                    else del_cliente)
+            if pide:
+                pedida = True
+                if i.orden_compra_id is None and not en_cabecera and i.linea_id not in en_linea:
+                    sin_po.append(i.id)
+        if not f.imputaciones and del_cliente:
+            pedida = True
+            if not (en_cabecera or en_linea):
+                sin_po.append(None)
+        if not pedida:
+            continue
+        if sin_po:
+            lineas = [i for i in sin_po if i is not None]
+            salida.append(Resultado(
+                "P2", "factura", f.id, FALLO,
+                "Falta la PO: el cliente o el Objeto la pide y "
+                + (f"{len(lineas)} imputación(es) no la llevan." if lineas
+                   else "la factura no tiene líneas imputadas ni PO impresa."),
+                {"imputaciones": lineas}))
+        else:
+            salida.append(Resultado("P2", "factura", f.id, OK, "Lleva la PO que se pide."))
+    return salida
+
+
+LEE_P2 = frozenset({
+    "instantanea.clientes", "instantanea.objetos", "instantanea.facturas", "parte.id",
+    "parte.requiere_po", "objeto.id", "objeto.requiere_po", "factura.id", "factura.sentido",
+    "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.cliente_id",
+    "factura.imputaciones", "factura.referencias", "imputacion.id", "imputacion.objeto_id",
+    "imputacion.orden_compra_id", "imputacion.linea_id", "referencia.linea_id",
+    "referencia.clase", "referencia.orden_compra_id",
+})
+
+
+# ------------------------------------------------------------ P3: PO desconocida o de otro
+
+def p3(instantanea: Instantanea) -> list[Resultado]:
+    """La PO que dice una factura existe y es de su parte y de su Objeto.
+
+    Una referencia que el codigo da por PO (su etiqueta, o una persona) y que
+    no caso con ninguna PO de la parte: desconocida, o de otra parte si su
+    numero es de una PO de otro. Una imputacion a una PO de otra parte (o de
+    otro lado), o a una que no cubre su Objeto. Sin ninguna PO registrada de
+    ese lado no se sabe si es desconocida: sin datos.
+    """
+    por_numero: dict[tuple[str, str], list[OrdenCompra]] = defaultdict(list)
+    for o in instantanea.ordenes:
+        por_numero[(o.lado, o.numero_norm)].append(o)
+    lados = {o.lado for o in instantanea.ordenes}
+    ordenes = _por_id(instantanea)
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if not (f.referencias or f.imputaciones) or not en_juego(f):
+            continue
+        lado, parte = lado_de(f), parte_de(f)
+        problemas: list[str] = []
+        valores: dict[str, list] = {"desconocidas": [], "de_otra_parte": [], "de_otro_objeto": []}
+        sin_datos: list[str] = []
+        mira = False
+        for r in f.referencias:
+            if r.clase != PO or r.orden_compra_id is not None:
+                mira = mira or r.orden_compra_id is not None
+                continue
+            mira = True
+            otras = por_numero.get((lado, r.valor_norm or ""), [])
+            if otras:
+                if parte is None:
+                    sin_datos.append(f"la PO {r.valor_doc} es de una parte, y la factura no "
+                                     "tiene la suya resuelta")
+                else:
+                    valores["de_otra_parte"].append(r.valor_doc)
+                    problemas.append(f"la PO {r.valor_doc} es de otra parte")
+            elif lado not in lados:
+                sin_datos.append(f"no hay ninguna PO de {lado} registrada para saber si "
+                                 f"{r.valor_doc} existe")
+            else:
+                valores["desconocidas"].append(r.valor_doc)
+                problemas.append(f"la PO {r.valor_doc} no está registrada")
+        for i in f.imputaciones:
+            orden = ordenes.get(i.orden_compra_id) if i.orden_compra_id is not None else None
+            if orden is None:
+                continue
+            mira = True
+            if orden.lado != lado or orden.parte_id != parte:
+                valores["de_otra_parte"].append(orden.numero)
+                problemas.append(f"la imputación {i.id} va a {_po_texto(orden)}, que es de "
+                                 "otra parte")
+            elif orden.objetos and i.objeto_id is not None and i.objeto_id not in orden.objetos:
+                valores["de_otro_objeto"].append([i.id, orden.numero])
+                problemas.append(f"la imputación {i.id} va a {_po_texto(orden)}, que no cubre "
+                                 "su Objeto")
+        if not mira:
+            continue
+        if problemas:
+            salida.append(Resultado("P3", "factura", f.id, FALLO,
+                                    _mayus("; ".join(dict.fromkeys(problemas))) + ".",
+                                    {k: sorted(v, key=str) for k, v in valores.items()}))
+        elif sin_datos:
+            salida.append(Resultado("P3", "factura", f.id, SIN_DATOS,
+                                    _mayus("; ".join(sin_datos)) + "."))
+        else:
+            salida.append(Resultado("P3", "factura", f.id, OK,
+                                    "Las PO que dice son de su parte y de su Objeto."))
+    return salida
+
+
+LEE_P3 = frozenset({
+    "instantanea.ordenes", "instantanea.facturas", "orden_compra.id", "orden_compra.lado",
+    "orden_compra.numero_norm", "orden_compra.numero", "orden_compra.parte_id",
+    "orden_compra.objetos", "factura.id", "factura.referencias", "factura.imputaciones",
+    "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.sentido",
+    "factura.cliente_id", "factura.proveedor_id", "referencia.clase",
+    "referencia.orden_compra_id", "referencia.valor_norm", "referencia.valor_doc",
+    "imputacion.id", "imputacion.orden_compra_id", "imputacion.objeto_id",
+})
+
+
+# ------------------------------------------------------------ P4 y P6: lo que queda antes
+
+def _p4_p6(instantanea: Instantanea, regla: str) -> list[Resultado]:
+    ordenes = _por_id(instantanea)
+    salida: list[Resultado] = []
+    for po_id, lista in sorted(cargos(instantanea).items()):
+        orden = ordenes[po_id]
+        for cargo, antes in antes_de_cada(orden, lista):
+            clave = f"po:{po_id}"
+            valores = {"po": po_id, "numero": orden.numero, "valor_cent": orden.valor_cent,
+                       "antes_cent": antes, "importe_cent": cargo.importe_cent}
+            if cargo.importe_cent <= 0:
+                salida.append(Resultado(regla, "factura", cargo.factura_id, OK,
+                                        f"Abona a {_po_texto(orden)}: no la consume.",
+                                        clave=clave))
+                continue
+            if cargo.fecha is None:
+                salida.append(Resultado(regla, "factura", cargo.factura_id, SIN_DATOS,
+                                        "Sin fecha de factura no se sabe qué quedaba de "
+                                        f"{_po_texto(orden)} antes de ella.", valores, clave))
+                continue
+            texto_antes = euros_texto(euros(antes))
+            if regla == "P6":
+                if antes <= 0:
+                    salida.append(Resultado(
+                        "P6", "factura", cargo.factura_id, FALLO,
+                        f"{_mayus(_po_texto(orden))} ya estaba consumida (quedaban "
+                        f"{texto_antes}) y la factura le carga "
+                        f"{euros_texto(euros(cargo.importe_cent))}.", valores, clave,
+                        objetivos=(_objetivo_po(orden),)))
+                else:
+                    salida.append(Resultado("P6", "factura", cargo.factura_id, OK,
+                                            f"A {_po_texto(orden)} le quedaba valor.",
+                                            clave=clave))
+                continue
+            if antes <= 0:
+                salida.append(Resultado("P4", "factura", cargo.factura_id, NO_APLICA,
+                                        f"{_mayus(_po_texto(orden))} ya estaba consumida: "
+                                        "lo dice P6.", clave=clave))
+            elif cargo.importe_cent > antes:
+                salida.append(Resultado(
+                    "P4", "factura", cargo.factura_id, FALLO,
+                    f"La factura carga {euros_texto(euros(cargo.importe_cent))} a "
+                    f"{_po_texto(orden)} y solo quedaban {texto_antes} (se pasa en "
+                    f"{euros_texto(euros(cargo.importe_cent - antes))}).",
+                    {**valores, "exceso_cent": cargo.importe_cent - antes}, clave,
+                    objetivos=(_objetivo_po(orden),)))
+            else:
+                salida.append(Resultado("P4", "factura", cargo.factura_id, OK,
+                                        f"Cabe en lo que quedaba de {_po_texto(orden)}.",
+                                        clave=clave))
+    return salida
+
+
+def p4(instantanea: Instantanea) -> list[Resultado]:
+    """La factura carga a una PO mas de lo que le quedaba antes de ella (en el orden del §7)."""
+    return _p4_p6(instantanea, "P4")
+
+
+def p6(instantanea: Instantanea) -> list[Resultado]:
+    """La PO ya estaba consumida entera antes de la factura, y la factura le carga mas."""
+    return _p4_p6(instantanea, "P6")
+
+
+LEE_CARGOS = frozenset({
+    "instantanea.ordenes", "instantanea.relaciones", "instantanea.facturas", "orden_compra.id",
+    "orden_compra.lado", "orden_compra.valor_cent", "orden_compra.numero", "relacion.origen_id",
+    "relacion.tipo", "factura.id", "factura.imputaciones", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.tipo", "factura.sentido",
+    "factura.fecha_factura", "imputacion.orden_compra_id", "imputacion.importe_cent",
+})
+
+
+# ------------------------------------------------------------ reglas de la PO entera
+
+def _de_cada_po(instantanea: Instantanea, regla: str, funcion) -> list[Resultado]:
+    """Una regla de PO: un resultado por PO; una cerrada no se mira (ya no se consume)."""
+    salida: list[Resultado] = []
+    consumos = cargos(instantanea)
+    for orden in instantanea.ordenes:
+        if orden.cerrada:
+            salida.append(Resultado(regla, "orden_compra", orden.id, NO_APLICA,
+                                    f"{_mayus(_po_texto(orden))} está cerrada."))
+            continue
+        salida.append(funcion(orden, consumos.get(orden.id, []), instantanea))
+    return salida
+
+
+def _p5(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Resultado:
+    s = situacion(orden, lista)
+    umbral = instantanea.politica.po_aviso_consumo_pct
+    valores = {"valor_cent": s.valor_cent, "consumido_cent": s.consumido_cent,
+               "restante_cent": s.restante_cent, "consumido_pb": s.consumido_pb,
+               "umbral_pct": umbral}
+    texto = (f"{_mayus(_po_texto(orden))} lleva consumido el {_pct(s.consumido_pb)} "
+             f"({euros_texto(euros(s.consumido_cent))} de {euros_texto(euros(s.valor_cent))})")
+    if s.consumido_pb >= umbral * 100:
+        return Resultado("P5", "orden_compra", orden.id, FALLO, texto + f", el {umbral} % o más.",
+                         valores)
+    return Resultado("P5", "orden_compra", orden.id, OK, texto + ".")
+
+
+def p5(instantanea: Instantanea) -> list[Resultado]:
+    """La PO lleva consumido el umbral de la politica (80 %) o mas."""
+    return _de_cada_po(instantanea, "P5", _p5)
+
+
+def _p7(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Resultado:
+    hoy, limite = instantanea.hoy, instantanea.politica.po_dias_caducidad
+    if orden.fecha_fin is None:
+        return Resultado("P7", "orden_compra", orden.id, NO_APLICA,
+                         f"{_mayus(_po_texto(orden))} no tiene fecha de fin.")
+    s = situacion(orden, lista)
+    if s.restante_cent <= 0:
+        return Resultado("P7", "orden_compra", orden.id, OK,
+                         f"{_mayus(_po_texto(orden))} está consumida: no queda valor que "
+                         "caduque.")
+    dias = (orden.fecha_fin - hoy).days
+    valores = {"fin": orden.fecha_fin.isoformat(), "dias_para_caducar": dias,
+               "restante_cent": s.restante_cent, "limite_dias": limite}
+    if dias < 0:
+        return Resultado("P7", "orden_compra", orden.id, SIN_DATOS,
+                         f"{_mayus(_po_texto(orden))} caducó el "
+                         f"{orden.fecha_fin.isoformat()} con {euros_texto(euros(s.restante_cent))} "
+                         "por consumir: si hay trabajo planificado después de su fin lo dirá el "
+                         "planning (paso 10).", valores)
+    if dias <= limite:
+        cuando = "hoy" if dias == 0 else f"en {dias} días"
+        return Resultado("P7", "orden_compra", orden.id, FALLO,
+                         f"{_mayus(_po_texto(orden))} caduca el {orden.fecha_fin.isoformat()} "
+                         f"({cuando}) y le quedan {euros_texto(euros(s.restante_cent))}.", valores)
+    return Resultado("P7", "orden_compra", orden.id, OK,
+                     f"{_mayus(_po_texto(orden))} caduca dentro de {dias} días.")
+
+
+def p7(instantanea: Instantanea) -> list[Resultado]:
+    """La PO caduca dentro de los dias de la politica (30) con valor por consumir."""
+    return _de_cada_po(instantanea, "P7", _p7)
+
+
+def _sin_planning(instantanea: Instantanea, regla: str, que: str) -> list[Resultado]:
+    """Una regla que necesita el planning: sin datos por PO abierta (nunca ok)."""
+    return [Resultado(regla, "orden_compra", orden.id, NO_APLICA,
+                      f"{_mayus(_po_texto(orden))} está cerrada.") if orden.cerrada
+            else Resultado(regla, "orden_compra", orden.id, SIN_DATOS,
+                           f"{que} de {_po_texto(orden)} llega con el planning (paso 10).")
+            for orden in instantanea.ordenes]
+
+
+def p8(instantanea: Instantanea) -> list[Resultado]:
+    """El trabajo planificado por la tarifa de venta pasa lo que queda: sin datos hasta el
+    planning."""
+    return _sin_planning(instantanea, "P8", "El trabajo planificado")
+
+
+def _p9(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Resultado:
+    politica, hoy = instantanea.politica, instantanea.hoy
+    if orden.fecha_fin is None:
+        return Resultado("P9", "orden_compra", orden.id, NO_APLICA,
+                         f"{_mayus(_po_texto(orden))} no tiene fecha de fin.")
+    s = situacion(orden, lista)
+    if s.restante_cent <= 0:
+        return Resultado("P9", "orden_compra", orden.id, NO_APLICA,
+                         f"{_mayus(_po_texto(orden))} ya está consumida: lo dicen P5 y P6.")
+    p = prevision(orden, lista, hoy, politica.po_semanas_ritmo)
+    if p.agotamiento is None:
+        return Resultado("P9", "orden_compra", orden.id, OK,
+                         f"Sin consumo desde el {p.desde.isoformat()}: a este ritmo "
+                         f"{_po_texto(orden)} no se agota.")
+    tope = orden.fecha_fin - timedelta(days=politica.po_margen_prevision_dias)
+    valores = {"desde": p.desde.isoformat(), "dias": p.dias,
+               "consumido_ventana_cent": p.consumido_cent, "restante_cent": s.restante_cent,
+               "agotamiento": p.agotamiento.isoformat(), "fin": orden.fecha_fin.isoformat(),
+               "margen_dias": politica.po_margen_prevision_dias}
+    if p.agotamiento < tope:
+        return Resultado("P9", "orden_compra", orden.id, FALLO,
+                         f"Al ritmo de las últimas semanas ({euros_texto(euros(p.consumido_cent))}"
+                         f" en {p.dias} días) {_po_texto(orden)} se agota el "
+                         f"{p.agotamiento.isoformat()}, más de "
+                         f"{politica.po_margen_prevision_dias} días antes de su fin "
+                         f"({orden.fecha_fin.isoformat()}).", valores)
+    return Resultado("P9", "orden_compra", orden.id, OK,
+                     f"A este ritmo {_po_texto(orden)} se agota el {p.agotamiento.isoformat()}.")
+
+
+def p9(instantanea: Instantanea) -> list[Resultado]:
+    """Al ritmo de las ultimas semanas la PO se agota antes del margen de su fin (14 dias)."""
+    return _de_cada_po(instantanea, "P9", _p9)
+
+
+def p10(instantanea: Instantanea) -> list[Resultado]:
+    """Lo facturado mas lo trabajado sin facturar mas lo planificado pasa el valor: sin datos
+    hasta el planning (lo facturado de mas ya lo dicen P4 y P6)."""
+    return _sin_planning(instantanea, "P10", "Lo trabajado sin facturar y lo planificado")
+
+
+LEE_DE_PO = frozenset({"instantanea.ordenes", "orden_compra.id", "orden_compra.cerrada",
+                       "orden_compra.numero"}) | LEE_CARGOS
+LEE_P5 = LEE_DE_PO | {"instantanea.politica", "politica.po_aviso_consumo_pct"}
+LEE_P7 = LEE_DE_PO | {"instantanea.politica", "instantanea.hoy", "politica.po_dias_caducidad",
+                      "orden_compra.fecha_fin"}
+LEE_SIN_PLANNING = frozenset({"instantanea.ordenes", "orden_compra.id", "orden_compra.cerrada",
+                              "orden_compra.numero"})
+LEE_P8 = LEE_SIN_PLANNING
+LEE_P9 = LEE_DE_PO | {"instantanea.politica", "instantanea.hoy", "politica.po_semanas_ritmo",
+                      "politica.po_margen_prevision_dias", "orden_compra.fecha_fin",
+                      "orden_compra.fecha_inicio", "orden_compra.fecha_emision"}
+LEE_P10 = LEE_SIN_PLANNING
+
+
+# El texto de un aviso de PO de la PO entera no lleva nada que dependa de una
+# factura: su numero si, para ensenarlo.
+SOLO_TEXTO = frozenset({"orden_compra.numero", "referencia.valor_doc"})
+

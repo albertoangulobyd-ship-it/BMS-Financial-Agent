@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Escribe el JSON esperado de cada mapeo de config/importacion con su fichero de ejemplo.
 
-    python scripts/regenerar_contratos.py [mapeo ... | config-tarifas]
+    python scripts/regenerar_contratos.py [mapeo ... | config-tarifas | po_csv-yaml]
 
 Es el test de contrato de cada formato (tests/test_importadores.py): lo que
 sale de leer tests/fixtures/importacion/<mapeo>.csv con ese mapeo tiene que
-ser, byte a byte, tests/fixtures/importacion/<mapeo>.esperado.json. Se
+ser, byte a byte, tests/fixtures/importacion/<mapeo>.esperado.json (y la hoja
+de PO en YAML, po_csv-yaml.yaml, que no tiene mapeo). Se
 regenera solo cuando un mapeo cambia a proposito, y el cambio se mira entero
 en el diff antes de darlo por bueno.
 """
@@ -19,6 +20,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ / "src"))
 
+from bms_agent.importadores import ordenes  # noqa: E402
 from bms_agent.importadores.tabular import contrato, mapeos  # noqa: E402
 from bms_agent.importadores.tarifas import contrato_semilla  # noqa: E402
 
@@ -41,6 +43,11 @@ def main() -> int:
         (FIXTURES / "config-tarifas.esperado.json").write_text(
             json.dumps(semilla, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print("config-tarifas: escrito")
+    if not pedidos or "po_csv-yaml" in pedidos:
+        hoja = ordenes.contrato((FIXTURES / "po_csv-yaml.yaml").read_bytes())
+        (FIXTURES / "po_csv-yaml.esperado.json").write_text(
+            json.dumps(hoja, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print("po_csv-yaml: escrito")
     return 0
 
 

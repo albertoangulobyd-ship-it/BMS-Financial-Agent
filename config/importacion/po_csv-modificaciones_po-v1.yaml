@@ -1,0 +1,33 @@
+# Hoja de modificaciones de ordenes de compra (spec §9, po_csv): una fila por
+# modificacion, aparte de la PO. Cada una dice desde cuando (Wijzigingsdatum),
+# el valor nuevo, el fin nuevo o los dos, y por que (Reden, obligatorio).
+#
+# El valor y el fin vigentes de una PO son los de su ultima modificacion (por
+# fecha y, a igual fecha, la apuntada despues). Una modificacion no se borra
+# ni se edita: una equivocada se arregla con otra. Volver a importar la misma
+# fila no la apunta dos veces. Importarla pide cambiar_po ademas de
+# importar_datos.
+version: 1
+fuente: po_csv
+tipo: modificaciones_po
+formato: "csv:po-modificaciones-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [PO-nummer, Zijde, Partij, Wijzigingsdatum, Reden]
+completo: false
+registros:
+  modificaciones_po:
+    campos:
+      numero: {columna: PO-nummer, obligatorio: true}
+      lado: {columna: Zijde, obligatorio: true, valores: {Klant: cliente, Leverancier: proveedor}}
+      parte_ref: {columna: Partij, obligatorio: true}
+      fecha: {columna: Wijzigingsdatum, tipo: fecha, obligatorio: true}
+      valor_nuevo: {columna: Nieuw bedrag, tipo: decimal, crudo_de: valor_nuevo_crudo}
+      fecha_fin_nueva: {columna: Nieuwe einddatum, tipo: fecha}
+      motivo: {columna: Reden, obligatorio: true}
+      moneda: {columna: Valuta}

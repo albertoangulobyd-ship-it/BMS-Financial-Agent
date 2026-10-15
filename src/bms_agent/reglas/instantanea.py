@@ -18,6 +18,9 @@ y los dias en que cada factura con algun pago estuvo Bloqueada. Desde el paso
 8, de donde viene cada factura, lo que le acreditan los abonos confirmados y
 si otra la sustituye (reglas/relaciones.efectos), las relaciones propuestas y
 las facturas que nombra cada documento.
+Desde el paso 9, las imputaciones y las referencias de cada factura, las
+ordenes de compra con su valor y su fin vigentes, las tarifas pactadas y los
+Objetos del maestro.
 Solo lee: lo que escribe el registro de cuentas es cuentas.py, y nada de la
 via de entrada de los documentos llega alli.
 
@@ -49,17 +52,23 @@ from .base import (
     EventoCuenta,
     Extracto,
     Factura,
+    Imputacion,
     Instantanea,
     Linea,
     LineaSinCasar,
     Lote,
     Movimiento,
+    Objeto,
+    OrdenCompra,
     PagadoExact,
     Parte,
     Politica,
+    Referencia,
     Relacion,
+    Tarifa,
     TramoIva,
 )
+from .ordenes import vigentes
 from .pagos import saldo, tolerancia_cent
 from .relaciones import SIN_EFECTO
 from .relaciones import efectos as efectos_de_relaciones
@@ -70,6 +79,7 @@ from .normas import (
     normalizar_nombre,
     normalizar_telefono,
 )
+from .tarifas import normalizar_turno
 
 _COLUMNAS_FACTURA = (
     "f.id", "f.sentido", "f.tipo", "f.numero", "f.numero_norm", "f.proveedor_id", "f.cliente_id",
@@ -175,18 +185,99 @@ def _sin_casar(conn: sqlite3.Connection) -> dict[int, tuple[LineaSinCasar, ...]]
     return {f: tuple(v) for f, v in salida.items()}
 
 
-def _objeto_de_linea(conn: sqlite3.Connection) -> dict[int, int]:
+def imputaciones(conn: sqlite3.Connection) -> dict[int, tuple[Imputacion, ...]]:
+    """Las imputaciones activas de cada factura, en orden (paso 9)."""
+    salida: dict[int, list[Imputacion]] = defaultdict(list)
+    for (id_, factura_id, linea_id, objeto_id, recurso_id, orden_compra_id, importe, horas,
+         inicio, fin, servicio, turno) in _filas(
+            conn, "SELECT id, factura_id, linea_id, objeto_id, recurso_id, orden_compra_id, "
+                  "importe_cent, horas_mil, fecha_inicio, fecha_fin, tipo_servicio, tipo_turno "
+                  "FROM factura_imputacion WHERE retirada_en IS NULL ORDER BY factura_id, id"):
+        salida[factura_id].append(Imputacion(
+            id=id_, linea_id=linea_id, objeto_id=objeto_id, recurso_id=recurso_id,
+            orden_compra_id=orden_compra_id, importe_cent=importe, horas_mil=horas,
+            fecha_inicio=_fecha(inicio), fecha_fin=_fecha(fin), tipo_servicio=servicio,
+            tipo_turno=turno))
+    return {f: tuple(v) for f, v in salida.items()}
+
+
+def _objeto_de_linea(de_factura: dict[int, tuple[Imputacion, ...]]) -> dict[int, int]:
     """El Objeto resuelto de cada linea con una sola imputacion activa.
 
     Una linea dividida en varias imputaciones no nombra un Objeto solo; ahi
     vale lo impreso.
     """
     por_linea: dict[int, list[int | None]] = defaultdict(list)
-    for linea_id, objeto_id in _filas(
-            conn, "SELECT linea_id, objeto_id FROM factura_imputacion "
-                  "WHERE retirada_en IS NULL AND linea_id IS NOT NULL"):
-        por_linea[linea_id].append(objeto_id)
+    for lista in de_factura.values():
+        for i in lista:
+            if i.linea_id is not None:
+                por_linea[i.linea_id].append(i.objeto_id)
     return {l: o[0] for l, o in por_linea.items() if len(o) == 1 and o[0] is not None}
+
+
+def referencias(conn: sqlite3.Connection) -> dict[int, tuple[Referencia, ...]]:
+    """Las referencias impresas vivas de cada factura (paso 9)."""
+    salida: dict[int, list[Referencia]] = defaultdict(list)
+    for id_, factura_id, linea_id, valor_doc, valor_norm, clase, orden_compra_id in _filas(
+            conn, "SELECT id, factura_id, linea_id, valor_doc, valor_norm, clase, "
+                  "orden_compra_id FROM factura_referencia WHERE retirada_en IS NULL "
+                  "ORDER BY factura_id, id"):
+        salida[factura_id].append(Referencia(id_, linea_id, valor_doc, valor_norm, clase,
+                                             orden_compra_id))
+    return {f: tuple(v) for f, v in salida.items()}
+
+
+def ordenes(conn: sqlite3.Connection) -> tuple[OrdenCompra, ...]:
+    """Las ordenes de compra con su valor y su fin vigentes y los Objetos que cubren."""
+    filas = _filas(conn, "SELECT id, numero, numero_norm, lado, cliente_id, proveedor_id, "
+                         "fecha_emision, fecha_inicio, fecha_fin, valor_original_cent, cerrada "
+                         "FROM orden_compra ORDER BY id")
+    if not filas:
+        return ()
+    objetos_de: dict[int, set[int]] = defaultdict(set)
+    for orden_id, objeto_id in _filas(conn, "SELECT orden_compra_id, objeto_id FROM "
+                                            "orden_compra_objeto WHERE retirada_en IS NULL"):
+        objetos_de[orden_id].add(objeto_id)
+    modificaciones: dict[int, list[tuple]] = defaultdict(list)
+    for id_, orden_id, fecha, valor, fin in _filas(
+            conn, "SELECT id, orden_compra_id, fecha, valor_nuevo_cent, fecha_fin_nueva "
+                  "FROM orden_compra_modificacion"):
+        modificaciones[orden_id].append((id_, date.fromisoformat(fecha), valor, _fecha(fin)))
+    salida = []
+    for (id_, numero, numero_norm, lado, cliente_id, proveedor_id, emision, inicio, fin,
+         original, cerrada) in filas:
+        valor, fin_vigente = vigentes(original, _fecha(fin), modificaciones.get(id_, ()))
+        salida.append(OrdenCompra(
+            id=id_, numero=numero, numero_norm=numero_norm, lado=lado,
+            parte_id=cliente_id if lado == "cliente" else proveedor_id,
+            fecha_emision=_fecha(emision), fecha_inicio=_fecha(inicio), fecha_fin=fin_vigente,
+            valor_cent=valor, valor_original_cent=original, fecha_fin_original=_fecha(fin),
+            cerrada=bool(cerrada), objetos=frozenset(objetos_de.get(id_, ()))))
+    return tuple(salida)
+
+
+def tarifas(conn: sqlite3.Connection) -> tuple[Tarifa, ...]:
+    """Las tarifas pactadas, con el turno ya normalizado (el de dia es None)."""
+    return tuple(
+        Tarifa(id=id_, sentido=sentido, proveedor_id=proveedor, recurso_id=recurso,
+               cliente_id=cliente, objeto_id=objeto, orden_compra_id=orden,
+               tipo_servicio=servicio or None, tipo_turno=normalizar_turno(turno),
+               unidad=unidad or None, tarifa_e4=precio, vigente_desde=_fecha(desde),
+               vigente_hasta=_fecha(hasta))
+        for (id_, sentido, proveedor, recurso, cliente, objeto, orden, servicio, turno, unidad,
+             precio, desde, hasta) in _filas(
+            conn, "SELECT id, sentido, proveedor_id, recurso_id, cliente_id, objeto_id, "
+                  "orden_compra_id, tipo_servicio, tipo_turno, unidad, tarifa_e4, vigente_desde, "
+                  "vigente_hasta FROM tarifa_acordada WHERE tarifa_e4 IS NOT NULL ORDER BY id"))
+
+
+def objetos(conn: sqlite3.Connection) -> tuple[Objeto, ...]:
+    """Los Objetos del maestro: de que cliente son y si piden PO."""
+    return tuple(Objeto(id_, codigo, cliente_id, None if requiere is None else bool(requiere),
+                        _fecha(desde), _fecha(hasta))
+                 for id_, codigo, cliente_id, requiere, desde, hasta in _filas(
+                     conn, "SELECT id, codigo, cliente_id, requiere_po, activo_desde, "
+                           "activo_hasta FROM objeto ORDER BY id"))
 
 
 def _clave_objeto(objeto_id: int | None, objeto_doc: str | None) -> str | None:
@@ -218,7 +309,9 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
               politica: Politica | None = None) -> Instantanea:
     """La instantanea del almacen tal como esta ahora, para evaluar el catalogo."""
     ilegibles = _ilegibles(conn)
-    objetos = _objeto_de_linea(conn)
+    de_factura = imputaciones(conn)
+    objetos_de_linea = _objeto_de_linea(de_factura)
+    referencias_de = referencias(conn)
     vacio: frozenset[str] = frozenset()
     clave_objeto, clave_de_parte = _recordar(_clave_objeto), _recordar(clave_parte)
     no_solicitados = _recordar(_no_solicitados)
@@ -233,7 +326,7 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             unidad=unidad, cantidad_mil=cantidad, tarifa_e4=tarifa, importe_cent=importe,
             tipo_iva_pb=tipo_iva, fecha_inicio=_fecha(inicio), fecha_fin=_fecha(fin),
             fecha_trabajo=_fecha(trabajo),
-            objeto=clave_objeto(objetos.get(id_), objeto_doc),
+            objeto=clave_objeto(objetos_de_linea.get(id_), objeto_doc),
             ilegibles=frozenset(ilegibles.get(("factura_linea", id_), vacio))))
 
     desglose: dict[int, list[TramoIva]] = defaultdict(list)
@@ -290,6 +383,7 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             sin_casar=sin_casar.get(id_, ()), vencimiento=vence.get(id_),
             origen=origen, acreditado_cent=efecto.acreditado_cent,
             sustituida_por=efecto.sustituida_por,
+            imputaciones=de_factura.get(id_, ()), referencias=referencias_de.get(id_, ()),
             **_pagado(total, por_factura.get(id_), tolerancia, efecto.acreditado_cent)))
 
     return Instantanea(hoy=hoy, politica=politica, facturas=tuple(facturas),
@@ -301,7 +395,8 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
                        beneficiarios=beneficiarios(conn),
                        bloqueos=bloqueos(conn, {a.factura_id for a in pagos
                                                 if a.estado == "confirmada"}),
-                       exact_pagado=exact_pagado(conn))
+                       exact_pagado=exact_pagado(conn), ordenes=ordenes(conn),
+                       tarifas=tarifas(conn), objetos=objetos(conn))
 
 
 _SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
@@ -387,15 +482,16 @@ def partes(conn: sqlite3.Connection, tabla: str) -> tuple[Parte, ...]:
     for fila_id, norma in _filas(conn, "SELECT fila_id, alias_norm FROM alias WHERE tabla = ? "
                                        "AND confirmado = 1 AND activo = 1", (tabla,)):
         alias[fila_id].add(norma)
-    columnas = ("id, nombre, kvk, btw_id, regimen_iva, activo" if tabla == "proveedor"
-                else "id, nombre, kvk, btw_id, tratamiento_iva_defecto, activo")
+    columnas = ("id, nombre, kvk, btw_id, regimen_iva, activo, NULL" if tabla == "proveedor"
+                else "id, nombre, kvk, btw_id, tratamiento_iva_defecto, activo, requiere_po")
     salida = []
-    for id_, nombre, kvk, btw, regimen, activo in _filas(
+    for id_, nombre, kvk, btw, regimen, activo, requiere_po in _filas(
             conn, f"SELECT {columnas} FROM {tabla} ORDER BY id"):
         nombres = {n for n in (normalizar_nombre(nombre),) if n} | alias.get(id_, set())
         salida.append(Parte(id=id_, tabla=tabla, nombre=nombre, nombres=frozenset(nombres),
                             kvk=normalizar_kvk(kvk), btw=normalizar_btw(btw),
-                            regimen_iva=regimen, activo=bool(activo)))
+                            regimen_iva=regimen, activo=bool(activo),
+                            requiere_po=None if requiere_po is None else bool(requiere_po)))
     return tuple(salida)
 
 

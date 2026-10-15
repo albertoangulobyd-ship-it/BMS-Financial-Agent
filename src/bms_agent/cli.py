@@ -21,8 +21,12 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent relaciones          las relaciones entre facturas por confirmar
     bms-agent proveedores|clientes   lo pendiente y lo vencido de cada uno
     bms-agent proveedor|cliente N    su vista: totales, por Objeto, pagos, avisos
+    bms-agent ordenes             las ordenes de compra: valor, consumido, lo que queda
+    bms-agent orden N             una PO: sus facturas en orden, modificaciones y prevision
+    bms-agent objeto N            un Objeto y sus PO (consumido y lo que queda)
     bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
-    bms-agent importar F T FICH   importa un maestro, el banco, pagos o ventas de Exact (mapeo)
+    bms-agent importar F T FICH   importa un maestro, el banco, pagos, ventas de Exact o la
+                                  hoja de PO (po_csv ordenes_compra|modificaciones_po, CSV o YAML)
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
     bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
@@ -1107,6 +1111,106 @@ def _cmd_parte(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ordenes(args: argparse.Namespace) -> int:
+    """Las ordenes de compra, la mas urgente primero (§6, §8). Solo lee."""
+    from . import consultas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = consultas.ordenes_compra(almacen.conn)
+    if args.json:
+        print(json.dumps(filas, ensure_ascii=False, indent=2, default=str))
+        return 0
+    for o in filas:
+        parte = ("de " if o["lado"] == "cliente" else "a ") + (o["parte"]["nombre"] or "?")
+        print(f"{o['id']:>5} {o['numero'][:18]:<18} {parte[:30]:<30} valor {o['valor']:>12}  "
+              f"consumido {o['consumido']:>12} ({o['consumido_pct']})  queda "
+              f"{o['restante']:>12}  fin {o['fecha_fin'] or '-'}  {o['nivel']}"
+              + ("  (cerrada)" if o["cerrada"] else ""))
+    if not filas:
+        print("No hay ninguna orden de compra. Se registran con `bms-agent importar po_csv "
+              "ordenes_compra FICHERO` o con la accion registrar_po.")
+    return 0
+
+
+def _cmd_orden(args: argparse.Namespace) -> int:
+    """Una orden de compra (§6): lo consumido factura a factura, modificaciones y prevision."""
+    from . import consultas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            o = consultas.orden_compra(almacen.conn, args.id)
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(o, ensure_ascii=False, indent=2, default=str))
+        return 0
+    lado = "del cliente" if o["lado"] == "cliente" else "al proveedor"
+    print(f"PO {o['numero']} {lado} {o['parte']['nombre']}, a {o['hoy']}"
+          + (" (cerrada)" if o["cerrada"] else ""))
+    print(f"  vigencia   {o['fecha_inicio'] or '...'} a {o['fecha_fin'] or '...'}"
+          + (f" (fin original {o['fecha_fin_original']})"
+             if o["fecha_fin"] != o["fecha_fin_original"] else ""))
+    print(f"  valor      {o['valor']:>12}  (original {o['valor_original']}), sin IVA")
+    print(f"  consumido  {o['consumido']:>12}  ({o['consumido_pct']})")
+    print(f"  queda      {o['restante']:>12}  ({o['restante_pct']})")
+    p = o["prevision"]
+    print(f"  ritmo      {p['consumido_ventana']} en {p['dias']} dias desde el {p['desde']}: "
+          + (f"se agotaria el {p['agotamiento']}" if p["agotamiento"]
+             else "a este ritmo no se agota"))
+    print(f"  planificado: {o['planificado']['detalle']}")
+    print("  Objetos: " + (", ".join(x["codigo"] for x in o["objetos"])
+                           or "cualquiera de la parte"))
+    for f in o["facturas"]:
+        print(f"  {f['fecha_factura'] or '(sin fecha)':<11} {f['numero'] or '-':<16} "
+              f"{f['importe']:>12}  quedaban {f['quedaba']}")
+    for m in o["modificaciones"]:
+        cambios = ", ".join(x for x in (
+            f"valor {m['valor_nuevo']}" if m["valor_nuevo"] else "",
+            f"fin {m['fecha_fin_nueva']}" if m["fecha_fin_nueva"] else "") if x)
+        print(f"  modificacion desde {m['fecha']}: {cambios} ({m['usuario']}: {m['motivo']})")
+    for h in o["avisos"]["hallazgos"]:
+        print(f"  aviso {h['regla']} {h['estado']} ({h['severidad']}): {h['detalle']}")
+    return 0
+
+
+def _cmd_objeto(args: argparse.Namespace) -> int:
+    """Un Objeto (§5) y sus ordenes de compra. Solo lee."""
+    from . import consultas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            v = consultas.objeto(almacen.conn, args.id)
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(v, ensure_ascii=False, indent=2, default=str))
+        return 0
+    print(f"Objeto {v['codigo']}" + (f" ({v['nombre']})" if v["nombre"] else "")
+          + f", cliente {v['cliente']['nombre'] or '-'}" + (", pide PO" if v["requiere_po"]
+                                                              else ""))
+    for o in v["ordenes_compra"]:
+        print(f"  PO {o['numero']:<18} {o['lado']:<9} valor {o['valor']:>12}  consumido "
+              f"{o['consumido']:>12} ({o['consumido_pct']})  queda {o['restante']:>12}  "
+              f"de este Objeto {o['consumido_objeto']}")
+    if not v["ordenes_compra"]:
+        print("  Sin ordenes de compra.")
+    return 0
+
+
 def _cmd_excepciones(args: argparse.Namespace) -> int:
     from .consultas import excepciones_abiertas
 
@@ -1831,17 +1935,32 @@ def main(argv: list[str] | None = None) -> int:
         p_vista.add_argument("--db", help=_AYUDA_DB)
         p_vista.set_defaults(func=_cmd_parte, tabla=nombre)
 
+    p_ordenes = sub.add_parser("ordenes", help="las ordenes de compra: valor, consumido y "
+                                                "lo que queda")
+    p_ordenes.add_argument("--json", action="store_true", help="la lista en JSON")
+    p_ordenes.add_argument("--db", help=_AYUDA_DB)
+    p_ordenes.set_defaults(func=_cmd_ordenes)
+    for nombre, ayuda, funcion in (
+            ("orden", "una orden de compra: sus facturas, modificaciones y prevision", _cmd_orden),
+            ("objeto", "un Objeto y sus ordenes de compra", _cmd_objeto)):
+        p_vista = sub.add_parser(nombre, help=ayuda)
+        p_vista.add_argument("id", type=int)
+        p_vista.add_argument("--json", action="store_true", help="la vista entera en JSON")
+        p_vista.add_argument("--db", help=_AYUDA_DB)
+        p_vista.set_defaults(func=funcion)
+
     p_excepciones = sub.add_parser("excepciones", help="las excepciones sin resolver")
     p_excepciones.add_argument("--db", help=_AYUDA_DB)
     p_excepciones.set_defaults(func=_cmd_excepciones)
 
     p_imp = sub.add_parser(
-        "importar", help="importa un fichero de un maestro, del banco, de pagos o de facturas "
-                         "de venta de Exact")
-    p_imp.add_argument("fuente", help="exact, trnsprnt, maestro_csv o banco")
+        "importar", help="importa un fichero de un maestro, del banco, de pagos, de facturas "
+                         "de venta de Exact o la hoja de ordenes de compra")
+    p_imp.add_argument("fuente", help="exact, trnsprnt, maestro_csv, banco o po_csv")
     p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas, "
-                                    "ciclos, pagos_exact y facturas_venta (exact) o extracto "
-                                    "(banco)")
+                                    "ciclos, pagos_exact y facturas_venta (exact), extracto "
+                                    "(banco) u ordenes_compra y modificaciones_po (po_csv, CSV "
+                                    "o YAML; pide cambiar_po)")
     p_imp.add_argument("fichero")
     p_imp.add_argument("--mapeo", help="un fichero de mapeo (por defecto, el de "
                                        "config/importacion que reconoce sus columnas); para el "

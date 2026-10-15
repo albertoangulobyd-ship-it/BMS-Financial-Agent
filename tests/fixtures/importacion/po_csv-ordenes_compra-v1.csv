@@ -1,0 +1,7 @@
+﻿PO-nummer;Zijde;Partij;Objecten;Uitgiftedatum;Begindatum;Einddatum;Bedrag;Valuta;Gesloten
+PO-4500123;Klant;10001;Rijnhaven, Waalhaven;15-08-2026;01-09-2026;31-12-2026;10.000,00;EUR;nee
+PO 4500777;Klant;10002;;01-09-2026;01-09-2026;30-11-2026;2.500,00;;
+BMS-2026-014;Leverancier;20001;Rijnhaven;01-07-2026;01-07-2026;;8.000,00;EUR;
+PO-4500999;Klant;10001;;;;31-12-2026;1.000,00;USD;
+PO-4500998;Klant;10001;;;;;0,00;EUR;
+PO-4500997;Klant;;;;;;500,00;EUR;

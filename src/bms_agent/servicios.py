@@ -41,7 +41,17 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import campos, cuentas, estados, excepciones, hallazgos, pagos, relaciones, revision
+from . import (
+    campos,
+    cuentas,
+    estados,
+    excepciones,
+    hallazgos,
+    ordenes_compra,
+    pagos,
+    relaciones,
+    revision,
+)
 from .almacen import reloj_de
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb, json_canonico, sha256_texto
 from .auditoria import registrar
@@ -434,8 +444,9 @@ _CAMPOS_CON_ORDEN = {
     ("factura", "fusionada_en_id"): "fusionar_factura",
     ("factura_imputacion", "objeto_id"): "cambiar_objeto",
     ("factura_imputacion", "recurso_id"): "cambiar_objeto",
-    ("factura_imputacion", "orden_compra_id"): "la imputacion a una PO (paso 9)",
-    ("factura_referencia", "orden_compra_id"): "la imputacion a una PO (paso 9)",
+    ("factura_imputacion", "orden_compra_id"): "imputar_po",
+    ("factura_referencia", "orden_compra_id"): "imputar_po (la PO de una referencia la casa "
+                                               "el sistema con la lista de PO)",
     ("factura_referencia", "clase"): "cambiar_po",
     ("proveedor", "telefono_verificacion"): "fijar_telefono_verificacion",
 }
@@ -646,6 +657,100 @@ def _anadir_referencia(ctx: Contexto, d: dict[str, Any]) -> Hecho:
                       fila_id=factura_id, factura_id=factura_id, datos=ctx.datos_evento) as o:
         referencia = o.crear("factura_referencia", fila)
     return Hecho(o.resultado.evento_id, {factura_id}, {"referencia_id": referencia})
+
+
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+def _po_no_valida(funcion: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Lo que ordenes_compra no acepta es un dato mal puesto (400), como en las demas ordenes."""
+    try:
+        return funcion(*args, **kwargs)
+    except ordenes_compra.PONoValida as exc:
+        raise DatosNoValidos(str(exc)) from None
+
+
+def _fecha_o_nada(texto: str | None) -> date | None:
+    return date.fromisoformat(texto) if texto else None
+
+
+def _ids(valores: list[Any] | None, que: str) -> list[int]:
+    salida = []
+    for valor in valores or []:
+        if isinstance(valor, bool) or not isinstance(valor, int):
+            raise DatosNoValidos(f"{que} es una lista de ids (enteros)")
+        salida.append(valor)
+    return salida
+
+
+def _registrar_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Una PO nueva, tecleada (la de una hoja entra por importar po_csv)."""
+    valor = valor_de_entrada(campos.campo("orden_compra", "valor_original_cent"), d["valor"])
+    if valor is None or valor <= 0:
+        raise DatosNoValidos("el valor de una PO es mayor que cero")
+    po, evento = _po_no_valida(
+        ordenes_compra.registrar_po, ctx.conn, ctx.persona, numero=d["numero"], lado=d["lado"],
+        parte_id=d["parte_id"], valor=valor, fecha_emision=_fecha_o_nada(d["fecha_emision"]),
+        fecha_inicio=_fecha_o_nada(d["fecha_inicio"]), fecha_fin=_fecha_o_nada(d["fecha_fin"]),
+        objetos=_ids(d["objetos"], "objetos"), documento_id=d["documento_id"],
+        datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"orden_compra_id": po})
+
+
+def _modificar_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Un valor nuevo, un fin nuevo o los dos, desde una fecha. Se apunta; no se edita."""
+    valor = valor_de_entrada(campos.campo("orden_compra", "valor_original_cent"), d["valor"])
+    if valor is not None and valor <= 0:
+        raise DatosNoValidos("el valor nuevo de una PO es mayor que cero")
+    modificacion = _po_no_valida(
+        ordenes_compra.modificar_po, ctx.conn, ctx.persona, d["orden_compra_id"],
+        fecha=_fecha_o_nada(d["fecha"]), valor=valor, fecha_fin=_fecha_o_nada(d["fecha_fin"]),
+        documento_id=d["documento_id"], datos=ctx.datos_evento)
+    evento = ctx.conn.execute("SELECT evento_id FROM orden_compra_modificacion WHERE id = ?",
+                              (modificacion,)).fetchone()[0]
+    return Hecho(evento, detalle={"modificacion_id": modificacion})
+
+
+def _cerrar_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Cerrar una PO (o reabrirla con cerrada=no)."""
+    cerrada = valor_de_entrada(campos.campo("orden_compra", "cerrada"), d["cerrada"])
+    evento = ordenes_compra.cerrar_po(ctx.conn, ctx.persona, d["orden_compra_id"],
+                                      cerrada=True if cerrada is None else cerrada, rev=d["rev"],
+                                      datos=ctx.datos_evento)
+    return Hecho(evento)
+
+
+def _objetos_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Anadir o retirar Objetos de una PO."""
+    evento = _po_no_valida(ordenes_compra.cambiar_objetos, ctx.conn, ctx.persona,
+                           d["orden_compra_id"], anadir=_ids(d["anadir"], "anadir"),
+                           retirar=_ids(d["retirar"], "retirar"), datos=ctx.datos_evento)
+    return Hecho(evento)
+
+
+def _corregir_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Corregir un dato de una PO que no es su identidad: emision, inicio o documento.
+
+    El numero, la parte, el valor y el fin originales no se corrigen: lo que
+    cambia del valor o del fin es una modificacion; una PO mal dada de alta se
+    cierra y se registra otra.
+    """
+    nombre = d["campo"]
+    if nombre not in ("fecha_emision", "fecha_inicio", "documento_id"):
+        raise DatosNoValidos("de una PO se corrigen fecha_emision, fecha_inicio y documento_id; "
+                             "el valor y el fin con modificar_po, el cierre con cerrar_po")
+    definicion = _definicion("orden_compra", nombre)
+    resultado = campos.fijar(ctx.conn, "orden_compra", d["orden_compra_id"],
+                             {nombre: valor_de_entrada(definicion, d["valor"])}, ctx.persona,
+                             tipo="po_corregida", rev_esperada=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id)
+
+
+def _imputar_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Imputar una linea a una PO, a otra o a ninguna (orden_compra_id vacio)."""
+    evento, factura = _po_no_valida(ordenes_compra.imputar, ctx.conn, ctx.persona,
+                                    d["imputacion_id"], d["orden_compra_id"], rev=d["rev"],
+                                    datos=ctx.datos_evento)
+    return Hecho(evento, {factura})
 
 
 # ------------------------------------------------------------ lineas
@@ -1435,6 +1540,37 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            (_p("factura_id"), _p("valor", TEXTO), _p("etiqueta", TEXTO, False),
             _p("clase", TEXTO, False), _p("rev"), _MOTIVO), _anadir_referencia,
            motivo="obligatorio", rev=True),
+    Accion("registrar_po", P.CAMBIAR_PO.value,
+           "Registrar una orden de compra: de un cliente (lado cliente) o a un proveedor (lado "
+           "proveedor), con su valor sin IVA, sus fechas y los Objetos que cubre.",
+           (_p("numero", TEXTO), _p("lado", TEXTO, ayuda="cliente o proveedor"),
+            _p("parte_id", ayuda="el cliente o el proveedor"), _p("valor", VALOR),
+            _p("fecha_emision", FECHA, False), _p("fecha_inicio", FECHA, False),
+            _p("fecha_fin", FECHA, False), _p("objetos", LISTA, False, "ids de Objeto"),
+            _p("documento_id", ENTERO, False), _MOTIVO), _registrar_po),
+    Accion("modificar_po", P.CAMBIAR_PO.value,
+           "Apuntar una modificacion de una PO (valor nuevo, fin nuevo o los dos, desde una "
+           "fecha). No se borra: una equivocada se arregla con otra.",
+           (_p("orden_compra_id"), _p("valor", VALOR, False), _p("fecha_fin", FECHA, False),
+            _p("fecha", FECHA, False, "desde cuando; por defecto, hoy"),
+            _p("documento_id", ENTERO, False), _MOTIVO), _modificar_po, motivo="obligatorio"),
+    Accion("cerrar_po", P.CAMBIAR_PO.value,
+           "Cerrar una PO (lo que se le impute despues retiene) o reabrirla.",
+           (_p("orden_compra_id"), _p("cerrada", VALOR, False, "si (por defecto) o no"),
+            _p("rev"), _MOTIVO), _cerrar_po, motivo="obligatorio", rev=True),
+    Accion("objetos_po", P.CAMBIAR_PO.value,
+           "Anadir o retirar Objetos cubiertos por una PO.",
+           (_p("orden_compra_id"), _p("anadir", LISTA, False), _p("retirar", LISTA, False),
+            _MOTIVO), _objetos_po),
+    Accion("corregir_po", P.CAMBIAR_PO.value,
+           "Corregir la fecha de emision, la de inicio o el documento de una PO.",
+           (_p("orden_compra_id"), _p("campo", TEXTO), _p("valor", VALOR, False), _p("rev"),
+            _MOTIVO), _corregir_po, motivo="segun_campo", rev=True),
+    Accion("imputar_po", P.CAMBIAR_PO.value,
+           "Imputar una linea de factura a una PO (o quitarle la PO): gana sobre la que el "
+           "sistema casa con las referencias.",
+           (_p("imputacion_id"), _p("orden_compra_id", ENTERO, False), _p("rev"), _MOTIVO),
+           _imputar_po, motivo="segun_campo", rev=True),
     Accion("excluir_linea", P.EDITAR_EXTRACCION.value,
            "Excluir una linea (se retira, no se borra; su imputacion con ella).",
            (_p("linea_id"), _p("rev"), _MOTIVO), _excluir_linea, motivo="obligatorio", rev=True),

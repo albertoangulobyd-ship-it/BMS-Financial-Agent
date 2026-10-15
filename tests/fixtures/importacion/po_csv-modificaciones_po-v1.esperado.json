@@ -1,0 +1,112 @@
+{
+  "mapeo": "po_csv-modificaciones_po-v1",
+  "fuente": "po_csv",
+  "tipo": "modificaciones_po",
+  "lotes": [
+    {
+      "tipo": "modificaciones_po",
+      "formato": "csv:po-modificaciones-v1",
+      "completo": false,
+      "registros": [
+        {
+          "fila": 2,
+          "crudo": {
+            "PO-nummer": "PO-4500123",
+            "Zijde": "Klant",
+            "Partij": "10001",
+            "Wijzigingsdatum": "01-10-2026",
+            "Nieuw bedrag": "12.500,00",
+            "Nieuwe einddatum": "",
+            "Reden": "Uitbreiding Waalhaven (mail M. Visser 30-09)",
+            "Valuta": "EUR"
+          },
+          "numero": "PO-4500123",
+          "lado": "cliente",
+          "parte_ref": "10001",
+          "fecha": "2026-10-01",
+          "valor_nuevo": "12500.00",
+          "valor_nuevo_crudo": "12.500,00",
+          "fecha_fin_nueva": null,
+          "motivo": "Uitbreiding Waalhaven (mail M. Visser 30-09)",
+          "moneda": "EUR"
+        },
+        {
+          "fila": 3,
+          "crudo": {
+            "PO-nummer": "PO-4500123",
+            "Zijde": "Klant",
+            "Partij": "10001",
+            "Wijzigingsdatum": "01-10-2026",
+            "Nieuw bedrag": "",
+            "Nieuwe einddatum": "31-03-2027",
+            "Reden": "Verlenging tot eind Q1",
+            "Valuta": ""
+          },
+          "numero": "PO-4500123",
+          "lado": "cliente",
+          "parte_ref": "10001",
+          "fecha": "2026-10-01",
+          "valor_nuevo": null,
+          "valor_nuevo_crudo": null,
+          "fecha_fin_nueva": "2027-03-31",
+          "motivo": "Verlenging tot eind Q1",
+          "moneda": null
+        },
+        {
+          "fila": 4,
+          "crudo": {
+            "PO-nummer": "BMS-2026-014",
+            "Zijde": "Leverancier",
+            "Partij": "20001",
+            "Wijzigingsdatum": "15-09-2026",
+            "Nieuw bedrag": "7.000,00",
+            "Nieuwe einddatum": "",
+            "Reden": "Minder uren afgesproken",
+            "Valuta": ""
+          },
+          "numero": "BMS-2026-014",
+          "lado": "proveedor",
+          "parte_ref": "20001",
+          "fecha": "2026-09-15",
+          "valor_nuevo": "7000.00",
+          "valor_nuevo_crudo": "7.000,00",
+          "fecha_fin_nueva": null,
+          "motivo": "Minder uren afgesproken",
+          "moneda": null
+        }
+      ],
+      "rechazos": [
+        {
+          "fila": 5,
+          "codigo": "fila",
+          "motivo": ": Value error, una modificacion cambia el valor, el fin o los dos",
+          "crudo": {
+            "PO-nummer": "PO-4500777",
+            "Zijde": "Klant",
+            "Partij": "10002",
+            "Wijzigingsdatum": "01-10-2026",
+            "Nieuw bedrag": "",
+            "Nieuwe einddatum": "",
+            "Reden": "Geen wijziging",
+            "Valuta": ""
+          }
+        },
+        {
+          "fila": 6,
+          "codigo": "fila",
+          "motivo": "falta motivo",
+          "crudo": {
+            "PO-nummer": "PO-4500123",
+            "Zijde": "Klant",
+            "Partij": "10001",
+            "Wijzigingsdatum": "02-10-2026",
+            "Nieuw bedrag": "12.500,00",
+            "Nieuwe einddatum": "",
+            "Reden": "",
+            "Valuta": ""
+          }
+        }
+      ]
+    }
+  ]
+}

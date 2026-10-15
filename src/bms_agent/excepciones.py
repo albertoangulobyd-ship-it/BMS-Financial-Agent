@@ -237,6 +237,14 @@ def _descripcion(conn: sqlite3.Connection, tabla: str, fila_id: int) -> str | No
                             (fila_id,)).fetchone()
         return (f"Importación {fila_id} de {fila['fuente']}/{fila['tipo']} "
                 f"({fila['iniciada_en'][:10]})") if fila else None
+    if tabla == "orden_compra":
+        fila = conn.execute(
+            "SELECT o.numero, o.lado, coalesce(c.nombre, p.nombre) AS parte FROM orden_compra AS o "
+            "LEFT JOIN cliente AS c ON c.id = o.cliente_id "
+            "LEFT JOIN proveedor AS p ON p.id = o.proveedor_id WHERE o.id = ?",
+            (fila_id,)).fetchone()
+        return (f"PO {fila['numero']} " + ("de " if fila["lado"] == "cliente" else "a ")
+                + fila["parte"]) if fila else None
     if tabla != "factura":
         return None
     fila = conn.execute(

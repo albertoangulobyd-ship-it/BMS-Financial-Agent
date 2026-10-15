@@ -13,6 +13,7 @@ Puertas del paso 4 que viven aqui:
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 from conftest import RAIZ, TARIFAS_V1, apunte, camt053, cuentas_propias, factura_de, \
@@ -195,6 +196,21 @@ def _relacion(conn) -> tuple[int, int]:
     return (fila[0], fila[1]) if fila else (0, 0)
 
 
+# Paso 9. Una PO a Van Dijk, para modificarla, cerrarla, cubrir Objetos o imputarle.
+def _preparar_po(almacen, admin) -> None:
+    from bms_agent import ordenes_compra
+
+    conn = almacen.conn
+    ordenes_compra.registrar_po(conn, Persona(admin), numero="BMS-2026-001", lado="proveedor",
+                                parte_id=_ids(conn)["proveedor"], valor=Decimal("5000"))
+
+
+def _po(conn) -> tuple[int, int]:
+    """La PO de la preparacion y su rev (0, 0 sin preparar)."""
+    fila = conn.execute("SELECT id, rev FROM orden_compra ORDER BY id").fetchone()
+    return (fila[0], fila[1]) if fila else (0, 0)
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -308,6 +324,23 @@ CASOS = [
     ("retirar_relacion", "retirar_relacion", "anular_acreditar", lambda c, i: {
         "relacion_id": _relacion(c)[0], "rev": _relacion(c)[1], "motivo": MOTIVO},
      _preparar_relacion_confirmada),
+    # Paso 9: las ordenes de compra.
+    ("registrar_po", "registrar_po", "cambiar_po", lambda c, i: {
+        "numero": "BMS-2026-002", "lado": "proveedor", "parte_id": i["proveedor"],
+        "valor": "5000", "objetos": [i["rijnhaven"]]}, None),
+    ("modificar_po", "modificar_po", "cambiar_po", lambda c, i: {
+        "orden_compra_id": _po(c)[0], "valor": "6000", "motivo": MOTIVO}, _preparar_po),
+    ("cerrar_po", "cerrar_po", "cambiar_po", lambda c, i: {
+        "orden_compra_id": _po(c)[0], "rev": _po(c)[1], "motivo": MOTIVO}, _preparar_po),
+    ("objetos_po", "objetos_po", "cambiar_po", lambda c, i: {
+        "orden_compra_id": _po(c)[0], "anadir": [i["rijnhaven"]]}, _preparar_po),
+    ("corregir_po", "corregir_po", "cambiar_po", lambda c, i: {
+        "orden_compra_id": _po(c)[0], "campo": "fecha_emision", "valor": "2026-09-01",
+        "rev": _po(c)[1]}, _preparar_po),
+    ("imputar_po", "imputar_po", "cambiar_po", lambda c, i: {
+        "imputacion_id": i["imputacion"], "orden_compra_id": _po(c)[0],
+        "rev": _rev(c, "factura_imputacion", i["imputacion"]), "motivo": MOTIVO},
+     _preparar_po),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -342,7 +375,10 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         # Paso 8.
         "deshacer_fusion": "anular_acreditar",
         "enlazar_facturas": "anular_acreditar", "confirmar_relacion": "anular_acreditar",
-        "rechazar_relacion": "anular_acreditar", "retirar_relacion": "anular_acreditar"}
+        "rechazar_relacion": "anular_acreditar", "retirar_relacion": "anular_acreditar",
+        # Paso 9.
+        "registrar_po": "cambiar_po", "modificar_po": "cambiar_po", "cerrar_po": "cambiar_po",
+        "objetos_po": "cambiar_po", "corregir_po": "cambiar_po", "imputar_po": "cambiar_po"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,
@@ -938,7 +974,8 @@ def test_dividir_no_mueve_dinero_entre_objetos(escenario, partes, error) -> None
     ("factura", 999999, LookupError), ("proveedor", 999999, LookupError),
     ("excepcion", 999999, LookupError), ("objeto", 999999, LookupError),
     ("trimestre", 5, LookupError), ("trimestre", 20265, LookupError),
-    ("orden_compra", 5, ValueError),
+    # Paso 9: la tabla de las PO ya existe; una que no esta no se encuentra.
+    ("orden_compra", 5, LookupError),
 ])
 def test_subir_la_prioridad_de_algo_que_no_existe_no_entra(escenario, entidad, entidad_id,
                                                            error) -> None:
@@ -957,7 +994,9 @@ def test_subir_la_prioridad_de_algo_que_no_existe_no_entra(escenario, entidad, e
 
 @pytest.mark.parametrize("tabla, fila_id, error", [
     ("proveedor", 999999, LookupError), ("cliente", 999999, LookupError),
-    ("trimestre", 20260, LookupError), ("orden_compra", 1, ValueError),
+    ("trimestre", 20260, LookupError),
+    # Paso 9: la tabla de las PO ya existe; una que no esta no se encuentra.
+    ("orden_compra", 1, LookupError),
     # Paso 7: el movimiento del banco ya tiene su tabla (movimiento_bancario).
     ("movimiento", 1, LookupError),
 ])

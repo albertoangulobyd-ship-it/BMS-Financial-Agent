@@ -1,0 +1,39 @@
+# Hoja de ordenes de compra que teclea una persona (spec §9, po_csv): una fila
+# por PO, de un cliente (la que el cliente da a BM Support BV) o de un
+# proveedor (la que BM Support BV le da).
+#
+# Las modificaciones (un valor o un fin nuevos) no se escriben encima de la
+# PO: van en su propia hoja (po_csv-modificaciones_po), una fila cada una. Por
+# eso volver a importar una PO con otro valor o con otro fin no la cambia: la
+# fila se rechaza y pide la modificacion. Importarla pide cambiar_po ademas de
+# importar_datos.
+#
+# Objecten: los codigos (o alias) de los Objetos que cubre, separados por
+# comas; vacio, cualquiera de la parte. Bedrag es sin IVA; lo que no esta en
+# euros no entra (X1).
+version: 1
+fuente: po_csv
+tipo: ordenes_compra
+formato: "csv:po-ordenes-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [PO-nummer, Zijde, Partij, Bedrag]
+completo: false
+registros:
+  ordenes_compra:
+    campos:
+      numero: {columna: PO-nummer, obligatorio: true}
+      lado: {columna: Zijde, obligatorio: true, valores: {Klant: cliente, Leverancier: proveedor}}
+      parte_ref: {columna: Partij, obligatorio: true}
+      objetos_ref: {columna: Objecten}
+      fecha_emision: {columna: Uitgiftedatum, tipo: fecha}
+      fecha_inicio: {columna: Begindatum, tipo: fecha}
+      fecha_fin: {columna: Einddatum, tipo: fecha}
+      valor: {columna: Bedrag, tipo: decimal, obligatorio: true, crudo_de: valor_crudo}
+      moneda: {columna: Valuta}
+      cerrada: {columna: Gesloten, tipo: bool, por_defecto: false}

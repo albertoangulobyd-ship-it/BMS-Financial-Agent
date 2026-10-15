@@ -49,7 +49,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, NamedTuple
 
-from . import __version__, estados, excepciones, pagos, relaciones
+from . import __version__, estados, excepciones, ordenes_compra, pagos, relaciones
 from . import politica as politicas
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .auditoria import registrar
@@ -152,6 +152,9 @@ class Diferencia:
     # Paso 8: las copias fusionadas y las relaciones propuestas o retiradas por
     # el sistema antes de evaluar (relaciones.sincronizar).
     relaciones: Any = None
+    # Paso 9: las referencias e imputaciones casadas con una PO antes de evaluar
+    # (ordenes_compra.sincronizar).
+    ordenes: Any = None
 
     def de_tipo(self, *tipos: str) -> list[Transicion]:
         return [t for t in self.transiciones if t.tipo in tipos]
@@ -195,9 +198,15 @@ def _fuentes(conn: sqlite3.Connection, detectados: Sequence[motor.Detectado],
     """
     lineas = {f.id: [l.id for l in f.lineas] for f in instantanea.facturas}
     tramos = {f.id: [t.id for t in f.desglose] for f in instantanea.facturas}
+    imputaciones = {f.id: [i.id for i in f.imputaciones] for f in instantanea.facturas
+                    if f.imputaciones}
+    referencias = {f.id: [r.id for r in f.referencias] for f in instantanea.facturas
+                   if f.referencias}
     columnas_de = {r.id: motor.campos_de_fuente(r) for r in catalogo.CATALOGO}
     filas_de = {"factura": lambda f: [f], "factura_linea": lambda f: lineas.get(f, []),
-                "factura_iva": lambda f: tramos.get(f, [])}
+                "factura_iva": lambda f: tramos.get(f, []),
+                "factura_imputacion": lambda f: imputaciones.get(f, []),
+                "factura_referencia": lambda f: referencias.get(f, [])}
     pedidas: dict[str, set[int]] = defaultdict(set)
     for d in detectados:
         for tabla in columnas_de[d.regla]:
@@ -406,11 +415,14 @@ class _Pasada:
         conn = self.conn
         # Lo primero, lo que el sistema escribe antes de evaluar, y en este
         # orden: las copias en PDF de lo que llego de Exact se fusionan en su
-        # factura y las citas proponen sus relaciones (paso 8); despues se casa
+        # factura y las citas proponen sus relaciones (paso 8); las referencias y
+        # las imputaciones se casan con las PO, con las relaciones ya hechas (un
+        # abono confirmado toma la PO de lo que abona; paso 9); despues se casa
         # el banco con lo que queda en juego (paso 7). Lo que se escribe ahora es
         # lo que las reglas ven en esta misma pasada, y su evento es la causa de
         # lo que abra o cierre.
         self.diferencia.relaciones = relaciones.sincronizar(conn)
+        self.diferencia.ordenes = ordenes_compra.sincronizar(conn)
         self.diferencia.conciliacion = pagos.conciliar(conn,
                                                        tolerancia=self.politica.tolerancia_pago)
         instantanea = instantaneas.construir(conn, hoy=self.hoy, politica=self.politica)

@@ -22,7 +22,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from ..reglas.bancaria import validar_iban
 from ..reglas.normas import normalizar_iban, parece_iban
@@ -364,6 +364,80 @@ class FacturaVentaCanonica(Canonico):
     lineas: tuple[LineaVentaCanonica, ...] = ()
 
 
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+def _lista_de_texto(valor: object) -> object:
+    """Una lista de codigos: la de un YAML tal cual, o la celda de un CSV separada por comas."""
+    if isinstance(valor, str):
+        return tuple(p.strip() for p in valor.split(",") if p.strip())
+    return valor
+
+
+class OrdenCompraCanonica(Canonico):
+    """Una PO tal como la teclea una persona en la hoja de POs (spec §9: po_csv).
+
+    `lado` dice de quien es: la que un cliente da a BM Support BV (cliente) o
+    la que BM Support BV da a un proveedor (proveedor). `parte_ref` es la parte
+    como la nombra la hoja (numero de Exact, btw-id, KvK o alias confirmado) y
+    `objetos_ref`, los Objetos que cubre (ninguno: cualquiera de la parte). El
+    valor es sin IVA; lo que no esta en euros no entra (X1).
+    """
+
+    numero: str
+    lado: Literal["cliente", "proveedor"]
+    parte_ref: str
+    objetos_ref: tuple[str, ...] = ()
+    fecha_emision: date | None = None
+    fecha_inicio: date | None = None
+    fecha_fin: date | None = None
+    valor: Decimal
+    valor_crudo: str | None = None
+    moneda: str | None = None
+    cerrada: bool = False
+
+    @field_validator("objetos_ref", mode="before")
+    @classmethod
+    def _objetos(cls, valor: object) -> object:
+        return _lista_de_texto(valor)
+
+    @field_validator("valor")
+    @classmethod
+    def _positivo(cls, valor: Decimal) -> Decimal:
+        if valor <= 0:
+            raise ValueError("el valor de una PO es mayor que cero")
+        return valor
+
+
+class ModificacionPOCanonica(Canonico):
+    """Una modificacion de una PO, en su propia fila: un valor nuevo, un fin nuevo o los dos,
+    desde `fecha`, con su motivo. La PO se nombra como en la hoja de POs."""
+
+    numero: str
+    lado: Literal["cliente", "proveedor"]
+    parte_ref: str
+    fecha: date
+    valor_nuevo: Decimal | None = None
+    valor_nuevo_crudo: str | None = None
+    fecha_fin_nueva: date | None = None
+    motivo: str
+    moneda: str | None = None
+
+    @field_validator("valor_nuevo")
+    @classmethod
+    def _positivo(cls, valor: Decimal | None) -> Decimal | None:
+        if valor is not None and valor <= 0:
+            raise ValueError("el valor nuevo de una PO es mayor que cero")
+        return valor
+
+    @model_validator(mode="after")
+    def _algo_cambia(self) -> "ModificacionPOCanonica":
+        if self.valor_nuevo is None and self.fecha_fin_nueva is None:
+            raise ValueError("una modificacion cambia el valor, el fin o los dos")
+        if not self.motivo.strip():
+            raise ValueError("una modificacion lleva su motivo")
+        return self
+
+
 MODELOS: dict[str, type[Canonico]] = {
     "proveedores": ProveedorCanonico, "clientes": ClienteCanonico,
     "contactos": ContactoCanonico, "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
@@ -371,4 +445,5 @@ MODELOS: dict[str, type[Canonico]] = {
     "ciclos": CicloCanonico, "movimientos": MovimientoCanonico,
     "pagos_exact": PagoExactCanonico,
     "lineas_venta": FilaVentaCanonica, "facturas_venta": FacturaVentaCanonica,
+    "ordenes_compra": OrdenCompraCanonica, "modificaciones_po": ModificacionPOCanonica,
 }

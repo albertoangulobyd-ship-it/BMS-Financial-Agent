@@ -444,6 +444,7 @@ class TipoImportacion(_Texto):
     CUENTAS = "cuentas"
     TARIFAS = "tarifas"
     ORDENES_COMPRA = "ordenes_compra"
+    MODIFICACIONES_PO = "modificaciones_po"   # paso 9: las modificaciones van en filas aparte
     CICLOS = "ciclos"
     FACTURAS_VENTA = "facturas_venta"
     FACTURAS_COMPRA = "facturas_compra"
@@ -480,3 +481,27 @@ class EstadoAplicacion(_Texto):
 # Que fuente manda en el saldo de una factura, de mas a menos (decision 5 y §9).
 PRECEDENCIA_PAGO = (FuenteAplicacion.BANCO.value, FuenteAplicacion.EXACT.value,
                     FuenteAplicacion.MANUAL.value)
+
+
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+class LadoOrdenCompra(_Texto):
+    """De quien es una PO: la que un cliente da a BMS (la consumen las ventas a ese cliente) o
+    la que BMS da a un proveedor (la consumen sus facturas de compra)."""
+
+    CLIENTE = "cliente"
+    PROVEEDOR = "proveedor"
+
+
+class FuenteOrdenCompra(_Texto):
+    """De donde viene una PO: tecleada por una persona (a mano o en su hoja) o de un sistema."""
+
+    MANUAL = "manual"
+    PO_CSV = "po_csv"
+    EXACT = "exact"
+    TRNSPRNT = "trnsprnt"
+
+
+# El sentido de las facturas que consumen cada lado de PO.
+SENTIDO_DE_LADO = {LadoOrdenCompra.CLIENTE.value: Sentido.SALIENTE.value,
+                   LadoOrdenCompra.PROVEEDOR.value: Sentido.ENTRANTE.value}

@@ -71,8 +71,10 @@ from .dominio import (
     FrecuenciaCiclo,
     Fuente,
     FuenteAplicacion,
+    FuenteOrdenCompra,
     FuenteRelacion,
     FuenteTarifa,
+    LadoOrdenCompra,
     MetodoAplicacion,
     OrigenAlias,
     OrigenFactura,
@@ -620,7 +622,10 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "valor_norm": _r(TEXTO, editable=False, calculo=_valor_norm, depende_de=("valor_doc",)),
         "clase": _r(ENUM, valores=ClaseReferencia.valores(), suplir=_PO, corregir=_PO,
                     calculo=_clase, depende_de=("etiqueta_doc",)),
-        "orden_compra_id": _r(REF, suplir=_PO, corregir=_PO),
+        # Paso 9: que PO es la referencia lo decide el sistema casando su valor con
+        # las PO de la parte (ordenes_compra.sincronizar), nunca el modelo ni una
+        # persona: una persona cambia la imputacion de la linea (imputar_po).
+        "orden_compra_id": _r(REF, **_FIJO),
         "retirada_en": _r(INSTANTE, **_FIJO),
     }, suplir=_SUPLIR, corregir=_EDITAR),
     "factura_relacion": _tabla("factura_relacion", {
@@ -668,6 +673,29 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "texto_doc": _r(TEXTO, externo=True),
         "retirada_en": _r(INSTANTE, **_FIJO),
     }, suplir=_SUPLIR, corregir=_EDITAR),
+    # Paso 9. Una PO la teclea una persona (a mano o en su hoja de POs) con
+    # cambiar_po. Su numero, su parte, su valor y su fin originales no cambian:
+    # lo que cambia es una modificacion (orden_compra_modificacion), que es de
+    # solo escritura y no pasa por aqui. Cerrarla pide motivo siempre.
+    "orden_compra": _tabla("orden_compra", {
+        "numero": _r(TEXTO, **_FIJO),
+        "numero_norm": _r(TEXTO, editable=False, calculo=_numero_norm, depende_de=("numero",)),
+        "lado": _r(ENUM, valores=LadoOrdenCompra.valores(), **_FIJO),
+        "cliente_id": _r(REF, **_FIJO),
+        "proveedor_id": _r(REF, **_FIJO),
+        "fecha_emision": _r(FECHA),
+        "fecha_inicio": _r(FECHA),
+        "fecha_fin": _r(FECHA, **_FIJO),
+        "valor_original_cent": _r(CENT, **_FIJO),
+        "documento_id": _r(REF),
+        "cerrada": _r(BOOL, defecto=0, motivo_siempre=True),
+        "fuente": _r(ENUM, valores=FuenteOrdenCompra.valores(), **_FIJO),
+    }, suplir=_PO, corregir=_PO),
+    "orden_compra_objeto": _tabla("orden_compra_objeto", {
+        "orden_compra_id": _r(REF, **_FIJO),
+        "objeto_id": _r(REF, **_FIJO),
+        "retirada_en": _r(INSTANTE, **_FIJO),
+    }, suplir=_PO, corregir=_PO),
 }
 
 TABLAS_CONTROLADAS: tuple[str, ...] = tuple(REGISTRO)
@@ -681,6 +709,7 @@ PERMISO_ALTA: dict[str, str | None] = {
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
     "aplicacion_pago": _PAGADA, "factura_cita": _EDITAR,
+    "orden_compra": _PO, "orden_compra_objeto": _PO,
 }
 
 # Lo que no se edita pero si da quien crea una fila a mano: a que fila
@@ -702,6 +731,11 @@ ESTRUCTURA: dict[str, frozenset[str]] = {
     "aplicacion_pago": frozenset({"factura_id", "movimiento_id", "importe_cent", "fecha_pago",
                                   "fuente", "metodo", "evidencia_documento_id"}),
     "factura_cita": frozenset({"factura_id"}),
+    # Una PO nace con su identidad entera (numero, lado y parte) y con su valor y
+    # su fin originales, que despues no cambian.
+    "orden_compra": frozenset({"numero", "lado", "cliente_id", "proveedor_id", "fecha_fin",
+                               "valor_original_cent"}),
+    "orden_compra_objeto": frozenset({"orden_compra_id", "objeto_id"}),
 }
 
 # La columna que dice de donde viene una fila, y lo que vale cuando la crea
@@ -711,6 +745,7 @@ ATRIBUCION: dict[str, tuple[str, str]] = {
     "alias": ("origen", OrigenAlias.MANUAL.value),
     "tarifa_acordada": ("fuente", FuenteTarifa.MANUAL.value),
     "factura_relacion": ("fuente", FuenteRelacion.MANUAL.value),
+    "orden_compra": ("fuente", FuenteOrdenCompra.MANUAL.value),
 }
 
 # Las hijas de una factura que son del dueno de la factura: si la factura es

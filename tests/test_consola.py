@@ -373,3 +373,78 @@ def test_ni_la_consola_ni_la_cli_piden_el_token_de_otra_persona(capsys) -> None:
         main(["accion", "anular_hallazgo", "--hallazgo-id", "1", "--huella", "x",
               "--segunda-firma-token", "token-de-otra"])
     assert "segunda-firma-token" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+def _con_po(db) -> tuple[int, int]:
+    """Un cliente y un Objeto del maestro con HTML en el nombre (lo que llegaria de una hoja)."""
+    from bms_agent import campos
+    from bms_agent.almacen import usuario_sistema
+
+    with preparar(db) as almacen:
+        conn = almacen.conn
+        maestro = campos.Automatico("maestro", usuario_sistema(conn, "importador"))
+        cliente = campos.crear(conn, "cliente", {"nombre": f"Cliente {GUION}"}, maestro)
+        objeto = campos.crear(conn, "objeto", {"codigo": f"Obra {IMAGEN}",
+                                               "nombre": f"Obra {IMAGEN}",
+                                               "cliente_id": cliente}, maestro)
+    return cliente, objeto
+
+
+def test_las_ordenes_de_compra_y_los_objetos_por_la_api(servidor) -> None:
+    puerto, tokens, _factura, db = servidor
+    cliente, objeto = _con_po(db)
+    registrar = {"accion": "registrar_po", "peticion_id": "po-1", "datos": {
+        "numero": f"PO {GUION}", "lado": "cliente", "parte_id": cliente, "valor": "1000",
+        "fecha_fin": "2026-11-10", "objetos": [objeto]}}
+    estado, respuesta = _orden(puerto, tokens["carla"], registrar)
+    assert (estado, respuesta["tipo"]) == (403, "PermisoDenegado")
+    estado, respuesta = _orden(puerto, tokens["ana"], registrar)
+    assert estado == 200 and respuesta["ok"]
+    po = respuesta["diferencia"]["detalle"]["orden_compra_id"]
+    _e, _c, lista = _leer(puerto, "/api/v2/ordenes", tokens["carla"])
+    assert [o["numero"] for o in lista["ordenes"]] == [f"PO {GUION}"]
+    estado, _c, ficha = _leer(puerto, f"/api/v2/ordenes/{po}", tokens["carla"])
+    assert estado == 200 and ficha["orden"]["parte"]["nombre"] == f"Cliente {GUION}"
+    assert ficha["orden"]["planificado"]["estado"] == "sin_datos"
+    estado, _c, vista = _leer(puerto, f"/api/v2/objetos/{objeto}", tokens["carla"])
+    assert estado == 200 and [o["id"] for o in vista["objeto"]["ordenes_compra"]] == [po]
+    assert _leer(puerto, "/api/v2/ordenes/999", tokens["carla"])[0] == 404
+    assert _leer(puerto, "/api/v2/objetos/999", tokens["carla"])[0] == 404
+    if shutil.which("node") is None:
+        return
+    # El script pinta la PO y el Objeto como texto, como la ficha de una factura.
+    datos = db.parent / "po.json"
+    datos.write_text(json.dumps({"lista": lista["ordenes"], "orden": ficha["orden"],
+                                 "objeto": vista["objeto"]}), encoding="utf-8")
+    script = db.parent / "consola.js"
+    script.write_text(consola_assets.SCRIPT, encoding="utf-8")
+    prueba = db.parent / "prueba_po.js"
+    prueba.write_text(DOM_DE_PRUEBA.split("vm.runInThisContext")[0] + DOM_ORDENES,
+                      encoding="utf-8")
+    proceso = subprocess.run(["node", str(prueba), str(datos), str(script)],
+                             capture_output=True, text=True, timeout=60)
+    assert proceso.returncode == 0, proceso.stderr
+    resultado = json.loads(proceso.stdout)
+    assert "SCRIPT" not in resultado["etiquetas"] and "IMG" not in resultado["etiquetas"]
+    assert f"PO {GUION}" in resultado["lista"] and f"Cliente {GUION}" in resultado["orden"]
+    assert f"Obra {IMAGEN}" in resultado["objeto"]
+    assert not any("alert" in v for v in resultado["atributos"])
+
+
+DOM_ORDENES = r"""
+vm.runInThisContext(fs.readFileSync(process.argv[3], 'utf8'));
+const lista = new Elemento('div');
+window.BMSConsola.pintarOrdenes(lista, datos.lista);
+const orden = new Elemento('div');
+window.BMSConsola.pintarOrden(orden, datos.orden);
+const objeto = new Elemento('div');
+window.BMSConsola.pintarObjeto(objeto, datos.objeto);
+const atributos = [];
+creados.forEach(e => Object.values(e.atributos).forEach(v => atributos.push(v)));
+process.stdout.write(JSON.stringify({
+  etiquetas: [...new Set(creados.map(e => e.tagName))], lista: lista.textContent,
+  orden: orden.textContent, objeto: objeto.textContent, atributos: atributos,
+}));
+"""

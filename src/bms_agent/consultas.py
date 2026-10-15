@@ -14,7 +14,9 @@ textContent), nunca como HTML. Los importes van en enteros (centimos, ...) y
 tambien como texto ya formateado.
 
 Desde el paso 8, ademas, la vista de cada proveedor (§3) y de cada cliente
-(§4), y las relaciones de una factura en su ficha.
+(§4), y las relaciones de una factura en su ficha. Desde el paso 9, la lista
+y el detalle de las ordenes de compra (§6) y el bloque de PO de la vista de
+un Objeto (§5).
 
 Lo que el §12 pide de busqueda y filtros (§18) y el resto de vistas son del
 paso 12; aqui esta lo que la consola minima necesita.
@@ -31,6 +33,7 @@ from decimal import Decimal
 from typing import Any
 
 from . import campos, excepciones, hallazgos, prioridad, relaciones, revision
+from . import ordenes_compra as po_
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb
 from .dominio import ESTADOS_PENDIENTES, FUENTES_MANUALES, Calidad
 
@@ -266,14 +269,19 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
                                 "ORDER BY id", (linea["id"],)):
             objeto = conn.execute("SELECT codigo, nombre FROM objeto WHERE id = ?",
                                   (imp["objeto_id"],)).fetchone() if imp["objeto_id"] else None
+            orden = conn.execute("SELECT numero FROM orden_compra WHERE id = ?",
+                                 (imp["orden_compra_id"],)).fetchone() if imp[
+                "orden_compra_id"] else None
             imputaciones.append({
                 "id": imp["id"], "rev": imp["rev"], "retirada": imp["retirada_en"] is not None,
                 "objeto_id": imp["objeto_id"],
                 "objeto": f"{objeto['codigo']}" if objeto else None,
+                "orden_compra_id": imp["orden_compra_id"],
+                "orden_compra": orden["numero"] if orden else None,
                 "campos": _campos_de(conn, "factura_imputacion", imp, sentido, de_hallazgos,
                                      sin_resolver, nombres,
-                                     solo=("objeto_id", "recurso_id", "horas_mil",
-                                           "importe_cent", "facturable")),
+                                     solo=("objeto_id", "recurso_id", "orden_compra_id",
+                                           "horas_mil", "importe_cent", "facturable")),
             })
         lineas.append({
             "id": linea["id"], "rev": linea["rev"], "orden": linea["orden"],
@@ -288,6 +296,7 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
         })
     referencias = [{"id": r["id"], "rev": r["rev"], "etiqueta": r["etiqueta_doc"],
                     "valor": r["valor_doc"], "clase": r["clase"],
+                    "orden_compra_id": r["orden_compra_id"],
                     "retirada": r["retirada_en"] is not None}
                    for r in conn.execute("SELECT * FROM factura_referencia WHERE factura_id = ? "
                                          "ORDER BY id", (factura_id,))]
@@ -843,3 +852,198 @@ def proveedores(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def clientes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Los clientes con lo que deben, lo vencido y lo facturado."""
     return _lista(conn, "cliente")
+
+
+# ------------------------------------------------------------ ordenes de compra (paso 9)
+
+def _pct(puntos: int) -> str:
+    """Puntos basicos como porcentaje con coma (8125 es "81,25 %")."""
+    signo = "-" if puntos < 0 else ""
+    return f"{signo}{abs(puntos) // 100},{abs(puntos) % 100:02d} %"
+
+
+def _iso(dia: date | None) -> str | None:
+    return dia.isoformat() if dia else None
+
+
+def _nombres_de_partes(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
+    return {(tabla, fila_id): nombre for tabla, fila_id, nombre in conn.execute(
+        "SELECT 'cliente', id, nombre FROM cliente UNION ALL "
+        "SELECT 'proveedor', id, nombre FROM proveedor")}
+
+
+def _cifras(orden: Any, lista: list[Any]) -> dict[str, Any]:
+    """Valor vigente, consumido, restante y porcentajes de una PO (§6, PO spend)."""
+    s = po_.situacion(orden, lista)
+    return {"valor_cent": s.valor_cent, "valor": _euros(s.valor_cent),
+            "consumido_cent": s.consumido_cent, "consumido": _euros(s.consumido_cent),
+            "restante_cent": s.restante_cent, "restante": _euros(s.restante_cent),
+            "consumido_pb": s.consumido_pb, "consumido_pct": _pct(s.consumido_pb),
+            "restante_pb": s.restante_pb, "restante_pct": _pct(s.restante_pb)}
+
+
+def _cabecera_po(orden: Any, nombres: dict[tuple[str, int], str]) -> dict[str, Any]:
+    return {"id": orden.id, "numero": orden.numero, "lado": orden.lado,
+            "parte": {"tabla": orden.lado, "id": orden.parte_id,
+                      "nombre": nombres.get((orden.lado, orden.parte_id))},
+            "fecha_emision": _iso(orden.fecha_emision), "fecha_inicio": _iso(orden.fecha_inicio),
+            "fecha_fin": _iso(orden.fecha_fin), "cerrada": orden.cerrada}
+
+
+def ordenes_compra(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Las PO con su valor vigente, lo consumido, lo que queda y su prioridad (§6, §8)."""
+    ordenes = po_.ordenes(conn)
+    if not ordenes:
+        return []
+    cargos = po_.cargos(conn)
+    nombres = _nombres_de_partes(conn)
+    prioridades = _prioridades(conn, "orden_compra")
+    salida, claves = [], {}
+    for orden in ordenes.values():
+        p = prioridades.get(orden.id, _SIN_PRIORIDAD)
+        salida.append({**_cabecera_po(orden, nombres), **_cifras(orden, cargos.get(orden.id, [])),
+                       "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"]})
+        claves[orden.id] = prioridad.clave_orden(
+            p["nivel"], p["puntos"], date.fromisoformat(p["vencimiento"])
+            if p["vencimiento"] else None, p["importe_cent"], orden.id)
+    salida.sort(key=lambda f: (claves[f["id"]][:-1], f["fecha_fin"] is None,
+                               f["fecha_fin"] or "", f["numero"], f["id"]))
+    return salida
+
+
+def _modificaciones(conn: sqlite3.Connection, po_id: int) -> list[dict[str, Any]]:
+    return [{"id": f["id"], "fecha": f["fecha"], "valor_nuevo_cent": f["valor_nuevo_cent"],
+             "valor_nuevo": _euros(f["valor_nuevo_cent"]),
+             "fecha_fin_nueva": f["fecha_fin_nueva"], "motivo": f["motivo"],
+             "usuario": f["usuario"], "en": f["en"], "importacion_id": f["importacion_id"],
+             "documento_id": f["documento_id"]}
+            for f in conn.execute(
+                "SELECT m.*, u.nombre AS usuario FROM orden_compra_modificacion AS m "
+                "JOIN usuario AS u ON u.id = m.usuario_id WHERE m.orden_compra_id = ? "
+                "ORDER BY m.fecha, m.id", (po_id,))]
+
+
+def _avisos_po(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
+    """Los hallazgos sin cerrar de la PO y los que la senalan, y sus excepciones abiertas."""
+    marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
+    hallazgos_ = [{"id": h["id"], "regla": h["regla"], "titulo": h["titulo"],
+                   "detalle": h["detalle"], "severidad": h["severidad"], "estado": h["estado"],
+                   "factura_id": h["factura_id"]}
+                  for h in conn.execute(
+                      f"SELECT * FROM hallazgo WHERE estado IN ({marcas}) AND ((tabla = "
+                      "'orden_compra' AND fila_id = ?) OR id IN (SELECT hallazgo_id FROM "
+                      "hallazgo_objetivo WHERE tabla = 'orden_compra' AND fila_id = ?)) "
+                      "ORDER BY id", (*sorted(ESTADOS_PENDIENTES), po_id, po_id))]
+    excepciones_ = [{"id": e["id"], "estado": e["estado"], "titulo": e["titulo"]}
+                    for e in conn.execute(
+                        "SELECT id, estado, titulo FROM excepcion WHERE estado <> 'resuelta' "
+                        "AND tabla = 'orden_compra' AND fila_id = ? ORDER BY id", (po_id,))]
+    activos = [h for h in hallazgos_ if h["estado"] != "aceptado"]
+    return {"activos": len(activos), "aceptados": len(hallazgos_) - len(activos),
+            "hallazgos": hallazgos_, "excepciones": excepciones_}
+
+
+# Lo que depende del planning: sin datos hasta el paso 10, nunca cero (cero
+# diria que no hay nada planificado ni trabajado sin facturar).
+_SIN_PLANNING = {
+    "planificado": {"estado": "sin_datos",
+                    "detalle": "El trabajo planificado valorado a la tarifa de venta llega con "
+                               "el planning (paso 10, P8)."},
+    "sin_facturar": {"estado": "sin_datos",
+                     "detalle": "Lo trabajado sin facturar llega con el planning (paso 10, "
+                                "P10)."},
+}
+
+
+def orden_compra(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
+    """El detalle de una PO (§6): sus datos, lo consumido factura a factura en el orden del §7,
+    sus modificaciones, la prevision de agotamiento y sus avisos. LookupError si no existe."""
+    from .almacen import reloj_de
+    from .politica import politica_reglas
+
+    ordenes = po_.ordenes(conn)
+    if po_id not in ordenes:
+        raise LookupError(f"no hay orden de compra {po_id}")
+    orden = ordenes[po_id]
+    fila = conn.execute("SELECT fuente, documento_id, rev, valor_original_cent FROM orden_compra "
+                        "WHERE id = ?", (po_id,)).fetchone()
+    lista = po_.cargos(conn, po_id).get(po_id, [])
+    numeros = dict(conn.execute(
+        f"SELECT id, numero FROM factura WHERE id IN ({', '.join('?' * len(lista)) or 'NULL'})",
+        tuple(c.factura_id for c in lista)).fetchall())
+    hoy = reloj_de(conn).hoy()
+    politica = politica_reglas(conn)
+    p = po_.prevision(orden, lista, hoy, politica.po_semanas_ritmo)
+    objetos_ = [{"id": f["id"], "codigo": f["codigo"], "nombre": f["nombre"]}
+                for f in conn.execute(
+                    "SELECT o.id, o.codigo, o.nombre FROM orden_compra_objeto AS x "
+                    "JOIN objeto AS o ON o.id = x.objeto_id WHERE x.orden_compra_id = ? "
+                    "AND x.retirada_en IS NULL ORDER BY o.codigo", (po_id,))]
+    return {
+        **_cabecera_po(orden, _nombres_de_partes(conn)), "hoy": hoy.isoformat(),
+        "fuente": fila["fuente"], "documento_id": fila["documento_id"], "rev": fila["rev"],
+        "valor_original_cent": fila["valor_original_cent"],
+        "valor_original": _euros(fila["valor_original_cent"]),
+        "fecha_fin_original": _iso(orden.fecha_fin_original),
+        **_cifras(orden, lista),
+        "objetos": objetos_,
+        "modificaciones": _modificaciones(conn, po_id),
+        "facturas": [{"factura_id": c.factura_id, "numero": numeros.get(c.factura_id),
+                      "fecha_factura": _iso(c.fecha), "importe_cent": c.importe_cent,
+                      "importe": _euros(c.importe_cent), "quedaba_cent": antes,
+                      "quedaba": _euros(antes)}
+                     for c, antes in po_.antes_de_cada(orden, lista)],
+        "prevision": {"desde": p.desde.isoformat(), "dias": p.dias,
+                      "semanas": politica.po_semanas_ritmo,
+                      "consumido_ventana_cent": p.consumido_cent,
+                      "consumido_ventana": _euros(p.consumido_cent),
+                      "agotamiento": _iso(p.agotamiento)},
+        **_SIN_PLANNING,
+        "avisos": _avisos_po(conn, po_id),
+        "prioridad": _prioridades(conn, "orden_compra").get(po_id, _SIN_PRIORIDAD),
+    }
+
+
+def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
+    """La vista de un Objeto (§5): por ahora su ficha y su bloque de PO (paso 9).
+
+    Las PO del Objeto son las que lo cubren (orden_compra_objeto) y aquellas a
+    las que se imputa trabajo suyo. De cada una, lo consumido y lo que queda
+    de la PO entera, y lo que ha consumido este Objeto. Las horas, los
+    ingresos y los costes del Objeto son de los pasos siguientes.
+    """
+    fila = conn.execute(
+        "SELECT o.*, c.nombre AS cliente FROM objeto AS o LEFT JOIN cliente AS c "
+        "ON c.id = o.cliente_id WHERE o.id = ?", (objeto_id,)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay Objeto {objeto_id}")
+    ordenes = po_.ordenes(conn)
+    del_objeto = po_.cargos(conn, objeto_id=objeto_id)
+    relacionadas = {o.id for o in ordenes.values() if objeto_id in o.objetos} | set(del_objeto)
+    cargos = po_.cargos(conn) if relacionadas else {}
+    nombres = _nombres_de_partes(conn)
+    filas = []
+    for po_id in sorted(relacionadas, key=lambda i: (ordenes[i].lado, ordenes[i].numero, i)):
+        orden = ordenes[po_id]
+        propio = sum(c.importe_cent for c in del_objeto.get(po_id, []))
+        filas.append({**_cabecera_po(orden, nombres), **_cifras(orden, cargos.get(po_id, [])),
+                      "cubre_objeto": objeto_id in orden.objetos,
+                      "consumido_objeto_cent": propio, "consumido_objeto": _euros(propio)})
+    resumen = {}
+    for lado in ("cliente", "proveedor"):
+        de_lado = [f for f in filas if f["lado"] == lado and not f["cerrada"]]
+        valor = sum(f["valor_cent"] for f in de_lado)
+        consumido = sum(f["consumido_cent"] for f in de_lado)
+        resumen[lado] = {"ordenes": len(de_lado), "valor_cent": valor, "valor": _euros(valor),
+                         "consumido_cent": consumido, "consumido": _euros(consumido),
+                         "restante_cent": valor - consumido,
+                         "restante": _euros(valor - consumido)}
+    return {
+        "id": objeto_id, "codigo": fila["codigo"], "nombre": fila["nombre"],
+        "cliente": {"id": fila["cliente_id"], "nombre": fila["cliente"]},
+        "requiere_po": None if fila["requiere_po"] is None else bool(fila["requiere_po"]),
+        "activo_desde": fila["activo_desde"], "activo_hasta": fila["activo_hasta"],
+        "ordenes_compra": filas, "ordenes_resumen": resumen,
+        "prioridad": _prioridades(conn, "objeto").get(objeto_id, _SIN_PRIORIDAD),
+    }
+

@@ -102,6 +102,16 @@ class Politica:
     # K4: dos cargos iguales a la misma contraparte con la misma referencia en
     # menos de estos dias son un pago doble.
     ventana_doble_pago_dias: int = 30
+    # Paso 9: las ordenes de compra. P5 avisa con este porcentaje consumido; P7
+    # cuando caduca dentro de estos dias con valor por consumir; P9 si, al ritmo
+    # de estas semanas, se agota antes de estos dias de su fin.
+    po_aviso_consumo_pct: int = 80
+    po_dias_caducidad: int = 30
+    po_margen_prevision_dias: int = 14
+    po_semanas_ritmo: int = 8
+    # G3: una tarifa de compra por encima de la pactada retiene; por encima de
+    # este porcentaje sobre la pactada, bloquea (y anularla pide segunda firma).
+    tarifa_exceso_bloqueo_pct: int = 10
 
     def valor(self, nombre: str) -> str:
         """El parametro como texto, para la huella (sin floats ni ambiguedad)."""
@@ -154,6 +164,41 @@ class LineaSinCasar:
     activa: bool
     excluida: bool
     campos: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Imputacion:
+    """Una imputacion activa de una linea (factura_imputacion), paso 9.
+
+    A que Objeto, recurso y PO va, por cuanto sin IVA y de que dias, con el
+    tipo de trabajo y el turno de su linea. De aqui sale lo consumido de una PO
+    y con que tarifa pactada se compara la linea (G3, G6, V4).
+    """
+
+    id: int
+    linea_id: int | None
+    objeto_id: int | None
+    recurso_id: int | None
+    orden_compra_id: int | None
+    importe_cent: int | None
+    horas_mil: int | None
+    fecha_inicio: date | None
+    fecha_fin: date | None
+    tipo_servicio: str | None
+    tipo_turno: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Referencia:
+    """Una referencia impresa viva (factura_referencia), paso 9: su valor normalizado, su
+    clase y la PO con la que el sistema la caso (None si no casa con ninguna de la parte)."""
+
+    id: int
+    linea_id: int | None
+    valor_doc: str
+    valor_norm: str | None
+    clase: str
+    orden_compra_id: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +281,9 @@ class Factura:
     origen: str = "extraccion"
     acreditado_cent: int = 0
     sustituida_por: int | None = None
+    # Paso 9: sus imputaciones activas y sus referencias impresas vivas.
+    imputaciones: tuple[Imputacion, ...] = ()
+    referencias: tuple[Referencia, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +333,69 @@ class Parte:
     btw: str | None
     regimen_iva: str | None
     activo: bool
+    # Paso 9: si el cliente pide PO en sus facturas (P2). None: no se sabe.
+    requiere_po: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Objeto:
+    """Un Objeto del maestro (paso 9): de que cliente es y si pide PO (None hereda la del
+    cliente, P2)."""
+
+    id: int
+    codigo: str
+    cliente_id: int | None
+    requiere_po: bool | None
+    activo_desde: date | None
+    activo_hasta: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class OrdenCompra:
+    """Una orden de compra con su valor y su fin vigentes (paso 9).
+
+    `lado` cliente: la que un cliente da a BMS, la consumen las ventas a ese
+    cliente; proveedor: la que BMS da a un proveedor, la consumen sus compras.
+    `parte_id` es ese cliente o ese proveedor. `valor_cent` y `fecha_fin` son
+    los de la ultima modificacion que los cambia (ordenes.vigentes); los
+    originales se conservan aparte. `objetos`: los que cubre (vacio: todos los
+    de su parte).
+    """
+
+    id: int
+    numero: str
+    numero_norm: str
+    lado: str
+    parte_id: int
+    fecha_emision: date | None
+    fecha_inicio: date | None
+    fecha_fin: date | None
+    valor_cent: int
+    valor_original_cent: int
+    fecha_fin_original: date | None
+    cerrada: bool
+    objetos: frozenset[int] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
+class Tarifa:
+    """Una tarifa pactada (tarifa_acordada), paso 9. Lo que no esta (None) vale para todo:
+    una tarifa sin Objeto es de cualquier Objeto de su parte. `tipo_turno` ya normalizado
+    (tarifas.normalizar_turno: el turno de dia es el de siempre, None)."""
+
+    id: int
+    sentido: str
+    proveedor_id: int | None
+    recurso_id: int | None
+    cliente_id: int | None
+    objeto_id: int | None
+    orden_compra_id: int | None
+    tipo_servicio: str | None
+    tipo_turno: str | None
+    unidad: str | None
+    tarifa_e4: int
+    vigente_desde: date | None
+    vigente_hasta: date | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +581,10 @@ class Instantanea:
     # esperan a una persona, y las facturas que nombra cada documento.
     propuestas: tuple[Relacion, ...] = ()
     citas: tuple[Cita, ...] = ()
+    # Paso 9: las ordenes de compra, las tarifas pactadas y los Objetos del maestro.
+    ordenes: tuple[OrdenCompra, ...] = ()
+    tarifas: tuple[Tarifa, ...] = ()
+    objetos: tuple[Objeto, ...] = ()
 
 
 # ------------------------------------------------------------ resultados

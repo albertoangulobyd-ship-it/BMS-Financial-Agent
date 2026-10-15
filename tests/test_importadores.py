@@ -86,7 +86,7 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
     ids = {m.id for m in MAPEOS}
     assert {p.stem for p in FIXTURES.glob("*.csv")} == ids
     assert {p.name.removesuffix(".esperado.json") for p in FIXTURES.glob("*.esperado.json")} == (
-        ids | {"config-tarifas"})
+        ids | {"config-tarifas", "po_csv-yaml"})
     assert {(m.fuente, m.tipo) for m in MAPEOS} == {
         ("exact", "proveedores"), ("exact", "clientes"), ("maestro_csv", "objetos"),
         ("maestro_csv", "recursos"), ("maestro_csv", "alias"), ("maestro_csv", "tarifas"),
@@ -94,7 +94,16 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
         # Paso 7: lo pagado segun Exact y los CSV de movimientos de ING y Rabobank.
         ("exact", "pagos_exact"), ("banco", "extracto"),
         # Paso 8: las facturas de venta de Exact, con sus lineas.
-        ("exact", "facturas_venta")}
+        ("exact", "facturas_venta"),
+        # Paso 9: la hoja de ordenes de compra y la de sus modificaciones.
+        ("po_csv", "ordenes_compra"), ("po_csv", "modificaciones_po")}
+
+
+def test_la_hoja_de_po_en_yaml_lee_como_dice_su_contrato() -> None:
+    from bms_agent.importadores import ordenes
+
+    esperado = json.loads((FIXTURES / "po_csv-yaml.esperado.json").read_text(encoding="utf-8"))
+    assert ordenes.contrato((FIXTURES / "po_csv-yaml.yaml").read_bytes()) == esperado
 
 
 def test_la_semilla_de_tarifas_lee_como_dice_su_contrato() -> None:

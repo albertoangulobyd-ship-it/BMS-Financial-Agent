@@ -124,6 +124,19 @@ CATALOGO_SPEC = {
     "K7": ("aviso", None, True, False, False, "otra"),
     "K8": ("retencion", None, False, False, False, "otra"),
     "G3": ("retencion", None, True, False, False, "planning"),
+    # Paso 9: los recargos y la tarifa de venta contra lo pactado, y las PO.
+    "G6": ("retencion", None, True, False, False, "planning"),
+    "V4": ("retencion", None, True, False, False, "planning"),
+    "P1": ("retencion", None, True, False, False, "limite_po"),
+    "P2": ("retencion", None, True, False, False, "limite_po"),
+    "P3": ("retencion", None, True, False, False, "limite_po"),
+    "P4": ("retencion", None, True, True, False, "limite_po_duro"),
+    "P5": ("aviso", None, False, False, False, "limite_po"),
+    "P6": ("retencion", None, True, False, False, "limite_po_duro"),
+    "P7": ("aviso", None, True, False, False, "caducidad_po"),
+    "P8": ("aviso", None, False, False, False, "limite_po"),
+    "P9": ("aviso", None, False, False, False, "limite_po"),
+    "P10": ("retencion", None, True, False, False, "limite_po_duro"),
     # Paso 8: las relaciones.
     "R1": ("retencion", None, True, False, False, "otra"),
     "R2": ("retencion", None, False, True, False, "otra"),
@@ -135,7 +148,10 @@ CATALOGO_SPEC = {
 # Donde vive cada hallazgo que no es de una factura (paso 5).
 AMBITOS = {"Z1": "importacion", "Z2": "importacion", "F0": "importacion", "F5": "proveedor",
            "F6": "proveedor", "F8": "proveedor", "F9": "proveedor",
-           "F7": "movimiento", "K6": "importacion", "K7": "movimiento"}
+           "F7": "movimiento", "K6": "importacion", "K7": "movimiento",
+           # Paso 9: lo que es de la PO entera y no de una factura.
+           "P5": "orden_compra", "P7": "orden_compra", "P8": "orden_compra",
+           "P9": "orden_compra", "P10": "orden_compra"}
 # Los avisos que abren una excepcion (spec §7: "+ exception"); F4 escala.
 CREAN_EXCEPCION = {"Q3", "U1", "F4", "K1"}
 
@@ -168,11 +184,12 @@ def test_lo_que_no_se_anula_nunca_es_la_lista_de_la_decision_12() -> None:
 def test_las_familias_pegajosas_son_las_de_la_decision_11() -> None:
     """IBAN, duplicados y la moneda no se cierran solos; la aritmetica si. Del paso 5, el
     cambio de regimen (E2) y el de los datos de un proveedor (A7) tampoco (spec §7); del
-    paso 7, las anomalias de pago: K2, K4, K5 y K6."""
+    paso 7, las anomalias de pago: K2, K4, K5 y K6; del paso 9, P4 (spec §7: "overridable,
+    sticky")."""
     for regla in catalogo.CATALOGO:
         assert regla.pegajosa == (regla.familia in ("bancaria", "unicidad")
                                   or regla.id in ("X1", "E2", "A7", "K2", "K4", "K5", "K6",
-                                                  "R2", "R3")), \
+                                                  "R2", "R3", "P4")), \
             regla.id
 
 

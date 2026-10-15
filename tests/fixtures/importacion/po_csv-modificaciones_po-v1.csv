@@ -1,0 +1,6 @@
+﻿PO-nummer;Zijde;Partij;Wijzigingsdatum;Nieuw bedrag;Nieuwe einddatum;Reden;Valuta
+PO-4500123;Klant;10001;01-10-2026;12.500,00;;Uitbreiding Waalhaven (mail M. Visser 30-09);EUR
+PO-4500123;Klant;10001;01-10-2026;;31-03-2027;Verlenging tot eind Q1;
+BMS-2026-014;Leverancier;20001;15-09-2026;7.000,00;;Minder uren afgesproken;
+PO-4500777;Klant;10002;01-10-2026;;;Geen wijziging;
+PO-4500123;Klant;10001;02-10-2026;12.500,00;;;

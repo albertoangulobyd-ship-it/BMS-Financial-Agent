@@ -39,6 +39,7 @@ PAGINA = """<!doctype html>
   <section id="mensaje" role="status"></section>
   <section id="lista"></section>
   <section id="partes"></section>
+  <section id="ordenes"></section>
   <section id="ficha"></section>
 </main>
 </body>
@@ -79,7 +80,8 @@ SCRIPT = r"""
 (function () {
   'use strict';
 
-  var estado = {token: null, yo: null, acciones: {}, personas: [], objetos: [], ficha: null};
+  var estado = {token: null, yo: null, acciones: {}, personas: [], objetos: [], ordenes: [],
+                ficha: null};
 
   // ---------------------------------------------------------------- DOM
 
@@ -190,6 +192,8 @@ SCRIPT = r"""
   function formulario(nombre, campos, datosFijos, textoBoton, opciones) {
     var peticion = nuevoId();
     var entradas = {};
+    var enLista = {};
+    campos.forEach(function (c) { enLista[c.nombre] = !!c.lista; });
     var hijos = campos.map(function (c) {
       var entrada;
       if (c.opciones) {
@@ -210,7 +214,7 @@ SCRIPT = r"""
       Object.keys(datosFijos).forEach(function (k) { datos[k] = datosFijos[k]; });
       Object.keys(entradas).forEach(function (k) {
         var v = entradas[k].value;
-        if (v !== '') { datos[k] = v; }
+        if (v !== '') { datos[k] = enLista[k] ? [parseInt(v, 10)] : v; }
       });
       ordenar(nombre, datos, peticion);
     }}, hijos, el('button', {type: 'submit'}, textoBoton));
@@ -369,13 +373,18 @@ SCRIPT = r"""
         return [String(o.id), o.codigo]; }));
       anadir(caja, el('h3', {}, 'Línea ' + l.orden + (l.retirada ? ' (excluida)' : '')),
         tablaCampos(conRev(l.campos, l.rev), !l.retirada));
+      var ordenes = [['', '(sin PO)']].concat(estado.ordenes.map(function (o) {
+        return [String(o.id), o.numero + ' (' + (o.parte.nombre || o.lado) + ')']; }));
       l.imputaciones.forEach(function (imp) {
         if (imp.retirada) { return; }
         anadir(caja, el('div', {clase: 'caja'}, 'Imputación ' + imp.id + ': ',
-          imp.objeto || '(sin Objeto)',
+          imp.objeto || '(sin Objeto)', ' · PO ', imp.orden_compra || '(ninguna)',
           formulario('cambiar_objeto', [{nombre: 'objeto_id', etiqueta: 'Objeto', opciones: objetos},
             {nombre: 'motivo', etiqueta: 'motivo'}], {imputacion_id: imp.id, rev: imp.rev},
-            'Cambiar imputación')));
+            'Cambiar imputación'),
+          formulario('imputar_po', [{nombre: 'orden_compra_id', etiqueta: 'PO', opciones: ordenes},
+            {nombre: 'motivo', etiqueta: 'motivo'}], {imputacion_id: imp.id, rev: imp.rev},
+            'Imputar a la PO')));
       });
       if (!l.retirada) {
         anadir(caja, formulario('excluir_linea', [{nombre: 'motivo', etiqueta: 'motivo'}],
@@ -551,6 +560,106 @@ SCRIPT = r"""
     }).catch(function (error) { decir(error.message, true); });
   }
 
+  // ---------------------------------------------------------------- ordenes de compra (paso 9)
+
+  function pintarOrdenes(contenedor, ordenes) {
+    vaciar(contenedor);
+    if (!ordenes.length) { return; }
+    var cuerpo = el('tbody');
+    ordenes.forEach(function (o) {
+      anadir(cuerpo, el('tr', {clase: 'fila', al_pulsar: function () { abrirOrden(o.id); }},
+        el('td', {}, insignia(ETIQUETA_NIVEL[o.nivel] || o.nivel, o.nivel)),
+        el('td', {}, o.numero + (o.cerrada ? ' (cerrada)' : '')),
+        el('td', {}, (o.lado === 'cliente' ? 'de ' : 'a ') + (o.parte.nombre || '?')),
+        el('td', {}, o.valor), el('td', {}, o.consumido + ' (' + o.consumido_pct + ')'),
+        el('td', {}, o.restante), el('td', {}, o.fecha_fin || ''),
+        el('td', {}, o.motivos && o.motivos.length ? o.motivos.join(' · ') : '')));
+    });
+    var cabecera = el('tr', {}, ['Prioridad', 'PO', 'Parte', 'Valor', 'Consumido', 'Queda',
+      'Fin', 'Por qué'].map(function (t) { return el('th', {}, t); }));
+    anadir(contenedor, el('h2', {}, 'Órdenes de compra'),
+      el('table', {}, el('thead', {}, cabecera), cuerpo));
+  }
+
+  function pintarOrden(contenedor, o) {
+    vaciar(contenedor);
+    var objetos = estado.objetos.map(function (x) { return [String(x.id), x.codigo]; });
+    var p = o.prevision;
+    anadir(contenedor,
+      el('h2', {}, 'PO ' + o.numero + (o.cerrada ? ' (cerrada)' : '')),
+      el('p', {}, (o.lado === 'cliente' ? 'Del cliente ' : 'Al proveedor ') +
+        (o.parte.nombre || '?') + ' · de ' + (o.fecha_inicio || '…') + ' a ' +
+        (o.fecha_fin || '…') + (o.fecha_fin !== o.fecha_fin_original ? ' (fin original ' +
+        (o.fecha_fin_original || '…') + ')' : '') + ' · fuente ' + o.fuente),
+      el('p', {}, 'Valor ' + o.valor + ' (original ' + o.valor_original + ') · consumido ' +
+        o.consumido + ' (' + o.consumido_pct + ') · queda ' + o.restante + ' (' +
+        o.restante_pct + '), sin IVA'),
+      el('p', {clase: 'suave'}, 'Ritmo: ' + p.consumido_ventana + ' en ' + p.dias +
+        ' días desde el ' + p.desde + ' · ' + (p.agotamiento ? 'se agotaría el ' +
+        p.agotamiento : 'a este ritmo no se agota')),
+      el('p', {clase: 'suave'}, o.planificado.detalle + ' ' + o.sin_facturar.detalle),
+      el('h3', {}, 'Objetos'),
+      el('ul', {}, o.objetos.length ? o.objetos.map(function (x) {
+        return el('li', {clase: 'fila', al_pulsar: function () { abrirObjeto(x.id); }},
+          x.codigo + (x.nombre ? ' (' + x.nombre + ')' : ''));
+      }) : [el('li', {}, 'Cualquiera de la parte')]),
+      el('h3', {}, 'Facturas, en el orden en que la consumen'),
+      el('table', {}, el('tbody', {}, o.facturas.map(function (f) {
+        return el('tr', {clase: 'fila', al_pulsar: function () { abrirFicha(f.factura_id); }},
+          el('td', {}, f.fecha_factura || '(sin fecha)'), el('td', {}, f.numero || ''),
+          el('td', {}, f.importe), el('td', {}, 'quedaban ' + f.quedaba));
+      }))),
+      el('h3', {}, 'Modificaciones'),
+      filas(['Desde', 'Valor nuevo', 'Fin nuevo', 'Motivo', 'Quién', 'Cuándo'],
+        o.modificaciones.map(function (m) {
+          return [m.fecha, m.valor_nuevo, m.fecha_fin_nueva, m.motivo, m.usuario, m.en]; })),
+      formulario('modificar_po', [{nombre: 'valor', etiqueta: 'valor nuevo'},
+        {nombre: 'fecha_fin', etiqueta: 'fin nuevo', tipo: 'date'},
+        {nombre: 'fecha', etiqueta: 'desde', tipo: 'date'},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {orden_compra_id: o.id}, 'Apuntar modificación'),
+      formulario('cerrar_po', [{nombre: 'cerrada', etiqueta: 'cerrada',
+        opciones: o.cerrada ? [['no', 'reabrir'], ['si', 'cerrada']] : [['si', 'cerrar'],
+        ['no', 'abierta']]}, {nombre: 'motivo', etiqueta: 'motivo'}],
+        {orden_compra_id: o.id, rev: o.rev}, o.cerrada ? 'Reabrir' : 'Cerrar'),
+      formulario('objetos_po', [{nombre: 'anadir', etiqueta: 'Objeto', opciones: objetos,
+        lista: true},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {orden_compra_id: o.id}, 'Añadir Objeto'),
+      el('h3', {}, 'Avisos'),
+      el('ul', {}, o.avisos.hallazgos.map(function (h) {
+        return el('li', {}, h.regla + ' (' + h.severidad + ', ' + h.estado + '): ' + h.detalle);
+      })));
+  }
+
+  function pintarObjeto(contenedor, v) {
+    vaciar(contenedor);
+    anadir(contenedor,
+      el('h2', {}, 'Objeto ' + v.codigo + (v.nombre ? ' (' + v.nombre + ')' : '')),
+      el('p', {}, 'Cliente ' + (v.cliente.nombre || '?') + (v.requiere_po ? ' · pide PO' : '')),
+      el('h3', {}, 'Órdenes de compra'),
+      filas(['PO', 'Lado', 'Valor', 'Consumido', 'Queda', 'De este Objeto', 'Fin'],
+        v.ordenes_compra.map(function (o) {
+          return [o.numero + (o.cerrada ? ' (cerrada)' : ''), o.lado, o.valor,
+            o.consumido + ' (' + o.consumido_pct + ')', o.restante, o.consumido_objeto,
+            o.fecha_fin]; })),
+      el('p', {clase: 'suave'}, 'De cliente: queda ' + v.ordenes_resumen.cliente.restante +
+        ' de ' + v.ordenes_resumen.cliente.valor + ' · a proveedores: queda ' +
+        v.ordenes_resumen.proveedor.restante + ' de ' + v.ordenes_resumen.proveedor.valor));
+  }
+
+  function abrirOrden(id) {
+    estado.ficha = null;
+    return api('GET', '/api/v2/ordenes/' + encodeURIComponent(String(id))).then(function (r) {
+      pintarOrden(document.getElementById('ficha'), r.orden);
+    }).catch(function (error) { decir(error.message, true); });
+  }
+
+  function abrirObjeto(id) {
+    estado.ficha = null;
+    return api('GET', '/api/v2/objetos/' + encodeURIComponent(String(id))).then(function (r) {
+      pintarObjeto(document.getElementById('ficha'), r.objeto);
+    }).catch(function (error) { decir(error.message, true); });
+  }
+
   // ---------------------------------------------------------------- arranque
 
   // Z1: una fuente pasada de su limite sale arriba, antes que la lista: lo que
@@ -575,6 +684,10 @@ SCRIPT = r"""
       function (r) {
         pintarPartes(document.getElementById('partes'), r[0].proveedores, r[1].clientes);
       });
+    api('GET', '/api/v2/ordenes').then(function (r) {
+      estado.ordenes = r.ordenes;
+      pintarOrdenes(document.getElementById('ordenes'), r.ordenes);
+    });
     if (estado.ficha !== null) { return lista.then(function () { return abrirFicha(estado.ficha); }); }
     return lista;
   }
@@ -608,6 +721,8 @@ SCRIPT = r"""
 
   window.BMSConsola = {el: el, pintarListado: pintarListado, pintarDetalle: pintarDetalle,
                        pintarPartes: pintarPartes, pintarParte: pintarParte,
+                       pintarOrdenes: pintarOrdenes, pintarOrden: pintarOrden,
+                       pintarObjeto: pintarObjeto,
                        resumen: resumen, estado: estado};
   document.addEventListener('DOMContentLoaded', iniciar);
 })();

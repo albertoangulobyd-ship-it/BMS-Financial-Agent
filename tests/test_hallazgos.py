@@ -74,6 +74,10 @@ SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "
                    "U1", "M2", "K1", "K2", "K3", "K4", "K5", "K8",
                    # Paso 8.
                    "M3", "V7", "F10", "R1", "R2", "R3", "R4", "R5"}
+# Las del paso 9 hablan solo de las facturas a las que aplican (las que llevan una PO o
+# una referencia que lo es, las que tienen una tarifa pactada), y de ellas todo resultado,
+# tambien el ok: un sin_datos sin resultado al lado retendria el hallazgo de esa fila.
+SOLO_LAS_SUYAS = {"G6", "V4", "P1", "P2", "P3", "P4", "P6"}
 
 
 # Una factura de Van Dijk con otro numero, otro total y un periodo que se pisa
@@ -146,7 +150,8 @@ def test_la_cache_tiene_un_resultado_por_regla_y_fila_tambien_los_que_pasan(tipa
         reglas_por_factura[f["fila_id"]].add(f["regla"])
     # Las reglas de factura de los pasos 3 y 4 escriben todo resultado; las del paso 5 solo
     # lo que objetan (un fallo o un sin_datos), y las de entidad no van por factura.
-    completas = {r.id for r in catalogo.CATALOGO if r.ambito == "factura"} - SOLO_OBJECIONES
+    completas = ({r.id for r in catalogo.CATALOGO if r.ambito == "factura"} - SOLO_OBJECIONES
+                 - SOLO_LAS_SUYAS)
     assert all(r >= completas for r in reglas_por_factura.values())
     assert not {f["resultado"] for f in filas if f["regla"] in SOLO_OBJECIONES} - {
         "fallo", "sin_datos"}

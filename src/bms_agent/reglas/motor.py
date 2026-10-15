@@ -170,14 +170,18 @@ _DERIVADOS_FACTURA = {
 _DERIVADOS_LINEA = {"objeto": ("objeto_doc",)}
 _SIN_FUENTE = frozenset({"id", "orden", "lineas", "desglose", "ilegibles", "no_solicitados",
                          "anulada", "fusionada_en_id", "dudosos", "sin_original",
-                         "sustituida_por", "acreditado_cent"})
+                         "sustituida_por", "acreditado_cent", "imputaciones", "referencias",
+                         "linea_id"})
 
 
 def campos_de_fuente(regla: Regla) -> dict[str, tuple[str, ...]]:
     """Por tabla del almacen, las columnas cuya fuente entra en la huella de la regla."""
     tablas = {"factura": ("factura", _DERIVADOS_FACTURA),
               "linea": ("factura_linea", _DERIVADOS_LINEA),
-              "tramo_iva": ("factura_iva", {})}
+              "tramo_iva": ("factura_iva", {}),
+              # Paso 9: la imputacion (su PO, su Objeto) y la referencia impresa.
+              "imputacion": ("factura_imputacion", {}),
+              "referencia": ("factura_referencia", {})}
     salida: dict[str, set[str]] = {}
     for lectura in regla.lee - regla.solo_texto:
         tipo, _, nombre = lectura.partition(".")

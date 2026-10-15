@@ -19,6 +19,10 @@ compras), F10 (una venta con un IBAN que no es de BM Support BV), R1-R5 y M3.
 M3 tampoco esta en el §7: es "un desacuerdo entre Exact y el PDF es una
 discrepancia" de la puerta del paso 8, al lado de M1 y M2.
 
+El paso 9 trae las ordenes de compra (P1-P10), las tarifas pactadas en G3 (que
+sigue con el historico cuando no hay pactada, y sube a la version 2), G6 (un
+recargo a su propia tarifa) y V4 (la tarifa de venta pactada).
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -46,10 +50,12 @@ from . import (
     calidad,
     identidad,
     iva,
+    ordenes,
     pagos,
     planning,
     relaciones,
     unicidad,
+    venta,
 )
 from .base import A, B, LEE_POR_FACTURA, R, Regla, por_factura
 
@@ -58,6 +64,7 @@ _C = Calidad
 _PROVEEDOR = AmbitoHallazgo.PROVEEDOR.value
 _IMPORTACION = AmbitoHallazgo.IMPORTACION.value
 _MOVIMIENTO = AmbitoHallazgo.MOVIMIENTO.value
+_PO = AmbitoHallazgo.ORDEN_COMPRA.value
 
 
 def _de_factura(id_: str, funcion, lee: frozenset[str], **metadatos) -> Regla:
@@ -291,12 +298,79 @@ CATALOGO: tuple[Regla, ...] = (
           severidad=R, calidad=_C.DISCREPANCIA.value,
           descripcion="El banco y Exact dicen importes pagados distintos de la misma factura."),
     # Planning
-    Regla("G3", "Tarifa distinta por el mismo trabajo", "planning", planning.g3,
-          planning.LEE_G3, solo_texto=planning.SOLO_TEXTO_G3, severidad=R, anulable=True,
+    Regla("G3", "Tarifa distinta de la pactada", "planning", planning.g3,
+          planning.LEE_G3,
+          solo_texto=planning.SOLO_TEXTO_G3 | (planning.NO_EVIDENCIA_PACTADA & planning.LEE_G3),
+          severidad=R, anulable=True, entrada_prioridad=_P.PLANNING.value,
+          calidad=_C.ANOMALIA.value, version=2,
+          descripcion="La tarifa de una línea de compra contra la pactada (de lo más concreto "
+                      "a lo general: recurso y Objeto, Objeto, recurso, proveedor; el turno "
+                      "tiene que ser el mismo): por encima retiene, y por encima del porcentaje "
+                      "de la política bloquea. Sin pactada ni planning, contra el histórico: la "
+                      "misma contraparte cobra otra tarifa por el mismo trabajo en el mismo "
+                      "Objeto. Dos pactadas igual de concretas con precios distintos: sin datos "
+                      "en la línea y la factura retenida, con su excepción."),
+    Regla("G6", "Recargo a otra tarifa que la suya", "planning", planning.g6, planning.LEE_G6,
+          solo_texto=planning.SOLO_TEXTO_G6, severidad=R, anulable=True,
           entrada_prioridad=_P.PLANNING.value,
           calidad=_C.ANOMALIA.value,
-          descripcion="Sin tarifa pactada ni planning, contra el histórico: la misma "
-                      "contraparte cobra otra tarifa por el mismo trabajo en el mismo Objeto."),
+          descripcion="Una línea de un recargo (noche, fin de semana, festivo) se cobra a su "
+                      "propia tarifa pactada; sin tarifa propia, la mira G3 con el histórico."),
+    # Facturas de venta
+    Regla("V4", "Tarifa de venta distinta de la pactada", "venta", venta.v4, venta.LEE_V4,
+          solo_texto=venta.SOLO_TEXTO_V4, severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="La tarifa de una línea de venta no es la de venta pactada (ni por encima "
+                      "ni por debajo). Sin tarifa pactada, sin datos hasta el planning."),
+    # Ordenes de compra (paso 9)
+    Regla("P1", "PO no válida", "ordenes", ordenes.p1, ordenes.LEE_P1,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
+          entrada_prioridad=_P.LIMITE_PO.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="La PO a la que se imputa la factura está cerrada, o el trabajo cae fuera "
+                      "de su vigencia (que sea de la parte y cubra el Objeto lo mira P3)."),
+    Regla("P2", "Falta la PO", "ordenes", ordenes.p2, ordenes.LEE_P2, severidad=R, anulable=True,
+          entrada_prioridad=_P.LIMITE_PO.value, calidad=_C.FALTANTE.value,
+          descripcion="Una venta sin PO donde el Objeto (o, si no lo dice, el cliente) la pide."),
+    Regla("P3", "PO desconocida o de otro", "ordenes", ordenes.p3, ordenes.LEE_P3,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
+          entrada_prioridad=_P.LIMITE_PO.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="La PO que dice la factura no está registrada, es de otra parte o no "
+                      "cubre el Objeto de la línea."),
+    Regla("P4", "Factura por encima de lo que queda", "ordenes", ordenes.p4, ordenes.LEE_CARGOS,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True, pegajosa=True,
+          entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value,
+          descripcion="La factura carga a la PO más de lo que le quedaba antes de ella (por "
+                      "fecha de factura y por id), sin IVA."),
+    Regla("P5", "PO casi consumida", "ordenes", ordenes.p5, ordenes.LEE_P5,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
+          calidad=_C.ANOMALIA.value, ambito=_PO,
+          descripcion="La PO lleva consumido el porcentaje de la política (80 %) o más."),
+    Regla("P6", "PO consumida y se sigue facturando", "ordenes", ordenes.p6, ordenes.LEE_CARGOS,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
+          entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value,
+          descripcion="La PO ya estaba consumida entera antes de la factura, y la factura le "
+                      "carga más."),
+    Regla("P7", "PO a punto de caducar", "ordenes", ordenes.p7, ordenes.LEE_P7,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=A, anulable=True,
+          entrada_prioridad=_P.CADUCIDAD_PO.value, calidad=_C.ANOMALIA.value, ambito=_PO,
+          descripcion="La PO caduca dentro de los días de la política (30) con valor por "
+                      "consumir. Caducada, lo que diga el planning (paso 10)."),
+    Regla("P8", "Planificado por encima de lo que queda", "ordenes", ordenes.p8, ordenes.LEE_P8,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
+          calidad=_C.ANOMALIA.value, ambito=_PO,
+          descripcion="El trabajo planificado por la tarifa pactada pasa lo que queda de la PO "
+                      "(sin datos hasta el planning)."),
+    Regla("P9", "PO que se agota antes de tiempo", "ordenes", ordenes.p9, ordenes.LEE_P9,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
+          calidad=_C.ANOMALIA.value, ambito=_PO,
+          descripcion="Al ritmo de las últimas semanas (8), la PO se agota antes de los días de "
+                      "margen (14) de su fin."),
+    Regla("P10", "Esperado por encima de la PO", "ordenes", ordenes.p10, ordenes.LEE_P10,
+          solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
+          entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value, ambito=_PO,
+          descripcion="Lo facturado más lo trabajado sin facturar más lo planificado pasa el "
+                      "valor de la PO (sin datos hasta el planning)."),
     # Relaciones y anomalias
     Regla("R1", "Factura nombrada que no está", "relaciones", relaciones.EVALUAR["R1"],
           relaciones.LEE_R1, severidad=R, anulable=True, calidad=_C.FALTANTE.value,

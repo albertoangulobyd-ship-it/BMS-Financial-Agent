@@ -17,7 +17,9 @@ los demas modulos y lo deja en una fila que se puede filtrar con SQL:
   los pesos con que se calculo.
 
 Y en la cache prioridad, la de cada excepcion sin resolver y la de cada
-proveedor, cliente, Objeto y trimestre (el maximo de sus facturas).
+proveedor, cliente, Objeto y trimestre (el maximo de sus facturas). Desde el
+paso 9 tambien la de cada orden de compra: el maximo de las facturas imputadas
+a ella y de sus propios avisos (P5, P7-P10, que no son de ninguna factura).
 
 Son caches: se pueden borrar y rehacer, y no son la fuente de nada. Solo se
 reescribe lo que cambia, como la cache de evaluaciones: una fila que no
@@ -43,6 +45,7 @@ from .auditoria import registrar
 from .campos import FaltaMotivo, Persona
 from .dominio import (
     ESTADOS_PENDIENTES,
+    SENTIDO_DE_LADO,
     Calidad,
     EntradaPrioridad,
     EstadoPago,
@@ -304,8 +307,10 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     facturas = _facturas(conn, tolerancia_cent(reglas_.tolerancia_pago))
     # Sin facturas puede haber trabajo: desde el paso 5, excepciones de una
     # importacion o de un proveedor (F0, F5, Z2...), con su prioridad.
-    if not facturas and conn.execute("SELECT 1 FROM excepcion WHERE estado <> 'resuelta' "
-                                     "LIMIT 1").fetchone() is None:
+    if not facturas and conn.execute(
+            "SELECT 1 FROM excepcion WHERE estado <> 'resuelta' UNION ALL "
+            "SELECT 1 FROM hallazgo WHERE tabla = 'orden_compra' "
+            "AND estado IN ('abierto', 'desaparecido') LIMIT 1").fetchone() is None:
         return cambios
     # Los pesos con que se calcula quedan siempre en politica_version: si no se
     # cargo ningun fichero, se apuntan los del codigo la primera vez que se usan.
@@ -466,6 +471,14 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
         f = por_id_factura.get(factura_id)
         if f is not None and f.id in en_juego:
             hijas[("objeto", objeto_id)].append(_hija(f, resultados[f.id]))
+    for factura_id, po_id in _filas(
+            conn, "SELECT DISTINCT factura_id, orden_compra_id FROM factura_imputacion "
+                  "WHERE orden_compra_id IS NOT NULL AND retirada_en IS NULL ORDER BY 1, 2"):
+        f = por_id_factura.get(factura_id)
+        if f is not None and f.id in en_juego:
+            hijas[("orden_compra", po_id)].append(_hija(f, resultados[f.id]))
+    for po_id, hija in _avisos_de_po(conn, por_id, hoy, pesos):
+        hijas[("orden_compra", po_id)].append(hija)
     for entidad, lista in sorted(hijas.items()):
         agregada = prioridad.agregar(lista, hoy, subidas.get(entidad, ()))
         if agregada is None:
@@ -474,6 +487,35 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
                                agregada.importe_cent,
                                [[h.id, h.resultado.nivel, h.resultado.puntos] for h in lista]
                                + [agregada.resultado.nivel])
+    return salida
+
+
+def _avisos_de_po(conn: sqlite3.Connection, por_id: dict[int, Hallazgo], hoy: date,
+                  pesos: Pesos) -> list[tuple[int, Hija]]:
+    """Lo que piden los hallazgos de la PO entera (P5, P7-P10), como una hija mas de la PO.
+
+    Se calcula como una factura sin plazo ni importe: su suelo (una
+    retencion pone Atencion) y sus puntos de limite y de caducidad de PO (los
+    dias que le quedan, de P7). Una PO sin nada de eso no aporta nada.
+    """
+    de_po: dict[int, list[Hallazgo]] = defaultdict(list)
+    for hallazgo_id, po_id in _filas(
+            conn, "SELECT id, fila_id FROM hallazgo WHERE tabla = 'orden_compra' "
+                  "AND estado IN ('abierto', 'desaparecido') ORDER BY id"):
+        if hallazgo_id in por_id:
+            de_po[po_id].append(por_id[hallazgo_id])
+    if not de_po:
+        return []
+    salida = []
+    for po_id, lado, numero in _filas(conn, "SELECT id, lado, numero FROM orden_compra "
+                                            "ORDER BY id"):
+        if po_id not in de_po:
+            continue
+        resultado = prioridad.calcular(Entradas(sentido=SENTIDO_DE_LADO[lado],
+                                                hallazgos=tuple(de_po[po_id]), revisada=True),
+                                       hoy, pesos)
+        if resultado.nivel != prioridad.NORMAL or resultado.puntos:
+            salida.append((po_id, Hija(po_id, resultado, None, None, f"la PO {numero}")))
     return salida
 
 

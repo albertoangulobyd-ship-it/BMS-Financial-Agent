@@ -509,6 +509,12 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"personas": consultas.personas(conn)})
                 elif partes == ["objetos"]:
                     self._json(200, {"objetos": consultas.objetos(conn)})
+                elif len(partes) == 2 and partes[0] == "objetos" and partes[1].isdigit():
+                    self._json(200, {"objeto": consultas.objeto(conn, int(partes[1]))})
+                elif partes == ["ordenes"]:
+                    self._json(200, {"ordenes": consultas.ordenes_compra(conn)})
+                elif len(partes) == 2 and partes[0] == "ordenes" and partes[1].isdigit():
+                    self._json(200, {"orden": consultas.orden_compra(conn, int(partes[1]))})
                 elif partes == ["fuentes"]:
                     self._json(200, {"fuentes": consultas.fuentes(conn)})
                 elif partes == ["cuentas"]:
@@ -661,8 +667,8 @@ def servir(
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print("  GET  /consola         consola interna (se entra con el token personal)")
-    print("  GET  /api/v2/...      facturas, ficha, excepciones, proveedores, clientes "
-          "(token personal)")
+    print("  GET  /api/v2/...      facturas, ficha, excepciones, proveedores, clientes, "
+          "ordenes de compra, Objetos (token personal)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")
