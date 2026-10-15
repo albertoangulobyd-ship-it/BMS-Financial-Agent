@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import campos, cuentas, estados, excepciones, hallazgos, pagos, revision
+from . import campos, cuentas, estados, excepciones, hallazgos, pagos, relaciones, revision
 from .almacen import reloj_de
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb, json_canonico, sha256_texto
 from .auditoria import registrar
@@ -195,23 +195,32 @@ _GRUPO_TRANSICION = {
 
 
 def _foto_totales(conn: sqlite3.Connection) -> dict[int, tuple]:
-    """Lo que entra en los totales de cada factura, para comparar antes y despues."""
+    """Lo que entra en los totales de cada factura, para comparar antes y despues.
+
+    Desde el paso 8, tambien si otra factura la sustituye o la corrige con una
+    relacion confirmada: entonces sale de los totales, como una anulada.
+    """
     return {f[0]: tuple(f[1:]) for f in conn.execute(
-        "SELECT id, sentido, proveedor_id, cliente_id, base_cent, iva_cent, total_cent, anulada, "
-        "fusionada_en_id, moneda_doc FROM factura")}
+        "SELECT f.id, f.sentido, f.proveedor_id, f.cliente_id, f.base_cent, f.iva_cent, "
+        "f.total_cent, f.anulada, f.fusionada_en_id, f.moneda_doc, EXISTS ("
+        "  SELECT 1 FROM factura_relacion AS r WHERE r.destino_id = f.id "
+        "  AND r.estado = 'confirmada' AND r.retirada_en IS NULL "
+        "  AND r.tipo IN ('sustituye', 'corrige')) FROM factura AS f")}
 
 
 _COLUMNAS_TOTAL = ("base_cent", "iva_cent", "total_cent")
 
 
 def _cuenta(fila: tuple) -> bool:
-    """Si una factura suma en los totales: ni anulada, ni fusionada, ni en otra moneda.
+    """Si una factura suma en los totales: ni anulada, ni fusionada, ni sustituida, ni en otra
+    moneda.
 
     La moneda se mira como X1 (moneda_extranjera): una extraccion v2 guarda
     "EUR" en moneda_doc, y eso es euros, no otra moneda.
     """
-    _sentido, _p, _c, _b, _i, _t, anulada, fusionada, moneda = fila
-    return not anulada and fusionada is None and moneda_extranjera(moneda) is None
+    _sentido, _p, _c, _b, _i, _t, anulada, fusionada, moneda, sustituida = fila
+    return (not anulada and fusionada is None and not sustituida
+            and moneda_extranjera(moneda) is None)
 
 
 def _totales(antes: dict[int, tuple], despues: dict[int, tuple]) -> list[dict[str, Any]]:
@@ -418,7 +427,7 @@ def _validar(accion: Accion, datos: Mapping[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------ ayudas
 
 _TABLAS_DE_FACTURA = ("factura", "factura_linea", "factura_imputacion", "factura_iva",
-                      "factura_referencia")
+                      "factura_referencia", "factura_cita")
 # Lo que tiene su propia orden: alli se comprueba lo que la edicion suelta no.
 _CAMPOS_CON_ORDEN = {
     ("factura", "anulada"): "anular_factura",
@@ -781,7 +790,87 @@ def _fusionar_factura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
                              tipo="factura_fusionada", rev_esperada=d["rev"],
                              datos=ctx.datos_evento)
     return Hecho(resultado.evento_id, {d["factura_id"], d["destino_id"]},
-                 {"cerrar_b2": [d["factura_id"], d["destino_id"]]})
+                 {"cerrar_duplicados": {"facturas": [d["factura_id"], d["destino_id"]],
+                                        "reglas": ["B2"]}})
+
+
+def _deshacer_fusion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Deshacer una fusion: la factura vuelve a contar sola (paso 8).
+
+    Es lo que corrige una copia que el sistema unio a una venta de Exact sin
+    serlo (relaciones.sincronizar): el valor queda puesto por una persona y el
+    sistema no la vuelve a unir. Si las dos siguen teniendo el mismo numero, M3
+    lo dice hasta que alguien lo mire.
+    """
+    _motivo(ctx, "deshacer una fusion")
+    fila = ctx.conn.execute("SELECT fusionada_en_id FROM factura WHERE id = ?",
+                            (d["factura_id"],)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay factura {d['factura_id']}")
+    if fila[0] is None:
+        raise DatosNoValidos(f"la factura {d['factura_id']} no esta fusionada en ninguna")
+    resultado = campos.fijar(ctx.conn, "factura", d["factura_id"], {"fusionada_en_id": None},
+                             ctx.persona, tipo="fusion_deshecha", rev_esperada=d["rev"],
+                             datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, {d["factura_id"], fila[0]})
+
+
+# ------------------------------------------------------------ relaciones (paso 8)
+
+# Los duplicados que una relacion confirmada explica: quien enlaza o confirma la
+# pareja los cierra en la misma orden (son pegajosos: si no, quedarian
+# desaparecidos esperando a otra persona). Solo los de esa pareja y que
+# desaparecen por esta orden; R3 no, porque se va al anular o abonar la original,
+# que es otra orden y otra pareja, y lo cierra quien mira su evidencia.
+_CIERRA_UNA_RELACION = ["B2", "B3", "B4", "V7"]
+
+
+def _enlazar_facturas(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Enlazar a mano dos facturas: un abono, una correccion o una sustitucion, confirmada."""
+    importe = (valor_de_entrada(campos.campo("factura_relacion", "importe_cent"), d["importe"])
+               if d.get("importe") is not None else None)
+    resultado = relaciones.enlazar(ctx.conn, ctx.persona, origen_id=d["origen_id"],
+                                   destino_id=d["destino_id"], tipo=d["tipo"], importe=importe,
+                                   datos=ctx.datos_evento)
+    creada = next((i for t, i in resultado.creadas if t == "factura_relacion"), None)
+    pareja = [d["origen_id"], d["destino_id"]]
+    return Hecho(resultado.evento_id, set(pareja),
+                 {"relacion_id": creada,
+                  "cerrar_duplicados": {"facturas": pareja, "reglas": _CIERRA_UNA_RELACION}})
+
+
+def _pareja_de(conn: sqlite3.Connection, relacion_id: int) -> list[int]:
+    fila = conn.execute("SELECT origen_id, destino_id FROM factura_relacion WHERE id = ?",
+                        (relacion_id,)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay relacion {relacion_id}")
+    return [fila[0], fila[1]]
+
+
+def _confirmar_relacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Confirmar una relacion propuesta (por la extraccion o por Exact): desde ahora mueve."""
+    pareja = _pareja_de(ctx.conn, d["relacion_id"])
+    importe = (valor_de_entrada(campos.campo("factura_relacion", "importe_cent"), d["importe"])
+               if d.get("importe") is not None else None)
+    resultado = relaciones.confirmar(ctx.conn, ctx.persona, relacion_id=d["relacion_id"],
+                                     rev=d["rev"], tipo=d.get("tipo"), importe=importe,
+                                     datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, set(pareja),
+                 {"cerrar_duplicados": {"facturas": pareja, "reglas": _CIERRA_UNA_RELACION}})
+
+
+def _rechazar_relacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    pareja = _pareja_de(ctx.conn, d["relacion_id"])
+    resultado = relaciones.rechazar(ctx.conn, ctx.persona, relacion_id=d["relacion_id"],
+                                    rev=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, set(pareja))
+
+
+def _retirar_relacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    pareja = _pareja_de(ctx.conn, d["relacion_id"])
+    resultado = relaciones.retirar(ctx.conn, ctx.persona, relacion_id=d["relacion_id"],
+                                   rev=d["rev"], datos=ctx.datos_evento)
+    return Hecho(resultado.evento_id, set(pareja))
 
 
 # ------------------------------------------------------------ revision
@@ -1344,6 +1433,34 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Fusionar un reenvio duplicado en su factura.",
            (_p("factura_id"), _p("destino_id"), _p("rev"), _MOTIVO), _fusionar_factura,
            motivo="obligatorio", rev=True),
+    Accion("deshacer_fusion", P.ANULAR_ACREDITAR.value,
+           "Deshacer una fusion (tambien la de una copia en PDF unida a su venta de Exact): "
+           "vuelve a contar sola y el sistema no la vuelve a unir.",
+           (_p("factura_id"), _p("rev"), _MOTIVO), _deshacer_fusion, motivo="obligatorio",
+           rev=True),
+    Accion("enlazar_facturas", P.ANULAR_ACREDITAR.value,
+           "Enlazar dos facturas: un abono que acredita o anula otra, una que la corrige o la "
+           "sustituye, o solo relacionadas. Entra confirmada y mueve saldos, IVA y duplicados.",
+           (_p("origen_id", ayuda="el abono, la que corrige o la que sustituye"),
+            _p("destino_id", ayuda="la original"),
+            _p("tipo", TEXTO, ayuda="acredita, anula, corrige, sustituye o relacionada"),
+            _p("importe", VALOR, False, "lo que acredita un abono parcial; por defecto, todo"),
+            _MOTIVO),
+           _enlazar_facturas, motivo="obligatorio"),
+    Accion("confirmar_relacion", P.ANULAR_ACREDITAR.value,
+           "Confirmar una relación que propuso la extracción o Exact (se puede corregir su "
+           "tipo o su importe al confirmarla).",
+           (_p("relacion_id"), _p("tipo", TEXTO, False), _p("importe", VALOR, False), _p("rev"),
+            _MOTIVO),
+           _confirmar_relacion, motivo="obligatorio", rev=True),
+    Accion("rechazar_relacion", P.ANULAR_ACREDITAR.value,
+           "Rechazar una relación propuesta: no mueve nada y no se vuelve a proponer.",
+           (_p("relacion_id"), _p("rev"), _MOTIVO), _rechazar_relacion, motivo="obligatorio",
+           rev=True),
+    Accion("retirar_relacion", P.ANULAR_ACREDITAR.value,
+           "Retirar una relación (también una confirmada): deja de mover nada. No se borra.",
+           (_p("relacion_id"), _p("rev"), _MOTIVO), _retirar_relacion, motivo="obligatorio",
+           rev=True),
     Accion("marcar_revisada", P.REVISAR_FACTURA.value,
            "Dar una factura por revisada (no aprueba ningun pago).",
            (_p("factura_id"), _p("huella", TEXTO), _MOTIVO), _marcar_revisada),
@@ -1513,9 +1630,11 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
             ambito = hecho.detalle.pop("cerrar_f", None)
             if ambito:
                 cerrados += _cerrar_f(conn, persona, recalculo, hecho.evento_id, ambito)
-            cerrar = hecho.detalle.pop("cerrar_b2", None)
+            cerrar = hecho.detalle.pop("cerrar_duplicados", None)
             if cerrar:
-                cerrados += _cerrar_b2(conn, persona, cerrar, recalculo, hecho.evento_id)
+                cerrados += _cerrar_duplicados(conn, persona, cerrar["facturas"],
+                                               frozenset(cerrar["reglas"]), recalculo,
+                                               hecho.evento_id)
             if cerrados:
                 hecho.hallazgos.extend(cerrados)
                 recalculo = _juntar(recalculo, hallazgos.recalcular(
@@ -1525,32 +1644,34 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
     return _diferencia(nombre, hecho, recalculo, antes, despues)
 
 
-def _cerrar_b2(conn: sqlite3.Connection, persona: Persona, pareja: list[int],
-               recalculo: hallazgos.Diferencia, evento_id: int | None) -> list[dict[str, Any]]:
-    """Los B2 que esta fusion hizo desaparecer, cerrados por quien fusiono (si puede).
+def _cerrar_duplicados(conn: sqlite3.Connection, persona: Persona, pareja: list[int],
+                       reglas: frozenset[str], recalculo: hallazgos.Diferencia,
+                       evento_id: int | None) -> list[dict[str, Any]]:
+    """Los duplicados que esta fusion o esta relacion hicieron desaparecer, cerrados por quien
+    fusiono o enlazo (si puede).
 
-    Solo los que desaparecieron en la pasada de esta orden, con ella como
-    causa, y cuyas facturas son la fusionada y su destino. Un B2 que ya
-    estaba desaparecido (otro duplicado de una de las dos, que alguien
-    corrigio) espera a que una persona mire su evidencia y lo cierre: si no,
-    la fusion lo cerraba con su motivo sin que nadie lo hubiera visto.
+    Solo los de esas reglas que desaparecieron en la pasada de esta orden, con
+    ella como causa, y cuyas facturas son las dos de la orden. Un duplicado
+    que ya estaba desaparecido (otro de una de las dos, que alguien corrigio)
+    espera a que una persona mire su evidencia y lo cierre: si no, la orden
+    lo cerraba con su motivo sin que nadie lo hubiera visto.
     """
     if not tiene(conn, persona.usuario_id, Permiso.RESOLVER_AVISO.value):
         return []
     cerrados = []
     for t in recalculo.transiciones:
-        if t.regla != "B2" or t.tipo != "desaparecido" or t.causa_evento_id != evento_id:
+        if t.regla not in reglas or t.tipo != "desaparecido" or t.causa_evento_id != evento_id:
             continue
         cubiertas = {t.factura_id} | {f[0] for f in conn.execute(
             "SELECT fila_id FROM hallazgo_objetivo WHERE hallazgo_id = ? AND tabla = 'factura'",
             (t.hallazgo_id,))}
         if not cubiertas - {None} <= set(pareja):
             continue
-        motivo = (persona.motivo or "").strip() or "fusionada en su factura"
+        motivo = (persona.motivo or "").strip() or "explicado por la fusion o la relacion"
         hallazgos.resolver(conn, t.hallazgo_id, Persona(persona.usuario_id, motivo),
-                           datos={"por_fusion": True})
+                           datos={"por_fusion_o_relacion": True})
         evento = conn.execute("SELECT max(id) FROM evento").fetchone()[0]
-        cerrados.append({"hallazgo_id": t.hallazgo_id, "regla": "B2",
+        cerrados.append({"hallazgo_id": t.hallazgo_id, "regla": t.regla,
                          "factura_id": t.factura_id, "clave": t.clave,
                          "tipo": "resuelto", "causa_evento_id": evento})
     return cerrados

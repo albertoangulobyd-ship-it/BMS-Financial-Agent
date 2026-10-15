@@ -13,6 +13,9 @@ tal cual, como datos: quien lo pinta lo pone como texto (consola_assets.py,
 textContent), nunca como HTML. Los importes van en enteros (centimos, ...) y
 tambien como texto ya formateado.
 
+Desde el paso 8, ademas, la vista de cada proveedor (§3) y de cada cliente
+(§4), y las relaciones de una factura en su ficha.
+
 Lo que el §12 pide de busqueda y filtros (§18) y el resto de vistas son del
 paso 12; aqui esta lo que la consola minima necesita.
 """
@@ -22,11 +25,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from . import campos, excepciones, hallazgos, prioridad, revision
+from . import campos, excepciones, hallazgos, prioridad, relaciones, revision
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb
 from .dominio import ESTADOS_PENDIENTES, FUENTES_MANUALES, Calidad
 
@@ -340,6 +344,13 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
                                               pendientes_campo),
         "pide_revision": revision.lo_que_pide_revision(conn, factura_id),
         "revisiones": revisiones, "notas": notas, "historia": historia,
+        # Paso 8: con que otras facturas esta relacionada (propuesto, confirmado o
+        # rechazado) y que facturas nombra el documento.
+        "relaciones": relaciones.de_factura(conn, factura_id),
+        "citas": [{"id": c["id"], "numero": c["numero_doc"], "relacion": c["relacion_doc"],
+                   "texto": c["texto_doc"], "retirada": c["retirada_en"] is not None}
+                  for c in conn.execute("SELECT * FROM factura_cita WHERE factura_id = ? "
+                                        "ORDER BY id", (factura_id,))],
     }
 
 
@@ -428,3 +439,350 @@ def fuentes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             "limite": limite, "caducada": None if limite is None else dias > limite,
         })
     return salida
+
+
+# ------------------------------------------------------------ paso 8: proveedores y clientes
+#
+# La vista de un proveedor (§3) y la de un cliente (§4): lo pendiente, lo
+# vencido, lo facturado y lo pagado (del ano y de siempre), lo gastado o
+# facturado y las horas por Objeto, el historial de facturas y de pagos, el
+# importe tipico, el plazo de pago y los retrasos, y los avisos activos.
+#
+# Sale de lo mismo que las reglas y la cache de estado (estados.facturas: el
+# vencimiento efectivo, el saldo con la fuente que manda y lo acreditado por
+# los abonos confirmados), con el `hoy` del reloj del almacen: por eso lo
+# pendiente de un proveedor es, por construccion, la suma de lo pendiente de
+# sus facturas abiertas. Solo cuenta lo que cuenta: ni anuladas, ni copias
+# fusionadas, ni sustituidas o corregidas por otra (el historial las ensena
+# con su estado). El ano es el natural, por la fecha de la factura (lo
+# facturado) o la del pago (lo pagado). En una venta, "pagado" es lo cobrado.
+
+_PARTES = {"proveedor": ("entrante", "proveedor_id"), "cliente": ("saliente", "cliente_id")}
+
+
+def _euros(cent: int | None) -> str | None:
+    return texto_de(campos.campo("factura", "total_cent"), cent)
+
+
+def _horas_texto(mil: int | None) -> str | None:
+    return texto_de(campos.campo("factura_imputacion", "horas_mil"), mil)
+
+
+def _cuenta(f: Any) -> bool:
+    """Si una factura cuenta en los totales: ni anulada, ni copia, ni sustituida."""
+    return not (f.anulada or f.fusionada or f.sustituida)
+
+
+def _mediana(valores: list[int]) -> int | None:
+    if not valores:
+        return None
+    orden = sorted(valores)
+    mitad = len(orden) // 2
+    return orden[mitad] if len(orden) % 2 else (orden[mitad - 1] + orden[mitad]) // 2
+
+
+def _media(valores: list[int]) -> int | None:
+    return (sum(valores) + len(valores) // 2) // len(valores) if valores else None
+
+
+@dataclass(frozen=True)
+class _Lectura:
+    """Lo que leen todas las vistas, una vez: hoy, las facturas y sus pagos."""
+
+    hoy: date
+    facturas: list[Any]
+    pagos: dict[int, list[Any]]
+
+    def de(self, columna: str, parte_id: int) -> list[Any]:
+        return [f for f in self.facturas if getattr(f, columna) == parte_id]
+
+    def pagos_de(self, f: Any) -> list[Any]:
+        """Los pagos de la fuente que manda en esa factura (banco, Exact o a mano)."""
+        return [a for a in self.pagos.get(f.id, ()) if a.estado == "confirmada"
+                and a.fuente == f.fuente_pago]
+
+
+def _leer(conn: sqlite3.Connection) -> _Lectura:
+    from . import estados, politica
+    from .almacen import reloj_de
+    from .reglas import instantanea
+    from .reglas.pagos import tolerancia_cent
+
+    tolerancia = tolerancia_cent(politica.politica_reglas(conn).tolerancia_pago)
+    pagos: dict[int, list[Any]] = defaultdict(list)
+    for a in instantanea.aplicaciones(conn):
+        pagos[a.factura_id].append(a)
+    return _Lectura(reloj_de(conn).hoy(), estados.facturas(conn, tolerancia), pagos)
+
+
+def _abiertas(lectura: _Lectura, facturas: list[Any]) -> list[Any]:
+    """Las facturas que se deben (o nos deben): pendientes o vencidas, con su saldo en euros."""
+    from .estados import EN_JUEGO
+
+    return [f for f in facturas if _cuenta(f) and f.pendiente_cent is not None
+            and f.estado(lectura.hoy) in EN_JUEGO]
+
+
+def _sumas(facturas: list[Any], campo: str) -> int:
+    return sum(getattr(f, campo) or 0 for f in facturas)
+
+
+def _resumen(conn: sqlite3.Connection, lectura: _Lectura, facturas: list[Any]) -> dict[str, Any]:
+    """Los importes de una contraparte: pendiente, vencido, del ano y de siempre."""
+    from .estados import VENCIDA
+
+    hoy = lectura.hoy
+    cuentan = [f for f in facturas if _cuenta(f)]
+    abiertas = _abiertas(lectura, facturas)
+    vencidas = [f for f in abiertas if f.estado(hoy) == VENCIDA]
+    del_ano = [f for f in cuentan if f.fecha_factura is not None
+               and f.fecha_factura.year == hoy.year]
+    bases = _bases(conn, [f.id for f in cuentan])
+    pagos = [a for f in cuentan for a in lectura.pagos_de(f)]
+    pagado_ano = sum(a.importe_cent for a in pagos if a.fecha_pago.year == hoy.year)
+    pendiente = _sumas(abiertas, "pendiente_cent")
+    vencido = _sumas(vencidas, "pendiente_cent")
+    return {
+        "facturas": len(cuentan),
+        "pendiente_cent": pendiente, "pendiente": _euros(pendiente), "abiertas": len(abiertas),
+        "vencido_cent": vencido, "vencido": _euros(vencido), "vencidas": len(vencidas),
+        "ano": hoy.year,
+        "ano_facturado": _totales(del_ano, bases), "ano_pagado_cent": pagado_ano,
+        "ano_pagado": _euros(pagado_ano),
+        "siempre_facturado": _totales(cuentan, bases),
+        "siempre_pagado_cent": sum(a.importe_cent for a in pagos),
+        "siempre_pagado": _euros(sum(a.importe_cent for a in pagos)),
+        "sin_importe": sum(1 for f in cuentan if f.total_cent is None),
+    }
+
+
+def _bases(conn: sqlite3.Connection, ids: list[int]) -> dict[int, tuple[Any, Any, str]]:
+    """(base, IVA, tipo) de cada factura: el total ya lo trae estados.facturas."""
+    salida = {}
+    for inicio in range(0, len(ids), 500):
+        trozo = ids[inicio:inicio + 500]
+        for id_, base, iva, tipo in conn.execute(
+                f"SELECT id, base_cent, iva_cent, tipo FROM factura WHERE id IN "
+                f"({', '.join('?' * len(trozo))})", trozo):
+            salida[id_] = (base, iva, tipo)
+    return salida
+
+
+def _totales(facturas: list[Any], bases: dict[int, tuple[Any, Any, str]]) -> dict[str, Any]:
+    base = sum(bases[f.id][0] or 0 for f in facturas)
+    iva = sum(bases[f.id][1] or 0 for f in facturas)
+    total = _sumas(facturas, "total_cent")
+    return {"facturas": len(facturas), "base_cent": base, "iva_cent": iva, "total_cent": total,
+            "base": _euros(base), "total": _euros(total)}
+
+
+def _plazos(lectura: _Lectura, facturas: list[Any]) -> dict[str, Any]:
+    """Cuanto se tarda en pagar (o en cobrar) y los pagos que llegaron tarde.
+
+    Una factura cuenta si esta pagada (saldada con dinero, no solo con un
+    abono): su dia de pago es el del ultimo pago de la fuente que manda. Llega
+    tarde si ese dia es posterior a su vencimiento efectivo.
+    """
+    dias, tarde = [], []
+    for f in facturas:
+        pagos = lectura.pagos_de(f)
+        if not (_cuenta(f) and f.pagada and pagos and f.fecha_factura is not None):
+            continue
+        pagada_el = max(a.fecha_pago for a in pagos)
+        dias.append((pagada_el - f.fecha_factura).days)
+        if f.vencimiento is not None and pagada_el > f.vencimiento:
+            tarde.append({"factura_id": f.id, "numero": f.numero,
+                          "vencimiento": f.vencimiento.isoformat(),
+                          "pagada_el": pagada_el.isoformat(),
+                          "dias": (pagada_el - f.vencimiento).days})
+    tarde.sort(key=lambda t: t["pagada_el"], reverse=True)
+    return {"pagadas": len(dias), "media_dias": _media(dias), "mediana_dias": _mediana(dias),
+            "tarde": len(tarde), "media_dias_tarde": _media([t["dias"] for t in tarde]),
+            "retrasos": tarde}
+
+
+def _importe_tipico(conn: sqlite3.Connection, facturas: list[Any]) -> dict[str, Any]:
+    """La media y la mediana de lo que vale una factura (sin IVA; los abonos no cuentan)."""
+    bases = _bases(conn, [f.id for f in facturas])
+    importes = []
+    for f in facturas:
+        base, _iva, tipo = bases[f.id]
+        importe = base if base is not None else f.total_cent
+        if _cuenta(f) and tipo == "factura" and importe is not None:
+            importes.append(importe)
+    media, mediana = _media(importes), _mediana(importes)
+    return {"facturas": len(importes), "media_cent": media, "media": _euros(media),
+            "mediana_cent": mediana, "mediana": _euros(mediana)}
+
+
+def _por_objeto(conn: sqlite3.Connection, columna: str, parte_id: int,
+                hoy: date) -> list[dict[str, Any]]:
+    """Lo gastado (o facturado) y las horas por Objeto, de las imputaciones que cuentan."""
+    filas = conn.execute(
+        f"SELECT i.objeto_id, o.codigo, o.nombre, sum(coalesce(i.importe_cent, 0)) AS importe, "
+        f"sum(coalesce(i.horas_mil, 0)) AS horas, "
+        f"sum(CASE WHEN substr(i.fecha_factura, 1, 4) = ? THEN coalesce(i.importe_cent, 0) "
+        f"ELSE 0 END) AS importe_ano, count(DISTINCT i.factura_id) AS facturas "
+        f"FROM v_imputacion_vigente AS i LEFT JOIN objeto AS o ON o.id = i.objeto_id "
+        f"WHERE i.{columna} = ? GROUP BY i.objeto_id ORDER BY importe DESC, o.codigo",
+        (str(hoy.year), parte_id)).fetchall()
+    return [{"objeto_id": f["objeto_id"], "objeto": f["codigo"] or "(sin Objeto)",
+             "nombre": f["nombre"], "facturas": f["facturas"],
+             "importe_cent": f["importe"], "importe": _euros(f["importe"]),
+             "importe_ano_cent": f["importe_ano"], "horas_mil": f["horas"],
+             "horas": _horas_texto(f["horas"])} for f in filas]
+
+
+def _historial(conn: sqlite3.Connection, lectura: _Lectura,
+               facturas: list[Any]) -> list[dict[str, Any]]:
+    """Todas sus facturas (sin las copias fusionadas), la mas reciente primero, con su estado."""
+    bases = _bases(conn, [f.id for f in facturas])
+    salida = []
+    for f in sorted((f for f in facturas if not f.fusionada),
+                    key=lambda f: (f.fecha_factura or date.min, f.id), reverse=True):
+        salida.append({
+            "id": f.id, "numero": f.numero, "tipo": bases[f.id][2],
+            "fecha_factura": f.fecha_factura.isoformat() if f.fecha_factura else None,
+            "vencimiento": f.vencimiento.isoformat() if f.vencimiento else None,
+            "total_cent": f.total_cent, "total": _euros(f.total_cent),
+            "pagado_cent": f.pagado_cent, "acreditado_cent": f.acreditado_cent,
+            "pendiente_cent": f.pendiente_cent if _cuenta(f) else None,
+            "estado_pago": f.estado(lectura.hoy), "cuenta": _cuenta(f),
+            "sustituida": f.sustituida,
+        })
+    return salida
+
+
+def _pagos(lectura: _Lectura, facturas: list[Any]) -> list[dict[str, Any]]:
+    """Cada pago (o cobro) de sus facturas, de la fuente que manda, el mas reciente primero."""
+    salida = [{"aplicacion_id": a.id, "factura_id": f.id, "numero": f.numero,
+               "fecha": a.fecha_pago.isoformat(), "importe_cent": a.importe_cent,
+               "importe": _euros(a.importe_cent), "fuente": a.fuente,
+               "movimiento_id": a.movimiento_id}
+              for f in facturas if _cuenta(f) for a in lectura.pagos_de(f)]
+    salida.sort(key=lambda p: (p["fecha"], p["aplicacion_id"]), reverse=True)
+    return salida
+
+
+def _avisos(conn: sqlite3.Connection, tabla: str, parte_id: int,
+            facturas: list[Any]) -> dict[str, Any]:
+    """Los hallazgos sin cerrar de sus facturas y de el mismo, y sus excepciones abiertas."""
+    ids = {f.id for f in facturas}
+    marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
+    apuntan = {f[0] for f in conn.execute(
+        "SELECT hallazgo_id FROM hallazgo_objetivo WHERE tabla = ? AND fila_id = ?",
+        (tabla, parte_id))}
+    hallazgos_ = []
+    for h in conn.execute(
+            f"SELECT * FROM hallazgo WHERE estado IN ({marcas}) ORDER BY id",
+            sorted(ESTADOS_PENDIENTES)):
+        if (h["factura_id"] in ids or (h["tabla"] == tabla and h["fila_id"] == parte_id)
+                or h["id"] in apuntan):
+            hallazgos_.append({"id": h["id"], "regla": h["regla"], "titulo": h["titulo"],
+                               "detalle": h["detalle"], "severidad": h["severidad"],
+                               "estado": h["estado"], "factura_id": h["factura_id"]})
+    excepciones_ = [{"id": e["id"], "estado": e["estado"], "titulo": e["titulo"]}
+                    for e in conn.execute(
+                        "SELECT id, estado, titulo FROM excepcion WHERE estado <> 'resuelta' "
+                        "AND ((tabla = ? AND fila_id = ?) OR (tabla = 'factura' AND fila_id IN "
+                        f"({', '.join('?' * len(ids)) or 'NULL'}))) ORDER BY id",
+                        (tabla, parte_id, *sorted(ids)))]
+    activos = [h for h in hallazgos_ if h["estado"] != "aceptado"]
+    return {"activos": len(activos), "aceptados": len(hallazgos_) - len(activos),
+            "bloqueos": sum(1 for h in activos if h["severidad"] == "bloqueo"),
+            "hallazgos": hallazgos_, "excepciones": excepciones_}
+
+
+def _ibanes(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
+    """Las cuentas del registro (con su estado) y los IBAN que han impreso sus facturas."""
+    from .reglas.normas import normalizar_iban
+
+    impresos: dict[str, dict[str, Any]] = {}
+    for iban, fecha in conn.execute(
+            "SELECT iban_doc, fecha_factura FROM factura WHERE proveedor_id = ? "
+            "AND iban_doc IS NOT NULL ORDER BY fecha_factura, id", (proveedor_id,)):
+        clave = normalizar_iban(iban) or iban
+        visto = impresos.setdefault(clave, {"iban": clave, "primera": fecha, "ultima": fecha,
+                                            "facturas": 0})
+        visto["ultima"] = fecha or visto["ultima"]
+        visto["facturas"] += 1
+    return {"registro": [c for c in cuentas(conn) if c["proveedor_id"] == proveedor_id],
+            "impresos": list(impresos.values())}
+
+
+def _parte(conn: sqlite3.Connection, tabla: str, parte_id: int) -> sqlite3.Row:
+    fila = conn.execute(f"SELECT * FROM {tabla} WHERE id = ?", (parte_id,)).fetchone()
+    if fila is None:
+        raise LookupError(f"no hay {tabla} {parte_id}")
+    return fila
+
+
+def _vista(conn: sqlite3.Connection, tabla: str, parte_id: int) -> dict[str, Any]:
+    _sentido, columna = _PARTES[tabla]
+    fila = _parte(conn, tabla, parte_id)
+    lectura = _leer(conn)
+    facturas = lectura.de(columna, parte_id)
+    vista = {
+        "id": parte_id, "nombre": fila["nombre"], "exact_id": fila["exact_id"],
+        "btw_id": fila["btw_id"], "activo": bool(fila["activo"]),
+        "plazo_pago_dias": fila["plazo_pago_dias"], "hoy": lectura.hoy.isoformat(),
+        **_resumen(conn, lectura, facturas),
+        "abiertas_detalle": [{"id": f.id, "numero": f.numero,
+                              "vencimiento": f.vencimiento.isoformat() if f.vencimiento else None,
+                              "pendiente_cent": f.pendiente_cent,
+                              "pendiente": _euros(f.pendiente_cent),
+                              "estado_pago": f.estado(lectura.hoy)}
+                             for f in _abiertas(lectura, facturas)],
+        "por_objeto": _por_objeto(conn, columna, parte_id, lectura.hoy),
+        "importe_tipico": _importe_tipico(conn, facturas),
+        "plazo_de_pago": _plazos(lectura, facturas),
+        "historial": _historial(conn, lectura, facturas),
+        "pagos": _pagos(lectura, facturas),
+        "avisos": _avisos(conn, tabla, parte_id, facturas),
+    }
+    if tabla == "proveedor":
+        vista["ibanes"] = _ibanes(conn, parte_id)
+    return vista
+
+
+def proveedor(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
+    """La vista de un proveedor (§3). LookupError si no existe."""
+    return _vista(conn, "proveedor", proveedor_id)
+
+
+def cliente(conn: sqlite3.Connection, cliente_id: int) -> dict[str, Any]:
+    """La vista de un cliente (§4). LookupError si no existe."""
+    return _vista(conn, "cliente", cliente_id)
+
+
+def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
+    _sentido, columna = _PARTES[tabla]
+    lectura = _leer(conn)
+    por_parte: dict[int, list[Any]] = defaultdict(list)
+    for f in lectura.facturas:
+        if getattr(f, columna) is not None:
+            por_parte[getattr(f, columna)].append(f)
+    salida = []
+    for fila in conn.execute(f"SELECT id, nombre, exact_id, activo FROM {tabla} "
+                             "ORDER BY nombre, id"):
+        facturas = por_parte.get(fila["id"], [])
+        resumen = _resumen(conn, lectura, facturas)
+        salida.append({
+            "id": fila["id"], "nombre": fila["nombre"], "exact_id": fila["exact_id"],
+            "activo": bool(fila["activo"]), "facturas": resumen["facturas"],
+            "pendiente_cent": resumen["pendiente_cent"], "pendiente": resumen["pendiente"],
+            "vencido_cent": resumen["vencido_cent"], "vencido": resumen["vencido"],
+            "ano_facturado_cent": resumen["ano_facturado"]["total_cent"],
+            "siempre_facturado_cent": resumen["siempre_facturado"]["total_cent"],
+        })
+    return salida
+
+
+def proveedores(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Los proveedores con lo que se les debe, lo vencido y lo facturado."""
+    return _lista(conn, "proveedor")
+
+
+def clientes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Los clientes con lo que deben, lo vencido y lo facturado."""
+    return _lista(conn, "cliente")

@@ -56,7 +56,14 @@ from .almacen.extracciones import en_orden_de_out
 from .almacen.unidades import json_canonico, sha256_texto
 from .campos import Automatico, Leido
 from .checks import check_currency
-from .dominio import FUENTES_AUTOMATICAS, Fuente, Sentido, TipoFactura, TratamientoIva
+from .dominio import (
+    FUENTES_AUTOMATICAS,
+    Fuente,
+    RelacionCitada,
+    Sentido,
+    TipoFactura,
+    TratamientoIva,
+)
 from .identidad import reconciliar_referencias  # noqa: F401 (su sitio de antes)
 from .parsing import (
     ParseError,
@@ -154,6 +161,16 @@ IVA_V2: tuple[tuple[str, str, str], ...] = (
     ("base_raw", "base_cent", IMPORTE),
     ("vat_raw", "cuota_cent", IMPORTE),
 )
+
+# Paso 8: las facturas que el documento nombra (related_invoices de v2), tal
+# como las nombra. Que una sea una relacion lo propone relaciones.py casando el
+# numero con una factura de la misma contraparte; nunca lo deduce el modelo.
+CITA: tuple[tuple[str, str, str], ...] = (
+    ("invoice_number", "numero_doc", TEXTO),
+    ("invoice_date", "fecha_doc", FECHA),
+    ("relation_text", "texto_doc", TEXTO),
+)
+RELACIONES_CITADAS = frozenset(RelacionCitada.valores())
 
 
 # ------------------------------------------------------------- literales
@@ -506,6 +523,26 @@ def _desglose(leida: compat.ExtraccionLeida, euros: bool) -> list[dict[str, Leid
     return filas
 
 
+def _citas(leida: compat.ExtraccionLeida) -> list[dict[str, Leido]]:
+    """Cada factura que el documento nombra, con la relacion que enuncia (v2).
+
+    Una relacion que no es de la lista (o que no se dijo) queda "unknown": no
+    se adivina por los importes (regla 9 del prompt, decision 20).
+    """
+    filas = []
+    for entrada in leida.datos.get("related_invoices") or []:
+        if not isinstance(entrada, dict):
+            continue
+        valores = {columna: leer_literal(lector, entrada.get(clave))
+                   for clave, columna, lector in CITA}
+        relacion = entrada.get("stated_relation")
+        valores["relacion_doc"] = Leido(
+            relacion if relacion in RELACIONES_CITADAS else RelacionCitada.DESCONOCIDA.value,
+            crudo=relacion)
+        filas.append(valores)
+    return filas
+
+
 def _fecha_recepcion(documento: sqlite3.Row) -> Leido:
     """Solo si se sabe de verdad cuando llego (correo, ingesta), no por la fecha del fichero."""
     if documento["recibido_fuente"] not in ("correo", "ingesta") or not documento["recibido_en"]:
@@ -559,6 +596,7 @@ def tipar_documento(
     lineas = _lineas(leida, euros, extraccion_id)
     referencias = _referencias(leida)
     desglose = _desglose(leida, euros)
+    citas = _citas(leida)
     calculado = Fuente.CALCULADO.value
     datos = {"documento_id": documento_id, "extraccion_id": extraccion_id,
              "schema_version": leida.schema_version}
@@ -580,7 +618,7 @@ def tipar_documento(
             })
             o.factura_id = factura_id
             ids = _crear_lineas(o, factura_id, lineas, desde=1)
-            _crear_hijas(o, factura_id, referencias, desglose, ids)
+            _crear_hijas(o, factura_id, referencias, desglose, ids, citas)
             detalle = f"{len(lineas)} lineas"
             accion = "creada"
         else:
@@ -589,7 +627,7 @@ def tipar_documento(
             o.fijar("factura", factura_id, {**estructura, **cabecera})
             conflictos, por_indice = _actualizar_lineas(o, conn, factura_id, lineas)
             conflictos_hijas = _actualizar_hijas(o, conn, factura_id, referencias, desglose,
-                                                 por_indice)
+                                                 por_indice, citas)
             if conflictos_hijas:
                 o.datos["filas_con_edicion_manual_sin_casar"] = conflictos_hijas
             if conflictos:
@@ -664,7 +702,8 @@ def _crear_lineas(
 
 def _crear_hijas(o: campos.Orden, factura_id: int,
                  referencias: list[tuple[int | None, dict[str, Leido]]],
-                 desglose: list[dict[str, Leido]], lineas: dict[int, int]) -> None:
+                 desglose: list[dict[str, Leido]], lineas: dict[int, int],
+                 citas: list[dict[str, Leido]] = ()) -> None:
     calculado = Fuente.CALCULADO.value
     for indice, valores in referencias:
         extra = {}
@@ -674,6 +713,8 @@ def _crear_hijas(o: campos.Orden, factura_id: int,
                                        **extra, **valores})
     for valores in desglose:
         o.crear("factura_iva", {"factura_id": Leido(factura_id, fuente=calculado), **valores})
+    for valores in citas:
+        o.crear("factura_cita", {"factura_id": Leido(factura_id, fuente=calculado), **valores})
 
 
 def _actualizar_lineas(
@@ -809,7 +850,8 @@ def _de_extracciones(conn: sqlite3.Connection, tabla: str, factura_id: int) -> l
 
 def _actualizar_hijas(o: campos.Orden, conn: sqlite3.Connection, factura_id: int,
                       referencias: list[tuple[int | None, dict[str, Leido]]],
-                      desglose: list[dict[str, Leido]], lineas: dict[int, int]) -> list[str]:
+                      desglose: list[dict[str, Leido]], lineas: dict[int, int],
+                      citas: list[dict[str, Leido]] = ()) -> list[str]:
     """Referencias y desglose de IVA: las de la cabecera por posicion, las de linea con su linea.
 
     Entran en el casado todas las filas que puso una extraccion, tambien las
@@ -853,6 +895,9 @@ def _actualizar_hijas(o: campos.Orden, conn: sqlite3.Connection, factura_id: int
     conflictos += _casar_por_posicion(
         o, conn, factura_id, "factura_iva", _de_extracciones(conn, "factura_iva", factura_id),
         [(None, v) for v in desglose], lineas)
+    conflictos += _casar_por_posicion(
+        o, conn, factura_id, "factura_cita", _de_extracciones(conn, "factura_cita", factura_id),
+        [(None, v) for v in citas], lineas)
     return conflictos
 
 
@@ -871,7 +916,7 @@ def _casar_por_posicion(o: campos.Orden, conn: sqlite3.Connection, factura_id: i
                         existentes: list[sqlite3.Row],
                         nuevas: list[tuple[int | None, dict[str, Leido]]],
                         lineas: dict[int, int]) -> list[str]:
-    """Las filas de la cabecera (referencias sin linea, desglose de IVA), por su posicion."""
+    """Las filas de la cabecera (referencias sin linea, desglose de IVA, citas), por su posicion."""
     conflictos = []
     for fila, (_indice, valores) in zip(existentes, nuevas):
         o.fijar(tabla, fila["id"], valores)
@@ -880,6 +925,8 @@ def _casar_por_posicion(o: campos.Orden, conn: sqlite3.Connection, factura_id: i
     sobrantes = nuevas[len(existentes):]
     if tabla == "factura_referencia":
         _crear_hijas(o, factura_id, sobrantes, [], lineas)
+    elif tabla == "factura_cita":
+        _crear_hijas(o, factura_id, [], [], lineas, [v for _i, v in sobrantes])
     else:
         _crear_hijas(o, factura_id, [], [v for _i, v in sobrantes], lineas)
     return conflictos

@@ -90,7 +90,9 @@ planning). Desde el paso 5, con los maestros importados y el registro de
 cuentas: Q2, Q3, Q4, Z1, Z2, A0, A2, A5, A7, A8, E1, E2, U1, F0, F2, F3,
 F4, F5, F6, F8 y F9 (y X1 también sobre las importaciones). Desde el paso
 6, M2: la edición manual de una línea que una extracción nueva no trae (ver
-la sección X). Su metadato
+la sección M). Desde el paso 7, con el banco y los pagos: K1-K8 y F7. Desde
+el paso 8, con las ventas y las relaciones entre facturas: V7, F10, M3 y
+R1-R5 (sección R), y D1, D2 y D2b retienen en una venta en vez de bloquear. Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -125,6 +127,12 @@ Handelsregister completo de KvK requiere suscripción de pago.
 | B2 | Duplicado exacto: mismo proveedor y mismo número ya contabilizado | historial | Bloqueo |
 | B3 | Duplicado probable: mismo proveedor, mismo importe, fecha a menos de catorce días, número distinto | historial | Retención |
 | B4 | Periodo ya facturado: el mismo rango de servicio ya cubierto por otra factura del proveedor | historial | Retención |
+| V7 | En las ventas, el caso de B2 o el de B3: se ha facturado dos veces a un cliente | historial | Retención |
+
+B2 y B3 miran las compras, donde un duplicado se pagaría dos veces; en una
+venta lo mismo es V7. Un abono, una corrección o una sustitución confirmada
+entre dos facturas explica que se parezcan y calla B2, B3, B4 y V7; una
+relación «relacionada» no.
 
 **B3 y B4 son las que más dinero ahorran.** El duplicado exacto lo pilla
 cualquiera. El caso real es la misma semana facturada dos veces con números
@@ -154,6 +162,10 @@ tiene que verla.
 | D3 | subtotal × tipo = importe de IVA | extracción | Bloqueo |
 | D4 | subtotal + IVA = total | extracción | Bloqueo |
 | D5 | Descripción suficientemente específica, no "servicios" ni "trabajos" | extracción | Aviso |
+
+En una factura de venta, D1, D2 y D2b retienen en vez de bloquear: la
+factura ya salió de BM Support BV y no se paga desde aquí, pero hay que
+mirarla. D3 y D4 bloquean en las dos.
 
 **D2, D2b, D3 y D4 son aritmética y deben bloquear.** Son baratas y atrapan
 más errores de los que parece, sobre todo en facturas hechas a mano. Los
@@ -185,6 +197,7 @@ vez de dar por buenos unos euros que nadie ha visto.
 | --- | --- | --- | --- |
 | M1 | Un valor manual distinto del último valor automático, sin verificar | procedencia | Atención (campo sin resolver); no es una regla del catálogo, sale de la procedencia de cada campo |
 | M2 | Una línea que una persona editó o excluyó no aparece en la extracción vigente: no se pudo casar por su huella con ninguna línea nueva | procedencia, extracción | Retención; se anula con motivo o se cierra excluyendo la línea |
+| M3 | Una venta de Exact y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo o periodo), o tienen el mismo número y no se pudieron unir | Exact, extracción | Retención, calidad «discrepancia»; cuenta la de Exact y una persona mira la diferencia |
 
 **M2 existe porque una lectura nueva no puede llevarse por delante lo que
 escribió una persona.** Al activar una reextracción (paso 6), las ediciones
@@ -223,10 +236,29 @@ facturas de un proveedor a la vez.
 | F2 | El IBAN de la factura coincide con el del maestro | maestro | Bloqueo |
 | F3 | IBAN nuevo o modificado respecto al registrado | maestro | Bloqueo y verificación telefónica al número ya conocido |
 | F4 | IBAN de un tercero, factoring o cesión de crédito | extracción, maestro | Bloqueo y escalado |
+| F10 | Una factura de venta lleva un IBAN que no es una cuenta de BM Support BV | extracción, `config/empresa.yaml` | Retención; no se anula |
 
 **El pago se construye siempre con el IBAN del maestro, nunca con el del
 documento.** F1 y F2 no eligen el número, solo detectan la discrepancia. Es
 la regla 1 de la arquitectura y no admite excepción operativa.
+
+### R · Relaciones entre facturas
+
+Un abono, una corrección o una sustitución se relaciona con su original. La
+relación la propone la extracción (las facturas que nombra el documento) o
+Exact (la factura relacionada de un abono de venta), y la confirma o la
+rechaza una persona con `anular_acreditar`; también la puede enlazar a mano.
+**Lo propuesto no mueve nada.** Lo confirmado sí: un abono que cubre la
+original la deja acreditada, uno parcial le baja lo pendiente, y una factura
+sustituida o corregida sale de los totales, de la caja y del IVA.
+
+| ID | Comprobación | Fuente | Resultado |
+| --- | --- | --- | --- |
+| R1 | Un abono o una corrección nombra una factura de la misma contraparte que no está (o que está repetida) | extracción, historial | Retención |
+| R2 | Los abonos confirmados le quitan a una factura más de lo que vale, o un abono se aplica por más de lo que vale | relaciones | Retención; pegajosa, no se anula |
+| R3 | La original y la que la sustituye (o corrige) están las dos pendientes o las dos pagadas | relaciones, pagos | Bloqueo; pegajosa, no se anula. Se resuelve anulando o abonando la original |
+| R4 | Un abono sin ninguna relación confirmada que diga a qué factura abona | relaciones | Aviso |
+| R5 | Una relación propuesta espera a una persona | relaciones | Aviso |
 
 ### G · Contraste con el planning
 

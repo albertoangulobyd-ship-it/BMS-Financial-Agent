@@ -281,10 +281,13 @@ def test_ninguna_entidad_modela_pagos_a_plazos(almacen) -> None:
             pk = [c[1] for c in conn.execute(f"PRAGMA table_info({tabla})") if c[5]]
             assert pk == ["factura_id"] or any(
                 [c[2] for c in u] == ["factura_id"] for u in unicos), tabla
-    # Ni un estado de pago que no sea los cuatro del §5.
+    # Ni un estado de pago que no sea los del §5: Outstanding, Overdue, Paid y
+    # Cancelled-Credited, que desde el paso 8 son dos (anulada y acreditada: un
+    # abono confirmado que cubre la factura, registro paso 7).
     from bms_agent.dominio import EstadoPago
 
-    assert set(EstadoPago.valores()) == {"pendiente", "vencida", "pagada", "anulada"}
+    assert set(EstadoPago.valores()) == {"pendiente", "vencida", "pagada", "anulada",
+                                         "acreditada"}
 
 
 # ============================================================ fuera del euro, Bloqueada

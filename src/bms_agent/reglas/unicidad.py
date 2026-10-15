@@ -1,9 +1,13 @@
-"""Reglas de unicidad que cruzan el historico: B2, B3 y B4.
+"""Reglas de unicidad que cruzan el historico: B2, B3, B4 y V7.
 
 Es lo que una factura mirada de una en una no puede ver: el mismo numero
 dos veces, el mismo importe dos veces en pocos dias, el mismo periodo
-cobrado dos veces. Las tres son pegajosas: un duplicado que deja de verse
+cobrado dos veces. Las cuatro son pegajosas: un duplicado que deja de verse
 porque alguien edito un importe no es un duplicado resuelto.
+
+B2 y B3 miran las compras, donde un duplicado se pagaria dos veces (B2
+bloquea). En las ventas lo mismo es facturar dos veces a un cliente: V7
+(paso 8), que retiene. B4 mira las dos.
 
 Las comprobaciones de fondo (`numeros_repetidos`, `importes_repetidos`,
 `periodos_solapados`) trabajan sobre `Candidata`, que no sabe de donde
@@ -28,12 +32,14 @@ from .base import (
     NO_APLICA,
     OK,
     RELACIONADO,
+    SALIENTE,
     SIN_DATOS,
     Factura,
     Instantanea,
     Objetivo,
     Politica,
     Resultado,
+    en_juego,
     euros,
     euros_texto,
     fuera_de_juego,
@@ -218,6 +224,9 @@ def _por_pares(regla_id: str, pares: Sequence[Par], facturas: dict[int, Factura]
                             grupo=f"par:{menor}-{mayor}", objetivos=objetivos)
 
 
+_EN_VENTAS = "Una factura de venta repetida es facturar dos veces: lo mira V7."
+
+
 def b2(instantanea: Instantanea) -> Iterator[Resultado]:
     """B2: la misma contraparte con el mismo numero (normalizado), sin fusionar ni enlazar.
 
@@ -230,6 +239,8 @@ def b2(instantanea: Instantanea) -> Iterator[Resultado]:
         motivo = fuera_de_juego(factura)
         if motivo is not None:
             yield Resultado("B2", "factura", factura.id, NO_APLICA, motivo)
+        elif factura.sentido == SALIENTE:
+            yield Resultado("B2", "factura", factura.id, NO_APLICA, _EN_VENTAS)
         elif factura.parte is None:
             yield Resultado("B2", "factura", factura.id, SIN_DATOS,
                             "El documento no dice de quién es: no se puede buscar un duplicado.")
@@ -268,6 +279,7 @@ def b2(instantanea: Instantanea) -> Iterator[Resultado]:
 
 LEE_B2 = LEE_RELACIONES | frozenset({
     "instantanea.facturas", "factura.id", "factura.anulada", "factura.fusionada_en_id",
+    "factura.sustituida_por",
     "factura.sentido", "factura.parte", "factura.parte_nombre", "factura.numero",
     "factura.numero_norm",
 })
@@ -282,6 +294,8 @@ def b3(instantanea: Instantanea) -> Iterator[Resultado]:
         motivo = fuera_de_juego(factura)
         if motivo is not None:
             yield Resultado("B3", "factura", factura.id, NO_APLICA, motivo)
+        elif factura.sentido == SALIENTE:
+            yield Resultado("B3", "factura", factura.id, NO_APLICA, _EN_VENTAS)
         elif factura.parte is None or factura.total_cent is None or factura.fecha_factura is None:
             yield Resultado("B3", "factura", factura.id, SIN_DATOS,
                             "Sin contraparte, total o fecha: no se puede buscar un duplicado "
@@ -313,8 +327,9 @@ def b3(instantanea: Instantanea) -> Iterator[Resultado]:
 
 LEE_B3 = LEE_RELACIONES | LEE_PERIODO | frozenset({
     "instantanea.facturas", "instantanea.politica", "factura.id", "factura.anulada",
-    "factura.fusionada_en_id", "factura.sentido", "factura.parte", "factura.parte_nombre",
-    "factura.numero", "factura.numero_norm", "factura.fecha_factura", "factura.total_cent",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.sentido", "factura.parte",
+    "factura.parte_nombre", "factura.numero", "factura.numero_norm", "factura.fecha_factura",
+    "factura.total_cent",
     "politica.tolerancia_duplicado", "politica.ventana_duplicado_dias",
 })
 
@@ -386,9 +401,77 @@ def b4(instantanea: Instantanea) -> Iterator[Resultado]:
 
 LEE_B4 = LEE_RELACIONES | LEE_PERIODO | frozenset({
     "instantanea.facturas", "factura.id", "factura.anulada", "factura.fusionada_en_id",
+    "factura.sustituida_por",
     "factura.tipo", "factura.sentido", "factura.parte", "factura.parte_nombre",
     "factura.numero", "linea.objeto",
 })
 
 # Lo que las reglas de duplicados leen solo para su explicacion.
 SOLO_TEXTO = frozenset({"factura.parte_nombre", "factura.numero"})
+
+
+# ------------------------------------------------------------ V7 (paso 8)
+
+def v7(instantanea: Instantanea) -> list[Resultado]:
+    """V7: facturacion doble a un cliente: el caso de B2 o el de B3 en las ventas.
+
+    El mismo numero a la misma contraparte, o el mismo importe a pocos dias
+    con periodos compatibles y otro numero. Retiene y es pegajosa, como sus
+    hermanas de compra; el caso de B5 (horas de un turno cobradas dos veces)
+    llega con el planning (paso 10). Un abono, una correccion o una
+    sustitucion confirmada entre las dos explica el parecido.
+    """
+    politica = instantanea.politica
+    facturas = {f.id: f for f in instantanea.facturas}
+    numeros: list[Candidata] = []
+    importes: list[Candidata] = []
+    salida: list[Resultado] = []
+    for factura in instantanea.facturas:
+        if factura.sentido != SALIENTE or not en_juego(factura):
+            continue
+        if factura.parte is None:
+            salida.append(Resultado("V7", "factura", factura.id, SIN_DATOS,
+                                    "El documento no dice a quién se facturó: no se puede buscar "
+                                    "una facturación doble."))
+            continue
+        if factura.numero_norm is not None:
+            numeros.append(Candidata(ref=factura.id, grupo=_grupo_de(factura),
+                                     numero=factura.numero_norm, fecha=None, total=None,
+                                     inicio=None, fin=None, orden=factura.id))
+        if factura.total_cent is not None and factura.fecha_factura is not None:
+            importes.append(_candidata(factura))
+    enlazadas = vinculadas(instantanea.relaciones)
+    for (_grupo, numero), miembros in numeros_repetidos(numeros, enlazadas):
+        ids = sorted(m.ref for m in miembros)
+        principal = facturas[ids[-1]]
+        detalle = (f"{principal.parte_nombre}: {len(ids)} facturas de venta con el número "
+                   f"{_numero(principal)}. Se le ha facturado dos veces.")
+        objetivos = (Objetivo("factura", principal.id, "numero"),) + tuple(
+            Objetivo("factura", i, "numero", RELACIONADO) for i in ids[:-1])
+        valores = {"caso": "numero", "numero_norm": numero, "facturas": ids}
+        for i in ids:
+            salida.append(Resultado("V7", "factura", i, FALLO, detalle, valores=valores,
+                                    grupo=f"numero:{ids[0]}", objetivos=objetivos))
+
+    def detalle(fa: Factura, fb: Factura, a: Candidata, b: Candidata, dias: int) -> str:
+        return (f"{fb.parte_nombre}: las ventas {_numero(fa)} y {_numero(fb)} suman lo mismo "
+                f"({euros_texto(b.total)}) con {dias} días de diferencia: puede ser la misma "
+                "facturación dos veces.")
+
+    def valores(a: Candidata, b: Candidata, dias: int) -> dict:
+        return {"caso": "importe", "facturas": [a.ref, b.ref],
+                "totales_cent": [facturas[a.ref].total_cent, facturas[b.ref].total_cent],
+                "fechas": [_iso(a.fecha), _iso(b.fecha)], "dias": dias,
+                "periodos": [[_iso(a.inicio), _iso(a.fin)], [_iso(b.inicio), _iso(b.fin)]]}
+
+    salida.extend(_por_pares("V7", importes_repetidos(importes, politica, enlazadas), facturas,
+                             detalle, valores, ("total_cent",)))
+    return salida
+
+
+LEE_V7 = LEE_RELACIONES | LEE_PERIODO | frozenset({
+    "instantanea.facturas", "instantanea.politica", "factura.id", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.sentido", "factura.parte",
+    "factura.parte_nombre", "factura.numero", "factura.numero_norm", "factura.fecha_factura",
+    "factura.total_cent", "politica.tolerancia_duplicado", "politica.ventana_duplicado_dias",
+})

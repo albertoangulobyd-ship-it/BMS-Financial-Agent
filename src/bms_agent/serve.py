@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, consola, consultas, permisos, servicios
+from . import config, consola, consultas, permisos, relaciones, servicios
 from .almacen import preparar, ruta_por_defecto
 from .auditoria import anclar
 from .cache import CONSERVAR
@@ -513,6 +513,16 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"fuentes": consultas.fuentes(conn)})
                 elif partes == ["cuentas"]:
                     self._json(200, {"cuentas": consultas.cuentas(conn)})
+                elif partes == ["proveedores"]:
+                    self._json(200, {"proveedores": consultas.proveedores(conn)})
+                elif len(partes) == 2 and partes[0] == "proveedores" and partes[1].isdigit():
+                    self._json(200, {"proveedor": consultas.proveedor(conn, int(partes[1]))})
+                elif partes == ["clientes"]:
+                    self._json(200, {"clientes": consultas.clientes(conn)})
+                elif len(partes) == 2 and partes[0] == "clientes" and partes[1].isdigit():
+                    self._json(200, {"cliente": consultas.cliente(conn, int(partes[1]))})
+                elif partes == ["relaciones"]:
+                    self._json(200, {"relaciones": relaciones.propuestas(conn)})
                 elif partes == ["acciones"]:
                     self._json(200, {"acciones": [
                         {"nombre": a.nombre, "permiso": a.permiso, "descripcion": a.descripcion,
@@ -651,7 +661,8 @@ def servir(
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print("  GET  /consola         consola interna (se entra con el token personal)")
-    print("  GET  /api/v2/...      facturas, ficha, excepciones (token personal)")
+    print("  GET  /api/v2/...      facturas, ficha, excepciones, proveedores, clientes "
+          "(token personal)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")

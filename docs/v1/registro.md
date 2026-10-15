@@ -3140,3 +3140,347 @@ Desviaciones nuevas, y por qué:
     contaría; se enlaza el movimiento o se corrige en Exact.
 34. **Casar automático pide el importe exacto.** La tolerancia solo decide
     si una factura está pagada (`reglas.pagos.saldo`).
+
+## Paso 8
+
+Facturas de venta, relaciones entre facturas y las vistas de proveedores y
+clientes. **1534 tests pasan** (913 funciones de test; eran 1467 y 877 al
+cerrar el paso 7), ninguno llama a la API y ninguno escribe fuera de una
+carpeta temporal. Cinco mil facturas se recalculan en 1,57-1,83 s la primera
+vez y en 1,35-1,52 s las siguientes (seis medidas en este contenedor; el paso
+7 medía 1,73-1,88 s y 1,50-1,55 s): casar las copias y proponer relaciones
+al principio de cada pasada cuesta unos milisegundos sin relaciones ni citas.
+
+**La V1 no crea facturas ni borradores.** Las de venta solo se importan de
+Exact o se leen de su PDF, y una relación solo enlaza dos facturas que ya
+existen.
+
+El paso se retomó de un trabajo sin terminar (guardado con `git stash` como
+`paso8-wip` cuando un reinicio del contenedor lo cortó antes del commit). Se
+revisó entero antes de seguir; lo que se cambió de aquel trabajo está al
+final, en «Lo que se corrigió del trabajo retomado».
+
+### Qué se construyó
+
+**Migración `0008_ventas_relaciones.sql`** (la siguiente libre):
+
+- `factura_cita` (controlada, guardas generadas): una factura que un
+  documento nombra, tal como la nombra (número, fecha, la frase literal y la
+  relación que enuncia: `credits`, `corrects`, `replaces`, `cancels`,
+  `refers_to` o `unknown`). Sale de `related_invoices` (extracción v2) o de la
+  «Gerelateerde factuur» de Exact. No dice qué factura es: eso lo decide el
+  código casando el número.
+- En `factura_relacion` (de la 0002): un índice único parcial (entre dos
+  facturas, una relación viva como mucho) y tres disparadores: una relación
+  manual la da de alta una persona activa con `anular_acreditar` en su propia
+  orden y entra **confirmada**; una de la extracción o de Exact la escribe el
+  sistema y entra **propuesta**; confirmar, rechazar o retirar es de una
+  persona con `anular_acreditar`, solo sobre una propuesta (o retirando una
+  decidida), y una vez; y lo decidido no cambia de tipo, importe ni facturas
+  (se retira y se enlaza otra). El disparador de la 0002 sigue exigiendo el
+  mismo sentido en las dos facturas.
+- `factura_estado` (caché) se rehace con el estado de pago `acreditada`.
+- Vistas: `v_factura_relaciones` (lo acreditado y si otra la sustituye, lo
+  mismo que `reglas.relaciones.efectos` en SQL), `v_factura_saldo` rehecha
+  (resta lo acreditado, como pedía el paso 7), `v_imputacion_vigente`,
+  `v_iva_vigente`, `v_proveedor_totales` y `v_cliente_totales` (solo lo que
+  cuenta: ni anuladas, ni fusionadas, ni sustituidas o corregidas).
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `relaciones.py` | Lo que propone el sistema y lo que deciden las personas. `sincronizar()` (al principio de cada pasada del motor, como `pagos.conciliar`): une a su venta de Exact o TRNSPRNT la copia en PDF que tiene el mismo sentido, número normalizado y contraparte resuelta, y propone la relación de cada cita cuyo número casa con una sola factura de la misma contraparte y sentido (retira las propuestas que ya no sostiene ninguna cita; lo que una persona rechazó o retiró no se vuelve a proponer). `enlazar`, `confirmar` (con el tipo o el importe corregidos si hace falta), `rechazar` y `retirar`, con sus comprobaciones. `efectos(conn)`, `de_factura` y `propuestas` |
+| `reglas/relaciones.py` | Puro: `efectos()` (lo que mueve cada relación confirmada) y R1-R5 |
+| `importadores/ventas.py` | Puro: junta las filas de un listado de ventas (una por línea, con la cabecera repetida) en facturas enteras; rechaza la factura cuyas filas no dicen lo mismo de la cabecera o repiten un número de línea |
+| `config/importacion/exact-facturas_venta-v1.yaml` | El mapeo de las verkoopfacturen de Exact con sus regels (proyecto o centro de coste como Objeto), con su ejemplo y su contrato en `tests/fixtures/importacion/` |
+
+**Lo que mueve una relación confirmada** (`reglas.relaciones.efectos`, la
+única cuenta, que leen la instantánea, las cachés, los pagos, la caja y las
+consultas):
+
+| Tipo | Efecto |
+| --- | --- |
+| `acredita`, `anula` | El abono le quita a la original lo que dice la relación (o el abono entero) y se gasta ese importe del abono. Las dos siguen en los totales y en el IVA, cada una en su fecha: se compensan. Si cubre lo que quedaba sin pagarse nada, la original queda `acreditada` (`anulada` si el abono la anula); si no, le baja lo pendiente |
+| `sustituye`, `corrige` | La original sale de juego: de los totales, de la caja, del IVA, de los agregados de prioridad y de las reglas (salvo R3, que la mira para eso). Su estado de pago es `anulada` |
+| `relacionada` | Nada, y tampoco calla un duplicado |
+
+**Reglas nuevas**
+
+| Regla | Qué mira | Al fallar |
+| --- | --- | --- |
+| R1 | Un abono o una corrección nombra una factura de la misma contraparte que no está, o que está repetida | Retención; se anula |
+| R2 | Los abonos confirmados le quitan a una factura más de lo que vale, o un abono se aplica por más de lo que vale | Retención; pegajosa, no se anula |
+| R3 | La original y la que la sustituye (o corrige) están las dos pendientes o las dos pagadas | Bloqueo; pegajosa, no se anula |
+| R4 | Un abono sin ninguna relación confirmada que diga a qué abona | Aviso |
+| R5 | Una relación propuesta espera a una persona (sobre las dos facturas) | Aviso |
+| V7 | En las ventas, el caso de B2 (mismo número a la misma contraparte) o el de B3 (mismo importe a pocos días, otro número): facturar dos veces | Retención; se anula; pegajosa; suelo urgente |
+| F10 | Una venta lleva un IBAN que no es una cuenta de BM Support BV (`cuentas_propias`); sin cuentas propias cargadas, sin datos | Retención; pegajosa, no se anula |
+| M3 | Una venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo, periodo), o tienen el mismo número y no se pudieron unir | Retención, calidad «discrepancia»; se anula |
+
+D1, D2 y D2b ya retenían en una venta (`severidad_saliente`, paso 3); ahora
+hay ventas que lo prueban. A8 ya bloqueaba una venta que no emite BM Support
+BV (paso 5); ahora deja fuera lo que llega estructurado de Exact o TRNSPRNT,
+que no tiene emisor impreso.
+
+**La vía de salida.** `bms-agent extract --salientes carpeta/` lee las
+facturas emitidas por BM Support BV: entran con `ruta_declarada = 'saliente'`
+y sus extracciones se guardan en `out/salientes/`. `importar-out` lee `out/`
+por la vía de entrada y `out/salientes/` por la de salida: la carpeta decide
+el sentido, nunca el documento ni el modelo. Lo que llega por la vía de
+salida y no emite BM Support BV está mal encaminado y queda Bloqueado (A8).
+
+**Las ventas de Exact.** `bms-agent importar exact facturas_venta fichero.csv`:
+una fila por línea; `LectorAgrupado` (`tabular.py`) lee las filas con el mapeo
+y `ventas.py` las junta por diario y número. Entra todo o nada (decisión 6):
+un cliente que no está, otra moneda, un importe ilegible o dos filas de una
+factura que no dicen lo mismo rechazan el fichero entero (Z2). Cada factura es
+una orden de `campos.py` a nombre de Exact: la cabecera con su literal, el
+plazo de las condiciones, las líneas por su número de línea de Exact (la que
+ya no viene se retira con su imputación), una imputación por línea con el
+Objeto del proyecto o del centro de coste (por código o alias; si no se
+conoce, la línea queda sin Objeto), el IVA por tipo sumando las líneas, la PO
+de la cabecera y de cada línea como referencia y la factura relacionada como
+cita. Un listado posterior pone al día lo que cambió. Lo de Exact no lo edita
+una persona aquí: se corrige en Exact.
+
+**Órdenes nuevas** (`servicios.ACCIONES`, todas con `anular_acreditar` y
+motivo obligatorio; salen en la CLI, en `POST /api/v2/acciones` y en la
+consola):
+
+| Orden | Qué hace |
+| --- | --- |
+| `enlazar_facturas` | Una persona enlaza dos facturas (abono, corrección, sustitución o relacionada; un abono parcial con su importe). Entra confirmada |
+| `confirmar_relacion` | Confirma una propuesta, y puede corregir su tipo o su importe |
+| `rechazar_relacion` | La rechaza: no mueve nada y no se vuelve a proponer |
+| `retirar_relacion` | Retira una relación, también confirmada: deja de mover nada. No se borra |
+| `deshacer_fusion` | Deshace una fusión (también la de una copia en PDF unida sola a su venta de Exact); el sistema no la vuelve a unir |
+
+Quien enlaza o confirma cierra en la misma orden los B2, B3, B4 y V7 de esa
+pareja que la relación hace desaparecer (pegajosos: si no, quedarían
+desaparecidos esperando a otra persona); es el `_cerrar_b2` de la fusión,
+generalizado como `_cerrar_duplicados`.
+
+**Las vistas de proveedor (§3) y de cliente (§4)** (`consultas.proveedor`,
+`cliente`, `proveedores`, `clientes`): lo pendiente y lo vencido (con cada
+factura abierta), lo facturado del año y de siempre (base, IVA y total), lo
+pagado o cobrado del año y de siempre, lo gastado o facturado y las horas por
+Objeto (con un apartado «sin Objeto»), el historial de facturas con su estado
+y el de pagos, el importe típico (media y mediana), el plazo de pago (media y
+mediana de días) y los pagos que llegaron tarde, los avisos activos (los
+hallazgos pendientes de sus facturas y de él, y sus excepciones abiertas) y,
+en un proveedor, las cuentas del registro con su estado y, aparte, los IBAN
+que imprimen sus facturas con su primera y última fecha. Salen de lo mismo que
+las reglas y la caché (`estados.facturas`: vencimiento efectivo, saldo con la
+fuente que manda y lo acreditado), con el `hoy` del reloj del almacén.
+
+**CLI y servidor**: `bms-agent proveedores|clientes [--json]`, `bms-agent
+proveedor N|cliente N [--json]`, `bms-agent relaciones`, `extract
+--salientes`, `importar exact facturas_venta`; `bms-agent factura N` enseña
+sus relaciones; `coste` cuenta también lo pagado en `out/salientes/`.
+`GET /api/v2/proveedores`, `/api/v2/proveedores/N`, `/api/v2/clientes`,
+`/api/v2/clientes/N` y `/api/v2/relaciones` (token personal con
+`ver_facturas`; 404 si no existe). La consola enseña en la ficha las
+relaciones (con confirmar, rechazar, retirar y enlazar) y las facturas que
+nombra el documento, y debajo de la lista las tablas de proveedores y
+clientes, que abren su vista; todo con `textContent`.
+
+**Cambios** en el resto: `campos.py` (`factura_cita` en el registro; una
+factura de Exact o TRNSPRNT conserva la parte que le dio su sistema),
+`dominio.py` (`EstadoPago.ACREDITADA`, `RelacionCitada`,
+`RELACIONES_QUE_ACREDITAN` y `RELACIONES_QUE_SUSTITUYEN`), `canonico.py`
+(`FilaVentaCanonica`, `LineaVentaCanonica`, `IvaVentaCanonico`,
+`FacturaVentaCanonica`), `ingesta.py` (las citas de `related_invoices`, casadas
+por posición como el desglose), `legado.py`, `estados.py`, `pagos.py`,
+`flujo_caja.py`, `hallazgos.py` (la pasada sincroniza antes de casar el
+banco), `revision.py` (las citas entran en la huella del contenido),
+`reglas/base.py` (`Factura.origen`, `acreditado_cent`, `sustituida_por`;
+`Relacion` con id, importe y fuente; `Cita`; `Instantanea.propuestas` y
+`citas`; `en_juego()`), `reglas/instantanea.py`, `reglas/pagos.py` (el saldo
+resta lo acreditado), `reglas/unicidad.py`, `reglas/bancaria.py`,
+`reglas/calidad.py`, `reglas/identidad.py`, `reglas/catalogo.py`; README y
+`docs/validacion-facturas.md` (sección R, V7, F10, M3 y las ventas en D).
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| La vía decide el sentido, y un documento de la vía de salida mal encaminado queda Bloqueado | `test_ventas.py::test_la_via_decide_el_sentido_y_una_venta_que_no_emite_bms_queda_bloqueada` (el mismo documento de Van Dijk por las dos vías: compra, y venta Bloqueada por A8; una venta que emite BMS no; el panel de compras no ve la venta), `test_extract_con_salientes_guarda_aparte_y_entra_por_la_via_de_salida` (`extract --salientes` con un cliente falso, `out/salientes/`, una sola llamada, `importar-out` en otra base vuelve a la vía de salida, `coste` lo cuenta), `test_ingesta.py::test_la_direccion_la_pone_la_via_de_entrada` (sigue), `test_reglas_paso8.py::test_a8_no_mira_el_emisor_de_una_venta_de_exact` |
+| Un abono entero deja la original acreditada; uno parcial le baja el saldo | `test_un_abono_que_cubre_la_factura_la_deja_acreditada` (propuesto por la extracción no mueve nada; confirmado, `acreditada`, fuera de lo abierto y de la caja), `test_un_abono_parcial_confirmado_baja_lo_pendiente_de_la_original` (el de Exact: la vista SQL, la caché, la caja, R4 y R5 cerrados, el IVA de las dos), `test_un_abono_parcial_enlazado_a_mano_baja_lo_pendiente` (y retirarlo lo deja como estaba), `test_los_abonos_no_le_quitan_a_una_factura_mas_de_lo_que_vale` (R2), `test_reglas_paso8.py::test_un_abono_entero_acredita_y_uno_parcial_baja_lo_pendiente` |
+| Una sustituida o corregida sale de los totales, la caja y el IVA | `test_la_factura_sustituida_o_corregida_sale_de_los_totales_la_caja_y_el_iva[confirmar, sustituye, corrige]`: `v_proveedor_totales`, la vista del proveedor, los totales de la `Diferencia`, `v_imputacion_vigente`, el flujo de caja, `v_iva_vigente` y D3 en `no_aplica` |
+| B4 no salta con una pareja confirmada | El mismo test (el B4 de la pareja se resuelve en la orden y no vuelve en la pasada siguiente), `test_reglas_paso8.py::test_la_sustituida_sale_de_juego_y_de_las_reglas`, y `test_una_relacion_cualquiera_no_calla_un_duplicado` (una «relacionada» no lo calla) |
+| Exact frente al PDF es una discrepancia | `test_el_pdf_de_una_venta_de_exact_se_une_a_ella_y_lo_distinto_es_una_discrepancia` (la copia se une sola, M3 retiene con calidad «discrepancia» y la caché de la venta lo dice), `test_una_copia_igual_no_es_una_discrepancia`, `test_un_pdf_con_el_numero_de_una_venta_de_exact_y_otro_cliente_es_una_discrepancia`, `test_una_persona_deshace_la_union_de_una_copia_y_no_se_vuelve_a_unir`, `test_reglas_paso8.py::test_m3_la_venta_de_exact_y_su_pdf_no_dicen_lo_mismo` |
+| Propiedad: lo pendiente de un proveedor es la suma de sus facturas pendientes | `test_lo_pendiente_de_cada_parte_es_la_suma_de_sus_facturas_abiertas[0-5]`: seis escenarios al azar (pagos parciales, enteros y de más, abonos enlazados, sustituciones y correcciones, ventas de Exact); para cada proveedor y cada cliente, la vista, su lista, la suma de sus facturas abiertas, la caché `factura_estado` y la vista SQL dan lo mismo, y lo vencido es la suma de sus vencidas |
+
+Además: el listado de ventas de Exact (`test_las_ventas_de_exact_entran_con_su_cliente_sus_lineas_y_su_objeto`,
+reimportar no hace nada, todo o nada en cuatro casos, un listado posterior que
+pone al día una venta y que una persona no edita), V7 y no B2 en las ventas,
+F10, D2 que retiene una venta y bloquea una compra, la base que no deja al
+sistema confirmar ni a una persona proponer, ni relacionar una compra con una
+venta (la orden y el disparador) ni dos contrapartes, las dos vistas con sus
+cifras (plazo de pago, pagos tarde, cuentas, por Objeto), la CLI, la API (con
+los permisos) y la consola pintando como texto un cliente con `<script>` en
+el nombre (`test_la_consola_pinta_la_vista_de_un_cliente_como_texto`). Las
+reglas, rama a rama sobre instantáneas, en `test_reglas_paso8.py`, y sus
+escenarios en la prueba de pureza.
+
+### Desviaciones de la especificación, y por qué
+
+1. **Migración 0008**, no la que numera el §11 (el número es su orden).
+2. **`factura_cita` es una tabla nueva** que el §5 no tiene. El §5 deja que
+   la extracción proponga relaciones, y la decisión 20 dice que solo se
+   proponen; la decisión 19 (el modelo transcribe, el código decide) pide
+   guardar lo que dice el documento aparte de lo que el código deduce. Sin ella, una cita que no casa (R1) no tendría dónde estar, y una
+   factura que llega después no podría recibir su propuesta.
+3. **Las propuestas las escribe el sistema en cada pasada**
+   (`relaciones.sincronizar`), no la ingesta ni la importación: una factura
+   que llega después del abono que la nombra recibe su propuesta en la pasada
+   en que llega. La base no deja que el sistema confirme nada. Una relación
+   manual entra confirmada (la escribe quien decide), y lo que una persona
+   rechazó o retiró no se vuelve a proponer.
+4. **Entre dos facturas, una relación viva como mucho** (índice único): dos
+   relaciones distintas entre la misma pareja no tienen un significado que
+   las reglas puedan leer.
+5. **«Cancelled / Credited» son dos estados**: `anulada` (a mano, por un
+   abono que la anula o porque otra la sustituye o la corrige) y `acreditada`
+   (los abonos confirmados cubren lo que quedaba sin pagarse nada), como
+   anunciaba el registro del paso 7. Un abono gastado entero también queda
+   `acreditada`. La caché `factura_estado` se rehace en la 0008 para admitir
+   el valor.
+6. **Una relación «relacionada» no calla un duplicado.** El §7 dice que B4
+   no mira las relaciones confirmadas; aquí solo las que explican el parecido
+   (abono, corrección, sustitución). Si no, enlazar dos facturas cualesquiera
+   sería la forma de quitar un B2 o un B4 sin decir qué es una de la otra.
+7. **Se relacionan facturas de la misma contraparte**, y un abono solo
+   acredita o anula una factura (no otro abono), por como mucho lo que vale y
+   en el signo de la original; la que sustituye o corrige es una factura. Lo
+   comprueba la orden; la base sigue comprobando el mismo sentido.
+8. **R3 bloquea hasta que la original se anula o se abona.** Confirmar una
+   sustitución saca la original de los totales, pero en la contabilidad (y en
+   Exact) la original sigue abierta hasta que alguien la anula o la abona: si
+   las dos están pendientes, la de antes se podría pagar también. Es la
+   lectura que deja viva la mitad «las dos pendientes» de R3, que si no nunca
+   se daría. El camino es `anular_factura` (o enlazar su abono), y R3, que es
+   pegajosa, queda desaparecida hasta que una persona la cierra. R3 no está
+   entre lo que cierra la orden que enlaza o confirma: desaparece con otra
+   orden y otra pareja.
+9. **B2 y B3 miran solo las compras**; en las ventas da `no_aplica` y lo mira
+   V7, que retiene. El §7 no dice el sentido de B2 y B3, pero dice que V7 son
+   «los casos de B2, B3 o B5 en las ventas»: con las dos, una venta repetida
+   bloquearía por B2 y retendría por V7 a la vez. El caso de B5 en V7 (las
+   horas de un turno cobradas dos veces) llega con el planning (paso 10).
+10. **M3 es una regla nueva** que el §7 no tiene: es como se cumple la
+    puerta «un desacuerdo entre Exact y el PDF es una discrepancia», al lado
+    de M1 y M2. Para comparar, el PDF de una venta que también llegó de
+    Exact o TRNSPRNT **se une solo a ella** (`fusionada_en_id`, fuente
+    `calculado`) cuando tienen el mismo sentido, número normalizado y
+    contraparte resuelta: cuenta la de Exact (§10: el PDF de una venta solo
+    se lee si no hay fuente estructurada) y la copia no suma dos veces. M3
+    compara fecha, base, IVA, total, tipo y periodo, y también avisa de un PDF
+    con el número de una venta de Exact que no se pudo unir (otro cliente, o
+    sin resolver). `deshacer_fusion` es la orden nueva que lo deshace; con el
+    valor puesto por una persona, el sistema no la vuelve a unir.
+11. **Una factura de Exact o TRNSPRNT conserva su parte** (`campos.py`): no
+    imprime receptor, y volver a resolver las referencias la dejaba sin
+    cliente. A8 no la mira por lo mismo: no hay un emisor impreso que pueda
+    estar mal encaminado.
+12. **F10 retiene, es pegajosa y no se anula** (el §7 dice R; la base ya no
+    deja anular ninguna F), y mira también la copia en PDF unida a una venta
+    de Exact: es lo que vio el cliente. Sin cuentas propias cargadas da sin
+    datos, nunca ok.
+13. **Las extracciones de la vía de salida van a `out/salientes/`.**
+    `importar-out` tiene que saber la vía de cada fichero, y una venta
+    mezclada en `out/` volvería al almacén como compra. Un documento conserva
+    la vía por la que entró la primera vez (la evidencia no cambia): un PDF ya
+    leído como compra no pasa a venta por dejarlo después en la carpeta de
+    ventas.
+14. **El panel de siempre es de compras.** `registros_legado` (y con él
+    `registros_resueltos`, el panel, el informe, la exportación y
+    `/api/datos`) deja fuera lo que llegó por la vía de salida: el contrato v1
+    trata cada registro como una factura de proveedor, y una venta contaría
+    como gasto, entraría en la proyección y en los duplicados de los
+    proveedores (huecos.md §2, acoplamiento 1). La foto de referencia no
+    cambia. Ese panel sigue contando las sustituidas, como ya contaba las
+    fusionadas: lo que sale de los totales es lo del almacén (vistas,
+    consultas, caja, IVA, `Diferencia` y prioridades); el contrato v2 es del
+    paso 12.
+15. **El mapeo de ventas de Exact está hecho contra un ejemplo sintético**
+    (el formato real no se conoce, como el de pagos del paso 7). Una línea
+    cuyo proyecto o centro de coste no es un Objeto conocido entra sin Objeto
+    (no rechaza el fichero): es lo mismo que una línea leída de un PDF, se ve
+    como «sin Objeto» en las vistas y la imputa una persona; V2 (paso 10) la
+    convertirá en hallazgo. Un número de línea que Exact ya retiró y vuelve se
+    rechaza: Exact no reutiliza números de línea.
+16. **`v_iva_vigente` en vez de `v_btw_linea`.** La vista del §5 lleva la
+    rúbrica de la declaración, que es del paso 11 (con el contador); la de
+    ahora es el IVA que cuenta con su trimestre, y la del paso 11 la leerá.
+17. **No hay `v_cliente_cobro`.** El plazo de cobro y los retrasos son una
+    estadística, y el §5 los deja en Python (`consultas._plazos`), con `hoy`
+    inyectado como lo demás que depende de la fecha.
+18. **Cómo se cuentan las vistas** (las preguntas 10 del §12 y las de
+    huecos.md §3 y §4 siguen abiertas): el año es el natural, por la fecha de
+    la factura (lo facturado) o del pago (lo pagado); lo pagado es lo de la
+    fuente que manda (banco, Exact, a mano); lo pendiente incluye un abono sin
+    aplicar, en negativo; el importe típico es la media y la mediana de la
+    base de las facturas (sin abonos); el plazo de pago va de la fecha de la
+    factura al último pago de una factura pagada (una solo acreditada no
+    cuenta), y llega tarde si ese día es posterior al vencimiento efectivo.
+19. **Tests existentes cambiados, y por qué**: `test_alcance_v1.py` (el
+    estado de pago `acreditada`); `test_campos.py` (una relación manual entra
+    confirmada: la base ya no admite una manual propuesta);
+    `test_hallazgos.py` (el abono 04 da R4, así que hay un hallazgo más; en el
+    test de barajar, la factura corregida con una relación confirmada sale de
+    juego; R1-R5, V7, F10 y M3 solo dicen objeciones); `test_importadores.py`
+    (el mapeo nuevo); `test_reglas.py` (el catálogo y las familias
+    pegajosas con R2 y R3); `test_pureza_reglas.py` (el módulo, el tipo `Cita`
+    y los escenarios del paso 8); `test_reglas_paso7.py` (el saldo lleva lo
+    acreditado); `test_servicios.py` (las cinco órdenes en la matriz y en
+    `CASOS`, y la foto de totales con la marca de sustituida). Ninguno prueba
+    menos que antes.
+
+### Lo que se corrigió del trabajo retomado
+
+El trabajo guardado pasaba sus tests, pero ninguno probaba las puertas sobre
+el almacén entero. Al escribirlos y repasar el código salió esto:
+
+| Qué | Qué se hizo |
+| --- | --- |
+| `coste` no contaba lo pagado por la vía de salida (`out/salientes/`): una venta leída con `extract --salientes` no aparecía en lo gastado | `coste` lee también `out/salientes/` (lo gastado y lo que costaría relanzar); lo prueba el test de `extract --salientes` |
+| `bms-agent relaciones` explicaba la orden con una sintaxis que la CLI no admite (`relacion_id=N`) | Dice `bms-agent accion confirmar_relacion --relacion-id N --rev R --motivo ...`, y el test de la CLI lo comprueba |
+| El docstring de `relaciones.py` prometía que una persona podía deshacer la unión de una copia, y ninguna orden lo hacía (`fusionar_factura` solo une) | La orden `deshacer_fusion` |
+| No había nada que probara «fuera del IVA» | `v_iva_vigente` |
+| R3 estaba entre lo que cierra la orden que enlaza o confirma, pero nunca desaparece por esa orden | Fuera de la lista; la desviación 8 dice por qué |
+| Los imports de seis módulos de reglas se habían reordenado, y quedaban `relaciones.cuenta()` y una constante sin usar | Vuelven al orden de siempre (constantes, clases, funciones) y lo que no se usa se quita |
+
+### Lo que deben saber los pasos siguientes
+
+- **Lo que mueve una relación** se calcula en un solo sitio,
+  `reglas.relaciones.efectos` (y `relaciones.efectos(conn)` sobre el
+  almacén); `v_factura_relaciones` es lo mismo en SQL. Lo que sume importes,
+  saldos o IVA tiene que mirar `sustituida_por` y `acreditado_cent`
+  (`reglas.base.en_juego`, o las vistas `v_imputacion_vigente` y
+  `v_iva_vigente`). Una relación solo la escriben `relaciones.py` (personas,
+  por sus órdenes) y `sincronizar` (propuestas).
+- **Paso 9 (POs)**: el consumo es la base de `v_imputacion_vigente` (ya sin
+  anuladas, fusionadas ni sustituidas) menos los abonos confirmados. Ojo: las
+  líneas de un abono están en `v_imputacion_vigente` con importe negativo
+  aunque nadie haya confirmado a qué abona; el §7 pide restar solo lo
+  confirmado, así que el consumo tiene que mirar si el abono tiene relación
+  confirmada. Las PO de una venta de Exact ya están en `factura_referencia`
+  con la etiqueta `PO`, sin casar.
+- **Paso 10 (planning)**: V1-V6, V8 y V9 sobre las ventas, el caso de B5 en
+  V7, y que una línea de venta sin Objeto sea un hallazgo (V2). Las horas por
+  Objeto de las vistas salen de las imputaciones; el planning añade las
+  planificadas.
+- **Paso 11 (BTW)**: el IVA que cuenta es `v_iva_vigente` (un abono en su
+  trimestre, la sustituida fuera); el desglose por tipo de las ventas de Exact
+  ya está en `factura_iva`.
+- **Paso 12**: la propiedad «lo facturado por Objeto más lo que no tiene
+  Objeto es la base de las ventas» ya tiene sus datos (`v_imputacion_vigente`
+  por sentido); la de lo pendiente de un proveedor está probada aquí. El
+  panel v1 sigue siendo de compras y sigue contando sustituidas y fusionadas.
+- **Una regla nueva sobre ventas** tiene que mirar `factura.origen`: lo que
+  llega de Exact o TRNSPRNT no imprime emisor ni receptor, y su copia en PDF
+  está fusionada en ella.
+- **La consola** tiene ya relaciones y vistas de proveedor y cliente; la vista
+  de pagos y la del flujo de caja siguen pendientes (paso 7).

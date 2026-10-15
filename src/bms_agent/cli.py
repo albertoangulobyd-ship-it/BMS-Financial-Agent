@@ -4,6 +4,7 @@ Ninguna orden escribe en ningun sistema de la empresa:
 
     bms-agent schema              muestra el esquema de extraccion
     bms-agent extract facturas/   extrae los PDF de una carpeta a out/ y al almacen
+                                  (--salientes: facturas emitidas, a out/salientes)
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
     bms-agent db init|migrar|verificar   el almacen (datos/bms.sqlite3)
@@ -17,8 +18,11 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent facturas            las facturas, la mas urgente primero
     bms-agent factura N           la ficha de una factura
     bms-agent excepciones         las excepciones sin resolver
+    bms-agent relaciones          las relaciones entre facturas por confirmar
+    bms-agent proveedores|clientes   lo pendiente y lo vencido de cada uno
+    bms-agent proveedor|cliente N    su vista: totales, por Objeto, pagos, avisos
     bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
-    bms-agent importar F T FICH   importa un maestro (Exact, una hoja CSV) con su mapeo
+    bms-agent importar F T FICH   importa un maestro, el banco, pagos o ventas de Exact (mapeo)
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
     bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
@@ -107,14 +111,25 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"No se puede abrir el almacen: {exc}", file=sys.stderr)
         return 2
+    ruta = "saliente" if args.salientes else "entrante"
     with almacen:
         codigo = extraer_carpeta(
-            anthropic.Anthropic(), pdfs, Path(args.out),
+            anthropic.Anthropic(), pdfs, carpeta_out(Path(args.out), ruta),
             politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
-            almacen=almacen,
+            almacen=almacen, ruta=ruta,
         )
         _anclar(almacen)
     return codigo
+
+
+# Lo leido por la via de salida va aparte: importar-out lee cada carpeta con
+# su via, y una venta mezclada en out/ volveria al almacen como compra.
+CARPETA_SALIENTES = "salientes"
+
+
+def carpeta_out(out: Path, ruta: str) -> Path:
+    """Donde se guardan las extracciones de una via: out/ o, las de salida, out/salientes."""
+    return out / CARPETA_SALIENTES if ruta == "saliente" else out
 
 
 def _ruta_db(valor: str | None) -> Path:
@@ -137,11 +152,19 @@ def _anclar(almacen) -> None:
 
 def extraer_carpeta(
     client: object, pdfs: list[Path], out_dir: Path, *, politica: str, forzar: bool,
-    almacen=None,
+    almacen=None, ruta: str = "entrante",
 ) -> int:
-    """El cuerpo de `extract`, con el cliente inyectado para poder probarlo."""
+    """El cuerpo de `extract`, con el cliente inyectado para poder probarlo.
+
+    `ruta` es la via por la que llegan los PDF: entrante (lo que nos facturan)
+    o saliente (lo que factura BM Support BV, `--salientes`). La pone quien
+    lanza la orden y decide la direccion de cada factura; el modelo no.
+    """
     model = config.model_id()
     print(f"Extrayendo {len(pdfs)} documentos con {model}")
+    if ruta == "saliente":
+        print("Via de salida: son facturas emitidas por BM Support BV (ventas); una que no lo "
+              "sea queda bloqueada (A8)")
     if forzar:
         print("--force: se vuelven a leer todos, aunque ya esten leidos (gasta creditos)")
     else:
@@ -158,7 +181,7 @@ def extraer_carpeta(
 
         r, ingesta = ingestar_pasada(
             client, pdfs, out_dir, almacen=almacen, model=model, politica=politica,
-            forzar=forzar, informar=_imprimir_paso,
+            forzar=forzar, informar=_imprimir_paso, ruta=ruta,
         )
     else:
         r = extraer_pasada(
@@ -443,9 +466,12 @@ def _cmd_coste(args: argparse.Namespace) -> int:
     from .reextraccion import CARPETA_EXPORTACION
 
     # Lo gastado cuenta cada extraccion pagada, tambien las que ya no son la
-    # vigente de su documento y las de `reextraer` (que se exportan aparte,
-    # en out/reextraccion/). Lo que costaria relanzar va por documento.
+    # vigente de su documento, las de `reextraer` (que se exportan aparte, en
+    # out/reextraccion/) y las de las ventas (`extract --salientes`, en
+    # out/salientes/). Lo que costaria relanzar va por documento.
+    salientes = carpeta_out(Path(args.out), "saliente")
     documentos = leer_documentos(load_records(args.out, todas=True)
+                                 + load_records(salientes, todas=True)
                                  + load_records(Path(args.out) / CARPETA_EXPORTACION, todas=True))
     print(formatear_gastado(documentos))
     if documentos:
@@ -456,7 +482,8 @@ def _cmd_coste(args: argparse.Namespace) -> int:
         print()
         print(formatear_pasadas(agrupar_en_pasadas(documentos)))
         print()
-        print(formatear_relanzar(leer_documentos(load_records(args.out))))
+        print(formatear_relanzar(leer_documentos(load_records(args.out)
+                                                 + load_records(salientes))))
 
     if not args.estimar:
         if not documentos:
@@ -670,24 +697,30 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
         # las reglas van juntos, y cada fichero y cada documento en su
         # SAVEPOINT, asi que uno que falla no se lleva a los demas y un fallo
         # de la orden no deja nada a medias.
+        # Lo de out/salientes entra por la via de salida (extract --salientes).
+        salientes = carpeta_out(out_dir, "saliente")
         with transaccion(almacen.conn):
-            r = importar_out(almacen, out_dir, pdfs)
+            hechos = [(out_dir, importar_out(almacen, out_dir, pdfs))]
+            if salientes.is_dir():
+                hechos.append((salientes, importar_out(almacen, salientes, pdfs,
+                                                       ruta="saliente")))
             tipado = _tipar(almacen)
             tipado.recalculo = _recalcular(almacen, "importacion")
         _anclar(almacen)
 
-    print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
-    print(f"  importados          {r.importadas}")
-    print(f"  ya estaban          {r.ya_estaban}")
-    print(f"  rechazados          {r.rechazadas}")
-    print(f"  documentos nuevos   {r.documentos_nuevos}")
-    print(f"  originales copiados {r.originales_guardados}")
-    if r.sin_original:
-        donde = f"en {pdfs}/" if pdfs and pdfs.is_dir() else "porque no hay carpeta de PDF"
-        print(f"  sin original        {r.sin_original}  (no se encontro su PDF {donde}; "
-              "se puede anadir despues con --pdfs)")
-    for nombre, motivo in r.rechazos:
-        print(f"  rechazado {nombre}: {motivo}")
+    for carpeta, r in hechos:
+        print(f"{r.ficheros} ficheros en {carpeta}/, sin ninguna llamada a la API")
+        print(f"  importados          {r.importadas}")
+        print(f"  ya estaban          {r.ya_estaban}")
+        print(f"  rechazados          {r.rechazadas}")
+        print(f"  documentos nuevos   {r.documentos_nuevos}")
+        print(f"  originales copiados {r.originales_guardados}")
+        if r.sin_original:
+            donde = f"en {pdfs}/" if pdfs and pdfs.is_dir() else "porque no hay carpeta de PDF"
+            print(f"  sin original        {r.sin_original}  (no se encontro su PDF {donde}; "
+                  "se puede anadir despues con --pdfs)")
+        for nombre, motivo in r.rechazos:
+            print(f"  rechazado {nombre}: {motivo}")
     _imprimir_tipado(tipado)
     _imprimir_recalculo(tipado.recalculo)
     return 1 if tipado.errores else 0
@@ -965,6 +998,106 @@ def _cmd_factura(args: argparse.Namespace) -> int:
         print(f"  revision {r['resultado']} por {r['usuario']} el {r['en']}"
               f"{' (autorrevisada)' if r['autorrevisada'] else ''}"
               f"{'' if r['vigente'] else ' — ya no vale'}")
+    for r in ficha["relaciones"]:
+        print(f"  relacion {r['id']} {r['estado']}{' (retirada)' if r['retirada'] else ''}: "
+              f"{r['origen_numero']} {r['tipo']} {r['destino_numero']} (de {r['fuente']})")
+    return 0
+
+
+def _cmd_relaciones(args: argparse.Namespace) -> int:
+    """Las relaciones propuestas: las confirma o rechaza una persona (accion confirmar_relacion)."""
+    from .relaciones import propuestas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = propuestas(almacen.conn)
+        numeros = {f[0]: f[1] for f in almacen.conn.execute("SELECT id, numero FROM factura")}
+    for r in filas:
+        print(f"  relacion {r['id']} (rev {r['rev']}, de {r['fuente']}): factura {r['origen_id']} "
+              f"{numeros.get(r['origen_id']) or ''} {r['tipo']} factura {r['destino_id']} "
+              f"{numeros.get(r['destino_id']) or ''}"
+              + (f" — {r['evidencia_doc']}" if r["evidencia_doc"] else ""))
+    if not filas:
+        print("No hay relaciones por confirmar.")
+    else:
+        print("\nSe confirman con `bms-agent accion confirmar_relacion --relacion-id N --rev R "
+              "--motivo ...` o se rechazan con `bms-agent accion rechazar_relacion` (permiso "
+              "anular_acreditar).")
+    return 0
+
+
+def _cmd_partes(args: argparse.Namespace) -> int:
+    """Los proveedores o los clientes, con lo pendiente, lo vencido y lo facturado."""
+    from . import consultas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        filas = (consultas.proveedores if args.tabla == "proveedor"
+                 else consultas.clientes)(almacen.conn)
+    if args.json:
+        print(json.dumps(filas, ensure_ascii=False, indent=2, default=str))
+        return 0
+    for f in filas:
+        print(f"{f['id']:>5} {f['nombre'][:40]:<40} {f['facturas']:>4} facturas  pendiente "
+              f"{f['pendiente']:>12}  vencido {f['vencido']:>12}"
+              + ("" if f["activo"] else "  (inactivo)"))
+    if not filas:
+        print(f"No hay ningun {args.tabla}.")
+    return 0
+
+
+def _cmd_parte(args: argparse.Namespace) -> int:
+    """La vista de un proveedor (§3) o de un cliente (§4). Solo lee."""
+    from . import consultas
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            vista = getattr(consultas, args.tabla)(almacen.conn, args.id)
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(vista, ensure_ascii=False, indent=2, default=str))
+        return 0
+    pagado = "pagado" if args.tabla == "proveedor" else "cobrado"
+    print(f"{args.tabla.capitalize()} {vista['id']} {vista['nombre']}"
+          f"{' (Exact ' + vista['exact_id'] + ')' if vista['exact_id'] else ''}, a {vista['hoy']}")
+    print(f"  pendiente  {vista['pendiente']:>12}  en {vista['abiertas']} facturas")
+    print(f"  vencido    {vista['vencido']:>12}  en {vista['vencidas']} facturas")
+    ano, siempre = vista["ano_facturado"], vista["siempre_facturado"]
+    print(f"  {vista['ano']}: facturado {ano['total']} ({ano['base']} sin IVA), {pagado} "
+          f"{vista['ano_pagado']}")
+    print(f"  siempre: facturado {siempre['total']} ({siempre['base']} sin IVA) en "
+          f"{siempre['facturas']} facturas, {pagado} {vista['siempre_pagado']}")
+    tipico = vista["importe_tipico"]
+    if tipico["facturas"]:
+        print(f"  importe tipico: media {tipico['media']}, mediana {tipico['mediana']}")
+    plazo = vista["plazo_de_pago"]
+    if plazo["pagadas"]:
+        print(f"  plazo de pago: {plazo['media_dias']} dias de media ({plazo['pagadas']} "
+              f"pagadas), {plazo['tarde']} tarde")
+    for o in vista["por_objeto"]:
+        print(f"  Objeto {o['objeto']:<20} {o['importe']:>12}  {o['horas'] or '0'} horas")
+    if "ibanes" in vista:
+        for c in vista["ibanes"]["registro"]:
+            print(f"  cuenta {c['iban']} {c['estado']}" + (" (se le puede pagar)"
+                                                         if c["pagable"] else ""))
+    for h in vista["avisos"]["hallazgos"]:
+        print(f"  aviso {h['regla']} {h['estado']} ({h['severidad']}), factura "
+              f"{h['factura_id']}: {h['detalle']}")
+    for f in vista["historial"][:20]:
+        print(f"  {f['fecha_factura'] or '-':<10} {f['numero'] or '(sin numero)':<16} "
+              f"{f['total'] or '-':>12} {f['estado_pago'] or '-'}")
     return 0
 
 
@@ -1459,6 +1592,14 @@ def main(argv: list[str] | None = None) -> int:
             "un modelo o un prompt nuevo (gasta creditos en lo demas)"
         ),
     )
+    p_extract.add_argument(
+        "--salientes",
+        action="store_true",
+        help=(
+            "la carpeta son facturas emitidas por BM Support BV (ventas): entran por la via "
+            "de salida y se guardan en <out>/salientes"
+        ),
+    )
     p_extract.add_argument("--db", help=_AYUDA_DB)
     p_extract.set_defaults(func=_cmd_extract)
 
@@ -1664,15 +1805,37 @@ def main(argv: list[str] | None = None) -> int:
     p_factura.add_argument("--db", help=_AYUDA_DB)
     p_factura.set_defaults(func=_cmd_factura)
 
+    p_relaciones = sub.add_parser(
+        "relaciones", help="las relaciones entre facturas propuestas, por confirmar o rechazar")
+    p_relaciones.add_argument("--db", help=_AYUDA_DB)
+    p_relaciones.set_defaults(func=_cmd_relaciones)
+
+    for nombre, tabla, ayuda in (
+            ("proveedores", "proveedor", "los proveedores: lo que se les debe y lo vencido"),
+            ("clientes", "cliente", "los clientes: lo que deben y lo vencido")):
+        p_lista = sub.add_parser(nombre, help=ayuda)
+        p_lista.add_argument("--json", action="store_true", help="la lista en JSON")
+        p_lista.add_argument("--db", help=_AYUDA_DB)
+        p_lista.set_defaults(func=_cmd_partes, tabla=tabla)
+    for nombre, ayuda in (("proveedor", "la vista de un proveedor (§3)"),
+                          ("cliente", "la vista de un cliente (§4)")):
+        p_vista = sub.add_parser(nombre, help=ayuda)
+        p_vista.add_argument("id", type=int)
+        p_vista.add_argument("--json", action="store_true", help="la vista entera en JSON")
+        p_vista.add_argument("--db", help=_AYUDA_DB)
+        p_vista.set_defaults(func=_cmd_parte, tabla=nombre)
+
     p_excepciones = sub.add_parser("excepciones", help="las excepciones sin resolver")
     p_excepciones.add_argument("--db", help=_AYUDA_DB)
     p_excepciones.set_defaults(func=_cmd_excepciones)
 
     p_imp = sub.add_parser(
-        "importar", help="importa un fichero de un maestro, del banco o de pagos de Exact")
+        "importar", help="importa un fichero de un maestro, del banco, de pagos o de facturas "
+                         "de venta de Exact")
     p_imp.add_argument("fuente", help="exact, trnsprnt, maestro_csv o banco")
     p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas, "
-                                    "ciclos, pagos_exact (exact) o extracto (banco)")
+                                    "ciclos, pagos_exact y facturas_venta (exact) o extracto "
+                                    "(banco)")
     p_imp.add_argument("fichero")
     p_imp.add_argument("--mapeo", help="un fichero de mapeo (por defecto, el de "
                                        "config/importacion que reconoce sus columnas); para el "

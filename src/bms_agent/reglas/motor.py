@@ -169,7 +169,8 @@ _DERIVADOS_FACTURA = {
 }
 _DERIVADOS_LINEA = {"objeto": ("objeto_doc",)}
 _SIN_FUENTE = frozenset({"id", "orden", "lineas", "desglose", "ilegibles", "no_solicitados",
-                         "anulada", "fusionada_en_id", "dudosos", "sin_original"})
+                         "anulada", "fusionada_en_id", "dudosos", "sin_original",
+                         "sustituida_por", "acreditado_cent"})
 
 
 def campos_de_fuente(regla: Regla) -> dict[str, tuple[str, ...]]:

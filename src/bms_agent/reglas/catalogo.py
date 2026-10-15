@@ -13,6 +13,12 @@ pueden casar se convierten en hallazgos" del §10 (paso 6), al lado de M1.
 El paso 7 trae los pagos (K1-K8) y F7, y X1 tambien sobre los movimientos del
 banco.
 
+El paso 8 trae las ventas y las relaciones: V7 (facturacion doble a un
+cliente, el caso de B2 y B3 en las ventas, que desde ahora solo miran las
+compras), F10 (una venta con un IBAN que no es de BM Support BV), R1-R5 y M3.
+M3 tampoco esta en el §7: es "un desacuerdo entre Exact y el PDF es una
+discrepancia" de la puerta del paso 8, al lado de M1 y M2.
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -33,7 +39,18 @@ import hashlib
 import json
 
 from ..dominio import AmbitoHallazgo, Calidad, EntradaPrioridad
-from . import aritmetica, anomalias, bancaria, calidad, identidad, iva, pagos, planning, unicidad
+from . import (
+    anomalias,
+    aritmetica,
+    bancaria,
+    calidad,
+    identidad,
+    iva,
+    pagos,
+    planning,
+    relaciones,
+    unicidad,
+)
 from .base import A, B, LEE_POR_FACTURA, R, Regla, por_factura
 
 _P = EntradaPrioridad
@@ -79,6 +96,12 @@ CATALOGO: tuple[Regla, ...] = (
           descripcion="Una línea que una persona editó o excluyó no aparece en la extracción "
                       "vigente (no se pudo casar por su huella): se conserva tal cual y una "
                       "persona decide si sigue."),
+    Regla("M3", "Exact y el documento no coinciden", "calidad", calidad.m3, calidad.LEE_M3,
+          solo_texto=calidad.SOLO_TEXTO_M3, severidad=R, anulable=True,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="Una venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (fecha, "
+                      "base, IVA, total, tipo o periodo), o tienen el mismo número y no se "
+                      "pudieron unir: cuenta la de Exact, y una persona mira la diferencia."),
     Regla("Z1", "Fuente pasada de frescura", "calidad", calidad.z1, calidad.LEE_Z1,
           severidad=A, calidad=_C.ANOMALIA.value, ambito=_IMPORTACION,
           descripcion="Lo último de una fuente es más viejo que su límite (banco 3 días "
@@ -130,6 +153,13 @@ CATALOGO: tuple[Regla, ...] = (
           calidad=_C.ANOMALIA.value,
           descripcion="Periodos de cobro que se pisan, por Objeto cuando las líneas lo "
                       "nombran; sin las relaciones confirmadas ni los abonos."),
+    Regla("V7", "Facturación doble", "unicidad", unicidad.v7, unicidad.LEE_V7,
+          solo_texto=unicidad.SOLO_TEXTO,
+          severidad=R, anulable=True, pegajosa=True, entrada_prioridad=_P.DUPLICADO.value,
+          calidad=_C.ANOMALIA.value,
+          descripcion="En las ventas, el caso de B2 (el mismo número a la misma contraparte) o "
+                      "el de B3 (el mismo importe a pocos días, periodos compatibles y otro "
+                      "número): se le ha facturado dos veces."),
     # Aritmetica e IVA
     _de_factura("D1", aritmetica.d1, aritmetica.LEE_D1,
                 titulo="Desglose", familia="aritmetica", severidad=B, severidad_saliente=R,
@@ -221,6 +251,11 @@ CATALOGO: tuple[Regla, ...] = (
           calidad=_C.ANOMALIA.value, ambito=_PROVEEDOR,
           descripcion="El teléfono de verificación de un proveedor acaba de cambiar: empieza "
                       "el enfriamiento."),
+    Regla("F10", "IBAN ajeno en una venta", "bancaria", bancaria.f10, bancaria.LEE_F10,
+          severidad=R, pegajosa=True, entrada_prioridad=_P.IBAN.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="Una factura de venta lleva un IBAN que no es una cuenta de BM Support BV "
+                      "(config/empresa.yaml): el cliente pagaría a otra cuenta."),
     # Pagos (paso 7)
     Regla("K1", "Vencida", "pagos", pagos.EVALUAR["K1"], pagos.LEE_K1, severidad=A,
           anulable=True, crea_excepcion=True, entrada_prioridad=_P.DIAS_VENCIDA.value,
@@ -263,6 +298,28 @@ CATALOGO: tuple[Regla, ...] = (
           descripcion="Sin tarifa pactada ni planning, contra el histórico: la misma "
                       "contraparte cobra otra tarifa por el mismo trabajo en el mismo Objeto."),
     # Relaciones y anomalias
+    Regla("R1", "Factura nombrada que no está", "relaciones", relaciones.EVALUAR["R1"],
+          relaciones.LEE_R1, severidad=R, anulable=True, calidad=_C.FALTANTE.value,
+          descripcion="Un abono o una corrección nombra una factura de la misma contraparte que "
+                      "no está en el almacén (o que está repetida)."),
+    Regla("R2", "Abonos por encima de la original", "relaciones", relaciones.EVALUAR["R2"],
+          relaciones.LEE_R2, solo_texto=relaciones.SOLO_TEXTO, severidad=R, pegajosa=True,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Los abonos confirmados le quitan a una factura más de lo que vale, o un "
+                      "abono se aplica por más de lo que vale."),
+    Regla("R3", "Original y sustituta a la vez", "relaciones", relaciones.EVALUAR["R3"],
+          relaciones.LEE_R3, solo_texto=relaciones.SOLO_TEXTO, severidad=B, pegajosa=True,
+          entrada_prioridad=_P.DUPLICADO.value, calidad=_C.ANOMALIA.value,
+          descripcion="La original y la que la sustituye (o corrige) están las dos pendientes "
+                      "(se pagaría el mismo trabajo dos veces) o las dos pagadas."),
+    Regla("R4", "Abono sin relación", "relaciones", relaciones.EVALUAR["R4"], relaciones.LEE_R4,
+          severidad=A, calidad=_C.FALTANTE.value,
+          descripcion="Un abono sin ninguna relación confirmada que diga a qué factura abona."),
+    Regla("R5", "Relación por confirmar", "relaciones", relaciones.EVALUAR["R5"],
+          relaciones.LEE_R5, solo_texto=relaciones.SOLO_TEXTO, severidad=A,
+          calidad=_C.DUDOSO.value,
+          descripcion="La extracción o Exact proponen una relación entre dos facturas: hasta "
+                      "que una persona la confirma no mueve saldos, IVA ni duplicados."),
     Regla("U1", "Importe inusual", "anomalias", anomalias.EVALUAR_U1, anomalias.LEE_U1,
           severidad=A, anulable=True, crea_excepcion=True, calidad=_C.ANOMALIA.value,
           descripcion="La base se sale de lo habitual de la contraparte (mediana y MAD de sus "

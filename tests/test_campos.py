@@ -744,13 +744,20 @@ def test_crear_una_fila_pide_lo_mismo_que_fijarla(tipado) -> None:
     assert campos.leer(conn, "factura_linea", nueva)["descripcion_doc"] == "Extra"
     jefa = persona(conn, "Bea", "administracion")
     otra = factura_de(conn, "2026-018")
+    # Paso 8: una relacion que da de alta una persona entra confirmada (la base
+    # no admite una manual propuesta: proponer es del sistema).
+    with pytest.raises(sqlite3.IntegrityError, match="relacion manual"):
+        campos.crear(conn, "factura_relacion", {"origen_id": f, "destino_id": otra,
+                                                "tipo": "relacionada", "estado": "propuesta"},
+                     Persona(jefa))
     relacion = campos.crear(conn, "factura_relacion", {"origen_id": f, "destino_id": otra,
-                                                       "tipo": "relacionada", "estado": "propuesta"},
+                                                       "tipo": "relacionada",
+                                                       "estado": "confirmada"},
                                    Persona(jefa))
     assert campos.leer(conn, "factura_relacion", relacion)["fuente"] == "manual"
     with pytest.raises(CampoNoEditable, match="fuente"):
         campos.crear(conn, "factura_relacion", {"origen_id": f, "destino_id": otra,
-                                                "tipo": "relacionada", "estado": "propuesta",
+                                                "tipo": "relacionada", "estado": "confirmada",
                                                 "fuente": "exact"},
                      Persona(jefa))
     assert campos.verificar_controladas(conn) == []

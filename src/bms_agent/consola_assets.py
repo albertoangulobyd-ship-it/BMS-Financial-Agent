@@ -38,6 +38,7 @@ PAGINA = """<!doctype html>
   <section id="fuentes"></section>
   <section id="mensaje" role="status"></section>
   <section id="lista"></section>
+  <section id="partes"></section>
   <section id="ficha"></section>
 </main>
 </body>
@@ -384,6 +385,48 @@ SCRIPT = r"""
     return caja;
   }
 
+  // Paso 8: con que otras facturas esta relacionada. Lo propuesto (por el
+  // documento o por Exact) no mueve nada hasta que una persona lo confirma.
+  var TIPOS_RELACION = [['acredita', 'acredita (abono)'], ['anula', 'anula (abono)'],
+    ['sustituye', 'sustituye'], ['corrige', 'corrige'], ['relacionada', 'relacionada']];
+
+  function pintarRelaciones(f) {
+    var caja = el('div');
+    (f.relaciones || []).forEach(function (r) {
+      var acciones = [];
+      if (!r.retirada && r.estado === 'propuesta') {
+        acciones.push(formulario('confirmar_relacion', [
+          {nombre: 'tipo', etiqueta: 'como', opciones: TIPOS_RELACION.filter(function (t) {
+            return t[0] === r.tipo; }).concat(TIPOS_RELACION.filter(function (t) {
+            return t[0] !== r.tipo; }))},
+          {nombre: 'importe', etiqueta: 'importe (si es parcial)'},
+          {nombre: 'motivo', etiqueta: 'motivo'}], {relacion_id: r.id, rev: r.rev}, 'Confirmar'));
+        acciones.push(formulario('rechazar_relacion', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {relacion_id: r.id, rev: r.rev}, 'Rechazar'));
+      } else if (!r.retirada && r.estado === 'confirmada') {
+        acciones.push(formulario('retirar_relacion', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {relacion_id: r.id, rev: r.rev}, 'Retirar'));
+      }
+      anadir(caja, el('div', {clase: 'caja'},
+        el('strong', {}, (r.origen_numero || r.origen_id) + ' ' + r.tipo + ' ' +
+          (r.destino_numero || r.destino_id)), ' ',
+        el('span', {clase: 'suave'}, r.estado + (r.retirada ? ' (retirada)' : '') + ', de ' +
+          r.fuente), r.evidencia_doc ? el('div', {clase: 'doc'}, r.evidencia_doc) : null,
+        acciones));
+    });
+    (f.citas || []).forEach(function (c) {
+      if (c.retirada) { return; }
+      anadir(caja, el('p', {clase: 'suave'}, 'El documento nombra la factura ' +
+        (c.numero || '?') + ' (' + c.relacion + ')'));
+    });
+    anadir(caja, formulario('enlazar_facturas', [
+      {nombre: 'destino_id', etiqueta: 'con la factura (id)'},
+      {nombre: 'tipo', etiqueta: 'esta factura la', opciones: TIPOS_RELACION},
+      {nombre: 'importe', etiqueta: 'importe (abono parcial)'},
+      {nombre: 'motivo', etiqueta: 'motivo'}], {origen_id: f.id}, 'Enlazar'));
+    return caja;
+  }
+
   function pintarDetalle(contenedor, f) {
     vaciar(contenedor);
     var e = f.estado || {};
@@ -407,6 +450,7 @@ SCRIPT = r"""
       })),
       el('h3', {}, 'Excepción'), pintarExcepcion(f),
       el('h3', {}, 'Hallazgos'), pintarHallazgos(f),
+      el('h3', {}, 'Relaciones'), pintarRelaciones(f),
       el('h3', {}, 'Prioridad'),
       formulario('subir_prioridad', [{nombre: 'nivel', etiqueta: 'subir a', opciones: [
         ['atencion', 'Atención'], ['urgente', 'Urgente']]},
@@ -429,6 +473,84 @@ SCRIPT = r"""
       })));
   }
 
+  // ---------------------------------------------------------------- proveedores y clientes
+
+  function tablaPartes(titulo, tabla, filas) {
+    var cuerpo = el('tbody');
+    filas.forEach(function (p) {
+      anadir(cuerpo, el('tr', {clase: 'fila', al_pulsar: function () { abrirParte(tabla, p.id); }},
+        el('td', {}, p.nombre + (p.activo ? '' : ' (inactivo)')),
+        el('td', {}, String(p.facturas)), el('td', {}, p.pendiente || ''),
+        el('td', {}, p.vencido || '')));
+    });
+    var cabecera = el('tr', {}, ['Nombre', 'Facturas', 'Pendiente', 'Vencido'].map(function (t) {
+      return el('th', {}, t); }));
+    return el('div', {}, el('h2', {}, titulo),
+      el('table', {}, el('thead', {}, cabecera), cuerpo));
+  }
+
+  function pintarPartes(contenedor, proveedores, clientes) {
+    vaciar(contenedor);
+    anadir(contenedor, tablaPartes('Proveedores', 'proveedores', proveedores),
+      tablaPartes('Clientes', 'clientes', clientes));
+  }
+
+  function filas(cabeceras, datos) {
+    return el('table', {}, el('thead', {}, el('tr', {}, cabeceras.map(function (t) {
+      return el('th', {}, t); }))), el('tbody', {}, datos.map(function (d) {
+      return el('tr', {}, d.map(function (v) {
+        return el('td', {}, v === null || v === undefined ? '' : String(v)); })); })));
+  }
+
+  function pintarParte(contenedor, tabla, v) {
+    vaciar(contenedor);
+    var pagado = tabla === 'proveedores' ? 'pagado' : 'cobrado';
+    var ano = v.ano_facturado, siempre = v.siempre_facturado;
+    var plazo = v.plazo_de_pago, tipico = v.importe_tipico;
+    anadir(contenedor,
+      el('h2', {}, (tabla === 'proveedores' ? 'Proveedor ' : 'Cliente ') + v.nombre),
+      el('p', {}, 'Pendiente ' + v.pendiente + ' en ' + v.abiertas + ' facturas · vencido ' +
+        v.vencido + ' en ' + v.vencidas + ' (a ' + v.hoy + ')'),
+      el('p', {}, v.ano + ': facturado ' + ano.total + ' (' + ano.base + ' sin IVA), ' + pagado +
+        ' ' + v.ano_pagado + ' · siempre: ' + siempre.total + ' en ' + siempre.facturas +
+        ' facturas, ' + pagado + ' ' + v.siempre_pagado),
+      el('p', {clase: 'suave'}, 'Importe típico: ' + (tipico.media || '-') + ' de media, ' +
+        (tipico.mediana || '-') + ' de mediana · plazo de pago: ' +
+        (plazo.media_dias === null ? '-' : plazo.media_dias + ' días') + ' de media, ' +
+        plazo.tarde + ' pagadas tarde'),
+      el('h3', {}, 'Por Objeto'),
+      filas(['Objeto', 'Facturas', 'Importe', 'Horas'], v.por_objeto.map(function (o) {
+        return [o.objeto, o.facturas, o.importe, o.horas]; })),
+      v.ibanes ? el('div', {}, el('h3', {}, 'Cuentas'),
+        filas(['IBAN', 'Estado', 'Pagable'], v.ibanes.registro.map(function (c) {
+          return [c.iban, c.estado, c.pagable ? 'sí' : 'no']; })),
+        filas(['IBAN impreso', 'Primera', 'Última', 'Facturas'], v.ibanes.impresos.map(
+          function (i) { return [i.iban, i.primera, i.ultima, i.facturas]; }))) : null,
+      el('h3', {}, 'Avisos activos'),
+      el('ul', {}, v.avisos.hallazgos.map(function (h) {
+        return el('li', {}, h.regla + ' (' + h.severidad + ', ' + h.estado + '): ' + h.detalle);
+      })),
+      el('h3', {}, 'Facturas'),
+      el('table', {}, el('tbody', {}, v.historial.map(function (f) {
+        return el('tr', {clase: 'fila', al_pulsar: function () { abrirFicha(f.id); }},
+          el('td', {}, f.fecha_factura || ''), el('td', {}, f.numero || '(sin número)'),
+          el('td', {}, f.total || ''), el('td', {}, f.estado_pago || ''));
+      }))),
+      el('h3', {}, 'Pagos'),
+      filas(['Fecha', 'Factura', 'Importe', 'Fuente'], v.pagos.map(function (p) {
+        return [p.fecha, p.numero, p.importe, p.fuente]; })),
+      plazo.retrasos.length ? el('div', {}, el('h3', {}, 'Pagos tarde'),
+        filas(['Factura', 'Vencía', 'Pagada', 'Días'], plazo.retrasos.map(function (t) {
+          return [t.numero, t.vencimiento, t.pagada_el, t.dias]; }))) : null);
+  }
+
+  function abrirParte(tabla, id) {
+    estado.ficha = null;
+    return api('GET', '/api/v2/' + tabla + '/' + encodeURIComponent(String(id))).then(function (r) {
+      pintarParte(document.getElementById('ficha'), tabla, r.proveedor || r.cliente);
+    }).catch(function (error) { decir(error.message, true); });
+  }
+
   // ---------------------------------------------------------------- arranque
 
   // Z1: una fuente pasada de su limite sale arriba, antes que la lista: lo que
@@ -449,6 +571,10 @@ SCRIPT = r"""
     var lista = api('GET', '/api/v2/facturas').then(function (r) {
       pintarListado(document.getElementById('lista'), r.facturas);
     });
+    Promise.all([api('GET', '/api/v2/proveedores'), api('GET', '/api/v2/clientes')]).then(
+      function (r) {
+        pintarPartes(document.getElementById('partes'), r[0].proveedores, r[1].clientes);
+      });
     if (estado.ficha !== null) { return lista.then(function () { return abrirFicha(estado.ficha); }); }
     return lista;
   }
@@ -481,6 +607,7 @@ SCRIPT = r"""
   }
 
   window.BMSConsola = {el: el, pintarListado: pintarListado, pintarDetalle: pintarDetalle,
+                       pintarPartes: pintarPartes, pintarParte: pintarParte,
                        resumen: resumen, estado: estado};
   document.addEventListener('DOMContentLoaded', iniciar);
 })();

@@ -49,7 +49,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, NamedTuple
 
-from . import __version__, estados, excepciones, pagos
+from . import __version__, estados, excepciones, pagos, relaciones
 from . import politica as politicas
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .auditoria import registrar
@@ -149,6 +149,9 @@ class Diferencia:
     estados: Any = None
     # Paso 7: lo que la pasada caso del banco antes de evaluar (pagos.conciliar).
     conciliacion: Any = None
+    # Paso 8: las copias fusionadas y las relaciones propuestas o retiradas por
+    # el sistema antes de evaluar (relaciones.sincronizar).
+    relaciones: Any = None
 
     def de_tipo(self, *tipos: str) -> list[Transicion]:
         return [t for t in self.transiciones if t.tipo in tipos]
@@ -401,9 +404,13 @@ class _Pasada:
 
     def ejecutar(self) -> Diferencia:
         conn = self.conn
-        # Lo primero, casar el banco con las facturas (paso 7): lo que se casa
-        # ahora es lo que las reglas de pagos ven en esta misma pasada, y su
-        # evento es la causa de lo que abra o cierre.
+        # Lo primero, lo que el sistema escribe antes de evaluar, y en este
+        # orden: las copias en PDF de lo que llego de Exact se fusionan en su
+        # factura y las citas proponen sus relaciones (paso 8); despues se casa
+        # el banco con lo que queda en juego (paso 7). Lo que se escribe ahora es
+        # lo que las reglas ven en esta misma pasada, y su evento es la causa de
+        # lo que abra o cierre.
+        self.diferencia.relaciones = relaciones.sincronizar(conn)
         self.diferencia.conciliacion = pagos.conciliar(conn,
                                                        tolerancia=self.politica.tolerancia_pago)
         instantanea = instantaneas.construir(conn, hoy=self.hoy, politica=self.politica)

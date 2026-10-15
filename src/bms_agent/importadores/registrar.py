@@ -639,6 +639,209 @@ def _pagos_exact(ctx: _Contexto) -> tuple[list[Rechazo], int]:
     return rechazos, aceptadas
 
 
+# ------------------------------------------------------------ las facturas de venta (paso 8)
+
+def _plazo_de(condiciones: str | None) -> int | None:
+    """Los dias del plazo que da el texto de Exact ("30 dagen"), si se leen sin adivinar."""
+    from ..parsing import ParseError, parse_plazo_pago
+
+    try:
+        return parse_plazo_pago(condiciones) if condiciones else None
+    except ParseError:
+        return None
+
+
+def _cabecera_venta(registro: Any, cliente_id: int) -> dict[str, Any]:
+    """Lo que la importacion escribe de la factura: lo que dice Exact, con su literal."""
+    unico = registro.iva_por_tipo[0].tipo_iva if len(registro.iva_por_tipo) == 1 else None
+    return {
+        "tipo": registro.tipo, "numero": registro.numero, "cliente_id": cliente_id,
+        "receptor_nombre_doc": registro.cliente_nombre, "receptor_btw_doc": registro.cliente_btw,
+        "contacto_nombre_doc": registro.contacto, "fecha_factura": registro.fecha_factura,
+        "fecha_vencimiento": registro.fecha_vencimiento,
+        "condiciones_pago_doc": registro.condiciones_pago,
+        "plazo_pago_dias": _plazo_de(registro.condiciones_pago),
+        "periodo_inicio": registro.periodo_inicio, "periodo_fin": registro.periodo_fin,
+        "base_cent": Leido(registro.base, crudo=registro.base_crudo),
+        "iva_cent": Leido(registro.iva, crudo=registro.iva_crudo),
+        "total_cent": Leido(registro.total, crudo=registro.total_crudo),
+        "tipo_iva_pb": unico, "tratamiento_iva": registro.tratamiento_iva,
+        "moneda_doc": "EUR",
+    }
+
+
+def _valores_linea(linea: Any) -> dict[str, Any]:
+    return {
+        "descripcion_doc": linea.descripcion, "objeto_doc": linea.objeto_ref,
+        "recurso_doc": linea.recurso_ref, "unidad_doc": linea.unidad,
+        "fecha_inicio": linea.fecha_inicio, "fecha_fin": linea.fecha_fin,
+        "cantidad_mil": Leido(linea.cantidad, crudo=linea.cantidad_crudo),
+        "tarifa_e4": Leido(linea.tarifa, crudo=linea.tarifa_crudo),
+        "importe_cent": Leido(linea.importe, crudo=linea.importe_crudo),
+        "tipo_iva_pb": linea.tipo_iva,
+    }
+
+
+def _vivas(conn: sqlite3.Connection, tabla: str, factura_id: int) -> list[sqlite3.Row]:
+    return conn.execute(f"SELECT * FROM {tabla} WHERE factura_id = ? AND retirada_en IS NULL "
+                        "ORDER BY id", (factura_id,)).fetchall()
+
+
+def _lineas_venta(o: campos.Orden, conn: sqlite3.Connection, factura_id: int,
+                  registro: Any) -> dict[int, int]:
+    """Las lineas por su numero de linea de Exact: la que sigue se actualiza, la nueva entra con
+    su imputacion por defecto y la que ya no viene se retira (con su imputacion)."""
+    actuales = {f["orden"]: f["id"] for f in _vivas(conn, "factura_linea", factura_id)}
+    retiradas = {f["orden"]: f["id"] for f in conn.execute(
+        "SELECT id, orden FROM factura_linea WHERE factura_id = ? AND retirada_en IS NOT NULL",
+        (factura_id,))}
+    ids = {}
+    for linea in registro.lineas:
+        valores = _valores_linea(linea)
+        if linea.orden in actuales:
+            ids[linea.orden] = actuales.pop(linea.orden)
+            o.fijar("factura_linea", ids[linea.orden], valores)
+            continue
+        if linea.orden in retiradas:
+            raise RechazoFila(f"la linea {linea.orden} de la factura {registro.numero} ya se "
+                              "retiro: Exact no vuelve a usar un numero de linea", "fila")
+        ids[linea.orden] = o.crear("factura_linea", {"factura_id": factura_id,
+                                                     "orden": linea.orden, **valores})
+        o.crear("factura_imputacion", {"factura_id": factura_id,
+                                       "linea_id": ids[linea.orden]})
+    for linea_id in actuales.values():
+        o.retirar("factura_linea", linea_id)
+    return ids
+
+
+def _hijas_venta(o: campos.Orden, conn: sqlite3.Connection, factura_id: int, registro: Any,
+                 lineas: dict[int, int]) -> None:
+    """Las PO, el IVA por tipo y la factura citada, por lo que las identifica."""
+    from ..parsing import normalizar_referencia
+
+    querido = {(None, normalizar_referencia(r)): (None, r) for r in registro.referencias}
+    for linea in registro.lineas:
+        if linea.po_ref:
+            querido[(lineas[linea.orden], normalizar_referencia(linea.po_ref))] = (
+                lineas[linea.orden], linea.po_ref)
+    for fila in _vivas(conn, "factura_referencia", factura_id):
+        if querido.pop((fila["linea_id"], fila["valor_norm"]), None) is None:
+            o.retirar("factura_referencia", fila["id"])
+    for linea_id, valor in querido.values():
+        o.crear("factura_referencia", {"factura_id": factura_id, "linea_id": linea_id,
+                                       "etiqueta_doc": "PO", "valor_doc": valor})
+
+    tipos = {iva.tipo_iva: iva for iva in registro.iva_por_tipo}
+    for fila in _vivas(conn, "factura_iva", factura_id):
+        tipo = Decimal(fila["tipo_iva_pb"]) / 100 if fila["tipo_iva_pb"] is not None else None
+        iva = tipos.pop(tipo, None)
+        if iva is None:
+            o.retirar("factura_iva", fila["id"])
+        else:
+            o.fijar("factura_iva", fila["id"], {"tratamiento": registro.tratamiento_iva,
+                                                "base_cent": iva.base,
+                                                "cuota_cent": iva.cuota})
+    for iva in tipos.values():
+        o.crear("factura_iva", {"factura_id": factura_id, "tipo_iva_pb": iva.tipo_iva,
+                                "tratamiento": registro.tratamiento_iva,
+                                "base_cent": iva.base, "cuota_cent": iva.cuota})
+
+    citada = registro.factura_relacionada
+    relacion = "credits" if registro.tipo == "nota_credito" else "unknown"
+    citas = _vivas(conn, "factura_cita", factura_id)
+    for fila in citas:
+        if citada and fila["numero_norm"] == normalizar_referencia(citada):
+            o.fijar("factura_cita", fila["id"], {"relacion_doc": relacion})
+            citada = None
+        else:
+            o.retirar("factura_cita", fila["id"])
+    if citada:
+        o.crear("factura_cita", {"factura_id": factura_id, "numero_doc": citada,
+                                 "relacion_doc": relacion,
+                                 "texto_doc": f"Gerelateerde factuur {citada}"})
+
+
+def _comprobar_venta(conn: sqlite3.Connection, registro: Any) -> int:
+    """El cliente de la factura y lo que no puede entrar. Devuelve el cliente; no escribe."""
+    if (registro.moneda or "").strip().upper() not in _EUROS:
+        raise RechazoFila(f"la factura {registro.numero} esta en {registro.moneda}: lo que no "
+                          "esta en euros no entra", "X1")
+    for importe in (registro.base, registro.iva, registro.total,
+                    *(linea.importe for linea in registro.lineas)):
+        if importe is not None:
+            a_cent(importe)
+    return referencia_parte(conn, "cliente", registro.cliente_ref)
+
+
+def _facturas_venta(ctx: _Contexto) -> list[Rechazo]:
+    """Las facturas de venta de un listado de Exact: todas o ninguna (decision 6).
+
+    Primero se comprueba todo (moneda, importes, cliente) sin escribir; si
+    algo no vale, no entra ninguna. Despues cada factura es una orden de
+    campos.py, a nombre de Exact: la factura por su diario y numero de Exact
+    (la que ya estaba se actualiza), sus lineas por su numero de linea, con
+    su imputacion por defecto (el Objeto lo resuelve el codigo del centro de
+    coste o el proyecto; si no se conoce, la linea queda sin Objeto como una
+    leida de un PDF), sus PO, su IVA por tipo y la factura que cita (de la
+    que relaciones.py propone la relacion: nunca la confirma una
+    importacion). Nada de esto crea una factura en Exact ni un borrador: la
+    V1 solo lee lo que Exact ya emitio.
+    """
+    lote, conn = ctx.lote, ctx.conn
+    if lote.fuente not in SISTEMAS:
+        return [Rechazo(0, f"las facturas de venta llegan de Exact o de TRNSPRNT, no de "
+                           f"{lote.fuente}")]
+    if lote.rechazos:
+        return []
+    rechazos: list[Rechazo] = []
+    clientes: dict[int, int] = {}
+    for registro in lote.registros:
+        try:
+            clientes[registro.fila] = _comprobar_venta(conn, registro)
+        except RechazoFila as exc:
+            rechazos.append(Rechazo(registro.fila, str(exc), dict(registro.crudo), exc.codigo))
+        except (PerdidaDePrecision, FueraDeRango) as exc:
+            rechazos.append(Rechazo(registro.fila, f"un importe no cabe en centimos: {exc}",
+                                    dict(registro.crudo)))
+    if rechazos:
+        return rechazos
+    try:
+        with transaccion(conn):
+            for registro in lote.registros:
+                _factura_venta(ctx, registro, clientes[registro.fila])
+    except RechazoFila as exc:
+        return [Rechazo(0, str(exc), None, exc.codigo)]
+    except (ValueError, LookupError, TypeError, sqlite3.IntegrityError) as exc:
+        codigo = "sistema" if isinstance(exc, campos.CampoDeOtroSistema) else "fila"
+        return [Rechazo(0, f"no entra ninguna factura: {exc}", None, codigo)]
+    return []
+
+
+def _factura_venta(ctx: _Contexto, registro: Any, cliente_id: int) -> None:
+    conn, fuente = ctx.conn, ctx.lote.fuente
+    fila_id = _unica(conn, "SELECT id FROM factura WHERE fuente_externa = ? AND id_externo = ?",
+                     (fuente, registro.id_externo))
+    cabecera = _cabecera_venta(registro, cliente_id)
+    with campos.orden(conn, ctx.origen, tipo="factura_importada", tabla="factura",
+                      fila_id=fila_id, factura_id=fila_id,
+                      datos={"importacion_id": ctx.importacion_id, "fila": registro.fila,
+                             "id_externo": registro.id_externo}) as o:
+        if fila_id is None:
+            fila_id = o.crear("factura", {
+                "sentido": "saliente", "origen": fuente, "fuente_externa": fuente,
+                "id_externo": registro.id_externo, **cabecera})
+            o.tabla, o.fila_id, o.factura_id = "factura", fila_id, fila_id
+        else:
+            sentido = conn.execute("SELECT sentido FROM factura WHERE id = ?",
+                                   (fila_id,)).fetchone()[0]
+            if sentido != "saliente":
+                raise RechazoFila(f"{registro.id_externo} es una factura de compra aqui", "fila")
+            o.fijar("factura", fila_id, cabecera)
+        lineas = _lineas_venta(o, conn, fila_id, registro)
+        _hijas_venta(o, conn, fila_id, registro, lineas)
+    ctx.anotar(o.resultado)
+
+
 # ------------------------------------------------------------ la foto completa de un sistema
 
 _PARTES = {"proveedores": "proveedor", "clientes": "cliente"}
@@ -718,6 +921,10 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
     elif lote.tipo == "pagos_exact":
         propios, aceptadas = _pagos_exact(ctx)
         rechazos.extend(propios)
+    elif lote.tipo == "facturas_venta":
+        propios = _facturas_venta(ctx)
+        rechazos.extend(propios)
+        aceptadas = 0 if (propios or lote.rechazos) else len(lote.registros)
     elif lote.tipo in ATOMICOS or lote.tipo not in ESCRITORES:
         rechazos.append(Rechazo(0, f"el tipo {lote.tipo} todavia no se importa"))
         aceptadas = 0

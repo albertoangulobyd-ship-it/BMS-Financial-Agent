@@ -92,7 +92,9 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
         ("maestro_csv", "recursos"), ("maestro_csv", "alias"), ("maestro_csv", "tarifas"),
         ("maestro_csv", "ciclos"), ("maestro_csv", "contactos"),
         # Paso 7: lo pagado segun Exact y los CSV de movimientos de ING y Rabobank.
-        ("exact", "pagos_exact"), ("banco", "extracto")}
+        ("exact", "pagos_exact"), ("banco", "extracto"),
+        # Paso 8: las facturas de venta de Exact, con sus lineas.
+        ("exact", "facturas_venta")}
 
 
 def test_la_semilla_de_tarifas_lee_como_dice_su_contrato() -> None:

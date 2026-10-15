@@ -42,6 +42,14 @@ bms-agent importar-out         # lleva out/ al almacén (datos/) y lo tipa, sin 
 bms-agent sembrar              # clientes, Objetos y tarifas de venta de config/tarifas.yaml
 bms-agent importar exact proveedores acreedores.csv --token ...   # maestros (--simular: qué cambiaría)
 bms-agent iban listar          # el registro de cuentas; iban verificar|rechazar|atestar|telefono
+bms-agent importar banco extracto extracto.xml --token ...   # CAMT.053, MT940 o CSV del banco
+bms-agent pagos --sin-casar    # lo que el banco movió y no casa; --propuestas, --factura N
+bms-agent flujo-caja           # lo que se espera cobrar y pagar, y lo que movió el banco
+bms-agent extract --salientes ventas/   # facturas emitidas por BMS: entran por la vía de salida
+bms-agent importar exact facturas_venta ventas.csv --token ...   # las ventas de Exact, con líneas
+bms-agent relaciones           # abonos, correcciones y sustituciones propuestas, por confirmar
+bms-agent proveedores          # lo pendiente y lo vencido de cada uno; `proveedor 3`, su vista
+bms-agent clientes             # lo mismo de los clientes; `cliente 2`, su vista
 bms-agent fuentes              # de cuándo es lo último de cada fuente (Z1)
 bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
@@ -72,5 +80,5 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1321 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1534 tests sin
 llamar a la API.

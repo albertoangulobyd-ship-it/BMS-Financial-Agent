@@ -36,6 +36,7 @@ from .base import (
     Instantanea,
     Objetivo,
     Resultado,
+    en_juego,
     euros_texto,
     fallo,
     sin_datos,
@@ -190,7 +191,7 @@ def _preparar_u1(instantanea: Instantanea) -> dict[int, Resultado]:
     grupos: dict[tuple[str, str], list[Factura]] = defaultdict(list)
     for f in instantanea.facturas:
         if (f.parte is not None and f.tipo != "nota_credito" and f.base_cent is not None
-                and not f.anulada and f.fusionada_en_id is None):
+                and en_juego(f)):
             grupos[(f.sentido, f.parte)].append(f)
     salida: dict[int, Resultado] = {}
     for lista in grupos.values():

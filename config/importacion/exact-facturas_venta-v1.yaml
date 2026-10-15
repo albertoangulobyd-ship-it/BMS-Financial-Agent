@@ -1,0 +1,69 @@
+# Las facturas de venta de Exact Online: un listado de verkoopfacturen con
+# sus regels, exportado a CSV (spec §9, paso 8).
+#
+# Cada fila es una linea de una factura, con los datos de la factura
+# repetidos; ventas.py junta las filas de cada factura (por su diario y su
+# numero) y rechaza la que no dice lo mismo en todas. Entra todo o nada: una
+# fila que no se lee, un cliente que no esta o un importe en otra moneda
+# rechazan el fichero entero (decision 6), porque un listado a medias daria
+# por no facturado lo que si lo esta.
+#
+# El centro de coste o el proyecto de cada linea es el codigo (o un alias)
+# de un Objeto; si no se conoce, la linea entra con lo que dice el fichero y
+# sin Objeto, como una factura leida de un PDF. El cliente se busca por su
+# numero de Exact (Debiteurnummer) y no se crea solo.
+#
+# El formato real de la exportacion de Exact no se conoce todavia: este mapeo
+# esta hecho contra un ejemplo sintetico, como el de pagos.
+version: 1
+fuente: exact
+tipo: facturas_venta
+formato: "csv:exact-verkoopfacturen-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  separador_miles: "."
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Dagboek, Factuurnummer, Factuurdatum, Debiteurnummer, Regel, Bedrag excl. btw]
+completo: false
+registros:
+  lineas_venta:
+    campos:
+      id_externo: {unir: [Dagboek, Factuurnummer], separador: ":"}
+      numero: {columna: Factuurnummer, obligatorio: true}
+      tipo: {columna: Soort, valores: {Factuur: factura, Creditnota: nota_credito}}
+      cliente_ref: {columna: Debiteurnummer, obligatorio: true}
+      cliente_nombre: {columna: Debiteurnaam}
+      cliente_btw: {columna: Btw-nummer}
+      contacto: {columna: T.a.v.}
+      fecha_factura: {columna: Factuurdatum, tipo: fecha, obligatorio: true}
+      fecha_vencimiento: {columna: Vervaldatum, tipo: fecha}
+      condiciones_pago: {columna: Betalingsconditie}
+      periodo_inicio: {columna: Periode van, tipo: fecha}
+      periodo_fin: {columna: Periode tot, tipo: fecha}
+      tratamiento_iva:
+        columna: Btw-behandeling
+        valores: {Normaal: estandar, Verlegd: autoliquidacion, Vrijgesteld: exento,
+                  Nultarief: tipo_cero}
+      base: {columna: Totaal excl. btw, tipo: decimal, crudo_de: base_crudo}
+      iva: {columna: Btw, tipo: decimal, crudo_de: iva_crudo}
+      total: {columna: Totaal incl. btw, tipo: decimal, crudo_de: total_crudo}
+      po_ref: {columna: Uw referentie}
+      factura_relacionada: {columna: Gerelateerde factuur}
+      moneda: {columna: Valuta, por_defecto: EUR}
+      orden: {columna: Regel, tipo: entero, obligatorio: true}
+      descripcion: {columna: Omschrijving}
+      objeto_ref: {primera: [Project, Kostenplaats]}
+      recurso_ref: {columna: Medewerker}
+      linea_desde: {columna: Datum van, tipo: fecha}
+      linea_hasta: {columna: Datum tot, tipo: fecha}
+      cantidad: {columna: Aantal, tipo: decimal, crudo_de: cantidad_crudo}
+      unidad: {columna: Eenheid}
+      tarifa: {columna: Prijs, tipo: decimal, crudo_de: tarifa_crudo}
+      importe: {columna: Bedrag excl. btw, tipo: decimal, obligatorio: true,
+                crudo_de: importe_crudo}
+      tipo_iva: {columna: Btw %, tipo: decimal}
+      cuota_iva: {columna: Btw-bedrag, tipo: decimal}
+      linea_po_ref: {columna: Regel referentie}

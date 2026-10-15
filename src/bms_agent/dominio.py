@@ -81,10 +81,19 @@ class TratamientoIva(_Texto):
 
 
 class EstadoPago(_Texto):
+    """Lo que queda de una factura (spec §5). Solo las relaciones confirmadas lo mueven.
+
+    anulada: anulada a mano, anulada por un abono que la anula, o sustituida o
+    corregida por otra (sale de los totales). acreditada: los abonos
+    confirmados cubren lo que quedaba sin que se pagara nada (paso 8); un
+    abono parcial solo baja lo pendiente.
+    """
+
     PENDIENTE = "pendiente"
     VENCIDA = "vencida"
     PAGADA = "pagada"
-    ANULADA = "anulada"         # anulada o acreditada entera
+    ANULADA = "anulada"
+    ACREDITADA = "acreditada"
 
 
 class EstadoRevision(_Texto):
@@ -180,6 +189,27 @@ class FuenteRelacion(_Texto):
     EXTRACCION = "extraccion"
     EXACT = "exact"
     MANUAL = "manual"
+
+
+# Lo que mueve cada tipo de relacion confirmada (paso 8). Un abono que acredita
+# o anula baja lo pendiente de la original y gasta lo suyo; las dos siguen en
+# los totales y en el IVA, cada una en su fecha, y se compensan. Una factura
+# sustituida o corregida por otra sale de los totales, de la caja y del IVA.
+# Una relacionada no mueve nada (y tampoco calla un duplicado).
+RELACIONES_QUE_ACREDITAN = frozenset({TipoRelacion.ACREDITA.value, TipoRelacion.ANULA.value})
+RELACIONES_QUE_SUSTITUYEN = frozenset({TipoRelacion.SUSTITUYE.value,
+                                       TipoRelacion.CORRIGE.value})
+
+
+class RelacionCitada(_Texto):
+    """Lo que dice un documento de la factura que nombra (stated_relation de v2, o Exact)."""
+
+    ACREDITA = "credits"
+    CORRIGE = "corrects"
+    SUSTITUYE = "replaces"
+    ANULA = "cancels"
+    SE_REFIERE = "refers_to"
+    DESCONOCIDA = "unknown"
 
 
 class ClaseReferencia(_Texto):

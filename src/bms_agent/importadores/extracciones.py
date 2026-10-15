@@ -13,7 +13,10 @@ documento, modelo, versiones y contenido. Lo que esta mal (no es JSON, no
 dice de que documento es) se rechaza y queda apuntado, tambien una sola vez.
 
 La direccion la pone esta via de entrada, no el modelo: todo lo que leyo el
-extractor v1 son facturas recibidas (ruta_declarada 'entrante').
+extractor v1 son facturas recibidas (ruta_declarada 'entrante'). Desde el
+paso 8, lo que `extract --salientes` leyo esta en out/salientes y entra como
+'saliente' (`ruta`): la carpeta de la que sale el fichero decide, nunca lo
+que diga el documento.
 """
 
 from __future__ import annotations
@@ -134,8 +137,13 @@ def importar_out(
     carpeta_pdfs: str | Path | None = None,
     *,
     usuario_id: int | None = None,
+    ruta: str = "entrante",
 ) -> ResultadoImportacion:
     """Importa cada out/*.json al almacen. Toda la orden es una transaccion.
+
+    `ruta` es la via de entrada de esa carpeta (entrante, o saliente para
+    out/salientes). Un documento que ya estaba conserva la via por la que
+    llego la primera vez: la direccion no cambia despues.
 
     Cada fichero va ademas en su propio SAVEPOINT: si la base rechaza algo
     que la lectura dejo pasar (un CHECK), se deshace solo ese fichero y queda
@@ -146,6 +154,8 @@ def importar_out(
     de sistema importador.
     """
     out_dir = Path(out_dir)
+    if ruta not in ("entrante", "saliente"):
+        raise ValueError(f"via de entrada desconocida: {ruta!r}")
     if not out_dir.is_dir():
         raise FileNotFoundError(f"no existe la carpeta {out_dir}")
     pdfs = indexar_pdfs(carpeta_pdfs)
@@ -155,9 +165,9 @@ def importar_out(
 
     with transaccion(conn):
         actor = usuario_sistema(conn, "importador")
-        for ruta in sorted(out_dir.glob("*.json")):
+        for fichero in sorted(out_dir.glob("*.json")):
             resultado.ficheros += 1
-            crudo = ruta.read_bytes()
+            crudo = fichero.read_bytes()
             fichero_sha256 = sha256_bytes(crudo)
             previa = _importacion_previa(almacen, fichero_sha256)
             try:
@@ -170,7 +180,7 @@ def importar_out(
                 try:
                     with transaccion(conn):
                         hecho = _importar_fichero(
-                            almacen, ruta, registro, previa, pdfs, actor, usuario_id)
+                            almacen, fichero, registro, previa, pdfs, actor, usuario_id, ruta)
                 except sqlite3.IntegrityError as exc:
                     motivo = f"la base no lo admite: {exc}"
                 else:
@@ -181,9 +191,9 @@ def importar_out(
                     resultado.ya_estaban += not hecho.importada
                     continue
             resultado.rechazadas += 1
-            resultado.rechazos.append((ruta.name, motivo))
+            resultado.rechazos.append((fichero.name, motivo))
             if previa is None:
-                _rechazar(almacen, ruta.name, fichero_sha256, motivo, actor, usuario_id)
+                _rechazar(almacen, fichero.name, fichero_sha256, motivo, actor, usuario_id)
 
     resultado.sin_original = sum(1 for estado in original_de.values() if estado == "falta")
     return resultado
@@ -201,7 +211,7 @@ class _Fichero:
 
 def _importar_fichero(
     almacen: Almacen, ruta: Path, registro, previa, pdfs: dict[str, Path],
-    actor: int, usuario_id: int | None,
+    actor: int, usuario_id: int | None, via: str = "entrante",
 ) -> _Fichero:
     """Un fichero bueno: su documento (con el PDF si esta) y su extraccion."""
     conn = almacen.conn
@@ -212,7 +222,7 @@ def _importar_fichero(
     documento = registrar_documento(
         almacen, sha256=registro.source_sha256, contenido=contenido_pdf,
         nombre_original=registro.source_name or (pdf.name if pdf else None),
-        tipo_mime=TIPO_MIME, origen="out_v1", ruta_declarada="entrante",
+        tipo_mime=TIPO_MIME, origen="out_v1", ruta_declarada=via,
         recibido_en=instante_de_fichero(pdf) if pdf is not None else None,
         recibido_fuente="mtime" if pdf is not None else "desconocido",
         actor=actor, usuario_id=usuario_id,

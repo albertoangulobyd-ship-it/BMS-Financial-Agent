@@ -21,6 +21,7 @@ from .base import (
     LEE_PERIODO,
     OK,
     R,
+    RELACIONADO,
     SALIENTE,
     SIN_DATOS,
     Comprobacion,
@@ -340,6 +341,100 @@ LEE_M2 = LEE_EN_JUEGO | frozenset({
     "linea_sin_casar.activa", "linea_sin_casar.excluida", "linea_sin_casar.campos"})
 
 EVALUAR_M2 = solo_objeciones(m2)
+
+
+# --------------------------------------------------------------- M3 (paso 8)
+
+# Lo que llega estructurado de su sistema. Una venta de Exact es la que cuenta;
+# su PDF, si tambien se leyo, es una copia que se fusiona en ella
+# (relaciones.sincronizar) y que M3 compara.
+ESTRUCTURADAS = frozenset({"exact", "trnsprnt"})
+# Lo que tienen que decir igual la venta de Exact y su PDF, y como se llama.
+_COMPARADOS = (("fecha_factura", "la fecha"), ("base_cent", "la base"), ("iva_cent", "el IVA"),
+               ("total_cent", "el total"), ("tipo", "el tipo"),
+               ("periodo_inicio", "el inicio del periodo"), ("periodo_fin", "el fin del periodo"))
+
+
+def _valor_m3(valor: Any) -> Any:
+    return valor.isoformat() if hasattr(valor, "isoformat") else valor
+
+
+def _diferencias(copia: Factura, buena: Factura) -> dict[str, list[Any]]:
+    """Lo que dice distinto el documento que lo que dice el sistema (los dos con valor)."""
+    salida = {}
+    for campo, _nombre in _COMPARADOS:
+        a, b = getattr(copia, campo), getattr(buena, campo)
+        if a is not None and b is not None and a != b:
+            salida[campo] = [_valor_m3(b), _valor_m3(a)]
+    return salida
+
+
+def m3(instantanea: Instantanea) -> list[Resultado]:
+    """M3: la venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (retiene).
+
+    El PDF de una venta solo se lee cuando no hay fuente estructurada (§10);
+    si estan las dos, cuenta la de Exact y el PDF se fusiona en ella como su
+    copia. Lo que digan distinto (fecha, base, IVA, total, tipo, periodo) es
+    una discrepancia: el cliente recibio una cosa y la contabilidad dice
+    otra. Si las dos tienen el mismo numero y no se pudieron unir (el cliente
+    del PDF no se resolvio, o es otro), tambien: hasta unirlas, la venta
+    contaria dos veces.
+    """
+    facturas = {f.id: f for f in instantanea.facturas}
+    por_numero: dict[tuple[str, str], list[Factura]] = {}
+    for f in instantanea.facturas:
+        if (f.origen in ESTRUCTURADAS and f.numero_norm is not None and not f.anulada
+                and f.fusionada_en_id is None):
+            por_numero.setdefault((f.sentido, f.numero_norm), []).append(f)
+    salida: list[Resultado] = []
+    for copia in instantanea.facturas:
+        if copia.origen in ESTRUCTURADAS or copia.anulada:
+            continue
+        buena = facturas.get(copia.fusionada_en_id) if copia.fusionada_en_id else None
+        if buena is not None and buena.origen not in ESTRUCTURADAS:
+            continue
+        if buena is not None:
+            distintos = _diferencias(copia, buena)
+            if not distintos:
+                continue
+            nombres = dict(_COMPARADOS)
+            detalle = (f"El PDF de {buena.numero or buena.id} no dice lo mismo que "
+                       f"{buena.origen.capitalize()}: "
+                       + ", ".join(f"{nombres[c]} ({v[0]} en {buena.origen}, {v[1]} en el PDF)"
+                                   for c, v in distintos.items()) + ".")
+            valores = {"copia": copia.id, "factura": buena.id, "distintos": distintos}
+            objetivos = (Objetivo("factura", buena.id),
+                         *(Objetivo("factura", copia.id, c, RELACIONADO) for c in distintos))
+            pareja = (buena, copia)
+        else:
+            if copia.fusionada_en_id is not None or copia.numero_norm is None:
+                continue
+            otras = por_numero.get((copia.sentido, copia.numero_norm), ())
+            if not otras:
+                continue
+            buena = otras[0]
+            detalle = (f"El PDF {copia.numero or copia.id} tiene el número de la factura "
+                       f"{buena.id} de {buena.origen.capitalize()} y no se ha podido unir a ella "
+                       "(la contraparte no es la misma o no está resuelta: "
+                       f"{copia.parte_nombre}).")
+            valores = {"copia": copia.id, "factura": buena.id, "distintos": {
+                "parte": [buena.parte, copia.parte]}}
+            objetivos = (Objetivo("factura", buena.id),
+                         Objetivo("factura", copia.id, None, RELACIONADO))
+            pareja = (buena, copia)
+        for f in pareja:
+            salida.append(Resultado("M3", "factura", f.id, FALLO, detalle, valores,
+                                    grupo=f"copia:{copia.id}", objetivos=objetivos))
+    return salida
+
+
+LEE_M3 = frozenset({
+    "instantanea.facturas", "factura.id", "factura.origen", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sentido", "factura.numero_norm", "factura.numero",
+    "factura.parte", "factura.parte_nombre",
+    *(f"factura.{c}" for c, _n in _COMPARADOS),
+})
+SOLO_TEXTO_M3 = frozenset({"factura.numero", "factura.parte_nombre"})
 
 
 # --------------------------------------------------------------- X1, Z1 y Z2 sobre importaciones

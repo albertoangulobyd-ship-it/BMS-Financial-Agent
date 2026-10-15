@@ -46,7 +46,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from . import campos, politica
+from . import campos, politica, relaciones
 from .almacen import reloj_de, usuario_sistema
 from .almacen.unidades import a_cent, de_cent
 from .campos import Automatico, FaltaMotivo, Persona
@@ -274,16 +274,23 @@ def facturas_abiertas(conn: sqlite3.Connection) -> list[FacturaAbierta]:
     for a in leer_aplicaciones(conn):
         if a.fuente == BANCO and a.estado != RETIRADA:
             del_banco[a.factura_id] += a.importe_cent
+    # Paso 8: lo que acreditan los abonos confirmados no se cobra ni se paga, y
+    # una factura sustituida o corregida no espera ningun pago (lo espera la nueva).
+    movido = relaciones.efectos(conn)
     salida = []
     for id_, sentido, numero_norm, referencia, total, proveedor_id, cliente_id in _filas(
             conn, "SELECT id, sentido, numero_norm, referencia_pago, total_cent, proveedor_id, "
                   "cliente_id FROM factura WHERE anulada = 0 AND fusionada_en_id IS NULL "
                   "AND total_cent IS NOT NULL ORDER BY id"):
+        efecto = relaciones.efecto_de(movido, id_)
+        if efecto.sustituida_por is not None:
+            continue
         titular, parte = (("proveedor", proveedor_id) if sentido == ENTRANTE
                           else ("cliente", cliente_id))
         salida.append(FacturaAbierta(
             id_, sentido, numero_norm, normalizar_referencia(referencia),
-            total - del_banco.get(id_, 0), frozenset(cuentas.get((titular, parte), ()))))
+            total - efecto.acreditado_cent - del_banco.get(id_, 0),
+            frozenset(cuentas.get((titular, parte), ()))))
     return salida
 
 
@@ -348,7 +355,9 @@ def saldos(conn: sqlite3.Connection, tolerancia: Decimal | None = None) -> dict[
     por_factura: dict[int, list] = defaultdict(list)
     for a in leer_aplicaciones(conn):
         por_factura[a.factura_id].append(a)
-    return {id_: saldo(total, por_factura.get(id_, ()), tol)
+    movido = relaciones.efectos(conn)
+    return {id_: saldo(total, por_factura.get(id_, ()), tol,
+                       relaciones.efecto_de(movido, id_).acreditado_cent)
             for id_, total in _filas(conn, "SELECT id, total_cent FROM factura ORDER BY id")}
 
 
@@ -375,11 +384,13 @@ def _comprobar_rev(fila: sqlite3.Row, rev: int | None, que: str) -> None:
 
 
 def _abierto_con_el_banco(conn: sqlite3.Connection, factura: sqlite3.Row) -> int:
-    """Lo que queda de una factura por cubrir con el banco (lo propuesto tambien cuenta)."""
+    """Lo que queda de una factura por cubrir con el banco (lo propuesto tambien cuenta, y lo
+    acreditado por abonos confirmados ya no se paga)."""
     del_banco = sum(a.importe_cent for a in leer_aplicaciones(conn)
                     if a.factura_id == factura["id"] and a.fuente == BANCO
                     and a.estado != RETIRADA)
-    return factura["total_cent"] - del_banco
+    acreditado = relaciones.efecto_de(relaciones.efectos(conn), factura["id"]).acreditado_cent
+    return factura["total_cent"] - acreditado - del_banco
 
 
 def _movimiento_enlazable(conn: sqlite3.Connection, factura: sqlite3.Row, movimiento_id: int,
@@ -449,6 +460,10 @@ def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int
         _comprobar_rev(factura, rev, f"la factura {factura_id}")
         if factura["anulada"] or factura["fusionada_en_id"] is not None:
             raise PagoNoValido(f"la factura {factura_id} esta anulada o fusionada: no se paga")
+        sustituta = relaciones.efecto_de(relaciones.efectos(conn), factura_id).sustituida_por
+        if sustituta is not None:
+            raise PagoNoValido(f"la factura {factura_id} esta sustituida por la {sustituta}: "
+                               "se paga la nueva")
         if factura["total_cent"] is None:
             raise PagoNoValido(f"la factura {factura_id} no tiene un total en euros (X1): no se "
                                "apunta ningun pago")

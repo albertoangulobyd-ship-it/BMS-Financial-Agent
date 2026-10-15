@@ -200,6 +200,7 @@ SOLO_TEXTO_G3 = frozenset({"factura.parte_nombre", "linea.objeto_doc"})
 
 LEE_G3 = frozenset({
     "instantanea.facturas", "factura.id", "factura.anulada", "factura.fusionada_en_id",
+    "factura.sustituida_por",
     "factura.sentido", "factura.parte", "factura.parte_nombre", "factura.fecha_factura",
     "factura.lineas", "linea.id", "linea.orden", "linea.tarifa_e4", "linea.objeto",
     "linea.objeto_doc", "linea.descripcion_doc", "linea.unidad",

@@ -79,6 +79,8 @@ CATALOGO_SPEC = {
     "X1": ("bloqueo", None, False, True, False, "otra"),
     # Paso 6: la edicion de una linea que la lectura nueva no pudo casar.
     "M2": ("retencion", None, True, False, False, "otra"),
+    # Paso 8: Exact y el PDF de una venta no dicen lo mismo (la puerta del paso 8).
+    "M3": ("retencion", None, True, False, False, "otra"),
     "Z1": ("aviso", None, False, False, False, "otra"),
     "Z2": ("retencion", None, False, False, False, "otra"),
     "A0": ("retencion", None, False, False, False, "otra"),
@@ -90,6 +92,8 @@ CATALOGO_SPEC = {
     "B2": ("bloqueo", None, True, True, True, "duplicado_exacto"),
     "B3": ("retencion", None, True, True, False, "duplicado"),
     "B4": ("retencion", None, True, True, False, "duplicado"),
+    # Paso 8: el caso de B2 y B3 en las ventas.
+    "V7": ("retencion", None, True, True, False, "duplicado"),
     "D1": ("bloqueo", "retencion", False, False, False, "otra"),
     "D2": ("bloqueo", "retencion", False, False, False, "otra"),
     "D2b": ("bloqueo", "retencion", True, False, False, "otra"),
@@ -109,6 +113,7 @@ CATALOGO_SPEC = {
     "F7": ("bloqueo", None, False, True, False, "iban"),
     "F8": ("bloqueo", None, False, True, False, "iban"),
     "F9": ("aviso", None, False, True, False, "iban"),
+    "F10": ("retencion", None, False, True, False, "iban"),
     # Paso 7: los pagos.
     "K1": ("aviso", None, True, False, False, "dias_vencida"),
     "K2": ("retencion", "aviso", False, True, False, "otra"),
@@ -119,6 +124,12 @@ CATALOGO_SPEC = {
     "K7": ("aviso", None, True, False, False, "otra"),
     "K8": ("retencion", None, False, False, False, "otra"),
     "G3": ("retencion", None, True, False, False, "planning"),
+    # Paso 8: las relaciones.
+    "R1": ("retencion", None, True, False, False, "otra"),
+    "R2": ("retencion", None, False, True, False, "otra"),
+    "R3": ("bloqueo", None, False, True, False, "duplicado"),
+    "R4": ("aviso", None, False, False, False, "otra"),
+    "R5": ("aviso", None, False, False, False, "otra"),
     "U1": ("aviso", None, True, False, False, "otra"),
 }
 # Donde vive cada hallazgo que no es de una factura (paso 5).
@@ -160,7 +171,8 @@ def test_las_familias_pegajosas_son_las_de_la_decision_11() -> None:
     paso 7, las anomalias de pago: K2, K4, K5 y K6."""
     for regla in catalogo.CATALOGO:
         assert regla.pegajosa == (regla.familia in ("bancaria", "unicidad")
-                                  or regla.id in ("X1", "E2", "A7", "K2", "K4", "K5", "K6")), \
+                                  or regla.id in ("X1", "E2", "A7", "K2", "K4", "K5", "K6",
+                                                  "R2", "R3")), \
             regla.id
 
 

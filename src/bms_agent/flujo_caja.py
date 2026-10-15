@@ -45,7 +45,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import politica
+from . import politica, relaciones
 from .reglas import instantanea
 from .reglas.pagos import CONFIRMADA, PRECEDENCIA, en_el_movimiento, saldo, tolerancia_cent
 from .reloj import mes_de, semana_de
@@ -220,13 +220,18 @@ def datos(conn: sqlite3.Connection,
         por_factura[a.factura_id].append(a)
     sentidos = dict(_filas(conn, "SELECT id, sentido FROM factura"))
     partidas, movidos = [], _del_banco(conn, sentidos)
+    # Paso 8: lo que acreditan los abonos confirmados baja lo que queda, y una
+    # factura sustituida o corregida por otra no se espera: cuenta la nueva.
+    movido = relaciones.efectos(conn)
     for id_, sentido, total, anulada, fusionada, moneda in _filas(
             conn, "SELECT id, sentido, total_cent, anulada, fusionada_en_id, moneda_doc "
                   "FROM factura ORDER BY id"):
+        efecto = relaciones.efecto_de(movido, id_)
         if anulada or fusionada is not None or total is None or (
-                instantanea.moneda_extranjera(moneda) is not None):
+                instantanea.moneda_extranjera(moneda) is not None
+                or efecto.sustituida_por is not None):
             continue
-        s = saldo(total, por_factura.get(id_, ()), tol)
+        s = saldo(total, por_factura.get(id_, ()), tol, efecto.acreditado_cent)
         if s.fuente in (EXACT, MANUAL):
             for a in por_factura[id_]:
                 if a.estado == CONFIRMADA and a.fuente == s.fuente:

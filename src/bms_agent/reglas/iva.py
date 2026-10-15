@@ -32,6 +32,7 @@ from .base import (
     Politica,
     Resultado,
     caducada,
+    en_juego,
     euros,
     euros_texto,
     fallo,
@@ -231,8 +232,8 @@ def _preparar_e2(instantanea: Instantanea) -> dict[int, tuple[int, str]]:
     """Para cada compra con regimen, la anterior de su contraparte (por fecha) y el suyo."""
     grupos: dict[str, list[Factura]] = defaultdict(list)
     for f in instantanea.facturas:
-        if (f.sentido == ENTRANTE and f.parte is not None and not f.anulada
-                and f.fusionada_en_id is None and f.tratamiento_iva not in _SIN_REGIMEN):
+        if (f.sentido == ENTRANTE and f.parte is not None and en_juego(f)
+                and f.tratamiento_iva not in _SIN_REGIMEN):
             grupos[f.parte].append(f)
     anterior: dict[int, tuple[int, str]] = {}
     for lista in grupos.values():

@@ -14,7 +14,10 @@ alias confirmados), el registro de cuentas con sus eventos, la historia del
 telefono de verificacion de cada proveedor y las importaciones de maestros.
 Desde el paso 7, los extractos y movimientos del banco, lo pagado de cada
 factura (con su vencimiento efectivo y su saldo), los beneficiarios conocidos
-y los dias en que cada factura con algun pago estuvo Bloqueada.
+y los dias en que cada factura con algun pago estuvo Bloqueada. Desde el paso
+8, de donde viene cada factura, lo que le acreditan los abonos confirmados y
+si otra la sustituye (reglas/relaciones.efectos), las relaciones propuestas y
+las facturas que nombra cada documento.
 Solo lee: lo que escribe el registro de cuentas es cuentas.py, y nada de la
 via de entrada de los documentos llega alli.
 
@@ -41,6 +44,7 @@ from .base import (
     Aplicacion,
     Bloqueo,
     CambioTelefono,
+    Cita,
     Cuenta,
     EventoCuenta,
     Extracto,
@@ -57,6 +61,8 @@ from .base import (
     TramoIva,
 )
 from .pagos import saldo, tolerancia_cent
+from .relaciones import SIN_EFECTO
+from .relaciones import efectos as efectos_de_relaciones
 from .normas import (
     normalizar_btw,
     normalizar_iban,
@@ -72,7 +78,7 @@ _COLUMNAS_FACTURA = (
     "f.iva_cent", "f.total_cent", "f.tipo_iva_pb", "f.tratamiento_iva", "f.iban_doc",
     "f.moneda_doc", "f.anulada", "f.fusionada_en_id", "e.schema_version",
     "f.documento_id", "f.emisor_direccion_doc", "f.kor_mencionada", "f.notas_doc",
-    "f.origen = 'extraccion' AND d.ruta_cas IS NULL",
+    "f.origen = 'extraccion' AND d.ruta_cas IS NULL", "f.origen",
 )
 
 _COLUMNAS_LINEA = (
@@ -246,14 +252,18 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
         por_factura[a.factura_id].append(a)
     vence = vencimientos(conn)
     tolerancia = tolerancia_cent(politica.tolerancia_pago)
-    for fila in _filas(conn, f"SELECT {', '.join(_COLUMNAS_FACTURA)} FROM factura AS f "
-                             "LEFT JOIN extraccion AS e ON e.id = f.extraccion_vigente_id "
-                             "LEFT JOIN documento AS d ON d.id = f.documento_id "
-                             "ORDER BY f.id"):
+    filas_factura = _filas(conn, f"SELECT {', '.join(_COLUMNAS_FACTURA)} FROM factura AS f "
+                                 "LEFT JOIN extraccion AS e ON e.id = f.extraccion_vigente_id "
+                                 "LEFT JOIN documento AS d ON d.id = f.documento_id "
+                                 "ORDER BY f.id")
+    confirmadas, propuestas = relaciones(conn)
+    movido = efectos_de_relaciones(confirmadas, {fila[0]: fila[17] for fila in filas_factura})
+    for fila in filas_factura:
         (id_, sentido, tipo, numero, numero_norm, proveedor_id, cliente_id, emisor_nombre,
          emisor_kvk, emisor_btw, receptor_nombre, receptor_btw, fecha_factura, inicio, fin,
          base, iva, total, tipo_iva, tratamiento, iban, moneda_doc, anulada, fusionada_en,
-         schema_version, documento_id, direccion, kor, notas, sin_original) = fila
+         schema_version, documento_id, direccion, kor, notas, sin_original, origen) = fila
+        efecto = movido.get(id_, SIN_EFECTO)
         entrante = sentido == Sentido.ENTRANTE.value
         nombre = emisor_nombre if entrante else receptor_nombre
         facturas.append(Factura(
@@ -278,13 +288,13 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             kor_mencionada=None if kor is None else bool(kor), notas_doc=notas,
             dudosos=dudosos.get(id_, vacio), sin_original=bool(sin_original),
             sin_casar=sin_casar.get(id_, ()), vencimiento=vence.get(id_),
-            **_pagado(total, por_factura.get(id_), tolerancia)))
+            origen=origen, acreditado_cent=efecto.acreditado_cent,
+            sustituida_por=efecto.sustituida_por,
+            **_pagado(total, por_factura.get(id_), tolerancia, efecto.acreditado_cent)))
 
-    relaciones = tuple(Relacion(o, d, t) for o, d, t in _filas(
-        conn, "SELECT origen_id, destino_id, tipo FROM factura_relacion "
-              "WHERE estado = 'confirmada' AND retirada_en IS NULL ORDER BY id"))
     return Instantanea(hoy=hoy, politica=politica, facturas=tuple(facturas),
-                       relaciones=relaciones, proveedores=partes(conn, "proveedor"),
+                       relaciones=confirmadas, propuestas=propuestas, citas=citas(conn),
+                       proveedores=partes(conn, "proveedor"),
                        clientes=partes(conn, "cliente"), cuentas=cuentas(conn),
                        telefonos=telefonos(conn), lotes=lotes(conn), extractos=extractos(conn),
                        movimientos=movimientos(conn), aplicaciones=pagos,
@@ -298,11 +308,34 @@ _SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
 
 
 def _pagado(total: int | None, propias: list[Aplicacion] | None,
-            tolerancia: int) -> dict[str, Any]:
-    if not propias:
+            tolerancia: int, acreditado: int = 0) -> dict[str, Any]:
+    if not propias and not acreditado:
         return _SIN_PAGOS
-    s = saldo(total, propias, tolerancia)
+    s = saldo(total, propias or (), tolerancia, acreditado)
     return {"pagado_cent": s.pagado_cent, "fuente_pago": s.fuente, "pagada": s.pagada}
+
+
+# ------------------------------------------------------------ paso 8: relaciones y citas
+
+def relaciones(conn: sqlite3.Connection) -> tuple[tuple[Relacion, ...], tuple[Relacion, ...]]:
+    """Las relaciones vivas (ni retiradas ni rechazadas): las confirmadas y las propuestas."""
+    confirmadas, propuestas = [], []
+    for id_, origen, destino, tipo, importe, estado, fuente in _filas(
+            conn, "SELECT id, origen_id, destino_id, tipo, importe_cent, estado, fuente "
+                  "FROM factura_relacion WHERE retirada_en IS NULL AND estado <> 'rechazada' "
+                  "ORDER BY id"):
+        relacion = Relacion(origen, destino, tipo, id_, importe, fuente)
+        (confirmadas if estado == "confirmada" else propuestas).append(relacion)
+    return tuple(confirmadas), tuple(propuestas)
+
+
+def citas(conn: sqlite3.Connection) -> tuple[Cita, ...]:
+    """Las facturas que nombra cada documento (factura_cita), las que siguen vivas."""
+    return tuple(Cita(id_, factura_id, numero_doc, numero_norm, relacion)
+                 for id_, factura_id, numero_doc, numero_norm, relacion in _filas(
+                     conn, "SELECT id, factura_id, numero_doc, numero_norm, relacion_doc "
+                           "FROM factura_cita WHERE retirada_en IS NULL "
+                           "ORDER BY factura_id, id"))
 
 
 # ------------------------------------------------------------ paso 5: maestros y cuentas

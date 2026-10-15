@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 from pydantic import ValidationError
@@ -414,9 +414,57 @@ class LectorTabular:
             rechazos=tuple(rechazos))
 
 
-def lectores(mapeo: Mapeo) -> list[LectorTabular]:
+@dataclass(frozen=True)
+class LectorAgrupado:
+    """Un lector cuyas filas son partes de un registro mayor: las lineas de una factura.
+
+    Lee fila a fila como LectorTabular y despues junta (ventas.py): el lote
+    que da es del tipo agrupado (facturas_venta), que es lo que se importa.
+    """
+
+    filas: LectorTabular
+    tipo: str
+    agrupar: Callable[[LoteLeido], LoteLeido]
+
+    @property
+    def mapeo(self) -> Mapeo:
+        return self.filas.mapeo
+
+    @property
+    def fuente(self) -> str:
+        return self.filas.fuente
+
+    @property
+    def formato(self) -> str:
+        return self.filas.formato
+
+    def reconoce(self, contenido: bytes, nombre: str = "") -> bool:
+        return self.filas.reconoce(contenido, nombre)
+
+    def leer(self, contenido: bytes, nombre: str = "", *,
+             exportado_en: datetime | None = None) -> LoteLeido:
+        return self.agrupar(self.filas.leer(contenido, nombre, exportado_en=exportado_en))
+
+
+def _agrupados() -> dict[str, tuple[str, Callable[[LoteLeido], LoteLeido]]]:
+    """Los registros que se leen por filas y entran agrupados: tipo de fila -> (tipo, como)."""
+    from .ventas import TIPO, facturas_de_filas
+
+    return {"lineas_venta": (TIPO, facturas_de_filas)}
+
+
+def lectores(mapeo: Mapeo) -> list[LectorTabular | LectorAgrupado]:
     """Un lector por cada tipo de registro del mapeo, en su orden (proveedores, luego cuentas)."""
-    return [LectorTabular(mapeo, r.tipo) for r in mapeo.registros]
+    agrupados = _agrupados()
+    salida: list[LectorTabular | LectorAgrupado] = []
+    for registro in mapeo.registros:
+        lector = LectorTabular(mapeo, registro.tipo)
+        if registro.tipo in agrupados:
+            tipo, agrupar = agrupados[registro.tipo]
+            salida.append(LectorAgrupado(lector, tipo, agrupar))
+        else:
+            salida.append(lector)
+    return salida
 
 
 def elegir_mapeo(fuente: str, tipo: str, contenido: bytes, nombre: str = "", *,

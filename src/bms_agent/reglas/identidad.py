@@ -42,6 +42,7 @@ from .base import (
     Parte,
     Resultado,
     caducada,
+    en_juego,
     fallo,
     importado,
     sin_datos,
@@ -204,8 +205,7 @@ def _preparar_a7(instantanea: Instantanea) -> dict[int, Resultado]:
     """
     grupos: dict[str, list[Factura]] = defaultdict(list)
     for f in instantanea.facturas:
-        if (f.sentido == ENTRANTE and f.parte is not None and not f.anulada
-                and f.fusionada_en_id is None):
+        if f.sentido == ENTRANTE and f.parte is not None and en_juego(f):
             grupos[f.parte].append(f)
     salida: dict[int, Resultado] = {}
     for lista in grupos.values():
@@ -272,9 +272,23 @@ def _normas(contexto: dict[str, Any], nombre: str | None,
     return hecho
 
 
+# Lo que llega estructurado de su sistema no es un documento con emisor y
+# receptor impresos: una venta de Exact la emite BM Support BV por ser de su
+# administracion. A8 mira documentos.
+_DE_SU_SISTEMA = frozenset({"exact", "trnsprnt"})
+
+
 def a8(factura: Factura, contexto: dict[str, Any]) -> list[Resultado]:
-    """A8: va dirigida a BM Support BV; una de salida la emite BM Support BV."""
+    """A8: va dirigida a BM Support BV; una de salida la emite BM Support BV.
+
+    En la via de salida, que el emisor no sea BM Support BV es que el
+    documento esta mal encaminado: bloquea (spec §7 y §8). La direccion la
+    puso la via, no el modelo, asi que un PDF de un proveedor dejado en la
+    carpeta de ventas es una venta mal encaminada, nunca una compra.
+    """
     nombres, btw_empresa = contexto["nombres"], contexto["btw"]
+    if factura.origen in _DE_SU_SISTEMA:
+        return []
     if factura.sentido == SALIENTE:
         nombre, btw = _normas(contexto, factura.emisor_nombre_doc, factura.emisor_btw_doc)
         if nombre is None and btw is None:
@@ -308,7 +322,8 @@ def a8(factura: Factura, contexto: dict[str, Any]) -> list[Resultado]:
 
 
 LEE_A8 = LEE_EN_JUEGO | frozenset({
-    "factura.id", "factura.sentido", "factura.emisor_nombre_doc", "factura.emisor_btw_doc",
+    "factura.id", "factura.sentido", "factura.origen", "factura.emisor_nombre_doc",
+    "factura.emisor_btw_doc",
     "factura.receptor_nombre_doc", "factura.receptor_btw_doc", "factura.no_solicitados",
     "instantanea.politica", "politica.empresa_nombres", "politica.empresa_btw",
 })

@@ -58,7 +58,8 @@ NECESITA_REVISION = EstadoRevision.NECESITA_REVISION.value
 SIN_REVISAR = EstadoRevision.SIN_REVISAR.value
 
 TABLAS_DE_FACTURA: tuple[str, ...] = (
-    "factura", "factura_linea", "factura_imputacion", "factura_iva", "factura_referencia")
+    "factura", "factura_linea", "factura_imputacion", "factura_iva", "factura_referencia",
+    "factura_cita")
 _PIDEN_REVISION = frozenset({Severidad.BLOQUEO.value, Severidad.RETENCION.value})
 _LOTE = 500
 

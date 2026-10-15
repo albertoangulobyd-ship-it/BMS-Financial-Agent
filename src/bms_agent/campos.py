@@ -77,6 +77,7 @@ from .dominio import (
     OrigenAlias,
     OrigenFactura,
     Permiso,
+    RelacionCitada,
     Sentido,
     SentidoTarifa,
     TipoFactura,
@@ -205,8 +206,16 @@ def _numero_norm(ctx: Contexto) -> Any:
     return normalizar_referencia(ctx.fila.get("numero"))
 
 
+# Una factura que llega estructurada (Exact, TRNSPRNT) trae su parte por el
+# numero de ese sistema: no se vuelve a deducir de lo impreso, que no tiene.
+# Sin esto, volver a resolver las referencias dejaria sin cliente cada venta de
+# Exact (no imprime receptor).
+_PARTE_DE_SU_SISTEMA = frozenset({OrigenFactura.EXACT.value, OrigenFactura.TRNSPRNT.value})
+
+
 def _proveedor_id(ctx: Contexto) -> Any:
-    if ctx.fila.get("sentido") != Sentido.ENTRANTE.value:
+    if (ctx.fila.get("sentido") != Sentido.ENTRANTE.value
+            or ctx.fila.get("origen") in _PARTE_DE_SU_SISTEMA):
         return NO_CALCULA
     from .identidad import resolver_parte
 
@@ -216,7 +225,8 @@ def _proveedor_id(ctx: Contexto) -> Any:
 
 
 def _cliente_id(ctx: Contexto) -> Any:
-    if ctx.fila.get("sentido") != Sentido.SALIENTE.value:
+    if (ctx.fila.get("sentido") != Sentido.SALIENTE.value
+            or ctx.fila.get("origen") in _PARTE_DE_SU_SISTEMA):
         return NO_CALCULA
     from .identidad import resolver_parte
 
@@ -335,6 +345,12 @@ def clasificar_referencia(etiqueta: str | None) -> str:
 
 def _clase(ctx: Contexto) -> Any:
     return clasificar_referencia(ctx.fila.get("etiqueta_doc"))
+
+
+def _numero_citado(ctx: Contexto) -> Any:
+    from .parsing import normalizar_referencia
+
+    return normalizar_referencia(ctx.fila.get("numero_doc"))
 
 
 def _estado_aplicacion(ctx: Contexto) -> Any:
@@ -616,6 +632,19 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "confirmada_en": _r(INSTANTE),
         "retirada_en": _r(INSTANTE, **_FIJO),
     }, suplir=_PAGADA, corregir=_PAGADA),
+    # Paso 8. La factura que un documento nombra (la que abona, corrige o
+    # sustituye), tal como la nombra. Arreglar una mala lectura del numero es
+    # corregir la extraccion; que sea una relacion lo decide relaciones.py.
+    "factura_cita": _tabla("factura_cita", {
+        "factura_id": _r(REF, **_FIJO),
+        "numero_doc": _r(TEXTO, externo=True),
+        "numero_norm": _r(TEXTO, editable=False, calculo=_numero_citado,
+                          depende_de=("numero_doc",)),
+        "fecha_doc": _r(FECHA, externo=True),
+        "relacion_doc": _r(ENUM, valores=RelacionCitada.valores(), externo=True),
+        "texto_doc": _r(TEXTO, externo=True),
+        "retirada_en": _r(INSTANTE, **_FIJO),
+    }, suplir=_SUPLIR, corregir=_EDITAR),
 }
 
 TABLAS_CONTROLADAS: tuple[str, ...] = tuple(REGISTRO)
@@ -628,7 +657,7 @@ PERMISO_ALTA: dict[str, str | None] = {
     "objeto": _OBJETO, "alias": _OBJETO, "factura": None,
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
-    "aplicacion_pago": _PAGADA,
+    "aplicacion_pago": _PAGADA, "factura_cita": _EDITAR,
 }
 
 # Lo que no se edita pero si da quien crea una fila a mano: a que fila
@@ -649,6 +678,7 @@ ESTRUCTURA: dict[str, frozenset[str]] = {
     # sea manual y que la confirme ella); despues no cambia.
     "aplicacion_pago": frozenset({"factura_id", "movimiento_id", "importe_cent", "fecha_pago",
                                   "fuente", "metodo", "evidencia_documento_id"}),
+    "factura_cita": frozenset({"factura_id"}),
 }
 
 # La columna que dice de donde viene una fila, y lo que vale cuando la crea
@@ -662,7 +692,7 @@ ATRIBUCION: dict[str, tuple[str, str]] = {
 
 # Las hijas de una factura que son del dueno de la factura: si la factura es
 # de Exact o de TRNSPRNT, una persona no les anade ni les quita filas.
-HIJAS_DEL_DUENO = ("factura_linea", "factura_iva", "factura_referencia")
+HIJAS_DEL_DUENO = ("factura_linea", "factura_iva", "factura_referencia", "factura_cita")
 
 # Como se retira una fila: con una marca de tiempo o desactivandola.
 RETIRADA: dict[str, str] = {
@@ -1159,7 +1189,7 @@ class Orden:
             return "trnsprnt" if valores.get("trnsprnt_id") else None
         if estado.tabla == "factura":
             return valores["origen"] if valores.get("origen") in ("exact", "trnsprnt") else None
-        if estado.tabla in ("factura_linea", "factura_iva", "factura_referencia"):
+        if estado.tabla in HIJAS_DEL_DUENO:
             factura_id = valores.get("factura_id")
             if factura_id is None:
                 return None

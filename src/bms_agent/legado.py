@@ -46,8 +46,17 @@ def registros_legado(conn: sqlite3.Connection, todas: bool = False) -> list[dict
 
     `todas=True` devuelve cada extraccion guardada, como
     load_records(..., todas=True): es lo que cuenta lo gastado.
+
+    Solo lo que llego por la via de compras (paso 8): el panel de siempre
+    trata cada registro como una factura de proveedor, y una venta leida de su
+    PDF contaria como gasto, entraria en la proyeccion como coste y en B2, B3,
+    B4, F3 y G3 de los proveedores (huecos.md, §2, acoplamiento 1). Las ventas
+    viven en el almacen tipado, no en este contrato.
     """
-    leidos = [json.loads(fila["contenido_json"]) for fila in en_orden_de_out(conn)]
+    salientes = {f[0] for f in conn.execute(
+        "SELECT id FROM documento WHERE ruta_declarada = 'saliente'")}
+    leidos = [json.loads(fila["contenido_json"]) for fila in en_orden_de_out(conn)
+              if fila["documento_id"] not in salientes]
     return leidos if todas else vigentes(leidos)
 
 

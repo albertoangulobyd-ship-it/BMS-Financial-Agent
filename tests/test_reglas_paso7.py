@@ -114,11 +114,12 @@ def test_el_saldo_lo_da_la_fuente_que_manda() -> None:
         return aplicacion(1, 1, importe, fuente=fuente, estado=estado,
                           metodo="manual" if fuente == "manual" else "automatica")
 
-    assert saldo(41140, [], 0) == (41140, 0, None, 0, 41140, False)
+    # Desde el paso 8 el saldo dice tambien lo acreditado por abonos confirmados (al final).
+    assert saldo(41140, [], 0) == (41140, 0, None, 0, 41140, False, 0)
     # Lo manual vale hasta que llega Exact, y Exact hasta que llega el banco.
     assert saldo(41140, [a(41140, "manual")], 0).pagada
     assert saldo(41140, [a(41140, "manual"), a(20000, "exact")], 0)[1:] == (
-        20000, "exact", 1, 21140, False)
+        20000, "exact", 1, 21140, False, 0)
     s = saldo(41140, [a(41140, "manual"), a(41140, "exact"), a(20000, "banco")], 0)
     assert (s.fuente, s.pagado_cent, s.pendiente_cent, s.pagada) == ("banco", 20000, 21140, False)
     # Una propuesta o una retirada no cuentan.

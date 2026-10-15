@@ -24,7 +24,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-1321 tests, ninguno llama a la API. Cubren la conversión de importes
+1534 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
@@ -100,7 +100,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 1321 tests, sin llamadas a la API
+pytest                                    # 1534 tests, sin llamadas a la API
 ```
 
 ## Uso

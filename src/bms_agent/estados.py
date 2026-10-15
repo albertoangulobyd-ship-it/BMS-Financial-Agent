@@ -4,9 +4,12 @@ Despues de poner al dia los hallazgos y las excepciones, la pasada
 (hallazgos.recalcular) calcula aqui, para cada factura, lo que dicen de ella
 los demas modulos y lo deja en una fila que se puede filtrar con SQL:
 
-- su estado de pago: anulada si se anulo; pagada si lo confirmado deja su
-  saldo en la tolerancia (reglas.pagos.saldo, paso 7); si no, pendiente o
-  vencida por su vencimiento efectivo, con lo que queda por pagar;
+- su estado de pago: anulada si se anulo, si la sustituye o la corrige otra
+  factura o si un abono la anula (paso 8); acreditada si los abonos
+  confirmados cubren lo que quedaba sin pagarse nada; pagada si lo confirmado
+  deja su saldo en la tolerancia (reglas.pagos.saldo, paso 7); si no,
+  pendiente o vencida por su vencimiento efectivo, con lo que queda por pagar
+  (un abono parcial ya restado);
 - su estado de revision (revision.py), con la huella de su contenido;
 - su calidad de dato, sus marcas de edicion manual, sus campos dudosos y sus
   cambios sin resolver;
@@ -34,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from . import politica, prioridad, revision
+from . import politica, prioridad, relaciones, revision
 from .almacen import comprobar_entidad, reloj_de
 from .auditoria import registrar
 from .campos import FaltaMotivo, Persona
@@ -61,7 +64,10 @@ PENDIENTE = EstadoPago.PENDIENTE.value
 VENCIDA = EstadoPago.VENCIDA.value
 ANULADA = EstadoPago.ANULADA.value
 PAGADA = EstadoPago.PAGADA.value
+ACREDITADA = EstadoPago.ACREDITADA.value
 EN_JUEGO = frozenset({PENDIENTE, VENCIDA})
+# Lo que queda saldado: su pendiente_cent es lo que quedo dentro de la tolerancia.
+SALDADAS = frozenset({PAGADA, ACREDITADA})
 REVISADA = EstadoRevision.REVISADA.value
 ENTRANTE = Sentido.ENTRANTE.value
 SALIENTE = Sentido.SALIENTE.value
@@ -113,14 +119,23 @@ def _fecha(texto: str | None) -> date | None:
 
 
 def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
-                hoy: date, pagada: bool = False) -> str | None:
-    """Anulada; pagada si lo confirmado deja su saldo en la tolerancia (reglas.pagos.saldo); si
-    no, pendiente o vencida por su vencimiento, tambien con un pago parcial (paso 7)."""
+                hoy: date, pagada: bool = False, *, sustituida: bool = False,
+                solo_abonos: bool = False, anulada_por_abono: bool = False) -> str | None:
+    """El estado de pago de una factura (spec §5, "where each status lives").
+
+    Anulada si se anulo o si otra la sustituye o la corrige (sale de todo);
+    saldada (`pagada`: lo pagado y lo acreditado dejan su saldo en la
+    tolerancia) es acreditada si nada se pago (`solo_abonos`), o anulada si
+    el abono la anula, y si no pagada; si no, pendiente o vencida por su
+    vencimiento, tambien con un pago parcial o un abono parcial.
+    """
     if fusionada:
         return None
-    if anulada:
+    if anulada or sustituida:
         return ANULADA
     if pagada:
+        if solo_abonos:
+            return ANULADA if anulada_por_abono else ACREDITADA
         return PAGADA
     if vencimiento is not None and vencimiento < hoy:
         return VENCIDA
@@ -214,18 +229,33 @@ class _Factura:
     fusionada: bool
     pendiente_cent: int | None = None
     pagada: bool = False
+    # Paso 8: lo que mueven las relaciones confirmadas (relaciones.efectos).
+    sustituida: bool = False
+    solo_abonos: bool = False
+    anulada_por_abono: bool = False
+    pagado_cent: int = 0
+    acreditado_cent: int = 0
+    fuente_pago: str | None = None        # la fuente que manda en lo pagado (banco, exact...)
+
+    def estado(self, hoy: date) -> str | None:
+        return estado_pago(self.anulada, self.fusionada, self.vencimiento, hoy, self.pagada,
+                           sustituida=self.sustituida, solo_abonos=self.solo_abonos,
+                           anulada_por_abono=self.anulada_por_abono)
 
 
-def _facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
+def facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
     """Las facturas con su vencimiento efectivo y su saldo (lo que queda por pagar).
 
-    El vencimiento y el saldo son los de las reglas (instantanea.vencimientos y
-    reglas.pagos.saldo): la cache dice lo mismo que K1 y K2.
+    El vencimiento y el saldo son los de las reglas (instantanea.vencimientos,
+    reglas.pagos.saldo y, desde el paso 8, lo acreditado por los abonos
+    confirmados): la cache dice lo mismo que K1 y K2, y las vistas de
+    proveedores y clientes (consultas.py) leen de aqui con su `hoy`.
     """
     vence = instantanea.vencimientos(conn)
     por_factura: dict[int, list] = defaultdict(list)
     for a in instantanea.aplicaciones(conn):
         por_factura[a.factura_id].append(a)
+    movido = relaciones.efectos(conn)
     salida = []
     for (id_, sentido, numero, emisor, receptor, proveedor_id, cliente_id, fecha, base, total,
          anulada, fusionada) in _filas(
@@ -233,15 +263,24 @@ def _facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
                   "proveedor_id, cliente_id, fecha_factura, base_cent, total_cent, anulada, "
                   "fusionada_en_id FROM factura ORDER BY id"):
         entrante = sentido == ENTRANTE
-        s = saldo(total, por_factura.get(id_, ()), tolerancia)
+        efecto = relaciones.efecto_de(movido, id_)
+        s = saldo(total, por_factura.get(id_, ()), tolerancia, efecto.acreditado_cent)
         salida.append(_Factura(
             id=id_, sentido=sentido, numero=numero, parte=emisor if entrante else receptor,
             proveedor_id=proveedor_id, cliente_id=cliente_id, fecha_factura=_fecha(fecha),
             vencimiento=vence.get(id_),
             importe_cent=base if base is not None else total, total_cent=total,
             anulada=bool(anulada), fusionada=fusionada is not None,
-            pendiente_cent=s.pendiente_cent, pagada=s.pagada))
+            pendiente_cent=s.pendiente_cent, pagada=s.pagada,
+            sustituida=efecto.sustituida_por is not None,
+            solo_abonos=s.pagada and s.fuente is None,
+            anulada_por_abono=efecto.anulada_por_abono, pagado_cent=s.pagado_cent,
+            acreditado_cent=efecto.acreditado_cent, fuente_pago=s.fuente))
     return salida
+
+
+# recalcular llama `facturas` a su lista: aqui la funcion tiene otro nombre.
+_facturas = facturas
 
 
 def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
@@ -295,7 +334,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         huella = huellas.get(f.id)
         estado_rev = revision.estado(ultima, huella,
                                      pide or n_sin_resolver > 0 or n_dudosos > 0)
-        pago = estado_pago(f.anulada, f.fusionada, f.vencimiento, hoy, f.pagada)
+        pago = f.estado(hoy)
         excepcion = excepciones.get(f.id)
         esperando = excepcion is not None and excepcion[1] == "esperando_externo"
         entradas = Entradas(
@@ -313,7 +352,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         dias = (hoy - f.vencimiento).days if pago == VENCIDA else None
         filas_estado[f.id] = (
             pago,
-            f.pendiente_cent if pago in EN_JUEGO or pago == PAGADA else (
+            f.pendiente_cent if pago in EN_JUEGO or pago in SALDADAS else (
                 0 if pago == ANULADA else None),
             f.vencimiento.isoformat() if f.vencimiento else None, dias, estado_rev,
             calidad(calidades.get(f.id, []), n_dudosos, n_sin_resolver,
@@ -398,10 +437,11 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             factura.importe_cent if factura else None,
             [excepcion_id, [h.texto for h in hallazgos], resultado.nivel, resultado.puntos])
 
-    # Lo que no esta en juego (anulada, fusionada en otra, pagada) no cuenta en
-    # su proveedor, cliente, Objeto ni trimestre: no se paga ni se reclama. Su
-    # trabajo pendiente, si lo tiene, sigue en su excepcion.
-    en_juego = {f.id for f in facturas if not (f.anulada or f.fusionada or f.pagada)}
+    # Lo que no esta en juego (anulada, fusionada en otra, sustituida, pagada o
+    # acreditada) no cuenta en su proveedor, cliente, Objeto ni trimestre: no se
+    # paga ni se reclama. Su trabajo pendiente, si lo tiene, sigue en su excepcion.
+    en_juego = {f.id for f in facturas
+                if not (f.anulada or f.fusionada or f.pagada or f.sustituida)}
     hijas: dict[tuple[str, int], list[Hija]] = defaultdict(list)
     for f in facturas:
         if f.id not in en_juego:

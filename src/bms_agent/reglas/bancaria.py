@@ -30,6 +30,7 @@ from .base import (
     LEE_EN_JUEGO,
     LEE_LOTES,
     OK,
+    SALIENTE,
     SIN_DATOS,
     CambioTelefono,
     Comprobacion,
@@ -41,6 +42,7 @@ from .base import (
     Politica,
     Resultado,
     caducada,
+    en_juego,
     fallo,
     importado,
     resultado_de,
@@ -560,9 +562,8 @@ def f5(instantanea: Instantanea) -> list[Resultado]:
                 con_cambios[proveedor_id].append(cuenta.iban)
     for factura in instantanea.facturas:
         # Una pagada ya no sale del maestro: el cambio no la pone en riesgo (paso 7).
-        if (factura.sentido != ENTRANTE or factura.anulada
-                or factura.fusionada_en_id is not None or factura.proveedor_id not in con_cambios
-                or factura.pagada):
+        if (factura.sentido != ENTRANTE or not en_juego(factura)
+                or factura.proveedor_id not in con_cambios or factura.pagada):
             continue
         ibans = sorted(con_cambios[factura.proveedor_id])
         salida.append(fallo(
@@ -788,4 +789,41 @@ LEE_F7 = LEE_REGISTRO | frozenset({
     "aplicacion.movimiento_id", "aplicacion.estado", "aplicacion.factura_id",
     "movimiento.id", "movimiento.importe_cent", "movimiento.contraparte_iban",
     "movimiento.fecha", "evento_cuenta.dia",
+})
+
+
+# ------------------------------------------------------------ F10 (paso 8)
+
+def f10(instantanea: Instantanea) -> list[Resultado]:
+    """F10: una factura de venta lleva un IBAN que no es una cuenta de BM Support BV.
+
+    Un cliente que paga lo que dice la factura pagaria a otra cuenta: alguien
+    toco el PDF que salio, o se envio el de otro. Retiene (la familia F
+    bloquea pagos; aqui no sale dinero), no se anula y es pegajosa. Mira
+    tambien la copia en PDF de una venta de Exact (fusionada en ella): es lo
+    que vio el cliente. Sin cuentas propias en config/empresa.yaml no se sabe.
+    """
+    propias = frozenset(instantanea.politica.empresa_ibans)
+    salida: list[Resultado] = []
+    for factura in instantanea.facturas:
+        if factura.sentido != SALIENTE or factura.anulada or not factura.iban_doc:
+            continue
+        iban = normalizar_iban(factura.iban_doc)
+        if not propias:
+            salida.append(sin_datos("F10", factura, "config/empresa.yaml no tiene cuentas "
+                                                    "propias: no se sabe si el IBAN de la "
+                                                    "factura es de BM Support BV."))
+            continue
+        if iban in propias:
+            continue
+        salida.append(fallo(
+            "F10", factura, f"La factura de venta lleva el IBAN {iban}, que no es una cuenta de "
+                            "BM Support BV: el cliente pagaría a otra cuenta.",
+            valores={"iban": iban}, objetivos=(Objetivo("factura", factura.id, "iban_doc"),)))
+    return salida
+
+
+LEE_F10 = frozenset({
+    "instantanea.facturas", "instantanea.politica", "politica.empresa_ibans", "factura.id",
+    "factura.sentido", "factura.anulada", "factura.iban_doc",
 })

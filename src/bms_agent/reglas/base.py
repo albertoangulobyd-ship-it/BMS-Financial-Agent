@@ -228,15 +228,45 @@ class Factura:
     pagado_cent: int = 0
     fuente_pago: str | None = None
     pagada: bool = False
+    # Paso 8: de donde viene (extraccion, exact, trnsprnt), lo que le quitan los
+    # abonos confirmados (en su signo; en un abono, lo ya gastado de el) y, si
+    # otra factura confirmada la sustituye o la corrige, cual: entonces sale
+    # de juego, de los totales, de la caja y del IVA. `pagada` es "saldada":
+    # lo pagado y lo acreditado dejan su saldo en la tolerancia.
+    origen: str = "extraccion"
+    acreditado_cent: int = 0
+    sustituida_por: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Relacion:
-    """Una relacion confirmada entre dos facturas (las propuestas no cuentan)."""
+    """Una relacion entre dos facturas: el origen (el abono, la que corrige o sustituye) y su
+    destino (la original). En `Instantanea.relaciones`, solo las confirmadas: las propuestas no
+    mueven nada y van aparte (`Instantanea.propuestas`). `importe_cent`, lo que acredita un abono
+    en el signo de la original (None: el abono entero)."""
 
     origen_id: int
     destino_id: int
     tipo: str
+    id: int = 0
+    importe_cent: int | None = None
+    fuente: str = "manual"
+
+
+@dataclass(frozen=True, slots=True)
+class Cita:
+    """Una factura que un documento nombra, tal como la nombra (factura_cita, paso 8).
+
+    `numero_norm` es su numero normalizado (None si no se pudo leer);
+    `relacion` lo que el documento dice que es (credits, corrects, replaces,
+    cancels, refers_to, unknown).
+    """
+
+    id: int
+    factura_id: int
+    numero_doc: str | None
+    numero_norm: str | None
+    relacion: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,6 +466,10 @@ class Instantanea:
     beneficiarios: frozenset[str] = frozenset()
     bloqueos: tuple[Bloqueo, ...] = ()
     exact_pagado: tuple[PagadoExact, ...] = ()
+    # Paso 8: las relaciones propuestas (por la extraccion o por Exact) que
+    # esperan a una persona, y las facturas que nombra cada documento.
+    propuestas: tuple[Relacion, ...] = ()
+    citas: tuple[Cita, ...] = ()
 
 
 # ------------------------------------------------------------ resultados
@@ -569,10 +603,11 @@ class Regla:
 
 
 # Lo que lee siempre una regla de factura: recorrer las facturas, saber cual
-# es cada una y si esta fuera de juego (anulada o fusionada en otra).
+# es cada una y si esta fuera de juego (anulada, fusionada en otra o
+# sustituida por otra).
 LEE_POR_FACTURA = frozenset({
     "instantanea.facturas", "instantanea.politica",
-    "factura.id", "factura.anulada", "factura.fusionada_en_id",
+    "factura.id", "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por",
 })
 
 PorFactura = Callable[[Factura, Politica], Sequence[Resultado]]
@@ -581,15 +616,26 @@ PorFactura = Callable[[Factura, Politica], Sequence[Resultado]]
 def fuera_de_juego(factura: Factura) -> str | None:
     """Por que una factura ya no se evalua, o None si se evalua.
 
-    Una factura anulada o fusionada en otra ya no se paga ni se cuenta: sus
-    avisos de aritmetica o de moneda no piden nada a nadie. Una regla de
-    grupo tampoco la empareja con otras.
+    Una factura anulada, fusionada en otra o sustituida (o corregida) por
+    otra con una relacion confirmada ya no se paga ni se cuenta: sus avisos
+    de aritmetica o de moneda no piden nada a nadie. Una regla de grupo
+    tampoco la empareja con otras. Lo que si se mira de una sustituida (que
+    la original y la nueva no esten las dos pendientes o las dos pagadas) es
+    de R3, que la lee aunque este fuera.
     """
     if factura.anulada:
         return "La factura está anulada."
     if factura.fusionada_en_id is not None:
         return f"La factura está fusionada en la factura {factura.fusionada_en_id}."
+    if factura.sustituida_por is not None:
+        return f"La factura está sustituida por la factura {factura.sustituida_por}."
     return None
+
+
+def en_juego(factura: Factura) -> bool:
+    """Ni anulada, ni fusionada, ni sustituida: lo que se paga, se cuenta y se compara."""
+    return not (factura.anulada or factura.fusionada_en_id is not None
+                or factura.sustituida_por is not None)
 
 
 def por_factura(regla_id: str, funcion: PorFactura) -> Evaluador:
@@ -602,7 +648,8 @@ def por_factura(regla_id: str, funcion: PorFactura) -> Evaluador:
         politica = instantanea.politica
         salida: list[Resultado] = []
         for factura in instantanea.facturas:
-            if factura.anulada or factura.fusionada_en_id is not None:
+            if (factura.anulada or factura.fusionada_en_id is not None
+                    or factura.sustituida_por is not None):
                 salida.append(Resultado(regla_id, "factura", factura.id, NO_APLICA,
                                         fuera_de_juego(factura)))
             else:
@@ -683,12 +730,24 @@ def lineas_en_orden(factura: Factura) -> list[Linea]:
     return sorted(factura.lineas, key=lambda l: (l.orden, l.id))
 
 
+# Una relacion "relacionada" no mueve nada, y tampoco calla un duplicado: si
+# no, enlazar dos facturas cualesquiera seria la forma de quitar un B2 o un B4
+# sin decir que una abona, corrige o sustituye a la otra (huecos.md, §9).
+QUE_NO_EXPLICA = "relacionada"
+
+
 def vinculadas(relaciones: Iterable[Relacion]) -> frozenset[frozenset[int]]:
-    """Los pares de facturas unidos por una relacion confirmada."""
-    return frozenset(frozenset((r.origen_id, r.destino_id)) for r in relaciones)
+    """Los pares de facturas unidos por una relacion confirmada que explica el parecido.
+
+    Un abono, una correccion o una sustitucion explican que dos facturas se
+    parezcan (el mismo numero, el mismo periodo); una relacion cualquiera no.
+    """
+    return frozenset(frozenset((r.origen_id, r.destino_id)) for r in relaciones
+                     if r.tipo != QUE_NO_EXPLICA)
 
 
-LEE_RELACIONES = frozenset({"instantanea.relaciones", "relacion.origen_id", "relacion.destino_id"})
+LEE_RELACIONES = frozenset({"instantanea.relaciones", "relacion.origen_id", "relacion.destino_id",
+                            "relacion.tipo"})
 
 
 # ------------------------------------------------------------ reglas del paso 5
@@ -700,7 +759,8 @@ LEE_RELACIONES = frozenset({"instantanea.relaciones", "relacion.origen_id", "rel
 # facturas (registro, paso 5). Que una regla no diga nada de una factura es
 # que no tiene nada que objetar; sin_datos sigue escribiendose siempre.
 
-LEE_EN_JUEGO = frozenset({"instantanea.facturas", "factura.anulada", "factura.fusionada_en_id"})
+LEE_EN_JUEGO = frozenset({"instantanea.facturas", "factura.anulada", "factura.fusionada_en_id",
+                          "factura.sustituida_por"})
 
 ConContexto = Callable[[Factura, Any], Sequence[Resultado]]
 
@@ -719,7 +779,8 @@ def solo_objeciones(funcion: ConContexto,
         contexto = preparar(instantanea) if preparar is not None else instantanea
         salida: list[Resultado] = []
         for factura in instantanea.facturas:
-            if factura.anulada or factura.fusionada_en_id is not None:
+            if (factura.anulada or factura.fusionada_en_id is not None
+                    or factura.sustituida_por is not None):
                 continue
             salida.extend(funcion(factura, contexto))
         return salida

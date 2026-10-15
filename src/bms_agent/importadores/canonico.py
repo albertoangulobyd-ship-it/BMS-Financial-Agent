@@ -248,10 +248,127 @@ class PagoExactCanonico(Canonico):
     moneda: str | None = None
 
 
+# ------------------------------------------------------------ facturas de venta (paso 8)
+
+class FilaVentaCanonica(Canonico):
+    """Una fila de un listado de facturas de venta (Exact): la cabecera, repetida, y una linea.
+
+    Un listado de ventas con lineas trae una fila por linea con los datos de
+    la factura en cada una; ventas.py las junta en una FacturaVentaCanonica
+    (y rechaza la factura si sus filas no dicen lo mismo de la cabecera).
+    `objeto_ref` es el centro de coste o el proyecto: el codigo (o un alias)
+    de un Objeto. `factura_relacionada`, la factura que abona o corrige.
+    """
+
+    id_externo: str | None = None
+    numero: str
+    tipo: Literal["factura", "nota_credito"] | None = None
+    cliente_ref: str
+    cliente_nombre: str | None = None
+    cliente_btw: str | None = None
+    contacto: str | None = None
+    fecha_factura: date
+    fecha_vencimiento: date | None = None
+    condiciones_pago: str | None = None
+    periodo_inicio: date | None = None
+    periodo_fin: date | None = None
+    tratamiento_iva: Regimen | None = None
+    base: Decimal | None = None
+    base_crudo: str | None = None
+    iva: Decimal | None = None
+    iva_crudo: str | None = None
+    total: Decimal | None = None
+    total_crudo: str | None = None
+    po_ref: str | None = None
+    factura_relacionada: str | None = None
+    moneda: str | None = None
+    orden: int
+    descripcion: str | None = None
+    objeto_ref: str | None = None
+    recurso_ref: str | None = None
+    linea_desde: date | None = None
+    linea_hasta: date | None = None
+    cantidad: Decimal | None = None
+    cantidad_crudo: str | None = None
+    unidad: str | None = None
+    tarifa: Decimal | None = None
+    tarifa_crudo: str | None = None
+    importe: Decimal
+    importe_crudo: str
+    tipo_iva: Decimal | None = None
+    cuota_iva: Decimal | None = None
+    linea_po_ref: str | None = None
+
+
+class LineaVentaCanonica(Canonico):
+    """Una linea de una factura de venta: lo que se facturo, de que Objeto y de que periodo."""
+
+    orden: int
+    descripcion: str | None = None
+    objeto_ref: str | None = None
+    recurso_ref: str | None = None
+    fecha_inicio: date | None = None
+    fecha_fin: date | None = None
+    cantidad: Decimal | None = None
+    cantidad_crudo: str | None = None
+    unidad: str | None = None
+    tarifa: Decimal | None = None
+    tarifa_crudo: str | None = None
+    importe: Decimal
+    importe_crudo: str
+    tipo_iva: Decimal | None = None
+    cuota_iva: Decimal | None = None
+    po_ref: str | None = None
+
+
+class IvaVentaCanonico(BaseModel):
+    """El IVA de una factura de venta para un tipo: su base y su cuota (la suma de sus lineas)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tipo_iva: Decimal
+    base: Decimal
+    cuota: Decimal | None = None
+
+
+class FacturaVentaCanonica(Canonico):
+    """Una factura de venta entera, como la da su sistema (spec §9).
+
+    Los totales son los de la cabecera si el fichero los trae; si no, la suma
+    de las lineas. `referencias` son las PO (de la cabecera y de las lineas).
+    """
+
+    id_externo: str
+    numero: str
+    tipo: Literal["factura", "nota_credito"]
+    cliente_ref: str
+    cliente_nombre: str | None = None
+    cliente_btw: str | None = None
+    contacto: str | None = None
+    fecha_factura: date
+    fecha_vencimiento: date | None = None
+    condiciones_pago: str | None = None
+    periodo_inicio: date | None = None
+    periodo_fin: date | None = None
+    tratamiento_iva: Regimen | None = None
+    base: Decimal
+    base_crudo: str | None = None
+    iva: Decimal | None = None
+    iva_crudo: str | None = None
+    total: Decimal | None = None
+    total_crudo: str | None = None
+    iva_por_tipo: tuple[IvaVentaCanonico, ...] = ()
+    referencias: tuple[str, ...] = ()
+    factura_relacionada: str | None = None
+    moneda: str | None = None
+    lineas: tuple[LineaVentaCanonica, ...] = ()
+
+
 MODELOS: dict[str, type[Canonico]] = {
     "proveedores": ProveedorCanonico, "clientes": ClienteCanonico,
     "contactos": ContactoCanonico, "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
     "recursos": RecursoCanonico, "alias": AliasCanonico, "tarifas": TarifaCanonica,
     "ciclos": CicloCanonico, "movimientos": MovimientoCanonico,
     "pagos_exact": PagoExactCanonico,
+    "lineas_venta": FilaVentaCanonica, "facturas_venta": FacturaVentaCanonica,
 }

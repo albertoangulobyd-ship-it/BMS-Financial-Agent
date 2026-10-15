@@ -59,6 +59,7 @@ from .base import (
     Resultado,
     caducada,
     edad,
+    en_juego,
     euros,
     euros_texto,
     fallo,
@@ -78,7 +79,12 @@ PRECEDENCIA = (BANCO, EXACT, MANUAL)
 # ------------------------------------------------------------ el saldo
 
 class Saldo(NamedTuple):
-    """Lo pagado de una factura segun la fuente que manda, y lo que queda."""
+    """Lo pagado de una factura segun la fuente que manda, lo acreditado y lo que queda.
+
+    `pagada` es "saldada": lo pagado y lo acreditado por abonos confirmados
+    (paso 8) dejan el saldo en la tolerancia. Una factura que solo esta
+    acreditada (nada pagado) tambien esta saldada, y no se paga.
+    """
 
     total_cent: int | None
     pagado_cent: int
@@ -86,6 +92,7 @@ class Saldo(NamedTuple):
     pagos: int
     pendiente_cent: int | None
     pagada: bool
+    acreditado_cent: int = 0
 
 
 def tolerancia_cent(tolerancia: Any) -> int:
@@ -93,18 +100,26 @@ def tolerancia_cent(tolerancia: Any) -> int:
     return int(tolerancia.scaleb(2).to_integral_value())
 
 
-def saldo(total_cent: int | None, aplicaciones: Iterable[Any], tolerancia: int) -> Saldo:
+def saldo(total_cent: int | None, aplicaciones: Iterable[Any], tolerancia: int,
+          acreditado_cent: int = 0) -> Saldo:
     """El saldo de una factura con sus aplicaciones (cualquier cosa con estado, fuente e
-    importe_cent). Pagada solo si hay algo confirmado y deja el saldo en la tolerancia."""
+    importe_cent) y lo que le acreditan sus abonos confirmados (reglas.relaciones.efectos).
+
+    Saldada solo si hay algo confirmado (un pago o un abono) y deja el saldo en
+    la tolerancia: una factura sin nada no esta saldada aunque valga cero.
+    """
     confirmadas = [a for a in aplicaciones if a.estado == CONFIRMADA]
     for fuente in PRECEDENCIA:
         propias = [a for a in confirmadas if a.fuente == fuente]
         if propias:
             pagado = sum(a.importe_cent for a in propias)
-            pendiente = None if total_cent is None else total_cent - pagado
+            pendiente = None if total_cent is None else total_cent - pagado - acreditado_cent
             return Saldo(total_cent, pagado, fuente, len(propias), pendiente,
-                         pendiente is not None and abs(pendiente) <= tolerancia)
-    return Saldo(total_cent, 0, None, 0, total_cent, False)
+                         pendiente is not None and abs(pendiente) <= tolerancia,
+                         acreditado_cent)
+    pendiente = None if total_cent is None else total_cent - acreditado_cent
+    saldada = bool(acreditado_cent) and pendiente is not None and abs(pendiente) <= tolerancia
+    return Saldo(total_cent, 0, None, 0, pendiente, saldada, acreditado_cent)
 
 
 def en_el_movimiento(aplicacion: Any, sentido: str) -> int:
@@ -306,7 +321,7 @@ def k1(factura: Factura, contexto: tuple[Contexto, int]) -> list[Resultado]:
     limite = 0 if factura.sentido == ENTRANTE else dias_venta
     if (c.hoy - factura.vencimiento).days <= limite:
         return []
-    pendiente = factura.total_cent - factura.pagado_cent
+    pendiente = factura.total_cent - factura.pagado_cent - factura.acreditado_cent
     if not _se_puede_saber(factura, c):
         return [sin_datos("K1", factura, "Vencida, pero ningún extracto ni Exact al día cubre "
                                          "desde su fecha sin huecos: no se sabe si se pagó.")]
@@ -321,7 +336,8 @@ def k1(factura: Factura, contexto: tuple[Contexto, int]) -> list[Resultado]:
 
 def k2(factura: Factura, c: Contexto) -> list[Resultado]:
     """K2: lo confirmado no deja el saldo a cero (pago parcial o de mas)."""
-    s = saldo(factura.total_cent, c.por_factura.get(factura.id, ()), c.tolerancia)
+    s = saldo(factura.total_cent, c.por_factura.get(factura.id, ()), c.tolerancia,
+              factura.acreditado_cent)
     if s.fuente is None:
         return []
     if s.total_cent is None:
@@ -330,11 +346,15 @@ def k2(factura: Factura, c: Contexto) -> list[Resultado]:
     if s.pagada:
         return []
     que = "parcial" if (s.pendiente_cent > 0) == (s.total_cent > 0) else "de más"
+    acreditado = (f", acreditado {_texto(s.acreditado_cent)}" if s.acreditado_cent else "")
+    valores = {"total_cent": s.total_cent, "pagado_cent": s.pagado_cent,
+               "pendiente_cent": s.pendiente_cent, "fuente": s.fuente}
+    if s.acreditado_cent:
+        valores["acreditado_cent"] = s.acreditado_cent
     return [fallo("K2", factura, f"Pago {que}: total {_texto(s.total_cent)}, pagado "
-                                 f"{_texto(s.pagado_cent)} ({s.fuente}), quedan "
+                                 f"{_texto(s.pagado_cent)} ({s.fuente}){acreditado}, quedan "
                                  f"{_texto(s.pendiente_cent)}.",
-                  valores={"total_cent": s.total_cent, "pagado_cent": s.pagado_cent,
-                           "pendiente_cent": s.pendiente_cent, "fuente": s.fuente})]
+                  valores=valores)]
 
 
 def k3(factura: Factura, contexto: tuple[Contexto, int]) -> list[Resultado]:
@@ -418,7 +438,8 @@ def _doble_de_factura(factura: Factura, c: Contexto) -> list[Resultado]:
     if len(movimientos) < 2 or factura.total_cent is None:
         return []
     pagado = sum(a.importe_cent for a in del_banco)
-    if abs(pagado) <= abs(factura.total_cent) + c.tolerancia:
+    # Lo que habia que pagar es el total menos lo que acreditaron los abonos.
+    if abs(pagado) <= abs(factura.total_cent - factura.acreditado_cent) + c.tolerancia:
         return []
     return [fallo("K4", factura, f"Pagada dos veces: {len(movimientos)} movimientos del banco "
                                  f"suman {_texto(pagado)} para un total de "
@@ -485,7 +506,7 @@ def k4(instantanea: Instantanea) -> list[Resultado]:
                                         f"pago_doble:{ids[0]}", None,
                                         (Objetivo("movimiento", m.id), *objetivos)))
     for factura in instantanea.facturas:
-        if not (factura.anulada or factura.fusionada_en_id is not None):
+        if en_juego(factura):
             salida.extend(_doble_de_factura(factura, c))
     return salida
 
@@ -493,7 +514,8 @@ def k4(instantanea: Instantanea) -> list[Resultado]:
 LEE_K4 = LEE_CONTEXTO | LEE_EN_JUEGO | frozenset({
     "politica.ventana_doble_pago_dias", "movimiento.importe_cent", "movimiento.contraparte_iban",
     "movimiento.referencia", "movimiento.fecha", "aplicacion.estado", "aplicacion.fuente",
-    "aplicacion.importe_cent", "factura.total_cent", "instantanea.cuentas", "cuenta.iban",
+    "aplicacion.importe_cent", "factura.total_cent", "factura.acreditado_cent",
+    "instantanea.cuentas", "cuenta.iban",
     "cuenta.titular", "cuenta.parte_id",
 })
 
@@ -518,7 +540,7 @@ def k6(instantanea: Instantanea) -> list[Resultado]:
         return salida
     despues = {e.id for lista in c.rotos.values() for e in lista}
     for factura in instantanea.facturas:
-        if factura.anulada or factura.fusionada_en_id is not None:
+        if not en_juego(factura):
             continue
         afectados = sorted({c.movimientos[a.movimiento_id].extracto_id
                             for a in _confirmadas(c.por_factura.get(factura.id, ()))
@@ -584,8 +606,9 @@ def _con_dias(campo: str):
 LEE_SALDO = frozenset({"aplicacion.estado", "aplicacion.fuente", "aplicacion.importe_cent"})
 LEE_K1 = LEE_CONTEXTO | LEE_EN_JUEGO | frozenset({
     "factura.pagada", "factura.total_cent", "factura.vencimiento", "factura.pagado_cent",
-    "factura.fecha_factura", "politica.dias_vencida_venta"})
-LEE_K2 = LEE_CONTEXTO | LEE_EN_JUEGO | LEE_SALDO | frozenset({"factura.total_cent"})
+    "factura.acreditado_cent", "factura.fecha_factura", "politica.dias_vencida_venta"})
+LEE_K2 = LEE_CONTEXTO | LEE_EN_JUEGO | LEE_SALDO | frozenset({
+    "factura.total_cent", "factura.acreditado_cent"})
 LEE_K3 = LEE_CONTEXTO | LEE_EN_JUEGO | frozenset({
     "aplicacion.estado", "aplicacion.fuente", "aplicacion.fecha_pago", "aplicacion.id",
     "politica.dias_pago_sin_extracto"})

@@ -24,12 +24,14 @@ import pytest
 from test_reglas import factura, instantanea, linea
 from test_reglas_paso5 import escenarios as escenarios_paso5
 from test_reglas_paso7 import escenarios as escenarios_paso7
+from test_reglas_paso8 import escenarios as escenarios_paso8
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
     Aplicacion,
     Bloqueo,
     CambioTelefono,
+    Cita,
     Cuenta,
     EventoCuenta,
     Extracto,
@@ -57,7 +59,8 @@ PERMITIDOS = frozenset({
     "operator", "re", "types", "typing",
 })
 PROPIOS = frozenset({"base", "calidad", "aritmetica", "iva", "bancaria", "unicidad", "planning",
-                     "catalogo", "motor", "anomalias", "identidad", "normas", "pagos"})
+                     "catalogo", "motor", "anomalias", "identidad", "normas", "pagos",
+                     "relaciones"})
 DEL_PAQUETE = frozenset({"dominio"})
 LLAMADAS_PROHIBIDAS = frozenset({"open", "eval", "exec", "compile", "__import__", "input",
                                  "print", "breakpoint", "globals"})
@@ -145,7 +148,7 @@ _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
           CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar",
           Extracto: "extracto", Movimiento: "movimiento", Aplicacion: "aplicacion",
-          Bloqueo: "bloqueo", PagadoExact: "pagado_exact"}
+          Bloqueo: "bloqueo", PagadoExact: "pagado_exact", Cita: "cita"}
 
 
 class Grabadora:
@@ -228,6 +231,8 @@ def _escenarios() -> list[Instantanea]:
             LineaSinCasar(602, 3, False, False, ("factura_imputacion.objeto_id",))))),
         # Paso 7: extractos, movimientos, pagos aplicados y bloqueos (K1-K8, F7).
         *escenarios_paso7(),
+        # Paso 8: relaciones confirmadas y propuestas, citas, ventas de Exact y sus copias.
+        *escenarios_paso8(),
     ]
 
 

@@ -71,7 +71,9 @@ def _cuentas(conn) -> dict[str, int]:
 
 # Las reglas de factura del paso 5: escriben solo lo que objetan (registro, paso 5).
 SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "F2", "F3", "F4",
-                   "U1", "M2", "K1", "K2", "K3", "K4", "K5", "K8"}
+                   "U1", "M2", "K1", "K2", "K3", "K4", "K5", "K8",
+                   # Paso 8.
+                   "M3", "V7", "F10", "R1", "R2", "R3", "R4", "R5"}
 
 
 # Una factura de Van Dijk con otro numero, otro total y un periodo que se pisa
@@ -115,16 +117,17 @@ def test_una_pasada_detecta_cada_fallo_con_su_causa(tipado) -> None:
     [detectado] = hallazgos.historia(conn, x1["id"])
     assert (detectado["tipo"], detectado["causa_evento_id"]) == ("detectado", tipado_)
     # Paso 5: ademas de X1, el aviso de inyeccion de la 03 (Q3) y el de cada factura cuyo
-    # original no esta guardado (Q4: el out/ de prueba no trae los PDF).
+    # original no esta guardado (Q4: el out/ de prueba no trae los PDF). Paso 8: la 04 es
+    # un abono que no dice a que factura abona (R4).
     assert {t.tipo for t in diferencia.transiciones} == {"detectado"}
-    assert sorted(t.regla for t in diferencia.transiciones) == ["Q3", *["Q4"] * 7, "X1"]
+    assert sorted(t.regla for t in diferencia.transiciones) == ["Q3", *["Q4"] * 7, "R4", "X1"]
 
     ejecucion = conn.execute("SELECT * FROM ejecucion_reglas").fetchone()
     assert (ejecucion["motivo"], ejecucion["hoy"]) == ("manual", "2026-10-14")
     assert ejecucion["terminada_en"] is not None and ejecucion["actor"] == usuario_sistema(
         conn, "motor")
     assert ejecucion["catalogo_sha256"] == catalogo.sha256()
-    assert json.loads(ejecucion["resumen_json"])["pendientes"] == {"abierto": 9}
+    assert json.loads(ejecucion["resumen_json"])["pendientes"] == {"abierto": 10}
 
 
 def test_la_cache_tiene_un_resultado_por_regla_y_fila_tambien_los_que_pasan(tipado) -> None:
@@ -183,7 +186,10 @@ def test_barajar_la_entrada_da_las_mismas_huellas(pares, tmp_path) -> None:
                                            "cuota_cent": Decimal(cuota)},
                      Persona(ana, MOTIVO))
     hallazgos.recalcular(conn)
-    guardadas = {f["clave"]: f["huella"] for f in conn.execute("SELECT clave, huella FROM hallazgo")}
+    # Paso 8: la b, corregida por la e con una relacion confirmada, sale de juego: lo suyo
+    # (su B4 con la a, que desaparece, y su Q4, que se cierra) ya no lo calcula la pasada.
+    guardadas = {f["clave"]: f["huella"] for f in conn.execute(
+        "SELECT clave, huella FROM hallazgo WHERE estado IN ('abierto', 'aceptado')")}
     assert {c.split("|")[0] for c in guardadas} >= {"B2", "B4", "D3", "D4"}
 
     base = instantanea.construir(conn, hoy=date(2026, 10, 14))
@@ -767,7 +773,7 @@ def test_cada_orden_de_entrada_termina_recalculando(tmp_path, out_v1, capsys) ->
     assert main(["importar-out", "--out", str(out_v1), "--pdfs", str(tmp_path / "no"),
                  "--db", str(db)]) == 0
     salida = capsys.readouterr().out
-    assert "Reglas: " in salida and "Hallazgos: 9 nuevos" in salida      # X1, Q3 y 7 Q4
+    assert "Reglas: " in salida and "Hallazgos: 10 nuevos" in salida  # X1, Q3, 7 Q4 y R4
     assert main(["ingestar", "--db", str(db)]) == 0
     assert main(["sembrar", "--tarifas", str(TARIFAS_V1), "--db", str(db)]) == 0
     assert _ejecuciones(db) == ["importacion", "ingesta", "importacion"]
@@ -787,7 +793,7 @@ def test_recalcular_por_la_cli(tmp_path, out_v1, capsys) -> None:
     capsys.readouterr()
     assert main(["recalcular", "--simular", "--db", str(db)]) == 0
     salida = capsys.readouterr().out
-    assert "Simulacion: no se ha escrito nada" in salida and "9 abiertos" in salida
+    assert "Simulacion: no se ha escrito nada" in salida and "10 abiertos" in salida
     assert _ejecuciones(db) == ["importacion"]
     assert main(["recalcular", "--diaria", "--db", str(db)]) == 0
     assert "Hallazgos: ninguno cambia" in capsys.readouterr().out

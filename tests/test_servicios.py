@@ -160,6 +160,41 @@ def _aplicacion(conn) -> tuple[int, int]:
     return (fila[0], fila[1]) if fila else (0, 0)
 
 
+# Paso 8. La b cita a la a como la que sustituye (lo que leeria una v2): la pasada lo
+# propone, y una persona lo confirma o lo rechaza. Para retirar, una relacion confirmada a
+# mano.
+def _preparar_relacion_propuesta(almacen, admin) -> None:
+    conn = almacen.conn
+    b = factura_de(conn, "2026-4480")
+    campos.crear(conn, "factura_cita", {"factura_id": b, "numero_doc": "2026-4471",
+                                        "relacion_doc": "replaces"},
+                 Automatico("extraccion", usuario_sistema(conn, "extractor")))
+    hallazgos.recalcular(conn)
+    assert conn.execute("SELECT count(*) FROM factura_relacion WHERE estado = 'propuesta'"
+                        ).fetchone()[0] == 1
+
+
+def _preparar_fusion(almacen, admin) -> None:
+    conn = almacen.conn
+    b = factura_de(conn, "2026-4480")
+    servicios.ejecutar(conn, "fusionar_factura", {
+        "factura_id": b, "destino_id": factura_de(conn, "2026-4471"),
+        "rev": _rev(conn, "factura", b), "motivo": MOTIVO}, usuario_id=admin)
+
+
+def _preparar_relacion_confirmada(almacen, admin) -> None:
+    conn = almacen.conn
+    servicios.ejecutar(conn, "enlazar_facturas", {
+        "origen_id": factura_de(conn, "2026-4480"), "destino_id": factura_de(conn, "2026-4471"),
+        "tipo": "sustituye", "motivo": MOTIVO}, usuario_id=admin)
+
+
+def _relacion(conn) -> tuple[int, int]:
+    """La relacion de la preparacion y su rev (0, 0 sin preparar)."""
+    fila = conn.execute("SELECT id, rev FROM factura_relacion ORDER BY id").fetchone()
+    return (fila[0], fila[1]) if fila else (0, 0)
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -258,6 +293,21 @@ CASOS = [
     ("retirar_pago", "retirar_pago", "marcar_pagada", lambda c, i: {
         "aplicacion_id": _aplicacion(c)[0], "rev": _aplicacion(c)[1],
         "motivo": "Es el pago de otra factura"}, _preparar_propuesta),
+    ("deshacer_fusion", "deshacer_fusion", "anular_acreditar", lambda c, i: {
+        "factura_id": i["b"], "rev": _rev(c, "factura", i["b"]), "motivo": MOTIVO},
+     _preparar_fusion),
+    ("enlazar_facturas", "enlazar_facturas", "anular_acreditar", lambda c, i: {
+        "origen_id": i["b"], "destino_id": i["a"], "tipo": "sustituye", "motivo": MOTIVO},
+     None),
+    ("confirmar_relacion", "confirmar_relacion", "anular_acreditar", lambda c, i: {
+        "relacion_id": _relacion(c)[0], "rev": _relacion(c)[1], "motivo": MOTIVO},
+     _preparar_relacion_propuesta),
+    ("rechazar_relacion", "rechazar_relacion", "anular_acreditar", lambda c, i: {
+        "relacion_id": _relacion(c)[0], "rev": _relacion(c)[1],
+        "motivo": "No la sustituye: son dos semanas"}, _preparar_relacion_propuesta),
+    ("retirar_relacion", "retirar_relacion", "anular_acreditar", lambda c, i: {
+        "relacion_id": _relacion(c)[0], "rev": _relacion(c)[1], "motivo": MOTIVO},
+     _preparar_relacion_confirmada),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -288,7 +338,11 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "anadir_beneficiario": "admin", "retirar_beneficiario": "admin",
         # Paso 7.
         "marcar_pagada": "marcar_pagada", "confirmar_pago": "marcar_pagada",
-        "retirar_pago": "marcar_pagada"}
+        "retirar_pago": "marcar_pagada",
+        # Paso 8.
+        "deshacer_fusion": "anular_acreditar",
+        "enlazar_facturas": "anular_acreditar", "confirmar_relacion": "anular_acreditar",
+        "rechazar_relacion": "anular_acreditar", "retirar_relacion": "anular_acreditar"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,
@@ -922,17 +976,24 @@ def test_una_excepcion_a_mano_es_de_algo_que_existe(escenario, tabla, fila_id, e
 
 
 def test_los_totales_cuentan_las_facturas_en_euros_aunque_digan_eur() -> None:
-    #           sentido, prov, cli, base, iva, total, anulada, fusionada, moneda
-    antes = {1: ("entrante", 7, None, 100, 21, 121, 0, None, "EUR"),
-             2: ("entrante", 7, None, 500, 0, 500, 0, None, "USD")}
-    despues = {1: ("entrante", 7, None, 100, 21, 131, 0, None, "EUR"),
-               2: ("entrante", 7, None, 500, 0, 600, 0, None, "USD")}
+    # sentido, prov, cli, base, iva, total, anulada, fusionada, moneda y (paso 8)
+    # si otra la sustituye o la corrige.
+    antes = {1: ("entrante", 7, None, 100, 21, 121, 0, None, "EUR", 0),
+             2: ("entrante", 7, None, 500, 0, 500, 0, None, "USD", 0)}
+    despues = {1: ("entrante", 7, None, 100, 21, 131, 0, None, "EUR", 0),
+               2: ("entrante", 7, None, 500, 0, 600, 0, None, "USD", 0)}
     totales = servicios._totales(antes, despues)
     assert {"entidad": "factura", "id": 1, "campo": "total_cent", "antes": 121,
             "despues": 131} in totales
     assert {"entidad": "proveedor", "id": 7, "campo": "total_cent", "antes": 121,
             "despues": 131} in totales
     assert not any(t["id"] == 2 for t in totales if t["entidad"] == "factura")
+    # Sustituida por otra, sale de los totales como una anulada.
+    sustituida = {1: ("entrante", 7, None, 100, 21, 131, 0, None, "EUR", 1),
+                  2: despues[2]}
+    totales = servicios._totales(despues, sustituida)
+    assert {"entidad": "proveedor", "id": 7, "campo": "total_cent", "antes": 131,
+            "despues": 0} in totales
 
 
 def test_fusionar_solo_cierra_el_b2_que_la_fusion_hizo_desaparecer(almacen, tmp_path) -> None:
