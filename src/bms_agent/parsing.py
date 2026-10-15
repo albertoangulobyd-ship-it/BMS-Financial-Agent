@@ -19,6 +19,7 @@ __all__ = [
     "ParseError",
     "detectar_moneda",
     "es_unidad_hora",
+    "normalizar_referencia",
     "normalize_iban",
     "parse_amount",
     "parse_importe",
@@ -278,3 +279,21 @@ def es_unidad_hora(unidad: str | None) -> bool:
         return True
     palabra = next((p for p in re.split(r"[^a-z]+", texto) if p), "")
     return palabra in _UNIDADES_HORA
+
+
+_SEPARADORES_REFERENCIA = re.compile(r"[\s\u00a0\u202f.\-/_]+")
+
+
+def normalizar_referencia(raw: str | None) -> str | None:
+    """Un numero de factura o una referencia, en la forma con la que se comparan.
+
+    Mayusculas y sin espacios, puntos, guiones, barras ni guiones bajos:
+    "2026-4471", "2026 4471" y "2026/4471" son el mismo numero para B2. No
+    se quitan ceros a la izquierda: "2026-012" y "2026-12" pueden ser dos
+    facturas distintas, y juntarlas daria un duplicado que no lo es.
+    Devuelve None si no queda nada.
+    """
+    if raw is None:
+        return None
+    texto = _SEPARADORES_REFERENCIA.sub("", str(raw)).upper()
+    return texto or None

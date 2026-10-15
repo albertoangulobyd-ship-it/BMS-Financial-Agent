@@ -560,3 +560,294 @@ nuevas. Las bases creadas antes de esta corrección no pasan
 `db verificar`: sus eventos no llevan la foto de cada fila ni sus anclas
 están al lado de la base. Como `out/` sigue siendo la fuente, se rehacen con
 `db init` en una ruta nueva e `importar-out`.
+
+
+## Paso 2
+
+Núcleo tipado, una sola vía de escritura, procedencia de cada campo y
+permisos. **537 tests pasan** (385 funciones de test; eran 414 y 295),
+ninguno llama a la API y ninguno escribe fuera de una carpeta temporal.
+
+### Qué se construyó
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `dominio.py` | Los enumerados del dominio (`Sentido`, `Fuente` con sus siete valores, `Calidad`, `EstadoPago`, `EstadoRevision`, `EstadoExcepcion`, `Prioridad`, `Severidad`, `TipoRelacion`, `EstadoRelacion`, `ClaseReferencia`, `EstadoBtw`, `Permiso`, `TratamientoIva`…), con el mismo texto que los `CHECK` de la base (un test lo compara) |
+| `campos.py` | El registro de campos (`REGISTRO`: tipo, obligatorio por sentido, editable, permiso para suplir y para corregir, si su dueño puede ser Exact o TRNSPRNT, crítico, cálculo y de qué depende) y la única vía de escritura de las tablas controladas: `orden()` y los atajos `crear`, `fijar`, `retirar`, `verificar_campos`, `recalcular`, `anadir_nota`. Lectura: `leer`, `procedencia`, `estado_campo` (editado, suplido, corregido, sin resolver, dudoso, verificado). `verificar_controladas()` para `db verificar` |
+| `permisos.py` | Los 14 permisos, roles de partida (`administrador`, `administracion`, `consulta`), personas, `tiene`, `exigir` (lanza `PermisoDenegado` y deja la denegación en la auditoría), `orden_auditada`, `personas_con`, `si_hay_dos` y `separacion` |
+| `identidad.py` | Normalización y búsqueda exacta: btw-id, luego KvK, luego alias confirmado; Objetos por código o alias, recursos por alias. Nunca por IBAN ni por parecido. `anadir_alias` rechaza un IBAN y un alias que ya es de otra fila |
+| `compat.py` | Lee una extracción v1 con la forma v2 sin tocar la guardada; lo que v1 no pidió queda «no solicitado en v1» (`no_solicitados`, `ExtraccionLeida.estado`) |
+| `ingesta.py` | La vía de entrada única de la CLI y del servidor: `ingestar_pasada` (almacén de documentos, extracción según la política de caché y tipado), `tipar_documento`, `tipar_pendientes`, `reconciliar_referencias`, `leer_literal` y `vigentes_por_documento`. La dirección la decide `documento.ruta_declarada` |
+| `importadores/tarifas.py` | `sembrar_tarifas`: clientes, Objetos y tarifas de venta de `config/tarifas.yaml` (o de cualquier fichero con esa forma), con el fichero en `politica_version` |
+| `legado.py` (ampliado) | `registros_resueltos()` (los diccionarios de siempre con los valores actuales de cada factura tipada), `sin_tipar()`, `literal_decimal()` y `leer_registros()` (almacén si existe; `out/` si no, y lo dice) |
+| `scripts/generar_guardas.py` | Escribe los disparadores de guarda de una tabla controlada a partir de sus columnas; los de la 0002 salen de aquí (un test lo comprueba) |
+
+**Cambios**: `parsing.normalizar_referencia`, `reloj.semana_iso`,
+`extract.extraer_pasada(..., ruta=)` (la vía de entrada llega hasta el
+documento), `almacen/evidencia.py` (personas, roles y asignaciones con su
+foto, como pedía el paso 1), `serve.py` (el botón pasa por `ingesta`,
+`/api/datos` lee del almacén) y `cli.py`.
+
+**Tablas** (migración `0002_nucleo_tipado.sql`), todas STRICT, con clave
+entera y sin ninguna columna REAL:
+
+| Clase | Tablas |
+| --- | --- |
+| Controladas (TRACKED) | `proveedor`, `cliente`, `contacto`, `objeto`, `recurso`, `alias`, `tarifa_acordada`, `factura`, `factura_linea`, `factura_imputacion`, `factura_iva`, `factura_referencia`, `factura_relacion` |
+| Una fila por campo | `procedencia_campo` |
+| Solo escritura | `nota` |
+| Vista | `v_factura_ediciones` (editada, suplementada, corregida, sin resolver) |
+
+Cada controlada lleva tres disparadores generados columna a columna:
+`<tabla>_guarda_insert` (entra con rev 0 y cada columna con valor tiene su
+`cambio_campo` con ese valor en el evento en curso), `<tabla>_guarda_update`
+(rev sube de uno en uno, hay un `cambio_campo` de la fila con la rev nueva,
+y cada columna que cambia tiene el suyo con el valor anterior y el nuevo
+exactos, en el evento en curso) y `<tabla>_sin_delete`. Además: el sentido
+de una factura no cambia, la extracción vigente es del propio documento, una
+imputación o una referencia es de una línea de su factura, una relación une
+dos facturas del mismo sentido, un alias apunta a una fila que existe y no
+tiene la forma de un IBAN, una nota la escribe una persona y quien verifica
+un campo es una persona.
+
+**Órdenes**
+
+- `bms-agent importar-out` lleva `out/` al almacén y después tipa cada
+  extracción; `extract` y el botón del servidor también tipan lo que
+  extraen. Cero llamadas a la API en el tipado.
+- `bms-agent ingestar [--db]`: tipa lo extraído que todavía no tiene su
+  factura, o cuya extracción vigente cambió.
+- `bms-agent sembrar [--tarifas config/tarifas.yaml] [--db]`.
+- `bms-agent usuario crear NOMBRE [--email] [--rol ROL]…`, `usuario asignar
+  NOMBRE ROL`, `usuario quitar NOMBRE ROL`, `usuario listar`.
+- `panel`, `report`, `export` y `simulador` aceptan `--db` y leen del
+  almacén con los valores corregidos; sin almacén leen `out/` y lo dicen
+  («No hay almacén en …: se lee out/ tal cual, sin correcciones»).
+- `db verificar` comprueba además cada fila controlada contra su historia
+  (`campos.verificar_controladas`) y cuenta las facturas tipadas.
+
+**Cómo decide `campos`** (spec §6): una fuente automática no pisa nunca un
+valor manual (solo apunta `valor_automatico`, y si no coincide el campo
+queda sin resolver, M1); el valor de una persona es `manual_entrada` si el
+campo no tenía original automático y `manual_correccion` si lo tenía, y eso
+lo decide el sistema; un valor manual igual al último automático deshace la
+corrección y devuelve el campo a esa fuente con su referencia; el original y
+su literal no cambian nunca; un campo cuyo dueño es Exact o TRNSPRNT no se
+edita aquí. Una orden es una transacción con un solo evento: se planifica
+entera (permisos, motivos, cálculos), se registra el evento con todos sus
+`cambio_campo` y después se escriben las filas y su procedencia.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| El original sobrevive a dos correcciones | `test_campos.py::test_el_original_sobrevive_a_dos_correcciones` (valor, literal y fuente originales, y la historia de los tres cambios) |
+| El sistema, no quien edita, decide entre suplido y corregido | `test_el_sistema_decide_entre_suplir_y_corregir`, `test_corregir_una_lectura_ilegible_es_corregir` (y que `Automatico("manual_entrada", …)` no se puede construir) |
+| Deshacer devuelve la fuente original | `test_deshacer_devuelve_la_fuente_original`, `test_un_suplido_se_deshace_quitandolo` |
+| Un automático nunca pisa uno manual | `test_un_valor_automatico_nunca_pisa_uno_manual` (queda en `valor_automatico`, sin resolver y en `v_factura_ediciones`), `test_un_objeto_puesto_a_mano_no_lo_pisa_el_calculo`, `test_ingesta.py::test_una_extraccion_nueva_no_pisa_lo_corregido` |
+| Una corrección sin motivo no entra | `test_una_correccion_sin_motivo_no_entra` (sin motivo, vacío o en blanco; ni evento ni cambio), `test_retirar_una_linea_exige_motivo_y_no_la_borra` |
+| Un UPDATE fuera de `campos.py` lo rechaza la guarda | `test_un_update_fuera_de_campos_lo_rechaza_la_guarda` (UPDATE suelto, con rev + 1, DELETE, INSERT y la procedencia), `test_la_guarda_exige_el_cambio_de_cada_columna` (un `cambio_campo` de un campo no tapa otro, ni otro valor), `test_las_guardas_cubren_cada_columna`, `test_las_guardas_de_la_migracion_son_las_del_script`, y sin disparadores, `test_db_verificar_ve_una_controlada_tocada_por_detras` |
+| … y en el código no hay ninguno | `test_solo_campos_escribe_las_tablas_controladas` (cada texto y cada f-string de `src/`, con una tabla variable como sospechosa, y el fuente plano) y `test_la_busqueda_de_escrituras_ve_lo_que_tiene_que_ver` |
+| La foto no cambia a través de `registros_resueltos` | `test_equivalencia_legado.py::test_la_foto_no_cambia_a_traves_de_registros_resueltos` (byte a byte), `test_sin_correcciones_los_resueltos_son_los_de_siempre`, `test_con_varias_extracciones_los_resueltos_siguen_a_la_vigente`, y por la CLI `test_export_lee_del_almacen_y_lo_dice` |
+
+Además: permisos (`test_permisos.py`: catálogo, usuarios de sistema sin
+roles ni permisos, denegación auditada dentro y fuera de una orden, roles
+que se cierran, `si_hay_dos` tabla a tabla, personas y roles como evidencia,
+dominio igual a los `CHECK`), identidad (`test_identidad.py`), compat
+(`test_compat.py`: las siete fixtures suben con exactamente las claves
+nuevas marcadas), ingesta (`test_ingesta.py`: valores tipados de cada
+fixture, X1 sin importes, fecha neerlandesa, abono por el signo, «uren» y
+«stuk», ilegibles y dudosos, la vía de entrada decide, extracción nueva,
+línea editada que desaparece, una extracción v2 sintética, la semilla, la
+CLI y el servidor), que una corrección llega al panel, al informe, al
+simulador y a `/api/datos`, y un proceso sin `anthropic` que ejecuta
+`importar-out`, `ingestar`, `sembrar`, `export`, `panel`, `report`, `usuario`
+y `db verificar`.
+
+### Desviaciones de la especificación, y por qué
+
+1. **`tarifa_acordada` llega en la 0002**, no en la 0004: el paso pide
+   sembrar ya las tarifas de venta, y necesitan una tabla. Tiene las
+   columnas de la especificación (con `orden_compra_id` sin clave foránea
+   hasta la 0006, como `factura_id` en la 0001).
+2. **`procedencia_campo` tiene clave entera y `UNIQUE (tabla, fila_id,
+   campo)`**, no una clave compuesta `WITHOUT ROWID`: el §4 pide clave
+   entera en todas las tablas y `test_almacen` lo comprueba. `tabla` no
+   lleva lista cerrada (las controladas crecerán en el paso 7 y cambiar un
+   `CHECK` obliga a reconstruir la tabla). Columnas añadidas:
+   `fuente_automatica` y `fuente_automatica_ref`, para que deshacer una
+   corrección devuelva el campo a la fuente automática **con su
+   referencia** (la extracción concreta).
+3. **Columnas añadidas a `factura`**: `emisor_direccion_doc`, `tipo_iva_pb`
+   (el tipo impreso en la cabecera), `kor_mencionada`,
+   `autoliquidacion_mencionada` y `notas_doc`. Todo lo que lee el extractor
+   v1 tiene así su sitio tipado (lo necesitan `registros_resueltos` y las
+   reglas E3, E4, A5, A7 y Q3).
+4. **Una factura v1 no tiene filas en `factura_iva`.** v1 no pide desglose
+   por tipo, solo el tipo de la cabecera (`factura.tipo_iva_pb`); inventar
+   una fila copiando la cabecera haría que D6 cuadrara siempre y que
+   corregir la base dejara el desglose viejo. El desglose v2
+   (`vat_breakdown`) ya se mapea. El paso 11 deriva el desglose de una
+   factura de un solo tipo desde la cabecera cuando no hay filas.
+5. **`retirada_en` en `factura_linea` y `factura_iva`**: una línea se
+   excluye (§10) o desaparece en una extracción nueva, y una fila controlada
+   no se borra nunca.
+6. **`alias`**: columnas `alias` (como se escribió), `confirmado`, `activo`
+   y `rev`; es controlada. La búsqueda solo usa alias confirmados y
+   activos. Un `CHECK` rechaza lo que tiene forma de IBAN y un disparador
+   exige que la fila apuntada exista.
+7. **La guarda es más estricta que la especificación**: además de rev + 1 y
+   un `cambio_campo` de la fila, exige uno por cada columna que cambia, con
+   el valor anterior y el nuevo exactos, y en el evento en curso (el
+   último); y hay una guarda de alta (rev 0 y un `cambio_campo` por columna
+   con valor). Sin eso, un cambio auditado de un campo podría llevar
+   colado el de otro. Consecuencias: `campos` fija el id de cada fila nueva
+   antes de escribirla (el máximo más uno, seguro dentro de `BEGIN
+   IMMEDIATE`) y registra el evento antes de las filas; y una orden es **un
+   solo evento** aunque cree una factura con sus líneas e imputaciones
+   (§4: «the evento row»).
+8. **Deshacer compara con el último valor automático**, no con el
+   original. En el paso 2 son el mismo salvo después de una extracción
+   nueva o de un recálculo; volver a un original que una fuente automática
+   ya contradice es una corrección, no deshacer.
+9. **El motivo se exige al cambiar cualquier valor que ya existe** (también
+   una entrada manual sobre otra, deshacer y retirar una fila), no solo en
+   `manual_correccion`. Rellenar un campo vacío sin original automático no
+   lo pide. Es la lectura prudente de la pregunta 10 del §12, que sigue
+   abierta.
+10. **Suplir o corregir, para el permiso**: corrige quien cambia un valor
+    que existe o un campo con original automático (también un literal
+    ilegible: arreglar una mala lectura es corregir la extracción, y pide
+    `editar_extraccion`). Imputar a un Objeto o a un recurso pide
+    `cambiar_objeto`; una PO o la clase de una referencia, `cambiar_po`;
+    anular o fusionar, `anular_acreditar`; los maestros, `admin`, salvo el
+    teléfono de verificación, que pide `confirmar_iban`. Nadie crea una
+    factura a mano (llega por un documento o por una importación).
+11. **Dueño Exact o TRNSPRNT**: una fila es de Exact o de TRNSPRNT cuando
+    tiene su `exact_id`/`trnsprnt_id` o la factura tiene ese `origen`; sus
+    campos marcados como `externo` no los edita una persona, y una fuente
+    automática solo con `en_nombre_de` igual al dueño (su importación). La
+    imputación a Objetos es local y no tiene dueño externo.
+12. **`exigir` solo registra la denegación fuera de una transacción**: dentro
+    de una, el `ROLLBACK` de la orden se la llevaría. `permisos.orden_auditada`
+    (que usan `campos.orden` y las órdenes de usuarios) la registra después
+    del `ROLLBACK` cuando es la transacción de fuera.
+13. **La extracción vigente** sigue la regla de `load_records` (la más
+    reciente), y una nueva se aplica como fuente automática: lo corregido se
+    queda y su nuevo valor automático queda apuntado. Las líneas se casan por
+    posición entre las que puso una extracción; las que ya no vienen se
+    retiran salvo que una persona las editara (se conservan, se dice en el
+    resultado y en el evento). El paso 6 cambia esto por la puerta de
+    activación y el casado por huella.
+14. **`registros_resueltos` saca el literal de la extracción vigente**,
+    guiado por la referencia de la procedencia (`extraccion:N` en la
+    cabecera, `extraccion:N:lines[i]` en una línea), no de
+    `valor_original_crudo`, que es el literal del original y se guarda para
+    enseñarlo. Un valor corregido se escribe con `literal_decimal`, que con
+    más de dos decimales pone los dos separadores (`0,042.125`) porque
+    `parse_amount` lee «42.125» como millares. Un campo de
+    `low_confidence_fields` verificado o corregido sale de la lista.
+15. **Lo que v1 no dice lo decide el código y queda como `calculado`**: un
+    total o una base negativos hacen de la factura un abono; `moneda_doc` es
+    la moneda no euro detectada en los literales cuando X1 falla (con v2,
+    `currency_raw`). Una factura que no está en euros deja todos sus
+    importes y tarifas vacíos con su literal, sin marcarlos dudosos.
+16. **`fecha_recepcion` solo con una recepción de verdad** (`correo` o
+    `ingesta`): la fecha de modificación del fichero no lo es.
+17. **La semana ISO de una línea sale de sus fechas**; con solo el número de
+    semana impreso queda vacía, porque el año se deduce con la fecha de la
+    factura al cruzar con el planning (paso 10).
+18. **`parsing.normalizar_referencia` se adelanta del paso 6** (hace falta
+    para `numero_norm`). No quita ceros a la izquierda: «2026-012» y
+    «2026-12» pueden ser dos facturas.
+19. **Una extracción v2 ya se tipa** (probado con un registro v2 sintético):
+    receptor, contacto, condiciones de pago, tipo de documento, moneda,
+    referencias (la clase la decide `campos.clasificar_referencia` con una
+    lista de etiquetas) y desglose de IVA. Las relaciones que propone
+    (`related_invoices`) no se crean: son del paso 8. Casar una referencia
+    con una PO es del paso 9.
+20. **La semilla** apunta el fichero en `politica_version` y crea los
+    clientes (con su alias de configuración), los Objetos (código = nombre
+    tal como está en el fichero) y las tarifas de venta (`unidad` hora,
+    `fuente` config), y vuelve a resolver las imputaciones. No siembra
+    `margen_por_defecto` ni `no_facturable`, y lo que se quita del fichero
+    no se borra. `facturacion.py` sigue leyendo el fichero: la proyección
+    contra las tarifas del almacén va con las tarifas pactadas (paso 9).
+21. **También leen del almacén `simulador` y `/api/datos`**, no solo
+    `panel`, `report` y `export`: si no, el sitio propio y el panel
+    enseñarían cosas distintas. `/api/datos` sigue dando la foto de
+    referencia sin correcciones (probado). `score` y `coste` siguen en
+    `out/`: miden extracciones, no facturas.
+22. **La CLI local actúa como el operador del fichero** (`por=None`, actor
+    `sistema`) al crear personas y roles: quien la ejecuta ya tiene la base.
+    Los tokens de las personas llegan con el servidor (paso 4).
+23. **`factura_id` en `evento` y `cambio_campo` sigue sin comprobarse**: el
+    disparador que sugería el paso 1 no es posible, porque el evento de
+    alta va antes que sus filas.
+24. **Lo pendiente del panel que el paso 0 dejaba para los pasos 2 y 3**
+    (la guarda muerta `nom:(sin`, `por_proveedor` y la matriz por nombre
+    impreso, `_propagar_alertas_a_filas` por nombre de fichero, B4 por
+    Objeto, la regla «D» y unificar la identidad de B2, B3, B4 y G3) **va al
+    paso 3**: cambia lo que sale del panel, y este paso tiene que dejar la
+    foto igual. La identidad de las reglas nuevas es `identidad.py`.
+25. **Tests existentes cambiados**, porque contaban una sola migración o un
+    número fijo de eventos (el comportamiento no cambia): en
+    `test_auditoria.py`, los ids de evento van detrás de `MIGRACIONES`; en
+    `test_almacen.py`, las pruebas de migraciones cuentan las disponibles,
+    la de transacciones anidadas no mira los eventos de migración,
+    `SOLO_ESCRITURA` incluye `nota` y la lista de tablas que no se borran
+    pero sí se editan incluye las controladas y `procedencia_campo`; en
+    `test_migracion_out.py`, el evento anclado se lee de la base, porque
+    `importar-out` ahora también tipa.
+
+### Lo que deben saber los pasos siguientes
+
+- **Escribir**: una tabla controlada solo se escribe con
+  `with campos.orden(conn, origen, tipo=…) as o:` (`o.crear`, `o.fijar`,
+  `o.retirar`, `o.recalcular`, `o.verificar`) o los atajos. `origen` es
+  `Automatico(fuente, actor, ref=…, usuario_id=…, en_nombre_de=…)` o
+  `Persona(usuario_id, motivo, peticion_id)`. Un valor automático con su
+  literal va como `Leido(valor, crudo=…, dudoso=…, ref=…, fuente=…)`. El
+  dinero entra como `Decimal` y lo escala `a_columna` con
+  `almacen/unidades.py`. Ningún otro módulo puede tener un `INSERT`,
+  `UPDATE` o `DELETE` sobre esas tablas (lo comprueba un test).
+- **Una tabla controlada nueva** (paso 7: `aplicacion_pago`, `conciliacion`)
+  necesita su entrada en `campos.REGISTRO` (con el mismo orden de columnas,
+  un test lo compara) y sus guardas generadas con
+  `python scripts/generar_guardas.py <tabla>`. Una columna nueva en una
+  controlada obliga a borrar y volver a crear sus dos guardas en esa
+  migración.
+- **Leer**: `campos.procedencia(conn, tabla, id)` y `campos.estado_campo(p)`.
+  M1 es `estado_campo(p).sin_resolver`; Q2, `estado_campo(p).dudoso` en un
+  campo de `campos.criticos(tabla)`; Q1, `campos.obligatorios(tabla,
+  sentido)`, y un campo que v1 no pidió se distingue con
+  `compat.no_solicitados(schema_version)` (la versión es la de
+  `factura.extraccion_vigente_id`): esas reglas dan `sin_datos`. Las marcas
+  de edición por factura, en `v_factura_ediciones`.
+- **Las reglas viejas** corren sobre `legado.registros_resueltos(conn)`, que
+  sin correcciones es byte a byte lo de siempre. El paso 3 las porta a
+  `reglas/` sobre el almacén tipado; mientras tanto, cualquier cambio de
+  campo se ve en el panel.
+- **Identidad**: `identidad.resolver_parte` y `resolver_objeto`. Quien
+  cambie un maestro (paso 5) llama a `ingesta.reconciliar_referencias` para
+  que las facturas y las imputaciones sin resolver se resuelvan; un valor
+  puesto a mano no se pisa. Nada crea un proveedor desde un documento.
+- **Ingesta**: un importador nuevo de facturas o de documentos termina con
+  `ingesta.tipar_pendientes(conn)` (o `tipar_documento`). La vía de entrada
+  (`ruta_declarada`) decide el sentido; `extract` y `serve` ponen hoy
+  `entrante`, y la vía de salida (paso 8) solo tiene que pasar
+  `ruta="saliente"`.
+- **Permisos**: una orden de persona pasa por `permisos.exigir` (lo hace
+  `campos`); `servicios.py` (paso 4) envuelve sus órdenes en
+  `campos.orden`/`permisos.orden_auditada` para que la denegación quede.
+  La separación de funciones es `permisos.separacion(conn, permiso, autor,
+  revisor)`.
+- **Fixtures** (`tests/conftest.py`): `tipado` (las siete fixtures v1
+  importadas y tipadas), `persona(conn, nombre, *roles)` y
+  `factura_de(conn, numero)`.
+- **Lo que no se hizo y es de otro paso**: las relaciones propuestas por la
+  extracción (8), la proyección de venta contra el almacén (9), el año de
+  la semana impresa (10), el desglose de IVA de una factura v1 (11) y lo
+  del panel de la desviación 24 (3).

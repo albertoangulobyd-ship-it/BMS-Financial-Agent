@@ -14,8 +14,9 @@ de lo que se leyo: una pasada nueva no puede borrar la anterior.
 
 Con un almacen, cada documento de la pasada entra tambien alli: el PDF en el
 almacen de documentos y la extraccion (nueva o reutilizada de out/) con el
-mismo texto que el fichero. out/ sigue escribiendose igual, porque el panel,
-el informe y la puntuacion aun leen de ahi.
+mismo texto que el fichero. out/ sigue escribiendose igual: la puntuacion y
+el coste leen de ahi, y es lo que leen el panel y el informe si no hay
+almacen. La factura tipada la hace ingesta.py despues de esta pasada.
 """
 
 from __future__ import annotations
@@ -222,6 +223,7 @@ def extraer_pasada(
     informar: Informar | None = None,
     resultado: ResultadoPasada | None = None,
     almacen: Almacen | None = None,
+    ruta: str = "entrante",
 ) -> ResultadoPasada:
     """Extrae los PDF que no tengan ya una extraccion reutilizable.
 
@@ -239,21 +241,23 @@ def extraer_pasada(
     Con `almacen`, cada documento leido o reutilizado entra tambien en el
     almacen (ver _al_almacen). Si eso falla, la pasada sigue: la extraccion
     ya esta en out/ y `importar-out` la recupera; no se vuelve a pagar.
+    `ruta` es la via de entrada (entrante o saliente): la pone quien llama,
+    nunca el modelo, y decide la direccion de la factura (ingesta.py).
     """
     model = model or config.model_id()
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
     indice = {} if forzar else indexar(out_dir)
     resultado = resultado if resultado is not None else ResultadoPasada()
 
-    for ruta in rutas:
-        ruta = Path(ruta)
+    for ruta_pdf in rutas:
+        ruta_pdf = Path(ruta_pdf)
         resultado.total += 1
         try:
-            doc = load_pdf(ruta)
+            doc = load_pdf(ruta_pdf)
         except UnsupportedDocument as exc:
             resultado.fallidas += 1
-            resultado.errores.append(f"{ruta.name}: {exc}")
-            avisar("omitido", ruta.name, str(exc))
+            resultado.errores.append(f"{ruta_pdf.name}: {exc}")
+            avisar("omitido", ruta_pdf.name, str(exc))
             continue
 
         guardada = reutilizable(
@@ -262,22 +266,24 @@ def extraer_pasada(
         )
         if guardada is not None:
             resultado.reutilizadas += 1
-            avisar("cache", ruta.name, _detalle_cache(guardada, model))
+            avisar("cache", ruta_pdf.name, _detalle_cache(guardada, model))
             if almacen is not None:
-                _al_almacen(almacen, doc, ruta, Path(guardada.path), "out_v1", resultado, avisar)
+                _al_almacen(almacen, doc, ruta_pdf, Path(guardada.path), "out_v1", resultado,
+                            avisar, via_entrada=ruta)
             continue
 
         try:
             record = extract_invoice(client, doc, model=model)
         except Exception as exc:  # una pasada no se detiene por un documento
             resultado.fallidas += 1
-            resultado.errores.append(f"{ruta.name}: {type(exc).__name__}: {exc}")
-            avisar("error", ruta.name, f"{type(exc).__name__}: {exc}")
+            resultado.errores.append(f"{ruta_pdf.name}: {type(exc).__name__}: {exc}")
+            avisar("error", ruta_pdf.name, f"{type(exc).__name__}: {exc}")
             continue
 
         target = record.write_json(out_dir)
         if almacen is not None:
-            _al_almacen(almacen, doc, ruta, target, "api", resultado, avisar)
+            _al_almacen(almacen, doc, ruta_pdf, target, "api", resultado, avisar,
+                        via_entrada=ruta)
         # Si el mismo PDF viene dos veces en la carpeta, la segunda ya no paga.
         indice.setdefault(doc.sha256, []).insert(0, CachedExtraction(
             path=target, sha256=doc.sha256, model=record.model,
@@ -289,7 +295,7 @@ def extraer_pasada(
         resultado.tokens_salida += record.usage.get("output_tokens") or 0
         dudosos = record.extraction.low_confidence_fields
         sufijo = f"  (dudoso: {', '.join(dudosos)})" if dudosos else ""
-        avisar("ok", ruta.name, f"{target.name}{sufijo}")
+        avisar("ok", ruta_pdf.name, f"{target.name}{sufijo}")
 
     return resultado
 
@@ -302,6 +308,8 @@ def _al_almacen(
     via: str,
     resultado: ResultadoPasada,
     avisar: Informar,
+    *,
+    via_entrada: str = "entrante",
 ) -> None:
     """Guarda el PDF y su extraccion en el almacen, en una transaccion por documento.
 
@@ -322,7 +330,7 @@ def _al_almacen(
             documento = registrar_documento(
                 almacen, sha256=doc.sha256, contenido=base64.b64decode(doc.data_b64),
                 nombre_original=ruta.name, tipo_mime=doc.media_type, origen="carpeta",
-                ruta_declarada="entrante", recibido_en=instante_de_fichero(ruta),
+                ruta_declarada=via_entrada, recibido_en=instante_de_fichero(ruta),
                 recibido_fuente="mtime", actor=actor,
             )
             registrar_extraccion(

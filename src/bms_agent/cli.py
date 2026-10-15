@@ -7,7 +7,13 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
     bms-agent db init|migrar|verificar   el almacen (datos/bms.sqlite3)
-    bms-agent importar-out        lleva out/*.json al almacen, sin llamar a la API
+    bms-agent importar-out        lleva out/*.json al almacen y lo tipa, sin llamar a la API
+    bms-agent ingestar            tipa lo extraido que aun no tiene su factura, sin la API
+    bms-agent sembrar             clientes, Objetos y tarifas de venta de config/tarifas.yaml
+    bms-agent usuario ...         personas y sus roles
+
+`panel`, `report`, `export` y `simulador` leen del almacen, con los valores
+corregidos; solo si no hay almacen leen out/ tal cual, y lo dicen.
 
 `extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
 guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
@@ -115,10 +121,19 @@ def extraer_carpeta(
             print(f"{guardadas} documentos ya leidos en {out_dir}/, se reutilizan {modo}")
     print()
 
-    r = extraer_pasada(
-        client, pdfs, out_dir, model=model, politica=politica, forzar=forzar,
-        informar=_imprimir_paso, almacen=almacen,
-    )
+    ingesta = None
+    if almacen is not None:
+        from .ingesta import ingestar_pasada
+
+        r, ingesta = ingestar_pasada(
+            client, pdfs, out_dir, almacen=almacen, model=model, politica=politica,
+            forzar=forzar, informar=_imprimir_paso,
+        )
+    else:
+        r = extraer_pasada(
+            client, pdfs, out_dir, model=model, politica=politica, forzar=forzar,
+            informar=_imprimir_paso,
+        )
 
     print(f"\nHecho. {r.extraidas} extraidos, {r.reutilizadas} reutilizados, "
           f"{r.fallidas} con problemas, de {len(pdfs)} documentos en {out_dir}/\n")
@@ -127,10 +142,22 @@ def extraer_carpeta(
         if r.sin_almacen:
             print(f"  {r.sin_almacen} no se pudieron guardar; estan en {out_dir}/ y "
                   "`bms-agent importar-out` los recupera sin pagar")
+        _imprimir_tipado(ingesta)
         print()
     if r.extraidas:
         print(format_cost_summary(model, r.extraidas, r.tokens_entrada, r.tokens_salida))
-    return 1 if r.fallidas or r.sin_almacen else 0
+    errores_tipado = len(ingesta.errores) if ingesta is not None else 0
+    return 1 if r.fallidas or r.sin_almacen or errores_tipado else 0
+
+
+def _imprimir_tipado(ingesta) -> None:
+    """Cuantas facturas tipadas salieron de lo guardado, y las que no se pudo."""
+    print(f"Facturas tipadas: {ingesta.cuenta('creada')} nuevas, "
+          f"{ingesta.cuenta('actualizada')} con una extraccion nueva, "
+          f"{ingesta.cuenta('sin_cambios')} sin cambios")
+    for tipado in ingesta.tipados:
+        if tipado.accion in ("error", "omitido"):
+            print(f"  {tipado.accion} documento {tipado.documento_id}: {tipado.detalle}")
 
 
 def _cmd_score(args: argparse.Namespace) -> int:
@@ -166,10 +193,22 @@ def _cmd_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _leer(args: argparse.Namespace):
+    """Los registros del almacen (o de out/ si no hay almacen), y de donde salen."""
+    from .legado import leer_registros
+
+    lectura = leer_registros(args.out, _ruta_db(args.db))
+    print(lectura.explicacion())
+    if not lectura.registros:
+        donde = (f"el almacen {lectura.ruta_db}" if lectura.desde == "almacen"
+                 else f"{args.out}/")
+        print(f"No hay extracciones en {donde}", file=sys.stderr)
+    return lectura.registros
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
-    records = load_records(args.out)
+    records = _leer(args)
     if not records:
-        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
     data = build_report(records)
@@ -186,9 +225,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_panel(args: argparse.Namespace) -> int:
-    registros = load_records(args.out)
+    registros = _leer(args)
     if not registros:
-        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
     destino = escribir_panel(registros, args.file, tarifas_path=args.tarifas)
@@ -211,9 +249,8 @@ def _cmd_panel(args: argparse.Namespace) -> int:
 def _cmd_simulador(args: argparse.Namespace) -> int:
     from .simulador import escribir_simulador
 
-    registros = load_records(args.out)
+    registros = _leer(args)
     if not registros:
-        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
     destino = escribir_simulador(registros, args.file, tarifas=args.tarifas)
@@ -238,9 +275,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 def _cmd_export(args: argparse.Namespace) -> int:
     from .dashboard import construir_datos
 
-    registros = load_records(args.out)
+    registros = _leer(args)
     if not registros:
-        print(f"No hay extracciones en {args.out}/", file=sys.stderr)
         return 1
 
     datos = construir_datos(registros, tarifas_path=args.tarifas)
@@ -395,6 +431,12 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
         if cadena.anclas_ajenas:
             avisos.append(f"{cadena.anclas_ajenas} anclas de {anclas_ruta} son de otro almacen")
         errores.extend(verificar_evidencia(conn))
+        tipado = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'factura'").fetchone()
+        if tipado:
+            from .campos import verificar_controladas
+
+            errores.extend(verificar_controladas(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -403,6 +445,7 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             "SELECT count(*), count(ruta_cas) FROM documento"
         ).fetchone()
         extracciones = conn.execute("SELECT count(*) FROM extraccion").fetchone()[0]
+        facturas = conn.execute("SELECT count(*) FROM factura").fetchone()[0] if tipado else 0
     finally:
         conn.close()
 
@@ -412,6 +455,7 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
     print(f"  anclas comprobadas    {cadena.anclas}" + _detalle_anclas(cadena, anclas_ruta))
     print(f"  documentos            {documentos[0]}  ({documentos[1]} con el original)")
     print(f"  extracciones          {extracciones}")
+    print(f"  facturas tipadas      {facturas}")
     for aviso in avisos:
         print(f"  aviso: {aviso}")
     if errores:
@@ -450,6 +494,7 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
         return 2
     with almacen:
         r = importar_out(almacen, out_dir, pdfs)
+        tipado = _tipar(almacen)
         _anclar(almacen)
 
     print(f"{r.ficheros} ficheros en {out_dir}/, sin ninguna llamada a la API")
@@ -464,6 +509,81 @@ def _cmd_importar_out(args: argparse.Namespace) -> int:
               "se puede anadir despues con --pdfs)")
     for nombre, motivo in r.rechazos:
         print(f"  rechazado {nombre}: {motivo}")
+    _imprimir_tipado(tipado)
+    return 1 if tipado.errores else 0
+
+
+def _tipar(almacen):
+    from .ingesta import ResultadoIngesta, tipar_pendientes
+
+    return ResultadoIngesta(tipar_pendientes(almacen.conn))
+
+
+def _cmd_ingestar(args: argparse.Namespace) -> int:
+    """Tipa lo que ya esta extraido en el almacen. Cero llamadas a la API."""
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}. Crealo con: bms-agent importar-out", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        tipado = _tipar(almacen)
+        _anclar(almacen)
+    _imprimir_tipado(tipado)
+    return 1 if tipado.errores else 0
+
+
+def _cmd_sembrar(args: argparse.Namespace) -> int:
+    from .importadores.tarifas import sembrar_tarifas
+
+    fichero = Path(args.tarifas)
+    if not fichero.is_file():
+        print(f"No existe {fichero}. Copia config/tarifas.ejemplo.yaml y rellenalo.",
+              file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        r = sembrar_tarifas(almacen.conn, fichero)
+        _anclar(almacen)
+    print(f"{fichero} ({r.sha256[:12]}){'' if r.nueva_politica else ', ya estaba cargado'}")
+    print(f"  clientes nuevos       {r.clientes_nuevos}")
+    print(f"  Objetos nuevos        {r.objetos_nuevos}")
+    print(f"  tarifas nuevas        {r.tarifas_nuevas}")
+    print(f"  tarifas cambiadas     {r.tarifas_cambiadas}")
+    print(f"  imputaciones resueltas {r.imputaciones_resueltas}")
+    for aviso in r.avisos:
+        print(f"  aviso: {aviso}")
+    return 0
+
+
+def _cmd_usuario(args: argparse.Namespace) -> int:
+    """Personas y roles. La CLI local actua como el operador del fichero (permisos.py)."""
+    from . import permisos
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        try:
+            if args.accion == "crear":
+                usuario_id = permisos.crear_usuario(conn, args.nombre, email=args.email)
+                print(f"Persona {args.nombre} creada (id {usuario_id})")
+                for rol in args.rol:
+                    permisos.asegurar_roles_base(conn)
+                    permisos.asignar_rol(conn, usuario_id, rol)
+                    print(f"  con el rol {rol}")
+            elif args.accion == "asignar":
+                permisos.asegurar_roles_base(conn)
+                permisos.asignar_rol(conn, permisos.usuario_por_nombre(conn, args.nombre), args.rol)
+                print(f"{args.nombre} tiene ahora el rol {args.rol}")
+            elif args.accion == "quitar":
+                permisos.cerrar_rol(conn, permisos.usuario_por_nombre(conn, args.nombre), args.rol)
+                print(f"{args.nombre} ya no tiene el rol {args.rol}")
+            else:
+                for u in permisos.listar_usuarios(conn):
+                    tipo = "sistema" if u["es_sistema"] else "persona"
+                    roles = ", ".join(u["roles"]) or "sin roles"
+                    print(f"  {u['id']:>3}  {u['nombre']:<20} {tipo:<8} {roles}")
+        except (ValueError, LookupError) as exc:
+            print(f"No se hace: {exc}", file=sys.stderr)
+            return 1
+        _anclar(almacen)
     return 0
 
 
@@ -509,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     p_report.add_argument(
         "--file", default="informe.html", help="fichero de salida (por defecto: informe.html)"
     )
+    p_report.add_argument("--db", help=_AYUDA_DB)
     p_report.set_defaults(func=_cmd_report)
 
     p_panel = sub.add_parser("panel", help="panel con todo el historico y sus anomalias")
@@ -519,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
     p_panel.add_argument(
         "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de venta"
     )
+    p_panel.add_argument("--db", help=_AYUDA_DB)
     p_panel.set_defaults(func=_cmd_panel)
 
     p_export = sub.add_parser("export", help="exporta los datos del panel a JSON")
@@ -528,6 +650,7 @@ def main(argv: list[str] | None = None) -> int:
         "--tarifas", default="config/tarifas.yaml",
         help="tabla de tarifas de venta (por defecto: config/tarifas.yaml)",
     )
+    p_export.add_argument("--db", help=_AYUDA_DB)
     p_export.set_defaults(func=_cmd_export)
 
     p_sim = sub.add_parser(
@@ -538,6 +661,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sim.add_argument(
         "--tarifas", default="config/tarifas.yaml", help="tabla de tarifas de partida"
     )
+    p_sim.add_argument("--db", help=_AYUDA_DB)
     p_sim.set_defaults(func=_cmd_simulador)
 
     p_coste = sub.add_parser(
@@ -591,7 +715,8 @@ def main(argv: list[str] | None = None) -> int:
     p_db.set_defaults(func=_cmd_db)
 
     p_importar = sub.add_parser(
-        "importar-out", help="lleva las extracciones de out/ al almacen (no llama a la API)"
+        "importar-out",
+        help="lleva las extracciones de out/ al almacen y las tipa (no llama a la API)"
     )
     p_importar.add_argument("--out", default="out", help="carpeta con las extracciones")
     p_importar.add_argument(
@@ -600,6 +725,36 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_importar.add_argument("--db", help=_AYUDA_DB)
     p_importar.set_defaults(func=_cmd_importar_out)
+
+    p_ingestar = sub.add_parser(
+        "ingestar", help="tipa lo extraido que aun no tiene su factura (no llama a la API)"
+    )
+    p_ingestar.add_argument("--db", help=_AYUDA_DB)
+    p_ingestar.set_defaults(func=_cmd_ingestar)
+
+    p_sembrar = sub.add_parser(
+        "sembrar", help="clientes, Objetos y tarifas de venta de config/tarifas.yaml al almacen"
+    )
+    p_sembrar.add_argument("--tarifas", default="config/tarifas.yaml", help="tabla de tarifas")
+    p_sembrar.add_argument("--db", help=_AYUDA_DB)
+    p_sembrar.set_defaults(func=_cmd_sembrar)
+
+    p_usuario = sub.add_parser("usuario", help="personas y sus roles")
+    sub_usuario = p_usuario.add_subparsers(dest="accion", required=True)
+    p_crear = sub_usuario.add_parser("crear", help="una persona nueva")
+    p_crear.add_argument("nombre")
+    p_crear.add_argument("--email")
+    p_crear.add_argument("--rol", action="append", default=[],
+                         help="administrador, administracion o consulta; se puede repetir")
+    for accion, ayuda in (("asignar", "da un rol a una persona"),
+                          ("quitar", "cierra un rol de una persona")):
+        p_rol = sub_usuario.add_parser(accion, help=ayuda)
+        p_rol.add_argument("nombre")
+        p_rol.add_argument("rol")
+    sub_usuario.add_parser("listar", help="usuarios y sus roles")
+    for p_accion in sub_usuario.choices.values():
+        p_accion.add_argument("--db", help=_AYUDA_DB)
+    p_usuario.set_defaults(func=_cmd_usuario)
 
     args = parser.parse_args(argv)
     return args.func(args)

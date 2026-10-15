@@ -8,6 +8,9 @@
   documentos temporal. Los pasos siguientes construyen encima de estas.
 - `pdfs_ejemplo` escribe los tres PDF del generador, cuyos hashes son los de
   las fixtures v1 01, 02 y 03.
+- `tipado` (paso 2) es el almacen con las siete fixtures v1 importadas y
+  convertidas en facturas tipadas; `persona(conn, nombre, *roles)` crea una
+  persona con esos roles de permisos.ROLES_BASE.
 """
 
 from __future__ import annotations
@@ -89,3 +92,29 @@ def out_v1(tmp_path) -> Path:
     for fichero in sorted(FIXTURES_V1.glob("*.json")):
         shutil.copy2(fichero, destino / fichero.name)
     return destino
+
+
+@pytest.fixture
+def tipado(almacen, out_v1) -> Almacen:
+    """Las siete fixtures v1 en el almacen, ya tipadas (factura, lineas, imputaciones)."""
+    from bms_agent.importadores.extracciones import importar_out
+    from bms_agent.ingesta import tipar_pendientes
+
+    importar_out(almacen, out_v1, None)
+    assert {t.accion for t in tipar_pendientes(almacen.conn)} == {"creada"}
+    return almacen
+
+
+def persona(conn, nombre: str, *roles: str) -> int:
+    """Una persona con roles de partida (administrador, administracion, consulta)."""
+    from bms_agent import permisos
+
+    permisos.asegurar_roles_base(conn)
+    usuario_id = permisos.crear_usuario(conn, nombre)
+    for rol in roles:
+        permisos.asignar_rol(conn, usuario_id, rol)
+    return usuario_id
+
+
+def factura_de(conn, numero: str) -> int:
+    return conn.execute("SELECT id FROM factura WHERE numero = ?", (numero,)).fetchone()[0]

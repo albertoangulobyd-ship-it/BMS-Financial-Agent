@@ -51,9 +51,10 @@ from .auditoria import anclar
 from .cache import CONSERVAR
 from .dashboard import construir_datos
 from .documents import iter_pdfs
-from .extract import ResultadoPasada, extraer_pasada
+from .extract import ResultadoPasada
+from .ingesta import ingestar_pasada
+from .legado import leer_registros
 from .pricing import estimate_cost
-from .report import load_records
 
 HOSTS_LOCALES = ("127.0.0.1", "localhost")
 CABECERA_TOKEN = "X-BMS-Token"
@@ -223,10 +224,10 @@ class Agente:
         # aunque haya cambiado el modelo o la version. El almacen se abre
         # antes de llamar a nadie: si no se puede, la pasada no gasta nada.
         with preparar(self.ruta_db) as almacen:
-            extraer_pasada(
-                self._cliente(), pdfs, self.carpeta_salida, model=config.model_id(),
-                politica=CONSERVAR, informar=avance, resultado=estado.pasada,
-                almacen=almacen,
+            _pasada, ingesta = ingestar_pasada(
+                self._cliente(), pdfs, self.carpeta_salida, almacen=almacen,
+                model=config.model_id(), politica=CONSERVAR, informar=avance,
+                resultado_pasada=estado.pasada,
             )
             if almacen.ruta_anclas is not None:
                 anclar(almacen.conn, almacen.ruta_anclas)
@@ -240,6 +241,9 @@ class Agente:
         )
         if p.sin_almacen:
             estado.mensaje += f", {p.sin_almacen} sin guardar en el almacen (estan en out/)"
+        if ingesta.errores:
+            estado.mensaje += f", {len(ingesta.errores)} sin tipar"
+            p.errores.extend(f"documento {t.documento_id}: {t.detalle}" for t in ingesta.errores)
 
 
 def _ahora() -> str:
@@ -291,6 +295,7 @@ setInterval(pintar, 2000);
 class Manejador(BaseHTTPRequestHandler):
     agente: Agente
     carpeta_salida: Path
+    ruta_db: Path | None = None
     token: str
     puerto: int
     origenes: frozenset[str]
@@ -348,8 +353,9 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "":
             self._pagina()
         elif ruta == "/api/datos":
-            registros = load_records(self.carpeta_salida)
-            self._json(200, construir_datos(registros))
+            # Del almacen, con los valores corregidos; de out/ solo si no hay almacen.
+            lectura = leer_registros(self.carpeta_salida, self.ruta_db or ruta_por_defecto())
+            self._json(200, construir_datos(lectura.registros))
         elif ruta == "/api/ejecucion":
             self._json(200, self.agente.estado)
         else:
@@ -443,6 +449,7 @@ def crear_servidor(
     servidor.RequestHandlerClass = type("ManejadorConfigurado", (Manejador,), {
         "agente": agente,
         "carpeta_salida": Path(carpeta_salida),
+        "ruta_db": Path(ruta_db) if ruta_db else getattr(agente, "ruta_db", None),
         "token": token or nuevo_token(),
         "puerto": puerto_real,
         "origenes": permitidos,
@@ -465,7 +472,7 @@ def servir(
     puerto_real = servidor.server_address[1]
     print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
     print("  GET  /                pagina local con el boton de ejecutar")
-    print("  GET  /api/datos       datos del panel")
+    print("  GET  /api/datos       datos del panel (del almacen; de out/ si no hay almacen)")
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")

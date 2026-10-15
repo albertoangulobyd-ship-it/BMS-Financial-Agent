@@ -1,22 +1,35 @@
 """Los registros de siempre, sacados del almacen.
 
 checks.py, dashboard.py, facturacion.py y report.py trabajan sobre los
-diccionarios que escribe el extractor (los de out/*.json). Mientras no lean
-del almacen tipado (paso 2), este adaptador les da exactamente eso, sacado
-de la tabla extraccion: la vigente de cada documento, tal cual se guardo.
+diccionarios que escribe el extractor (los de out/*.json). Este adaptador se
+los da sacados del almacen, de dos maneras:
 
-Que construir_datos(registros_legado(db)) sea igual que
-construir_datos(load_records(out)) es la prueba de que la migracion de out/
-al almacen no ha perdido ni cambiado nada.
+- `registros_legado()`: la extraccion vigente de cada documento, tal cual se
+  guardo. Es la prueba de que la migracion de out/ al almacen no perdio ni
+  cambio nada (paso 1).
+- `registros_resueltos()`: el mismo diccionario, pero con los valores
+  actuales de la factura tipada (paso 2). Donde un campo sigue siendo el que
+  leyo la extraccion vigente, va su literal impreso tal cual ("8.740,00",
+  "13-09-2026"), sacado de la propia extraccion; donde una persona lo
+  corrigio, va el valor corregido escrito de forma que parsing.py lo lee
+  exacto. Asi las reglas y el panel de hoy corren sin cambiar una linea
+  sobre los datos corregidos, y sin correcciones dan byte a byte lo mismo
+  que sobre out/.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
+from . import campos, ingesta
 from .almacen.extracciones import en_orden_de_out
+from .almacen.unidades import de_cent, de_e4, de_mil, de_pb
+from .parsing import parse_amount
 from .report import vigentes
 
 
@@ -36,3 +49,230 @@ def registros_legado(conn: sqlite3.Connection, todas: bool = False) -> list[dict
     """
     leidos = [json.loads(fila["contenido_json"]) for fila in en_orden_de_out(conn)]
     return leidos if todas else vigentes(leidos)
+
+
+# ------------------------------------------------------------ resueltos
+
+def literal_decimal(valor: Decimal) -> str:
+    """Un Decimal escrito de forma que parse_amount lo lea exacto, sin ambiguedad.
+
+    parse_amount lee "42.125" como cuarenta y dos mil ciento veinticinco
+    (tres cifras tras el punto son millares). Con dos decimales o menos va
+    "42.50"; con mas, se escriben los dos separadores ("0,042.125"), que
+    parse_amount siempre lee bien. Se comprueba la vuelta: si no diera el
+    mismo numero, mejor fallar que mostrar otro.
+    """
+    if valor == valor.quantize(Decimal("0.01")):
+        texto = f"{valor:.2f}"
+    else:
+        entero, _, decimales = f"{abs(valor):f}".partition(".")
+        con_grupos = f"{int(entero):,}"
+        if "," not in con_grupos:
+            con_grupos = "0," + entero.rjust(3, "0")
+        texto = ("-" if valor < 0 else "") + con_grupos + "." + decimales
+    if parse_amount(texto) != valor:
+        raise AssertionError(f"{valor} se escribiria como {texto!r}, que no se lee igual")
+    return texto
+
+
+def _escribir(lector: str, valor: Any) -> Any:
+    """El valor de una columna escrito como lo escribiria el extractor."""
+    if valor is None:
+        return None
+    if lector == ingesta.IMPORTE:
+        return literal_decimal(de_cent(valor))
+    if lector == ingesta.CANTIDAD:
+        return literal_decimal(de_mil(valor))
+    if lector == ingesta.TARIFA:
+        return literal_decimal(de_e4(valor))
+    if lector == ingesta.PORCENTAJE:
+        tipo = de_pb(valor).normalize()
+        return f"{tipo:f}%"
+    if lector == ingesta.BOOLEANO:
+        return bool(valor)
+    if lector == ingesta.REGIMEN_IVA:
+        return ingesta.REGIMEN_INVERSO.get(valor, "unknown")
+    return valor
+
+
+CABECERA = "cabecera"
+
+
+def _ruta_de_ref(ref: str | None, extraccion_id: int) -> str | int | None:
+    """De que parte de la extraccion vigente viene un valor.
+
+    CABECERA, el indice de la linea, o None si no viene de esa extraccion
+    (una persona, un calculo, otra extraccion).
+    """
+    if not ref:
+        return None
+    if ref == f"extraccion:{extraccion_id}":
+        return CABECERA
+    prefijo = f"extraccion:{extraccion_id}:lines["
+    if ref.startswith(prefijo) and ref.endswith("]"):
+        indice = ref[len(prefijo):-1]
+        return int(indice) if indice.isdigit() else None
+    return None
+
+
+def _valor(
+    clave: str, columna: str, lector: str, fila: dict[str, Any],
+    procedencias: dict[str, dict[str, Any]], literales: dict[str, Any], extraccion_id: int,
+    parte: str | int | None,
+) -> Any:
+    """El literal de la extraccion vigente si el valor sigue siendo el suyo; si no, el actual."""
+    p = procedencias.get(columna)
+    if p is None:
+        return literales.get(clave) if fila[columna] is None else _escribir(lector, fila[columna])
+    if (p["fuente"] == "extraccion" and parte is not None
+            and _ruta_de_ref(p["fuente_ref"], extraccion_id) == parte):
+        return literales.get(clave)
+    return _escribir(lector, fila[columna])
+
+
+def _cabecera(conn: sqlite3.Connection, factura: dict[str, Any], datos: dict[str, Any],
+              extraccion_id: int) -> dict[str, Any]:
+    procedencias = campos.procedencia(conn, "factura", factura["id"])
+    salida = dict(datos)
+    for clave, columna, lector in ingesta.CABECERA:
+        if clave in datos or procedencias.get(columna) is not None:
+            salida[clave] = _valor(clave, columna, lector, factura, procedencias, datos,
+                                   extraccion_id, CABECERA)
+    return salida
+
+
+def _lineas(conn: sqlite3.Connection, factura_id: int, datos: dict[str, Any],
+            extraccion_id: int) -> list[dict[str, Any]]:
+    originales = [l for l in (datos.get("lines") or []) if isinstance(l, dict)]
+    claves_v1 = [c for c, _col, _l in ingesta.LINEA if c not in compat_lineas_v2()]
+    salida = []
+    for fila in conn.execute(
+        "SELECT * FROM factura_linea WHERE factura_id = ? AND retirada_en IS NULL ORDER BY orden",
+        (factura_id,),
+    ).fetchall():
+        fila = dict(fila)
+        procedencias = campos.procedencia(conn, "factura_linea", fila["id"])
+        indice = next((r for r in (
+            _ruta_de_ref(p["fuente_ref"], extraccion_id) for p in procedencias.values()
+            if p["fuente"] == "extraccion") if isinstance(r, int)), None)
+        literales = originales[indice] if indice is not None and indice < len(originales) else {}
+        linea = dict(literales) if literales else {c: None for c in claves_v1}
+        for clave, columna, lector in ingesta.LINEA:
+            if clave in linea or procedencias.get(columna) is not None:
+                linea[clave] = _valor(clave, columna, lector, fila, procedencias, literales,
+                                      extraccion_id, indice)
+        salida.append(linea)
+    return salida
+
+
+def compat_lineas_v2() -> frozenset[str]:
+    from .compat import CAMPOS_V2_LINEA
+
+    return frozenset(CAMPOS_V2_LINEA)
+
+
+def _sigue_dudoso(conn: sqlite3.Connection, factura_id: int, ruta: str) -> bool:
+    """Un nombre de low_confidence_fields sigue en la lista mientras su campo siga dudoso.
+
+    Si una persona lo verifico o lo corrigio, ya no es una lectura dudosa.
+    Un nombre que no es de ningun campo tipado se queda como vino.
+    """
+    columnas = {c: col for c, col, _l in ingesta.CABECERA}
+    if ruta in columnas:
+        p = campos.procedencia(conn, "factura", factura_id).get(columnas[ruta])
+        return p is None or campos.estado_campo(p).dudoso or p["dudoso"] == 0
+    return True
+
+
+def _resuelto(conn: sqlite3.Connection, factura: dict[str, Any]) -> dict[str, Any]:
+    extraccion = conn.execute(
+        "SELECT id, contenido_json FROM extraccion WHERE id = ?",
+        (factura["extraccion_vigente_id"],)).fetchone()
+    registro = json.loads(extraccion["contenido_json"])
+    datos = registro.get("extraction") or {}
+    resuelto = _cabecera(conn, factura, datos, extraccion["id"])
+    if "lines" in datos or conn.execute(
+            "SELECT 1 FROM factura_linea WHERE factura_id = ?", (factura["id"],)).fetchone():
+        resuelto["lines"] = _lineas(conn, factura["id"], datos, extraccion["id"])
+    if isinstance(datos.get("low_confidence_fields"), list):
+        resuelto["low_confidence_fields"] = [
+            r for r in datos["low_confidence_fields"]
+            if not isinstance(r, str) or _sigue_dudoso(conn, factura["id"], r)]
+    return {**registro, "extraction": resuelto}
+
+
+def registros_resueltos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Los registros de siempre, con los valores actuales de cada factura tipada.
+
+    Mismo orden que registros_legado (el de out/), un registro por
+    documento. Un documento que todavia no tiene factura tipada sale tal
+    como se extrajo, para que nada desaparezca del panel (`sin_tipar()` dice
+    cuantos hay). Una factura fusionada en otra no sale: no suma en ningun
+    total.
+    """
+    por_documento = {
+        f["documento_id"]: dict(f) for f in conn.execute(
+            "SELECT * FROM factura WHERE origen = 'extraccion'")
+    }
+    sha_a_documento = {
+        f["sha256"]: f["id"] for f in conn.execute("SELECT id, sha256 FROM documento")}
+    salida = []
+    for registro in registros_legado(conn):
+        documento_id = sha_a_documento.get(registro.get("source_sha256"))
+        factura = por_documento.get(documento_id)
+        if factura is None:
+            salida.append(registro)
+        elif factura["fusionada_en_id"] is None:
+            salida.append(_resuelto(conn, factura))
+    return salida
+
+
+def sin_tipar(conn: sqlite3.Connection) -> int:
+    """Documentos de facturas con extraccion y sin factura tipada (falta `bms-agent ingestar`)."""
+    return conn.execute(
+        "SELECT count(DISTINCT d.id) FROM documento AS d "
+        "JOIN extraccion AS e ON e.documento_id = d.id "
+        "WHERE d.ruta_declarada IN ('entrante', 'saliente') AND NOT EXISTS ("
+        "  SELECT 1 FROM factura AS f WHERE f.documento_id = d.id AND f.origen = 'extraccion')"
+    ).fetchone()[0]
+
+
+# ------------------------------------------------------------ quien lee
+
+@dataclass(frozen=True)
+class Lectura:
+    """Los registros que leen el panel, el informe y la exportacion, y de donde salen."""
+
+    registros: list[dict[str, Any]]
+    desde: str                 # almacen | out
+    ruta_db: Path
+    out_dir: Path
+    sin_tipar: int = 0
+
+    def explicacion(self) -> str:
+        if self.desde == "out":
+            return (f"No hay almacen en {self.ruta_db}: se lee {self.out_dir}/ tal cual, sin "
+                    "correcciones (crealo con `bms-agent importar-out`)")
+        texto = f"Leyendo del almacen {self.ruta_db}, con los valores corregidos"
+        if self.sin_tipar:
+            texto += (f"; {self.sin_tipar} documentos sin tipar salen como se extrajeron "
+                      "(`bms-agent ingestar` los tipa)")
+        return texto
+
+
+def leer_registros(out_dir: str | Path, ruta_db: str | Path) -> Lectura:
+    """Del almacen si existe; de out/ solo si no hay almacen, y lo dice.
+
+    Con almacen, son los registros resueltos: los valores corregidos a mano
+    llegan al panel, al informe y a la exportacion. out/ queda como respaldo
+    para quien todavia no ha creado el almacen.
+    """
+    from .almacen import preparar
+    from .report import load_records
+
+    ruta_db, out_dir = Path(ruta_db), Path(out_dir)
+    if not ruta_db.exists():
+        return Lectura(load_records(out_dir), "out", ruta_db, out_dir)
+    with preparar(ruta_db) as almacen:
+        return Lectura(registros_resueltos(almacen.conn), "almacen", ruta_db, out_dir,
+                       sin_tipar(almacen.conn))

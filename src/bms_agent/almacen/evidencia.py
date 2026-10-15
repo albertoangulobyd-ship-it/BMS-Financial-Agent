@@ -48,7 +48,17 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
         "filas_aceptadas", "filas_rechazadas", "rechazos_json", "iniciada_en", "terminada_en",
         "iniciada_por", "actor",
     ),
+    # Las personas y sus permisos (paso 2, permisos.py). Los usuarios de
+    # sistema los siembra la migracion 0001 sin evento: ver FILTROS.
+    "usuario": ("nombre", "email", "es_sistema", "activo", "token_sha256", "creado_en"),
+    "rol": ("nombre", "descripcion"),
+    "rol_permiso": ("rol_id", "permiso"),
+    "usuario_rol": ("usuario_id", "rol_id", "desde", "hasta"),
 }
+
+# Filas que no se comprueban contra un evento porque no lo tienen: las
+# siembra una migracion, que ya esta fijada por su hash.
+FILTROS: dict[str, str] = {"usuario": "es_sistema = 0"}
 
 # Por tabla: el evento que da de alta la fila, y los que la modifican despues
 # (cada uno con la foto nueva). La foto que vale es la del ultimo.
@@ -56,6 +66,10 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "documento": ("documento_registrado", ("documento_original_anadido",)),
     "extraccion": ("extraccion_registrada", ()),
     "importacion": ("importacion", ()),
+    "usuario": ("usuario_creado", ("usuario_modificado",)),
+    "rol": ("rol_creado", ()),
+    "rol_permiso": ("rol_permiso_anadido", ()),
+    "usuario_rol": ("rol_asignado", ("rol_cerrado",)),
 }
 
 
@@ -134,7 +148,8 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
 
     eventos = _eventos_de_evidencia(conn)
     for tabla in EVENTOS:
-        ids = [f[0] for f in conn.execute(f"SELECT id FROM {tabla} ORDER BY id")]
+        filtro = f" WHERE {FILTROS[tabla]}" if tabla in FILTROS else ""
+        ids = [f[0] for f in conn.execute(f"SELECT id FROM {tabla}{filtro} ORDER BY id")]
         for fila_id in ids:
             problemas.extend(_comprobar_fila(
                 tabla, fila_id, foto(conn, tabla, fila_id), eventos.get((tabla, fila_id), [])))

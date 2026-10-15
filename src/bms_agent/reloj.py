@@ -52,3 +52,14 @@ def marca(instante: datetime) -> str:
     if instante.tzinfo is None:
         raise ValueError("una marca de tiempo sin zona horaria no se sabe de cuando es")
     return instante.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def semana_iso(dia: date) -> str:
+    """La semana ISO de un dia, como '2026-W38'.
+
+    SQLite no la sabe calcular (strftime('%V') devuelve NULL), asi que se
+    calcula aqui y se guarda. El ano es el de la semana ISO, que no siempre
+    es el del dia: el 1 de enero de 2027 cae en la semana 2026-W53.
+    """
+    ano, semana, _ = dia.isocalendar()
+    return f"{ano:04d}-W{semana:02d}"

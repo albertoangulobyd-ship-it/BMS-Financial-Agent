@@ -56,7 +56,8 @@ AHORA = "2026-10-14T09:30:00+00:00"
 # Las tablas cuyo UPDATE y DELETE abortan. documento e importacion tienen una
 # excepcion cada una (apuntar el original una vez; rellenar mientras esta en
 # curso) que se prueba aparte; fuera de ella, abortan igual.
-SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion")
+SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
+                  "nota")
 EVIDENCIA = ("documento", "importacion")
 
 
@@ -220,6 +221,12 @@ def _poblar(almacen: Almacen) -> None:
             "'json', ?, 'aceptada', ?, ?, ?)", ("d" * 64, AHORA, AHORA, sistema))
         registrar(conn, tipo="prueba", actor=sistema, cambios=[
             Cambio("factura", 1, "numero", 1, None, "2026-1", "extraccion")])
+        persona = int(conn.execute(
+            "INSERT INTO usuario (nombre, creado_en) VALUES ('Ana', ?)", (AHORA,)).lastrowid)
+        evento = registrar(conn, tipo="nota_anadida", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO nota (tabla, fila_id, texto, usuario_id, en, evento_id) "
+                     "VALUES ('factura', 1, 'llamado el proveedor', ?, ?, ?)",
+                     (persona, AHORA, evento))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)
@@ -250,8 +257,12 @@ def test_la_lista_de_tablas_de_solo_escritura_esta_completa(db) -> None:
     con_guarda = {t for t in _tablas(db) if f"{t}_sin_delete" in disparadores}
     blindadas = {t for t in con_guarda if f"{t}_sin_update" in disparadores}
     assert blindadas == set(SOLO_ESCRITURA + EVIDENCIA)
-    # Las que no se borran pero si se editan (desactivar, cerrar un rol).
-    assert con_guarda - blindadas == {"usuario", "usuario_rol"}
+    # Las que no se borran pero si se editan: desactivar, cerrar un rol, y las
+    # controladas del paso 2 (solo por campos.py, ver test_campos.py).
+    from bms_agent.campos import TABLAS_CONTROLADAS
+
+    assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo",
+                                      *TABLAS_CONTROLADAS}
 
 
 def test_un_documento_solo_admite_apuntar_su_original_una_vez(almacen) -> None:
@@ -322,7 +333,8 @@ def test_una_transaccion_dentro_de_otra_deshace_solo_lo_suyo(db) -> None:
                 registrar(db, tipo="dentro", actor=sistema)
                 raise ValueError
         registrar(db, tipo="fuera-otra-vez", actor=sistema)
-    tipos = [f["tipo"] for f in db.execute("SELECT tipo FROM evento ORDER BY id")][1:]
+    tipos = [f["tipo"] for f in db.execute(
+        "SELECT tipo FROM evento WHERE tipo <> 'migracion_aplicada' ORDER BY id")]
     assert tipos == ["fuera", "fuera-otra-vez"]
 
 
@@ -338,7 +350,8 @@ def test_migrar_dos_veces_aplica_cada_migracion_una_vez(tmp_path) -> None:
         assert [(f["version"], f["nombre"], f["sha256"]) for f in filas] == [
             (m.version, m.nombre, m.sha256) for m in disponibles()]
         assert conn.execute(
-            "SELECT count(*) FROM evento WHERE tipo = 'migracion_aplicada'").fetchone()[0] == 1
+            "SELECT count(*) FROM evento WHERE tipo = 'migracion_aplicada'"
+        ).fetchone()[0] == len(disponibles())
     finally:
         conn.close()
 
@@ -413,14 +426,16 @@ def test_una_migracion_editada_despues_de_aplicarse_detiene_todo(tmp_path) -> No
 def test_una_migracion_que_falla_no_deja_nada_a_medias(tmp_path) -> None:
     copia = tmp_path / "sql"
     shutil.copytree(DIRECTORIO_SQL, copia)
-    (copia / "0002_rota.sql").write_text(
+    siguiente = len(disponibles()) + 1
+    (copia / f"{siguiente:04d}_rota.sql").write_text(
         "CREATE TABLE a_medias (id INTEGER PRIMARY KEY) STRICT;\nESTO NO ES SQL;\n",
         encoding="utf-8")
     conn = abrir(tmp_path / "bms.sqlite3")
     try:
         with pytest.raises(sqlite3.OperationalError):
             migrar(conn, copia)
-        assert [f["version"] for f in conn.execute("SELECT version FROM migracion")] == [1]
+        assert [f["version"] for f in conn.execute("SELECT version FROM migracion")] == list(
+            range(1, siguiente))
         assert "a_medias" not in _tablas(conn)
         assert not conn.in_transaction
     finally:
@@ -430,7 +445,8 @@ def test_una_migracion_que_falla_no_deja_nada_a_medias(tmp_path) -> None:
 def test_las_migraciones_van_de_una_en_una(tmp_path) -> None:
     copia = tmp_path / "sql"
     shutil.copytree(DIRECTORIO_SQL, copia)
-    (copia / "0003_salto.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    salto = len(disponibles()) + 2
+    (copia / f"{salto:04d}_salto.sql").write_text("SELECT 1;\n", encoding="utf-8")
     with pytest.raises(ValueError, match="de 1 en 1"):
         disponibles(copia)
 

@@ -351,6 +351,9 @@ def test_un_disparador_cambiado_o_de_mas_no_cuadra(tmp_path, out_v1, capsys) -> 
 def test_sin_anclas_no_se_da_por_buena_una_cadena_cortada(tmp_path, out_v1, capsys) -> None:
     db = _evidencia_atacable(tmp_path, out_v1)
     assert _verificar(db, capsys)[0] == 0
+    conn = abrir(db)
+    anclado = conn.execute("SELECT max(id) FROM evento").fetchone()[0]
+    conn.close()
     atacante = sqlite3.connect(db, isolation_level=None)
     atacante.execute("DROP TRIGGER evento_sin_delete")
     atacante.execute("DELETE FROM evento WHERE id > 10")
@@ -358,7 +361,7 @@ def test_sin_anclas_no_se_da_por_buena_una_cadena_cortada(tmp_path, out_v1, caps
                      "BEGIN SELECT RAISE(ABORT, 'evento es de solo escritura: no se borra'); END")
     atacante.close()
     codigo, salida = _verificar(db, capsys)
-    assert codigo == 1 and "la cadena ya no llega al evento anclado 22" in salida
+    assert codigo == 1 and f"la cadena ya no llega al evento anclado {anclado}" in salida
 
     ruta_anclas_de(db).unlink()
     codigo, salida = _verificar(db, capsys)

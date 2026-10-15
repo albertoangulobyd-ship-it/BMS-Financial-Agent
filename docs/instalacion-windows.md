@@ -92,7 +92,7 @@ PowerShell, y llamando al programa directamente ese problema no existe.
 .venv\Scripts\python -m pytest
 ```
 
-Esperado: `414 passed`. Esto no llama a la API y no cuesta nada.
+Esperado: `537 passed`. Esto no llama a la API y no cuesta nada.
 
 ```powershell
 .venv\Scripts\bms-agent schema

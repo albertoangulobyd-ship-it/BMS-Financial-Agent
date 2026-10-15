@@ -24,12 +24,13 @@ pip install -e ".[dev]"
 pytest
 ```
 
-414 tests, ninguno llama a la API. Cubren la conversión de importes
+537 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
-almacén con su cadena de auditoría y una foto de referencia del panel sobre
-siete extracciones fijas (`tests/fixtures/v1/`).
+almacén con su cadena de auditoría, la única vía de escritura de las facturas
+tipadas con la procedencia de cada campo y los permisos, y una foto de
+referencia del panel sobre siete extracciones fijas (`tests/fixtures/v1/`).
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -90,7 +91,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 414 tests, sin llamadas a la API
+pytest                                    # 537 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -256,11 +257,23 @@ encadenado por hash que la base no deja modificar ni borrar.
 | Orden | Qué hace |
 | --- | --- |
 | `bms-agent db init` | Crea el almacén y aplica las migraciones |
-| `bms-agent importar-out --pdfs facturas` | Lleva lo que ya hay en `out/` al almacén, sin ninguna llamada a la API. Busca cada PDF por su hash; si no lo encuentra, el documento queda sin original y se puede añadir después. Repetirla no duplica nada |
-| `bms-agent db verificar` | Comprueba la base, su esquema y sus migraciones, la cadena de auditoría con sus anclas (`datos/anclas.log`), cada fila de evidencia contra su evento y el hash de cada original. Sin anclas de ese almacén falla, salvo con `--sin-anclas` |
+| `bms-agent importar-out --pdfs facturas` | Lleva lo que ya hay en `out/` al almacén y convierte cada extracción en su factura tipada, sin ninguna llamada a la API. Busca cada PDF por su hash; si no lo encuentra, el documento queda sin original y se puede añadir después. Repetirla no duplica nada |
+| `bms-agent ingestar` | Tipa lo que ya está extraído en el almacén y aún no tiene su factura (o tiene una extracción más reciente). Sin la API |
+| `bms-agent sembrar --tarifas config/tarifas.yaml` | Lleva al almacén los clientes, los Objetos y las tarifas de venta de la tabla de tarifas, y vuelve a imputar cada línea a su Objeto. Repetirla con el mismo fichero no hace nada |
+| `bms-agent usuario crear Ana --rol administracion` | Una persona con sus roles (`administrador`, `administracion`, `consulta`); `usuario asignar`, `usuario quitar` y `usuario listar` |
+| `bms-agent db verificar` | Comprueba la base, su esquema y sus migraciones, la cadena de auditoría con sus anclas (`datos/anclas.log`), cada fila de evidencia contra su evento, cada factura tipada contra su historia de cambios y el hash de cada original. Sin anclas de ese almacén falla, salvo con `--sin-anclas` |
 
-`datos/` no entra en git, igual que `out/` y `facturas/`. El panel, el
-informe y la puntuación siguen leyendo de `out/` hasta el paso 2.
+Desde el paso 2, cada factura del almacén es una fila tipada (importes en
+céntimos, fechas ISO) con sus líneas e imputaciones, y cada campo sabe de
+dónde sale: la extracción, un cálculo, el maestro o una persona, con el
+literal que imprimía el documento y el valor original, que no se pierden
+nunca. Solo `campos.py` escribe esas tablas, y la base rechaza cualquier
+cambio que no lleve su registro de auditoría.
+
+`panel`, `report`, `export`, `simulador` y `/api/datos` leen del almacén,
+con los valores corregidos; si no hay almacén, leen `out/` tal cual y lo
+dicen. `score` y `coste` siguen leyendo `out/`: miden extracciones, no
+facturas. `datos/` no entra en git, igual que `out/` y `facturas/`.
 
 ### Detectar una ausencia cuenta como acierto
 

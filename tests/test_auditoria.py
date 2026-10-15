@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 from bms_agent.almacen import abrir, transaccion, usuario_sistema
-from bms_agent.almacen.migrar import migrar
+from bms_agent.almacen.migrar import disponibles, migrar
 from bms_agent.auditoria import (
     HASH_INICIAL,
     Ancla,
@@ -25,6 +25,11 @@ from bms_agent.auditoria import (
     registrar,
     verificar_cadena,
 )
+
+
+# Los eventos de las migraciones van delante de los de cada test: el primero
+# de un test es el MIGRACIONES + 1.
+MIGRACIONES = len(disponibles())
 
 
 def _eventos(conn, cuantos: int = 4) -> None:
@@ -73,7 +78,7 @@ def test_una_cadena_intacta_se_verifica(db) -> None:
     _eventos(db)
     resultado = verificar_cadena(db)
     assert resultado.ok, resultado.problemas
-    assert resultado.eventos == 5      # el de la migracion y los cuatro
+    assert resultado.eventos == MIGRACIONES + 4      # los de las migraciones y los cuatro
     filas = db.execute("SELECT hash_anterior, hash FROM evento ORDER BY id").fetchall()
     assert filas[0]["hash_anterior"] == HASH_INICIAL
     assert all(b["hash_anterior"] == a["hash"] for a, b in zip(filas, filas[1:]))
@@ -176,31 +181,33 @@ def test_las_anclas_ven_lo_que_la_cadena_sola_no_puede_ver(fichero, tmp_path) ->
     anclas, malas = leer_anclas(log)
     assert anclas == [ancla] and malas == []
 
+    ultimo = MIGRACIONES + 4
     atacante = _directa(fichero)
-    atacante.execute("DELETE FROM cambio_campo WHERE evento_id = 5")
-    atacante.execute("DELETE FROM evento WHERE id = 5")
+    atacante.execute("DELETE FROM cambio_campo WHERE evento_id = ?", (ultimo,))
+    atacante.execute("DELETE FROM evento WHERE id = ?", (ultimo,))
     atacante.close()
     assert _verificar(fichero).ok                     # sin anclas, no se nota
     assert _verificar(fichero, anclas).problemas == [
-        "la cadena ya no llega al evento anclado 5: se ha cortado"]
+        f"la cadena ya no llega al evento anclado {ultimo}: se ha cortado"]
 
 
 def test_una_ancla_detecta_un_final_reescrito(fichero, tmp_path) -> None:
     conn = abrir(fichero)
     ancla = anclar(conn, tmp_path / "anclas.log")
     conn.close()
+    ultimo = MIGRACIONES + 4
     atacante = _directa(fichero)
-    atacante.execute("DELETE FROM cambio_campo WHERE evento_id = 5")
-    atacante.execute("DELETE FROM evento WHERE id = 5")
+    atacante.execute("DELETE FROM cambio_campo WHERE evento_id = ?", (ultimo,))
+    atacante.execute("DELETE FROM evento WHERE id = ?", (ultimo,))
     atacante.close()
     conn = abrir(fichero)
-    with transaccion(conn):                            # otro evento 5, bien encadenado
+    with transaccion(conn):                            # otro ultimo evento, bien encadenado
         registrar(conn, tipo="falso", actor=usuario_sistema(conn, "sistema"))
     conn.close()
 
     assert _verificar(fichero).ok
     assert _verificar(fichero, [ancla]).problemas == [
-        "el evento anclado 5 ya no es el que se anclo: se ha reescrito"]
+        f"el evento anclado {ultimo} ya no es el que se anclo: se ha reescrito"]
 
 
 def test_anclar_no_repite_la_misma_cabeza(db, tmp_path) -> None:
@@ -225,12 +232,14 @@ def test_dos_bases_pueden_compartir_el_fichero_de_anclas(tmp_path, reloj) -> Non
         bases.append(conn)
     try:
         anclas, malas = leer_anclas(log)
-        assert malas == [] and [a.id for a in anclas] == [3, 3]
+        cabeza_ = MIGRACIONES + 2
+        assert malas == [] and [a.id for a in anclas] == [cabeza_, cabeza_]
         assert anclas[0].hash != anclas[1].hash
         for conn in bases:
             resultado = verificar_cadena(conn, anclas)
             assert resultado.ok, resultado.problemas
-            assert (resultado.anclas, resultado.anclas_ajenas, resultado.ultima_ancla) == (1, 1, 3)
+            assert (resultado.anclas, resultado.anclas_ajenas, resultado.ultima_ancla) == (
+                1, 1, cabeza_)
         # anclar mira solo las suyas: la ultima linea es de la otra, y esta no se repite.
         anclar(bases[0], log)
         assert len(leer_anclas(log)[0]) == 2
