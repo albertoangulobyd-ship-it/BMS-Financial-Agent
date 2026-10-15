@@ -125,6 +125,23 @@ class Linea:
 
 
 @dataclass(frozen=True, slots=True)
+class LineaSinCasar:
+    """Una linea editada por una persona que la extraccion vigente no trae (paso 6, M2).
+
+    `activa` dice si la linea sigue contando (nadie la ha excluido despues);
+    `excluida`, si ya estaba excluida cuando llego la lectura nueva (la
+    exclusion no se pudo llevar a ninguna linea nueva). `campos` son los
+    "tabla.campo" que una persona habia cambiado.
+    """
+
+    linea_id: int
+    orden: int
+    activa: bool
+    excluida: bool
+    campos: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TramoIva:
     """Una fila del desglose de IVA por tipo (v2). Una factura v1 no tiene."""
 
@@ -186,6 +203,8 @@ class Factura:
     notas_doc: str | None = None
     dudosos: frozenset[str] = frozenset()
     sin_original: bool = False
+    # Paso 6: las lineas editadas que la extraccion vigente no pudo casar (M2).
+    sin_casar: tuple[LineaSinCasar, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

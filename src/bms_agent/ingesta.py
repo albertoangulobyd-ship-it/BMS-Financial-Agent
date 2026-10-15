@@ -20,8 +20,18 @@ esta en euros (X1) deja todos sus importes vacios: no entra en ninguna suma.
 Una extraccion nueva del mismo documento (un --force, otra version) pasa a
 vigente como hasta ahora (la mas reciente, la regla de load_records) y se
 aplica como fuente automatica: lo que una persona corrigio no se pisa, solo
-queda apuntado el nuevo valor automatico. La puerta de activacion del paso
-6 sustituira esta regla.
+queda apuntado el nuevo valor automatico (y si lo contradice, el campo queda
+sin resolver: M1). Desde el paso 6, lo que lee `bms-agent reextraer` es una
+candidata y no cuenta para la vigente hasta que una persona la activa
+despues de la puerta de puntuacion (reextraccion.py).
+
+Las lineas de la extraccion nueva se casan con las que ya habia por su
+huella de contenido (descripcion, cantidad, unidad, tarifa e importe,
+normalizados), no por su posicion: una linea de mas o de menos no corre las
+ediciones de una persona a la linea de al lado. Una linea editada por una
+persona (o excluida, o con su imputacion o su referencia cambiada) solo se
+casa por su huella; si no se puede, se conserva y queda apuntada en
+linea_sin_casar, y la regla M2 la convierte en hallazgo.
 
 Nada de aqui llama a la API: tipar es determinista y se puede repetir.
 """
@@ -52,6 +62,7 @@ from .parsing import (
     parse_amount,
     parse_iso_date,
     parse_percentage,
+    parse_plazo_pago,
 )
 from .reloj import ZONA_EMPRESA
 
@@ -66,6 +77,16 @@ REGIMEN = {
     "unknown": TratamientoIva.DESCONOCIDO.value,
 }
 REGIMEN_INVERSO = {v: k for k, v in REGIMEN.items()}
+
+# document_type (v2) -> factura.tipo, solo cuando el documento lo declara.
+# Una correccion o una sustitucion es una factura; que sustituya a otra es
+# una relacion propuesta (paso 8), no otro tipo.
+TIPO_DECLARADO = {
+    "invoice": TipoFactura.FACTURA.value,
+    "corrected_invoice": TipoFactura.FACTURA.value,
+    "replacement_invoice": TipoFactura.FACTURA.value,
+    "credit_note": TipoFactura.NOTA_CREDITO.value,
+}
 
 # Como se lee cada literal. Los de dinero dependen de la moneda de la factura.
 TEXTO = "texto"
@@ -260,6 +281,11 @@ class Tipado:
     factura_id: int | None
     accion: str           # creada | actualizada | sin_cambios | omitido | error
     detalle: str = ""
+    # Con una extraccion nueva: los valores manuales que contradice (quedan
+    # sin resolver, M1) como "tabla:fila:campo", y las lineas editadas que no
+    # se pudieron casar con ninguna linea nueva (M2).
+    contradichos: tuple[str, ...] = ()
+    sin_casar: tuple[int, ...] = ()
 
 
 def _cabecera(
@@ -272,17 +298,24 @@ def _cabecera(
     for clave, columna, lector in CABECERA:
         valores[columna] = leer_literal(lector, datos.get(clave), en_euros=euros,
                                         dudoso=clave in dudosos)
+    # El plazo lo calcula el codigo del literal impreso (spec §10), nunca el
+    # modelo; si no se puede leer sin adivinar, queda vacio y vale el del
+    # maestro. Una v1 no trae condiciones y no escribe nada.
+    if leida.solicitado("payment_terms_raw"):
+        valores["plazo_pago_dias"] = Leido(_plazo(datos.get("payment_terms_raw")),
+                                           fuente=Fuente.CALCULADO.value,
+                                           ref="condiciones_pago_doc")
     clave_contacto = CONTACTO[sentido]
     valores["contacto_nombre_doc"] = leer_literal(
         TEXTO, datos.get(clave_contacto), dudoso=clave_contacto in dudosos)
 
     tipo_doc = datos.get("document_type")
-    if tipo_doc is not None:
-        tipo = (TipoFactura.NOTA_CREDITO.value if tipo_doc == "credit_note"
-                else TipoFactura.FACTURA.value)
-        valores["tipo"] = Leido(tipo, crudo=tipo_doc)
+    if tipo_doc in TIPO_DECLARADO:
+        valores["tipo"] = Leido(TIPO_DECLARADO[tipo_doc], crudo=tipo_doc)
     else:
-        # v1 no dice que es el documento: un total negativo es un abono.
+        # v1 no dice que es el documento, y un v2 que no lo declara (unknown)
+        # o que se declara anulacion tampoco dice si es una factura o un
+        # abono: decide el signo del total, como en v1.
         total = valores["total_cent"].valor
         base = valores["base_cent"].valor
         negativo = any(isinstance(v, Decimal) and v < 0 for v in (total, base))
@@ -296,6 +329,15 @@ def _cabecera(
     else:
         valores["moneda_doc"] = Leido(None, fuente=Fuente.CALCULADO.value, ref="x1_literales")
     return valores, euros, moneda
+
+
+def _plazo(crudo: Any) -> int | None:
+    if not isinstance(crudo, str):
+        return None
+    try:
+        return parse_plazo_pago(crudo)
+    except ParseError:
+        return None
 
 
 def ref_linea(extraccion_id: int, indice: int) -> str:
@@ -322,22 +364,57 @@ def _lineas(
                                           dudoso=clave in dudosas), ref=ref)
             for clave, columna, lector in LINEA
         }
-        valores["huella_linea"] = Leido(
-            sha256_texto(json_canonico({"orden": indice + 1, "linea": _sin_floats(linea)})),
-            fuente=Fuente.CALCULADO.value, ref="huella")
+        valores["huella_linea"] = Leido(huella_de_leidos(valores), fuente=Fuente.CALCULADO.value,
+                                        ref="huella")
         lineas.append(valores)
     return lineas
 
 
-def _sin_floats(valor: Any) -> Any:
-    """Una linea como la escribio el extractor, para su huella (sin floats sueltos)."""
-    if isinstance(valor, float):
-        return repr(valor)
-    if isinstance(valor, dict):
-        return {k: _sin_floats(v) for k, v in valor.items()}
-    if isinstance(valor, list):
-        return [_sin_floats(v) for v in valor]
-    return valor
+# ------------------------------------------------------------- huella de linea
+#
+# La huella de una linea es lo que dice: descripcion, cantidad, unidad,
+# tarifa e importe, normalizados (sin mayusculas ni signos en el texto, los
+# numeros sin ceros de mas). No lleva la posicion ni las claves que anade una
+# version del esquema: la misma linea leida por v1 y por v2, o leida en otra
+# posicion porque otra linea aparecio delante, da la misma huella. Es lo que
+# permite llevar las ediciones de una persona a la linea que les toca cuando
+# llega una lectura nueva (spec §10).
+
+_COLUMNAS_HUELLA = ("descripcion_doc", "cantidad_mil", "unidad_doc", "tarifa_e4", "importe_cent")
+_ESCALA_HUELLA = {"cantidad_mil": -3, "tarifa_e4": -4, "importe_cent": -2}
+
+
+def _parte_huella(valor: Any, crudo: Any = None) -> str | None:
+    if isinstance(valor, Decimal):
+        return format(valor.normalize(), "f") if valor else "0"
+    if isinstance(valor, str):
+        return "".join(c for c in valor.casefold() if c.isalnum()) or None
+    if valor is None and crudo is not None:
+        # Un literal que no se pudo leer: cuenta como lo que pone.
+        return "?" + "".join(str(crudo).split())
+    return None if valor is None else str(valor)
+
+
+def huella_linea(partes: dict[str, Any]) -> str:
+    """La huella de contenido de una linea, de sus cinco valores ya normalizados."""
+    return sha256_texto(json_canonico({c: partes.get(c) for c in _COLUMNAS_HUELLA}))
+
+
+def huella_de_leidos(valores: dict[str, Leido]) -> str:
+    """La huella de una linea tal como la lee una extraccion."""
+    return huella_linea({c: _parte_huella(valores[c].valor, valores[c].crudo)
+                         for c in _COLUMNAS_HUELLA})
+
+
+def huella_de_fila(fila: Any) -> str:
+    """La huella de una linea con sus valores actuales (los corregidos, si los hay)."""
+    partes = {}
+    for columna in _COLUMNAS_HUELLA:
+        valor = fila[columna]
+        if columna in _ESCALA_HUELLA and valor is not None:
+            valor = Decimal(valor).scaleb(_ESCALA_HUELLA[columna])
+        partes[columna] = _parte_huella(valor)
+    return huella_linea(partes)
 
 
 def _referencias(leida: compat.ExtraccionLeida) -> list[tuple[int | None, dict[str, Leido]]]:
@@ -454,12 +531,54 @@ def tipar_documento(
             if conflictos_hijas:
                 o.datos["filas_con_edicion_manual_sin_casar"] = conflictos_hijas
             if conflictos:
-                o.datos["lineas_con_edicion_manual_sin_casar"] = conflictos
+                o.datos["lineas_con_edicion_manual_sin_casar"] = [c.orden for c in conflictos]
             detalle = f"{len(lineas)} lineas"
             if conflictos:
                 detalle += f"; {len(conflictos)} lineas con ediciones manuales se conservan"
             accion = "actualizada"
-    return Tipado(documento_id, factura_id, accion, detalle)
+    if existente is None:
+        return Tipado(documento_id, factura_id, accion, detalle)
+    contradichos = tuple(sorted(
+        f"{e.tabla}:{e.fila_id}:{e.campo}" for e in o.resultado.efectos
+        if e.accion == "solo_automatico" and e.discrepancia))
+    for conflicto in conflictos:
+        _apuntar_sin_casar(conn, factura_id, extraccion_id, conflicto)
+    return Tipado(documento_id, factura_id, accion, detalle, contradichos,
+                  tuple(c.linea_id for c in conflictos))
+
+
+@dataclass(frozen=True)
+class _SinCasar:
+    """Una linea editada por una persona que la extraccion nueva no trae."""
+
+    linea_id: int
+    orden: int
+    excluida: bool
+    campos: tuple[str, ...]
+
+
+def _apuntar_sin_casar(conn: sqlite3.Connection, factura_id: int, extraccion_id: int,
+                       linea: _SinCasar) -> None:
+    """Apunta la linea en linea_sin_casar, con su evento (que lleva la foto), para M2.
+
+    Va despues de la orden que tipo la factura: la base exige que la factura
+    tenga ya esta extraccion como vigente.
+    """
+    from .almacen import reloj_de
+    from .auditoria import registrar
+    from .reloj import marca
+
+    fila = {"factura_id": factura_id, "linea_id": linea.linea_id,
+            "extraccion_id": extraccion_id, "excluida": int(linea.excluida),
+            "campos_json": json_canonico(list(linea.campos)),
+            "en": marca(reloj_de(conn).ahora())}
+    evento = registrar(conn, tipo="linea_sin_casar", actor=usuario_sistema(conn, "extractor"),
+                       tabla="factura_linea", fila_id=linea.linea_id, factura_id=factura_id,
+                       datos={"orden": linea.orden, "fila": fila})
+    conn.execute(
+        "INSERT INTO linea_sin_casar (factura_id, linea_id, extraccion_id, excluida, "
+        "campos_json, en, evento_id) VALUES (:factura_id, :linea_id, :extraccion_id, "
+        ":excluida, :campos_json, :en, :evento_id)", {**fila, "evento_id": evento})
 
 
 def _crear_lineas(
@@ -497,45 +616,90 @@ def _crear_hijas(o: campos.Orden, factura_id: int,
 
 def _actualizar_lineas(
     o: campos.Orden, conn: sqlite3.Connection, factura_id: int, lineas: list[dict[str, Leido]],
-) -> tuple[list[int], dict[int, int]]:
-    """Casa por posicion las lineas de la extraccion nueva con las que puso una extraccion.
+) -> tuple[list[_SinCasar], dict[int, int]]:
+    """Casa las lineas de la extraccion nueva con las que puso una extraccion, por su huella.
 
-    Se casan todas las que puso una extraccion, tambien las que una persona
-    excluyo: si se dejaran fuera, cada linea detras de la excluida se
-    correria un puesto y la excluida volveria como activa. Una excluida
-    casada recibe los valores nuevos y sigue excluida. Las que retiro una
-    extraccion anterior porque ya no venian no cuentan: estan al final, y si
-    vuelven a venir entran como lineas nuevas.
+    Entran en el casado todas las que puso una extraccion, tambien las que
+    una persona excluyo (una excluida casada recibe los valores nuevos y
+    sigue excluida). Las que retiro una extraccion anterior porque ya no
+    venian no cuentan: si vuelven a venir, entran como lineas nuevas.
+
+    Primero por huella, en orden: la de la lectura que la puso (huella_linea)
+    o la de sus valores de ahora (una correccion de una persona puede ser
+    justo lo que la lectura nueva lee bien). Despues, solo para las que nadie
+    ha tocado, por posicion: la misma posicion impresa, leida de otra forma,
+    es la misma linea, y asi su imputacion no cambia de fila. Una linea que
+    una persona edito no se casa por posicion: si su huella no aparece, no se
+    sabe cual es, y aplicar sus ediciones a otra seria peor que conservarla.
 
     Cada campo sigue la regla de siempre: lo que una persona corrigio no se
-    pisa. Las lineas que ya no vienen se retiran (con su imputacion), salvo
-    que una persona las haya editado: esas se conservan y se devuelven
-    (casarlas por su huella es del paso 6, y mientras tanto no se pierde lo
-    que una persona escribio). Una linea anadida a mano no se toca.
+    pisa. Las que ya no vienen se retiran (con su imputacion) si nadie las
+    toco; las editadas se conservan y se devuelven para linea_sin_casar (M2).
+    Una linea anadida a mano no se toca.
 
-    Devuelve las conservadas (su orden) y, para cada indice de la extraccion
-    nueva, la linea con la que caso o que se creo.
+    Devuelve las conservadas y, para cada indice de la extraccion nueva, la
+    linea con la que caso o que se creo.
     """
     previas = _de_extracciones(conn, "factura_linea", factura_id)
+    huellas = [v["huella_linea"].valor for v in lineas]
+    libres = list(range(len(lineas)))
+    casadas: dict[int, int] = {}
+    for fila in previas:
+        propias = {fila["huella_linea"], huella_de_fila(fila)} - {None}
+        indice = next((j for j in libres if huellas[j] in propias), None)
+        if indice is not None:
+            casadas[fila["id"]] = indice
+            libres.remove(indice)
+    ediciones = {f["id"]: _ediciones_de_linea(conn, f["id"]) for f in previas
+                 if f["id"] not in casadas}
+    for fila in previas:
+        indice = fila["orden"] - 1
+        if fila["id"] not in casadas and not ediciones[fila["id"]] and indice in libres:
+            casadas[fila["id"]] = indice
+            libres.remove(indice)
+
     por_indice = {}
-    for indice, (fila, valores) in enumerate(zip(previas, lineas)):
-        o.fijar("factura_linea", fila["id"], valores)
-        por_indice[indice] = fila["id"]
+    for fila in previas:
+        if fila["id"] in casadas:
+            o.fijar("factura_linea", fila["id"], lineas[casadas[fila["id"]]])
+            por_indice[casadas[fila["id"]]] = fila["id"]
     ocupados = {f["orden"] for f in conn.execute(
         "SELECT orden FROM factura_linea WHERE factura_id = ?", (factura_id,))}
-    for indice, valores in enumerate(lineas[len(previas):], start=len(previas)):
+    for indice in libres:
         orden = indice + 1 if indice + 1 not in ocupados else max(ocupados) + 1
         ocupados.add(orden)
-        por_indice[indice] = _crear_lineas(o, factura_id, [valores], desde=orden)[0]
+        por_indice[indice] = _crear_lineas(o, factura_id, [lineas[indice]], desde=orden)[0]
     conflictos = []
-    for fila in previas[len(lineas):]:
-        if fila["retirada_en"] is not None:
+    for fila in previas:
+        if fila["id"] in casadas:
             continue
-        if not _de_la_extraccion(conn, "factura_linea", fila["id"]):
-            conflictos.append(fila["orden"])
+        if ediciones[fila["id"]]:
+            conflictos.append(_SinCasar(fila["id"], fila["orden"],
+                                        fila["retirada_en"] is not None,
+                                        tuple(ediciones[fila["id"]])))
             continue
         o.retirar("factura_linea", fila["id"])         # y su imputacion (campos)
     return conflictos, por_indice
+
+
+def _ediciones_de_linea(conn: sqlite3.Connection, linea_id: int) -> list[str]:
+    """Lo que una persona cambio de una linea: sus campos, su exclusion, su imputacion o su referencia.
+
+    Vacio si nadie la toco. "tabla.campo" de cada valor que tiene una fuente
+    manual, de la linea y de las filas que cuelgan de ella.
+    """
+    filas = [("factura_linea", linea_id)]
+    for tabla in ("factura_imputacion", "factura_referencia"):
+        filas += [(tabla, f[0]) for f in conn.execute(
+            f"SELECT id FROM {tabla} WHERE linea_id = ?", (linea_id,))]
+    manuales = (Fuente.MANUAL_ENTRADA.value, Fuente.MANUAL_CORRECCION.value)
+    ediciones = set()
+    for tabla, fila_id in filas:
+        for (campo,) in conn.execute(
+                "SELECT campo FROM procedencia_campo WHERE tabla = ? AND fila_id = ? "
+                "AND fuente IN (?, ?)", (tabla, fila_id, *manuales)):
+            ediciones.add(f"{tabla}.{campo}")
+    return sorted(ediciones)
 
 
 def _de_extracciones(conn: sqlite3.Connection, tabla: str, factura_id: int) -> list[sqlite3.Row]:

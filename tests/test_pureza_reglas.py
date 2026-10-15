@@ -32,6 +32,7 @@ from bms_agent.reglas.base import (
     Factura,
     Instantanea,
     Linea,
+    LineaSinCasar,
     Lote,
     Parte,
     Politica,
@@ -136,7 +137,7 @@ def test_solo_instantanea_lee_la_base() -> None:
 _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           TramoIva: "tramo_iva", Relacion: "relacion", Politica: "politica",
           Parte: "parte", Cuenta: "cuenta", EventoCuenta: "evento_cuenta",
-          CambioTelefono: "cambio_telefono", Lote: "lote"}
+          CambioTelefono: "cambio_telefono", Lote: "lote", LineaSinCasar: "linea_sin_casar"}
 
 
 class Grabadora:
@@ -211,6 +212,12 @@ def _escenarios() -> list[Instantanea]:
         instantanea(factura(51, fusionada_en_id=None, lineas=(), base_cent=None)),
         # Paso 5: con maestros, registro de cuentas, telefonos e importaciones.
         *escenarios_paso5(),
+        # Paso 6: lineas editadas que la extraccion vigente no pudo casar (M2):
+        # activa, excluida antes y excluida despues (ya no dice nada).
+        instantanea(factura(60, sin_casar=(
+            LineaSinCasar(600, 1, True, False, ("factura_linea.descripcion_doc",)),
+            LineaSinCasar(601, 2, False, True, ("factura_linea.retirada_en",)),
+            LineaSinCasar(602, 3, False, False, ("factura_imputacion.objeto_id",))))),
     ]
 
 

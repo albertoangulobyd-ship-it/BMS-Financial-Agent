@@ -18,7 +18,7 @@ import pytest
 from bms_agent.dashboard import construir_datos
 from bms_agent.extract import ExtractionRecord
 from bms_agent.report import load_records
-from bms_agent.schema import InvoiceExtraction
+from bms_agent.schema import InvoiceExtractionV1
 
 RAIZ = Path(__file__).resolve().parent.parent
 FIXTURES = RAIZ / "tests" / "fixtures" / "v1"
@@ -47,19 +47,23 @@ def _fila(datos: dict, fichero: str) -> dict:
 
 def _claves_de_un_registro() -> set[str]:
     """Las claves que escribe ExtractionRecord.to_dict, sacadas del propio codigo."""
-    extraccion = InvoiceExtraction.model_validate(_registros()[0]["extraction"])
+    extraccion = InvoiceExtractionV1.model_validate(_registros()[0]["extraction"])
     return set(ExtractionRecord("0" * 64, "x.pdf", "m", "p", "1", "", extraccion).to_dict())
 
 
 def test_hay_siete_fixtures_y_todas_son_registros_v1_validos() -> None:
-    """Tienen la forma exacta que escribe el extractor y pasan el esquema v1."""
+    """Tienen la forma exacta que escribe el extractor y pasan el esquema v1.
+
+    Desde el paso 6 el esquema vigente es el v2; el v1 se conserva tal cual
+    (InvoiceExtractionV1) para comprobar lo que se extrajo con el.
+    """
     registros = _registros()
     assert len(registros) == 7
     claves = _claves_de_un_registro()
     for registro in registros:
         assert set(registro) == claves, registro["source_name"]
         assert registro["schema_version"] == "1"
-        InvoiceExtraction.model_validate(registro["extraction"])
+        InvoiceExtractionV1.model_validate(registro["extraction"])
 
 
 def test_las_tres_de_ejemplo_son_los_pdf_del_generador(tmp_path) -> None:

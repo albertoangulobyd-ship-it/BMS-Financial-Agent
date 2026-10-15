@@ -14,7 +14,7 @@ import pytest
 
 from bms_agent.documents import SourceDocument, UnsupportedDocument, load_pdf
 from bms_agent.extract import build_request
-from bms_agent.schema import InvoiceExtraction, VatRegime
+from bms_agent.schema import DocumentType, InvoiceExtraction, VatRegime
 
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
@@ -69,30 +69,41 @@ def test_una_factura_vacia_es_representable() -> None:
     vez de como hallazgo.
     """
     empty = InvoiceExtraction(
+        document_type=DocumentType.unknown,
         supplier_name=None,
         supplier_address=None,
         kvk_number=None,
         vat_number=None,
+        supplier_contact_person=None,
+        recipient_name=None,
+        recipient_vat_number=None,
+        recipient_contact_person=None,
         invoice_number=None,
         invoice_date=None,
         service_period_start=None,
         service_period_end=None,
+        related_invoices=[],
+        references=[],
         lines=[],
+        currency_raw=None,
         subtotal_excl_vat_raw=None,
         vat_rate_raw=None,
         vat_amount_raw=None,
         total_incl_vat_raw=None,
+        vat_breakdown=[],
         vat_regime=VatRegime.unknown,
         kor_mentioned=False,
         reverse_charge_mentioned=False,
         iban=None,
         payment_reference=None,
+        payment_terms_raw=None,
         due_date=None,
         low_confidence_fields=[],
         document_notes=None,
     )
     assert empty.vat_number is None
     assert empty.vat_regime is VatRegime.unknown
+    assert empty.document_type is DocumentType.unknown
 
 
 def test_el_esquema_declara_todos_los_campos_requeridos() -> None:

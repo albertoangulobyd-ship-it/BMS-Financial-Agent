@@ -16,7 +16,7 @@ from bms_agent import config
 from bms_agent.cache import CONSERVAR, ESTRICTA
 from bms_agent.extract import ExtractionRecord, extraer_pasada, nombre_fichero
 from bms_agent.report import load_records
-from bms_agent.schema import InvoiceExtraction, VatRegime
+from bms_agent.schema import DocumentType, InvoiceExtraction, VatRegime
 
 PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 # Cada respuesta de la API trae su propio request_id, tambien entre clientes.
@@ -24,13 +24,19 @@ _PETICIONES = itertools.count(1)
 
 
 def _extraccion(numero: str = "2026-001") -> InvoiceExtraction:
+    """Una lectura con la forma del esquema vigente (v2 desde el paso 6)."""
     return InvoiceExtraction(
+        document_type=DocumentType.invoice,
         supplier_name="Van Dijk BV", supplier_address=None, kvk_number=None,
-        vat_number="NL001234567B01", invoice_number=numero, invoice_date="2026-09-15",
-        service_period_start=None, service_period_end=None, lines=[],
+        vat_number="NL001234567B01", supplier_contact_person=None,
+        recipient_name="BM Support BV", recipient_vat_number=None,
+        recipient_contact_person=None, invoice_number=numero, invoice_date="2026-09-15",
+        service_period_start=None, service_period_end=None, related_invoices=[],
+        references=[], lines=[], currency_raw="EUR",
         subtotal_excl_vat_raw="100,00", vat_rate_raw="21%", vat_amount_raw="21,00",
-        total_incl_vat_raw="121,00", vat_regime=VatRegime.standard, kor_mentioned=False,
-        reverse_charge_mentioned=False, iban=None, payment_reference=None, due_date=None,
+        total_incl_vat_raw="121,00", vat_breakdown=[], vat_regime=VatRegime.standard,
+        kor_mentioned=False, reverse_charge_mentioned=False, iban=None,
+        payment_reference=None, payment_terms_raw=None, due_date=None,
         low_confidence_fields=[], document_notes=None,
     )
 

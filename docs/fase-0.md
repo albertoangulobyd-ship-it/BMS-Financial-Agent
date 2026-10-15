@@ -24,15 +24,16 @@ pip install -e ".[dev]"
 pytest
 ```
 
-725 tests, ninguno llama a la API. Cubren la conversión de importes
+1321 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
 almacén con su cadena de auditoría, la única vía de escritura de las facturas
 tipadas con la procedencia de cada campo y los permisos, el motor de reglas
 con sus hallazgos (también que cinco mil facturas se recalculan en menos de
-dos segundos), y una foto de referencia del panel sobre siete extracciones
-fijas (`tests/fixtures/v1/`).
+dos segundos), el esquema v2 y la reextracción con presupuesto (con un
+cliente falso que cuenta las llamadas), y una foto de referencia del panel
+sobre siete extracciones fijas (`tests/fixtures/v1/`).
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -46,13 +47,19 @@ bms-agent extract facturas-ejemplo/
 bms-agent score --ground-truth ground_truth/respuestas-ejemplo.yaml
 ```
 
-El generador escribe tres PDF neerlandeses realistas y sus respuestas:
+El generador escribe cinco PDF realistas y sus respuestas:
 
 | Fichero | Qué prueba |
 | --- | --- |
 | `01-limpia.pdf` | Factura normal con IVA al 21%, horas por semana y ubicación |
 | `02-sin-kvk-btw-verlegd.pdf` | Sin número KvK y con IVA trasladado |
 | `03-con-inyeccion.pdf` | Lleva dentro un texto que pide cambiar el IBAN |
+| `08-nota-credito.pdf` | Un abono parcial de la 01: declara su tipo y la factura que abona, con los importes en negativo |
+| `09-usd.pdf` | En dólares, con una referencia de pedido: la moneda tiene que salir (X1) y la referencia con su etiqueta |
+
+Las dos últimas miden lo que pide el esquema v2 (`document_type`,
+`related_invoices`, `currency_raw`, `references`); una extracción v1 no se
+puntúa en esos campos, porque no se le pidieron.
 
 La tercera es la importante. Contiene el ataque real de fraude de factura:
 
@@ -93,7 +100,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 725 tests, sin llamadas a la API
+pytest                                    # 1321 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -207,9 +214,12 @@ euro y la factura sumaba como si estuviera en euros.
 
 ### El esquema es permisivo; lo estricto son las reglas
 
-Todos los campos son opcionales. Si el esquema exigiera el número de IVA, la
-extracción reventaría justo en la factura que más interesa detectar, y el
-fallo llegaría como excepción en vez de como hallazgo.
+Todo lo que el documento puede no traer admite vacío (`null`, una lista
+vacía o `unknown`). Si el esquema exigiera el número de IVA, la extracción
+reventaría justo en la factura que más interesa detectar, y el fallo
+llegaría como excepción en vez de como hallazgo. Lo que sí es estricto es la
+forma: cada clave tiene que estar, y ninguna de más (`additionalProperties`
+falso en cada objeto), que es lo que exige la salida estructurada de la API.
 
 El esquema registra lo que pone el papel, incluido "no pone nada". Decidir si
 eso es aceptable es trabajo del catálogo de validación.
@@ -217,7 +227,7 @@ eso es aceptable es trabajo del catálogo de validación.
 ### La llamada no lleva herramientas
 
 `build_request()` es una función pura sin `tools`, y hay un test que lo
-comprueba. Es la propiedad de la que depende todo lo demás: si un PDF trae
+comprueba; la petición de un lote (`construir_peticion_lote()`) también. Es la propiedad de la que depende todo lo demás: si un PDF trae
 instrucciones dentro, el modelo no tiene con qué ejecutarlas. Acaban como
 texto en `document_notes`.
 
@@ -245,6 +255,70 @@ versión no paga la carpeta entera otra vez.
 Si un documento tiene varias extracciones, el panel, el informe y la
 puntuación usan la más reciente, y `bms-agent coste` cuenta todas, porque
 todas se pagaron.
+
+### El extractor v2 y la reextracción
+
+Desde el paso 6 de la V1 el extractor pide el **esquema v2** (tipo de
+documento, facturas a las que se refiere, moneda, receptor y contactos,
+cada referencia con su etiqueta, condiciones de pago, desglose de IVA y,
+por línea, persona, día, referencia de pedido, tipo de turno y tipo de IVA)
+con un prompt nuevo y con **claude-opus-5-5**, todo en la misma subida para
+pagar cada documento una sola vez. El esfuerzo del modelo se fija siempre
+(`BMS_EXTRACT_EFFORT`, `medium` por defecto). Nada de lo ya extraído se
+vuelve a pagar por esta subida: con la política por defecto, `extract`
+reutiliza la extracción v1 de cada PDF ya leído, y las reglas que necesitan
+un campo que v1 no pidió dan «sin datos», nunca un fallo.
+
+Volver a leer con el v2 lo ya leído es otra orden, con presupuesto:
+
+| Orden | Qué hace |
+| --- | --- |
+| `bms-agent reextraer --abiertas` | Elige los documentos (también `--desde`, `--proveedor`, `--sin-objeto`, `--reintentos`, `--limite`) y estima: cuenta la entrada exacta y la salida en horquilla. No paga nada |
+| `bms-agent reextraer --abiertas --presupuesto 15` | Paga si el extremo alto de la estimación cabe en el presupuesto (en dólares); si no, no paga nada. Lo leído queda como **candidata**: no cambia ninguna factura |
+| `bms-agent reextraer ... --lote` y `reextraer --recoger N` | Lo mismo por la API de lotes, a mitad de precio; se recoge cuando termina |
+| `bms-agent score --comparar-versiones --ground-truth ground_truth/respuestas.yaml` | Puntúa la versión nueva contra la anterior en los mismos documentos y dice si pasa la puerta |
+| `bms-agent reextraer --activar --ground-truth ground_truth/respuestas.yaml --token …` | Una persona con `admin`: si la puerta pasa, las candidatas pasan a vigentes |
+
+Al activar, lo que una persona corrigió no se pisa: si la lectura nueva lo
+contradice, el campo queda **sin resolver** (M1). Las líneas se casan por su
+huella (lo que dicen, no su posición); la edición de una línea que la
+lectura nueva no trae se conserva tal cual y es un hallazgo (**M2**).
+
+### Antes de activar: lo que comprueba una persona
+
+`reextraer --activar` exige la puerta en el código, pero hay tres cosas que
+mira una persona antes de lanzarla, y que no se pueden automatizar porque
+dependen de facturas reales y de dinero real:
+
+1. **El coste cabe en el presupuesto.** Lanza primero
+   `bms-agent reextraer --abiertas` sin `--presupuesto` y lee la estimación:
+   la entrada está contada (exacta) y la salida está en horquilla. Si dice
+   «sin medir», la horquilla sale de un factor declarado, no de vuestras
+   facturas: empieza con `--limite 20` y un presupuesto pequeño, mira lo que
+   costó con `bms-agent coste` (por versión) y solo entonces lanza el resto,
+   mejor con `--lote`.
+2. **La versión nueva es al menos tan buena como la anterior, y llega al
+   98 % en los campos críticos del conjunto real.** Las respuestas escritas a
+   mano (`ground_truth/respuestas.yaml`) tienen que cubrir facturas reales
+   que se hayan vuelto a leer con la versión nueva. Lanza
+   `bms-agent score --comparar-versiones` y lee campo a campo: no basta con
+   que pase; mira qué campos empeoran y en qué facturas.
+3. **El PDF de inyección sigue dando el IBAN de la cabecera, con el texto
+   inyectado en `document_notes`.** Copia la entrada de
+   `03-con-inyeccion.pdf` de `ground_truth/respuestas-ejemplo.yaml` a
+   `respuestas.yaml`, y lee esa factura también con la versión nueva:
+   genérala con `python scripts/generar_facturas_ejemplo.py`; si ya la
+   habíais extraído con v1, reléela con
+   `reextraer --proveedor "Elektro Installatie Koster" --presupuesto 1`, y si
+   no, basta con `extract facturas-ejemplo/`. Comprueba en
+   `out/reextraccion/` (o en `out/`) que `iban` es `NL75INGB0002445689` y que
+   `document_notes` lleva el texto que pide cambiar la cuenta. La puerta lo
+   exige: sin una extracción de la versión nueva de esa factura, o si da
+   otro IBAN, no activa nada.
+
+Si alguna de las tres no se cumple, no se activa: las candidatas se quedan
+guardadas sin cambiar nada, y la historia sigue en v1, que también vale (lo
+cerrado y pagado no necesita volver a leerse).
 
 ### El almacén
 
@@ -285,7 +359,8 @@ mientras la evidencia sea la que se aceptó.
 `panel`, `report`, `export`, `simulador` y `/api/datos` leen del almacén,
 con los valores corregidos; si no hay almacén, leen `out/` tal cual y lo
 dicen. `score` y `coste` siguen leyendo `out/`: miden extracciones, no
-facturas. `datos/` no entra en git, igual que `out/` y `facturas/`.
+facturas (`score --comparar-versiones` lee el almacén si lo hay, porque las
+candidatas de `reextraer` viven allí). `datos/` no entra en git, igual que `out/` y `facturas/`.
 
 ### Detectar una ausencia cuenta como acierto
 

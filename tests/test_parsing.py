@@ -345,3 +345,41 @@ def test_normalizar_referencia(raw, esperado) -> None:
 
 def test_normalizar_referencia_no_junta_lo_que_no_es_lo_mismo() -> None:
     assert normalizar_referencia("2026-012") != normalizar_referencia("2026-12")
+
+
+@pytest.mark.parametrize("texto, dias", [
+    ("Betaling binnen 30 dagen onder vermelding van het factuurnummer.", 30),
+    ("30 dgn netto", 30),
+    ("Netto 30", 30),
+    ("30", 30),
+    ("Payment within 14 days.", 14),
+    ("14 days net", 14),
+    ("binnen 2 weken", 14),
+    ("2% korting binnen 8 dagen, netto 30 dagen", 30),
+    ("8 of 14 dagen, netto 14 dagen", 14),
+    ("per omgaande", 0),
+    ("Contant", 0),
+    ("Due on receipt", 0),
+])
+def test_parse_plazo_pago(texto, dias) -> None:
+    from bms_agent.parsing import parse_plazo_pago
+
+    assert parse_plazo_pago(texto) == dias
+
+
+@pytest.mark.parametrize("texto", [
+    "binnen 10 werkdagen",          # dias laborables: depende del calendario
+    "binnen 1 maand",               # un mes no tiene dias fijos
+    "betalen binnen 8 of 14 dagen", # dos plazos y ninguno es el neto
+    "30-60 days",
+    "2% korting binnen 8 dagen of 30 dagen",
+    "21,5 dagen",
+    "zo snel mogelijk",
+    "",
+    None,
+])
+def test_parse_plazo_pago_no_adivina(texto) -> None:
+    from bms_agent.parsing import ParseError, parse_plazo_pago
+
+    with pytest.raises(ParseError):
+        parse_plazo_pago(texto)

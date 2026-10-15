@@ -51,9 +51,10 @@ def test_sonnet_y_haiku_5_5_tienen_tarifa() -> None:
     assert estimate_cost("claude-haiku-5-5", 1_000_000, 1_000_000) == Decimal("0.600000")
 
 
-def test_el_modelo_por_defecto_no_cambia_en_el_paso_0() -> None:
-    """Cambiar de modelo va junto con el esquema v2 (paso 6), para pagar una vez."""
+def test_el_modelo_por_defecto_cambia_con_el_esquema_v2() -> None:
+    """El modelo cambia en la misma pasada que el esquema v2 (paso 6), para pagar una vez."""
     from bms_agent import config
 
-    assert config.DEFAULT_MODEL == "claude-opus-5"
+    assert config.DEFAULT_MODEL == "claude-opus-5-5"
+    assert config.SCHEMA_VERSION == "2"
     assert config.DEFAULT_MODEL in PRICES

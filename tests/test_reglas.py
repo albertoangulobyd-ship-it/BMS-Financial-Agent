@@ -77,6 +77,8 @@ CATALOGO_SPEC = {
     "Q3": ("aviso", None, True, False, False, "otra"),
     "Q4": ("aviso", None, True, False, False, "otra"),
     "X1": ("bloqueo", None, False, True, False, "otra"),
+    # Paso 6: la edicion de una linea que la lectura nueva no pudo casar.
+    "M2": ("retencion", None, True, False, False, "otra"),
     "Z1": ("aviso", None, False, False, False, "otra"),
     "Z2": ("retencion", None, False, False, False, "otra"),
     "A0": ("retencion", None, False, False, False, "otra"),

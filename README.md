@@ -52,7 +52,10 @@ bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, regla
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
 bms-agent extract --estricta facturas/   # para medir otro modelo o prompt
 bms-agent score                # precisión contra respuestas escritas a mano
-bms-agent coste                # qué ha costado cada pasada; --estimar, la siguiente
+bms-agent coste                # qué ha costado cada pasada y versión; --estimar, la siguiente
+bms-agent reextraer --abiertas --presupuesto 15   # volver a leer con el esquema v2, con techo
+bms-agent score --comparar-versiones     # la puerta: la versión nueva contra la anterior
+bms-agent reextraer --activar --token ...        # admin: lo releído pasa a vigente si pasa la puerta
 bms-agent panel                # panel del historico (del almacén, con lo corregido)
 bms-agent simulador            # simulador de tarifas, para decidir el modelo de precios
 bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio
@@ -69,5 +72,5 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1011 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1321 tests sin
 llamar a la API.

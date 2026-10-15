@@ -7,6 +7,9 @@ daria por bueno lo que nadie ha mirado. El paso 5 trae las del maestro y del
 registro de cuentas: A0, A2, A5, A7, A8, E1, E2, F0, F2-F6, F8, F9, U1, Q2,
 Q3, Q4, Z1, Z2 y X1 tambien sobre las importaciones de maestros.
 
+M2 tampoco esta en la tabla del §7: es "las ediciones de linea que no se
+pueden casar se convierten en hallazgos" del §10 (paso 6), al lado de M1.
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -67,6 +70,11 @@ CATALOGO: tuple[Regla, ...] = (
           descripcion="La factura no está en euros: queda fuera de todos los totales. En un "
                       "maestro, una fila con un importe en otra moneda no entra y bloquea su "
                       "importación."),
+    Regla("M2", "Edición manual sin casar", "calidad", calidad.EVALUAR_M2, calidad.LEE_M2,
+          severidad=R, anulable=True, calidad=_C.DISCREPANCIA.value,
+          descripcion="Una línea que una persona editó o excluyó no aparece en la extracción "
+                      "vigente (no se pudo casar por su huella): se conserva tal cual y una "
+                      "persona decide si sigue."),
     Regla("Z1", "Fuente pasada de frescura", "calidad", calidad.z1, calidad.LEE_Z1,
           severidad=A, calidad=_C.ANOMALIA.value, ambito=_IMPORTACION,
           descripcion="Lo último de una fuente es más viejo que su límite (banco 3 días "

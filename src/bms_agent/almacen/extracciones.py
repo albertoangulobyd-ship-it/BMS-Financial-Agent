@@ -74,10 +74,20 @@ def _sin_constantes(nombre: str) -> None:
 
 
 def _uso(valor: Any) -> str | None:
+    """El consumo como columna: tokens enteros y, si lo hay, un texto corto (service_tier).
+
+    service_tier dice si se pago al precio de lote; sin el, una extraccion de
+    lote se contaria al doble de lo que costo.
+    """
     if not isinstance(valor, dict):
         return None
-    if not all(isinstance(k, str) and (v is None or (isinstance(v, int) and not isinstance(v, bool)))
-               for k, v in valor.items()):
+
+    def admitido(v: Any) -> bool:
+        if v is None or (isinstance(v, int) and not isinstance(v, bool)):
+            return True
+        return isinstance(v, str) and 0 < len(v) <= 40
+
+    if not all(isinstance(k, str) and admitido(v) for k, v in valor.items()):
         return None
     return json_canonico(valor)
 
@@ -176,20 +186,33 @@ def registrar_extraccion(
         return ExtraccionRegistrada(extraccion_id, True)
 
 
-def en_orden_de_out(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Todas las extracciones (id, documento_id, contenido_json) en el orden de out/.
+# Una candidata de `reextraer` (paso 6) que nadie ha activado no cuenta: la
+# vigente sigue siendo la de antes hasta que una persona la activa despues de
+# la puerta de puntuacion.
+SIN_CANDIDATAS = (
+    "NOT EXISTS (SELECT 1 FROM reextraccion_resultado AS c WHERE c.extraccion_id = e.id) "
+    "OR EXISTS (SELECT 1 FROM activacion AS a WHERE a.extraccion_id = e.id)"
+)
+
+
+def en_orden_de_out(conn: sqlite3.Connection, *, con_candidatas: bool = False) -> list[sqlite3.Row]:
+    """Las extracciones (id, documento_id, contenido_json) en el orden de out/.
 
     Es el orden en que load_records las leeria: por el nombre del fichero
     que se apunto al registrarlas, comparado como lo compara Path (en
     Windows, sin distinguir mayusculas). Las que no tienen fichero van
     detras, por orden de entrada.
+
+    Sin `con_candidatas`, quedan fuera las candidatas de una reextraccion que
+    no se han activado: no pueden ser la vigente de nadie.
     """
+    filtro = "" if con_candidatas else f" WHERE {SIN_CANDIDATAS}"
     filas = conn.execute(
         "SELECT e.id, e.documento_id, e.contenido_json, ("
         "  SELECT json_extract(v.datos_json, '$.fichero') FROM evento AS v"
         "  WHERE v.tipo = 'extraccion_registrada' AND v.tabla = 'extraccion'"
         "    AND v.fila_id = e.id ORDER BY v.id LIMIT 1) AS fichero "
-        "FROM extraccion AS e"
+        f"FROM extraccion AS e{filtro}"
     ).fetchall()
 
     def posicion(fila: sqlite3.Row) -> tuple:

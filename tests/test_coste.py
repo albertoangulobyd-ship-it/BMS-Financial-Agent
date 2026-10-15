@@ -165,3 +165,66 @@ def test_una_estimacion_sin_tarifa_no_da_un_numero() -> None:
         salida_baja=100, salida_alta=200, salida_medida=False,
     ))
     assert "no hay estimacion" in texto
+
+
+# ------------------------------------------------------------ por version (paso 6)
+
+
+def _v(nombre, salida, *, modelo="claude-opus-5-5", esquema="2", lote=False):
+    r = registro(nombre, salida=salida, modelo=modelo)
+    r["schema_version"] = esquema
+    if lote:
+        r["usage"]["service_tier"] = "batch"
+    return r
+
+
+def test_un_lote_cuesta_la_mitad() -> None:
+    [normal, lote] = leer_documentos([_v("a.pdf", 800), _v("b.pdf", 800, lote=True)])
+    assert lote.lote and not normal.lote
+    assert lote.coste == normal.coste / 2
+
+
+def test_la_salida_se_estima_con_la_misma_version_cuando_la_hay() -> None:
+    from bms_agent.coste import estimar_salida
+
+    medida = estimar_salida(leer_documentos([_v(f"{i}.pdf", s) for i, s in
+                                             enumerate([2000, 2400, 2600, 9000])]),
+                            modelo="claude-opus-5-5", esquema="2")
+    assert medida.medida and medida.bajo <= 2500 <= medida.alto
+    assert "esquema 2" in medida.origen
+
+
+def test_sin_tres_de_la_misma_version_es_la_v1_por_un_factor_sin_medir() -> None:
+    from bms_agent.coste import FACTOR_SIN_MEDIR, estimar_salida
+
+    v1 = [_v(f"{i}.pdf", s, modelo="claude-opus-5", esquema="1") for i, s in
+          enumerate([600, 700, 800])]
+    dos_v2 = [_v("x.pdf", 2000), _v("y.pdf", 2200)]
+    estimada = estimar_salida(leer_documentos(v1 + dos_v2), modelo="claude-opus-5-5",
+                              esquema="2")
+    assert not estimada.medida and "sin medir" in estimada.origen
+    # La mediana de las de otras versiones (la v1: 700) por el factor; las dos v2 no bastan.
+    assert (estimada.bajo, estimada.alto) == (int(700 * FACTOR_SIN_MEDIR[0]),
+                                              int(700 * FACTOR_SIN_MEDIR[1]))
+    sin_nada = estimar_salida([], modelo="claude-opus-5-5", esquema="2")
+    assert (sin_nada.bajo, sin_nada.alto) == (SALIDA_POR_DEFECTO[0] * 2, SALIDA_POR_DEFECTO[1] * 4)
+
+
+def test_lo_gastado_se_reparte_por_version() -> None:
+    from bms_agent.coste import formatear_por_version
+
+    docs = leer_documentos([registro("a.pdf"), _v("b.pdf", 900), _v("c.pdf", 900, lote=True)])
+    texto = formatear_por_version(docs)
+    assert "claude-opus-5-5" in texto and "esquema 2" in texto and "1 por lotes" in texto
+    assert formatear_por_version(leer_documentos([registro("a.pdf")])) == ""
+
+
+def test_la_estimacion_por_lotes_lo_dice_y_cuesta_la_mitad() -> None:
+    est = Estimacion(modelo="claude-opus-5-5", en_cache=0, nuevos=2, entrada=10000,
+                     salida_baja=2000, salida_alta=4000, salida_medida=False,
+                     origen_salida="sin medir: punto de partida", lote=True)
+    directa = Estimacion(modelo="claude-opus-5-5", en_cache=0, nuevos=2, entrada=10000,
+                         salida_baja=2000, salida_alta=4000, salida_medida=False)
+    assert est.coste_alto == directa.coste_alto / 2
+    texto = formatear_estimacion(est)
+    assert "Por lotes" in texto and "sin medir (sin medir: punto de partida)" in texto

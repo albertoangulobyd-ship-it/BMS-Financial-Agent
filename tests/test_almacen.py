@@ -60,8 +60,9 @@ AHORA = "2026-10-14T09:30:00+00:00"
 # curso) que se prueba aparte; fuera de ella, abortan igual.
 SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "extraccion",
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
-                  "prioridad_manual", "cuenta_bancaria", "cuenta_evento")
-EVIDENCIA = ("documento", "importacion", "ejecucion_reglas")
+                  "prioridad_manual", "cuenta_bancaria", "cuenta_evento",
+                  "reextraccion_resultado", "activacion", "linea_sin_casar")
+EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion")
 
 
 def _tablas(conn) -> list[str]:
@@ -216,8 +217,8 @@ def _poblar(almacen: Almacen) -> None:
             recibido_en=AHORA, recibido_fuente="mtime", actor=sistema)
         texto = ('{"source_sha256": "%s", "model": "m", "prompt_version": "p", '
                  '"schema_version": "1", "extraction": {}}' % SHA_PDF)
-        registrar_extraccion(conn, leer_registro(texto), documento_id=documento.id,
-                             via="api", actor=sistema)
+        extraccion = registrar_extraccion(conn, leer_registro(texto), documento_id=documento.id,
+                                          via="api", actor=sistema).id
         conn.execute(
             "INSERT INTO importacion (fuente, tipo, formato, fichero_sha256, estado, "
             "iniciada_en, terminada_en, actor) VALUES ('extracciones', 'extraccion', "
@@ -285,6 +286,36 @@ def _poblar(almacen: Almacen) -> None:
                         titular="proveedor", objetivos=[(proveedor, "NL02ABNA0123456789")],
                         decision=cuentas.Decision("verificada", metodo="llamada",
                                                   telefono_usado="010 1234567"), crear=True)
+        # Paso 6: una reextraccion cerrada con su candidata, que Ana (con admin)
+        # activa, y una linea editada que la extraccion vigente no pudo casar.
+        extractor = usuario_sistema(conn, "extractor")
+        reextraccion = conn.execute(
+            "INSERT INTO reextraccion (modelo, prompt_version, schema_version, via, "
+            "criterio_json, documentos, presupuesto_usd_cent, estimado_bajo_usd_cent, "
+            "estimado_alto_usd_cent, salida_medida, estimacion_json, iniciada_en, actor) "
+            "VALUES ('m', 'p', '1', 'api', '{}', 1, 500, 10, 20, 0, '{}', ?, ?)",
+            (AHORA, extractor)).lastrowid
+        resultado = registrar(conn, tipo="reextraccion_resultado", actor=extractor)
+        conn.execute("INSERT INTO reextraccion_resultado (reextraccion_id, documento_id, "
+                     "resultado, extraccion_id, en, evento_id) VALUES (?, ?, 'candidata', ?, "
+                     "?, ?)", (reextraccion, documento.id, extraccion, AHORA, resultado))
+        conn.execute("UPDATE reextraccion SET estado = 'terminada', terminada_en = ?, "
+                     "extraidas = 1 WHERE id = ?", (AHORA, reextraccion))
+        conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'admin')", (rol,))
+        activado = registrar(conn, tipo="extraccion_activada", actor=persona, usuario_id=persona)
+        conn.execute("INSERT INTO activacion (extraccion_id, documento_id, comparacion_sha256, "
+                     "usuario_id, en, evento_id) VALUES (?, ?, ?, ?, ?, ?)",
+                     (extraccion, documento.id, "9" * 64, persona, AHORA, activado))
+        leida = campos.crear(conn, "factura", {
+            "sentido": "entrante", "tipo": "factura", "origen": "extraccion",
+            "documento_id": documento.id, "extraccion_vigente_id": extraccion},
+            Automatico("extraccion", extractor))
+        linea = campos.crear(conn, "factura_linea", {"factura_id": leida, "orden": 1},
+                             Automatico("extraccion", extractor))
+        sin_casar = registrar(conn, tipo="linea_sin_casar", actor=extractor)
+        conn.execute("INSERT INTO linea_sin_casar (factura_id, linea_id, extraccion_id, "
+                     "excluida, campos_json, en, evento_id) VALUES (?, ?, ?, 0, '[]', ?, ?)",
+                     (leida, linea, extraccion, AHORA, sin_casar))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)

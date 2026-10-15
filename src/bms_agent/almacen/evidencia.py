@@ -21,7 +21,10 @@ Una tabla nueva de evidencia (paso 2 en adelante) anade aqui sus columnas y
 sus tipos de evento, y su escritor pone `foto()` en los datos del evento.
 Las del paso 2 son politica_version y nota; la del paso 3, anulacion (la
 foto la escribe hallazgos.anular antes de la fila, como la de una nota); las
-del paso 4, revision y prioridad_manual (igual). La procedencia de los campos
+del paso 4, revision y prioridad_manual (igual); las del paso 6, reextraccion
+(como importacion, con un evento por cada cambio mientras espera su lote),
+reextraccion_resultado, activacion y linea_sin_casar (como una nota). La
+procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar).
@@ -71,6 +74,20 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     "revision": ("factura_id", "resultado", "huella_contenido", "autorrevisada", "usuario_id",
                  "en", "nota"),
     "prioridad_manual": ("entidad", "entidad_id", "nivel", "motivo", "usuario_id", "en", "hasta"),
+    # Paso 6: lo que se acepto pagar al volver a leer, lo que dio cada
+    # documento, lo que una persona activo y las lineas que no se pudieron casar.
+    "reextraccion": (
+        "modelo", "prompt_version", "schema_version", "via", "criterio_json", "documentos",
+        "presupuesto_usd_cent", "estimado_bajo_usd_cent", "estimado_alto_usd_cent",
+        "salida_medida", "estimacion_json", "lote_id", "estado", "extraidas", "reintentos",
+        "iniciada_en", "terminada_en", "iniciada_por", "actor",
+    ),
+    "reextraccion_resultado": ("reextraccion_id", "documento_id", "resultado", "extraccion_id",
+                               "anterior_id", "motivo", "detalle", "en"),
+    "activacion": ("extraccion_id", "documento_id", "anterior_id", "comparacion_sha256",
+                   "usuario_id", "en"),
+    "linea_sin_casar": ("factura_id", "linea_id", "extraccion_id", "excluida", "campos_json",
+                        "en"),
 }
 
 # Filas que no se comprueban contra un evento porque no lo tienen: las
@@ -92,13 +109,20 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "anulacion": ("hallazgo_anulado", ()),
     "revision": ("revision_registrada", ()),
     "prioridad_manual": ("prioridad_subida", ()),
+    "reextraccion": ("reextraccion_iniciada", ("reextraccion_lote_enviado",
+                                               "reextraccion_terminada")),
+    "reextraccion_resultado": ("reextraccion_resultado", ()),
+    "activacion": ("extraccion_activada", ()),
+    "linea_sin_casar": ("linea_sin_casar", ()),
 }
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
 # evento apunte a la fila: el evento de una nota es de la fila anotada, para
 # que salga en su historial. La foto la lleva igual el evento.
 POR_EVENTO: dict[str, str] = {"nota": "evento_id", "anulacion": "evento_id",
-                               "revision": "evento_id", "prioridad_manual": "evento_id"}
+                               "revision": "evento_id", "prioridad_manual": "evento_id",
+                               "reextraccion_resultado": "evento_id",
+                               "activacion": "evento_id", "linea_sin_casar": "evento_id"}
 
 
 _FALTA = object()

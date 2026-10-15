@@ -71,7 +71,7 @@ def _cuentas(conn) -> dict[str, int]:
 
 # Las reglas de factura del paso 5: escriben solo lo que objetan (registro, paso 5).
 SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "F2", "F3", "F4",
-                   "U1"}
+                   "U1", "M2"}
 
 
 # Una factura de Van Dijk con otro numero, otro total y un periodo que se pisa

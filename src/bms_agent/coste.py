@@ -12,6 +12,15 @@ Dos preguntas distintas, y conviene no mezclarlas:
    propio historico y se dan como una horquilla, nunca como un numero
    redondo que parezca exacto.
 
+Desde el esquema v2 las dos cuentas van por version: lo gastado se reparte
+por modelo y version del esquema, y la salida de la proxima pasada se
+estima con el historico de la MISMA version. Hasta que haya tres
+extracciones de esa version, la salida es la mediana de las otras por un
+factor declarado (FACTOR_SIN_MEDIR) y se dice "sin medir": el esquema v2
+pide mas campos y Opus 5.5 razona siempre, y ese razonamiento se cobra como
+salida. Una extraccion de lote (usage.service_tier "batch") se cobra a la
+mitad.
+
 La tercera cifra, la que mas tranquiliza: volver a lanzar una carpeta ya
 leida cuesta cero. La cache va por hash de los bytes del documento, asi que
 un reenvio no se vuelve a pagar, y por defecto tampoco un cambio de modelo o
@@ -43,6 +52,8 @@ class Documento:
     salida: int
     cuando: datetime | None
     coste: Decimal | None
+    esquema: str = "?"
+    lote: bool = False
 
 
 @dataclass
@@ -87,6 +98,7 @@ def leer_documentos(registros: list[dict[str, Any]]) -> list[Documento]:
         modelo = registro.get("model") or "desconocido"
         entrada = uso.get("input_tokens") or 0
         salida = uso.get("output_tokens") or 0
+        lote = uso.get("service_tier") == "batch"
         documentos.append(
             Documento(
                 nombre=registro.get("source_name") or "(sin nombre)",
@@ -94,7 +106,9 @@ def leer_documentos(registros: list[dict[str, Any]]) -> list[Documento]:
                 entrada=entrada,
                 salida=salida,
                 cuando=_cuando(registro),
-                coste=estimate_cost(modelo, entrada, salida),
+                coste=estimate_cost(modelo, entrada, salida, lote=lote),
+                esquema=str(registro.get("schema_version") or "?"),
+                lote=lote,
             )
         )
     return documentos
@@ -141,14 +155,16 @@ class Estimacion:
     salida_baja: int                 # horquilla, estimada
     salida_alta: int
     salida_medida: bool              # False si no habia historico del que sacarla
+    origen_salida: str = ""          # de donde sale la horquilla, para decirlo
+    lote: bool = False               # a mitad de precio (API de Batches)
 
     @property
     def coste_bajo(self) -> Decimal | None:
-        return estimate_cost(self.modelo, self.entrada, self.salida_baja)
+        return estimate_cost(self.modelo, self.entrada, self.salida_baja, lote=self.lote)
 
     @property
     def coste_alto(self) -> Decimal | None:
-        return estimate_cost(self.modelo, self.entrada, self.salida_alta)
+        return estimate_cost(self.modelo, self.entrada, self.salida_alta, lote=self.lote)
 
 
 # Sin historico propio, una factura de una pagina ronda esto de salida. Es
@@ -169,6 +185,55 @@ def horquilla_de_salida(documentos: list[Documento]) -> tuple[int, int, bool]:
     bajo = salidas[int(0.10 * ultimo)]
     alto = salidas[int(0.90 * ultimo)]
     return int(min(bajo, centro)), int(max(alto, centro)), True
+
+
+# Hasta que haya historico de la version que se va a pagar, su salida es la
+# mediana de las otras por este factor (bajo, alto). Es una declaracion, no
+# una medida: el esquema v2 pide alrededor de la mitad de campos mas, y Opus
+# 5.5 razona siempre con esfuerzo medium, y ese razonamiento cuenta como
+# salida. La horquilla es ancha a proposito, y el presupuesto se compara con
+# su extremo alto.
+FACTOR_SIN_MEDIR = (Decimal(2), Decimal(4))
+MINIMO_MEDIDO = 3
+
+
+@dataclass(frozen=True)
+class SalidaEstimada:
+    """Tokens de salida por documento: horquilla, si es medida y de donde sale."""
+
+    bajo: int
+    alto: int
+    medida: bool
+    origen: str
+
+
+def estimar_salida(documentos: list[Documento], *, modelo: str, esquema: str) -> SalidaEstimada:
+    """La salida por documento de una version, desde su propio historico si lo hay.
+
+    Con tres extracciones o mas del mismo modelo y version del esquema, la
+    horquilla de siempre (percentiles 10 y 90). Si no, la mediana de las
+    demas extracciones por FACTOR_SIN_MEDIR, marcada "sin medir"; sin
+    ningun historico, el punto de partida declarado por el mismo factor.
+    """
+    mismas = [d for d in documentos if d.modelo == modelo and d.esquema == esquema]
+    if len([d for d in mismas if d.salida]) >= MINIMO_MEDIDO:
+        bajo, alto, _ = horquilla_de_salida(mismas)
+        return SalidaEstimada(bajo, alto, True,
+                              f"medida en {len(mismas)} extracciones del esquema {esquema} "
+                              f"con {modelo}")
+    factor_bajo, factor_alto = FACTOR_SIN_MEDIR
+    de_esta = {id(d) for d in mismas}
+    otras = sorted(d.salida for d in documentos if d.salida and id(d) not in de_esta)
+    if len(otras) >= MINIMO_MEDIDO:
+        centro = Decimal(str(median(otras)))
+        return SalidaEstimada(
+            int(centro * factor_bajo), int(centro * factor_alto), False,
+            f"sin medir: mediana de {len(otras)} extracciones de otras versiones "
+            f"({int(centro)}) por {factor_bajo} a {factor_alto}")
+    return SalidaEstimada(
+        int(SALIDA_POR_DEFECTO[0] * factor_bajo), int(SALIDA_POR_DEFECTO[1] * factor_alto), False,
+        f"sin medir: punto de partida declarado ({SALIDA_POR_DEFECTO[0]}-"
+        f"{SALIDA_POR_DEFECTO[1]}) por {factor_bajo} a {factor_alto}")
 
 
 def contar_entrada(client: Any, peticion: dict[str, Any]) -> int:
@@ -228,6 +293,24 @@ def formatear_gastado(documentos: list[Documento]) -> str:
     return "\n".join(lineas)
 
 
+def formatear_por_version(documentos: list[Documento]) -> str:
+    """Lo gastado por modelo y version del esquema: cada version se paga aparte."""
+    grupos: dict[tuple[str, str], list[Documento]] = {}
+    for d in documentos:
+        grupos.setdefault((d.modelo, d.esquema), []).append(d)
+    if len(grupos) < 2 and not any(d.lote for d in documentos):
+        return ""
+    lineas = ["Por version", "-" * 52]
+    for (modelo, esquema), docs in sorted(grupos.items()):
+        costes = [d.coste for d in docs if d.coste is not None]
+        total = sum(costes, Decimal(0)) if len(costes) == len(docs) else None
+        lotes = sum(1 for d in docs if d.lote)
+        sufijo = f"   ({lotes} por lotes, a mitad de precio)" if lotes else ""
+        lineas.append(f"  {modelo:<20} esquema {esquema:<3} {len(docs):>5} doc   "
+                      f"{_dolares(total):>10}{sufijo}")
+    return "\n".join(lineas)
+
+
 def formatear_pasadas(pasadas: list[Pasada]) -> str:
     if not pasadas:
         return ""
@@ -281,6 +364,8 @@ def formatear_estimacion(est: Estimacion) -> str:
 
     rango = f"{_miles(est.salida_baja)} a {_miles(est.salida_alta)}"
     origen = "mediana de vuestro historico" if est.salida_medida else "sin medir"
+    if est.origen_salida:
+        origen += f" ({est.origen_salida})"
     lineas += [
         "",
         f"  tokens de entrada    {_miles(est.entrada):>14}   contados, exacto",
@@ -302,10 +387,11 @@ def formatear_estimacion(est: Estimacion) -> str:
     ]
     if not est.salida_medida:
         lineas += [
-            "  Con menos de tres extracciones previas de las que sacarla, la",
-            f"  salida es un punto de partida declarado ({SALIDA_POR_DEFECTO[0]}-"
-            f"{SALIDA_POR_DEFECTO[1]} tokens por documento), no una medida.",
+            "  Con menos de tres extracciones previas de esta version, la",
+            "  salida es un punto de partida declarado, no una medida.",
         ]
+    if est.lote:
+        lineas.append("  Por lotes (API de Batches): a mitad de precio, en horas y no en segundos.")
     if est.modelo in PRICES:
         lineas.append(
             f"\n  Tarifa de {est.modelo}: ${PRICES[est.modelo][0]} entrada y"

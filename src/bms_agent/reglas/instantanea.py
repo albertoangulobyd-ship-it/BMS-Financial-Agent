@@ -40,6 +40,7 @@ from .base import (
     Factura,
     Instantanea,
     Linea,
+    LineaSinCasar,
     Lote,
     Parte,
     Politica,
@@ -139,6 +140,25 @@ def _ilegibles(conn: sqlite3.Connection) -> dict[tuple[str, int], set[str]]:
     return salida
 
 
+def _sin_casar(conn: sqlite3.Connection) -> dict[int, tuple[LineaSinCasar, ...]]:
+    """Las lineas sin casar de la extraccion vigente de cada factura (paso 6, M2).
+
+    Solo cuentan las de la lectura que vale ahora: si una extraccion
+    posterior vuelve a casar la linea, su apunte anterior ya no dice nada.
+    """
+    salida: dict[int, list[LineaSinCasar]] = defaultdict(list)
+    for factura_id, linea_id, orden, retirada, excluida, campos_json in _filas(
+            conn, "SELECT s.factura_id, s.linea_id, l.orden, l.retirada_en, s.excluida, "
+                  "s.campos_json FROM linea_sin_casar AS s "
+                  "JOIN factura AS f ON f.id = s.factura_id "
+                  "AND f.extraccion_vigente_id = s.extraccion_id "
+                  "JOIN factura_linea AS l ON l.id = s.linea_id ORDER BY s.factura_id, l.orden"):
+        salida[factura_id].append(LineaSinCasar(
+            linea_id=linea_id, orden=orden, activa=retirada is None, excluida=bool(excluida),
+            campos=tuple(json.loads(campos_json))))
+    return {f: tuple(v) for f, v in salida.items()}
+
+
 def _objeto_de_linea(conn: sqlite3.Connection) -> dict[int, int]:
     """El Objeto resuelto de cada linea con una sola imputacion activa.
 
@@ -208,6 +228,7 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
 
     facturas = []
     dudosos = _dudosos(conn)
+    sin_casar = _sin_casar(conn)
     for fila in _filas(conn, f"SELECT {', '.join(_COLUMNAS_FACTURA)} FROM factura AS f "
                              "LEFT JOIN extraccion AS e ON e.id = f.extraccion_vigente_id "
                              "LEFT JOIN documento AS d ON d.id = f.documento_id "
@@ -238,7 +259,8 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             no_solicitados=no_solicitados(schema_version),
             documento_id=documento_id, emisor_direccion_doc=direccion,
             kor_mencionada=None if kor is None else bool(kor), notas_doc=notas,
-            dudosos=dudosos.get(id_, vacio), sin_original=bool(sin_original)))
+            dudosos=dudosos.get(id_, vacio), sin_original=bool(sin_original),
+            sin_casar=sin_casar.get(id_, ())))
 
     relaciones = tuple(Relacion(o, d, t) for o, d, t in _filas(
         conn, "SELECT origen_id, destino_id, tipo FROM factura_relacion "

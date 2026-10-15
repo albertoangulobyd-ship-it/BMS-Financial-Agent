@@ -5,7 +5,9 @@ El proceso que lee contenido de terceros no tiene con que actuar. Su unica
 salida posible es un objeto validado contra el esquema.
 
 build_request es una funcion pura precisamente para poder comprobar esa
-propiedad en un test, sin llamar a la API.
+propiedad en un test, sin llamar a la API. La peticion de lote
+(construir_peticion_lote) tambien: misma entrada, mismo esquema, mismo
+esfuerzo y ninguna herramienta, con el hash del documento como custom_id.
 
 Lo que se extrae no se sobrescribe nunca. Cada extraccion va a su propio
 fichero, nombrado por el hash del documento y por las versiones que la
@@ -34,7 +36,7 @@ from . import config
 from .cache import CONSERVAR, CachedExtraction, indexar, reutilizable
 from .documents import SourceDocument, UnsupportedDocument, load_pdf
 from .prompts import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_USER_TEXT
-from .schema import InvoiceExtraction
+from .schema import InvoiceExtraction, esquema_json
 
 if TYPE_CHECKING:
     from .almacen import Almacen
@@ -131,30 +133,71 @@ def _mismo_contenido(ruta: Path, contenido: str) -> bool:
         return False
 
 
+def _mensajes(doc: SourceDocument) -> list[dict[str, Any]]:
+    """El documento y la orden de extraer. El PDF va antes del texto."""
+    return [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": doc.media_type,
+                        "data": doc.data_b64,
+                    },
+                },
+                {"type": "text", "text": EXTRACTION_USER_TEXT},
+            ],
+        }
+    ]
+
+
 def build_request(doc: SourceDocument, model: str | None = None) -> dict[str, Any]:
-    """Construye los argumentos de la llamada. Sin herramientas, a proposito."""
+    """Construye los argumentos de la llamada. Sin herramientas, a proposito.
+
+    output_config lleva el esfuerzo, siempre explicito (config.effort); el SDK
+    le anade el esquema de output_format al mandarla (messages.parse). No hay
+    `thinking`: en Opus 5.5 no se puede apagar, y pedirlo seria pedir algo
+    que la API no deja cambiar.
+    """
     return {
         "model": model or config.model_id(),
         "max_tokens": config.max_tokens(),
         "system": EXTRACTION_SYSTEM_PROMPT,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": doc.media_type,
-                            "data": doc.data_b64,
-                        },
-                    },
-                    {"type": "text", "text": EXTRACTION_USER_TEXT},
-                ],
-            }
-        ],
+        "messages": _mensajes(doc),
         "output_format": InvoiceExtraction,
+        "output_config": {"effort": config.effort()},
     }
+
+
+def construir_peticion_lote(doc: SourceDocument, model: str | None = None) -> dict[str, Any]:
+    """La misma peticion, como entrada de un lote de la API de Batches.
+
+    Un lote no pasa por messages.parse, asi que el esquema va escrito en
+    output_config.format (el mismo que deriva el SDK para la via sincrona;
+    un test lo compara). custom_id es el sha256 del documento: los
+    resultados de un lote llegan en cualquier orden, y es lo que los ata a
+    su documento sin depender de la posicion. Ninguna herramienta, como en
+    build_request.
+    """
+    return {
+        "custom_id": doc.sha256,
+        "params": {
+            "model": model or config.model_id(),
+            "max_tokens": config.max_tokens(),
+            "system": EXTRACTION_SYSTEM_PROMPT,
+            "messages": _mensajes(doc),
+            "output_config": {
+                "effort": config.effort(),
+                "format": {"type": "json_schema", "schema": esquema_json()},
+            },
+        },
+    }
+
+
+class Rechazado(RuntimeError):
+    """El modelo se nego a leer el documento (stop_reason refusal)."""
 
 
 def extract_invoice(
@@ -166,12 +209,10 @@ def extract_invoice(
 
     if getattr(response, "stop_reason", None) == "refusal":
         details = getattr(response, "stop_details", None)
-        raise RuntimeError(
+        raise Rechazado(
             f"El modelo rechazo el documento {doc.path.name}: "
             f"{getattr(details, 'category', 'sin categoria')}"
         )
-
-    usage = getattr(response, "usage", None)
 
     return ExtractionRecord(
         source_sha256=doc.sha256,
@@ -181,13 +222,104 @@ def extract_invoice(
         schema_version=config.SCHEMA_VERSION,
         extracted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         extraction=response.parsed_output,
-        usage={
-            "input_tokens": getattr(usage, "input_tokens", None),
-            "output_tokens": getattr(usage, "output_tokens", None),
-        }
-        if usage
-        else {},
+        usage=_uso(getattr(response, "usage", None)),
         request_id=getattr(response, "_request_id", None),
+    )
+
+
+def _uso(usage: Any, *, lote: bool = False) -> dict[str, Any]:
+    """Los tokens que se pagan, y si se pagaron al precio de lote.
+
+    service_tier "batch" es lo que hace que coste.py cobre la mitad: sin
+    apuntarlo, una pasada por lotes se contaria al doble de lo que costo.
+    """
+    if not usage:
+        return {}
+    uso: dict[str, Any] = {
+        "input_tokens": getattr(usage, "input_tokens", None),
+        "output_tokens": getattr(usage, "output_tokens", None),
+    }
+    tier = "batch" if lote else getattr(usage, "service_tier", None)
+    if isinstance(tier, str) and tier:
+        uso["service_tier"] = tier
+    return uso
+
+
+# Por que un resultado de lote va a la lista de reintentos.
+REINTENTO_RECHAZO = "rechazo"
+REINTENTO_ERROR = "error"
+REINTENTO_CADUCADO = "caducado"
+REINTENTO_CANCELADO = "cancelado"
+REINTENTO_INVALIDO = "invalido"
+
+
+@dataclass(frozen=True)
+class Reintento:
+    """Un documento cuyo resultado no sirve: se vuelve a pedir, no se adivina."""
+
+    sha256: str
+    motivo: str
+    detalle: str = ""
+
+
+def leer_resultado_lote(
+    resultado: Any, doc: SourceDocument, *, model: str, prompt_version: str | None = None,
+    schema_version: str | None = None,
+) -> ExtractionRecord | Reintento:
+    """Un resultado de un lote como registro de extraccion, o como reintento.
+
+    Lo que llega se valida contra el esquema con model_validate_json: un
+    lote no pasa por messages.parse, y un JSON cortado (max_tokens) o que no
+    es el esquema no se guarda como si fuera una lectura. Un rechazo, un
+    error, un caducado o un cancelado van a la lista de reintentos: los lotes
+    no admiten el respaldo de modelo del servidor, asi que nadie lo reintenta
+    por nosotros.
+    """
+    from pydantic import ValidationError
+
+    sha = getattr(resultado, "custom_id", None) or doc.sha256
+    cuerpo = getattr(resultado, "result", None)
+    tipo = getattr(cuerpo, "type", None)
+    if tipo == "errored":
+        error = getattr(getattr(cuerpo, "error", None), "error", None) or getattr(
+            cuerpo, "error", None)
+        clase = getattr(error, "type", None) or "error"
+        return Reintento(sha, REINTENTO_ERROR, f"{clase}: {getattr(error, 'message', '')}".strip())
+    if tipo == "expired":
+        return Reintento(sha, REINTENTO_CADUCADO, "el lote caduco antes de leerlo")
+    if tipo == "canceled":
+        return Reintento(sha, REINTENTO_CANCELADO, "el lote se cancelo")
+    if tipo != "succeeded":
+        return Reintento(sha, REINTENTO_ERROR, f"resultado desconocido: {tipo!r}")
+
+    mensaje = getattr(cuerpo, "message", None)
+    if getattr(mensaje, "stop_reason", None) == "refusal":
+        detalles = getattr(mensaje, "stop_details", None)
+        return Reintento(sha, REINTENTO_RECHAZO,
+                         f"rechazado: {getattr(detalles, 'category', 'sin categoria')}")
+    texto = next((getattr(b, "text", "") for b in getattr(mensaje, "content", None) or []
+                  if getattr(b, "type", None) == "text"), None)
+    if texto is None:
+        return Reintento(sha, REINTENTO_INVALIDO, "sin bloque de texto")
+    try:
+        extraccion = InvoiceExtraction.model_validate_json(texto)
+    except ValidationError as exc:
+        motivo = getattr(mensaje, "stop_reason", None)
+        detalle = "cortado por max_tokens" if motivo == "max_tokens" else (
+            f"no es el esquema: {exc.error_count()} errores")
+        return Reintento(sha, REINTENTO_INVALIDO, detalle)
+    # Las versiones son las de la peticion que se mando, que pudo ser horas
+    # antes: quien recoge el lote las pasa.
+    return ExtractionRecord(
+        source_sha256=doc.sha256,
+        source_name=doc.path.name,
+        model=model,
+        prompt_version=prompt_version or config.PROMPT_VERSION,
+        schema_version=schema_version or config.SCHEMA_VERSION,
+        extracted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        extraction=extraccion,
+        usage=_uso(getattr(mensaje, "usage", None), lote=True),
+        request_id=None,
     )
 
 

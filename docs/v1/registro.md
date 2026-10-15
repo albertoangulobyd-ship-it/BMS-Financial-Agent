@@ -2263,3 +2263,331 @@ Lo que deben saber los pasos siguientes, además de lo de arriba:
 - **Paso 7**: F5 por factura debe dejar fuera las pagadas; atestar sigue
   siendo solo de lo heredado sin tocar.
 - **Paso 10**: F5 y F6 con TRNSPRNT (desviaciones 8 y 29).
+
+## Paso 6
+
+Extracción v2: esquema y prompt nuevos, el modelo claude-opus-5-5, la
+reextracción con presupuesto (síncrona o por lotes) y la puerta de
+activación. **Construido y probado, sin una sola llamada a la API**: no se
+ha vuelto a extraer nada, y subir las versiones no paga nada por lo ya
+extraído (probado con un cliente falso que cuenta las llamadas). **1321
+tests pasan** (769 funciones de test; eran 1226 y 714 al cerrar el paso 5).
+Cinco mil facturas se recalculan en 1,45-1,7 s la primera vez y en
+1,3-1,6 s las siguientes (seis medidas en este contenedor), como en el paso
+5: la regla nueva (M2) lee una tabla pequeña.
+
+### Qué se construyó
+
+**Esquema v2** (`schema.py`, `SCHEMA_VERSION = "2"`). Cabecera nueva:
+`document_type`, `related_invoices` (número, fecha, la frase literal y la
+relación que enuncia), `currency_raw`, `supplier_contact_person`,
+`recipient_name`, `recipient_vat_number`, `recipient_contact_person`,
+`references` (etiqueta y valor literales), `payment_terms_raw` y
+`vat_breakdown`; por línea, `employee_name`, `work_date`,
+`order_reference_raw`, `rate_type_raw` y `vat_rate_raw`, y `location`
+redescrita como «Objeto, locatie o proyecto tal como está impreso». Cada
+modelo lleva `extra='forbid'` (el esquema JSON sale con
+`additionalProperties: false` en los cinco objetos), sin recursión ni
+límites. `low_confidence_fields` pide rutas (`lines[3].location`). Ningún
+campo de teléfono, correo ni identificación personal. Las clases v1 se
+conservan intactas como `InvoiceExtractionV1` e `InvoiceLineV1` (validan lo
+ya extraído), con `MODELOS`, `modelo_de()` y `esquema_json()`.
+
+**Prompt v2** (`prompts.py`, `PROMPT_VERSION = "extract/2026-10-15.1"`).
+Redacción neutra sobre la dirección («documentos en los que BM Support BV es
+el emisor o el receptor»), la regla 1 palabra por palabra (`REGLA_1`, un test
+la compara con la de antes) y las reglas nuevas: el tipo declarado y los
+signos impresos, las facturas nombradas copiadas literalmente sin deducir
+relaciones de los importes, cada referencia con su etiqueta sin decidir cuál
+es una PO, emisor y destinatario con su contacto y el «t.a.v.», las
+condiciones literales y `due_date` solo si está impreso, lo de cada línea,
+las rutas de `low_confidence_fields` y, aparte, que un texto que pide llamar
+a un número, confirmar datos bancarios o actualizar la ficha va a
+`document_notes`.
+
+**Modelo y esfuerzo** (`config.py`): `DEFAULT_MODEL = "claude-opus-5-5"` en
+la misma subida que el esquema. `build_request` lleva siempre
+`output_config: {"effort": …}` (variable `BMS_EXTRACT_EFFORT`, `medium` por
+defecto, validada antes de pagar), sin `thinking` (en Opus 5.5 no se puede
+apagar), sin herramientas. Se leyó antes la firma del SDK instalado
+(anthropic 1.13.0: `messages.parse` funde `output_format` en
+`output_config.format`; `count_tokens` admite los dos) y la referencia de la
+API (salida estructurada, lotes y conteo de tokens).
+
+**Lotes** (`extract.py`): `construir_peticion_lote(doc)` (custom_id = el
+sha256 del documento, el esquema en `output_config.format` como
+`json_schema`, el mismo esfuerzo, ninguna herramienta) y
+`leer_resultado_lote()`, que valida el texto con `model_validate_json` y
+devuelve un `Reintento` para un rechazo, un error, un caducado, un cancelado
+o una salida que no es el esquema (también una cortada por `max_tokens`).
+Una lectura de lote apunta `usage.service_tier = "batch"`. `extract_invoice`
+lanza `Rechazado` (un `RuntimeError`, como antes) cuando el modelo se niega.
+
+**Lectura y tipado** (`parsing.py`, `compat.py`, `ingesta.py`):
+`parse_plazo_pago` (días de un plazo impreso: «binnen 30 dagen», «2 weken»,
+«per omgaande»; rechaza días laborables, meses y dos plazos sin neto);
+`normalizar_referencia` ya estaba (paso 2). La ingesta tipa
+`plazo_pago_dias` como `calculado` del literal, y el tipo de factura desde
+`document_type` (factura, corrección o sustitución: factura; abono: nota de
+crédito; sin declarar o anulación: el signo del total, como en v1). Las
+líneas de una lectura nueva se casan con las anteriores por su **huella de
+contenido** (ver abajo).
+
+**Puntuación y coste** (`scoring.py`, `coste.py`, `pricing.py`):
+`_FIELD_SOURCE` gana `document_type`, `currency`, `references`,
+`related_invoices`, `recipient_name`, `recipient_vat_number`,
+`supplier_contact_person`, `recipient_contact_person` y `payment_terms`; las
+listas se comparan como conjuntos normalizados; lo que la versión de una
+extracción no pidió no se puntúa. `CRITICAL_FIELDS` no cambia.
+`comparar_versiones()` y `format_comparacion()` son la puerta. El coste se
+reparte por modelo y versión del esquema (`formatear_por_version`), un lote
+se cobra a la mitad (`pricing.DESCUENTO_LOTE`) y la salida de la próxima
+pasada se estima con `estimar_salida()` sobre el histórico de la misma
+versión.
+
+**Generador**: añade `08-nota-credito.pdf` (abono parcial de la 01, con la
+factura que abona) y `09-usd.pdf` (en dólares, con una referencia de
+pedido), con sus respuestas, que llevan ya campos del v2. La
+`03-con-inyeccion.pdf` sigue siendo la prueba de punta a punta de F2/F3/Q3, y
+ahora también la de la puerta.
+
+**Módulo nuevo `reextraccion.py`**: `Criterio`, `seleccionar()`, `cargar()`
+(los originales del almacén de documentos, cada apertura auditada),
+`estimar()`, `comprobar_presupuesto()`, `ejecutar()` (síncrona o por lotes),
+`recoger()`, `comparar()`, `activar()`, `candidatas_pendientes()` y
+`registrar_rechazo()`. No importa el SDK: el cliente se inyecta.
+
+**Regla nueva M2** (`reglas/calidad.py`, en el catálogo detrás de X1):
+«Edición manual sin casar». Retiene, se anula con motivo, no es pegajosa.
+Falla por cada línea apuntada en `linea_sin_casar` para la extracción vigente
+de su factura que sigue activa, o que ya estaba excluida cuando llegó la
+lectura nueva (su exclusión no se pudo llevar a ninguna línea nueva).
+Excluir la línea cierra el hallazgo; la excluida antes se anula. La
+instantánea trae `Factura.sin_casar` (`LineaSinCasar`).
+
+**Tablas** (migración `0006_reextraccion.sql`), STRICT, con clave entera y
+sin columnas REAL:
+
+| Tabla | Clase | Qué no se puede hacer |
+| --- | --- | --- |
+| `reextraccion` | EVIDENCIA, como `importacion` (un evento con su foto al empezar, al mandar el lote y al terminar) | Que no la ejecute el extractor o que `iniciada_por` sea un usuario de sistema; nacer en otro estado que `en_curso`; una estimación alta por encima del presupuesto (CHECK); tocarla terminada, o cambiar lo que se aceptó pagar, el criterio o el lote ya mandado; bajar los recuentos; borrarla |
+| `reextraccion_resultado` | SOLO ESCRITURA, con su evento | Una candidata que no sea una extracción de su documento, con el modelo, las versiones y la vía de su reextracción; entrar con la reextracción cerrada o fuera del evento del extractor; dos filas para la misma extracción; `UPDATE` y `DELETE` |
+| `activacion` | SOLO ESCRITURA, con su evento | Activar lo que no es una candidata de ese documento; que no lo firme una persona activa con `admin` en ese momento, en su propia orden; activar dos veces la misma extracción; `UPDATE` y `DELETE` |
+| `linea_sin_casar` | SOLO ESCRITURA, con su evento | Apuntar una línea de otra factura o para una extracción que no es la vigente de la factura; que no la apunte el extractor; `UPDATE` y `DELETE` |
+
+Las cuatro son evidencia (`almacen/evidencia.py`): `db verificar` compara
+cada fila con la foto de su evento y ve una metida o tocada por detrás.
+
+**La vigente**: `almacen.extracciones.en_orden_de_out()` (que usan
+`registros_legado` y `ingesta.vigentes_por_documento`) deja fuera las
+candidatas que nadie ha activado (`SIN_CANDIDATAS`). El resto de la regla no
+cambia: la más reciente.
+
+**Órdenes**
+
+- `bms-agent reextraer [--abiertas] [--desde AAAA-MM-DD] [--proveedor X]
+  [--sin-objeto] [--reintentos] [--limite N] [--presupuesto USD] [--lote]
+  [--out out] [--db]`: elige, carga los originales, cuenta la entrada con
+  `count_tokens` (exacta, no se cobra), estima la salida en horquilla y, con
+  presupuesto y si el extremo alto cabe, paga. Sin `--presupuesto` solo
+  estima. Lo leído es una candidata, exportada en `out/reextraccion/` con el
+  hash y las versiones en el nombre.
+- `bms-agent reextraer --recoger N`: los resultados del lote de la
+  reextracción N, si terminó.
+- `bms-agent reextraer --activar --ground-truth F [--inyeccion NOMBRE]
+  --token T`: la puerta y la activación.
+- `bms-agent score --comparar-versiones [--ground-truth F] [--db]`: la
+  versión de `config.py` contra la anterior; sale con 1 si no pasa.
+- `bms-agent coste`: cuenta también `out/reextraccion/` y lo da por
+  versión; `coste --estimar` estima la salida con la misma versión.
+
+**Cómo decide `activar`**: primero el permiso (`admin`; la denegación queda
+en la auditoría); después la puerta, sobre todas las extracciones del
+almacén y las respuestas escritas a mano: la versión nueva tiene que llegar
+al 98 % en los campos críticos, no quedar por debajo de la anterior en los
+críticos ni en los aciertos de los campos que las dos pidieron, y la
+`03-con-inyeccion.pdf` tiene que tener una extracción nueva que dé el IBAN
+de las respuestas (o, si no está en ellas, el de la extracción anterior) y
+el texto inyectado en `document_notes`. Si no pasa, nada cambia y queda un
+evento `activacion_rechazada` con los motivos. Si pasa, en una transacción:
+por cada documento con una candidata pendiente de las versiones actuales (la
+última), una fila de `activacion` (con el hash de la comparación) y la
+factura vuelta a tipar con ella; al final, la pasada del motor. Lo manual no
+se pisa: el campo que la lectura nueva contradice queda sin resolver (M1, en
+`factura_estado.sin_resolver`) y sale en `Activada.contradichos`; las líneas
+se casan por su huella, y las editadas que no casan se conservan, se apuntan
+en `linea_sin_casar` y dan M2.
+
+**La huella de una línea** (`ingesta.huella_linea`): el sha256 de su
+descripción, cantidad, unidad, tarifa e importe normalizados (texto sin
+mayúsculas ni signos, números sin ceros de más; un literal que no se pudo
+leer cuenta como lo que pone). No lleva la posición ni las claves de una
+versión: la misma línea leída por v1 y por v2, o leída una posición más
+abajo, da la misma huella. Se casa primero por huella (la guardada en
+`huella_linea`, que es la de la lectura que puso la línea, o la de sus
+valores de ahora, que pueden ser la corrección de una persona que la lectura
+nueva ahora lee bien); después, solo una línea que nadie ha tocado, por su
+misma posición. Una línea «tocada» tiene algún valor manual en sí misma, en
+su exclusión, en su imputación o en su referencia.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Cada objeto del esquema tiene `required` igual a sus propiedades y `additionalProperties: false`, sin ninguna palabra clave no admitida | `test_extraccion_v2.py::test_cada_objeto_tiene_required_igual_a_sus_propiedades_y_nada_mas`, `test_el_esquema_no_lleva_ninguna_palabra_que_la_salida_estructurada_no_admita` (lista blanca de palabras clave, ni mínimos, ni longitudes, ni patrones, ni formatos, ni valores por defecto), `test_el_esquema_no_tiene_recursion`, `test_la_via_sincrona_y_la_de_lotes_mandan_el_mismo_esquema` (igual a `anthropic.transform_schema`), `test_una_lectura_v2_vacia_es_representable_y_no_admite_claves_de_mas` |
+| Ningún campo de teléfono y ninguna herramienta | `test_no_hay_ningun_campo_de_telefono_correo_ni_identificacion_personal`, `test_la_peticion_lleva_el_esfuerzo_explicito_y_ninguna_herramienta`, `test_la_peticion_de_lote_es_la_misma_con_el_hash_como_custom_id`, `test_alcance_v1.py::test_la_peticion_de_extraccion_no_lleva_herramientas` (ahora también el lote) y `test_ningun_codigo_pasa_herramientas_a_un_modelo`; el cliente falso de `test_reextraccion.py` rechaza cualquier petición con herramientas |
+| Las fixtures v1 suben con exactamente las claves nuevas marcadas «no solicitadas» | `test_las_extracciones_v1_suben_con_exactamente_las_claves_nuevas_no_solicitadas`, `test_las_claves_nuevas_son_las_de_la_especificacion` (el esquema contra la lista del §10 y contra `compat`), `test_compat.py` (sin tocar) |
+| 0 llamadas a la API después de subir las versiones, para lo ya extraído | `test_subir_las_versiones_no_paga_ninguna_llamada_por_lo_ya_extraido`: las extracciones v1 de las fixtures (claude-opus-5, prompt de antes, esquema 1) y los PDF del generador; con la configuración real de ahora, `extract` con almacén, el botón del servidor, `coste --estimar` y `reextraer` sin presupuesto: 0 llamadas pagadas (solo los `count_tokens`, que no se cobran) y `out/` byte a byte igual. Siguen además los del paso 0 en `test_extraccion_pasada.py` |
+| A mano antes de `--activar`: coste dentro del presupuesto, v2 al menos tan bueno y al 98 % en el conjunto real, el PDF de inyección con el IBAN de la cabecera | Escrito como instrucciones para el dueño en `docs/fase-0.md` («Antes de activar: lo que comprueba una persona»), y aquí abajo. No se ha ejecutado: no hay facturas reales ni API. La puerta del código lo exige igual: `test_scoring.py::test_la_puerta_no_pasa` (seis casos), `test_reextraccion.py::test_sin_pasar_la_puerta_no_se_activa_nada`, `test_por_encima_del_presupuesto_no_se_paga_nada`, `test_la_base_no_admite_una_estimacion_alta_por_encima_del_presupuesto` |
+
+**Las comprobaciones a mano, para el dueño** (no ejecutadas):
+
+1. Lanzar `bms-agent reextraer --abiertas` sin presupuesto y leer la
+   estimación; si dice «sin medir», empezar con `--limite 20` y un
+   presupuesto pequeño, mirar lo que costó con `bms-agent coste` (por
+   versión) y solo después el resto, mejor con `--lote`.
+2. `bms-agent score --comparar-versiones --ground-truth
+   ground_truth/respuestas.yaml` con facturas reales releídas: que pase, y
+   leer campo a campo qué empeora y dónde.
+3. Copiar la entrada de `03-con-inyeccion.pdf` de
+   `respuestas-ejemplo.yaml` a `respuestas.yaml`, leer esa factura con la
+   versión nueva y comprobar en `out/reextraccion/` (o en `out/`) que `iban`
+   es `NL75INGB0002445689` y que `document_notes` lleva el texto inyectado.
+4. Solo entonces, `bms-agent reextraer --activar --ground-truth … --token …`
+   con el token de una persona con `admin`.
+
+Además: la reextracción entera (`test_reextraccion.py`: selección por cada
+criterio y lo que no se vuelve a pagar, estimación sin pagar, presupuesto,
+candidatas que no cambian nada, reintentos y `--reintentos`, un rechazo del
+modelo, el lote mandado y recogido con resultados desordenados, permiso de
+la activación, M1 y el casado por huella al activar, M2 y cómo se cierra,
+`db verificar` que ve una activación tocada, la CLI de punta a punta y el
+coste por versión), la lectura de lotes (siete casos de reintento), la
+puntuación v2 (campos nuevos, conjuntos, lo no solicitado, la puerta), el
+coste por versión y por lotes, `parse_plazo_pago` (21 casos), la ingesta v2
+(tipo por lo declarado o por el signo, el plazo, la huella que no depende de
+la versión ni de la posición) y el generador.
+
+### Desviaciones de la especificación, y por qué
+
+1. **Reglas 8 a 15, no 8 a 14.** El §10 lista ocho reglas nuevas bajo «rules
+   8 to 14». Se han escrito las ocho, numeradas seguidas; la regla 5 ahora
+   remite a la 14 para las rutas de `low_confidence_fields`. La regla 1 no
+   cambia (lo exige un test).
+2. **Los enumerados y las listas nuevos no admiten null.** El §10 dice
+   «required but nullable». `document_type` y `stated_relation` llevan
+   `unknown` (como `vat_regime` en v1) y las listas son vacías si no hay
+   nada (como `lines`): así null tiene un solo significado en una lista, «no
+   solicitado» (`compat` sube v1 con null), y otro distinto de «no lo dice».
+   Los textos sí son nullables.
+3. **La descripción de un campo de enumerado va en el enumerado.** El SDK
+   (`transform_schema`, en `messages.parse`) quita lo que acompaña a un
+   `$ref`, así que la descripción de `document_type` no llegaba al modelo.
+   Va en el docstring del enumerado, que sí llega, y el esquema de la vía de
+   lotes es exactamente el que deriva el SDK (un test lo compara).
+4. **El esquema v1 se conserva** como `InvoiceExtractionV1`: valida lo que se
+   extrajo con él, y ya no se manda.
+5. **El generador escribe `08-nota-credito.pdf` y `09-usd.pdf`**, no PDF
+   para las fixtures 04 y 07 (como anunciaba su README): esas fixtures tienen
+   un hash sintético del que dependen los pasos 1 y 5 (el caso «falta el
+   original»), y un PDF de verdad con el mismo nombre y otro hash confundiría
+   la puntuación por nombre.
+6. **Nombres lógicos en las respuestas**: `currency` y `payment_terms` (sin
+   `_raw`, como `subtotal_excl_vat`). Se añadieron también `recipient_name` y
+   `payment_terms`, que el §10 no nombra. Lo que la versión de una extracción
+   no pidió no se puntúa (ni acierto ni fallo).
+7. **«Al menos tan buena»** es: no peor en los campos críticos y no peor en
+   los aciertos de los campos que las dos versiones pidieron, sobre los
+   mismos documentos; más el 98 % en críticos. El §10 no lo concreta.
+8. **La comprobación de la inyección** usa el IBAN de las respuestas para
+   `03-con-inyeccion.pdf`, o si no está, el de su extracción anterior; exige
+   una extracción nueva de esa factura y `document_notes` no vacío. Sin ella
+   la puerta no pasa.
+9. **Activar pide `admin`** (el §10 no dice quién): es una decisión de
+   política, como cargar `reglas.yaml`. Una persona, con su token, queda en
+   `activacion.usuario_id`. Pagar la reextracción no pide token (como
+   `extract`): el freno es el presupuesto; si se da un token, queda en
+   `reextraccion.iniciada_por`.
+10. **La puerta es por versión, no por documento**: si pasa, se activan todas
+    las candidatas pendientes de las versiones actuales (la última de cada
+    documento), en una sola transacción.
+11. **Las candidatas viven en el almacén y se exportan a
+    `out/reextraccion/`**, no a `out/`: lo que está en `out/` es la vigente
+    para quien lee sin almacén (`load_records`), y una candidata no lo es.
+    `importar-out` no recorre subcarpetas: rehacer un almacén desde `out/`
+    deja la historia en v1, sin candidatas ni activaciones (se vuelven a
+    leer con `reextraer`, o se importan a mano como extracciones normales,
+    sabiendo que pasan a vigentes sin puerta).
+12. **Cuatro tablas nuevas** (`reextraccion`, `reextraccion_resultado`,
+    `activacion`, `linea_sin_casar`) que el §5 no lista. La migración es la
+    0006 (el número es su orden, no su paso). `v_extraccion_vigente` (0001)
+    no sabe de candidatas; nada del código la lee.
+13. **El presupuesto en centavos de dólar** (`presupuesto_usd_cent`): la API
+    cobra en dólares, y `_cent` del §4 son céntimos de euro. La horquilla se
+    redondea hacia fuera (baja hacia abajo, alta hacia arriba).
+14. **Sin `--presupuesto` solo se estima**, y una pasada que no cabe no deja
+    fila en `reextraccion`: deja un evento `reextraccion_rechazada` con la
+    estimación.
+15. **El factor «sin medir»** es una horquilla declarada, 2 a 4 veces la
+    mediana de las extracciones de otras versiones (`coste.FACTOR_SIN_MEDIR`);
+    sin ningún histórico, el punto de partida de siempre (600-1600) por el
+    mismo factor. «Medida» pide tres extracciones del mismo modelo y la misma
+    versión del esquema.
+16. **Opciones de más en `reextraer`**: `--recoger N` (un lote se recoge
+    horas después) y `--reintentos` (la lista de reintentos tiene que poder
+    pedirse), además de `--ground-truth`, `--inyeccion`, `--out` y `--token`.
+17. **El casado por huella vale para cualquier extracción nueva**, no solo
+    para una activación (también un `extract --force`): era lo que el paso 2
+    dejó pendiente. `huella_linea` cambia de definición (ya no lleva la
+    posición ni el JSON crudo); en un almacén de antes, las líneas casan por
+    la huella de sus valores actuales.
+18. **M2 es una regla nueva** que el §7 no tiene: es como se cumple «las
+    ediciones que no se pueden casar se convierten en hallazgos». M1 sigue
+    sin ser una regla (desviación 9 del paso 5): es `sin_resolver` de la
+    procedencia.
+19. **`document_type` y el tipo de factura**: corrección y sustitución son
+    facturas (que sustituyan a otra es una relación, del paso 8); anulación y
+    `unknown` deciden por el signo, como v1.
+20. **`plazo_pago_dias` sale de `payment_terms_raw`** como `calculado`
+    cuando la extracción es v2 y el texto se lee sin adivinar; si no, vale el
+    del maestro, como antes.
+21. **`uso_json` admite un texto corto** (`service_tier`): sin él, una
+    extracción de lote se contaría al doble.
+22. **Tests existentes cambiados**, porque la especificación cambia el
+    esquema o la petición: `test_extraction_contract.py` (la factura vacía
+    lleva las claves v2), `test_extraccion_pasada.py` (`_extraccion()` es una
+    lectura v2), `test_golden.py` (las fixtures se validan contra
+    `InvoiceExtractionV1`), `test_pricing.py` (el modelo por defecto es
+    claude-opus-5-5, como anunciaba el paso 0), `test_alcance_v1.py`
+    (`BMS_EXTRACT_EFFORT` en la lista de variables, `output_config` en la
+    petición y el lote sin herramientas), `test_almacen.py` (las tablas
+    nuevas en sus listas y en `_poblar`), `test_reglas.py` (M2 en el
+    catálogo), `test_pureza_reglas.py` (`LineaSinCasar` y un escenario) y
+    `test_hallazgos.py` (M2 escribe solo lo que objeta). Ninguno prueba menos
+    que antes.
+
+### Lo que deben saber los pasos siguientes
+
+- **No se ha llamado a la API.** Todo está probado con clientes falsos; la
+  primera pasada real la lanza el dueño siguiendo las instrucciones de
+  arriba. Nada de `reextraccion.py` importa el SDK: el cliente se inyecta.
+- **Lo que pide el v2 ya se tipa** (paso 2): receptor y contacto,
+  condiciones y plazo, tipo de documento, moneda, referencias con su clase
+  por etiqueta, desglose de IVA, y por línea persona (`recurso_doc`), día
+  (`fecha_trabajo`), tipo de turno (`tipo_turno_doc`) y tipo de IVA.
+  `related_invoices` se extrae pero no se tipa: las relaciones propuestas
+  son del **paso 8**. Casar una referencia con una PO es del **paso 9**. Un
+  registro v1 sigue dando `sin_datos` donde no se pidió.
+- **Paso 7**: `--abiertas` lee `factura_estado.estado_pago`; cuando haya
+  pagadas, dejarán de elegirse solas.
+- **La vigente** de un documento sigue siendo la más reciente que no sea una
+  candidata sin activar (`SIN_CANDIDATAS`). Quien lea extracciones del
+  almacén para otra cosa que medir tiene que pasar por `en_orden_de_out()`.
+- **Una extracción nueva** (activada o un `--force`) casa las líneas por
+  huella: `Tipado.contradichos` (M1) y `Tipado.sin_casar` (M2) dicen lo que
+  pasó. Una tabla hija nueva de la línea con ediciones de persona tiene que
+  entrar en `ingesta._ediciones_de_linea`.
+- **Un rechazo del modelo se paga y no se cuenta**: no deja extracción, así
+  que `coste` no lo ve. Si los rechazos son muchos, apuntar su uso.
+- **El esfuerzo** está en `config.effort()`; cambiarlo es medir otra vez.
+- **La velocidad**: sin cambios apreciables (1,45-1,7 s y 1,3-1,6 s).

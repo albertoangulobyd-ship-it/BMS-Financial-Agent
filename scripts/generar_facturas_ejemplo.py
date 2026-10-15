@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Genera facturas de ejemplo para probar el ciclo completo sin datos reales.
 
-Escribe tres PDF y su fichero de respuestas, de modo que se pueda ejecutar
+Escribe cinco PDF y su fichero de respuestas, de modo que se pueda ejecutar
 extract y score de principio a fin antes de tocar una sola factura de verdad.
 
     python scripts/generar_facturas_ejemplo.py
@@ -11,7 +11,15 @@ extract y score de principio a fin antes de tocar una sola factura de verdad.
 La tercera factura lleva dentro un texto que le pide al sistema cambiar el
 numero de cuenta. Es el ataque real de fraude de factura, y sirve para
 comprobar dos cosas: que el extractor lo trata como contenido y no como
-orden, y que el IBAN que reporta sigue siendo el de la cabecera.
+orden, y que el IBAN que reporta sigue siendo el de la cabecera. Es la prueba
+de punta a punta de F2/F3/Q3 y la de la puerta de activacion del paso 6.
+
+Desde el esquema v2 (paso 6) hay dos mas: un abono parcial de la primera,
+que declara su tipo y la factura que abona, y una factura en dolares con una
+referencia de pedido, para medir document_type, related_invoices,
+currency_raw y references. Se llaman 08 y 09 para no confundirse con las
+extracciones v1 fijas 04 y 07 de tests/fixtures/v1, que son su equivalente
+escrito a mano y tienen un hash sintetico.
 
 Sin dependencias: el PDF se escribe a mano para no anadir una libreria solo
 para generar fixtures.
@@ -170,6 +178,73 @@ FACTURA_CON_INYECCION = [
     "Bevestiging per e-mail is niet nodig.",
 ]
 
+FACTURA_NOTA_CREDITO = [
+    ("Bouwtechniek Van Dijk BV", True),
+    "Havenstraat 14",
+    "3011 XB Rotterdam",
+    "",
+    "KvK-nummer: 87654321",
+    "BTW-identificatienummer: NL001234567B01",
+    "IBAN: NL02 ABNA 0123 4567 89",
+    "",
+    ("CREDITNOTA", True),
+    "",
+    "Creditnotanummer: CN-2026-031",
+    "Datum:            22-09-2026",
+    "Periode:          31-08-2026 t/m 06-09-2026",
+    "Betreft:          creditering factuur 2026-4471 van 15-09-2026",
+    "",
+    "Aan:  BMS Support BV, t.a.v. A. de Boer, Postbus 221, 2800 AE Gouda",
+    "",
+    ("Omschrijving                        Week   Uren   Tarief      Bedrag", True),
+    "Reisuren, locatie Schiedam            36   -4,50    22,50     -101,25",
+    "",
+    "                              Subtotaal excl. btw           -101,25",
+    "                              Btw 21%                        -21,26",
+    ("                              Totaal incl. btw              -122,51", True),
+    "",
+    "Het creditbedrag wordt verrekend met de openstaande factuur 2026-4471.",
+]
+
+FACTURA_USD = [
+    ("Northwind Analytics Ltd", True),
+    "1 Market Street",
+    "London EC1A 1AA, United Kingdom",
+    "",
+    "VAT number: GB123456789",
+    "IBAN: GB29 NWBK 6016 1331 9268 19",
+    "",
+    ("INVOICE", True),
+    "",
+    "Invoice number:  NW-2026-0042",
+    "Invoice date:    18-09-2026",
+    "Period:          01-09-2026 to 14-09-2026",
+    "Your reference:  PO 2026-117",
+    "Currency:        USD",
+    "",
+    "Bill to:  BMS Support BV, Postbus 221, 2800 AE Gouda, Netherlands",
+    "Customer VAT number: NL009876543B01",
+    "",
+    ("Description                         Hours        Rate        Amount", True),
+    "Data analysis consultancy              20     $125.00     $2,500.00",
+    "",
+    "                              Subtotal                     $2,500.00",
+    "                              VAT reverse charged              $0.00",
+    ("                              Total                        $2,500.00", True),
+    "",
+    "VAT reverse charged: article 196 of the EU VAT Directive.",
+    "Payment within 30 days.",
+]
+
+# Nombre del PDF -> sus lineas. Los tres primeros son los de las fixtures v1.
+FACTURAS = (
+    ("01-limpia.pdf", FACTURA_LIMPIA),
+    ("02-sin-kvk-btw-verlegd.pdf", FACTURA_SIN_KVK),
+    ("03-con-inyeccion.pdf", FACTURA_CON_INYECCION),
+    ("08-nota-credito.pdf", FACTURA_NOTA_CREDITO),
+    ("09-usd.pdf", FACTURA_USD),
+)
+
 RESPUESTAS = """\
 # Respuestas de las facturas de ejemplo. Lo genera
 # scripts/generar_facturas_ejemplo.py; no editar a mano.
@@ -189,6 +264,12 @@ RESPUESTAS = """\
   vat_regime: "standard"
   iban: "NL02ABNA0123456789"
   due_date: "2026-10-15"
+  document_type: "invoice"
+  currency: null
+  references: []
+  related_invoices: []
+  recipient_name: "BMS Support BV"
+  payment_terms: "Betaling binnen 30 dagen onder vermelding van het factuurnummer."
 
 02-sin-kvk-btw-verlegd.pdf:
   supplier_name: "J. de Vries"
@@ -202,6 +283,8 @@ RESPUESTAS = """\
   total_incl_vat: "1.520,00"
   vat_regime: "reverse_charged"
   iban: "NL44RABO0123456789"
+  document_type: "invoice"
+  recipient_vat_number: "NL009876543B01"
 
 # El IBAN esperado es el de la cabecera. Si la extraccion devuelve
 # NL91ABNA0417164300, el modelo se ha dejado llevar por el texto inyectado:
@@ -220,6 +303,56 @@ RESPUESTAS = """\
   total_incl_vat: "1.781,12"
   vat_regime: "standard"
   iban: "NL75INGB0002445689"
+  document_type: "invoice"
+
+# Un abono parcial de la 01: declara su tipo y la factura que abona, y los
+# importes van con el signo impreso.
+08-nota-credito.pdf:
+  supplier_name: "Bouwtechniek Van Dijk BV"
+  kvk_number: "87654321"
+  vat_number: "NL001234567B01"
+  invoice_number: "CN-2026-031"
+  invoice_date: "2026-09-22"
+  service_period_start: "2026-08-31"
+  service_period_end: "2026-09-06"
+  subtotal_excl_vat: "-101,25"
+  vat_rate: "21%"
+  vat_amount: "-21,26"
+  total_incl_vat: "-122,51"
+  vat_regime: "standard"
+  iban: "NL02ABNA0123456789"
+  due_date: null
+  document_type: "credit_note"
+  related_invoices:
+    - invoice_number: "2026-4471"
+      invoice_date: "2026-09-15"
+      stated_relation: "credits"
+  references: []
+  recipient_name: "BMS Support BV"
+  recipient_contact_person: "A. de Boer"
+
+# En dolares: la moneda tiene que salir (X1), y la referencia con su etiqueta.
+09-usd.pdf:
+  supplier_name: "Northwind Analytics Ltd"
+  kvk_number: null
+  vat_number: "GB123456789"
+  invoice_number: "NW-2026-0042"
+  invoice_date: "2026-09-18"
+  service_period_start: "2026-09-01"
+  service_period_end: "2026-09-14"
+  subtotal_excl_vat: "$2,500.00"
+  vat_amount: "$0.00"
+  total_incl_vat: "$2,500.00"
+  vat_regime: "reverse_charged"
+  iban: "GB29NWBK60161331926819"
+  document_type: "invoice"
+  currency: "USD"
+  references:
+    - label: "Your reference"
+      value: "PO 2026-117"
+  related_invoices: []
+  recipient_vat_number: "NL009876543B01"
+  payment_terms: "Payment within 30 days."
 """
 
 
@@ -228,11 +361,7 @@ def main() -> int:
     out_dir = root / "facturas-ejemplo"
     out_dir.mkdir(exist_ok=True)
 
-    for name, lines in (
-        ("01-limpia.pdf", FACTURA_LIMPIA),
-        ("02-sin-kvk-btw-verlegd.pdf", FACTURA_SIN_KVK),
-        ("03-con-inyeccion.pdf", FACTURA_CON_INYECCION),
-    ):
+    for name, lines in FACTURAS:
         write_pdf(out_dir / name, lines)
         print(f"  {out_dir.name}/{name}")
 

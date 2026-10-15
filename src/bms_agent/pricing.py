@@ -34,11 +34,15 @@ PRICES: dict[str, tuple[str, str]] = {
 
 _MILLION = Decimal(1_000_000)
 
+# La API de Batches cobra la mitad, entrada y salida (referencia consultada
+# el 2026-10-06). Una extraccion de lote lo dice en usage.service_tier.
+DESCUENTO_LOTE = Decimal("0.5")
+
 
 def estimate_cost(
-    model: str, input_tokens: int, output_tokens: int
+    model: str, input_tokens: int, output_tokens: int, *, lote: bool = False,
 ) -> Decimal | None:
-    """Coste en dolares, o None si el modelo no esta en la tabla."""
+    """Coste en dolares, o None si el modelo no esta en la tabla. `lote`: a mitad de precio."""
     rates = PRICES.get(model)
     if rates is None:
         return None
@@ -46,6 +50,8 @@ def estimate_cost(
     cost = (
         Decimal(input_tokens) * rate_in + Decimal(output_tokens) * rate_out
     ) / _MILLION
+    if lote:
+        cost *= DESCUENTO_LOTE
     return cost.quantize(Decimal("0.000001"))
 
 

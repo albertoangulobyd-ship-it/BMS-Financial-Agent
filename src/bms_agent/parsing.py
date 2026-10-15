@@ -25,6 +25,7 @@ __all__ = [
     "parse_importe",
     "parse_iso_date",
     "parse_percentage",
+    "parse_plazo_pago",
 ]
 
 
@@ -297,3 +298,66 @@ def normalizar_referencia(raw: str | None) -> str | None:
         return None
     texto = _SEPARADORES_REFERENCIA.sub("", str(raw)).upper()
     return texto or None
+
+
+# Un plazo de pago impreso: "binnen 30 dagen", "30 dgn netto", "within 14 days",
+# "2 weken". Los dias laborables y los meses no se convierten: dependen del
+# calendario, y un plazo adivinado mueve un vencimiento.
+_PLAZO_DIAS = re.compile(
+    r"(?<![\d,.])(\d{1,3})\s*(?:kalender\s*)?(?:dagen|dag|dgn|days|day|d)(?![a-z])", re.IGNORECASE)
+_PLAZO_SEMANAS = re.compile(r"(?<![\d,.])(\d{1,2})\s*(?:weken|week|weeks|wk)(?![a-z])",
+                            re.IGNORECASE)
+# "8 of 14 dagen", "30-60 days": dos plazos que comparten la unidad.
+_PLAZO_ALTERNATIVA = re.compile(
+    r"(?<![\d,.])(\d{1,3})\s*(?:of|en|tot|or|to|-|\u2013)\s*\d{1,3}\s*"
+    r"(?:kalender\s*)?(?:dagen|dag|dgn|days|day|d|weken|week|weeks|wk)(?![a-z])", re.IGNORECASE)
+_PLAZO_LABORABLES = re.compile(r"werkdag|working\s*day|business\s*day", re.IGNORECASE)
+_PLAZO_MESES = re.compile(r"(?<![a-z])(?:maand|maanden|month|months)(?![a-z])", re.IGNORECASE)
+_PLAZO_NETO = re.compile(r"(?:netto|net)\s*(\d{1,3})|(\d{1,3})\s*(?:dagen|dgn|days)?\s*(?:netto|net)(?![a-z])",
+                         re.IGNORECASE)
+_PLAZO_INMEDIATO = re.compile(
+    r"per\s*omgaande|contant|bij\s*ontvangst|direct\s*(?:te\s*)?betal|immediately|upon\s*receipt|"
+    r"on\s*receipt|due\s*on\s*receipt", re.IGNORECASE)
+_PLAZO_NUMERO_SUELTO = re.compile(r"^\s*(?:netto\s*|net\s*)?(\d{1,3})\s*(?:netto|net)?\s*$",
+                                  re.IGNORECASE)
+
+
+def parse_plazo_pago(raw: str | None) -> int:
+    """Los dias de un plazo de pago impreso (payment_terms_raw, v2).
+
+    "Betaling binnen 30 dagen" son 30; "2 weken", 14; "per omgaande" o
+    "contant", 0. Si el texto da dos plazos distintos (un descuento por
+    pronto pago y el neto), vale el que dice "netto"; si ninguno lo dice, no
+    se elige. Los dias laborables y los meses se rechazan en vez de
+    convertirse: un mes no tiene un numero fijo de dias, y un dia laborable
+    depende de festivos que aqui no se saben.
+
+    El vencimiento que se calcula con esto es "calculado" (spec §10): el
+    modelo nunca lo calcula, y el impreso, si lo hay, manda.
+    """
+    if raw is None:
+        raise ParseError("plazo vacio")
+    texto = _SPACES.sub(" ", str(raw)).strip()
+    if not texto:
+        raise ParseError("plazo vacio")
+    if _PLAZO_LABORABLES.search(texto):
+        raise ParseError(f"plazo en dias laborables, no se convierte: {raw!r}")
+
+    plazos = {int(m.group(1)) for m in _PLAZO_DIAS.finditer(texto)}
+    plazos |= {int(m.group(1)) * 7 for m in _PLAZO_SEMANAS.finditer(texto)}
+    # "8 of 14 dagen" lleva un plazo sin unidad propia; con el, ya no hay uno solo.
+    alternativa = _PLAZO_ALTERNATIVA.search(texto) is not None
+    if not plazos and (m := _PLAZO_NUMERO_SUELTO.match(texto)):
+        plazos = {int(m.group(1))}
+    if not plazos:
+        if _PLAZO_MESES.search(texto):
+            raise ParseError(f"plazo en meses, no se convierte: {raw!r}")
+        if _PLAZO_INMEDIATO.search(texto):
+            return 0
+        raise ParseError(f"plazo no interpretable: {raw!r}")
+    if len(plazos) == 1 and not alternativa:
+        return plazos.pop()
+    netos = {int(m.group(1) or m.group(2)) for m in _PLAZO_NETO.finditer(texto)}
+    if len(netos) == 1 and netos <= plazos:
+        return netos.pop()
+    raise ParseError(f"el texto da varios plazos y ninguno es el neto: {raw!r}")

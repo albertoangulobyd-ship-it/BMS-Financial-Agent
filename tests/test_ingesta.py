@@ -554,3 +554,87 @@ def test_importar_out_es_una_sola_transaccion(tmp_path, out_v1, monkeypatch) -> 
         conn = almacen.conn
         assert conn.execute("SELECT count(*) FROM extraccion").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM factura").fetchone()[0] == 0
+
+
+# ------------------------------------------------------------ paso 6
+
+
+@pytest.mark.parametrize("declarado, tipo, fuente", [
+    ("invoice", "factura", "extraccion"),
+    ("corrected_invoice", "factura", "extraccion"),
+    ("replacement_invoice", "factura", "extraccion"),
+    ("credit_note", "nota_credito", "extraccion"),
+    ("unknown", "nota_credito", "calculado"),       # no lo declara: decide el signo
+    ("cancellation", "nota_credito", "calculado"),
+])
+def test_el_tipo_lo_decide_lo_que_declara_el_documento_o_el_signo(almacen, declarado, tipo,
+                                                                    fuente) -> None:
+    registro = _v2("d" * 64, "2026-10-01T08:00:00+00:00", [], [])
+    registro["extraction"].update(document_type=declarado, total_incl_vat_raw="-122,51",
+                                  subtotal_excl_vat_raw="-101,25", vat_amount_raw="-21,26")
+    documento = _documento_por_ruta(almacen, "entrante", registro)
+    [tipado] = [t for t in ingesta.tipar_pendientes(almacen.conn) if t.documento_id == documento]
+    procedencia = _p(almacen.conn, "factura", tipado.factura_id, "tipo")
+    assert (procedencia["valor_actual"], procedencia["fuente"]) == (tipo, fuente)
+
+
+def test_el_plazo_de_pago_lo_calcula_el_codigo_del_literal(almacen) -> None:
+    conn = almacen.conn
+    registro = _v2("e" * 64, "2026-10-01T08:00:00+00:00", [], [])
+    registro["extraction"]["payment_terms_raw"] = "Betaling binnen 14 dagen"
+    documento = _documento_por_ruta(almacen, "entrante", registro)
+    ilegible = _v2("f" * 64, "2026-10-01T08:00:00+00:00", [], [])
+    ilegible["extraction"]["payment_terms_raw"] = "binnen 10 werkdagen"
+    otro = _documento_por_ruta(almacen, "entrante", ilegible)
+    tipados = {t.documento_id: t for t in ingesta.tipar_pendientes(conn)}
+    plazo = _p(conn, "factura", tipados[documento].factura_id, "plazo_pago_dias")
+    assert (plazo["valor_actual"], plazo["fuente"], plazo["fuente_ref"]) == (
+        14, "calculado", "condiciones_pago_doc")
+    assert campos.leer(conn, "factura", tipados[otro].factura_id)["plazo_pago_dias"] is None
+    # Una v1 no trae condiciones: no escribe ningun plazo (vale el del maestro).
+    v1 = _documento_por_ruta(almacen, "entrante", _registro("02-sin-kvk-btw-verlegd",
+                                                            source_sha256="9" * 64))
+    [t] = [t for t in ingesta.tipar_pendientes(conn) if t.documento_id == v1]
+    assert "plazo_pago_dias" not in campos.procedencia(conn, "factura", t.factura_id)
+
+
+def test_la_huella_de_una_linea_no_depende_de_la_version_ni_de_la_posicion(almacen) -> None:
+    from bms_agent.ingesta import huella_de_fila
+
+    conn = almacen.conn
+    documento = _documento_por_ruta(almacen, "entrante",
+                                    _v2("a" * 64, "2026-10-01T08:00:00+00:00", [], []))
+    ingesta.tipar_pendientes(conn)
+    v1 = _documento_por_ruta(almacen, "entrante", _registro("01-limpia", source_sha256="b" * 64))
+    ingesta.tipar_pendientes(conn)
+    huellas = [[l["huella_linea"] for l in _lineas(conn, f)] for f in (
+        conn.execute("SELECT id FROM factura WHERE documento_id = ?", (d,)).fetchone()[0]
+        for d in (documento, v1))]
+    assert huellas[0] == huellas[1] and len(set(huellas[0])) == 3
+    # La de los valores de ahora es la misma mientras nadie los corrija.
+    f = conn.execute("SELECT id FROM factura WHERE documento_id = ?", (v1,)).fetchone()[0]
+    assert [huella_de_fila(l) for l in _lineas(conn, f)] == huellas[1]
+
+
+def test_una_lectura_nueva_con_una_linea_de_mas_delante_no_corre_las_ediciones(almacen) -> None:
+    conn = almacen.conn
+    ana = persona(conn, "Ana", "administracion")
+    documento = _documento_por_ruta(almacen, "entrante",
+                                    _v2("c" * 64, "2026-10-01T08:00:00+00:00", [], []))
+    [tipado] = ingesta.tipar_pendientes(conn)
+    segunda = _lineas(conn, tipado.factura_id)[1]["id"]
+    campos.fijar(conn, "factura_linea", segunda, {"objeto_doc": "Schiedam-Oost"},
+                 Persona(ana, "es la obra de Oost"))
+    nueva = _v2("c" * 64, "2026-10-02T08:00:00+00:00", [], [])
+    extra = dict(nueva["extraction"]["lines"][0], description="Toeslag", line_total_raw="9,00",
+                 quantity_raw="1", unit_rate_raw="9,00")
+    nueva["extraction"]["lines"].insert(0, extra)
+    _otra_extraccion(almacen, documento, nueva)
+    [actualizada] = ingesta.tipar_pendientes(conn)
+    # La edicion sigue en su linea, y la lectura nueva la sigue contradiciendo (M1).
+    assert actualizada.sin_casar == ()
+    assert actualizada.contradichos == (f"factura_linea:{segunda}:objeto_doc",)
+    lineas = {l["id"]: l for l in _lineas(conn, tipado.factura_id)}
+    assert len(lineas) == 4 and lineas[segunda]["objeto_doc"] == "Schiedam-Oost"
+    assert lineas[segunda]["descripcion_doc"] == "Montagewerk, locatie Schiedam"
+    assert campos.verificar_controladas(conn) == []

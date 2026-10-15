@@ -88,7 +88,9 @@ evalúa sobre el almacén Q1 (campos obligatorios), X1, B2, B3, B4, D1, D2,
 D2b, D3, D4, E3, E4, F1 y G3 contra el histórico (sin tarifa pactada ni
 planning). Desde el paso 5, con los maestros importados y el registro de
 cuentas: Q2, Q3, Q4, Z1, Z2, A0, A2, A5, A7, A8, E1, E2, U1, F0, F2, F3,
-F4, F5, F6, F8 y F9 (y X1 también sobre las importaciones). Su metadato
+F4, F5, F6, F8 y F9 (y X1 también sobre las importaciones). Desde el paso
+6, M2: la edición manual de una línea que una extracción nueva no trae (ver
+la sección X). Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -169,12 +171,27 @@ por eso mismo nunca bloquea: avisa.
 | X1 | Los importes están en euros: ninguno lleva otra moneda (`$`, `£`, `USD`…) | extracción | Bloqueo; la factura queda fuera de todos los totales |
 
 **X1 existe porque antes el símbolo del dólar se quitaba igual que el del
-euro**, y una factura en dólares sumaba como si estuviera en euros. Con el
-esquema actual, que no pide la moneda, se mira el literal de cada importe,
-pero la decisión es de la factura entera: un modelo copia el `$` en unos
-campos y lo pierde en otros, y el importe que lo perdió no son euros. Si
+euro**, y una factura en dólares sumaba como si estuviera en euros. Desde el
+esquema v2 la extracción trae la moneda impresa (`currency_raw`) y manda
+ella; con una extracción v1, que no la pedía, se mira el literal de cada
+importe, pero la decisión es de la factura entera: un modelo copia el `$` en
+unos campos y lo pierde en otros, y el importe que lo perdió no son euros. Si
 ningún importe se puede leer y ninguno lleva marcador, X1 queda sin datos en
 vez de dar por buenos unos euros que nadie ha visto.
+
+### M · Lo que una persona cambió
+
+| ID | Comprobación | Fuente | Resultado |
+| --- | --- | --- | --- |
+| M1 | Un valor manual distinto del último valor automático, sin verificar | procedencia | Atención (campo sin resolver); no es una regla del catálogo, sale de la procedencia de cada campo |
+| M2 | Una línea que una persona editó o excluyó no aparece en la extracción vigente: no se pudo casar por su huella con ninguna línea nueva | procedencia, extracción | Retención; se anula con motivo o se cierra excluyendo la línea |
+
+**M2 existe porque una lectura nueva no puede llevarse por delante lo que
+escribió una persona.** Al activar una reextracción (paso 6), las ediciones
+de cada línea van a la línea nueva que dice lo mismo (descripción,
+cantidad, unidad, tarifa e importe), no a la que está en la misma posición.
+Si no hay ninguna, la línea se conserva tal cual con su edición, y M2 lo
+dice para que una persona decida.
 
 ### E · Régimen de IVA
 

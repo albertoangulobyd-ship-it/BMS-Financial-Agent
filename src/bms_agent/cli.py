@@ -21,6 +21,7 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent importar F T FICH   importa un maestro (Exact, una hoja CSV) con su mapeo
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
+    bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -38,7 +39,11 @@ crea una factura, paga, aprueba un pago ni presenta el BTW.
 
 `extract` conserva por defecto lo ya leido: un PDF con cualquier extraccion
 guardada no vuelve a la API aunque cambie el modelo o la version. Para medir
-un modelo o un prompt nuevo hace falta pedirlo con --estricta.
+un modelo o un prompt nuevo hace falta pedirlo con --estricta. Volver a leer
+lo ya leido con la version nueva es `reextraer`: cuenta antes de pagar, se
+niega si la estimacion alta pasa del presupuesto, y lo que lee no es vigente
+hasta `reextraer --activar`, que exige pasar la puerta de
+`score --comparar-versiones`.
 
 El almacen esta en datos/bms.sqlite3, o donde diga --db o la variable BMS_DB;
 los originales, en la carpeta documentos/ de al lado, y las anclas de la
@@ -63,7 +68,7 @@ from .panel import escribir_panel
 from .report import build_report, load_records, render_html
 from .pricing import format_cost_summary
 from .schema import InvoiceExtraction
-from .scoring import Report, load_ground_truth, score_document, format_report
+from .scoring import INYECCION, Report, load_ground_truth, score_document, format_report
 
 
 def _cmd_schema(args: argparse.Namespace) -> int:
@@ -242,11 +247,39 @@ def _cmd_recalcular(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registros_para_comparar(args: argparse.Namespace) -> tuple[list[dict], str]:
+    """Todas las extracciones (tambien las candidatas), del almacen si lo hay; si no, de out/."""
+    from .reextraccion import CARPETA_EXPORTACION
+
+    ruta = _ruta_db(args.db)
+    if not args.out_explicito and ruta.exists():
+        with _abrir_almacen(args.db) as almacen:
+            registros = [json.loads(f[0]) for f in almacen.conn.execute(
+                "SELECT contenido_json FROM extraccion ORDER BY id")]
+        return registros, f"el almacen {ruta}"
+    out = Path(args.out)
+    return (load_records(out, todas=True) + load_records(out / CARPETA_EXPORTACION, todas=True),
+            f"{out}/ y {out / CARPETA_EXPORTACION}/")
+
+
 def _cmd_score(args: argparse.Namespace) -> int:
+    args.out_explicito = args.out is not None
+    args.out = args.out or "out"
     truth = load_ground_truth(args.ground_truth)
     if not truth:
         print(f"{args.ground_truth} esta vacio", file=sys.stderr)
         return 1
+
+    if args.comparar_versiones:
+        from .reextraccion import objetivo_actual
+        from .scoring import comparar_versiones, format_comparacion
+
+        registros, origen = _registros_para_comparar(args)
+        comparacion = comparar_versiones(truth, registros, objetivo_actual(),
+                                         inyeccion=args.inyeccion)
+        print(f"Extracciones de {origen}\n")
+        print(format_comparacion(comparacion))
+        return 0 if comparacion.aprobada else 1
 
     # Una extraccion por documento, la vigente: si hay varias versiones del
     # mismo PDF, se puntua la mas reciente, que es la que se acaba de medir.
@@ -382,16 +415,23 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_coste(args: argparse.Namespace) -> int:
     from .coste import (
-        Estimacion, agrupar_en_pasadas, contar_entrada, formatear_estimacion,
-        formatear_gastado, formatear_pasadas, formatear_relanzar,
-        horquilla_de_salida, leer_documentos,
+        Estimacion, agrupar_en_pasadas, contar_entrada, estimar_salida, formatear_estimacion,
+        formatear_gastado, formatear_pasadas, formatear_por_version, formatear_relanzar,
+        leer_documentos,
     )
+    from .reextraccion import CARPETA_EXPORTACION
 
     # Lo gastado cuenta cada extraccion pagada, tambien las que ya no son la
-    # vigente de su documento. Lo que costaria relanzar va por documento.
-    documentos = leer_documentos(load_records(args.out, todas=True))
+    # vigente de su documento y las de `reextraer` (que se exportan aparte,
+    # en out/reextraccion/). Lo que costaria relanzar va por documento.
+    documentos = leer_documentos(load_records(args.out, todas=True)
+                                 + load_records(Path(args.out) / CARPETA_EXPORTACION, todas=True))
     print(formatear_gastado(documentos))
     if documentos:
+        por_version = formatear_por_version(documentos)
+        if por_version:
+            print()
+            print(por_version)
         print()
         print(formatear_pasadas(agrupar_en_pasadas(documentos)))
         print()
@@ -418,7 +458,7 @@ def _cmd_coste(args: argparse.Namespace) -> int:
     model = config.model_id()
     politica = ESTRICTA if args.estricta else CONSERVAR
     indice = indexar(args.out)
-    bajo, alto, medida = horquilla_de_salida(documentos)
+    salida = estimar_salida(documentos, modelo=model, esquema=config.SCHEMA_VERSION)
 
     en_cache = entrada = nuevos = 0
     for path in pdfs:
@@ -439,7 +479,8 @@ def _cmd_coste(args: argparse.Namespace) -> int:
     print()
     print(formatear_estimacion(Estimacion(
         modelo=model, en_cache=en_cache, nuevos=nuevos, entrada=entrada,
-        salida_baja=bajo * nuevos, salida_alta=alto * nuevos, salida_medida=medida,
+        salida_baja=salida.bajo * nuevos, salida_alta=salida.alto * nuevos,
+        salida_medida=salida.medida, origen_salida=salida.origen,
     )))
     return 0
 
@@ -965,6 +1006,174 @@ def _persona_con_token(almacen, args, accion: str) -> int | None:
     return usuario_id
 
 
+_ETIQUETAS_REEXTRACCION = {"candidata": "leida", "reintento": "REINTENTO", "lote": "lote"}
+
+
+def _imprimir_reextraccion(tipo: str, nombre: str, detalle: str) -> None:
+    print(f"  {_ETIQUETAS_REEXTRACCION.get(tipo, tipo):<10} {nombre}: {detalle}")
+
+
+def _imprimir_resultado_reextraccion(r) -> None:
+    if r.sin_terminar:
+        print(f"Reextraccion {r.reextraccion_id}: el lote {r.lote_id} no ha terminado; "
+              "vuelve a probar mas tarde")
+        return
+    if r.estado == "esperando_lote":
+        print(f"Reextraccion {r.reextraccion_id}: lote {r.lote_id} enviado. Cuando termine "
+              f"(horas): bms-agent reextraer --recoger {r.reextraccion_id}")
+        return
+    print(f"Reextraccion {r.reextraccion_id}: {len(r.candidatas)} candidatas, "
+          f"{len(r.reintentos)} para reintentar (--reintentos)")
+    for documento_id, motivo, detalle in r.reintentos:
+        print(f"  reintento documento {documento_id}: {motivo} {detalle}".rstrip())
+    if r.candidatas:
+        print("Las candidatas NO son vigentes: nada cambia en las facturas hasta "
+              "`bms-agent reextraer --activar`, que pasa la puerta de "
+              "`score --comparar-versiones`.")
+
+
+def _cmd_reextraer(args: argparse.Namespace) -> int:
+    """Vuelve a leer documentos ya leidos con la version de config.py (spec §10).
+
+    Cuenta antes de pagar, se niega si la estimacion alta pasa del
+    presupuesto, y sin --presupuesto solo estima. Lo leido queda como
+    candidata; --activar la hace vigente solo si pasa la puerta.
+    """
+    from datetime import date
+
+    from .coste import formatear_estimacion
+    from .permisos import PermisoDenegado
+    from .reextraccion import (
+        Criterio, PresupuestoInsuficiente, PuertaCerrada, activar, cargar, ejecutar, estimar,
+        leer_presupuesto, objetivo_actual, recoger, registrar_rechazo, seleccionar,
+    )
+    from .scoring import format_comparacion
+
+    try:
+        desde = date.fromisoformat(args.desde) if args.desde else None
+        presupuesto = leer_presupuesto(args.presupuesto) if args.presupuesto is not None else None
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    criterio = Criterio(abiertas=args.abiertas, desde=desde, proveedor=args.proveedor,
+                        sin_objeto=args.sin_objeto, reintentos=args.reintentos,
+                        limite=args.limite)
+    if criterio.vacio() and not args.activar and args.recoger is None:
+        print("Di que volver a leer (--abiertas, --desde, --proveedor, --sin-objeto o "
+              "--reintentos), --recoger N o --activar", file=sys.stderr)
+        return 2
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}: reextraer lee los originales de alli",
+              file=sys.stderr)
+        return 1
+    objetivo = objetivo_actual()
+    modelo, prompt, esquema = objetivo
+    codigo = 0
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        client = None
+        if args.recoger is not None or not criterio.vacio():
+            try:
+                import anthropic
+            except ImportError:
+                print("Falta el paquete anthropic. Instala con: pip install -e .", file=sys.stderr)
+                return 2
+            client = anthropic.Anthropic()
+        token = getattr(args, "token", None) or os.environ.get(VARIABLE_TOKEN)
+        lanzada_por = None
+        if token:
+            from .permisos import usuario_por_token
+
+            lanzada_por = usuario_por_token(conn, token)
+
+        if args.recoger is not None:
+            try:
+                r = recoger(client, almacen, args.recoger, out_dir=args.out,
+                            informar=_imprimir_reextraccion)
+            except (LookupError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                _anclar(almacen)
+                return 1
+            _imprimir_resultado_reextraccion(r)
+
+        if not criterio.vacio():
+            try:
+                seleccion = seleccionar(conn, criterio, objetivo)
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                _anclar(almacen)
+                return 2
+            print(f"Volver a leer con {modelo}, prompt {prompt}, esquema {esquema}"
+                  f"{' (por lotes)' if args.lote else ''}")
+            print(f"  seleccionados: {len(seleccion.documentos)}; omitidos: "
+                  f"{len(seleccion.omitidos)}")
+            for documento_id, motivo in seleccion.omitidos:
+                print(f"    documento {documento_id}: {motivo}")
+            if seleccion.documentos:
+                from .almacen.documentos import DocumentoCorrupto
+
+                try:
+                    documentos = cargar(almacen, seleccion)
+                except DocumentoCorrupto as exc:
+                    print(f"No se paga nada: {exc} (bms-agent db verificar)", file=sys.stderr)
+                    _anclar(almacen)
+                    return 1
+                estimacion = estimar(client, conn, documentos, objetivo, lote=args.lote,
+                                     ya_leidos=seleccion.ya_leidos)
+                print()
+                print(formatear_estimacion(estimacion))
+                print()
+                if presupuesto is None:
+                    print("Sin --presupuesto solo se estima: no se ha pagado nada.")
+                else:
+                    try:
+                        r = ejecutar(client, almacen, seleccion, documentos, estimacion,
+                                     presupuesto, criterio=criterio, objetivo=objetivo,
+                                     out_dir=args.out, lote=args.lote,
+                                     iniciada_por=lanzada_por, informar=_imprimir_reextraccion)
+                    except PresupuestoInsuficiente as exc:
+                        registrar_rechazo(conn, exc, criterio=criterio, objetivo=objetivo,
+                                          iniciada_por=lanzada_por)
+                        print(f"No se paga: {exc}", file=sys.stderr)
+                        codigo = 1
+                    else:
+                        _imprimir_resultado_reextraccion(r)
+
+        if args.activar and codigo == 0:
+            persona = _persona_con_token(almacen, args, "activar una reextraccion")
+            if persona is None:
+                _anclar(almacen)
+                return 1
+            truth = load_ground_truth(args.ground_truth)
+            try:
+                resultado = activar(almacen, persona, truth, objetivo=objetivo,
+                                    inyeccion=args.inyeccion)
+            except PuertaCerrada as exc:
+                print(format_comparacion(exc.comparacion))
+                print("\nNo se activa nada.", file=sys.stderr)
+                codigo = 1
+            except PermisoDenegado as exc:
+                print(f"No se activa: {exc}", file=sys.stderr)
+                codigo = 1
+            else:
+                print(format_comparacion(resultado.comparacion))
+                print(f"\nActivadas: {len(resultado.activadas)} (comparacion "
+                      f"{resultado.comparacion_sha256[:12]})")
+                for a in resultado.activadas:
+                    print(f"  documento {a.documento_id}: extraccion {a.extraccion_id} "
+                          f"(antes {a.anterior_id}), factura {a.factura_id} {a.accion}")
+                    for campo in a.contradichos:
+                        print(f"    sin resolver (M1): {campo} lo corrigio una persona y la "
+                              "lectura nueva dice otra cosa")
+                    for linea_id in a.sin_casar:
+                        print(f"    linea {linea_id} editada a mano y sin casar (M2)")
+                if resultado.diferencia is not None:
+                    _imprimir_recalculo(resultado.diferencia)
+        _anclar(almacen)
+    return codigo
+
+
 def _cmd_importar(args: argparse.Namespace) -> int:
     """Importa un fichero de un maestro con su mapeo (spec §9). Cero llamadas a la API."""
     from datetime import date, datetime, timezone
@@ -1113,12 +1322,20 @@ def main(argv: list[str] | None = None) -> int:
     p_extract.set_defaults(func=_cmd_extract)
 
     p_score = sub.add_parser("score", help="compara las extracciones con las respuestas")
-    p_score.add_argument("--out", default="out", help="carpeta con las extracciones")
+    p_score.add_argument("--out", help="carpeta con las extracciones (por defecto: out)")
     p_score.add_argument(
         "--ground-truth",
         default="ground_truth/respuestas.yaml",
         help="fichero de respuestas escritas a mano",
     )
+    p_score.add_argument(
+        "--comparar-versiones", action="store_true",
+        help="la version de config.py contra la anterior, en los mismos documentos: es la "
+             "puerta de `reextraer --activar` (sale con 1 si no pasa)")
+    p_score.add_argument("--inyeccion", default=INYECCION,
+                         help=f"la factura con inyeccion de la puerta (por defecto {INYECCION})")
+    p_score.add_argument("--db", help=_AYUDA_DB + "; con --comparar-versiones, se lee de ahi si "
+                                                  "existe y no se da --out")
     p_score.set_defaults(func=_cmd_score)
 
     p_report = sub.add_parser("report", help="genera un informe HTML de lo extraido")
@@ -1346,6 +1563,35 @@ def main(argv: list[str] | None = None) -> int:
     p_fuentes = sub.add_parser("fuentes", help="de cuando es lo ultimo de cada fuente (Z1)")
     p_fuentes.add_argument("--db", help=_AYUDA_DB)
     p_fuentes.set_defaults(func=_cmd_fuentes)
+
+    p_reex = sub.add_parser(
+        "reextraer", help="vuelve a leer lo ya leido con la version nueva, con presupuesto")
+    p_reex.add_argument("--abiertas", action="store_true",
+                        help="facturas en juego (sin pagar ni anular)")
+    p_reex.add_argument("--desde", metavar="AAAA-MM-DD", help="con fecha de factura desde ese dia")
+    p_reex.add_argument("--proveedor", help="id o nombre del proveedor")
+    p_reex.add_argument("--sin-objeto", action="store_true",
+                        help="facturas con alguna linea sin Objeto imputado")
+    p_reex.add_argument("--reintentos", action="store_true",
+                        help="los documentos que quedaron para reintentar en esta version")
+    p_reex.add_argument("--limite", type=int, help="como mucho tantos documentos")
+    p_reex.add_argument("--presupuesto", metavar="USD",
+                        help="dolares que se aceptan gastar; sin el, solo se estima")
+    p_reex.add_argument("--lote", action="store_true",
+                        help="por la API de Batches: la mitad de precio, en horas")
+    p_reex.add_argument("--recoger", type=int, metavar="N",
+                        help="lee los resultados del lote de la reextraccion N")
+    p_reex.add_argument("--activar", action="store_true",
+                        help="pasa a vigentes las candidatas si pasan la puerta (admin)")
+    p_reex.add_argument("--ground-truth", default="ground_truth/respuestas.yaml",
+                        help="respuestas escritas a mano para la puerta")
+    p_reex.add_argument("--inyeccion", default=INYECCION,
+                        help=f"la factura con inyeccion de la puerta (por defecto {INYECCION})")
+    p_reex.add_argument("--out", default="out",
+                        help="carpeta de extracciones; lo leido se exporta en su reextraccion/")
+    p_reex.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+    p_reex.add_argument("--db", help=_AYUDA_DB)
+    p_reex.set_defaults(func=_cmd_reextraer)
 
     p_politica = sub.add_parser("politica", help="la politica: prioridad, reglas y empresa")
     sub_politica = p_politica.add_subparsers(dest="accion", required=True)

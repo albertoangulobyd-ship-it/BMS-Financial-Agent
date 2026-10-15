@@ -305,6 +305,43 @@ LEE_Q4 = LEE_EN_JUEGO | frozenset({"factura.id", "factura.sin_original", "factur
 EVALUAR_Q = {"Q2": solo_objeciones(q2), "Q3": solo_objeciones(q3), "Q4": solo_objeciones(q4)}
 
 
+# --------------------------------------------------------------- M2 (paso 6)
+
+def m2(factura: Factura, _contexto: Any) -> list[Resultado]:
+    """M2: una edicion manual de una linea que la extraccion vigente no pudo casar (retiene).
+
+    Al llegar una lectura nueva (una reextraccion activada), las ediciones
+    de una persona se llevan a la linea nueva por su huella. Si la linea no
+    aparece en la lectura nueva, se conserva tal cual con su edicion: no se
+    pierde ni se aplica a otra. Esto lo dice, para que una persona decida:
+    excluirla si ya no existe (el hallazgo se cierra), o anularlo con un
+    motivo si la conserva a proposito. Una linea que la persona ya habia
+    excluido avisa igual: su exclusion no se pudo llevar a la lectura nueva,
+    y la linea equivalente puede haber vuelto como activa.
+    """
+    salida = []
+    for linea in factura.sin_casar:
+        if not (linea.activa or linea.excluida):
+            continue
+        que = "estaba excluida" if linea.excluida else "tiene cambios de una persona"
+        salida.append(fallo(
+            "M2", factura,
+            f"La línea {linea.orden} {que} y la extracción vigente no la trae: no se ha podido "
+            "casar con ninguna línea nueva. Se conserva tal cual; decide si sigue.",
+            valores={"linea_id": linea.linea_id, "orden": linea.orden,
+                     "excluida": linea.excluida, "campos": list(linea.campos)},
+            clave=f"linea:{linea.linea_id}",
+            objetivos=(Objetivo("factura_linea", linea.linea_id),)))
+    return salida
+
+
+LEE_M2 = LEE_EN_JUEGO | frozenset({
+    "factura.id", "factura.sin_casar", "linea_sin_casar.linea_id", "linea_sin_casar.orden",
+    "linea_sin_casar.activa", "linea_sin_casar.excluida", "linea_sin_casar.campos"})
+
+EVALUAR_M2 = solo_objeciones(m2)
+
+
 # --------------------------------------------------------------- X1, Z1 y Z2 sobre importaciones
 
 def _de_importacion(regla: str, lote: Lote, detalle: str, valores: dict[str, Any], *,

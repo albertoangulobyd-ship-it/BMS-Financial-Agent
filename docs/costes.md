@@ -54,9 +54,16 @@ vuestras:
 
 | Modelo | Aproximado por 100 facturas |
 | --- | --- |
-| Claude Opus 5 (por defecto) | 4 dólares |
+| Claude Opus 5.5 con el esquema v2 (por defecto desde el paso 6 de la V1) | 6 a 7 dólares; 3 a 3,5 por lotes (estimado, sin medir) |
+| Claude Opus 5 con el esquema v1 (el de antes) | 4 dólares |
 | Claude Sonnet 5 | 1,60 dólares |
 | Claude Haiku 4.5 | 0,80 dólares |
+
+Opus 5.5 cobra menos por token que Opus 5 (4 y 20 dólares por millón, frente
+a 5 y 25), pero el esquema v2 pide más campos y Opus 5.5 razona siempre: ese
+razonamiento se cobra como salida. Por eso la cifra de Opus 5.5 es una
+estimación hasta que haya extracciones v2 medidas; `bms-agent coste` la
+sustituye por la medida en cuanto hay tres.
 
 Con el volumen típico de una pyme, esto se mueve en unos pocos euros al mes.
 El número real sale de la primera ejecución.
@@ -72,6 +79,10 @@ bloques:
 
 - **Lo que ha costado**: total, media por documento, y cuál fue el más caro y
   el más barato. Si hay varios modelos mezclados, lo dice.
+- **Por versión**: si hay extracciones de más de un modelo o versión del
+  esquema (o alguna por lotes), una línea por cada una. Cuenta también lo
+  que leyó `reextraer`, que se exporta aparte en `out/reextraccion/`. Lo
+  leído por lotes se cobra a la mitad.
 - **Por pasada**: una línea por ejecución, para ver cuánto costó cada una.
   Se agrupa por la hora de cada fichero; dos extracciones separadas por más
   de diez minutos cuentan como pasadas distintas.
@@ -89,9 +100,12 @@ nuevos **cuenta los tokens de entrada exactos** con `messages.count_tokens`,
 que es la misma petición que se va a mandar y **no se cobra**.
 
 Los tokens de salida no se pueden saber sin generar, así que se estiman con
-la mediana de vuestro propio histórico y el resultado sale en horquilla. Con
-menos de tres extracciones guardadas no hay mediana, y entonces se usa un
-punto de partida declarado y se avisa de que no es una medida.
+la mediana de vuestro propio histórico **de la misma versión del esquema y
+el mismo modelo**, y el resultado sale en horquilla. Con menos de tres
+extracciones de esa versión no hay mediana propia: se usa la mediana de las
+demás versiones por un factor declarado (de 2 a 4: el esquema v2 pide más
+campos y Opus 5.5 razona siempre), o un punto de partida declarado si no hay
+ninguna, y se dice «sin medir».
 
 ```
 La proxima pasada
@@ -131,6 +145,38 @@ En los tres casos la extracción anterior se queda donde estaba: nada se
 sobrescribe. `bms-agent coste --estimar` sigue la misma política, y con
 `--estricta` estima la pasada estricta.
 
+## Volver a leer lo ya leído: `reextraer`
+
+Lo leído con el esquema v1 no se vuelve a pagar solo. Si hace falta lo que
+pide el v2 (el tipo de documento, las referencias, el receptor…) en las
+facturas que siguen abiertas, se pide aparte y con un techo:
+
+```powershell
+.venv\Scripts\bms-agent reextraer --abiertas                      # solo estima
+.venv\Scripts\bms-agent reextraer --abiertas --presupuesto 15     # paga si cabe
+.venv\Scripts\bms-agent reextraer --abiertas --presupuesto 8 --lote   # la mitad, en horas
+.venv\Scripts\bms-agent reextraer --recoger 1                     # los resultados del lote
+```
+
+- Elige por `--abiertas`, `--desde AAAA-MM-DD`, `--proveedor`, `--sin-objeto`
+  o `--reintentos`, con `--limite`. Nunca vuelve a pagar un documento que ya
+  tiene una extracción de la versión actual, y dice cuáles no puede leer
+  porque su original no está guardado.
+- Cuenta la entrada exacta con `count_tokens` (no se cobra) y estima la
+  salida como `coste --estimar`. **Sin `--presupuesto` solo estima. Si el
+  extremo alto de la horquilla pasa del presupuesto, no paga nada**, y el
+  intento queda en la auditoría; la base tampoco admite una pasada cuya
+  estimación alta pase de su presupuesto.
+- Lo leído queda como **candidata**: guardado en el almacén y exportado en
+  `out/reextraccion/`, pero las facturas no cambian hasta
+  `reextraer --activar` (ver [fase-0.md](fase-0.md), «Antes de activar»).
+- Por lotes, lo que el modelo rechaza, lo que caduca, lo que se cancela o lo
+  que no es el esquema va a una lista de reintentos (`--reintentos`): la API
+  de lotes no reintenta sola.
+
+La historia cerrada y pagada no necesita volver a leerse: una persona puede
+rellenar a mano lo que le falte.
+
 ## Palancas para bajarlo, en orden
 
 **1. Medir antes de tocar nada.** Ya está instrumentado. Una decisión de coste
@@ -155,8 +201,8 @@ extracción de facturas lo que se ahorra en tokens se paga en revisión manual.
 
 **3. Procesar por lotes.** La API de lotes cuesta la mitad y tarda más, lo
 cual da igual: las facturas no tienen prisa, se procesan de noche. Es la
-palanca más grande y la que mejor encaja con este caso. Todavía no está
-implementada; es lo primero que añadiría si el coste importa.
+palanca más grande y la que mejor encaja con este caso. Desde el paso 6 de
+la V1 la usa `reextraer --lote`; `extract` sigue siendo síncrono.
 
 **4. Caché del prompt.** El prompt de sistema es idéntico en todas las
 llamadas. Ojo: hay un tamaño mínimo para que la caché entre, y nuestro prompt
@@ -164,7 +210,10 @@ puede quedarse por debajo. Verificar `cache_read_input_tokens` antes de dar
 por hecho el ahorro.
 
 **5. Bajar el esfuerzo.** Extraer campos de una factura no es un problema
-difícil. Vale la pena medir si un esfuerzo menor mantiene la precisión.
+difícil. Vale la pena medir si un esfuerzo menor mantiene la precisión. En
+Opus 5.5 el razonamiento no se puede apagar, y el esfuerzo se fija siempre
+de forma explícita: `BMS_EXTRACT_EFFORT` (`low`, `medium` por defecto,
+`high`…). Cambiarlo es medir otra vez con `--estricta` y `score`.
 
 ## Lo que no hay que hacer
 

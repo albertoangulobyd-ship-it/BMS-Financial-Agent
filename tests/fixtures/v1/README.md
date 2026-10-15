@@ -21,8 +21,16 @@ documento y se validan contra `InvoiceExtraction` en los tests.
 
 Los tres primeros son las facturas de `scripts/generar_facturas_ejemplo.py`:
 su `source_sha256` es el de los PDF que escribe el generador, y hay un test que
-lo comprueba. Los otros cuatro no tienen PDF todavía (el generador los añade
-en el paso 6); su hash es el de un texto fijo y se reconoce como sintético.
+lo comprueba. Los otros cuatro no tienen PDF; su hash es el de un texto fijo y
+se reconoce como sintético, y así siguen: son el caso «falta el original» de
+los pasos 1 y 5. Desde el paso 6 el generador escribe además un abono
+(`08-nota-credito.pdf`, el equivalente de la 04) y una factura en dólares
+(`09-usd.pdf`, el de la 07), con otro nombre para que su extracción real no
+se confunda con estas.
+
+Desde el paso 6 el esquema vigente es el v2. Estas siete siguen siendo v1 a
+propósito: se validan contra `InvoiceExtractionV1` y `compat.py` las lee con
+la forma v2, con las claves nuevas marcadas «no solicitado en v1».
 
 `tarifas.yaml` es una copia fija de `config/tarifas.ejemplo.yaml`, para que la
 foto no dependa de un fichero que se puede editar.

@@ -215,7 +215,8 @@ def _variables_de_entorno() -> dict[str, set[str]]:
 def test_no_hay_credenciales_ni_claves_de_banco() -> None:
     variables = set().union(*_variables_de_entorno().values())
     # Las que hay, todas resueltas: una nueva tiene que pasar por aqui.
-    assert variables == {"BMS_DB", "BMS_TOKEN", "BMS_EXTRACT_MODEL", "BMS_EXTRACT_MAX_TOKENS"}
+    assert variables == {"BMS_DB", "BMS_TOKEN", "BMS_EXTRACT_MODEL", "BMS_EXTRACT_MAX_TOKENS",
+                         "BMS_EXTRACT_EFFORT"}
     assert not [v for v in variables if _tokens(v) & BANCO]
 
     def claves(datos, camino=()):
@@ -529,7 +530,9 @@ def test_la_peticion_de_extraccion_no_lleva_herramientas(tmp_path) -> None:
     documento = SourceDocument(path=tmp_path / "a.pdf", sha256="0" * 64, byte_size=5,
                                data_b64="JVBERi0=")
     peticion = extract.build_request(documento, model="modelo-de-prueba")
-    assert set(peticion) == {"model", "max_tokens", "system", "messages", "output_format"}
+    assert set(peticion) == {"model", "max_tokens", "system", "messages", "output_format",
+                             "output_config"}
+    assert set(peticion["output_config"]) == {"effort"}
     assert not HERRAMIENTAS & set(peticion)
     contenido = json.dumps(peticion["messages"])
     assert '"tool_use"' not in contenido and '"tool_result"' not in contenido
@@ -545,6 +548,11 @@ def test_la_peticion_de_extraccion_no_lleva_herramientas(tmp_path) -> None:
 
     extract.extract_invoice(Cliente, documento, model="modelo-de-prueba")
     assert recibido and not HERRAMIENTAS & set(recibido)
+
+    # Paso 6: la peticion de un lote tampoco, ni dentro ni fuera de sus parametros.
+    lote = extract.construir_peticion_lote(documento, model="modelo-de-prueba")
+    assert set(lote) == {"custom_id", "params"} and not HERRAMIENTAS & set(lote["params"])
+    assert '"tool_use"' not in json.dumps(lote["params"])
 
 
 def test_ningun_codigo_pasa_herramientas_a_un_modelo() -> None:
