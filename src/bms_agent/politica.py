@@ -279,29 +279,298 @@ def empresa_de_yaml(texto: str | None) -> Empresa:
                    cuentas_propias=propias)
 
 
-def politica_de(reglas: str | None, empresa_texto: str | None) -> Politica:
-    """La Politica de las reglas con lo que dicen reglas.yaml y empresa.yaml."""
+def politica_de(reglas: str | None, empresa_texto: str | None,
+                btw_texto: str | None = None) -> Politica:
+    """La Politica de las reglas con lo que dicen reglas.yaml, empresa.yaml y btw.yaml."""
     from .reglas.normas import normalizar_btw, normalizar_kvk, normalizar_nombre
 
     empresa_ = empresa_de_yaml(empresa_texto)
+    btw = config_btw_de_yaml(btw_texto)
     nombres = tuple(sorted({n for n in (normalizar_nombre(x) for x in (
         empresa_.nombre, *empresa_.otros_nombres)) if n}))
     return Politica(**ajustes_de_reglas(reglas), empresa_nombres=nombres,
                     empresa_btw=normalizar_btw(empresa_.btw_id),
                     empresa_kvk=normalizar_kvk(empresa_.kvk),
-                    empresa_ibans=tuple(sorted(empresa_.cuentas_propias)))
+                    empresa_ibans=tuple(sorted(empresa_.cuentas_propias)),
+                    iva_tipos_habituales_pb=btw.tipos_habituales_pb,
+                    kor_umbral_cent=btw.kor_umbral_cent, kor_aviso_pct=btw.kor_aviso_pct)
 
 
 def politica_reglas(conn: sqlite3.Connection) -> Politica:
-    """La Politica con que se evalua ahora: los ultimos reglas.yaml y empresa.yaml cargados.
+    """La Politica con que se evalua ahora: los ultimos reglas.yaml, empresa.yaml y btw.yaml
+    cargados.
 
     Sin ninguno cargado valen los valores del codigo, que son los de los
     ficheros de config/ (un test lo comprueba).
     """
     reglas = vigente(conn, FICHERO_REGLAS)
     empresa_ = vigente(conn, FICHERO_EMPRESA)
+    btw = vigente(conn, FICHERO_BTW)
     return politica_de(reglas["contenido"] if reglas else None,
-                       empresa_["contenido"] if empresa_ else None)
+                       empresa_["contenido"] if empresa_ else None,
+                       btw["contenido"] if btw else None)
+
+
+# ------------------------------------------------------------ el BTW (paso 11)
+
+FICHERO_BTW = "btw.yaml"
+PERIODICIDAD_BTW = "trimestral"
+SISTEMA_BTW = "factuurstelsel"
+PLAZO_BTW = "ultimo_dia_mes_siguiente"
+FUERA = "fuera"
+PAISES_BTW = ("nacional", "ue", "fuera_ue")
+TRATAMIENTOS_BTW = ("estandar", "tipo_cero", "autoliquidacion", "exento", "kor")
+
+# Lo que puede ser cada linea en la declaracion, segun lo que es (y no segun lo
+# que diga el fichero): una venta con IVA normal va a 1a-1c (base y cuota) o a
+# 1e si su tipo es cero; una sin IVA (tipo cero, IVA trasladado al cliente) va
+# solo con su base a 1e o a 3a-3c; el IVA trasladado de una compra se
+# autoliquida en 2a, 4a o 4b; la cuota de una compra con IVA es IVA soportado
+# (5b). Un fichero que pone una linea donde no puede ir no se carga: el mapeo es
+# del asesor, pero que 5b no reciba una venta es de la declaracion.
+_RUBRICAS_VENTA_CON_IVA = frozenset({"1a", "1b", "1c", "1e"})
+_RUBRICAS_VENTA_SIN_IVA = frozenset({"1e", "3a", "3b", "3c"})
+_RUBRICAS_AUTOLIQUIDACION = frozenset({"2a", "4a", "4b"})
+RUBRICAS_AUTOLIQUIDACION = _RUBRICAS_AUTOLIQUIDACION
+
+# Los valores de partida, los mismos que config/btw.yaml (un test lo comprueba).
+_VENTAS_DE_PARTIDA = (
+    ("autoliquidacion:fuera_ue", "1e"), ("autoliquidacion:nacional", "1e"),
+    ("autoliquidacion:ue", "3b"), ("estandar:0", "1e"), ("estandar:2100", "1a"),
+    ("estandar:900", "1b"), ("estandar:otros", "1c"), ("exento", FUERA), ("kor", FUERA),
+    ("tipo_cero", "1e"),
+)
+_COMPRAS_DE_PARTIDA = (
+    ("autoliquidacion:fuera_ue", "4a"), ("autoliquidacion:nacional", "2a"),
+    ("autoliquidacion:ue", "4b"), ("estandar", "5b"), ("exento", FUERA), ("kor", FUERA),
+    ("tipo_cero", FUERA),
+)
+
+
+@dataclass(frozen=True)
+class ConfigBtw:
+    """Como se prepara la declaracion del BTW (config/btw.yaml), por confirmar con el asesor.
+
+    `ventas` y `compras` dicen a que rubrica va cada linea de IVA, por su clave:
+    el tratamiento y, con IVA normal en una venta, el tipo en puntos basicos
+    ("estandar:2100", "estandar:otros") o, con el IVA trasladado, de donde es la
+    contraparte ("autoliquidacion:ue"). FUERA: no va en la declaracion. La
+    periodicidad, el sistema y los plazos solo admiten lo que sabe hacer la V1:
+    trimestral, por fecha de factura (factuurstelsel) y el ultimo dia del mes
+    siguiente al trimestre.
+    """
+
+    confirmado: bool = False
+    periodicidad: str = PERIODICIDAD_BTW
+    sistema: str = SISTEMA_BTW
+    plazo_presentacion: str = PLAZO_BTW
+    plazo_pago: str = PLAZO_BTW
+    tipos_habituales_pb: tuple[int, ...] = (0, 900, 2100)
+    tipo_autoliquidacion_pb: int = 2100
+    autoliquidacion_deducible: bool = True
+    kor_umbral_cent: int = 2_000_000
+    kor_aviso_pct: int = 90
+    ventas: tuple[tuple[str, str], ...] = _VENTAS_DE_PARTIDA
+    compras: tuple[tuple[str, str], ...] = _COMPRAS_DE_PARTIDA
+
+    def rubrica(self, sentido: str, clave: str) -> str | None:
+        """La rubrica de una clave (None si el fichero no la dice)."""
+        return dict(self.ventas if sentido == "saliente" else self.compras).get(clave)
+
+    def como_dict(self) -> dict[str, Any]:
+        return {"confirmado": self.confirmado, "periodicidad": self.periodicidad,
+                "sistema": self.sistema, "plazo_presentacion": self.plazo_presentacion,
+                "plazo_pago": self.plazo_pago,
+                "tipos_habituales_pb": list(self.tipos_habituales_pb),
+                "tipo_autoliquidacion_pb": self.tipo_autoliquidacion_pb,
+                "autoliquidacion_deducible": self.autoliquidacion_deducible,
+                "kor_umbral_cent": self.kor_umbral_cent, "kor_aviso_pct": self.kor_aviso_pct,
+                "ventas": dict(self.ventas), "compras": dict(self.compras)}
+
+    def sha256(self) -> str:
+        """El hash de lo que dice, sin comentarios ni orden: va en cada hoja de trabajo."""
+        from .almacen.unidades import json_canonico
+
+        return sha256_texto(json_canonico(self.como_dict()))
+
+
+def _porcentaje_pb(texto: Any, donde: str) -> int:
+    from .almacen.unidades import PerdidaDePrecision, a_pb
+
+    if isinstance(texto, (float, bool)) or texto is None:
+        raise PoliticaNoValida(f"{donde}: un tipo se escribe entre comillas (\"21\")")
+    try:
+        valor = Decimal(str(texto).strip().rstrip("%").replace(",", "."))
+        pb = a_pb(valor)
+    except (InvalidOperation, PerdidaDePrecision):
+        raise PoliticaNoValida(f"{donde}: {texto!r} no es un porcentaje") from None
+    if not 0 <= pb <= 10000:
+        raise PoliticaNoValida(f"{donde}: un tipo va de 0 a 100")
+    return pb
+
+
+def _mapa(datos: Any, donde: str, claves: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(datos, dict):
+        raise PoliticaNoValida(f"{donde}: se espera un mapa")
+    sobran = sorted(set(map(str, datos)) - set(claves))
+    faltan = sorted(set(claves) - set(map(str, datos)))
+    if sobran or faltan:
+        raise PoliticaNoValida(f"{donde}: " + "; ".join(
+            ([f"no lleva {', '.join(sobran)}"] if sobran else [])
+            + ([f"falta {', '.join(faltan)}"] if faltan else [])))
+    return {str(k): v for k, v in datos.items()}
+
+
+def _rubrica(valor: Any, donde: str, admitidas: frozenset[str]) -> str:
+    texto = str(valor).strip().lower() if isinstance(valor, str) else None
+    if texto not in admitidas:
+        raise PoliticaNoValida(f"{donde}: {valor!r} no puede ir ahi; va a "
+                               f"{', '.join(sorted(admitidas))}")
+    return texto
+
+
+def _por_pais(datos: Any, donde: str, admitidas: frozenset[str]) -> dict[str, str]:
+    mapa = _mapa(datos, donde, PAISES_BTW)
+    return {f"autoliquidacion:{p}": _rubrica(mapa[p], f"{donde}.{p}", admitidas)
+            for p in PAISES_BTW}
+
+
+def config_btw_de_yaml(texto: str | None) -> ConfigBtw:
+    """La configuracion del BTW de un btw.yaml (la de partida si no hay fichero).
+
+    Se rechaza entero lo que la V1 no sabe hacer (otra periodicidad, kasstelsel,
+    otros plazos), un mapeo incompleto o una linea donde no puede ir: un
+    fichero que no se entiende no prepara ninguna declaracion.
+    """
+    if texto is None:
+        return ConfigBtw()
+    datos = yaml.safe_load(texto) or {}
+    if not isinstance(datos, dict):
+        raise PoliticaNoValida("btw.yaml es un mapa")
+    datos = _mapa(datos, "btw.yaml", ("confirmado", "periodicidad", "sistema", "plazos",
+                                      "tipos", "kor", "ventas", "compras"))
+    if not isinstance(datos["confirmado"], bool):
+        raise PoliticaNoValida("btw.yaml: confirmado es true o false")
+    if datos["periodicidad"] != PERIODICIDAD_BTW:
+        raise PoliticaNoValida(f"btw.yaml: la V1 solo prepara la declaracion "
+                               f"{PERIODICIDAD_BTW}, no {datos['periodicidad']!r}")
+    if datos["sistema"] != SISTEMA_BTW:
+        raise PoliticaNoValida(f"btw.yaml: la V1 solo sabe el {SISTEMA_BTW} (por fecha de "
+                               f"factura), no {datos['sistema']!r}")
+    plazos = _mapa(datos["plazos"], "btw.yaml: plazos", ("presentacion", "pago"))
+    for clave, valor in plazos.items():
+        if valor != PLAZO_BTW:
+            raise PoliticaNoValida(f"btw.yaml: plazos.{clave} solo puede ser {PLAZO_BTW}")
+    tipos = _mapa(datos["tipos"], "btw.yaml: tipos",
+                  ("habituales", "autoliquidacion", "autoliquidacion_deducible"))
+    if not isinstance(tipos["habituales"], list) or not tipos["habituales"]:
+        raise PoliticaNoValida("btw.yaml: tipos.habituales es una lista de tipos")
+    habituales = tuple(sorted({_porcentaje_pb(t, "btw.yaml: tipos.habituales")
+                               for t in tipos["habituales"]}))
+    autoliquidacion = _porcentaje_pb(tipos["autoliquidacion"], "btw.yaml: tipos.autoliquidacion")
+    if autoliquidacion == 0:
+        raise PoliticaNoValida("btw.yaml: el IVA trasladado no se autoliquida al 0 %")
+    if not isinstance(tipos["autoliquidacion_deducible"], bool):
+        raise PoliticaNoValida("btw.yaml: tipos.autoliquidacion_deducible es true o false")
+    kor = _mapa(datos["kor"], "btw.yaml: kor", ("umbral", "aviso_pct"))
+    umbral = _valor(kor["umbral"], Decimal, "btw.yaml: kor.umbral")
+    if not Decimal(1000) <= umbral <= Decimal(1_000_000):
+        raise PoliticaNoValida("btw.yaml: kor.umbral va de 1.000 a 1.000.000 euros")
+    aviso = _valor(kor["aviso_pct"], int, "btw.yaml: kor.aviso_pct")
+    if not 50 <= aviso <= 100:
+        raise PoliticaNoValida("btw.yaml: kor.aviso_pct va de 50 a 100: por debajo avisaria "
+                               "de cualquier proveedor con KOR")
+
+    ventas_ = _mapa(datos["ventas"], "btw.yaml: ventas", TRATAMIENTOS_BTW)
+    ventas: dict[str, str] = {}
+    estandar = ventas_["estandar"]
+    if not isinstance(estandar, dict) or "otros" not in estandar:
+        raise PoliticaNoValida("btw.yaml: ventas.estandar es un mapa de tipo a rubrica, con "
+                               "otros")
+    for tipo, rubrica in estandar.items():
+        clave = "otros" if tipo == "otros" else str(_porcentaje_pb(
+            tipo, "btw.yaml: ventas.estandar"))
+        ventas[f"estandar:{clave}"] = _rubrica(rubrica, f"btw.yaml: ventas.estandar.{tipo}",
+                                               _RUBRICAS_VENTA_CON_IVA)
+    ventas["tipo_cero"] = _rubrica(ventas_["tipo_cero"], "btw.yaml: ventas.tipo_cero",
+                                   _RUBRICAS_VENTA_SIN_IVA | {FUERA})
+    ventas.update(_por_pais(ventas_["autoliquidacion"], "btw.yaml: ventas.autoliquidacion",
+                            _RUBRICAS_VENTA_SIN_IVA))
+    for tratamiento in ("exento", "kor"):
+        ventas[tratamiento] = _rubrica(ventas_[tratamiento], f"btw.yaml: ventas.{tratamiento}",
+                                       frozenset({"1e", FUERA}))
+
+    compras_ = _mapa(datos["compras"], "btw.yaml: compras", TRATAMIENTOS_BTW)
+    compras = {"estandar": _rubrica(compras_["estandar"], "btw.yaml: compras.estandar",
+                                    frozenset({"5b", FUERA}))}
+    compras.update(_por_pais(compras_["autoliquidacion"], "btw.yaml: compras.autoliquidacion",
+                             _RUBRICAS_AUTOLIQUIDACION))
+    for tratamiento in ("tipo_cero", "exento", "kor"):
+        compras[tratamiento] = _rubrica(compras_[tratamiento],
+                                        f"btw.yaml: compras.{tratamiento}", frozenset({FUERA}))
+    return ConfigBtw(confirmado=datos["confirmado"], tipos_habituales_pb=habituales,
+                     tipo_autoliquidacion_pb=autoliquidacion,
+                     autoliquidacion_deducible=tipos["autoliquidacion_deducible"],
+                     kor_umbral_cent=int(umbral * 100), kor_aviso_pct=aviso,
+                     ventas=tuple(sorted(ventas.items())), compras=tuple(sorted(compras.items())))
+
+
+def _tipo_texto(pb: int) -> str:
+    """Un tipo en puntos basicos como se escribe en el fichero: 2100 es "21", 550 "5.5"."""
+    from .almacen.unidades import de_pb
+
+    texto = format(de_pb(pb).normalize(), "f")
+    return texto
+
+
+def btw_a_yaml(config: ConfigBtw) -> str:
+    """Una configuracion como texto de btw.yaml (lo lee config_btw_de_yaml y da la misma)."""
+    def por_pais(mapa: dict[str, str]) -> dict[str, str]:
+        return {p: mapa[f"autoliquidacion:{p}"] for p in PAISES_BTW}
+
+    ventas, compras = dict(config.ventas), dict(config.compras)
+    estandar = {("otros" if k == "estandar:otros" else _tipo_texto(int(k.split(":")[1]))): v
+                for k, v in ventas.items() if k.startswith("estandar:")}
+    datos = {
+        "confirmado": config.confirmado, "periodicidad": config.periodicidad,
+        "sistema": config.sistema,
+        "plazos": {"presentacion": config.plazo_presentacion, "pago": config.plazo_pago},
+        "tipos": {"habituales": [_tipo_texto(t) for t in config.tipos_habituales_pb],
+                  "autoliquidacion": _tipo_texto(config.tipo_autoliquidacion_pb),
+                  "autoliquidacion_deducible": config.autoliquidacion_deducible},
+        "kor": {"umbral": f"{Decimal(config.kor_umbral_cent).scaleb(-2):.2f}",
+                "aviso_pct": config.kor_aviso_pct},
+        "ventas": {"estandar": estandar, "tipo_cero": ventas["tipo_cero"],
+                   "autoliquidacion": por_pais(ventas), "exento": ventas["exento"],
+                   "kor": ventas["kor"]},
+        "compras": {"estandar": compras["estandar"], "autoliquidacion": por_pais(compras),
+                    "tipo_cero": compras["tipo_cero"], "exento": compras["exento"],
+                    "kor": compras["kor"]},
+    }
+    return ("# btw.yaml apuntado por el sistema con los valores de partida del codigo "
+            "(politica.ConfigBtw).\n" + yaml.safe_dump(datos, sort_keys=False,
+                                                        allow_unicode=True))
+
+
+def config_btw(conn: sqlite3.Connection) -> ConfigBtw:
+    """La configuracion del BTW que vale ahora: la del ultimo btw.yaml cargado."""
+    fila = vigente(conn, FICHERO_BTW)
+    return config_btw_de_yaml(fila["contenido"] if fila else None)
+
+
+def apuntar_btw_en_uso(conn: sqlite3.Connection, usuario_id: int | None = None) -> ConfigBtw:
+    """La configuracion del BTW que vale, apuntada en politica_version si no habia ninguna.
+
+    Como los pesos de la prioridad: la hoja de trabajo que se marca lista o se
+    presenta lleva el hash de su configuracion, y ese hash tiene que poder
+    resolverse a un texto.
+    """
+    fila = vigente(conn, FICHERO_BTW)
+    if fila is not None:
+        return config_btw_de_yaml(fila["contenido"])
+    config = ConfigBtw()
+    registrar(conn, FICHERO_BTW, btw_a_yaml(config), usuario_id)
+    return config
 
 
 def empresa(conn: sqlite3.Connection) -> Empresa:
@@ -314,8 +583,9 @@ def cargar(conn: sqlite3.Connection, ruta: str | Path,
     """Valida y apunta un fichero de config/ por su nombre. Devuelve un resumen y si era nuevo.
 
     prioridad.yaml (los pesos), reglas.yaml (tolerancias, frescura, el
-    interruptor de las cuentas y el enfriamiento del telefono) o empresa.yaml
-    (la identidad de BM Support BV, que A8 y F10 comparan). Lo carga una
+    interruptor de las cuentas y el enfriamiento del telefono), empresa.yaml
+    (la identidad de BM Support BV, que A8 y F10 comparan) o btw.yaml (la
+    declaracion del BTW, el umbral de la KOR y los tipos habituales). Lo carga una
     persona con admin (spec §6: la politica es de admin) y queda como quien la
     cargo. Un fichero que no tiene la forma que se espera, o que cruza los
     limites de _LIMITES, no se apunta.
@@ -336,5 +606,10 @@ def cargar(conn: sqlite3.Connection, ruta: str | Path,
     if ruta.name == FICHERO_EMPRESA:
         empresa_ = empresa_de_yaml(texto)
         return f"empresa {empresa_.nombre}", registrar(conn, FICHERO_EMPRESA, texto, usuario_id)
-    raise PoliticaNoValida(f"{ruta.name}: se cargan {FICHERO_PRIORIDAD}, {FICHERO_REGLAS} o "
-                           f"{FICHERO_EMPRESA}")
+    if ruta.name == FICHERO_BTW:
+        btw = config_btw_de_yaml(texto)
+        return (f"BTW {btw.periodicidad}, {btw.sistema}"
+                + ("" if btw.confirmado else " (por confirmar con el asesor)"),
+                registrar(conn, FICHERO_BTW, texto, usuario_id))
+    raise PoliticaNoValida(f"{ruta.name}: se cargan {FICHERO_PRIORIDAD}, {FICHERO_REGLAS}, "
+                           f"{FICHERO_EMPRESA} o {FICHERO_BTW}")

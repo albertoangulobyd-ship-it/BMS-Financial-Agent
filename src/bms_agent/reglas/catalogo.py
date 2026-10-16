@@ -30,6 +30,11 @@ de G3 y V4 (la tarifa del turno), V1, V2, V3, V5, V6, V8 y V9, el caso de B5
 en V7, y lo planificado de P7, P8 y P10. Sin ningun planning importado dan un
 solo sin_datos cada una (turnos.sin_planning), nunca ok.
 
+El paso 11 trae el BTW: C4 (una factura que no es, en un trimestre ya
+presentado, lo que se declaro de ella), E0 (falta la informacion del IVA), E5
+(lo facturado por un proveedor con KOR se acerca a su umbral) y E7 (un tipo de IVA
+que no es de la lista, o una venta sin IVA a un cliente que no puede recibirla).
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -55,6 +60,7 @@ from . import (
     aritmetica,
     bancaria,
     calidad,
+    fechas,
     identidad,
     iva,
     ordenes,
@@ -184,6 +190,14 @@ CATALOGO: tuple[Regla, ...] = (
                       "el de B3 (el mismo importe a pocos días, periodos compatibles y otro "
                       "número) o el de B5 (las horas de un turno cobradas desde dos facturas): "
                       "se le ha facturado dos veces."),
+    # Fechas (paso 11)
+    Regla("C4", "Trimestre del BTW ya presentado", "fechas", fechas.c4,
+          fechas.LEE_C4 | fechas.SOLO_TEXTO_C4, solo_texto=fechas.SOLO_TEXTO_C4,
+          severidad=A, anulable=True, entrada_prioridad=_P.IVA_BLANDA.value,
+          calidad=_C.ANOMALIA.value,
+          descripcion="La factura cae en un trimestre del BTW ya presentado y no es lo que se "
+                      "declaró de ella: llegó después, cambió después o ya no cuenta allí. Va "
+                      "a la lista del trimestre para el contable."),
     # Aritmetica e IVA
     _de_factura("D1", aritmetica.d1, aritmetica.LEE_D1,
                 titulo="Desglose", familia="aritmetica", severidad=B, severidad_saliente=R,
@@ -206,6 +220,10 @@ CATALOGO: tuple[Regla, ...] = (
                 titulo="Total", familia="aritmetica", severidad=B,
                 calidad=_C.DISCREPANCIA.value,
                 descripcion="La base más la cuota es el total (0,02)."),
+    Regla("E0", "Falta información del IVA", "iva", iva.EVALUAR_E["E0"], iva.LEE_E0,
+          severidad=R, entrada_prioridad=_P.IVA_BLANDA.value, calidad=_C.FALTANTE.value,
+          descripcion="No se sabe cómo trata el IVA la factura, o con IVA normal le falta el "
+                      "tipo o la cuota (en la cabecera o en una fila del desglose)."),
     Regla("E1", "Régimen distinto del maestro", "iva", iva.EVALUAR_E["E1"],
           iva.LEE_E1, severidad=R, anulable=True, entrada_prioridad=_P.IVA_BLANDA.value,
           calidad=_C.DISCREPANCIA.value,
@@ -223,6 +241,18 @@ CATALOGO: tuple[Regla, ...] = (
                 titulo="IVA trasladado", familia="iva", severidad=B,
                 entrada_prioridad=_P.IVA_DURA.value, calidad=_C.DISCREPANCIA.value,
                 descripcion="Con IVA trasladado no hay cuota y figura el btw-id del receptor."),
+    Regla("E5", "Cerca del umbral de la KOR", "iva", iva.e5, iva.LEE_E5, severidad=A,
+          anulable=True, entrada_prioridad=_P.IVA_BLANDA.value, calidad=_C.ANOMALIA.value,
+          ambito=_PROVEEDOR,
+          descripcion="Lo que un proveedor con KOR ha facturado este año a BM Support BV llega "
+                      "al porcentaje de la política del umbral de la KOR (un indicio: el umbral "
+                      "es de todo lo que factura)."),
+    Regla("E7", "Tipo o tratamiento de IVA raro", "iva", iva.EVALUAR_E["E7"], iva.LEE_E7,
+          severidad=R, anulable=True, entrada_prioridad=_P.IVA_BLANDA.value,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Un tipo de IVA que no es de la lista de la política (0, 9 y 21), o una "
+                      "venta con IVA trasladado o al 0 % a un cliente que el maestro no tiene "
+                      "marcado para facturarle así."),
     # Datos de pago
     Regla("F0", "Cuentas heredadas sin atestar", "bancaria", bancaria.f0, bancaria.LEE_F0,
           severidad=R, pegajosa=True, entrada_prioridad=_P.IBAN.value, calidad=_C.DUDOSO.value,

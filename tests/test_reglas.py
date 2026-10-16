@@ -96,15 +96,22 @@ CATALOGO_SPEC = {
     "B5": ("retencion", None, True, True, False, "duplicado"),
     # Paso 8: el caso de B2 y B3 en las ventas (y desde el paso 10, el de B5).
     "V7": ("retencion", None, True, True, False, "duplicado"),
+    # Paso 11: lo que cae en un trimestre del BTW ya presentado.
+    "C4": ("aviso", None, True, False, False, "iva_blanda"),
     "D1": ("bloqueo", "retencion", False, False, False, "otra"),
     "D2": ("bloqueo", "retencion", False, False, False, "otra"),
     "D2b": ("bloqueo", "retencion", True, False, False, "otra"),
     "D3": ("bloqueo", None, False, False, False, "iva_dura"),
     "D4": ("bloqueo", None, False, False, False, "otra"),
+    # Paso 11: falta la informacion del IVA (no se anula, §7).
+    "E0": ("retencion", None, False, False, False, "iva_blanda"),
     "E1": ("retencion", None, True, False, False, "iva_blanda"),
     "E2": ("retencion", None, True, True, False, "iva_blanda"),
     "E3": ("bloqueo", None, False, False, False, "iva_dura"),
     "E4": ("bloqueo", None, False, False, False, "iva_dura"),
+    # Paso 11: el umbral de la KOR (del proveedor) y un tipo o tratamiento raro.
+    "E5": ("aviso", None, True, False, False, "iva_blanda"),
+    "E7": ("retencion", None, True, False, False, "iva_blanda"),
     "F0": ("retencion", None, False, True, False, "iban"),
     "F1": ("bloqueo", None, False, True, False, "iban"),
     "F2": ("bloqueo", None, False, True, False, "iban"),
@@ -169,7 +176,9 @@ AMBITOS = {"Z1": "importacion", "Z2": "importacion", "F0": "importacion", "F5": 
            "P5": "orden_compra", "P7": "orden_compra", "P8": "orden_compra",
            "P9": "orden_compra", "P10": "orden_compra",
            # Paso 10: lo que es del cliente (no hay factura: falta).
-           "V6": "cliente", "V8": "cliente"}
+           "V6": "cliente", "V8": "cliente",
+           # Paso 11: lo que un proveedor con KOR lleva facturado en el ano.
+           "E5": "proveedor"}
 # Los avisos que abren una excepcion (spec §7: "+ exception"); F4 escala.
 CREAN_EXCEPCION = {"Q3", "U1", "F4", "K1"}
 

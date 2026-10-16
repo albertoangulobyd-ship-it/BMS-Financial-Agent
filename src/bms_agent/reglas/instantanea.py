@@ -26,6 +26,8 @@ cada turno resuelto contra el maestro de ahora si al importarlo no se resolvio
 (`Resolutor`, por coincidencia exacta, como registrar.py), las fotos aceptadas
 del planning, la conciliacion de cada imputacion con sus turnos y los ciclos
 de facturacion.
+Desde el paso 11, los trimestres del BTW ya presentados con lo que se declaro de
+cada factura (C4).
 Solo lee: lo que escribe el registro de cuentas es cuentas.py, y nada de la
 via de entrada de los documentos llega alli.
 
@@ -70,6 +72,7 @@ from .base import (
     OrdenCompra,
     PagadoExact,
     Parte,
+    PeriodoBtw,
     Politica,
     Referencia,
     Relacion,
@@ -341,10 +344,10 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             semana_doc=semana_doc))
 
     desglose: dict[int, list[TramoIva]] = defaultdict(list)
-    for id_, factura_id, tipo_iva, base, cuota in _filas(
-            conn, "SELECT id, factura_id, tipo_iva_pb, base_cent, cuota_cent FROM factura_iva "
-                  "WHERE retirada_en IS NULL ORDER BY factura_id, id"):
-        desglose[factura_id].append(TramoIva(id_, tipo_iva, base, cuota))
+    for id_, factura_id, tipo_iva, base, cuota, tratamiento in _filas(
+            conn, "SELECT id, factura_id, tipo_iva_pb, base_cent, cuota_cent, tratamiento "
+                  "FROM factura_iva WHERE retirada_en IS NULL ORDER BY factura_id, id"):
+        desglose[factura_id].append(TramoIva(id_, tipo_iva, base, cuota, tratamiento))
 
     facturas = []
     dudosos = _dudosos(conn)
@@ -415,7 +418,7 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
                        tarifas=tarifas(conn), objetos=objetos(conn), turnos=vigentes,
                        fotos_planning=fotos,
                        conciliaciones=conciliaciones(conn) if fotos else (),
-                       ciclos=ciclos(conn))
+                       ciclos=ciclos(conn), periodos_btw=periodos_btw(conn))
 
 
 _SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
@@ -501,16 +504,19 @@ def partes(conn: sqlite3.Connection, tabla: str) -> tuple[Parte, ...]:
     for fila_id, norma in _filas(conn, "SELECT fila_id, alias_norm FROM alias WHERE tabla = ? "
                                        "AND confirmado = 1 AND activo = 1", (tabla,)):
         alias[fila_id].add(norma)
-    columnas = ("id, nombre, kvk, btw_id, regimen_iva, activo, NULL" if tabla == "proveedor"
-                else "id, nombre, kvk, btw_id, tratamiento_iva_defecto, activo, requiere_po")
+    columnas = ("id, nombre, kvk, btw_id, regimen_iva, activo, NULL, NULL"
+                if tabla == "proveedor" else
+                "id, nombre, kvk, btw_id, tratamiento_iva_defecto, activo, requiere_po, "
+                "verlegd_elegible")
     salida = []
-    for id_, nombre, kvk, btw, regimen, activo, requiere_po in _filas(
+    for id_, nombre, kvk, btw, regimen, activo, requiere_po, elegible in _filas(
             conn, f"SELECT {columnas} FROM {tabla} ORDER BY id"):
         nombres = {n for n in (normalizar_nombre(nombre),) if n} | alias.get(id_, set())
         salida.append(Parte(id=id_, tabla=tabla, nombre=nombre, nombres=frozenset(nombres),
                             kvk=normalizar_kvk(kvk), btw=normalizar_btw(btw),
                             regimen_iva=regimen, activo=bool(activo),
-                            requiere_po=None if requiere_po is None else bool(requiere_po)))
+                            requiere_po=None if requiere_po is None else bool(requiere_po),
+                            verlegd_elegible=None if elegible is None else bool(elegible)))
     return tuple(salida)
 
 
@@ -1065,3 +1071,19 @@ def ciclos(conn: sqlite3.Connection) -> tuple[Ciclo, ...]:
                  in _filas(conn, "SELECT id, cliente_id, objeto_id, frecuencia, ancla, "
                                  "dias_gracia, vigente_desde, vigente_hasta "
                                  "FROM ciclo_facturacion ORDER BY id"))
+
+
+# ------------------------------------------------------------ paso 11: el BTW
+
+def periodos_btw(conn: sqlite3.Connection) -> tuple[PeriodoBtw, ...]:
+    """Los trimestres presentados, con la huella de IVA declarada de cada factura (C4)."""
+    declaradas: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    for periodo_id, factura_id, huella in _filas(
+            conn, "SELECT periodo_id, factura_id, huella FROM periodo_btw_declarada "
+                  "ORDER BY periodo_id, factura_id"):
+        declaradas[periodo_id].append((factura_id, huella))
+    return tuple(PeriodoBtw(ano, trimestre, _fecha(presentado_en),
+                            tuple(declaradas.get(id_, ())))
+                 for id_, ano, trimestre, presentado_en in _filas(
+                     conn, "SELECT id, ano, trimestre, presentado_en FROM periodo_btw "
+                           "WHERE estado = 'presentado' ORDER BY ano, trimestre"))

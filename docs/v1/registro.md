@@ -4433,3 +4433,266 @@ que esperan al planning, no «al paso 10»), `test_importadores.py` (el mapeo
 del planning tiene su ejemplo y su contrato), `test_almacen.py` (los turnos
 son evidencia: una fila más al poblar) y `test_pureza_reglas.py` (los tipos
 y los escenarios del paso 10, y `turnos` entre los módulos propios).
+
+## Paso 11
+
+El BTW: las cifras de cada trimestre, la hoja de trabajo con la lista de lo
+que hay que revisar, y el estado de la declaración (abierto, listo para
+revisar, presentado). **1848 tests pasan** (eran 1754), ninguno llama a la
+API y ninguno escribe fuera de una carpeta temporal. Cinco mil facturas se
+recalculan en 1,05-1,28 s la primera vez y en 0,99-1,03 s las siguientes
+(cuatro medidas; el paso 10 medía 1,21-1,54 s y 1,09-1,29 s): sin ningún
+trimestre presentado, C4 no mira nada. El resumen del BTW de esas cinco mil
+facturas tarda 0,06-0,09 s.
+
+**Nada aquí presenta nada ni habla con la Belastingdienst** (regla 5 de
+arquitectura.md). El agente calcula, genera la hoja y la guarda; una persona
+con `gestionar_btw` la marca lista, otra (si la hay) presenta la declaración
+en el portal a mano y lo anota después con la referencia del acuse. Ninguna
+orden se llama «presentar» ni «declarar» (la suite de alcance lo mira), y
+`btw.py` no importa nada de red (`test_btw_no_habla_con_nadie_de_fuera`).
+Todo `config/btw.yaml` está **por confirmar con el asesor**: cada hoja lo dice
+en su cabecera mientras `confirmado` sea falso.
+
+### Qué se construyó
+
+**Migración `0014_btw.sql`** (la siguiente libre; el §11 la llama 0008):
+
+- `periodo_btw` (controlada, guardas generadas con
+  `scripts/generar_guardas.py`, escrita solo por `btw.py`, como la
+  excepción): las columnas del §5.G n.º 45, con `hoja_id` en vez de
+  `hoja_documento_id` y dos más, `listo_en` y `listo_por` (desviaciones 2 y
+  3). Los CHECK fijan el calendario (el trimestre natural, los plazos después
+  de su fin) y lo que lleva cada estado: abierto no tiene hoja; listo, la hoja
+  y quién la marcó; presentado, además la referencia, lo declarado, quién y
+  el día, posterior al trimestre. Los disparadores: solo una persona activa
+  con `gestionar_btw`, en su propia orden, da de alta o cambia un periodo;
+  **un trimestre presentado no cambia nunca** (`periodo_btw_presentado_no_cambia`:
+  ni vuelve atrás ni se toca la referencia o la nota); no nace presentado; se
+  presenta desde `listo_revision`, con la misma hoja y lo anota quien firma; la
+  hoja de un periodo listo o presentado es una hoja guardada de ese trimestre
+  con ese sha256; el periodo no cambia de trimestre.
+- `hoja_btw` (**solo escritura**, evidencia como una nota): cada hoja de
+  trabajo que se marcó lista, entera (`contenido`) y con el sha256 de sus
+  bytes; la guarda una persona con `gestionar_btw` en el evento
+  `btw_hoja_guardada`. La misma hoja no se guarda dos veces.
+- `periodo_btw_declarada` (**solo escritura**): lo que se declaró de cada
+  factura al anotar la presentación (su huella de IVA, su base y su cuota).
+  Solo se escribe en el evento `btw_presentacion_anotada` de su periodo, ya
+  presentado. Es contra lo que mira C4.
+- `v_btw_linea`: las líneas de IVA de las facturas que cuentan
+  (`v_iva_vigente`: ni anuladas, ni fusionadas, ni sustituidas), con su año y
+  trimestre por la fecha de factura. Una línea por fila viva de `factura_iva`
+  (con el tratamiento de la fila o, si no lo dice, el de la factura); sin
+  desglose, una con la cabecera.
+
+**`config/btw.yaml`**, cargado con `bms-agent politica cargar` (admin) y
+versionado en `politica_version` como los demás: trimestral, factuurstelsel,
+los dos plazos el último día del mes siguiente, los tipos habituales (0, 9 y
+21 %) y el de la autoliquidación (21 %, deducible), el umbral de la KOR
+(20.000 €, aviso desde el 90 %) y a qué rúbrica va cada línea: las ventas con
+IVA normal por tipo (1a, 1b, 1e, y 1c los demás), el tipo cero en 1e, el IVA
+trasladado al cliente en 1e (nacional y de fuera de la UE) o 3b (UE), exento
+y KOR fuera; las compras con IVA normal en 5b, el IVA trasladado en 2a
+(nacional), 4b (UE) o 4a (fuera de la UE), y lo demás fuera.
+`politica.ConfigBtw` tiene esos mismos valores por defecto (un test los
+compara con el fichero); `config_btw_de_yaml` rechaza entero lo que la V1 no
+sabe hacer (otra periodicidad, kasstelsel, otros plazos, un mapeo incompleto o
+una rúbrica donde una línea no puede ir, un tipo de autoliquidación del 0 %,
+un umbral o un aviso fuera de sus límites). Mientras no se carga ninguno, la
+primera hoja que se marca lista apunta el de partida (`apuntar_btw_en_uso`),
+para que el hash que lleva la hoja se pueda resolver a un texto.
+
+**Módulos nuevos y lo que cambia**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `btw.py` | El calendario (`periodo_de`, `limites` con `reloj.limite_btw`, `etiqueta` «2026-T3»); las líneas de `v_btw_linea` con la contraparte y su país (`lineas`); `clasificar` y `cifras` (puras): rúbricas, 5a, 5b, 5c, ingresos y costes sin IVA, IVA repercutido, autoliquidado y deducible, lo que queda fuera; `revisar` (las facturas que piden revisar el IVA); `diferencias` (lo que ya no es lo declarado de un trimestre presentado); la hoja (`hoja`, `celda`); las vistas (`trimestre`, `resumen`); las órdenes (`marcar_lista`, `reabrir`, `anotar_presentacion`) y `verificar` |
+| `reglas/fechas.py` | C4 |
+| `reglas/iva.py` | `lineas_iva`, `pais_iva`, `huella_iva` (lo mismo que `v_btw_linea`, para C4), E0, E5 y E7 |
+| `reglas/base.py` | `PeriodoBtw`, `Instantanea.periodos_btw`, `TramoIva.tratamiento`, `Parte.verlegd_elegible` y, en `Politica`, `iva_tipos_habituales_pb`, `kor_umbral_cent` y `kor_aviso_pct` (de `btw.yaml`) |
+| `reglas/instantanea.py` | Los trimestres presentados con lo declarado, el tratamiento de cada fila del desglose y la marca `verlegd_elegible` de cada cliente |
+| `politica.py` | `ConfigBtw`, su lector y su escritor, `config_btw`, `apuntar_btw_en_uso`; `politica cargar` acepta `btw.yaml` |
+| `almacen/evidencia.py` | `hoja_btw` (su texto rehasheado) y `periodo_btw_declarada` (toda la de un trimestre en el evento de su presentación) como evidencia |
+| `servicios.py` | Las órdenes `btw_lista_para_revision`, `btw_reabrir` (motivo y rev obligatorios) y `btw_anotar_presentacion`, todas con `gestionar_btw` |
+| `cli.py` | `bms-agent btw ver [2026-T3] [--json]`, `btw hoja 2026-T3 [--salida F]` (escribe los bytes y dice su sha256), `btw listo`, `btw reabrir` y `btw anotar` (lo declarado a devolver va en negativo: `--importe-declarado -1.234,56`); `db verificar` mira también los periodos |
+| `serve.py` | `GET /api/v2/btw` (el resumen), `/api/v2/btw/2026-T3` (el trimestre) y `/api/v2/btw/2026-T3/hoja` (su texto y su sha256); las órdenes por `/api/v2/acciones`; un trimestre que no lo es da 404 y una orden que no tiene sentido en su estado, 409 |
+
+**Las cifras** (`btw.clasificar`). Una venta con IVA normal va a la rúbrica
+de su tipo con su base y su cuota impresa; una sin IVA (tipo cero, IVA
+trasladado al cliente), solo con su base. La cuota de una compra con IVA
+normal es IVA soportado (5b). **El IVA trasladado de una compra se
+autoliquida**: la base por el tipo de `btw.yaml` (21 %, al céntimo y con el
+medio hacia fuera, para que un abono dé lo mismo en negativo) va a 2a, 4b o
+4a con su base, y vuelve como deducible en 5b: las dos cosas se compensan.
+Con KOR, exento o tipo cero en una compra no hay IVA: es coste y la hoja la
+lista en «fuera de las cifras». Un abono va en el trimestre de su fecha, en
+negativo. Una línea en otra moneda (X1), sin tratamiento o, con IVA normal,
+sin tipo o sin cuota (E0) no entra en ninguna suma: va a «sin clasificar» con
+el motivo. 5a es la columna de IVA de 1a a 4b; 5c, 5a menos 5b (a pagar si
+es positivo, a devolver si es negativo). Todo en céntimos: la declaración se
+rellena en euros enteros, y eso lo hace la persona.
+
+**El país de la contraparte** sale del prefijo de su btw-id impreso (el del
+emisor en una compra, el del receptor en una venta): NL o ninguno es
+nacional, un país de la UE es `ue`, otras dos letras `fuera_ue`. Solo cuenta
+en el IVA trasladado.
+
+**La hoja de trabajo** es un CSV con BOM, separador «;», fin de línea CRLF y
+coma decimal (lo que abre bien un Excel neerlandés o español): la cabecera
+(empresa, trimestre, plazos, sistema, el sha256 de la configuración y si está
+confirmada, y que la presenta una persona), las rúbricas con 5a, 5b y 5c, el
+resumen con la estimación, cada línea con su rúbrica, las facturas que piden
+revisar el IVA, lo que queda fuera y, en un trimestre presentado, las
+diferencias con lo presentado. No lleva la hora ni el estado: el mismo
+contenido da siempre el mismo sha256. **Todo texto que viene de un documento
+(número, nombre de la contraparte) se neutraliza**: si empieza por `=`, `+`,
+`-`, `@`, un tabulador o un salto de línea (o, tras espacios, por uno de los
+cuatro primeros), lleva un apóstrofo delante. Los importes que escribe el
+sistema no (un «-105,00» es un número).
+
+**Las facturas que piden revisar el IVA** (§7: «las del trimestre con
+hallazgos de IVA abiertos, más C4»): las facturas del trimestre con un
+hallazgo pendiente (abierto o desaparecido sin cerrar) de una regla con
+entrada de IVA (dura o blanda, como las cuenta el §8; hoy D3, E0-E5, E7 y C4), por su
+`factura_id` o por sus objetivos, más las de C4 de ese trimestre aunque ya no
+estén en él (por la clave del hallazgo).
+
+**El estado** (`btw.marcar_lista`, `reabrir`, `anotar_presentacion`):
+
+- **listo para revisar**: solo con el trimestre terminado. La persona da el
+  sha256 de la hoja que vio; si las cifras cambiaron desde entonces,
+  Conflicto. La hoja se guarda entera en `hoja_btw` y su hash queda en el
+  periodo. Marcarlo otra vez con la misma hoja no hace nada.
+- **reabrir**: de listo a abierto, con motivo y la rev de lo que se vio; la
+  hoja deja de valer (sigue guardada).
+- **presentado**: desde listo, con la hoja que se marcó y con las cifras de
+  hoy dando todavía esa hoja (si no, Conflicto: se vuelve a marcar lista y a
+  revisar), la referencia del acuse (obligatoria), lo declarado (en negativo,
+  a devolver) y el día (después del trimestre y no en el futuro; por defecto,
+  hoy). Quien la marcó lista no la anota si hay otra persona con
+  `gestionar_btw` (`si_hay_dos`; si no, el evento dice `autorrevisado`). En la
+  misma orden se apunta lo declarado de cada factura. **Es irreversible**:
+  ninguna orden lo toca y la base para cualquier escritura.
+
+**Reglas nuevas**
+
+| Regla | Qué mira | Al fallar |
+| --- | --- | --- |
+| C4 | Por cada trimestre presentado, cada factura que cuenta en él por su fecha de factura y no es lo declarado: llegó después («tarde»), su huella de IVA cambió («cambio»), o se declaró y ya no cuenta allí (anulada, sustituida, en otra moneda o con otra fecha: «fuera») | Aviso; se anula; clave «2026-T3»; a la lista del trimestre |
+| E0 | El tratamiento del IVA no se sabe, o con IVA normal falta el tipo (ni en la cabecera ni en todas las líneas) o la cuota, o una fila con IVA normal del desglose no trae tipo, base o cuota. Ilegible no es que falte (Q2) | Retención; no se anula |
+| E5 | Lo que un proveedor con KOR ha facturado a BMS en el año natural (bases, abonos restando) llega al 90 % del umbral | Aviso del proveedor (clave el año), con la factura desde la que pasa el aviso como relacionada; su evidencia es si ya pasa el umbral |
+| E7 | Un tipo que no es de la lista (0, 9, 21); una venta al 0 % o con IVA trasladado a un cliente que el maestro no tiene marcado `verlegd_elegible` (sin cliente resuelto: sin datos) | Retención; se anula; claves «tipo» y «tratamiento» |
+
+C4, E0 y E7 solo escriben lo que objetan, como las reglas de factura del
+paso 5. Una factura en otra moneda no les dice nada (es X1).
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| El IVA normal al 21 % | `test_btw.py::test_el_iva_normal_al_21_va_a_1a_y_5b_y_queda_a_pagar_la_diferencia` (1a, 1b, 1e, 5a, 5b, 5c, ingresos, costes y la hoja) |
+| El IVA trasladado de una compra en 2a y 5b, compensado | `test_el_iva_trasladado_de_una_compra_va_a_2a_y_5b_y_se_compensa` (2a, 4b y 4a por país, y un desglose con una fila normal y otra trasladada) |
+| La KOR | `test_una_compra_con_kor_no_tiene_iva_que_declarar`; E5 en `test_reglas_paso11.py::test_e5_avisa_al_llegar_al_porcentaje_del_umbral` y `test_e5_solo_el_ano_de_hoy_lo_que_cuenta_y_quien_sigue_con_kor` |
+| Un abono en un trimestre posterior | `test_un_abono_de_un_trimestre_posterior_cuenta_en_el_suyo` (de venta y de compra: va al cuarto trimestre en negativo; el tercero, presentado, sigue siendo su hoja y no da C4), `test_reglas_paso11.py::test_c4_un_abono_de_un_trimestre_posterior_no_reabre_el_presentado` |
+| El plazo del cuarto trimestre es el 31 de enero; el del tercero de 2026, el 2026-10-31 | `test_el_plazo_es_el_ultimo_dia_del_mes_siguiente_al_trimestre` (seis trimestres, presentar y pagar), `test_los_plazos_van_al_trimestre_a_la_hoja_y_al_periodo` |
+| Presentar es irreversible y queda con su hash | `test_presentar_es_irreversible_y_queda_con_el_hash_de_la_hoja` (la hoja guardada es la que se ve y su sha256 el de sus bytes; ninguna orden ni escritura auditada lo devuelve atrás; hoja y lo declarado de solo escritura; separación de funciones), `test_la_hoja_que_se_presenta_es_la_que_se_marco_lista` (hoja cambiada: Conflicto; reabrir; fechas; autorrevisado), `test_el_btw_por_la_cli` (el sha256 del fichero exportado es el que queda en el periodo), `test_verificar_ve_un_periodo_una_hoja_o_lo_declarado_tocados_por_detras` |
+| Una factura tardía en un trimestre presentado da C4 | `test_una_factura_que_llega_tarde_a_un_trimestre_presentado_da_c4` (en el almacén, con la lista de revisar, las diferencias de la hoja y una declarada que se anula), `test_reglas_paso11.py::test_c4_una_factura_tardia_en_un_trimestre_presentado` y `test_c4_una_factura_que_cambio_o_ya_no_cuenta_alli` |
+| C4, E0 y E7 | Los tests de cada una en `test_reglas_paso11.py`; `test_btw.py::test_e7_lee_la_marca_del_maestro_de_clientes` (la marca de Exact, en el almacén) |
+| Lo demás | Lo que queda fuera de las cifras, la lista de revisar, la vista contra las reglas (`test_la_vista_y_las_reglas_dicen_lo_mismo_de_cada_factura`), la neutralización de fórmulas, los permisos y los disparadores, la configuración (de partida, rechazos, la cargada cambia la hoja), el resumen, la CLI y la API, en `test_btw.py`; la pureza en `test_pureza_reglas.py` con `test_reglas_paso11.escenarios` |
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración es la 0014**, no la 0008 del §11: la numeración ya iba por
+   la 0013.
+2. **La hoja vive en su propia tabla (`hoja_btw`) y el periodo apunta a ella
+   con `hoja_id`**, no con `hoja_documento_id`. `documento` es para los
+   originales que entran (con su origen, su llegada y su vía); la hoja la
+   genera el sistema. Se guarda entera y es evidencia: `db verificar`
+   rehace su sha256.
+3. **El periodo lleva `listo_en` y `listo_por`.** Hacen falta para la
+   separación de funciones (quien marca la hoja lista no anota la
+   presentación habiendo otra persona) y para el disparador que pide que la
+   presentación sea de la hoja que se marcó.
+4. **Una tabla más, `periodo_btw_declarada`.** «Cambió después de presentar»
+   (C4, §7) solo se puede ver si se guarda lo que se declaró de cada factura.
+5. **«Presentado» pasa por «listo para revisar»** y por la misma hoja: el
+   hash que queda es el de lo que se revisó, y las cifras de ese momento
+   tienen que seguir dándolo. Una hoja que cambió entre medias se vuelve a
+   marcar lista. Listo solo se marca con el trimestre terminado; el día de la
+   presentación es posterior al trimestre y no futuro; la referencia y lo
+   declarado son obligatorios.
+6. **El mapeo de rúbricas se aplica en Python, no en la vista.** La base no
+   lee `btw.yaml`; `v_btw_linea` da las líneas y `btw.py` las clasifica con la
+   configuración vigente. Las columnas `rubrica`, `cuota_autoliquidada_cent` y
+   `deducible` de `factura_iva` (migración 0008) siguen sin rellenar: un
+   cambio de configuración vale para los trimestres sin presentar sin
+   reescribir facturas, y uno presentado queda con su hoja y lo declarado.
+7. **El IVA autoliquidado es la base por el tipo de `btw.yaml`** (21 %), por
+   línea, y vuelve entero en 5b (`autoliquidacion_deducible`). El país
+   (2a, 4b o 4a; 1e o 3b en ventas) sale del prefijo del btw-id impreso; sin
+   btw-id, nacional. Todo por confirmar con el asesor.
+8. **C4 mira la fecha de factura, no el periodo de prestación** (el §7 dice
+   «fecha o periodo»): en factuurstelsel una factura se declara en el
+   trimestre de su fecha, y mirar el periodo marcaría casi todas las de las
+   primeras semanas tras cada presentación. Además de la tardía, avisa de la
+   que cambió y de la declarada que ya no cuenta allí; un hallazgo por
+   factura y trimestre.
+9. **E5 cuenta lo facturado, no lo pagado** (el §7 dice «paid»). El umbral de
+   la KOR es sobre la facturación del proveedor, y lo pagado depende de
+   cuándo paga BMS. Es del año natural de hoy, del proveedor (no de una
+   factura), y solo si su última factura del año sigue siendo KOR. El paso
+   11 no lo pedía; el encargo decía hacerlo si no estaba.
+10. **E7 da sin datos** en una venta sin IVA sin cliente resuelto (no se puede
+    saber si está marcado). Una venta con IVA normal con una línea al 0 % cuenta
+    como venta al 0 %.
+11. **E0 con desglose solo mira las filas con IVA normal** (una fila de IVA
+    trasladado no lleva cuota), y como Q1 no cuenta como falta lo ilegible.
+12. **Solo trimestral y factuurstelsel**, con el plazo fijo del último día
+    del mes siguiente para presentar y pagar: el cargador rechaza lo demás en
+    vez de prepararlo mal. Mensual, anual o kasstelsel necesitarían otro
+    calendario y otra atribución de facturas.
+13. **Los trimestres anteriores** del resumen son los que tienen facturas o
+    estado, más los ya terminados del año en curso aunque estén vacíos (un
+    trimestre sin facturas también se declara). Los de años anteriores sin
+    nada no salen: serían ruido de antes de que existiera el agente.
+14. **El año hasta hoy** es por fecha de factura, del 1 de enero a hoy.
+15. **La hoja usa coma decimal y BOM** y no lleva hora ni estado (el mismo
+    contenido, el mismo hash).
+
+### Lo que deben saber los pasos siguientes
+
+- **Paso 12** (bloques del §17 y filtros del §18): `btw.resumen` es el bloque
+  del BTW (trimestre en curso con sus cifras, por presentar con su plazo y
+  sus días, anteriores con su estado, el año hasta hoy y las facturas sin
+  fecha) y `btw.trimestre` el detalle; la consola todavía no tiene página del
+  BTW (solo la CLI y `/api/v2`). `export --v2` debería llevar el resumen.
+- **La prioridad de los trimestres** (§5.F n.º 44 la cita entre las cachés de
+  prioridad) no está: un trimestre no es una entidad de `prioridad`. Y la de
+  las facturas sigue usando `reloj.proximo_limite_btw` por su fecha: un C4 de
+  un trimestre ya presentado suma los puntos del plazo siguiente.
+- **La hoja es CSV**; un .xlsx necesitaría una biblioteca que no hay. Si se
+  cambia su formato, cambia su hash: las ya guardadas siguen valiendo como
+  están.
+- **`config/btw.yaml` hay que confirmarlo con el asesor** (mapeo de ventas con
+  IVA trasladado nacional a 1e, el país por el btw-id, el 21 % de la
+  autoliquidación, si es deducible entero) y cargarlo con `confirmado: true`.
+  Cambiarlo cambia la hoja de los trimestres sin presentar: lo listo hay que
+  volver a marcarlo.
+- **Lo declarado de una factura es su huella** (`reglas/iva.huella_iva`: sus
+  líneas de IVA sin orden y el país si hay IVA trasladado). Si cambia lo que
+  entra en ella, todos los trimestres presentados darían C4 «cambio»: una
+  versión nueva tendría que conservar la vieja para lo ya presentado.
+- **Las ventas de Exact** traen el tratamiento que les dio el paso 8; los
+  códigos de IVA de Exact todavía no se mapean a tratamiento por línea.
+- **La regla 5 sigue igual**: cualquier cosa que lleve la declaración a la
+  Belastingdienst (Digipoort, un SBR) está fuera de la V1.
+
+**Tests existentes cambiados, y por qué**: `test_reglas.py` (el catálogo del
+§7 gana C4, E0, E5 y E7, y E5 es del proveedor), `test_pureza_reglas.py`
+(`PeriodoBtw`, `fechas` entre los módulos propios y los escenarios del paso
+11), `test_hallazgos.py` (C4, E0 y E7 solo escriben lo que objetan),
+`test_almacen.py` (`hoja_btw` y `periodo_btw_declarada` son de solo escritura
+y `periodo_btw` controlada; al poblar se presenta un trimestre para que
+tengan filas) y `test_servicios.py` (las tres órdenes del BTW en la matriz,
+con `gestionar_btw`).

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, consola, consultas, permisos, relaciones, servicios
+from . import btw, config, consola, consultas, permisos, relaciones, servicios
 from .almacen import preparar, ruta_por_defecto
 from .auditoria import anclar
 from .cache import CONSERVAR
@@ -529,6 +529,20 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"cliente": consultas.cliente(conn, int(partes[1]))})
                 elif partes == ["relaciones"]:
                     self._json(200, {"relaciones": relaciones.propuestas(conn)})
+                elif partes == ["btw"]:
+                    self._json(200, {"btw": btw.resumen(conn)})
+                elif len(partes) in (2, 3) and partes[0] == "btw" and partes[2:] in ([], ["hoja"]):
+                    try:
+                        ano, numero = btw.leer_etiqueta(partes[1])
+                    except ValueError as exc:
+                        self._json(404, {"error": str(exc)})
+                        return
+                    if partes[2:] == ["hoja"]:
+                        hoja = btw.hoja(conn, ano, numero)
+                        self._json(200, {"trimestre": btw.etiqueta(ano, numero),
+                                         "sha256": hoja.sha256, "texto": hoja.texto})
+                    else:
+                        self._json(200, {"trimestre": btw.trimestre(conn, ano, numero)})
                 elif partes == ["acciones"]:
                     self._json(200, {"acciones": [
                         {"nombre": a.nombre, "permiso": a.permiso, "descripcion": a.descripcion,
@@ -585,6 +599,7 @@ def _sin_floats(texto: str) -> Any:
 
 def _codigo_de(error: Exception) -> int | None:
     """El codigo HTTP de un error de una orden, o None si es un fallo de verdad."""
+    from .btw import EstadoNoValido as EstadoBtw
     from .campos import CampoDeOtroSistema, CampoNoEditable, Conflicto, FaltaMotivo
     from .estados import NoSube
     from .excepciones import BloqueoAbierto, EstadoNoValido as EstadoExcepcion
@@ -602,7 +617,7 @@ def _codigo_de(error: Exception) -> int | None:
         return 409
     if isinstance(error, (BloqueoAbierto, EstadoExcepcion, EstadoHallazgo, NoAnulable,
                           NoRevisable, NoSube, CampoDeOtroSistema, CampoNoEditable,
-                          PagoNoValido)):
+                          PagoNoValido, EstadoBtw)):
         return 409
     if isinstance(error, LookupError):
         return 404
@@ -668,7 +683,7 @@ def servir(
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print("  GET  /consola         consola interna (se entra con el token personal)")
     print("  GET  /api/v2/...      facturas, ficha, excepciones, proveedores, clientes, "
-          "ordenes de compra, Objetos (token personal)")
+          "ordenes de compra, Objetos, BTW (token personal)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")

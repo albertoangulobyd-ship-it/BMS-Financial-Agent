@@ -120,6 +120,12 @@ class Politica:
     planning_obligatorio: bool = False
     planning_tolerancia_horas_dia: Decimal = Decimal("0.25")
     planning_dias_gracia: int = 14
+    # Paso 11: el BTW (config/btw.yaml, por confirmar con el asesor). E7: los
+    # tipos de IVA que no son raros, en puntos basicos. E5: el umbral anual de
+    # la KOR y desde que porcentaje de el se avisa.
+    iva_tipos_habituales_pb: tuple[int, ...] = (0, 900, 2100)
+    kor_umbral_cent: int = 2_000_000
+    kor_aviso_pct: int = 90
 
     def valor(self, nombre: str) -> str:
         """El parametro como texto, para la huella (sin floats ni ambiguedad)."""
@@ -214,12 +220,17 @@ class Referencia:
 
 @dataclass(frozen=True, slots=True)
 class TramoIva:
-    """Una fila del desglose de IVA por tipo (v2). Una factura v1 no tiene."""
+    """Una fila del desglose de IVA por tipo (v2, Exact). Una factura v1 no tiene.
+
+    `tratamiento` es el de la fila, si lo dice (Exact lo dice; una lectura v2
+    no): sin el, vale el de la factura (paso 11, reglas/iva.lineas_iva).
+    """
 
     id: int
     tipo_iva_pb: int | None
     base_cent: int | None
     cuota_cent: int | None
+    tratamiento: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +357,9 @@ class Parte:
     activo: bool
     # Paso 9: si el cliente pide PO en sus facturas (P2). None: no se sabe.
     requiere_po: bool | None = None
+    # Paso 11: si al cliente se le puede facturar con el IVA trasladado o al 0 %
+    # (E7). None en un proveedor.
+    verlegd_elegible: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -644,6 +658,22 @@ class Ciclo:
     vigente_hasta: date | None
 
 
+@dataclass(frozen=True, slots=True)
+class PeriodoBtw:
+    """Un trimestre del BTW ya presentado (periodo_btw), paso 11, para C4.
+
+    `declaradas` son las facturas que entraron en la declaracion, cada una con
+    la huella de su IVA tal como se declaro (reglas/iva.huella_iva). Lo que hoy
+    no es eso (una factura que llego despues, una que cambio, una que ya no
+    cuenta) es C4.
+    """
+
+    ano: int
+    trimestre: int
+    presentado_en: date
+    declaradas: tuple[tuple[int, str], ...] = ()
+
+
 @dataclass(frozen=True)
 class Instantanea:
     """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py.
@@ -687,6 +717,8 @@ class Instantanea:
     fotos_planning: tuple[FotoPlanning, ...] = ()
     conciliaciones: tuple[Conciliacion, ...] = ()
     ciclos: tuple[Ciclo, ...] = ()
+    # Paso 11: los trimestres del BTW ya presentados, con lo que se declaro (C4).
+    periodos_btw: tuple[PeriodoBtw, ...] = ()
 
 
 # ------------------------------------------------------------ resultados

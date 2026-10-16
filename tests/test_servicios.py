@@ -211,6 +211,30 @@ def _po(conn) -> tuple[int, int]:
     return (fila[0], fila[1]) if fila else (0, 0)
 
 
+# Paso 11. El tercer trimestre de 2026 ya termino (el reloj esta en octubre): se marca
+# listo con la hoja de ahora, y desde ahi se reabre o se anota su presentacion.
+def _preparar_btw_lista(almacen, admin) -> None:
+    from bms_agent import btw
+
+    conn = almacen.conn
+    servicios.ejecutar(conn, "btw_lista_para_revision", {
+        "trimestre": "2026-T3", "hoja_sha256": btw.hoja(conn, 2026, 3).sha256},
+        usuario_id=admin)
+
+
+def _periodo_btw(conn) -> tuple[int, str]:
+    """La rev y la hoja marcada del trimestre de la preparacion (0 y una hoja que no es, sin
+    preparar: la orden se deniega antes de mirarlo)."""
+    fila = conn.execute("SELECT rev, hoja_sha256 FROM periodo_btw").fetchone()
+    return (fila[0], fila[1]) if fila else (0, "0" * 64)
+
+
+def _hoja_btw(conn) -> str:
+    from bms_agent import btw
+
+    return btw.hoja(conn, 2026, 3).sha256
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -341,6 +365,15 @@ CASOS = [
         "imputacion_id": i["imputacion"], "orden_compra_id": _po(c)[0],
         "rev": _rev(c, "factura_imputacion", i["imputacion"]), "motivo": MOTIVO},
      _preparar_po),
+    # Paso 11: el estado del BTW.
+    ("btw_lista_para_revision", "btw_lista_para_revision", "gestionar_btw", lambda c, i: {
+        "trimestre": "2026-T3", "hoja_sha256": _hoja_btw(c)}, None),
+    ("btw_reabrir", "btw_reabrir", "gestionar_btw", lambda c, i: {
+        "trimestre": "2026-T3", "rev": _periodo_btw(c)[0],
+        "motivo": "El asesor pide repasar dos compras"}, _preparar_btw_lista),
+    ("btw_anotar_presentacion", "btw_anotar_presentacion", "gestionar_btw", lambda c, i: {
+        "trimestre": "2026-T3", "hoja_sha256": _periodo_btw(c)[1], "referencia": "OB-2026-T3",
+        "importe_declarado": "-1234,56"}, _preparar_btw_lista),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -378,7 +411,10 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "rechazar_relacion": "anular_acreditar", "retirar_relacion": "anular_acreditar",
         # Paso 9.
         "registrar_po": "cambiar_po", "modificar_po": "cambiar_po", "cerrar_po": "cambiar_po",
-        "objetos_po": "cambiar_po", "corregir_po": "cambiar_po", "imputar_po": "cambiar_po"}
+        "objetos_po": "cambiar_po", "corregir_po": "cambiar_po", "imputar_po": "cambiar_po",
+        # Paso 11.
+        "btw_lista_para_revision": "gestionar_btw", "btw_reabrir": "gestionar_btw",
+        "btw_anotar_presentacion": "gestionar_btw"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,

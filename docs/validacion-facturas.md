@@ -100,7 +100,9 @@ ninguna, G6 y V4 (sección G). Desde el paso 10, con el planning de TRNSPRNT:
 G1, G2, G4, G5 y G7, la parte del planning de G6, el escalón del planning de
 G3 y V4, V1-V3, V5, V6, V8 y V9 (sección V), B5 (horas cobradas dos veces) y
 el caso de las horas en V7, y P7, P8 y P10 con el trabajo del planning. Sin
-ningún planning importado, cada una da un solo «sin datos», nunca «ok». Su metadato
+ningún planning importado, cada una da un solo «sin datos», nunca «ok». Desde
+el paso 11, con el BTW: C4 contra los trimestres presentados, E0, E5 y E7
+(sección E, y `config/btw.yaml` para la lista de tipos y el umbral). Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -155,11 +157,22 @@ que se había perdido.
 | C1 | Fecha de factura presente y no futura | extracción | Retención |
 | C2 | Periodo de prestación presente | extracción | Bloqueo si falta |
 | C3 | Fecha de factura anterior al fin del periodo facturado | extracción | Aviso |
-| C4 | Periodo dentro de un trimestre ya declarado | historial | Aviso, y a la lista de excepciones del IVA |
+| C4 | Fecha de factura en un trimestre ya presentado sin estar en lo declarado, o que cambió después de presentarlo | historial | Aviso, y a la lista de excepciones del IVA |
 
 **C4 alimenta la hoja de trabajo del trimestre.** Una factura que llega
 tarde y cae en un periodo ya declarado no es un error, pero el contador
 tiene que verla.
+
+Desde el paso 11 de la V1, C4 compara cada trimestre presentado con lo que
+se declaró de cada factura al anotar la presentación (su huella de IVA:
+tratamiento, tipo, base y cuota de cada línea). Avisa de tres cosas: la
+factura llegó después («tarde»), cambió después («cambio») o ya no cuenta en
+ese trimestre porque se anuló, se sustituyó o cambió de fecha («fuera»). La
+factura cuenta en el trimestre de su fecha de factura (factuurstelsel), no en
+el de su periodo de prestación: una factura de octubre por trabajo de
+septiembre se declara en el cuarto trimestre, y mirar el periodo marcaría
+casi todas las de las primeras semanas tras cada presentación. Un abono va
+en su propio trimestre: no reabre el que acredita.
 
 ### D · Importes y aritmética
 
@@ -219,11 +232,13 @@ dice para que una persona decida.
 
 | ID | Comprobación | Fuente | Resultado |
 | --- | --- | --- | --- |
+| E0 | Falta la información del IVA: el tratamiento no se sabe o, con IVA normal, falta el tipo o la cuota | extracción | Retención, no se anula |
 | E1 | El tipo aplicado coincide con el régimen registrado del proveedor | maestro | Retención si difiere |
 | E2 | El régimen cambia respecto a la factura anterior del mismo proveedor | historial | Retención |
 | E3 | Con KOR: la factura no repercute IVA y lo menciona expresamente | extracción, maestro | Bloqueo si repercute IVA |
 | E4 | Con verleggingsregeling: sin IVA, con la mención de IVA trasladado y vuestro btw-id | extracción | Bloqueo si repercute IVA |
-| E5 | Acumulado anual que le habéis pagado, contra el umbral de la KOR | historial | Aviso al acercarse |
+| E5 | Acumulado anual que os ha facturado, contra el umbral de la KOR | historial | Aviso al acercarse |
+| E7 | Tipo poco habitual (no es 0, 9 ni 21 %), o una venta al 0 % o con IVA trasladado a un cliente que el maestro no tiene marcado para ello | extracción, maestro | Retención |
 
 **E2 es la regla más valiosa del grupo.** Un proveedor que pasa de KOR a
 repercutir IVA, o de IVA normal a IVA trasladado, es casi siempre un cambio
@@ -236,6 +251,19 @@ de construcción, la regla de traslado de la deuda tributaria aplica y la
 factura no debe llevar IVA. Confírmalo con el contador antes de codificar el
 comportamiento por defecto, porque equivocarse aquí afecta a todas las
 facturas de un proveedor a la vez.
+
+**E5 cuenta lo facturado, no lo pagado.** El umbral de la KOR es sobre la
+facturación del proveedor en el año natural, y lo que os factura es la parte
+que veis de ella aunque no la hayáis pagado todavía. Suma la base de sus
+facturas del año (los abonos restan), si sigue facturando con KOR, y avisa
+desde el porcentaje de `config/btw.yaml`. El hallazgo es del proveedor, no
+de cada factura.
+
+**E7 mira dos cosas distintas.** Un tipo que no está en la lista de
+`config/btw.yaml` (0, 9 y 21 %), en cualquier factura; y una venta sin IVA
+(al 0 % o con IVA trasladado) a un cliente que el maestro de Exact no tiene
+marcado como «verleggen toegestaan». Sin el cliente resuelto, la segunda da
+«sin datos».
 
 ### F · Datos de pago
 
@@ -400,6 +428,6 @@ activa en el código.
 | --- | --- |
 | Si el número KvK se exige en factura o basta el btw-id | Decide si A3 avisa o bloquea |
 | Si aplica la regla de traslado de la deuda a vuestra actividad | E4 afecta a todas las facturas de un proveedor a la vez |
-| Mapeo de rúbricas de la declaración trimestral | Ya recogido en la arquitectura, se cruza con C4 |
+| Mapeo de rúbricas de la declaración trimestral | Ya recogido en la arquitectura, se cruza con C4. Desde el paso 11 está en `config/btw.yaml`, marcado por confirmar: cada hoja de trabajo lo dice hasta que se confirme |
 | Tratamiento de las facturas que llegan tras el cierre del trimestre | Define qué hace C4 además de avisar |
 | Umbral de exceso de tarifa que justifica bloquear un pago | Única cifra del catálogo que es decisión de negocio pura |

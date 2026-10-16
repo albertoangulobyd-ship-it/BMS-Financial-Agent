@@ -54,13 +54,16 @@ bms-agent importar po_csv ordenes_compra pos.csv --token ...   # la hoja de PO (
 bms-agent importar po_csv modificaciones_po cambios.csv --token ...   # sus modificaciones
 bms-agent ordenes              # las PO: valor, consumido sin IVA y lo que queda; `orden 4`, su ficha
 bms-agent objeto 7             # un Objeto y sus PO
+bms-agent btw ver              # el BTW: el trimestre en curso, los por presentar y el año; `btw ver 2026-T3`
+bms-agent btw hoja 2026-T3 --salida hoja.csv   # la hoja de trabajo (CSV) y su sha256
+bms-agent btw listo --trimestre 2026-T3 --hoja-sha256 ... --token ...   # lista para revisar; `btw anotar`, la presentación hecha a mano
 bms-agent fuentes              # de cuándo es lo último de cada fuente (Z1)
 bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
 bms-agent usuario token Ana    # su token personal (solo se guarda su hash)
 bms-agent facturas             # la más urgente primero; `factura 12` da la ficha
 bms-agent accion marcar_revisada --factura-id 12 --huella ... --token ...   # las órdenes
-bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, reglas o empresa, con su hash
+bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, reglas, empresa o btw, con su hash
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
 bms-agent extract --estricta facturas/   # releer con otra versión: con almacén, deja candidatas
 bms-agent score                # precisión contra respuestas escritas a mano
@@ -84,5 +87,5 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1630 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1848 tests sin
 llamar a la API.

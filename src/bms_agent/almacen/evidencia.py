@@ -28,10 +28,12 @@ del paso 7, extracto_bancario (como importacion) y sus movimientos, que van
 todos en el evento de su extracto (`MOVIMIENTOS`); la del paso 9,
 orden_compra_modificacion (como una nota); la del paso 10, planning_turno,
 con todos los turnos de una importacion en su evento planning_registrado
-(`TURNOS`), como los movimientos. La procedencia de los campos
+(`TURNOS`), como los movimientos; las del paso 11, hoja_btw (como una nota, con
+su texto rehasheado) y periodo_btw_declarada, toda la de un trimestre en el
+evento de su presentacion (`DECLARADAS`). La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
-(excepciones.verificar).
+(excepciones.verificar), como el periodo del BTW (btw.verificar).
 """
 
 from __future__ import annotations
@@ -102,6 +104,12 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     "orden_compra_modificacion": ("orden_compra_id", "fecha", "valor_nuevo_cent",
                                   "fecha_fin_nueva", "motivo", "documento_id", "importacion_id",
                                   "usuario_id", "en"),
+    # Paso 11: una hoja de trabajo del BTW que se marco lista o se presento (sin su
+    # texto, que cubre sha256 y se rehashea aparte, como una politica).
+    "hoja_btw": ("ano", "trimestre", "sha256", "generada_en", "usuario_id"),
+    # Lo declarado de cada factura al presentar un trimestre: todas en el evento de
+    # la presentacion (`DECLARADAS`), como los movimientos de un extracto.
+    "periodo_btw_declarada": ("periodo_id", "factura_id", "huella", "base_cent", "cuota_cent"),
 }
 
 # Los movimientos de un extracto no tienen un evento cada uno (un extracto trae
@@ -156,6 +164,7 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "linea_sin_casar": ("linea_sin_casar", ()),
     "extracto_bancario": ("extracto_registrado", ()),
     "orden_compra_modificacion": ("po_modificada", ()),
+    "hoja_btw": ("btw_hoja_guardada", ()),
 }
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
@@ -165,7 +174,13 @@ POR_EVENTO: dict[str, str] = {"nota": "evento_id", "anulacion": "evento_id",
                                "revision": "evento_id", "prioridad_manual": "evento_id",
                                "reextraccion_resultado": "evento_id",
                                "activacion": "evento_id", "linea_sin_casar": "evento_id",
-                               "orden_compra_modificacion": "evento_id"}
+                               "orden_compra_modificacion": "evento_id",
+                               "hoja_btw": "evento_id"}
+
+# Paso 11: lo declarado de cada factura va en el evento de la presentacion de su
+# trimestre, en datos["declaradas"] por su id.
+DECLARADAS = "periodo_btw_declarada"
+EVENTO_DECLARADAS = "btw_presentacion_anotada"
 
 
 _FALTA = object()
@@ -296,6 +311,12 @@ def _verificar_turnos(conn: sqlite3.Connection) -> list[str]:
                               "turnos", "importacion")
 
 
+def _verificar_declaradas(conn: sqlite3.Connection) -> list[str]:
+    """Lo declarado de cada factura igual a la foto del evento de su presentacion (paso 11)."""
+    return _verificar_en_lote(conn, DECLARADAS, COLUMNAS[DECLARADAS], EVENTO_DECLARADAS,
+                              "periodo_btw", "declaradas", "presentacion")
+
+
 def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
     """Lo que no cuadra entre las filas de evidencia y su auditoria. Vacio si nada."""
     problemas = []
@@ -304,6 +325,12 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
             problemas.append(
                 f"extraccion {fila['id']}: contenido_json no da su contenido_sha256: "
                 "el texto se ha modificado"
+            )
+
+    for fila in conn.execute("SELECT id, contenido, sha256 FROM hoja_btw"):
+        if sha256_texto(fila["contenido"]) != fila["sha256"]:
+            problemas.append(
+                f"hoja_btw {fila['id']}: su contenido no da su sha256: el texto se ha modificado"
             )
 
     for fila in conn.execute("SELECT id, contenido, sha256 FROM politica_version"):
@@ -333,6 +360,7 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
 
     problemas.extend(_verificar_movimientos(conn))
     problemas.extend(_verificar_turnos(conn))
+    problemas.extend(_verificar_declaradas(conn))
 
     aplicadas = {f["fila_id"]: _datos(f) for f in conn.execute(
         "SELECT fila_id, datos_json FROM evento WHERE tipo = 'migracion_aplicada' "

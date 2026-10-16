@@ -47,7 +47,7 @@ from bms_agent.almacen.unidades import (
     json_canonico,
     sha256_bytes,
 )
-from bms_agent import campos, cuentas, excepciones
+from bms_agent import btw, campos, cuentas, excepciones
 from bms_agent.auditoria import Cambio, registrar
 from bms_agent.campos import Automatico, Persona
 
@@ -62,7 +62,7 @@ SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "ex
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
                   "prioridad_manual", "cuenta_bancaria", "cuenta_evento",
                   "reextraccion_resultado", "activacion", "linea_sin_casar",
-                  "orden_compra_modificacion")
+                  "orden_compra_modificacion", "hoja_btw", "periodo_btw_declarada")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
              "movimiento_bancario", "planning_turno")
 
@@ -361,6 +361,23 @@ def _poblar(almacen: Almacen) -> None:
         conn.execute("INSERT INTO orden_compra_modificacion (orden_compra_id, fecha, "
                      "valor_nuevo_cent, motivo, usuario_id, en, evento_id) VALUES (?, '2026-10-01', "
                      "1200000, 'ampliacion firmada', ?, ?, ?)", (orden, persona, AHORA, modificado))
+        # Paso 11: Ana (con gestionar_btw) marca lista la hoja del tercer trimestre, con una
+        # compra de septiembre, y anota su presentacion: la hoja y lo declarado.
+        conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'gestionar_btw')",
+                     (rol,))
+        campos.crear(conn, "factura", {"sentido": "entrante", "tipo": "factura",
+                                       "origen": "manual", "numero": "2026-9",
+                                       "fecha_factura": "2026-09-15",
+                                       "base_cent": Decimal("100.00"),
+                                       "iva_cent": Decimal("21.00"),
+                                       "total_cent": Decimal("121.00"),
+                                       "tipo_iva_pb": Decimal("21"),
+                                       "tratamiento_iva": "estandar"},
+                     Automatico("extraccion", sistema))
+        hoja = btw.hoja(conn, 2026, 3)
+        btw.marcar_lista(conn, Persona(persona), 2026, 3, hoja_sha256=hoja.sha256)
+        btw.anotar_presentacion(conn, Persona(persona), 2026, 3, hoja_sha256=hoja.sha256,
+                                referencia="OB-2026-3", importe_declarado=Decimal("-21"))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)
@@ -398,8 +415,9 @@ def test_la_lista_de_tablas_de_solo_escritura_esta_completa(db) -> None:
     # El hallazgo del paso 3 cambia de estado, pero solo como diga su ultimo
     # evento (test_hallazgos.py), y la excepcion del paso 4 es controlada como
     # las del paso 2, aunque la escribe excepciones.py (test_excepciones.py).
+    # El periodo del BTW (paso 11) es controlado como la excepcion: lo escribe btw.py.
     assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo", "hallazgo",
-                                      "excepcion", *TABLAS_CONTROLADAS}
+                                      "excepcion", "periodo_btw", *TABLAS_CONTROLADAS}
 
 
 def test_un_documento_solo_admite_apuntar_su_original_una_vez(almacen) -> None:

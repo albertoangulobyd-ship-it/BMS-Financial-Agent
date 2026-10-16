@@ -73,7 +73,9 @@ def _cuentas(conn) -> dict[str, int]:
 SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "F2", "F3", "F4",
                    "U1", "M2", "K1", "K2", "K3", "K4", "K5", "K8",
                    # Paso 8.
-                   "M3", "V7", "F10", "R1", "R2", "R3", "R4", "R5"}
+                   "M3", "V7", "F10", "R1", "R2", "R3", "R4", "R5",
+                   # Paso 11: lo que cae en un trimestre presentado y las de IVA.
+                   "C4", "E0", "E7"}
 # Las del paso 9 hablan solo de las facturas a las que aplican (las que llevan una PO o
 # una referencia que lo es, las que tienen una tarifa pactada), y de ellas todo resultado,
 # tambien el ok: un sin_datos sin resultado al lado retendria el hallazgo de esa fila.

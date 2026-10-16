@@ -1,0 +1,76 @@
+# La declaracion del BTW (aangifte omzetbelasting) de BM Support BV: como se
+# preparan las cifras de cada trimestre (btw.py) y los parametros de E5 y E7.
+#
+# POR CONFIRMAR CON EL ASESOR: todo este fichero. Es un punto de partida
+# tecnico (arquitectura.md §8, validacion-facturas.md §5), no asesoramiento
+# fiscal. Mientras `confirmado` sea false, cada hoja de trabajo lo dice en su
+# cabecera.
+#
+# Se aplica con `bms-agent politica cargar config/btw.yaml` (token de una
+# persona con admin): queda en la politica con su hash. Mientras no se carga,
+# valen los mismos valores desde el codigo (politica.ConfigBtw), y la primera
+# hoja que se marca lista los apunta.
+#
+# El agente prepara la hoja de trabajo y la lista de excepciones; no presenta
+# nada ni se conecta a la Belastingdienst (regla 5). La presentacion la hace
+# una persona y la anota despues (`bms-agent btw anotar`).
+
+confirmado: false
+
+# Lo unico que sabe hacer la V1: trimestral y por fecha de factura
+# (factuurstelsel). Otro valor no se carga.
+periodicidad: trimestral
+sistema: factuurstelsel
+
+# La declaracion y el pago vencen el ultimo dia del mes siguiente al
+# trimestre: el T3 el 31 de octubre, el T4 el 31 de enero del ano siguiente.
+plazos:
+  presentacion: ultimo_dia_mes_siguiente
+  pago: ultimo_dia_mes_siguiente
+
+tipos:
+  # E7: los tipos de IVA que no son raros. Otro tipo retiene.
+  habituales: ["0", "9", "21"]
+  # El IVA trasladado de una compra se autoliquida a este tipo (2a, 4a, 4b) y,
+  # si es deducible, vuelve en 5b: las dos cosas se compensan.
+  autoliquidacion: "21"
+  autoliquidacion_deducible: true
+
+kor:
+  # E5: el umbral anual de la KOR (kleineondernemersregeling) y el porcentaje
+  # de el desde el que se avisa (el ultimo diez por ciento).
+  umbral: "20000.00"
+  aviso_pct: 90
+
+# A que rubrica va cada linea de IVA de una venta. Con IVA normal, por tipo
+# ("otros": cualquier tipo que no este en la lista). El IVA trasladado y el tipo
+# cero se declaran solo con su base. "fuera": no va en la declaracion.
+# El pais de la contraparte sale del prefijo de su btw-id: NL o ninguno es
+# nacional, uno de la UE es ue, otro es fuera_ue.
+ventas:
+  estandar:
+    "21": 1a
+    "9": 1b
+    "0": 1e
+    otros: 1c
+  tipo_cero: 1e
+  autoliquidacion:
+    nacional: 1e
+    ue: 3b
+    fuera_ue: 1e
+  exento: fuera
+  kor: fuera
+
+# A que rubrica va cada linea de IVA de una compra. La cuota de una compra con
+# IVA normal es IVA soportado (5b) si es deducible ("fuera" si no). El IVA
+# trasladado se autoliquida en 2a (nacional), 4b (de la UE) o 4a (de fuera
+# de la UE).
+compras:
+  estandar: 5b
+  autoliquidacion:
+    nacional: 2a
+    ue: 4b
+    fuera_ue: 4a
+  tipo_cero: fuera
+  exento: fuera
+  kor: fuera

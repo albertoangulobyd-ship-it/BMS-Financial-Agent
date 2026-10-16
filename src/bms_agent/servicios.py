@@ -27,7 +27,8 @@ denegado, despues del ROLLBACK.
 Lo que no hay aqui, a proposito (spec §21): ninguna orden crea ni prepara una
 factura, paga, aprueba un pago o presenta el BTW. Marcar una factura pagada
 (paso 7) apunta lo que ya se pago fuera; el IBAN y su verificacion, con el
-registro de cuentas (paso 5); el estado del BTW, con el paso 11.
+registro de cuentas (paso 5); el estado del BTW (paso 11) apunta que una
+persona presento el trimestre en el portal, y nada mas.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from decimal import Decimal
 from typing import Any
 
 from . import (
+    btw,
     campos,
     cuentas,
     estados,
@@ -1518,6 +1520,47 @@ def _retirar_pago(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(resultado.evento_id, facturas={factura_id})
 
 
+# ------------------------------------------------------------ el BTW (paso 11)
+
+def _trimestre(texto: str) -> tuple[int, int]:
+    try:
+        return btw.leer_etiqueta(texto)
+    except ValueError as exc:
+        raise DatosNoValidos(str(exc)) from None
+
+
+def _btw_lista_para_revision(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Marcar un trimestre terminado listo para revisar, con la hoja que se vio."""
+    ano, trimestre = _trimestre(d["trimestre"])
+    evento = btw.marcar_lista(ctx.conn, ctx.persona, ano, trimestre,
+                              hoja_sha256=d["hoja_sha256"], datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"trimestre": btw.etiqueta(ano, trimestre),
+                                  "hoja_sha256": d["hoja_sha256"]})
+
+
+def _btw_reabrir(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Devolver a abierto un trimestre listo para revisar."""
+    ano, trimestre = _trimestre(d["trimestre"])
+    evento = btw.reabrir(ctx.conn, ctx.persona, ano, trimestre, rev=d["rev"],
+                         datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"trimestre": btw.etiqueta(ano, trimestre)})
+
+
+def _btw_anotar_presentacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    """Anotar que una persona presento el trimestre en el portal (no presenta nada)."""
+    ano, trimestre = _trimestre(d["trimestre"])
+    importe = valor_de_entrada(campos.Campo("periodo_btw", "importe_declarado_cent", campos.CENT),
+                               d["importe_declarado"])
+    if importe is None:
+        raise DatosNoValidos("importe_declarado: lo declarado a pagar (en negativo, a devolver)")
+    evento = btw.anotar_presentacion(
+        ctx.conn, ctx.persona, ano, trimestre, hoja_sha256=d["hoja_sha256"],
+        referencia=d["referencia"], importe_declarado=importe,
+        fecha=_fecha_o_nada(d.get("fecha_presentacion")), datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"trimestre": btw.etiqueta(ano, trimestre),
+                                  "hoja_sha256": d["hoja_sha256"]})
+
+
 # ------------------------------------------------------------ el catalogo
 
 def _p(nombre: str, tipo: str = ENTERO, obligatorio: bool = True, ayuda: str = "") -> Parametro:
@@ -1727,6 +1770,27 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Retirar un pago propuesto, enlazado o marcado a mano que no es (no se borra).",
            (_p("aplicacion_id"), _p("rev"), _MOTIVO), _retirar_pago, motivo="obligatorio",
            rev=True),
+    # Paso 11: el estado del BTW. Ninguna presenta nada: la presentacion la hace una
+    # persona en el portal de la Belastingdienst y aqui solo se anota.
+    Accion("btw_lista_para_revision", P.GESTIONAR_BTW.value,
+           "Marcar un trimestre terminado listo para revisar, con la hoja de trabajo que se vio "
+           "(su sha256: bms-agent btw hoja). La hoja se guarda entera.",
+           (_p("trimestre", TEXTO, ayuda="2026-T3"),
+            _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se reviso"), _MOTIVO),
+           _btw_lista_para_revision),
+    Accion("btw_reabrir", P.GESTIONAR_BTW.value,
+           "Devolver a abierto un trimestre listo para revisar (la hoja ya no vale).",
+           (_p("trimestre", TEXTO, ayuda="2026-T3"), _p("rev"), _MOTIVO), _btw_reabrir,
+           motivo="obligatorio", rev=True),
+    Accion("btw_anotar_presentacion", P.GESTIONAR_BTW.value,
+           "Anotar que el trimestre se presento en el portal de la Belastingdienst, con la "
+           "referencia y lo declarado. Es irreversible; el agente no presenta nada.",
+           (_p("trimestre", TEXTO, ayuda="2026-T3"),
+            _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se marco lista"),
+            _p("referencia", TEXTO, ayuda="la del acuse de la Belastingdienst"),
+            _p("importe_declarado", VALOR, ayuda="a pagar; en negativo, a devolver"),
+            _p("fecha_presentacion", FECHA, False, "por defecto, hoy"), _MOTIVO),
+           _btw_anotar_presentacion),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),

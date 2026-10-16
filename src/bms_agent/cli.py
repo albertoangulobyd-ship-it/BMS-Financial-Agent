@@ -24,7 +24,11 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent ordenes             las ordenes de compra: valor, consumido, lo que queda
     bms-agent orden N             una PO: sus facturas en orden, modificaciones y prevision
     bms-agent objeto N            un Objeto, sus PO y sus horas por semana (planning)
-    bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
+    bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml, empresa.yaml o btw.yaml
+                                  (admin)
+    bms-agent btw ...             el BTW: ver (cifras, plazos, lo que revisar), hoja (la de
+                                  trabajo en CSV y su sha256), listo, reabrir, anotar (la
+                                  presentacion que hizo una persona en el portal)
     bms-agent importar F T FICH   importa un maestro, el banco, pagos, ventas de Exact, la
                                   hoja de PO (po_csv ordenes_compra|modificaciones_po, CSV o YAML)
                                   o el planning (trnsprnt planning, --desde/--hasta: lo que cubre;
@@ -649,6 +653,13 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             from .cuentas import verificar as verificar_cuentas
 
             errores.extend(verificar_cuentas(conn))
+        con_btw = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'periodo_btw'"
+        ).fetchone()
+        if con_btw:
+            from .btw import verificar as verificar_btw
+
+            errores.extend(verificar_btw(conn))
 
         problemas_doc = verificar(almacen)
         errores.extend(p.detalle for p in problemas_doc if p.gravedad == "error")
@@ -853,12 +864,13 @@ def _unir_valores_de_accion(argv: list[str], opciones: set[str]) -> list[str]:
     sea un numero a su manera: un abono escrito "-1.234,56" o un token que
     empiece por '-' no llegaban a la orden ("expected one argument", salida
     2). `--opcion=valor` si lo acepta, y aqui se escribe asi. Solo en
-    `accion`, donde cada opcion lleva un valor: en otras ordenes hay
+    `accion` y en las ordenes de `btw` (lo declarado a devolver va en
+    negativo), donde cada opcion lleva un valor: en otras ordenes hay
     opciones sin valor (--force). Si lo que sigue es otra opcion de la orden
     (o la ayuda), se deja como esta, para que argparse diga que falta el
     valor en vez de guardar "--db" como motivo.
     """
-    if len(argv) < 2 or argv[0] != "accion":
+    if len(argv) < 2 or not (argv[0] == "accion" or (argv[0] == "btw" and argv[1] in _BTW)):
         return list(argv)
     no_es_valor = opciones | {"-h", "--help"}
     unidos = list(argv[:2])
@@ -1722,6 +1734,104 @@ def _cmd_flujo_caja(args: argparse.Namespace) -> int:
     return 0
 
 
+_BTW = {"listo": "btw_lista_para_revision", "reabrir": "btw_reabrir",
+        "anotar": "btw_anotar_presentacion"}
+
+
+def _cmd_btw(args: argparse.Namespace) -> int:
+    """El BTW: ver un trimestre o el resumen, exportar la hoja de trabajo y su estado.
+
+    Ninguna de estas ordenes presenta nada: `anotar` apunta la presentacion
+    que hizo una persona en el portal de la Belastingdienst.
+    """
+    from . import btw
+
+    if args.accion in _BTW:
+        args.nombre = _BTW[args.accion]
+        return _cmd_accion(args)
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    try:
+        trimestre = btw.leer_etiqueta(args.trimestre) if args.trimestre else None
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        if args.accion == "hoja":
+            if trimestre is None:
+                print("La hoja es de un trimestre: bms-agent btw hoja 2026-T3", file=sys.stderr)
+                return 1
+            hoja = btw.hoja(conn, *trimestre)
+            if args.salida:
+                Path(args.salida).write_bytes(hoja.en_bytes())
+                print(f"Hoja de trabajo {btw.etiqueta(*trimestre)} en {args.salida}")
+            else:
+                sys.stdout.write(hoja.texto.lstrip("\ufeff"))
+            print(f"sha256 {hoja.sha256}", file=sys.stderr if not args.salida else sys.stdout)
+            return 0
+        datos = btw.trimestre(conn, *trimestre) if trimestre else btw.resumen(conn)
+    if args.json:
+        print(btw.a_json(datos))
+        return 0
+    if trimestre is None:
+        _imprimir_resumen_btw(datos)
+    else:
+        _imprimir_trimestre_btw(datos)
+    return 0
+
+
+def _imprimir_trimestre_btw(t: dict) -> None:
+    from .btw import euros
+
+    c = t["cifras"]
+    print(f"BTW {t['etiqueta']} ({t['inicio']} a {t['fin']}): {t['estado']}"
+          + (f", presentado el {t['presentado_en']} por {t['presentado_por']} "
+             f"(referencia {t['referencia']}, declarado {euros(t['importe_declarado_cent'])})"
+             if t["estado"] == "presentado" else "")
+          + (f", rev {t['rev']}" if t["rev"] is not None else ""))
+    print(f"  plazo de presentacion y pago: {t['limite_presentacion']} "
+          f"({t['dias_para_limite']} dias)")
+    for r in c["rubricas"]:
+        if r["omzet_cent"] or r["btw_cent"]:
+            print(f"  {r['rubrica']:<3} {euros(r['omzet_cent']):>14} {euros(r['btw_cent']):>14}  "
+                  f"{r['descripcion']}")
+    print(f"  5a  {'':>14} {euros(c['5a']):>14}")
+    print(f"  5b  {'':>14} {euros(c['5b']):>14}")
+    print(f"  5c  {'':>14} {euros(c['5c']):>14}  "
+          + ("a pagar" if c["5c"] >= 0 else "a devolver"))
+    print(f"  ingresos sin IVA {euros(c['ingresos_cent'])}, IVA repercutido "
+          f"{euros(c['iva_repercutido_cent'])}, costes sin IVA {euros(c['costes_cent'])}, "
+          f"IVA deducible {euros(c['iva_deducible_cent'])}")
+    for r in t["revisar"]:
+        print(f"  revisar el IVA: factura {r['numero'] or r['factura_id']} "
+              f"({', '.join(r['reglas'])})")
+    for f in c["sin_clasificar"] + c["fuera"]:
+        print(f"  fuera de las cifras: factura {f['numero'] or f['factura_id']}: {f['motivo']}")
+    for d in t["diferencias"]:
+        print(f"  distinta de lo presentado: factura {d['factura_id']} ({d['motivo']})")
+    print(f"  hoja de trabajo sha256 {t['hoja_sha256']}"
+          + ("" if t["hoja_al_dia"] else f" (la marcada era {t['hoja_marcada_sha256']})"))
+    if not t["configuracion"]["confirmada"]:
+        print("  config/btw.yaml: POR CONFIRMAR CON EL ASESOR")
+
+
+def _imprimir_resumen_btw(r: dict) -> None:
+    from .btw import euros
+
+    _imprimir_trimestre_btw(r["actual"])
+    for a in r["por_presentar"]:
+        print(f"Por presentar: {a['etiqueta']} ({a['estado']}), plazo {a['limite_presentacion']} "
+              f"({a['dias_para_limite']} dias), 5c {euros(a['5c'])}")
+    y = r["ano_hasta_hoy"]
+    print(f"Ano {y['ano']} hasta hoy: ingresos {euros(y['ingresos_cent'])}, 5a {euros(y['5a'])}, "
+          f"5b {euros(y['5b'])}, 5c {euros(y['5c'])}")
+    if r["sin_fecha"]:
+        print(f"{r['sin_fecha']} facturas sin fecha: no entran en ningun trimestre")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -2042,6 +2152,30 @@ def main(argv: list[str] | None = None) -> int:
         p_una.add_argument("--db", help=_AYUDA_DB)
     p_iban.set_defaults(func=_cmd_iban)
 
+    p_btw = sub.add_parser("btw", help="el BTW: ver, hoja, listo, reabrir, anotar (no presenta "
+                                       "nada)")
+    sub_btw = p_btw.add_subparsers(dest="accion", required=True)
+    p_ver = sub_btw.add_parser("ver", help="un trimestre, o el resumen sin trimestre")
+    p_ver.add_argument("trimestre", nargs="?", help="2026-T3")
+    p_ver.add_argument("--json", action="store_true")
+    p_ver.add_argument("--db", help=_AYUDA_DB)
+    p_hoja = sub_btw.add_parser("hoja", help="la hoja de trabajo (CSV) y su sha256")
+    p_hoja.add_argument("trimestre", help="2026-T3")
+    p_hoja.add_argument("--salida", help="fichero donde escribirla (si no, en pantalla)")
+    p_hoja.add_argument("--db", help=_AYUDA_DB)
+    for corto, nombre in _BTW.items():
+        accion = ACCIONES[nombre]
+        p_una = sub_btw.add_parser(corto, help=accion.descripcion)
+        for parametro in accion.parametros:
+            opcion = f"--{parametro.nombre.replace('_', '-')}"
+            p_una.add_argument(opcion, dest=parametro.nombre,
+                               required=parametro.obligatorio and parametro.nombre != "motivo",
+                               help=parametro.ayuda or parametro.tipo)
+        p_una.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+        p_una.add_argument("--peticion", help="identificador de la peticion")
+        p_una.add_argument("--db", help=_AYUDA_DB)
+    p_btw.set_defaults(func=_cmd_btw)
+
     p_pagos = sub.add_parser("pagos", help="movimientos del banco, lo sin casar y las propuestas")
     p_pagos.add_argument("--sin-casar", action="store_true", help="solo lo que no casa con nada")
     p_pagos.add_argument("--propuestas", action="store_true",
@@ -2092,10 +2226,10 @@ def main(argv: list[str] | None = None) -> int:
     p_reex.add_argument("--db", help=_AYUDA_DB)
     p_reex.set_defaults(func=_cmd_reextraer)
 
-    p_politica = sub.add_parser("politica", help="la politica: prioridad, reglas y empresa")
+    p_politica = sub.add_parser("politica", help="la politica: prioridad, reglas, empresa y BTW")
     sub_politica = p_politica.add_subparsers(dest="accion", required=True)
     p_cargar = sub_politica.add_parser(
-        "cargar", help="apunta prioridad.yaml, reglas.yaml o empresa.yaml y recalcula")
+        "cargar", help="apunta prioridad.yaml, reglas.yaml, empresa.yaml o btw.yaml y recalcula")
     p_cargar.add_argument("fichero", nargs="?", default="config/prioridad.yaml")
     p_cargar.add_argument("--db", help=_AYUDA_DB)
     p_cargar.add_argument("--token", help="el token de una persona con admin (o BMS_TOKEN)")

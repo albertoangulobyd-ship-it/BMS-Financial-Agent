@@ -28,8 +28,9 @@ ULTIMO = "(SELECT max(id) FROM evento)"
 
 # Quien escribe cada tabla controlada, para el mensaje de la guarda. Casi
 # todas las escribe campos.py; la excepcion (paso 4) es estado de trabajo y
-# la escribe excepciones.py, con la misma guarda.
-ESCRITOR = {"excepcion": "excepciones.py"}
+# la escribe excepciones.py, con la misma guarda; el estado de un trimestre del
+# BTW (paso 11) lo escribe btw.py.
+ESCRITOR = {"excepcion": "excepciones.py", "periodo_btw": "btw.py"}
 
 
 def columnas(conn: sqlite3.Connection, tabla: str) -> list[str]:
