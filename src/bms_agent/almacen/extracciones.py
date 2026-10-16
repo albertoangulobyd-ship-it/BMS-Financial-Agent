@@ -20,7 +20,7 @@ from typing import Any
 
 from ..auditoria import registrar
 from ..reloj import marca
-from . import reloj_de, transaccion
+from . import exigir_sin_datos_de_prueba, reloj_de, transaccion
 from .evidencia import foto
 from .unidades import es_sha256, json_canonico, sha256_texto
 
@@ -150,6 +150,8 @@ def registrar_extraccion(
     """
     if via not in VIAS:
         raise ValueError(f"via desconocida: {via!r}")
+    exigir_sin_datos_de_prueba(conn, registro.contenido,
+                               f"la extraccion de {registro.source_sha256[:12]}")
     with transaccion(conn):
         documento = conn.execute(
             "SELECT sha256 FROM documento WHERE id = ?", (documento_id,)

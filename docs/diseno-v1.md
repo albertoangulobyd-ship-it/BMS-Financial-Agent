@@ -582,6 +582,7 @@ El avance real de cada paso se apunta en [v1/registro.md](v1/registro.md).
 | **10. Planning** (mapeo contra un ejemplo sintético, se activa con la primera exportación real) | Turnos y conciliación; reglas G1–G7, V1–V6, V8, V9 y la parte de planning de B5, P8 y P10; horas en la visión por objeto. | Nivel de comparación correcto; frontera del año ISO; 0,25 h pasa y 0,26 h falla; un nuevo lote que cambia una semana facturada da V9. |
 | **11. BTW** | Periodos, `config/btw.yaml` confirmado con el contador, autoliquidación de la inversión del sujeto pasivo, reglas C4, E0, E7. | Rúbricas 2a y 5b que se compensan; plazo del Q4 el 31 de enero; presentar es irreversible y queda con huella. |
 | **12. Panel principal, búsqueda, contrato v2 y documentación** | Bloques del panel y filtros de búsqueda, `/api/v2`, `export --v2`, consola con procedencia y marcas de edición. | Los totales cuadran entre vistas; un test por filtro; `/api/datos` sigue idéntico byte a byte. |
+| **13. Entorno local con Docker y datos de prueba** (a petición del dueño) | Imagen y `docker-compose.yml` (consola y base sin red, el lector saliendo solo a la API por el proxy `bms-agent salida`), scripts de Windows, `demo crear` con una base de prueba aparte, copias comprobadas. | El proxy solo deja ir a `api.anthropic.com:443`; la configuración aísla cada contenedor; cada bloque del panel tiene algo con los datos de prueba, la consola lleva la banda y nada de la prueba entra en la base de verdad. |
 
 **Estado de la construcción (octubre de 2026).** Los doce pasos están
 construidos y la puerta de cada uno pasa; el detalle, con cada desviación, está
@@ -592,7 +593,9 @@ vista económica de cada Objeto, la historia de cada factura, el contrato v2
 guía de uso diario ([uso-v1.md](uso-v1.md)). Lo que queda no es código:
 confirmar `config/btw.yaml` con el asesor, mapear el planning con la primera
 exportación real de TRNSPRNT, medir la extracción v2 con facturas reales antes
-de activarla, y las respuestas del apartado 9.
+de activarla, y las respuestas del apartado 9. El paso 13, a petición del
+dueño, la deja corriendo en su ordenador en un entorno aislado con Docker y con
+una base de datos de prueba ([entorno-local.md](entorno-local.md)).
 
 **Tests de alcance, desde el paso 4.** Comprueban que nada crea ni prepara
 facturas, paga, aprueba pagos o presenta el BTW; que no hay generador SEPA ni

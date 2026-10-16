@@ -1,0 +1,8 @@
+Aqui va la clave de la API de Anthropic, y nada mas.
+
+Crea en esta carpeta un fichero llamado anthropic_api_key.txt con la clave en una
+sola linea (empieza por sk-ant-). Lo lee solo el contenedor del lector, como secreto
+de Docker: no entra en la imagen, ni en una variable de entorno, ni en git (esta
+carpeta esta en .gitignore y en .dockerignore).
+
+Los pasos, con capturas de lo que se ve, en docs/entorno-local.md ("La clave de la API").

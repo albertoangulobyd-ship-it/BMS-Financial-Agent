@@ -273,6 +273,13 @@ número sube así:
 - **2.x → 3.0** cuando una clave **cambia de forma o desaparece**: el sitio
   tiene que cambiar, y este fichero dice qué.
 
+Cuando el servidor corre sobre la base de **datos de prueba** (`demo.sqlite3`,
+[entorno-local.md](entorno-local.md)), cada respuesta lleva también la cabecera
+`X-BMS-Entorno: demo`. No es una clave del contrato ni cambia su versión: es
+para que un sitio en desarrollo pueda pintar su propio aviso de «datos de
+prueba» y no confunda lo ficticio con lo real. Con la base de verdad la
+cabecera no aparece.
+
 Un sitio debería comprobar el número mayor al leer y negarse a pintar uno que
 no conoce.
 

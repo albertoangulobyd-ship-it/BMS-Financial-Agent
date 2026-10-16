@@ -20,3 +20,8 @@ venv/
 /datos.json
 /config/tarifas.yaml
 /simulador.html
+
+# Paso 13: el buzon del entorno de Docker y la clave de la API (secreto de Docker).
+/buzon/
+/docker/secretos/*
+!/docker/secretos/LEEME.txt

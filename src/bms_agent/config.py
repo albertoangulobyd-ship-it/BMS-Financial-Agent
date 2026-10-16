@@ -51,3 +51,37 @@ def effort() -> str:
             f"BMS_EXTRACT_EFFORT={valor!r} no es un esfuerzo valido ({', '.join(ESFUERZOS)})"
         )
     return valor
+
+
+# Paso 13: en el entorno de Docker la clave de la API no va en una variable de
+# entorno ni en la imagen: es un secreto de Docker, un fichero que solo ve el
+# contenedor del lector. Esta variable dice donde esta el fichero, no la clave.
+VARIABLE_FICHERO_CLAVE = "BMS_CLAVE_API_FICHERO"
+
+
+class ClaveNoValida(ValueError):
+    """El fichero de la clave no existe, esta vacio o no parece una clave de la API."""
+
+
+def clave_api() -> str | None:
+    """La clave de la API para el cliente de Anthropic, o None para que la busque el (en
+    ANTHROPIC_API_KEY, como hasta ahora).
+
+    Si BMS_CLAVE_API_FICHERO dice un fichero, la clave es su contenido sin
+    espacios. Un fichero que falta o no tiene una clave se dice aqui, antes de
+    ninguna llamada, y el mensaje nunca lleva la clave ni un trozo de ella.
+    """
+    ruta = os.environ.get(VARIABLE_FICHERO_CLAVE)
+    if not ruta:
+        return None
+    try:
+        clave = open(ruta, encoding="utf-8").read().strip()
+    except OSError as exc:
+        raise ClaveNoValida(f"no se puede leer el fichero de la clave {ruta}: "
+                            f"{exc.strerror or exc}") from None
+    if not clave:
+        raise ClaveNoValida(f"el fichero de la clave {ruta} esta vacio")
+    if not clave.startswith("sk-ant-") or any(c.isspace() for c in clave):
+        raise ClaveNoValida(f"lo que hay en {ruta} no parece una clave de la API de Anthropic "
+                            "(empieza por sk-ant- y va en una sola linea)")
+    return clave

@@ -86,6 +86,8 @@ nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.4rem 0}
 .fuente{color:var(--suave)}.fuente.manual{color:var(--aten)}
 .evento{border-left:3px solid var(--linea);padding-left:.5rem;margin:.3rem 0}
 .evento.persona{border-left-color:var(--aten)}
+.datos-de-prueba{position:sticky;top:0;z-index:10;background:var(--bloq);color:#fff;
+font-weight:700;padding:.45rem .8rem;margin:0 -1rem;text-align:center}
 """
 
 SCRIPT = r"""

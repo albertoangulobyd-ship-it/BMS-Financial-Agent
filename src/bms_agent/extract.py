@@ -380,6 +380,16 @@ _CARPETA_CANDIDATAS = "reextraccion"
 Informar = Callable[[str, str, str], None]
 
 
+def _es_de_prueba_fuera_de_su_base(doc: Any, almacen: Any) -> bool:
+    """Si el PDF lleva la marca de los datos de prueba y la pasada no es sobre la base de prueba
+    (o no tiene base: lo de out/ podria acabar en la de verdad con importar-out)."""
+    from .almacen import contiene_datos_de_prueba, es_base_demo
+
+    if not contiene_datos_de_prueba(base64.b64decode(doc.data_b64)):
+        return False
+    return almacen is None or not es_base_demo(almacen.conn)
+
+
 def extraer_pasada(
     client: Any,
     rutas: Iterable[str | Path],
@@ -444,6 +454,13 @@ def extraer_pasada(
             resultado.fallidas += 1
             resultado.errores.append(f"{ruta_pdf.name}: {exc}")
             avisar("omitido", ruta_pdf.name, str(exc))
+            continue
+        if _es_de_prueba_fuera_de_su_base(doc, almacen):
+            # Un PDF de `demo crear` no se paga ni entra en otra base que la de prueba.
+            detalle = "es de los DATOS DE PRUEBA: solo entra en la base de prueba"
+            resultado.fallidas += 1
+            resultado.errores.append(f"{ruta_pdf.name}: {detalle}")
+            avisar("omitido", ruta_pdf.name, detalle)
             continue
 
         guardada = reutilizable(

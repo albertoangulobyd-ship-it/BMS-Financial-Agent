@@ -36,6 +36,19 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
    cada orden su permiso (servicios.py). Las mismas comprobaciones de Host,
    Origin, cabecera y JSON valen para todo. Ninguna orden crea una factura,
    paga, aprueba un pago ni presenta el BTW.
+
+5. Paso 13, el entorno de Docker (docker/). Dentro de un contenedor,
+   127.0.0.1 es el del propio contenedor y no se puede llegar a el desde
+   fuera, asi que alli se escucha en 0.0.0.0 (`--contenedor`), y solo alli:
+   fuera de un contenedor se niega. Lo que protege entonces es la red: el
+   contenedor de la consola esta en una red interna sin salida, y el unico
+   puerto publicado lo esta en el 127.0.0.1 del ordenador del dueno. El Host
+   sigue teniendo que ser 127.0.0.1 o localhost. En ese modo la consola no
+   lee PDF (no tiene clave ni salida a internet): lo hace el lector, que se
+   arranca a proposito.
+
+   Con la base de prueba (demo.sqlite3, paso 13), cada pagina lleva una banda
+   fija de DATOS DE PRUEBA y cada respuesta la cabecera X-BMS-Entorno: demo.
 """
 
 from __future__ import annotations
@@ -67,6 +80,11 @@ from .pricing import estimate_cost
 HOSTS_LOCALES = ("127.0.0.1", "localhost")
 CABECERA_TOKEN = "X-BMS-Token"
 CABECERA_CONTRATO = "X-BMS-Contrato"
+CABECERA_ENTORNO = "X-BMS-Entorno"
+LOCAL = "127.0.0.1"
+TODAS = "0.0.0.0"
+# Lo que deja Docker (y Podman) en todo contenedor. Fuera de uno no existen.
+MARCAS_CONTENEDOR = (Path("/.dockerenv"), Path("/run/.containerenv"))
 
 # Paso 12: las lecturas de /api/v2, con los parametros que admite cada una. Un
 # parametro que no esta en la lista es un 400 en todas: el filtro mal escrito
@@ -152,6 +170,28 @@ def nivel_pedido(datos: dict[str, str]) -> str | None:
 # (una nota, un reparto de una linea) y cabe en 64 KiB.
 MAX_CUERPO = 4096
 MAX_CUERPO_V2 = 65536
+
+
+def en_contenedor(marcas: tuple[Path, ...] = MARCAS_CONTENEDOR) -> bool:
+    """Si el proceso corre dentro de un contenedor (Docker o Podman)."""
+    return any(m.exists() for m in marcas)
+
+
+def interfaz_permitida(interfaz: str, *, contenedor: bool | None = None) -> str:
+    """Donde escuchar: 127.0.0.1 siempre; 0.0.0.0 solo dentro de un contenedor.
+
+    Fuera de un contenedor, 0.0.0.0 es la red de la casa o de la oficina, y
+    un servidor que lanza pasadas que se pagan no se expone ahi.
+    """
+    if interfaz == LOCAL:
+        return interfaz
+    if interfaz != TODAS:
+        raise ValueError(f"solo se escucha en {LOCAL} (o en {TODAS} dentro de un contenedor), "
+                         f"no en {interfaz!r}")
+    if not (en_contenedor() if contenedor is None else contenedor):
+        raise ValueError(f"{TODAS} solo dentro de un contenedor: fuera de el seria abrir el "
+                         "servidor a toda la red")
+    return interfaz
 
 
 def nuevo_token() -> str:
@@ -259,11 +299,13 @@ class Agente:
     """
 
     def __init__(
-        self, carpeta_pdf: Path, carpeta_salida: Path, ruta_db: Path | None = None
+        self, carpeta_pdf: Path, carpeta_salida: Path, ruta_db: Path | None = None,
+        *, lectura: bool = True,
     ) -> None:
         self.carpeta_pdf = carpeta_pdf
         self.carpeta_salida = carpeta_salida
         self.ruta_db = ruta_db
+        self.lectura = lectura
         self._cerrojo = threading.Lock()
         self._estado = Ejecucion()
 
@@ -272,7 +314,10 @@ class Agente:
         return self._estado.a_dict()
 
     def lanzar(self) -> tuple[bool, str]:
-        """Arranca una pasada si no hay otra en curso."""
+        """Arranca una pasada si no hay otra en curso (y si este servidor lee PDF)."""
+        if not self.lectura:
+            return False, ("Aqui no se leen PDF: en el entorno de Docker los lee el lector, "
+                           "que se arranca a proposito (leer-facturas.ps1).")
         if not self._cerrojo.acquire(blocking=False):
             return False, "Ya hay una ejecucion en curso."
         hilo = threading.Thread(target=self._correr, daemon=True)
@@ -292,7 +337,7 @@ class Agente:
     def _cliente(self) -> Any:
         import anthropic
 
-        return anthropic.Anthropic()
+        return anthropic.Anthropic(api_key=config.clave_api())
 
     def _ejecutar(self) -> None:
         pdfs = list(iter_pdfs(self.carpeta_pdf))
@@ -355,7 +400,7 @@ pre{{background:#f3f5f8;padding:1rem;overflow:auto}}
 </style>
 </head>
 <body>
-<h1>bms-agent, servidor local</h1>
+{banda}<h1>bms-agent, servidor local</h1>
 <p>Lanzar una pasada lee los PDF nuevos y <strong>gasta créditos de la API</strong>.
 Lo ya leído se reutiliza sin coste.</p>
 <p><button id="ejecutar" type="button">Lanzar una pasada</button></p>
@@ -390,6 +435,7 @@ class Manejador(BaseHTTPRequestHandler):
     token: str
     puerto: int
     origenes: frozenset[str]
+    demo: bool = False
 
     def _cors(self) -> None:
         origen = self.headers.get("Origin")
@@ -405,6 +451,8 @@ class Manejador(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(datos)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if self.demo:
+            self.send_header(CABECERA_ENTORNO, "demo")
         if getattr(self, "_contrato_v2", False):
             # Paso 12: cada respuesta de /api/v2 dice con que version del contrato
             # se escribio (docs/integracion-web.md, "El contrato v2").
@@ -483,9 +531,13 @@ class Manejador(BaseHTTPRequestHandler):
         No puede ir dentro de un marco de otra web: alli un clic robado en el
         boton lanzaria una pasada que se paga.
         """
-        datos = PAGINA_LOCAL.format(token=html.escape(self.token)).encode("utf-8")
+        banda = (f'<p style="background:#a4161a;color:#fff;padding:.4rem .8rem;'
+                 f'font-weight:700">{consola.TEXTO_DEMO}</p>\n' if self.demo else "")
+        datos = PAGINA_LOCAL.format(token=html.escape(self.token), banda=banda).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        if self.demo:
+            self.send_header(CABECERA_ENTORNO, "demo")
         self.send_header("Content-Length", str(len(datos)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -551,10 +603,12 @@ class Manejador(BaseHTTPRequestHandler):
     # ---- consola y /api/v2
 
     def _consola(self, ruta: str) -> None:
-        tipo, datos = consola.fichero(ruta)
+        tipo, datos = consola.fichero(ruta, demo=self.demo)
         self.send_response(200)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(datos)))
+        if self.demo:
+            self.send_header(CABECERA_ENTORNO, "demo")
         for nombre, valor in consola.cabeceras().items():
             self.send_header(nombre, valor)
         self.end_headers()
@@ -801,16 +855,24 @@ def crear_servidor(
     token: str | None = None,
     agente: Agente | None = None,
     ruta_db: str | Path | None = None,
+    interfaz: str = LOCAL,
+    lectura: bool = True,
 ) -> ThreadingHTTPServer:
     """Crea el servidor ya escuchando en 127.0.0.1, sin atender todavia.
 
     Con puerto 0 el sistema elige uno libre; el Host y los origenes se
     calculan con el puerto real. Los tests lo usan asi, con un agente falso.
+    `interfaz` 0.0.0.0 solo dentro de un contenedor (interfaz_permitida), y
+    `lectura` False deja el boton de lanzar una pasada sin efecto.
     """
+    from .demo import es_demo
+
+    interfaz = interfaz_permitida(interfaz)
     agente = agente or Agente(
-        Path(carpeta_pdf), Path(carpeta_salida), Path(ruta_db) if ruta_db else None
+        Path(carpeta_pdf), Path(carpeta_salida), Path(ruta_db) if ruta_db else None,
+        lectura=lectura,
     )
-    servidor = ThreadingHTTPServer(("127.0.0.1", puerto), Manejador)
+    servidor = ThreadingHTTPServer((interfaz, puerto), Manejador)
     puerto_real = servidor.server_address[1]
     try:
         permitidos = origenes_permitidos(puerto_real, list(origenes_extra))
@@ -824,6 +886,7 @@ def crear_servidor(
         "token": token or nuevo_token(),
         "puerto": puerto_real,
         "origenes": permitidos,
+        "demo": es_demo(Path(ruta_db) if ruta_db else ruta_por_defecto()),
     })
     return servidor
 
@@ -834,13 +897,18 @@ def servir(
     puerto: int = 8765,
     origenes_extra: list[str] | tuple[str, ...] = (),
     ruta_db: str | Path | None = None,
+    contenedor: bool = False,
 ) -> None:
-    """Arranca el servidor local. Solo 127.0.0.1, a proposito."""
+    """Arranca el servidor local. Solo 127.0.0.1, a proposito; dentro de un contenedor
+    (`contenedor`), en 0.0.0.0 y sin leer PDF."""
     servidor = crear_servidor(
-        carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra, ruta_db=ruta_db
+        carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra, ruta_db=ruta_db,
+        interfaz=TODAS if contenedor else LOCAL, lectura=not contenedor,
     )
     manejador = servidor.RequestHandlerClass
     puerto_real = servidor.server_address[1]
+    if manejador.demo:
+        print(f"*** {consola.TEXTO_DEMO} ***")
     print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
     print("  GET  /                pagina local con el boton de ejecutar")
     print("  GET  /api/datos       datos del panel (del almacen; de out/ si no hay almacen)")
@@ -856,7 +924,12 @@ def servir(
     print("\nOrigenes admitidos: " + ", ".join(sorted(manejador.origenes)))
     print(f"\nLee PDF de {carpeta_pdf}/ y guarda extracciones en {carpeta_salida}/"
           f" y en el almacen {ruta_db or ruta_por_defecto()}")
-    print("Solo escucha en 127.0.0.1. No es un servidor de produccion.\n")
+    if contenedor:
+        print("Dentro del contenedor escucha en 0.0.0.0; desde fuera solo se llega por el "
+              "127.0.0.1 del ordenador (el puerto que publica docker compose). Aqui no se "
+              "leen PDF: lo hace el lector.\n")
+    else:
+        print("Solo escucha en 127.0.0.1. No es un servidor de produccion.\n")
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

@@ -21,7 +21,8 @@ sistema funcione.
 | --- | --- |
 | [docs/arquitectura.md](docs/arquitectura.md) | Zonas de confianza, reglas duras, reparto de responsabilidades, modelo de datos, plan por fases, SEPA, IVA y AVG. |
 | [docs/sistemas.md](docs/sistemas.md) | TRNSPRNT y Exact Online: qué se sabe de cada uno, de dónde sale cada dato y qué obliga a cambiar en el diseño. |
-| [docs/instalacion-windows.md](docs/instalacion-windows.md) | **Si no has ejecutado esto nunca, empieza aquí.** Clave de API, instalación y primera prueba en Windows, paso a paso. |
+| [docs/entorno-local.md](docs/entorno-local.md) | **Para tenerlo en tu ordenador con Windows, sin instalar Python.** Docker Desktop, arrancar y parar, dónde dejar los ficheros, datos de prueba, la clave de la API, copias al disco cifrado y lo que cuesta tenerlo funcionando. |
+| [docs/instalacion-windows.md](docs/instalacion-windows.md) | Clave de API, instalación con Python y primera prueba en Windows, paso a paso (para desarrollar; para usarlo, mejor el entorno local). |
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/uso-v1.md](docs/uso-v1.md) | **Para el día a día.** La rutina diaria, qué quiere decir cada prioridad, cómo corregir un dato, cómo verificar un IBAN por teléfono y cómo cerrar un trimestre del BTW. |
 | [docs/diseno-v1.md](docs/diseno-v1.md) | Resumen en castellano de la V1: modelo de datos, comprobaciones, prioridad y orden de construcción. |
@@ -84,7 +85,15 @@ bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio 
 bms-agent export --v2          # todo lo de /api/v2 en un fichero (contrato v2, sin IBAN)
 bms-agent serve                # servidor local en 127.0.0.1; la consola en /consola
 bms-agent report               # ficha detallada de cada factura
+bms-agent demo crear           # DATOS DE PRUEBA en datos/demo.sqlite3, aparte de la base de verdad
+bms-agent copia E:/copias      # copia de seguridad comprobada; `restaurar CARPETA`, la vuelta
 ```
+
+En el ordenador del dueño todo esto corre en Docker, aislado: la consola y la
+base sin internet, el lector de PDF saliendo solo a la API de Anthropic por un
+proxy con lista blanca (`bms-agent salida`) y unos scripts de Windows
+(`docker/iniciar.bat`, `importar.bat`, `leer-facturas.bat`, `copia.bat`...).
+Ver [docs/entorno-local.md](docs/entorno-local.md).
 
 ## Estado
 
@@ -95,6 +104,8 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1943 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa todos los tests sin
 llamar a la API. Con el paso 12 la V1 está construida entera; el uso del día
-a día está en [docs/uso-v1.md](docs/uso-v1.md).
+a día está en [docs/uso-v1.md](docs/uso-v1.md). El paso 13 (a petición del
+dueño) la deja corriendo en un entorno local aislado con Docker y una base de
+datos de prueba: [docs/entorno-local.md](docs/entorno-local.md).

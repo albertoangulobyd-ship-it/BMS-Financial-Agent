@@ -36,6 +36,13 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
     bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
+    bms-agent demo crear          la base de DATOS DE PRUEBA (datos/demo.sqlite3), aparte de la
+                                  de verdad (--rehacer: la borra y la vuelve a hacer)
+    bms-agent copia DESTINO       copia de seguridad comprobada (base, originales y anclas)
+    bms-agent restaurar ORIGEN    vuelve a poner una copia; lo que habia se guarda antes
+    bms-agent salida              el proxy de salida del entorno de Docker (solo a la API de
+                                  Anthropic)
+    bms-agent salud HOST:PUERTO   la comprobacion de salud de un contenedor
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -62,7 +69,8 @@ candidata: ninguna via cambia de version sin la puerta.
 
 El almacen esta en datos/bms.sqlite3, o donde diga --db o la variable BMS_DB;
 los originales, en la carpeta documentos/ de al lado, y las anclas de la
-auditoria en anclas.log, tambien al lado.
+auditoria en anclas.log, tambien al lado. Una orden sobre la base de prueba
+(demo.sqlite3) lo dice antes de nada, en la salida de errores.
 """
 
 from __future__ import annotations
@@ -124,7 +132,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     ruta = "saliente" if args.salientes else "entrante"
     with almacen:
         codigo = extraer_carpeta(
-            anthropic.Anthropic(), pdfs, carpeta_out(Path(args.out), ruta),
+            _cliente_api(anthropic), pdfs, carpeta_out(Path(args.out), ruta),
             politica=ESTRICTA if args.estricta else CONSERVAR, forzar=args.force,
             almacen=almacen, ruta=ruta,
         )
@@ -145,6 +153,12 @@ def carpeta_out(out: Path, ruta: str) -> Path:
 def _carpeta_de_la_otra_via(out_dir: Path, ruta: str) -> Path:
     """La carpeta de out/ de la otra via: lo leido alli ya esta pagado (extract no lo repite)."""
     return out_dir.parent if ruta == "saliente" else out_dir / CARPETA_SALIENTES
+
+
+def _cliente_api(anthropic):
+    """El cliente de la API. En el entorno de Docker, con la clave del secreto (un fichero que
+    solo ve el lector, config.clave_api); fuera, la busca el en ANTHROPIC_API_KEY."""
+    return anthropic.Anthropic(api_key=config.clave_api())
 
 
 def _ruta_db(valor: str | None) -> Path:
@@ -449,7 +463,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     try:
         servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto,
-               origenes_extra=args.origen, ruta_db=_ruta_db(args.db))
+               origenes_extra=args.origen, ruta_db=_ruta_db(args.db),
+               contenedor=args.contenedor)
     except ValueError as exc:
         print(f"No se arranca el servidor: {exc}", file=sys.stderr)
         return 2
@@ -548,7 +563,7 @@ def _cmd_coste(args: argparse.Namespace) -> int:
         print(f"\nNo hay PDF en {args.estimar}", file=sys.stderr)
         return 1
 
-    client = anthropic.Anthropic()
+    client = _cliente_api(anthropic)
     model = config.model_id()
     politica = ESTRICTA if args.estricta else CONSERVAR
     indice = indexar(args.out)
@@ -1496,6 +1511,7 @@ def _cmd_politica(args: argparse.Namespace) -> int:
     """Apunta un fichero de config/ (prioridad, reglas o empresa) y recalcula con el."""
     from .hallazgos import recalcular
     from .permisos import PermisoDenegado, orden_auditada
+    from .almacen import DatosDePrueba
     from .politica import PoliticaNoValida, cargar
     from .prioridad import PesosNoValidos
 
@@ -1512,7 +1528,7 @@ def _cmd_politica(args: argparse.Namespace) -> int:
             with orden_auditada(almacen.conn):
                 resumen, nuevo = cargar(almacen.conn, fichero, usuario_id)
                 diferencia = recalcular(almacen.conn, motivo="manual", usuario_id=usuario_id)
-        except (PesosNoValidos, PoliticaNoValida, PermisoDenegado) as exc:
+        except (PesosNoValidos, PoliticaNoValida, PermisoDenegado, DatosDePrueba) as exc:
             print(f"No se carga {fichero}: {exc}", file=sys.stderr)
             _anclar(almacen)
             return 1
@@ -1610,7 +1626,7 @@ def _cmd_reextraer(args: argparse.Namespace) -> int:
             except ImportError:
                 print("Falta el paquete anthropic. Instala con: pip install -e .", file=sys.stderr)
                 return 2
-            client = anthropic.Anthropic()
+            client = _cliente_api(anthropic)
         token = getattr(args, "token", None) or os.environ.get(VARIABLE_TOKEN)
         lanzada_por = None
         if token:
@@ -2062,6 +2078,121 @@ def _imprimir_resumen_btw(r: dict) -> None:
         print(f"{r['sin_fecha']} facturas sin fecha: no entran en ningun trimestre")
 
 
+def _cmd_demo(args: argparse.Namespace) -> int:
+    from . import demo
+    from .almacen import BaseDePruebaMezclada, DatosDePrueba
+
+    ruta = Path(args.db) if args.db else demo.ruta_demo()
+    try:
+        resumen = demo.crear(ruta, rehacer=args.rehacer)
+    except (DatosDePrueba, BaseDePruebaMezclada) as exc:
+        print(f"No se crea la base de prueba: {exc}", file=sys.stderr)
+        return 2
+    if not resumen.creada:
+        print(f"La base de prueba ya existe en {ruta} y no se ha tocado.")
+        print("  Para empezar de cero: bms-agent demo crear --rehacer")
+        return 0
+    print(f"Base de DATOS DE PRUEBA creada en {ruta}")
+    print("  Todo es ficticio y vive aparte: nada de aqui pasa a la base de verdad.")
+    for clave, valor in resumen.cifras.items():
+        print(f"  {clave:<22} {valor}")
+    for aviso in resumen.avisos:
+        print(f"  aviso: {aviso}")
+    print("\nTokens para entrar en la consola de prueba (solo valen en esta base):")
+    for nombre, token in resumen.tokens.items():
+        print(f"  {nombre:<10} {token}")
+    print(f"\nAbrela con:  bms-agent serve --db {ruta}")
+    return 0
+
+
+def _aviso_demo(args: argparse.Namespace) -> None:
+    """Una orden sobre la base de prueba lo dice antes de nada (en la salida de errores, para
+    no estropear un --json)."""
+    if not hasattr(args, "db") or args.func in (_cmd_demo,):
+        return
+    from .demo import es_demo
+
+    ruta = _ruta_db(args.db)
+    if es_demo(ruta):
+        print(f"*** DATOS DE PRUEBA: esta orden trabaja sobre {ruta}, no sobre la base de "
+              "verdad ***", file=sys.stderr)
+
+
+def _cmd_copia(args: argparse.Namespace) -> int:
+    from .copia import CopiaFallida, comprobar, copiar
+
+    ruta = _ruta_db(args.db)
+    if args.comprobar:
+        carpeta = Path(args.destino)
+        if not (carpeta / ruta.name).is_file():
+            print(f"{carpeta} no es una copia de {ruta.name}", file=sys.stderr)
+            return 1
+        problemas = comprobar(carpeta, ruta.name)
+        for problema in problemas:
+            print(f"  - {problema}")
+        print(f"{carpeta}: " + ("se abre y cada fichero tiene su hash." if not problemas
+                                else f"{len(problemas)} problemas."))
+        return 1 if problemas else 0
+    try:
+        copia = copiar(ruta, args.destino)
+    except CopiaFallida as exc:
+        print(f"No se ha hecho la copia: {exc}", file=sys.stderr)
+        return 1
+    print(f"Copia hecha y comprobada en {copia.carpeta}")
+    print(f"  {copia.ficheros} ficheros ({copia.bytes // 1024} KB), {copia.documentos} originales")
+    print("  La base pasa su comprobacion y cada fichero tiene el hash de MANIFIESTO.sha256.")
+    return 0
+
+
+def _cmd_restaurar(args: argparse.Namespace) -> int:
+    from .copia import CopiaFallida, restaurar
+
+    ruta = _ruta_db(args.db)
+    try:
+        hecho = restaurar(args.origen, ruta)
+    except CopiaFallida as exc:
+        print(f"No se ha restaurado nada: {exc}", file=sys.stderr)
+        return 1
+    print(f"Restaurada {ruta} desde {args.origen}")
+    if hecho.antes is not None:
+        print(f"  lo que habia antes queda guardado en {hecho.antes}")
+    print(f"  {hecho.documentos_anadidos} originales anadidos")
+    print("Comprueba con: bms-agent db verificar")
+    return 0
+
+
+def _cmd_salida(args: argparse.Namespace) -> int:
+    import logging
+
+    from . import salida
+
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr,
+                        format="%(asctime)s %(message)s")
+    permitidos = args.permitir or list(salida.PERMITIDOS_POR_DEFECTO)
+    try:
+        salida.lista_blanca(permitidos)
+        salida.leer_escucha(args.escuchar)
+        for reenvio in args.reenviar:
+            salida.leer_reenvio(reenvio)
+    except ValueError as exc:
+        print(f"No se arranca la salida: {exc}", file=sys.stderr)
+        return 2
+    salida.servir(args.escuchar, permitidos, args.reenviar)
+    return 0
+
+
+def _cmd_salud(args: argparse.Namespace) -> int:
+    from . import salida
+
+    try:
+        vivo = salida.comprobar(args.destino)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    print(f"{args.destino}: {'acepta conexiones' if vivo else 'no contesta'}")
+    return 0 if vivo else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
@@ -2187,6 +2318,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p_serve.add_argument("--db", help=_AYUDA_DB)
+    p_serve.add_argument(
+        "--contenedor", action="store_true",
+        help="dentro del contenedor de Docker: escucha en 0.0.0.0 (fuera de un contenedor se "
+             "niega) y no lee PDF, que los lee el lector")
     p_serve.set_defaults(func=_cmd_serve)
 
     p_db = sub.add_parser("db", help="el almacen: crear, migrar y verificar")
@@ -2505,9 +2640,64 @@ def main(argv: list[str] | None = None) -> int:
     p_cargar.add_argument("--token", help="el token de una persona con admin (o BMS_TOKEN)")
     p_politica.set_defaults(func=_cmd_politica)
 
+    p_demo = sub.add_parser("demo", help="la base de DATOS DE PRUEBA, aparte de la de verdad")
+    sub_demo = p_demo.add_subparsers(dest="accion", required=True)
+    p_demo_crear = sub_demo.add_parser(
+        "crear", help="crea datos/demo.sqlite3 con una empresa ficticia (proveedores, clientes, "
+                      "Objetos, facturas, banco, planning y BTW)")
+    p_demo_crear.add_argument("--db", help="donde (por defecto, demo.sqlite3 al lado de la base "
+                                           "de verdad); tiene que llamarse demo.sqlite3")
+    p_demo_crear.add_argument("--rehacer", action="store_true",
+                              help="si ya existe, la borra (solo si es de prueba) y la rehace")
+    p_demo.set_defaults(func=_cmd_demo)
+
+    p_copia = sub.add_parser("copia", help="copia de seguridad de la base, sus originales y sus "
+                                           "anclas en una carpeta nueva, comprobada")
+    p_copia.add_argument("destino", help="la carpeta donde dejarla (el disco externo cifrado); "
+                                         "con --comprobar, la carpeta de una copia ya hecha")
+    p_copia.add_argument("--comprobar", action="store_true",
+                         help="no copia: comprueba una copia (sin tocarla)")
+    p_copia.add_argument("--db", help=_AYUDA_DB)
+    p_copia.set_defaults(func=_cmd_copia)
+
+    p_restaurar = sub.add_parser("restaurar", help="vuelve a poner una copia (comprobada) en su "
+                                                   "sitio; lo de antes se guarda primero")
+    p_restaurar.add_argument("origen", help="la carpeta de la copia (bms-copia-...)")
+    p_restaurar.add_argument("--db", help=_AYUDA_DB)
+    p_restaurar.set_defaults(func=_cmd_restaurar)
+
+    p_salida = sub.add_parser(
+        "salida", help="el proxy de salida del entorno de Docker: solo CONNECT a la lista "
+                       "blanca (por defecto api.anthropic.com:443)")
+    p_salida.add_argument("--escuchar", default="0.0.0.0:3128", metavar="HOST:PUERTO",
+                          help="donde escucha el proxy (un nombre se resuelve al arrancar: "
+                               "el alias de la red del lector)")
+    p_salida.add_argument("--permitir", action="append", default=[], metavar="HOST:PUERTO",
+                          help="un destino permitido; se puede repetir (por defecto "
+                               "api.anthropic.com:443)")
+    p_salida.add_argument("--reenviar", action="append", default=[], metavar="ESCUCHA=DESTINO",
+                          help="reenvia un puerto tal cual, por ejemplo "
+                               "0.0.0.0:8765=consola:8765 (la entrada a la consola)")
+    p_salida.set_defaults(func=_cmd_salida)
+
+    p_salud = sub.add_parser("salud", help="comprobacion de salud de un contenedor: algo acepta "
+                                           "conexiones en HOST:PUERTO")
+    p_salud.add_argument("destino", metavar="HOST:PUERTO")
+    p_salud.set_defaults(func=_cmd_salud)
+
     argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))
-    return args.func(args)
+    _aviso_demo(args)
+    from .almacen import BaseDePruebaMezclada
+
+    try:
+        return args.func(args)
+    except BaseDePruebaMezclada as exc:
+        print(f"No se abre la base: {exc}", file=sys.stderr)
+        return 2
+    except config.ClaveNoValida as exc:
+        print(f"No se puede usar la clave de la API: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

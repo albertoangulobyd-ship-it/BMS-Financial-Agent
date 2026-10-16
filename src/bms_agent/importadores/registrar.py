@@ -41,7 +41,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .. import campos, cuentas, identidad, ordenes_compra
-from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
+from ..almacen import Almacen, exigir_sin_datos_de_prueba, reloj_de, transaccion, usuario_sistema
 from ..almacen.documentos import registrar_documento
 from ..almacen.evidencia import foto
 from ..almacen.unidades import (
@@ -1323,6 +1323,8 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
                                  exportado_en=exportado_en, simular=simular)
     ruta = Path(ruta)
     contenido = ruta.read_bytes()
+    # Antes de leer nada, y tambien al simular: lo de la prueba no se mira aqui.
+    exigir_sin_datos_de_prueba(almacen.conn, contenido, ruta.name)
     elegido: Mapeo | None = None
     if fuente == "po_csv" and ruta.suffix.lower() in (".yaml", ".yml"):
         # La hoja de PO tecleada en YAML (importadores/ordenes.py): sin mapeo.

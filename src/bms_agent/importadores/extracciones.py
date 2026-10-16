@@ -25,7 +25,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..almacen import Almacen, reloj_de, transaccion, usuario_sistema
+from ..almacen import Almacen, DatosDePrueba, reloj_de, transaccion, usuario_sistema
 from ..almacen.documentos import instante_de_fichero, registrar_documento
 from ..almacen.evidencia import foto
 from ..almacen.extracciones import RegistroInvalido, leer_registro, registrar_extraccion
@@ -183,6 +183,8 @@ def importar_out(
                             almacen, fichero, registro, previa, pdfs, actor, usuario_id, ruta)
                 except sqlite3.IntegrityError as exc:
                     motivo = f"la base no lo admite: {exc}"
+                except DatosDePrueba as exc:
+                    motivo = str(exc)
                 else:
                     original_de[hecho.documento_id] = hecho.original
                     resultado.documentos_nuevos += hecho.documento_nuevo

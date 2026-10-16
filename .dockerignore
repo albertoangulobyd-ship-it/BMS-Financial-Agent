@@ -1,0 +1,16 @@
+# Lo que nunca entra en la imagen (paso 13): datos de la empresa, la clave de la API,
+# copias, entornos de desarrollo y lo que no hace falta para correr.
+**
+!docker/requirements.txt
+!pyproject.toml
+!README.md
+!config/
+!src/
+config/tarifas.yaml
+**/__pycache__
+**/*.py[cod]
+**/*.sqlite3*
+**/.env
+**/*.key
+**/*secret*
+**/secretos/

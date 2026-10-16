@@ -30,7 +30,8 @@ pip install -e ".[dev]"
 pytest
 ```
 
-1943 tests, ninguno llama a la API. Cubren la conversión de importes
+2094 tests, ninguno llama a la API (y cuatro más, los del entorno de Docker, que
+arrancan contenedores y solo corren con `BMS_PROBAR_DOCKER=1`). Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
@@ -39,7 +40,9 @@ tipadas con la procedencia de cada campo y los permisos, el motor de reglas
 con sus hallazgos (también que cinco mil facturas se recalculan en menos de
 dos segundos), el esquema v2 y la reextracción con presupuesto (con un
 cliente falso que cuenta las llamadas), y una foto de referencia del panel
-sobre siete extracciones fijas (`tests/fixtures/v1/`).
+sobre siete extracciones fijas (`tests/fixtures/v1/`); desde el paso 13, también
+el proxy de salida con sockets locales, la configuración de Docker y la base de
+datos de prueba.
 
 `bms-agent schema` imprime el esquema que se le pide al modelo, por si
 quieres revisarlo antes de gastar una llamada.
@@ -106,7 +109,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 1943 tests, sin llamadas a la API
+pytest                                    # 2094 tests, sin llamadas a la API
 ```
 
 ## Uso

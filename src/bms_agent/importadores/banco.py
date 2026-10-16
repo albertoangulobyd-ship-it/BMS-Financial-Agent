@@ -23,7 +23,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from ..almacen import Almacen, transaccion
+from ..almacen import Almacen, exigir_sin_datos_de_prueba, transaccion
 from ..dominio import Permiso
 from ..permisos import exigir, orden_auditada
 from . import camt053, mt940
@@ -108,6 +108,7 @@ def importar_extracto(almacen: Almacen, ruta: str | Path, *, lanzado_por: int,
     ruta = Path(ruta)
     contenido = ruta.read_bytes()
     conn = almacen.conn
+    exigir_sin_datos_de_prueba(conn, contenido, ruta.name)
     lote, mapeo = leer(contenido, ruta.name, formato=formato, exportado_en=exportado_en)
     resultado = ResultadoImportacion(fichero=ruta.name, mapeo=mapeo.id if mapeo else lote.formato,
                                      simulada=simular)

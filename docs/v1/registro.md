@@ -5223,3 +5223,307 @@ Lo que deben saber los pasos siguientes, además de lo de arriba:
   entero (la consola lo necesita); no hay que enmascararlo en la regla.
 - **Una lectura nueva de `/api/v2`** va en `LECTURAS_V2` con sus
   parámetros: si no, sus parámetros no se comprueban.
+
+## Paso 13
+
+El entorno local aislado con Docker y los datos de prueba. **No está en el §11
+de la especificación: lo pidió el dueño**, con los requisitos que se cerraron con
+él (el PC con Windows y Docker Desktop, la consola y la base sin red, una sola
+salida a `api.anthropic.com:443` por un filtro, una base de prueba aparte y un
+presupuesto de funcionamiento). **2094 tests pasan** (eran 1943) y cuatro se saltan: los de los contenedores, que
+solo corren con `BMS_PROBAR_DOCKER=1` (aquí se corrieron así y pasan), ninguno
+llama a la API. La base de la imagen se pudo bajar de Docker Hub sin el 429, así
+que **la imagen se construyó aquí y las comprobaciones con contenedores de verdad
+se hicieron aquí** (abajo, en la puerta). Lo que solo existe en Windows (Docker
+Desktop, Windows PowerShell 5.1, las letras de unidad) queda por mirar en el
+ordenador del dueño, y se dice cuál es.
+
+No hay tabla ni migración nueva: la marca de la base de prueba va en la cabecera
+del fichero de SQLite (`PRAGMA application_id`), no en una tabla.
+
+### Qué se construyó
+
+**`salida.py` y `bms-agent salida`**: el filtro de salida, un proxy CONNECT con
+la biblioteca estándar (`socketserver`, `selectors`), sin interceptar TLS.
+
+- `decidir(cabecera, permitidos)` es una función pura: 400 si la primera línea no
+  es una petición, 405 si no es CONNECT (HTTP en claro u otro método), 403 si el
+  destino no está en la lista blanca, 200 si está. El nombre se compara entero tras
+  normalizarlo (minúsculas, sin el punto final): `api.anthropic.com.evil.example`,
+  `evilapi.anthropic.com` o `api.anthropic.com:80` no pasan. Una IP escrita a mano
+  no pasa nunca, tampoco en sus formas raras (`2130706433`, `0x7f.1`, `127.1`,
+  `[::1]`): `es_literal_ip` usa `inet_aton`, que acepta lo mismo que un navegador.
+- La lista blanca (`leer_destino`, `lista_blanca`) solo admite `nombre:puerto`: ni
+  IP, ni comodines, ni vacía. Por defecto, `api.anthropic.com:443`.
+- El proxy resuelve el nombre él mismo, rechaza (403) si alguna dirección no es de
+  internet (`direcciones_no_publicas`: privadas, locales, enlace local, CGNAT) y se
+  conecta a la dirección que comprobó, sin volver a resolver: un DNS que rebota
+  hacia la red de la casa no lo convierte en un puente.
+- Cada intento queda en el registro (`bms_agent.salida`): quién, qué pidió, qué se
+  decidió, el código y por qué; al cerrar un túnel, los bytes y los segundos. Las
+  cabeceras no se apuntan nunca. Una conexión que no pide nada (la comprobación de
+  salud) va a debug.
+- Límites: 8 KiB de cabecera (431), 10 s para mandarla, 32 túneles a la vez (503),
+  900 s de silencio por túnel (una petición sin streaming puede tardar minutos en
+  dar el primer byte).
+- `Reenvio`: la entrada a la consola, un reenvío TCP fijo a un solo destino
+  (desviación 1).
+- `bms-agent salida --escuchar HOST:PUERTO --permitir HOST:PUERTO --reenviar
+  ESCUCHA=DESTINO`; un nombre en `--escuchar` se resuelve al arrancar (con
+  reintentos): así el proxy escucha solo en la red del lector. `bms-agent salud
+  HOST:PUERTO` es la comprobación de salud de los contenedores.
+
+**La base de prueba, `demo.py` y `bms-agent demo crear [--db] [--rehacer]`.**
+Construye `datos/demo.sqlite3` con una empresa de seguridad y facility ficticia,
+**por las puertas de siempre** (los importadores, la ingesta, las órdenes de
+`servicios.py`), no escribiendo filas: los datos de prueba pasan por el registro de
+cuentas, las reglas y la auditoría como los reales, y `db verificar` dice «Todo
+cuadra.». Tarda 6-8 s. Lo que lleva, todo respecto a hoy:
+
+- 6 proveedores (dos zzp'ers y cuatro empresas, una británica que factura en
+  dólares), 3 clientes, 3 Objetos (un puerto, una zorglocatie, un gemeentehuis), 5
+  personas del planning, tarifas de compra con recargo de noche (+15 %) y de fin de
+  semana (+20 %), tarifas de venta por Objeto, ciclos de facturación (semanal con 7
+  días de margen, mensuales con 10);
+- unas 240 turnos de TRNSPRNT desde el día 1 de hace dos meses hasta dentro de tres
+  semanas (aprobados, hechos y planificados), con las horas variando un poco (una
+  pausa, un turno que se cae: dos facturas iguales serían un duplicado);
+- 16 facturas de compra con su PDF (un PDF mínimo con «DATOS DE PRUEBA» en la
+  primera línea) y su extracción v2: las mensuales y quincenales de los
+  proveedores, línea a línea contra el planning; **una duplicada** (el mismo número,
+  otro PDF: B2, las dos bloqueadas), **una con el IBAN cambiado** (F2 y F3), **un
+  abono** propuesto por la extracción y sin confirmar (R5), **una en dólares** (X1,
+  con autoliquidación y btw-id británico), **una con un intento de inyección** en
+  el texto (Q3 con su excepción, a la espera del proveedor; el IBAN de su cabecera
+  es el del maestro), **una vencida hace más de treinta días** (urgente) y una con
+  el total leído con duda (Q2);
+- 16 facturas de venta de Exact: las semanales del puerto con su PO, salvo **una
+  semana trabajada sin facturar** (V6, valorada a la tarifa pactada, y V8), las
+  mensuales de los otros dos clientes, **una vencida hace más de sesenta días**
+  (urgente) y **un abono** confirmado por una persona;
+- 3 PO: la del puerto consumida en más de un 80 % y con trabajo planificado que ya
+  no cabe (P5, P8, P9, P10), la de la zorglocatie que vence en tres semanas con valor
+  por gastar (P7) y una del lado del proveedor;
+- un extracto CAMT.053 por mes de la cuenta propia (con continuidad de saldos y
+  secuencia), con los cobros y pagos casados solos y la comisión del banco sin casar
+  (K7); hoy siempre se mueve algo, aunque sea día 1;
+- el BTW: los trimestres cuyo plazo ya pasó, presentados (anotados por una persona,
+  con una referencia ficticia) y el que vence ahora, con su hoja lista para revisar;
+- lo que habría hecho una administración: la mitad de lo limpio y pagado, revisado;
+  un vencimiento corregido a mano y sin verificar (M1); una nota; dos excepciones a
+  la espera del proveedor; el abono de venta confirmado;
+- dos personas, «Ana Demo» (administrador) y «Bram Demo» (administración), con sus
+  tokens, que `demo crear` enseña una vez.
+
+Con eso cada bloque del panel (§17) tiene algo y hay facturas de los cuatro
+niveles de prioridad, también en fechas que cambian de mes, de trimestre y de año.
+
+**La marca y el aislamiento** (`almacen/__init__.py`):
+
+- `NOMBRE_DEMO = "demo.sqlite3"` y `MARCA_DEMO` (`application_id` = «BMSD»).
+  `marca_de_fichero(ruta)` lee la marca de los bytes 68-71 de la cabecera sin abrir
+  la base; `es_base_demo(conn)` la lee de una conexión.
+- `abrir()` exige que el nombre y la marca vayan juntos (`BaseDePruebaMezclada`):
+  una base marcada con otro nombre (una copia de la de prueba encima de la de
+  verdad) o una llamada `demo.sqlite3` sin la marca no se abren. La CLI lo dice y
+  sale con 2.
+- `raiz_documentos_de` y `ruta_anclas_de` dan `demo-documentos/` y
+  `demo-anclas.log` a la base de prueba: nada de ella cae en la carpeta de la de
+  verdad.
+- Todo lo que fabrica `demo crear` lleva la marca: la columna «Datos de prueba» con
+  `BMS-DEMO` en cada fila de los CSV (los mapeos admiten columnas de más), un
+  comentario en el PDF y en el XML del banco, `BMS-DEMO-...` en el `request_id` de
+  cada extracción y los turnos, y el código de banco `DEMO` en sus IBAN (pasan el
+  módulo 97). `contiene_datos_de_prueba` lo busca (también en UTF-16) y
+  `exigir_sin_datos_de_prueba(conn, contenido, que)` lanza `DatosDePrueba` si la base
+  no es la de prueba. Se llama en `registrar_documento`, `registrar_extraccion`,
+  `politica.registrar`, `importar_fichero` e `importar_extracto` (antes de leer, y
+  también al simular); `importar-out` lo cuenta como un fichero rechazado más, y
+  `extract` ni manda a la API un PDF de prueba si la pasada no es sobre la base de
+  prueba (o no tiene base).
+- Toda orden sobre la base de prueba avisa en la salida de errores: `*** DATOS DE
+  PRUEBA: ... ***`.
+
+**La consola**: con la base de prueba, `/consola` lleva una banda fija («DATOS DE
+PRUEBA: ...», `position: sticky`) justo detrás de `<body>`, puesta por el servidor y
+no por el script; el título de la pestaña lo dice; la página local `/` también; y
+cada respuesta lleva la cabecera `X-BMS-Entorno: demo`.
+
+**`serve.py`, el modo contenedor**: `serve --contenedor` escucha en `0.0.0.0` y
+solo dentro de un contenedor (`en_contenedor`: `/.dockerenv` o
+`/run/.containerenv`; `interfaz_permitida` se niega fuera de uno y con cualquier
+otra interfaz), y no lee PDF (`Agente(lectura=False)`: lanzar una pasada da 409 y
+dice que lo hace el lector). El Host sigue teniendo que ser 127.0.0.1 o localhost.
+
+**La clave de la API como fichero**: `config.clave_api()` lee el fichero que diga
+`BMS_CLAVE_API_FICHERO` (la ruta, no la clave), comprueba que parece una clave y lo
+dice sin enseñarla (`ClaveNoValida`); sin la variable, el SDK la busca en
+`ANTHROPIC_API_KEY` como antes. La CLI (`_cliente_api`) y el servidor la usan.
+
+**`copia.py`**: `bms-agent copia DESTINO` hace la copia en caliente de SQLite
+(`backup`, coherente con la consola en marcha), copia los originales y las anclas a
+una carpeta nueva con fecha y hora (nunca pisa otra), escribe `MANIFIESTO.sha256`
+y la comprueba (la base, abierta como inmutable, pasa `integrity_check`; cada
+fichero, su hash; ni falta ni sobra nada). `copia --comprobar CARPETA` comprueba una
+copia sin tocarla. `bms-agent restaurar CARPETA` la vuelve a poner: comprueba la
+copia, que sea de una base del mismo nombre (prueba con prueba, verdad con verdad) y
+que nadie esté escribiendo, guarda antes lo que había entero en
+`antes-de-restaurar/`, escribe la base con `backup`, añade los originales que faltan
+(nunca pisa uno) y pone las anclas de la copia.
+
+**`docker/`**:
+
+- `Dockerfile`: `python:3.11.17-slim-trixie` fijada por etiqueta y digest,
+  dependencias de `requirements.txt` con `--require-hashes --only-binary=:all:`,
+  usuario 10001, `HEALTHCHECK` (`salud 127.0.0.1:8765`), `ENTRYPOINT python -m
+  bms_agent.cli`; un secreto de construcción opcional `ca_extra` para un proxy que
+  intercepta TLS (no queda en la imagen).
+- `docker-compose.yml`: cuatro servicios con la misma imagen (`consola`, `salida`,
+  `lector` con perfil `lector`, `orden` con perfil `ordenes` y `network_mode:
+  none`), tres redes (`red_consola` y `red_lector` internas, `red_exterior` solo
+  para la salida), el volumen `datos`, el buzón `../buzon` montado de solo lectura
+  en el lector y en `orden`, el secreto `anthropic_api_key` (fichero
+  `docker/secretos/anthropic_api_key.txt`) solo en el lector, `HTTPS_PROXY` del
+  lector al alias `proxy`, y en todos `read_only`, `cap_drop: [ALL]`,
+  `no-new-privileges`, `init`, `pids_limit`, `/tmp` en memoria `noexec`, límites de
+  memoria y de log. El único puerto: `127.0.0.1:8765:8765`, en la salida.
+- `requirements.txt`: las 16 dependencias con su versión y el sha256 de sus ruedas
+  x86_64 y aarch64.
+- Los scripts de Windows, cada uno con su `.bat` (que lo abre con
+  `-ExecutionPolicy Bypass`) y mensajes en claro: `iniciar` (`-Demo`: rehace los
+  datos de prueba y enseña los tokens), `parar` (nunca borra el volumen),
+  `importar` (cada carpeta del buzón, un tipo; lo que entra se mueve a
+  `buzon\hecho\<fecha>\`), `leer-facturas` (cuenta gratis, enseña el coste y solo
+  sigue con «si»), `copia` (`-Destino`, `-Comprobar`), `restaurar` (pregunta, para,
+  restaura y verifica) y `persona` (alta y token). `comun.ps1` lleva lo compartido:
+  el token se pide oculto y pasa al contenedor por el entorno (`-e BMS_TOKEN`),
+  nunca en la línea de la orden.
+- `secretos/LEEME.txt`; `.dockerignore` (primero todo fuera, luego solo `src/`,
+  `config/` sin `tarifas.yaml`, `pyproject.toml`, `README.md` y `requirements.txt`);
+  `.gitignore` (`/buzon/`, `/docker/secretos/*`); `.gitattributes` (`.ps1` y
+  `.bat` con fin de línea de Windows).
+
+**Documentación**: `docs/entorno-local.md` (para el dueño: qué es, Docker
+Desktop, la clave, la primera vez, arrancar y parar, el buzón, prueba y verdad,
+copias al disco cifrado con BitLocker o VeraCrypt y cómo restaurar, qué hacer si
+algo falla, el presupuesto de funcionamiento y el mantenimiento de cada mes, y una
+parte para quien mantiene el programa); el README; la cabecera `X-BMS-Entorno` en
+`docs/integracion-web.md`; un aviso en `docs/instalacion-windows.md`.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| El proxy, con sockets locales | `test_salida.py`: el destino permitido conecta y los bytes pasan tal cual (`test_el_destino_permitido_conecta_y_los_bytes_pasan_tal_cual`, también lo mandado antes del 200); cualquier otro recibe 403 sin resolverlo siquiera (`test_otro_destino_recibe_403_y_no_se_intenta`, con `api.anthropic.com.evil.example`, `evilapi.anthropic.com`, `127.0.0.1` y `localhost`); los trucos de nombre y las IP en sus formas raras (`test_otro_nombre_no_pasa`, `test_una_ip_escrita_a_mano_no_pasa_nunca`); el DNS que rebota hacia casa (`test_un_dns_que_rebota_hacia_casa_no_pasa`, `test_conecta_con_la_direccion_comprobada_y_no_vuelve_a_resolver`); HTTP en claro, 405, sin apuntar sus cabeceras (`test_http_en_claro_recibe_405`); cada intento en el registro (`test_cada_intento_queda_en_el_registro`); la cabecera enorme o cortada; el reenvío de la consola; la CLI y `salud` |
+| docker-compose.yml, sin contenedores | `test_entorno_local.py`: redes (`test_la_consola_y_el_lector_solo_estan_en_redes_internas`: la salida es el único servicio en una red con salida), solo lectura, `cap_drop`, `no-new-privileges`, `init`, sin `docker.sock` (`test_cada_servicio_va_endurecido`), el único puerto en 127.0.0.1 (`test_el_unico_puerto_es_el_de_la_consola_en_127_0_0_1`), el secreto solo en el lector y ninguna clave en variables (`test_la_clave_es_un_secreto_que_solo_ve_el_lector`), el lector solo a propósito y por el proxy (`test_el_lector_solo_arranca_a_proposito_y_sale_por_el_proxy`), la lista blanca y los alias (`test_la_salida_solo_deja_ir_a_la_api_y_escucha_en_la_red_del_lector`), `docker compose config` la acepta; el Dockerfile (base por etiqueta y digest, usuario, salud, hashes), `requirements.txt` con las versiones del entorno de desarrollo, `.dockerignore` y `.gitignore`, los scripts (ASCII, su `.bat`, nunca `down -v`, el token por el entorno, contar antes de pagar, cada carpeta del buzón) |
+| La base de prueba: cada bloque del panel y cada nivel | `test_demo.py::test_cada_bloque_del_panel_y_cada_nivel_tienen_algo` (el 14 de octubre, el 2 de enero, un sábado 1 de mes y el último día de un trimestre: los siete bloques con algo dentro, los cuatro niveles, ningún plazo del BTW pasado sin presentar, ningún aviso de la construcción); `test_estan_los_casos_que_la_consola_tiene_que_ensenar`; `test_todo_es_ficticio` (nombres, KvK, btw-id, IBAN del banco DEMO que pasan F1, y cada fichero y extracción con la marca) |
+| La banda | `test_la_consola_de_la_base_de_prueba_lleva_la_banda` (detrás de `<body>`, en el título, en `/`, la cabecera en `/api/v2`), `test_la_consola_de_la_base_de_verdad_no_lleva_banda` |
+| Nada de la prueba en la base de verdad | `test_crear_no_toca_la_base_de_verdad` (el volcado entero de la de verdad, igual), `test_crear_solo_escribe_en_un_fichero_llamado_demo_sqlite3`, `test_crear_no_sobrescribe_una_base_que_no_es_de_prueba`, `test_una_copia_de_la_base_de_prueba_con_otro_nombre_no_se_abre`, `test_ninguna_orden_lleva_lo_de_la_prueba_a_la_base_de_verdad` (cada fichero que fabricó la prueba, por `importar` de cada fuente, también `--simular`, por `extract` sin llamar a la API, por `importar-out` y por `politica cargar`: la de verdad no gana ni una fila con la marca), `test_ningun_codigo_junta_dos_bases` (ningún `ATTACH`, ninguna opción de base más que `--db`), `test_el_extractor_no_paga_un_pdf_de_prueba_sin_base` |
+| Contenedores de verdad | `test_entorno_docker.py`, con `BMS_PROBAR_DOCKER=1 BMS_DOCKER="sudo -n docker"`: **4 pasan aquí**. Un proyecto aparte con su volumen: la consola contesta en 127.0.0.1:8765 con la banda; desde la consola no se llega a 1.1.1.1, 8.8.8.8, `api.anthropic.com` ni al proxy; desde el lector no se llega a internet ni a la consola, solo al proxy; por el proxy, `api.anthropic.com:443` da 200 y `example.com`, `api.anthropic.com.evil.example`, una IP y el puerto 80, 403; HTTP en claro, 405; el cliente HTTP del SDK sale por `HTTPS_PROXY` (ProxyError 403 con `example.com`), y el registro de la salida tiene cada intento. A mano, además: desde las otras IP de la máquina (la de la red y las de los puentes de Docker) el puerto no contesta; un Host ajeno da 421; dentro de la consola, uid 10001, `CapEff` 0, `NoNewPrivs` 1 y `/app` de solo lectura; la clave solo está como fichero en el lector |
+| Los scripts | Los ocho `.ps1` pasan el analizador de PowerShell 7, y se ejecutaron de verdad (PowerShell 7 en Linux contra el mismo Docker): `iniciar -Demo`, `importar` (a la prueba entra y se mueve a `hecho`; a la de verdad, un fichero de prueba se rechaza y se queda), `persona`, `copia`, `copia -Comprobar`, `restaurar`, `leer-facturas` sin clave y `parar` |
+| Lo demás | La consola solo escucha en 0.0.0.0 dentro de un contenedor y ahí no lee PDF; la clave de su fichero, y uno malo se dice sin enseñarla; la copia entera, comprobada, sin pisar otra; restaurar vuelve a la copia y guarda lo de antes, y con una copia mala o de la otra base no toca nada |
+| La suite entera | 2094 pasan y 4 se saltan sin `BMS_PROBAR_DOCKER=1`; con él, los 4 también pasan |
+
+**Lo que queda por mirar en el ordenador del dueño** (no se puede aquí): que Docker
+Desktop para Windows publique el puerto en `127.0.0.1` igual que el motor de Linux;
+los scripts en Windows PowerShell 5.1 (el `.bat`, la ventana que se abre,
+`Start-Process` abriendo el navegador, `Read-Host -AsSecureString`); el montaje de
+una letra de unidad (`E:\...`) en `copia` y `restaurar`; y un `leer-facturas` de
+verdad con su clave (aquí no hay clave ni se llama a la API).
+
+### Desviaciones de lo pedido, y por qué
+
+1. **El puerto de la consola lo publica la salida, no la consola.** Docker no
+   publica el puerto de un contenedor que solo está en redes internas: se probó
+   aquí (`docker port` vacío, la conexión rechazada). Para que la consola siga sin
+   salida, la salida reenvía tal cual (`Reenvio`) de su alias `entrada`, que solo
+   existe en `red_exterior` (por donde llega el puerto publicado), a `consola:8765`.
+   La salida sigue siendo el único contenedor con un pie fuera.
+2. **Tres redes en vez de una interna.** Con una sola, la consola podría hablar con
+   el proxy y, con una clave ajena, sacar datos hacia una cuenta de otro en la API
+   de Anthropic. Ahora la consola está en `red_consola` y el lector en
+   `red_lector`, la salida en las dos más `red_exterior`, y el proxy escucha solo
+   en su dirección de `red_lector` (el alias `proxy`).
+3. **Un cuarto servicio, `orden`, sin red ninguna**, para importar, crear los datos
+   de prueba, las personas y las copias: los scripts necesitan ejecutar órdenes y
+   `network_mode: none` es más estricto que cualquier red.
+4. **`datos` es un volumen de Docker, no una carpeta de Windows.** SQLite en WAL
+   necesita bloqueos y memoria compartida que la carpeta compartida de Windows con
+   Docker Desktop no da bien, y la consola y el lector escriben a la vez. Por eso
+   las órdenes `copia` y `restaurar` y sus scripts (que no estaban en la lista): la
+   copia al disco cifrado no puede ser «copiar la carpeta». El buzón sí es una
+   carpeta de Windows, de solo lectura para los contenedores; los scripts mueven lo
+   importado, en Windows.
+5. **La clave se lee de un fichero con `BMS_CLAVE_API_FICHERO`**: el SDK no lee
+   ficheros. La variable lleva la ruta del secreto, no la clave.
+6. **La regla «solo 127.0.0.1» de `serve.py`** admite `0.0.0.0` dentro de un
+   contenedor y solo ahí; lo que protege entonces es la red (internas y el puerto en
+   127.0.0.1). En ese modo la consola no lee PDF.
+7. **La base de prueba, con sus originales y anclas aparte** (`demo-documentos/`,
+   `demo-anclas.log`): con el nombre pedido, `datos/demo.sqlite3`, la carpeta de
+   originales de al lado habría sido la de la base de verdad.
+8. **El aislamiento es por marca en el contenido**, además del nombre: se puede
+   copiar un fichero de un sitio a otro, y la marca va dentro. El precio: un fichero
+   de verdad que llevara literalmente `BMS-DEMO`, o un IBAN holandés del banco
+   `DEMO` (que no existe), no entraría.
+9. **La base de prueba se hace con la fecha de hoy y se rehace cada vez** que se
+   arranca con `-Demo` (`--rehacer`): con fechas fijas, en un mes no habría nada
+   «esta semana» y todo estaría vencido. Los tests la construyen en cuatro fechas
+   fijas.
+10. **Las tarifas de venta son integrales** (el mismo precio de día, de noche y de
+    fin de semana, en filas Dag, Nacht y Weekend): Exact no dice el turno de una
+    línea de venta y la tarifa sin turno es la «Dag» (`reglas/tarifas.py`). Los
+    recargos están en la compra.
+11. **Los trimestres pasados del BTW salen presentados** (anotados por «Ana Demo»
+    con una referencia ficticia, después de que «Bram Demo» marcara la hoja lista:
+    la separación de funciones lo exige con dos personas) y el que vence, listo para
+    revisar. Es la orden de anotar lo que una persona presentó; nada se presenta.
+12. **El aviso F0** (cuentas heredadas sin atestar) se deja abierto a propósito: es
+    lo que ve el dueño el primer día con su maestro de verdad.
+13. **La imagen es de Debian 13 (trixie)**, no 12: Python 3.11.17 con SQLite 3.46.1
+    (bookworm trae 3.40.1, más viejo que el 3.45 del entorno de desarrollo). Sin la
+    línea `# syntax=` (que bajaría otra imagen de Docker Hub) y sin instalar el
+    paquete: `PYTHONPATH=/app/src` y el directorio de trabajo `/app`, donde
+    `config/importacion` se encuentra solo.
+14. **El proxy hace más de lo pedido**: rechaza los nombres que resuelven a una
+    dirección que no es de internet y se conecta a la dirección comprobada. Los
+    tests con sockets locales inyectan el resolvedor y apagan esa comprobación
+    (`solo_publicas=False`); tiene sus propios tests.
+15. **Códigos**: HTTP en claro da 405 (con `Allow: CONNECT`), lo malformado 400, la
+    cabecera enorme 431 y un destino que no está en la lista 403.
+16. **Un sitio propio contra la base de prueba** no recibe ninguna clave nueva en el
+    contrato v2, solo la cabecera `X-BMS-Entorno: demo` (documentada): el contrato
+    sigue en 2.0.
+
+**Tests existentes cambiados, y por qué** (los dos en `test_alcance_v1.py`):
+`test_ningun_modulo_habla_con_la_red_salvo_la_extraccion` deja a `bms_agent.salida`
+importar `socket` (y solo a él, y solo eso: `PUEDEN_ABRIR_SOCKETS`), y comprueba
+que su lista blanca por defecto es `api.anthropic.com:443` y nada más: el proxy es
+la red a propósito. `test_no_hay_credenciales_ni_claves_de_banco` admite
+`BMS_CLAVE_API_FICHERO`, que dice dónde está el fichero de la clave de la API (no es
+una credencial de banco ni la clave).
+
+### Lo que deben saber los pasos siguientes
+
+- **Una vía nueva de entrada de datos** (otro importador, otra ruta de documentos)
+  pasa por `registrar_documento`, `registrar_extraccion` o `importar_fichero`, o
+  llama ella a `exigir_sin_datos_de_prueba`: si no, lo de la prueba podría entrar en
+  la base de verdad por ahí.
+- **Un fichero nuevo que fabrique `demo crear`** lleva la marca (`_csv` pone la
+  columna; los PDF y el XML, su comentario), o `test_todo_es_ficticio` falla.
+- **Una regla que cambie** puede vaciar o llenar un bloque del panel de la prueba:
+  `test_cada_bloque_del_panel_y_cada_nivel_tienen_algo` lo dirá. Se ajusta el
+  escenario de `demo.py`, no el test.
+- **Un destino nuevo para la salida** es una línea de `docker-compose.yml`
+  (`--permitir host:puerto`, nunca IP ni comodines) y el test estático, que hoy exige
+  solo `api.anthropic.com:443`.
+- **Una variable de entorno nueva** va en la lista de `test_alcance_v1.py`.
+- **La imagen se reconstruye** con cada versión del código (`docker compose build`);
+  una dependencia nueva va en `docker/requirements.txt` con sus hashes de las dos
+  plataformas (docs/entorno-local.md, apartado 13), y el test exige que coincida con
+  el entorno de desarrollo.
+- **`export --v2` de la base de prueba** no lleva ninguna marca dentro del JSON (solo
+  la cabecera por HTTP). Si un sitio va a leer ficheros exportados, haría falta una
+  clave `entorno` (contrato 2.1).
+- **Cuando lleguen los formatos reales** de TRNSPRNT o de Exact y cambien los
+  mapeos, los CSV de la prueba (que siguen los mapeos v1) cambian con ellos.

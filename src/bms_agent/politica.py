@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from .almacen import reloj_de, transaccion, usuario_sistema
+from .almacen import exigir_sin_datos_de_prueba, reloj_de, transaccion, usuario_sistema
 from .almacen.evidencia import foto
 from .almacen.unidades import PerdidaDePrecision, a_cent, sha256_texto
 from .auditoria import registrar as registrar_evento
@@ -50,6 +50,7 @@ def registrar(conn: sqlite3.Connection, fichero: str, texto: str,
     estaba apuntado ese dia, y volver de B a A no hacia nada aunque la CLI
     dijera que A era la vigente.
     """
+    exigir_sin_datos_de_prueba(conn, texto, f"la politica {fichero}")
     sha256 = sha256_texto(texto)
     reloj = reloj_de(conn)
     hoy = reloj.hoy().isoformat()

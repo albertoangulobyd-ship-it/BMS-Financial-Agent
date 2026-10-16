@@ -215,8 +215,10 @@ def _variables_de_entorno() -> dict[str, set[str]]:
 def test_no_hay_credenciales_ni_claves_de_banco() -> None:
     variables = set().union(*_variables_de_entorno().values())
     # Las que hay, todas resueltas: una nueva tiene que pasar por aqui.
+    # Paso 13: BMS_CLAVE_API_FICHERO dice donde esta el fichero de la clave de la API (el
+    # secreto de Docker del lector); no es una credencial de banco ni la clave misma.
     assert variables == {"BMS_DB", "BMS_TOKEN", "BMS_EXTRACT_MODEL", "BMS_EXTRACT_MAX_TOKENS",
-                         "BMS_EXTRACT_EFFORT"}
+                         "BMS_EXTRACT_EFFORT", "BMS_CLAVE_API_FICHERO"}
     assert not [v for v in variables if _tokens(v) & BANCO]
 
     def claves(datos, camino=()):
@@ -235,9 +237,19 @@ def test_no_hay_credenciales_ni_claves_de_banco() -> None:
     assert not SEPA.search((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
 
 
+# Paso 13: el proxy de salida del entorno de Docker es la red, a proposito: abre
+# conexiones, pero solo a su lista blanca (por defecto, la API de Anthropic).
+# Es el unico modulo que puede importar socket, y solo eso.
+PUEDEN_ABRIR_SOCKETS = {"bms_agent.salida": {"socket"}}
+
+
 def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
     """Sin cliente de red no hay banco al que conectarse. El de Anthropic solo en la CLI y el
-    servidor, y solo para extraer (lo importan dentro de la funcion que extrae)."""
+    servidor, y solo para extraer (lo importan dentro de la funcion que extrae). El proxy de
+    salida (paso 13) abre sockets, y su lista blanca es la API de Anthropic y nada mas."""
+    from bms_agent import salida
+
+    assert salida.PERMITIDOS_POR_DEFECTO == ("api.anthropic.com:443",)
     malos = []
     for nombre, ruta in MODULOS.items():
         for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8"))):
@@ -248,6 +260,8 @@ def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
             else:
                 continue
             for modulo in importados:
+                if modulo in PUEDEN_ABRIR_SOCKETS.get(nombre, set()):
+                    continue
                 if modulo in RED_SALIENTE or modulo.split(".")[0] in RED_SALIENTE:
                     malos.append((nombre, modulo))
                 if modulo.split(".")[0] == "anthropic" and nombre not in (

@@ -1,0 +1,135 @@
+# El entorno local de bms-agent en el ordenador del dueno (paso 13, docs/entorno-local.md).
+#
+# Cuatro servicios con la misma imagen y tres redes:
+#
+#   consola  la consola interna. Solo esta en red_consola, que es interna: no tiene
+#            ninguna salida. Se llega a ella desde el navegador del dueno por
+#            127.0.0.1:8765, que publica la salida y reenvia tal cual.
+#   lector   lee los PDF con la API de Anthropic. Solo arranca cuando se pide
+#            (perfil "lector", o "docker compose run lector"). Esta en red_lector,
+#            interna tambien: su unico camino es el proxy de la salida (HTTPS_PROXY).
+#            Es el unico que ve la clave de la API, como secreto de Docker.
+#   salida   el unico contenedor con un pie fuera: el proxy CONNECT que solo deja ir a
+#            api.anthropic.com:443 (bms-agent salida) y la entrada a la consola.
+#   orden    las ordenes sueltas (importar, crear la base de prueba, copias). Sin red
+#            ninguna (network_mode none). Perfil "ordenes": solo con "run".
+#
+# Docker no publica el puerto de un contenedor que solo esta en redes internas: por eso
+# lo publica la salida (en 127.0.0.1, nunca en la red de la casa) y la consola sigue sin
+# salida a internet.
+#
+# Lo que se arranca con la base de prueba: BMS_BASE=demo (iniciar.ps1 -Demo).
+
+name: bms-agent
+
+x-endurecido: &endurecido
+  image: bms-agent:local
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  pids_limit: 256
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  consola:
+    <<: *endurecido
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["serve", "--contenedor", "--puerto", "8765", "--out", "/datos/out"]
+    environment:
+      BMS_DB: /datos/${BMS_BASE:-bms}.sqlite3
+    volumes:
+      - datos:/datos
+    networks:
+      - red_consola
+    mem_limit: 1g
+    restart: unless-stopped
+
+  salida:
+    <<: *endurecido
+    command:
+      - salida
+      - --escuchar
+      - proxy:3128
+      - --permitir
+      - api.anthropic.com:443
+      - --reenviar
+      - entrada:8765=consola:8765
+    networks:
+      red_lector:
+        aliases: [proxy]
+      red_consola: {}
+      red_exterior:
+        aliases: [entrada]
+    ports:
+      - "127.0.0.1:8765:8765"
+    healthcheck:
+      test: ["CMD", "python", "-m", "bms_agent.cli", "salud", "proxy:3128"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    mem_limit: 256m
+    depends_on:
+      - consola
+    restart: unless-stopped
+
+  lector:
+    <<: *endurecido
+    profiles: ["lector"]
+    command: ["extract", "/buzon/facturas", "--out", "/datos/out"]
+    environment:
+      BMS_DB: /datos/${BMS_BASE:-bms}.sqlite3
+      HTTPS_PROXY: http://proxy:3128
+      https_proxy: http://proxy:3128
+      NO_PROXY: ""
+      no_proxy: ""
+      # La ruta del fichero de la clave, no la clave (config.clave_api).
+      BMS_CLAVE_API_FICHERO: /run/secrets/anthropic_api_key
+    secrets:
+      - anthropic_api_key
+    volumes:
+      - datos:/datos
+      - ../buzon:/buzon:ro
+    networks:
+      - red_lector
+    healthcheck:
+      disable: true
+    mem_limit: 1g
+    depends_on:
+      salida:
+        condition: service_healthy
+
+  orden:
+    <<: *endurecido
+    profiles: ["ordenes"]
+    command: ["--help"]
+    environment:
+      BMS_DB: /datos/${BMS_BASE:-bms}.sqlite3
+    volumes:
+      - datos:/datos
+      - ../buzon:/buzon:ro
+    network_mode: none
+    healthcheck:
+      disable: true
+    mem_limit: 1g
+
+networks:
+  red_consola:
+    internal: true
+  red_lector:
+    internal: true
+  red_exterior: {}
+
+volumes:
+  datos: {}
+
+secrets:
+  anthropic_api_key:
+    file: ./secretos/anthropic_api_key.txt
