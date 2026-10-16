@@ -16,7 +16,10 @@ tambien como texto ya formateado.
 Desde el paso 8, ademas, la vista de cada proveedor (§3) y de cada cliente
 (§4), y las relaciones de una factura en su ficha. Desde el paso 9, la lista
 y el detalle de las ordenes de compra (§6) y el bloque de PO de la vista de
-un Objeto (§5).
+un Objeto (§5). Desde el paso 10, lo que sale del planning: las horas de la
+vista de un Objeto (trabajo.horas_objeto), lo trabajado sin facturar de un
+cliente (V6), lo planificado y lo sin facturar de una PO (P8, P10) y, en la
+ficha de una factura, su traza a los turnos (conciliacion.traza).
 
 Lo que el §12 pide de busqueda y filtros (§18) y el resto de vistas son del
 paso 12; aqui esta lo que la consola minima necesita.
@@ -32,8 +35,22 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from . import campos, excepciones, hallazgos, prioridad, relaciones, revision
+from . import (
+    campos,
+    conciliacion,
+    excepciones,
+    flujo_caja,
+    hallazgos,
+    prioridad,
+    relaciones,
+    revision,
+    trabajo,
+)
 from . import ordenes_compra as po_
+from .reglas import instantanea as instantaneas
+from .reglas import ordenes as reglas_ordenes
+from .reglas import turnos as reglas_turnos
+from .reglas.tarifas import por_sentido
 from .almacen.unidades import de_cent, de_e4, de_mil, de_pb
 from .dominio import ESTADOS_PENDIENTES, FUENTES_MANUALES, Calidad
 
@@ -360,7 +377,21 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
                    "texto": c["texto_doc"], "retirada": c["retirada_en"] is not None}
                   for c in conn.execute("SELECT * FROM factura_cita WHERE factura_id = ? "
                                         "ORDER BY id", (factura_id,))],
+        # Paso 10: de cada imputacion, los turnos del planning con que se concilio.
+        "conciliacion": conciliacion.traza(conn, factura_id),
     }
+
+
+def _planning(conn: sqlite3.Connection) -> Any:
+    """La instantanea de hoy si hay algun planning importado; None si no (las vistas dicen
+    entonces sin datos, nunca cero)."""
+    from .almacen import reloj_de
+    from .politica import politica_reglas
+
+    if not instantaneas.fotos_planning(conn):
+        return None
+    return instantaneas.construir(conn, hoy=reloj_de(conn).hoy(),
+                                  politica=politica_reglas(conn))
 
 
 def personas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -769,14 +800,38 @@ def _vista(conn: sqlite3.Connection, tabla: str, parte_id: int) -> dict[str, Any
     if tabla == "proveedor":
         vista["ibanes"] = _ibanes(conn, parte_id)
     else:
-        # §4 "Potential unbilled work": lo trabajado que no se ha facturado sale del
-        # planning (V6, paso 10). Hasta entonces no hay con que contarlo: sin datos, nunca
-        # cero (cero diria que no hay nada sin facturar).
-        vista["trabajo_sin_facturar"] = {
-            "estado": "sin_datos",
-            "detalle": "Sin el planning no se puede saber qué trabajo falta por facturar "
-                       "(llega con el paso 10, V6)."}
+        vista["trabajo_sin_facturar"] = _sin_facturar(conn, parte_id)
     return vista
+
+
+def _sin_facturar(conn: sqlite3.Connection, cliente_id: int) -> dict[str, Any]:
+    """§4 "Potential unbilled work": lo que dicen los V6 sin cerrar del cliente (trabajo
+    validado facturable sin facturar pasado su periodo y su gracia). Sin planning no hay con
+    que contarlo: sin datos, nunca cero (cero diria que no hay nada sin facturar)."""
+    if not instantaneas.fotos_planning(conn):
+        return {"estado": "sin_datos",
+                "detalle": "No se ha importado ningún planning de TRNSPRNT: no se puede saber "
+                           "qué trabajo falta por facturar (V6)."}
+    marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
+    periodos = []
+    for h in conn.execute(
+            f"SELECT id, estado, detalle, valores_json FROM hallazgo WHERE regla = 'V6' "
+            f"AND tabla = 'cliente' AND fila_id = ? AND estado IN ({marcas}) ORDER BY id",
+            (cliente_id, *sorted(ESTADOS_PENDIENTES))):
+        valores = json.loads(h["valores_json"] or "{}")
+        periodos.append({"hallazgo_id": h["id"], "estado": h["estado"],
+                         "detalle": h["detalle"], "objeto_id": valores.get("objeto"),
+                         "desde": valores.get("desde"), "hasta": valores.get("hasta"),
+                         "horas_mil": valores.get("horas_mil"),
+                         "horas": _horas_texto(valores.get("horas_mil")),
+                         "valor_cent": valores.get("valor_cent"),
+                         "valor": _euros(valores.get("valor_cent")),
+                         "estimado": bool(valores.get("estimado"))})
+    horas = sum(p["horas_mil"] or 0 for p in periodos)
+    valor = sum(p["valor_cent"] or 0 for p in periodos)
+    return {"estado": "ok", "periodos": periodos, "horas_mil": horas,
+            "horas": _horas_texto(horas), "valor_cent": valor, "valor": _euros(valor),
+            "estimado": any(p["estimado"] for p in periodos)}
 
 
 # Lo que dice la cache de prioridad de una parte sin nada pendiente: normal, sin puntos.
@@ -943,16 +998,37 @@ def _avisos_po(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
             "hallazgos": hallazgos_, "excepciones": excepciones_}
 
 
-# Lo que depende del planning: sin datos hasta el paso 10, nunca cero (cero
-# diria que no hay nada planificado ni trabajado sin facturar).
+# Lo que depende del planning: sin ningun planning importado, sin datos, nunca
+# cero (cero diria que no hay nada planificado ni trabajado sin facturar).
 _SIN_PLANNING = {
     "planificado": {"estado": "sin_datos",
-                    "detalle": "El trabajo planificado valorado a la tarifa de venta llega con "
-                               "el planning (paso 10, P8)."},
+                    "detalle": "No se ha importado ningún planning de TRNSPRNT: no se sabe qué "
+                               "trabajo hay planificado (P8)."},
     "sin_facturar": {"estado": "sin_datos",
-                     "detalle": "Lo trabajado sin facturar llega con el planning (paso 10, "
-                                "P10)."},
+                     "detalle": "No se ha importado ningún planning de TRNSPRNT: no se sabe qué "
+                                "trabajo falta por facturar (P10)."},
 }
+
+
+def _esperado_po(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
+    """Lo trabajado sin facturar y lo planificado de una PO, valorados como en P8 y P10 (a la
+    tarifa pactada de su lado o, si no, a la del turno en el planning)."""
+    foto = _planning(conn)
+    if foto is None:
+        return dict(_SIN_PLANNING)
+    orden = next((o for o in foto.ordenes if o.id == po_id), None)
+    if orden is None:
+        return dict(_SIN_PLANNING)
+    lista = reglas_ordenes.turnos_de_po(foto).get(po_id, [])
+    conciliado = reglas_turnos.conciliado(foto, reglas_ordenes.SENTIDO_DE_LADO[orden.lado])
+    sin_facturar, planificado, sin_tarifa = reglas_ordenes.esperado(
+        foto, orden, lista, conciliado, por_sentido(foto.tarifas))
+    nota = f"{sin_tarifa} turno(s) sin tarifa no suman." if sin_tarifa else None
+    return {"planificado": {"estado": "ok", "valor_cent": planificado,
+                            "valor": _euros(planificado), "nota": nota},
+            "sin_facturar": {"estado": "ok", "valor_cent": sin_facturar,
+                             "valor": _euros(sin_facturar), "nota": nota},
+            "turnos": len(lista)}
 
 
 def orden_compra(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
@@ -998,21 +1074,22 @@ def orden_compra(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
                       "consumido_ventana_cent": p.consumido_cent,
                       "consumido_ventana": _euros(p.consumido_cent),
                       "agotamiento": _iso(p.agotamiento)},
-        **_SIN_PLANNING,
+        **_esperado_po(conn, po_id),
         "avisos": _avisos_po(conn, po_id),
         "prioridad": _prioridades(conn, "orden_compra").get(po_id, _SIN_PRIORIDAD),
     }
 
 
 def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
-    """La vista de un Objeto (§5): por ahora su ficha y su bloque de PO (paso 9).
+    """La vista de un Objeto (§5): su ficha, su bloque de PO (paso 9) y sus horas (paso 10).
 
     Las PO del Objeto son las que lo cubren y aquellas a las que se imputa
     trabajo suyo. Lo cubre una PO que lo nombra (orden_compra_objeto) y una
     abierta de su cliente que no nombra ninguno: una PO sin Objetos cubre
     cualquiera de su parte (como en P3). De cada una, lo consumido y lo que
-    queda de la PO entera, y lo que ha consumido este Objeto. Las horas, los
-    ingresos y los costes del Objeto son de los pasos siguientes.
+    queda de la PO entera, y lo que ha consumido este Objeto. Las horas, por
+    semana ISO, y lo esperado por cobrar y por pagar salen de
+    trabajo.horas_objeto. Los ingresos, costes y margen son del paso 12.
     """
     fila = conn.execute(
         "SELECT o.*, c.nombre AS cliente FROM objeto AS o LEFT JOIN cliente AS c "
@@ -1055,6 +1132,27 @@ def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
         "requiere_po": None if fila["requiere_po"] is None else bool(fila["requiere_po"]),
         "activo_desde": fila["activo_desde"], "activo_hasta": fila["activo_hasta"],
         "ordenes_compra": filas, "ordenes_resumen": resumen,
+        "horas": _horas_objeto(conn, objeto_id),
         "prioridad": _prioridades(conn, "objeto").get(objeto_id, _SIN_PRIORIDAD),
     }
+
+
+def _horas_objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
+    """Las horas del Objeto por semana y lo esperado de el (trabajo.horas_objeto), con lo que
+    queda de cada factura abierta (flujo_caja.datos)."""
+    from .almacen import reloj_de
+    from .politica import politica_reglas
+
+    foto = _planning(conn) or instantaneas.construir(conn, hoy=reloj_de(conn).hoy(),
+                                                     politica=politica_reglas(conn))
+    partidas, _movidos = flujo_caja.datos(conn)
+    pendientes = {p.factura_id: (p.direccion, p.importe_cent) for p in partidas}
+    salida = trabajo.horas_objeto(foto, objeto_id, pendientes)
+    for fila in (*salida["semanas"], salida["total"]):
+        for clave in [c for c in fila if c.endswith("_mil")]:
+            fila[clave.removesuffix("_mil")] = _horas_texto(fila[clave])
+    esperado = salida["esperado"]
+    for clave in [c for c in esperado if c.endswith("_cent")]:
+        esperado[clave.removesuffix("_cent")] = _euros(esperado[clave])
+    return salida
 

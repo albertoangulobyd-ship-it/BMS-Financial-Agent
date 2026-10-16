@@ -407,10 +407,11 @@ def test_p3_retiene_una_compra_que_imprime_dos_po_y_no_consume_ninguna() -> None
 
 
 def test_p8_y_p10_esperan_al_planning() -> None:
+    """Sin ningun planning importado (paso 10: lo planificado y lo trabajado salen de el)."""
     i = inst(ordenes=[orden(1), orden(2, cerrada=True)])
     for regla in ("P8", "P10"):
         assert uno(regla, i, 1, "orden_compra").resultado == "sin_datos"
-        assert "paso 10" in uno(regla, i, 1, "orden_compra").detalle
+        assert "planning" in uno(regla, i, 1, "orden_compra").detalle
         assert uno(regla, i, 2, "orden_compra").resultado == "no_aplica"
 
 

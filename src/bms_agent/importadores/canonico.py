@@ -18,8 +18,9 @@ encuentra es un rechazo (Z2), nunca un alta.
 
 from __future__ import annotations
 
+import re
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -438,6 +439,147 @@ class ModificacionPOCanonica(Canonico):
         return self
 
 
+# ------------------------------------------------------------ el planning (paso 10)
+
+_HORA = re.compile(r"([01]?[0-9]|2[0-3])[:.]([0-5][0-9])")
+DIAS_SEMANA = ("horas_lunes", "horas_martes", "horas_miercoles", "horas_jueves",
+               "horas_viernes", "horas_sabado", "horas_domingo")
+_HORAS = ("horas_planificadas", "horas_realizadas", "horas_aprobadas")
+
+
+class TurnoCanonico(Canonico):
+    """Un turno del planning (TRNSPRNT) tal como lo da el fichero (spec §9).
+
+    Un turno de un dia lleva `fecha`, y si no trae las horas planificadas pero
+    si el inicio, el fin y la pausa, las planificadas son fin - inicio - pausa
+    (un turno de noche que acaba al dia siguiente suma 24 horas al fin). Una
+    fila de la exportacion semanal pivotada lleva `ano` y `semana` y las horas de
+    cada dia (`horas_lunes`...): se lee a nivel de semana, sin partirla en
+    dias, con el total en el campo de horas que diga su mapeo; el total tiene
+    que ser la suma de los dias. `estado` validado es el turno cuyas horas dio
+    por buenas el planning, y tiene que traer esas horas.
+
+    `id_externo` es el identificador estable del turno en TRNSPRNT. Si el
+    fichero no lo trae, planning.py le pone una clave sintetica y la marca
+    `clave_fragil`. Los `*_ref` son como el fichero nombra a cada cosa; los
+    resuelve registrar.py por coincidencia exacta, y nada se crea solo.
+    """
+
+    id_externo: str | None = None
+    clave_fragil: bool = False
+    fecha: date | None = None
+    ano: int | None = None
+    semana: int | None = None
+    hora_inicio: str | None = None
+    hora_fin: str | None = None
+    pausa_min: int | None = None
+    horas_planificadas: Decimal | None = None
+    horas_realizadas: Decimal | None = None
+    horas_aprobadas: Decimal | None = None
+    horas_lunes: Decimal | None = None
+    horas_martes: Decimal | None = None
+    horas_miercoles: Decimal | None = None
+    horas_jueves: Decimal | None = None
+    horas_viernes: Decimal | None = None
+    horas_sabado: Decimal | None = None
+    horas_domingo: Decimal | None = None
+    estado: Literal["planificado", "realizado", "validado", "cancelado"]
+    objeto_ref: str | None = None
+    objeto_nombre: str | None = None
+    recurso_ref: str | None = None
+    proveedor_ref: str | None = None
+    cliente_ref: str | None = None
+    po_ref: str | None = None
+    tipo_servicio: str | None = None
+    tipo_turno: str | None = None
+    facturable: bool | None = None
+    tarifa_compra: Decimal | None = None
+    tarifa_venta: Decimal | None = None
+    moneda: str | None = None
+
+    @field_validator("hora_inicio", "hora_fin")
+    @classmethod
+    def _hora(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        hora = _HORA.fullmatch(valor.strip())
+        if hora is None:
+            raise ValueError(f"{valor!r} no es una hora (HH:MM)")
+        return f"{int(hora.group(1)):02d}:{hora.group(2)}"
+
+    @field_validator("pausa_min")
+    @classmethod
+    def _pausa(cls, valor: int | None) -> int | None:
+        if valor is not None and valor < 0:
+            raise ValueError("una pausa no es negativa")
+        return valor
+
+    @model_validator(mode="after")
+    def _coherente(self) -> "TurnoCanonico":
+        if (self.fecha is None) == (self.ano is None or self.semana is None):
+            raise ValueError("un turno lleva su fecha (un dia) o su ano y su semana (la "
+                             "exportacion semanal), una de las dos")
+        for nombre in (*_HORAS, *DIAS_SEMANA, "tarifa_compra", "tarifa_venta"):
+            valor = getattr(self, nombre)
+            if valor is not None and valor < 0:
+                raise ValueError(f"{nombre} no puede ser negativo")
+        if self.fecha is None:
+            try:
+                date.fromisocalendar(self.ano, self.semana, 1)
+            except ValueError:
+                raise ValueError(f"el ano {self.ano} no tiene semana {self.semana}") from None
+            dias = [getattr(self, d) for d in DIAS_SEMANA]
+            totales = [getattr(self, h) for h in _HORAS if getattr(self, h) is not None]
+            if not totales:
+                raise ValueError("una fila semanal lleva su total de horas")
+            if any(d is not None for d in dias):
+                suma = sum((d for d in dias if d is not None), Decimal(0))
+                if any(t != suma for t in totales):
+                    raise ValueError(f"el total de la semana ({', '.join(map(str, totales))}) "
+                                     f"no es la suma de sus dias ({suma})")
+        elif (self.horas_planificadas is None and self.hora_inicio is not None
+              and self.hora_fin is not None):
+            object.__setattr__(self, "horas_planificadas", self._duracion())
+        if self.estado == "validado" and self.horas_aprobadas is None:
+            raise ValueError("un turno validado trae sus horas validadas")
+        return self
+
+    def _duracion(self) -> Decimal:
+        """fin - inicio - pausa, en horas; un fin anterior al inicio es del dia siguiente.
+
+        Es un valor derivado, no impreso: un turno de 07:10 a 15:30 son 8,333...
+        horas, y se guarda a la milesima de hora (3,6 segundos), redondeado a
+        proposito y no por el conversor, que nunca redondea lo que lee.
+        """
+        inicio = int(self.hora_inicio[:2]) * 60 + int(self.hora_inicio[3:])
+        fin = int(self.hora_fin[:2]) * 60 + int(self.hora_fin[3:])
+        minutos = (fin - inicio) % (24 * 60) - (self.pausa_min or 0)
+        if minutos < 0:
+            raise ValueError("la pausa es mas larga que el turno")
+        return (Decimal(minutos) / Decimal(60)).quantize(Decimal("0.001"), ROUND_HALF_UP)
+
+    @property
+    def nivel(self) -> str:
+        return "dia" if self.fecha is not None else "semana"
+
+    @property
+    def dia(self) -> date:
+        """El dia del turno o, en una fila semanal, el lunes de su semana."""
+        return self.fecha if self.fecha is not None else date.fromisocalendar(
+            self.ano, self.semana, 1)
+
+    @property
+    def dias(self) -> int:
+        """Los dias con horas: uno en un turno; en una fila semanal, los que traen horas (si no
+        trae el detalle por dia, los siete)."""
+        if self.fecha is not None:
+            return 1
+        detalle = [getattr(self, d) for d in DIAS_SEMANA]
+        if all(d is None for d in detalle):
+            return 7
+        return sum(1 for d in detalle if d)
+
+
 MODELOS: dict[str, type[Canonico]] = {
     "proveedores": ProveedorCanonico, "clientes": ClienteCanonico,
     "contactos": ContactoCanonico, "cuentas": CuentaBancariaCanonica, "objetos": ObjetoCanonico,
@@ -446,4 +588,5 @@ MODELOS: dict[str, type[Canonico]] = {
     "pagos_exact": PagoExactCanonico,
     "lineas_venta": FilaVentaCanonica, "facturas_venta": FacturaVentaCanonica,
     "ordenes_compra": OrdenCompraCanonica, "modificaciones_po": ModificacionPOCanonica,
+    "planning": TurnoCanonico,
 }

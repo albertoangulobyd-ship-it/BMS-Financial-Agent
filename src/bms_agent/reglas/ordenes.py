@@ -22,9 +22,14 @@ empezo despues, desde su inicio), y el dia de agotamiento es hoy mas lo que
 queda dividido por ese ritmo, redondeado hacia arriba en dias enteros. Sin
 consumo en la ventana no hay fecha: a ese ritmo no se agota.
 
-Lo que depende del planning (el trabajo planificado de P8, lo trabajado sin
-facturar de P10, el trabajo planificado despues del fin en P7) da sin datos
-hasta el paso 10: sin datos nunca es ok.
+Lo que depende del planning (paso 10): el trabajo planificado de P8, lo
+trabajado sin facturar y lo planificado de P10 y el trabajo despues del fin de
+una PO ya caducada en P7. Los turnos de una PO son los que la nombran (el
+PO-nummer del planning) o, si no nombran ninguna, los de un Objeto (o, en una
+PO sin Objetos, de su parte) que cubre una sola PO abierta. Se valoran a la
+tarifa pactada de su lado (venta en una PO de cliente, compra en una de
+proveedor) o, si no hay, a la del turno en el planning. Sin ninguna foto del
+planning, sin datos: nunca ok.
 """
 
 from __future__ import annotations
@@ -35,11 +40,13 @@ from datetime import date, timedelta
 from typing import NamedTuple
 
 from ..dominio import SENTIDO_DE_LADO, ClaseReferencia, LadoOrdenCompra, TipoFactura
+from . import turnos
 from .base import (
     FALLO,
     NO_APLICA,
     OK,
     RELACIONADO,
+    R,
     SALIENTE,
     SIN_DATOS,
     Factura,
@@ -50,11 +57,13 @@ from .base import (
     OrdenCompra,
     Referencia,
     Resultado,
+    Turno,
     en_juego,
     euros,
     euros_texto,
     periodo_de,
 )
+from .tarifas import LEE_TARIFA_COMPRA, LEE_TARIFA_VENTA, por_sentido
 
 CLIENTE = LadoOrdenCompra.CLIENTE.value
 PROVEEDOR = LadoOrdenCompra.PROVEEDOR.value
@@ -666,11 +675,21 @@ def _p7(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Res
     valores = {"fin": orden.fecha_fin.isoformat(), "restante_cent": s.restante_cent,
                "limite_dias": limite}
     if dias < 0:
-        return Resultado("P7", "orden_compra", orden.id, SIN_DATOS,
-                         f"{_mayus(_po_texto(orden))} caducó el "
-                         f"{orden.fecha_fin.isoformat()} con {euros_texto(euros(s.restante_cent))} "
-                         "por consumir: si hay trabajo planificado después de su fin lo dirá el "
-                         "planning (paso 10).", valores)
+        caducada = (f"{_mayus(_po_texto(orden))} caducó el {orden.fecha_fin.isoformat()} con "
+                    f"{euros_texto(euros(s.restante_cent))} por consumir")
+        if not instantanea.fotos_planning:
+            return Resultado("P7", "orden_compra", orden.id, SIN_DATOS,
+                             caducada + ": sin planning importado no se sabe si hay trabajo "
+                             "después de su fin.", valores)
+        despues = [t for t in turnos_de_po(instantanea).get(orden.id, [])
+                   if turnos.ultimo_dia(t) > orden.fecha_fin]
+        if not despues:
+            return Resultado("P7", "orden_compra", orden.id, OK,
+                             caducada + ", sin trabajo en el planning después de su fin.")
+        return Resultado("P7", "orden_compra", orden.id, FALLO,
+                         caducada + f" y el planning tiene {len(despues)} turno(s) después de "
+                         "su fin: una PO nueva o una modificación.",
+                         {**valores, "turnos_despues": len(despues)}, severidad=R)
     if dias <= limite:
         cuando = "hoy" if dias == 0 else f"en {dias} días"
         return Resultado("P7", "orden_compra", orden.id, FALLO,
@@ -686,18 +705,108 @@ def p7(instantanea: Instantanea) -> list[Resultado]:
 
 
 def _sin_planning(instantanea: Instantanea, regla: str, que: str) -> list[Resultado]:
-    """Una regla que necesita el planning: sin datos por PO abierta (nunca ok)."""
+    """Una regla que necesita el planning, sin ninguna foto: sin datos por PO abierta (nunca
+    ok)."""
     return [Resultado(regla, "orden_compra", orden.id, NO_APLICA,
                       f"{_mayus(_po_texto(orden))} está cerrada.") if orden.cerrada
             else Resultado(regla, "orden_compra", orden.id, SIN_DATOS,
-                           f"{que} de {_po_texto(orden)} llega con el planning (paso 10).")
+                           f"{que} de {_po_texto(orden)} sale del planning, y no se ha "
+                           "importado ninguno.")
             for orden in instantanea.ordenes]
 
 
+def _cubre_turno(orden: OrdenCompra, t: Turno) -> bool:
+    """Una PO abierta cubre un turno que no nombra ninguna: de su parte y de un Objeto suyo (o
+    de cualquiera, si no tiene Objetos)."""
+    parte = t.cliente_id if orden.lado == CLIENTE else t.proveedor_id
+    if parte is None or parte != orden.parte_id:
+        return False
+    return not orden.objetos or t.objeto_id in orden.objetos
+
+
+def turnos_de_po(instantanea: Instantanea) -> dict[int, list[Turno]]:
+    """Los turnos (no cancelados) de cada PO; en una de cliente, solo los facturables."""
+    por_id = {o.id: o for o in instantanea.ordenes}
+    abiertas = [o for o in instantanea.ordenes if not o.cerrada]
+    salida: dict[int, list[Turno]] = defaultdict(list)
+    for t in instantanea.turnos:
+        if t.estado == turnos.CANCELADO:
+            continue
+        if t.orden_compra_id is not None:
+            orden = por_id.get(t.orden_compra_id)
+            candidatas = [orden] if orden is not None else []
+        else:
+            candidatas = [o for o in abiertas if _cubre_turno(o, t)]
+        if len(candidatas) != 1:
+            continue
+        orden = candidatas[0]
+        if orden.lado == CLIENTE and t.facturable is False:
+            continue
+        salida[orden.id].append(t)
+    return salida
+
+
+def _valor_turnos(orden: OrdenCompra, lista: Sequence[Turno], horas: dict[str, int],
+                  tarifas_: dict[str, tuple]) -> tuple[int, int]:
+    """Lo que valen unas horas de unos turnos a la tarifa del lado de la PO, y cuantos no
+    tienen ninguna tarifa (no suman: el valor es lo menos que sera)."""
+    valor, sin_tarifa = 0, 0
+    for t in lista:
+        if orden.lado == CLIENTE:
+            precio, _estimado = turnos.tarifa_de_venta(t, tarifas_.get("venta", ()))
+        else:
+            precio, _estimado = turnos.tarifa_de_compra(t, tarifas_.get("compra", ()))
+        if precio is None:
+            sin_tarifa += 1
+            continue
+        valor += turnos.valor_cent(horas[t.id_externo], precio)
+    return valor, sin_tarifa
+
+
+def esperado(instantanea: Instantanea, orden: OrdenCompra, lista: Sequence[Turno],
+             conciliado: dict[str, tuple[int, frozenset[int]]],
+             tarifas_: dict[str, tuple]) -> tuple[int, int, int]:
+    """Lo trabajado sin facturar (hasta hoy, lo que no se ha conciliado con facturas de su
+    lado) y lo planificado (despues de hoy) de una PO, valorados; y cuantos turnos no tienen
+    tarifa."""
+    pasados: dict[str, int] = {}
+    futuros: dict[str, int] = {}
+    for t in lista:
+        horas = turnos.horas_referencia(t)
+        if t.fecha > instantanea.hoy:
+            futuros[t.id_externo] = horas
+        else:
+            pendiente = horas - conciliado.get(t.id_externo, (0,))[0]
+            if pendiente > 0:
+                pasados[t.id_externo] = pendiente
+    sin_facturar, sin_a = _valor_turnos(orden, [t for t in lista if t.id_externo in pasados],
+                                        pasados, tarifas_)
+    planificado, sin_b = _valor_turnos(orden, [t for t in lista if t.id_externo in futuros],
+                                       futuros, tarifas_)
+    return sin_facturar, planificado, sin_a + sin_b
+
+
 def p8(instantanea: Instantanea) -> list[Resultado]:
-    """El trabajo planificado por la tarifa de venta pasa lo que queda: sin datos hasta el
-    planning."""
-    return _sin_planning(instantanea, "P8", "El trabajo planificado")
+    """El trabajo planificado (despues de hoy) por la tarifa de su lado pasa lo que queda de la
+    PO. Aviso de la PO entera: lo planificado se mueve cada dia, y no es de ninguna factura."""
+    if not instantanea.fotos_planning:
+        return _sin_planning(instantanea, "P8", "El trabajo planificado")
+    de_po = turnos_de_po(instantanea)
+    tarifas_ = por_sentido(instantanea.tarifas)
+
+    def una(orden: OrdenCompra, lista: list[Cargo], inst: Instantanea) -> Resultado:
+        s = situacion(orden, lista)
+        _sin, planificado, sin_tarifa = esperado(inst, orden, de_po.get(orden.id, []), {},
+                                                 tarifas_)
+        sin = f" ({sin_tarifa} turno(s) sin tarifa no suman)" if sin_tarifa else ""
+        texto = (f"Lo planificado de {_po_texto(orden)} vale "
+                 f"{euros_texto(euros(planificado))}{sin} y le quedan "
+                 f"{euros_texto(euros(s.restante_cent))}")
+        if planificado > s.restante_cent:
+            return Resultado("P8", "orden_compra", orden.id, FALLO, texto + ": no alcanza.",
+                             {"restante_cent": s.restante_cent, "valor_po_cent": s.valor_cent})
+        return Resultado("P8", "orden_compra", orden.id, OK, texto + ".")
+    return _de_cada_po(instantanea, "P8", una)
 
 
 def _p9(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Resultado:
@@ -737,23 +846,68 @@ def p9(instantanea: Instantanea) -> list[Resultado]:
 
 
 def p10(instantanea: Instantanea) -> list[Resultado]:
-    """Lo facturado mas lo trabajado sin facturar mas lo planificado pasa el valor: sin datos
-    hasta el planning (lo facturado de mas ya lo dicen P4 y P6)."""
-    return _sin_planning(instantanea, "P10", "Lo trabajado sin facturar y lo planificado")
+    """Lo facturado mas lo trabajado sin facturar mas lo planificado pasa el valor de la PO.
+
+    Es de la PO entera, y retiene ademas las facturas que le cargan desde el
+    punto en que lo esperado pasa el valor (en el orden del §7): son sus
+    objetivos, y asi su suelo urgente (§8) llega a ellas.
+    """
+    if not instantanea.fotos_planning:
+        return _sin_planning(instantanea, "P10", "Lo trabajado sin facturar y lo planificado")
+    de_po = turnos_de_po(instantanea)
+    tarifas_ = por_sentido(instantanea.tarifas)
+    conciliados = {lado: turnos.conciliado(instantanea, SENTIDO_DE_LADO[lado])
+                   for lado in (CLIENTE, PROVEEDOR)}
+
+    def una(orden: OrdenCompra, lista: list[Cargo], inst: Instantanea) -> Resultado:
+        s = situacion(orden, lista)
+        sin_facturar, planificado, sin_tarifa = esperado(
+            inst, orden, de_po.get(orden.id, []), conciliados[orden.lado], tarifas_)
+        pendiente = sin_facturar + planificado
+        total = s.consumido_cent + pendiente
+        sin = f" ({sin_tarifa} turno(s) sin tarifa no suman)" if sin_tarifa else ""
+        texto = (f"{_mayus(_po_texto(orden))}: facturado {euros_texto(euros(s.consumido_cent))}"
+                 f", sin facturar {euros_texto(euros(sin_facturar))} y planificado "
+                 f"{euros_texto(euros(planificado))}{sin}; vale "
+                 f"{euros_texto(euros(s.valor_cent))}")
+        if total <= s.valor_cent:
+            return Resultado("P10", "orden_compra", orden.id, OK, texto + ".")
+        desde, objetivos = None, []
+        for cargo, antes in antes_de_cada(orden, lista):
+            if desde is None and antes - cargo.importe_cent - pendiente < 0:
+                desde = cargo.factura_id
+            if desde is not None:
+                objetivos.append(Objetivo("factura", cargo.factura_id, None, RELACIONADO))
+        return Resultado("P10", "orden_compra", orden.id, FALLO,
+                         texto + f": lo esperado ({euros_texto(euros(total))}) pasa su valor.",
+                         {"valor_po_cent": s.valor_cent, "esperado_cent": total},
+                         objetivos=tuple(objetivos))
+    return _de_cada_po(instantanea, "P10", una)
 
 
 LEE_DE_PO = frozenset({"instantanea.ordenes", "orden_compra.id", "orden_compra.cerrada",
                        "orden_compra.numero"}) | LEE_CARGOS
 LEE_P5 = LEE_DE_PO | {"instantanea.politica", "politica.po_aviso_consumo_pct"}
-LEE_P7 = LEE_DE_PO | {"instantanea.politica", "instantanea.hoy", "politica.po_dias_caducidad",
-                      "orden_compra.fecha_fin"}
+LEE_TURNOS_DE_PO = frozenset({
+    "instantanea.turnos", "instantanea.ordenes", "orden_compra.id", "orden_compra.cerrada",
+    "orden_compra.lado", "orden_compra.parte_id", "orden_compra.objetos", "turno.estado",
+    "turno.orden_compra_id", "turno.cliente_id", "turno.proveedor_id", "turno.objeto_id",
+    "turno.facturable"})
+LEE_P7 = LEE_DE_PO | LEE_TURNOS_DE_PO | {
+    "instantanea.politica", "instantanea.hoy", "politica.po_dias_caducidad",
+    "orden_compra.fecha_fin", "instantanea.fotos_planning", "turno.nivel", "turno.fecha"}
 LEE_SIN_PLANNING = frozenset({"instantanea.ordenes", "orden_compra.id", "orden_compra.cerrada",
-                              "orden_compra.numero"})
-LEE_P8 = LEE_SIN_PLANNING
+                              "orden_compra.numero", "instantanea.fotos_planning"})
+_LEE_ESPERADO = LEE_TURNOS_DE_PO | frozenset({
+    "instantanea.hoy", "instantanea.tarifas", "turno.fecha", "turno.id_externo",
+    "turno.horas_aprobadas_mil", "turno.horas_realizadas_mil", "turno.horas_planificadas_mil",
+    "turno.tarifa_venta_e4", "turno.tarifa_compra_e4", "turno.recurso_id", "turno.tipo_turno",
+    "turno.tipo_servicio", "tarifa.sentido", "tarifa.id"}) | LEE_TARIFA_COMPRA | LEE_TARIFA_VENTA
+LEE_P8 = LEE_SIN_PLANNING | LEE_DE_PO | _LEE_ESPERADO
 LEE_P9 = LEE_DE_PO | {"instantanea.politica", "instantanea.hoy", "politica.po_semanas_ritmo",
                       "politica.po_margen_prevision_dias", "orden_compra.fecha_fin",
                       "orden_compra.fecha_inicio", "orden_compra.fecha_emision"}
-LEE_P10 = LEE_SIN_PLANNING
+LEE_P10 = LEE_SIN_PLANNING | LEE_DE_PO | _LEE_ESPERADO | turnos.LEE_CONCILIADO
 
 
 # El texto de un aviso de PO de la PO entera no lleva nada que dependa de una

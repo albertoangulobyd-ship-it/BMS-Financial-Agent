@@ -578,17 +578,27 @@ def z2(instantanea: Instantanea) -> list[Resultado]:
     """
     salida = []
     for lote in instantanea.lotes:
-        if not lote.ultimo or (lote.filas_rechazadas == 0 and lote.estado != "rechazada"):
+        sin_resolver = lote.sin_resolver
+        if not lote.ultimo or (lote.filas_rechazadas == 0 and lote.estado != "rechazada"
+                               and not sin_resolver):
             continue
         filas = [[f, c, m] for f, c, m in lote.rechazos]
         entera = " Se rechazó entera: no entró nada." if lote.estado == "rechazada" else ""
-        salida.append(_de_importacion(
-            "Z2", lote, f"{lote.fuente}/{lote.tipo}: {lote.filas_rechazadas} fila"
-                        f"{'s' if lote.filas_rechazadas != 1 else ''} rechazada"
-                        f"{'s' if lote.filas_rechazadas != 1 else ''}.{entera}",
-            {"rechazadas": lote.filas_rechazadas, "estado": lote.estado, "filas": filas[:20]}))
+        texto = (f"{lote.fuente}/{lote.tipo}: {lote.filas_rechazadas} fila"
+                 f"{'s' if lote.filas_rechazadas != 1 else ''} rechazada"
+                 f"{'s' if lote.filas_rechazadas != 1 else ''}.{entera}")
+        valores = {"rechazadas": lote.filas_rechazadas, "estado": lote.estado,
+                   "filas": filas[:20]}
+        if sin_resolver:
+            # Paso 10: una foto del planning entra entera aunque nombre algo que el
+            # maestro no tiene; lo que no se resolvio se dice aqui (nada se crea solo).
+            texto += (f" {len(sin_resolver)} referencia(s) no están en el maestro y entraron "
+                      "sin resolver: " + ", ".join(f"{q} {r!r}" for _f, q, r in
+                                                   sin_resolver[:5]) + ".")
+            valores["sin_resolver"] = [[f, q, r] for f, q, r in sin_resolver[:20]]
+        salida.append(_de_importacion("Z2", lote, texto, valores))
     return salida
 
 
 LEE_Z2 = frozenset({"instantanea.lotes", "lote.ultimo", "lote.filas_rechazadas", "lote.estado",
-                    "lote.rechazos", "lote.fuente", "lote.tipo", "lote.id"})
+                    "lote.rechazos", "lote.fuente", "lote.tipo", "lote.id", "lote.sin_resolver"})

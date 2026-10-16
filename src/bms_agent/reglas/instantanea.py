@@ -21,6 +21,11 @@ las facturas que nombra cada documento.
 Desde el paso 9, las imputaciones y las referencias de cada factura, las
 ordenes de compra con su valor y su fin vigentes, las tarifas pactadas y los
 Objetos del maestro.
+Desde el paso 10, el planning que vale (v_turno_vigente), con lo que nombra
+cada turno resuelto contra el maestro de ahora si al importarlo no se resolvio
+(`Resolutor`, por coincidencia exacta, como registrar.py), las fotos aceptadas
+del planning, la conciliacion de cada imputacion con sus turnos y los ciclos
+de facturacion.
 Solo lee: lo que escribe el registro de cuentas es cuentas.py, y nada de la
 via de entrada de los documentos llega alli.
 
@@ -47,11 +52,14 @@ from .base import (
     Aplicacion,
     Bloqueo,
     CambioTelefono,
+    Ciclo,
     Cita,
+    Conciliacion,
     Cuenta,
     EventoCuenta,
     Extracto,
     Factura,
+    FotoPlanning,
     Imputacion,
     Instantanea,
     Linea,
@@ -67,6 +75,7 @@ from .base import (
     Relacion,
     Tarifa,
     TramoIva,
+    Turno,
 )
 from .ordenes import vigentes
 from .pagos import saldo, tolerancia_cent
@@ -94,6 +103,7 @@ _COLUMNAS_FACTURA = (
 _COLUMNAS_LINEA = (
     "id", "factura_id", "orden", "descripcion_doc", "objeto_doc", "unidad", "cantidad_mil",
     "tarifa_e4", "importe_cent", "tipo_iva_pb", "fecha_inicio", "fecha_fin", "fecha_trabajo",
+    "semana_doc",
 )
 
 # Lo que una extraccion v1 no pidio, en columnas de factura (compat.py habla
@@ -320,14 +330,15 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
     for fila in _filas(conn, f"SELECT {', '.join(_COLUMNAS_LINEA)} FROM factura_linea "
                              "WHERE retirada_en IS NULL ORDER BY factura_id, orden, id"):
         (id_, factura_id, orden, descripcion, objeto_doc, unidad, cantidad, tarifa, importe,
-         tipo_iva, inicio, fin, trabajo) = fila
+         tipo_iva, inicio, fin, trabajo, semana_doc) = fila
         lineas[factura_id].append(Linea(
             id=id_, orden=orden, descripcion_doc=descripcion, objeto_doc=objeto_doc,
             unidad=unidad, cantidad_mil=cantidad, tarifa_e4=tarifa, importe_cent=importe,
             tipo_iva_pb=tipo_iva, fecha_inicio=_fecha(inicio), fecha_fin=_fecha(fin),
             fecha_trabajo=_fecha(trabajo),
             objeto=clave_objeto(objetos_de_linea.get(id_), objeto_doc),
-            ilegibles=frozenset(ilegibles.get(("factura_linea", id_), vacio))))
+            ilegibles=frozenset(ilegibles.get(("factura_linea", id_), vacio)),
+            semana_doc=semana_doc))
 
     desglose: dict[int, list[TramoIva]] = defaultdict(list)
     for id_, factura_id, tipo_iva, base, cuota in _filas(
@@ -386,17 +397,25 @@ def construir(conn: sqlite3.Connection, *, hoy: date,
             imputaciones=de_factura.get(id_, ()), referencias=referencias_de.get(id_, ()),
             **_pagado(total, por_factura.get(id_), tolerancia, efecto.acreditado_cent)))
 
+    fotos = fotos_planning(conn)
+    resolutor = Resolutor(conn) if fotos else None
+    vigentes = turnos_vigentes(conn, resolutor) if resolutor is not None else ()
     return Instantanea(hoy=hoy, politica=politica, facturas=tuple(facturas),
                        relaciones=confirmadas, propuestas=propuestas, citas=citas(conn),
                        proveedores=partes(conn, "proveedor"),
                        clientes=partes(conn, "cliente"), cuentas=cuentas(conn),
-                       telefonos=telefonos(conn), lotes=lotes(conn), extractos=extractos(conn),
+                       telefonos=telefonos(conn),
+                       lotes=lotes(conn, sin_resolver_del_planning(conn, resolutor)),
+                       extractos=extractos(conn),
                        movimientos=movimientos(conn), aplicaciones=pagos,
                        beneficiarios=beneficiarios(conn),
                        bloqueos=bloqueos(conn, {a.factura_id for a in pagos
                                                 if a.estado == "confirmada"}),
                        exact_pagado=exact_pagado(conn), ordenes=ordenes(conn),
-                       tarifas=tarifas(conn), objetos=objetos(conn))
+                       tarifas=tarifas(conn), objetos=objetos(conn), turnos=vigentes,
+                       fotos_planning=fotos,
+                       conciliaciones=conciliaciones(conn) if fotos else (),
+                       ciclos=ciclos(conn))
 
 
 _SIN_PAGOS = {"pagado_cent": 0, "fuente_pago": None, "pagada": False}
@@ -593,8 +612,11 @@ def telefonos(conn: sqlite3.Connection) -> tuple[CambioTelefono, ...]:
     return tuple(salida)
 
 
-def lotes(conn: sqlite3.Connection) -> tuple[Lote, ...]:
-    """Las importaciones de maestros (no las de out/, que son una por documento)."""
+def lotes(conn: sqlite3.Connection,
+          sin_resolver: dict[int, tuple[tuple[int, str, str], ...]] | None = None,
+          ) -> tuple[Lote, ...]:
+    """Las importaciones de maestros (no las de out/, que son una por documento), con lo que
+    cada foto del planning trae sin resolver contra el maestro de ahora (Z2)."""
     filas = _filas(
         conn, "SELECT id, fuente, tipo, estado, exportado_en, iniciada_en, filas_rechazadas, "
               "rechazos_json FROM importacion WHERE fuente <> 'extracciones' ORDER BY id")
@@ -611,7 +633,8 @@ def lotes(conn: sqlite3.Connection) -> tuple[Lote, ...]:
         salida.append(Lote(id=id_, fuente=fuente, tipo=tipo, estado=estado,
                            exportado=_dia(min(exportado or iniciada, iniciada)),
                            filas_rechazadas=rechazadas, rechazos=lista,
-                           ultimo=ultimo[(fuente, tipo)] == id_))
+                           ultimo=ultimo[(fuente, tipo)] == id_,
+                           sin_resolver=(sin_resolver or {}).get(id_, ())))
     return tuple(salida)
 
 
@@ -809,3 +832,190 @@ def bloqueos(conn: sqlite3.Connection, facturas: set[int]) -> tuple[Bloqueo, ...
         for factura_id in sorted(suyas & facturas):
             salida.extend(Bloqueo(factura_id, regla, desde, hasta) for desde, hasta in lista)
     return tuple(salida)
+
+
+# ------------------------------------------------------------ paso 10: el planning
+
+class Resolutor:
+    """Lo que nombra el planning (Objeto, persona, proveedor, cliente, PO), en el maestro de
+    ahora y por coincidencia exacta: lo que registrar.py resuelve al importar y, para un
+    turno que entonces no se resolvio, lo que se resuelve en cada pasada sin tocar la fila.
+
+    El orden es el de registrar.py: el numero de TRNSPRNT (o de Exact) de la
+    fila; el codigo de un Objeto; el btw-id o el KvK de una parte; y un alias
+    confirmado. Dos filas que casan son una ambiguedad: no se elige ninguna.
+    Se lee el maestro una vez por pasada.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._alias: dict[tuple[str, str], int] = {
+            (tabla, norma): fila for tabla, norma, fila in _filas(
+                conn, "SELECT tabla, alias_norm, fila_id FROM alias WHERE confirmado = 1 "
+                      "AND activo = 1")}
+        self._objetos = _filas(conn, "SELECT id, codigo, trnsprnt_id, cliente_id FROM objeto")
+        self._recursos = _filas(conn, "SELECT id, trnsprnt_id, proveedor_id FROM recurso")
+        self._partes = {
+            tabla: _filas(conn, f"SELECT id, exact_id, trnsprnt_id, btw_id, kvk FROM {tabla}")
+            for tabla in ("proveedor", "cliente")}
+        self._ordenes = _filas(conn, "SELECT id, numero_norm, cliente_id FROM orden_compra "
+                                     "WHERE lado = 'cliente'")
+        self.cliente_de_objeto = {f[0]: f[3] for f in self._objetos}
+        self.proveedor_de_recurso = {f[0]: f[2] for f in self._recursos}
+        self._memoria: dict[tuple, int | None] = {}
+
+    @staticmethod
+    def _una(ids: Iterable[int]) -> int | None:
+        unicos = set(ids)
+        return next(iter(unicos)) if len(unicos) == 1 else None
+
+    def _por_alias(self, tabla: str, texto: str) -> int | None:
+        norma = normalizar_nombre(texto)
+        return self._alias.get((tabla, norma)) if norma else None
+
+    def resolver(self, que: str, texto: str | None, cliente_id: int | None = None) -> int | None:
+        if texto is None or not str(texto).strip():
+            return None
+        clave = (que, str(texto).strip(), cliente_id)
+        if clave not in self._memoria:
+            self._memoria[clave] = self._resolver(que, str(texto).strip(), cliente_id)
+        return self._memoria[clave]
+
+    def _resolver(self, que: str, texto: str, cliente_id: int | None) -> int | None:
+        if que == "objeto":
+            for columna in (2, 1):
+                encontrados = [f[0] for f in self._objetos if f[columna] is not None and (
+                    f[columna] == texto if columna == 2
+                    else normalizar_nombre(f[columna]) == normalizar_nombre(texto))]
+                if encontrados:
+                    return self._una(encontrados)
+            return self._por_alias("objeto", texto)
+        if que == "recurso":
+            encontrados = [f[0] for f in self._recursos if f[1] == texto]
+            return self._una(encontrados) if encontrados else self._por_alias("recurso", texto)
+        if que in ("proveedor", "cliente"):
+            filas = self._partes[que]
+            for columna, normalizar in ((1, None), (2, None), (3, normalizar_btw),
+                                        (4, normalizar_kvk if que == "proveedor" else None)):
+                if columna == 4 and normalizar is None:
+                    continue
+                if normalizar is None:
+                    encontrados = [f[0] for f in filas if f[columna] == texto]
+                else:
+                    buscado = normalizar(texto)
+                    encontrados = [f[0] for f in filas if buscado and f[columna] is not None
+                                   and normalizar(f[columna]) == buscado]
+                if encontrados:
+                    return self._una(encontrados)
+            return self._por_alias(que, texto)
+        if que == "orden_compra":
+            numero = normalizar_referencia(texto)
+            encontrados = [f[0] for f in self._ordenes if f[1] == numero
+                           and (cliente_id is None or f[2] == cliente_id)]
+            return self._una(encontrados)
+        raise ValueError(que)
+
+
+_COLUMNAS_TURNO = (
+    "t.id", "t.importacion_id", "t.id_externo", "t.clave_fragil", "t.nivel", "t.fecha", "t.dias",
+    "t.hora_inicio", "t.hora_fin", "t.horas_planificadas_mil", "t.horas_realizadas_mil",
+    "t.horas_aprobadas_mil", "t.estado", "t.objeto_id", "t.recurso_id", "t.proveedor_id",
+    "t.cliente_id", "t.tipo_servicio", "t.tipo_turno", "t.facturable", "t.tarifa_compra_e4",
+    "t.tarifa_venta_e4", "t.objeto_ref_doc", "t.recurso_ref_doc", "t.proveedor_ref_doc",
+    "t.cliente_ref_doc", "t.po_ref_doc",
+)
+
+
+def _turno(fila: tuple, resolutor: Resolutor | None) -> Turno:
+    """Un turno con lo que no se resolvio al importarlo resuelto ahora, el proveedor de su
+    persona si no trae el suyo y el cliente de su Objeto si no trae el suyo."""
+    (id_, importacion_id, id_externo, fragil, nivel, fecha, dias, inicio, fin, planificadas,
+     realizadas, aprobadas, estado, objeto_id, recurso_id, proveedor_id, cliente_id, servicio,
+     turno, facturable, compra, venta, objeto_ref, recurso_ref, proveedor_ref, cliente_ref,
+     po_ref) = fila
+    orden_compra_id = None
+    if resolutor is not None:
+        objeto_id = objeto_id or resolutor.resolver("objeto", objeto_ref)
+        recurso_id = recurso_id or resolutor.resolver("recurso", recurso_ref)
+        proveedor_id = (proveedor_id or resolutor.resolver("proveedor", proveedor_ref)
+                        or resolutor.proveedor_de_recurso.get(recurso_id))
+        cliente_id = (cliente_id or resolutor.resolver("cliente", cliente_ref)
+                      or resolutor.cliente_de_objeto.get(objeto_id))
+        orden_compra_id = resolutor.resolver("orden_compra", po_ref, cliente_id)
+    return Turno(id=id_, importacion_id=importacion_id, id_externo=id_externo,
+                 clave_fragil=bool(fragil), nivel=nivel, fecha=date.fromisoformat(fecha),
+                 dias=dias, hora_inicio=inicio, hora_fin=fin, horas_planificadas_mil=planificadas,
+                 horas_realizadas_mil=realizadas, horas_aprobadas_mil=aprobadas, estado=estado,
+                 objeto_id=objeto_id, recurso_id=recurso_id, proveedor_id=proveedor_id,
+                 cliente_id=cliente_id, tipo_servicio=servicio or None,
+                 tipo_turno=normalizar_turno(turno),
+                 facturable=None if facturable is None else bool(facturable),
+                 tarifa_compra_e4=compra, tarifa_venta_e4=venta,
+                 orden_compra_id=orden_compra_id)
+
+
+def turnos_vigentes(conn: sqlite3.Connection,
+                    resolutor: Resolutor | None = None) -> tuple[Turno, ...]:
+    """El planning que vale (v_turno_vigente): de cada dia, la foto aceptada mas nueva."""
+    return tuple(_turno(fila, resolutor) for fila in _filas(
+        conn, f"SELECT {', '.join(_COLUMNAS_TURNO)} FROM v_turno_vigente AS t "
+              "ORDER BY t.fecha, t.id"))
+
+
+def fotos_planning(conn: sqlite3.Connection) -> tuple[FotoPlanning, ...]:
+    """Las importaciones aceptadas del planning: de que dia son (lo que se exporto, nunca
+    despues de cuando se importo) y que dias cubren."""
+    return tuple(
+        FotoPlanning(id_, _dia(min(exportado or iniciada, iniciada)), _fecha(desde),
+                     _fecha(hasta))
+        for id_, exportado, iniciada, desde, hasta in _filas(
+            conn, "SELECT id, exportado_en, iniciada_en, cubre_desde, cubre_hasta "
+                  "FROM importacion WHERE fuente = 'trnsprnt' AND tipo = 'planning' "
+                  "AND estado IN ('aceptada', 'parcial') ORDER BY id"))
+
+
+def sin_resolver_del_planning(conn: sqlite3.Connection, resolutor: Resolutor | None,
+                              ) -> dict[int, tuple[tuple[int, str, str], ...]]:
+    """Por importacion del planning, lo que sus turnos nombran y el maestro de hoy no tiene:
+    (posicion, que es, como lo nombra el fichero). Solo de la ultima foto (es la de Z2)."""
+    if resolutor is None:
+        return {}
+    ultima = _filas(conn, "SELECT max(id) FROM importacion WHERE fuente = 'trnsprnt' "
+                          "AND tipo = 'planning' AND estado IN ('aceptada', 'parcial')")[0][0]
+    if ultima is None:
+        return {}
+    salida: list[tuple[int, str, str]] = []
+    for posicion, objeto_id, objeto, recurso_id, recurso, proveedor_id, proveedor, cliente_id, \
+            cliente in _filas(
+            conn, "SELECT posicion, objeto_id, objeto_ref_doc, recurso_id, recurso_ref_doc, "
+                  "proveedor_id, proveedor_ref_doc, cliente_id, cliente_ref_doc "
+                  "FROM planning_turno WHERE importacion_id = ? ORDER BY posicion", (ultima,)):
+        for que, fila_id, texto in (("objeto", objeto_id, objeto), ("recurso", recurso_id, recurso),
+                                    ("proveedor", proveedor_id, proveedor),
+                                    ("cliente", cliente_id, cliente)):
+            if fila_id is None and texto and resolutor.resolver(que, texto) is None:
+                salida.append((posicion, que, texto))
+    return {ultima: tuple(salida)} if salida else {}
+
+
+def conciliaciones(conn: sqlite3.Connection) -> tuple[Conciliacion, ...]:
+    """La conciliacion viva de cada imputacion: cada turno de su celda, tal como era en la foto
+    con que se concilio, y las horas que se le asignaron."""
+    columnas = ", ".join(_COLUMNAS_TURNO)
+    return tuple(
+        Conciliacion(id=fila[0], imputacion_id=fila[1], factura_id=fila[2], horas_mil=fila[3],
+                     nivel=fila[4], turno=_turno(fila[5:], None))
+        for fila in _filas(
+            conn, f"SELECT c.id, c.imputacion_id, i.factura_id, c.horas_mil, c.regla, {columnas} "
+                  "FROM conciliacion AS c JOIN factura_imputacion AS i ON i.id = c.imputacion_id "
+                  "JOIN planning_turno AS t ON t.id = c.planning_turno_id "
+                  "WHERE c.retirada_en IS NULL ORDER BY c.imputacion_id, c.id"))
+
+
+def ciclos(conn: sqlite3.Connection) -> tuple[Ciclo, ...]:
+    """Los ciclos de facturacion de los clientes y los Objetos."""
+    return tuple(Ciclo(id_, cliente_id, objeto_id, frecuencia, _fecha(ancla), dias_gracia,
+                       _fecha(desde), _fecha(hasta))
+                 for id_, cliente_id, objeto_id, frecuencia, ancla, dias_gracia, desde, hasta
+                 in _filas(conn, "SELECT id, cliente_id, objeto_id, frecuencia, ancla, "
+                                 "dias_gracia, vigente_desde, vigente_hasta "
+                                 "FROM ciclo_facturacion ORDER BY id"))

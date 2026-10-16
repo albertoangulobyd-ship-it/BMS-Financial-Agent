@@ -201,6 +201,20 @@ def _dias_hasta_fin(valores_json: str | None, hoy: date) -> int | None:
         return None
 
 
+def _semanas_tras_gracia(valores_json: str | None, hoy: date) -> int | None:
+    """Las semanas enteras desde que paso la gracia de un trabajo sin facturar (V6), hoy.
+
+    Como P7 con su fin: V6 guarda la fecha fija en que acabo la gracia, no las
+    semanas, que cambiarian la huella cada lunes y reabririan un V6 aceptado.
+    """
+    try:
+        hasta = json.loads(valores_json or "{}").get("gracia_hasta")
+        return max((hoy - date.fromisoformat(hasta)).days // 7, 0) if isinstance(
+            hasta, str) else None
+    except (json.JSONDecodeError, AttributeError, ValueError):
+        return None
+
+
 def _hallazgos(conn: sqlite3.Connection, hoy: date,
                ) -> tuple[dict[int, list[Hallazgo]], dict[int, Hallazgo],
                           dict[int, list[str | None]]]:
@@ -218,7 +232,9 @@ def _hallazgos(conn: sqlite3.Connection, hoy: date,
         por_id[hallazgo_id] = Hallazgo(
             regla=regla, severidad=severidad, estado=estado, entrada=entrada, texto=detalle,
             valor_cent=_valor(valores, "valor_cent"),
-            semanas_tras_gracia=_valor(valores, "semanas_tras_gracia"),
+            semanas_tras_gracia=(_semanas_tras_gracia(valores, hoy)
+                                 if entrada == EntradaPrioridad.TRABAJO_SIN_FACTURAR.value
+                                 else _valor(valores, "semanas_tras_gracia")),
             dias_para_caducar=(_dias_hasta_fin(valores, hoy)
                                if entrada == EntradaPrioridad.CADUCIDAD_PO.value
                                else _valor(valores, "dias_para_caducar")))
@@ -326,7 +342,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     # importacion o de un proveedor (F0, F5, Z2...), con su prioridad.
     if not facturas and conn.execute(
             "SELECT 1 FROM excepcion WHERE estado <> 'resuelta' UNION ALL "
-            "SELECT 1 FROM hallazgo WHERE tabla = 'orden_compra' "
+            "SELECT 1 FROM hallazgo WHERE tabla IN ('orden_compra', 'cliente') "
             "AND estado IN ('abierto', 'desaparecido') LIMIT 1").fetchone() is None:
         return cambios
     # Los pesos con que se calcula quedan siempre en politica_version: si no se
@@ -496,6 +512,8 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             hijas[("orden_compra", po_id)].append(_hija(f, resultados[f.id]))
     for po_id, hija in _avisos_de_po(conn, por_id, hoy, pesos):
         hijas[("orden_compra", po_id)].append(hija)
+    for cliente_id, hija in _avisos_de_cliente(conn, por_id, hoy, pesos):
+        hijas[("cliente", cliente_id)].append(hija)
     for entidad, lista in sorted(hijas.items()):
         agregada = prioridad.agregar(lista, hoy, subidas.get(entidad, ()))
         if agregada is None:
@@ -533,6 +551,27 @@ def _avisos_de_po(conn: sqlite3.Connection, por_id: dict[int, Hallazgo], hoy: da
                                        hoy, pesos)
         if resultado.nivel != prioridad.NORMAL or resultado.puntos:
             salida.append((po_id, Hija(po_id, resultado, None, None, f"la PO {numero}")))
+    return salida
+
+
+def _avisos_de_cliente(conn: sqlite3.Connection, por_id: dict[int, Hallazgo], hoy: date,
+                       pesos: Pesos) -> list[tuple[int, Hija]]:
+    """Lo que piden los hallazgos de un cliente sin factura (V6, V8: trabajo sin facturar y
+    periodos sin factura), como una hija mas del cliente; como _avisos_de_po."""
+    del_cliente: dict[int, list[Hallazgo]] = defaultdict(list)
+    for hallazgo_id, cliente_id in _filas(
+            conn, "SELECT id, fila_id FROM hallazgo WHERE tabla = 'cliente' "
+                  "AND estado IN ('abierto', 'desaparecido') ORDER BY id"):
+        if hallazgo_id in por_id:
+            del_cliente[cliente_id].append(por_id[hallazgo_id])
+    salida = []
+    for cliente_id in sorted(del_cliente):
+        resultado = prioridad.calcular(Entradas(sentido=SALIENTE,
+                                                hallazgos=tuple(del_cliente[cliente_id]),
+                                                revisada=True), hoy, pesos)
+        if resultado.nivel != prioridad.NORMAL or resultado.puntos:
+            salida.append((cliente_id, Hija(-cliente_id, resultado, None, None,
+                                            "lo que el cliente tiene sin facturar")))
     return salida
 
 

@@ -1,9 +1,9 @@
-"""Reglas contra el planning y las tarifas pactadas: G3 y G6 (y V4, en venta.py).
+"""Reglas contra el planning y las tarifas pactadas: G1-G7 (y V4, en venta.py).
 
 G3 compara la tarifa de cada linea de compra con la que le toca, en el orden
 del §7: la pactada (tarifa_acordada, de lo mas concreto a lo general, ver
-tarifas.py), si no la del turno en el planning (paso 10: hoy no hay planning,
-asi que se salta) y si no el historico: que la misma contraparte cobre dos
+tarifas.py), si no la del turno en el planning (paso 10: si todos los turnos
+de su celda dicen la misma) y si no el historico: que la misma contraparte cobre dos
 tarifas distintas por el mismo trabajo en el mismo Objeto, en facturas
 distintas. Contra la pactada retiene si la linea cobra mas, y bloquea si la
 pasa en mas del porcentaje de la politica (anularlo pide segunda firma); contra
@@ -32,13 +32,15 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Iterator
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
+from . import turnos
 from .base import (
     B,
     ENTRANTE,
     FALLO,
+    LEE_PERIODO,
     NO_APLICA,
     OK,
     RELACIONADO,
@@ -49,10 +51,12 @@ from .base import (
     Linea,
     Objetivo,
     Resultado,
+    compacto,
     en_juego,
     euros_texto,
     fuera_de_juego,
     lineas_en_orden,
+    periodo_de,
     tarifa,
 )
 from .tarifas import (
@@ -66,6 +70,7 @@ from .tarifas import (
     pactada,
     por_sentido,
 )
+from .turnos import Celda
 
 
 def tipo_de_trabajo(descripcion: object) -> str:
@@ -309,8 +314,6 @@ def comparar_con_pactadas(instantanea: Instantanea, regla: str, sentido: str, *,
 _SIN_PACTADA = {
     "G6": "Ni el recargo ni su parte, su recurso o su Objeto tienen tarifa pactada: G3 lo "
           "compara con el histórico.",
-    "V4": "Sin tarifa de venta pactada para la línea: la del turno en el planning llega en el "
-          "paso 10.",
 }
 
 _LEE_PACTADA = frozenset({
@@ -338,28 +341,32 @@ NO_EVIDENCIA_PACTADA = frozenset({"factura.proveedor_id", "factura.cliente_id",
 
 
 def g6(instantanea: Instantanea) -> list[Resultado]:
-    """G6: un recargo se cobra a su propia tarifa pactada (las compras).
+    """G6: un recargo se cobra a su propia tarifa pactada (las compras), y solo por las horas
+    que el planning tiene de ese recargo.
 
     Solo las lineas de un turno que no es el de dia. Si su parte, su recurso o
     su Objeto tienen tarifas pactadas pero ninguna de ese turno (o de su unidad
     o su dia), no casa: sin datos y la factura retenida, para que una persona
     confirme el recargo. Sin ninguna tarifa pactada no aplica: la compara G3
-    con el historico.
+    con el historico. Desde el paso 10, ademas, las horas de cada recargo
+    contra las de los turnos de ese recargo en el planning
+    (`recargos_contra_planning`); sin planning, esa parte da un solo sin_datos.
     """
-    return comparar_con_pactadas(instantanea, "G6", ENTRANTE, recargos=True,
-                                 tambien_por_debajo=False, exceso_bloqueo_pct=None,
-                                 sin_pactada=NO_APLICA, retiene_sin_casar=True)
-
-
-LEE_G6 = LEE_PACTADA_COMPRA | frozenset({"factura.proveedor_id"})
-SOLO_TEXTO_G6 = NO_EVIDENCIA_PACTADA & LEE_G6
+    salida = comparar_con_pactadas(instantanea, "G6", ENTRANTE, recargos=True,
+                                   tambien_por_debajo=False, exceso_bloqueo_pct=None,
+                                   sin_pactada=NO_APLICA, retiene_sin_casar=True)
+    vacio = turnos.sin_planning(instantanea, "G6")
+    salida.extend(vacio if vacio is not None else recargos_contra_planning(instantanea))
+    return salida
 
 
 def g3(instantanea: Instantanea) -> Iterator[Resultado]:
     """G3 sobre las facturas de compra en euros: contra la pactada y, si no hay, el historico.
 
     Contra la pactada, un resultado por imputacion de una linea que no es un
-    recargo (clave pactada:<imputacion>). En el historico, el grupo es la
+    recargo (clave pactada:<imputacion>); sin pactada, contra la tarifa del turno
+    en el planning si todos los turnos de su celda dicen la misma (clave
+    turno:<imputacion>, paso 10). En el historico, el grupo es la
     contraparte, el Objeto (el resuelto o, si no, el nombre impreso), el tipo de
     trabajo y la unidad: una tarifa por hora y otra por pieza no se comparan.
     Cada factura tiene un resultado por grupo en el que cobra algo; el hallazgo
@@ -372,6 +379,10 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
                                      tambien_por_debajo=False, exceso_bloqueo_pct=exceso,
                                      sin_pactada=None, retiene_sin_casar=True,
                                      decididas=decididas)
+    # Paso 10: sin pactada, la tarifa del turno en el planning, antes que el historico.
+    if instantanea.fotos_planning:
+        yield from contra_tarifa_del_turno(instantanea, "G3", ENTRANTE, decididas,
+                                           tambien_por_debajo=False)
     facturas = {f.id: f for f in instantanea.facturas}
     observaciones: list[Observacion] = []
     lineas_de: dict[tuple, dict[int, list]] = defaultdict(lambda: defaultdict(list))
@@ -473,5 +484,549 @@ LEE_G3 = LEE_PACTADA_COMPRA | frozenset({
     "factura.sentido", "factura.parte", "factura.parte_nombre", "factura.fecha_factura",
     "factura.lineas", "linea.id", "linea.orden", "linea.tarifa_e4", "linea.objeto",
     "linea.objeto_doc", "linea.descripcion_doc", "linea.unidad", "factura.proveedor_id",
-    "instantanea.politica", "politica.tarifa_exceso_bloqueo_pct",
+    "instantanea.politica", "politica.tarifa_exceso_bloqueo_pct", "instantanea.fotos_planning",
+    "turno.tarifa_compra_e4",
 })
+
+
+# ------------------------------------------------------------ contra el planning (paso 10)
+#
+# G1, G2, G4, G5, G7, la parte del planning de G6 y el escalon del planning de
+# G3 (y de V4, en venta.py). Las celdas, lo que cubre el planning y lo que se
+# concilio salen de turnos.py. Sin ninguna foto del planning, cada regla da un
+# solo sin_datos (turnos.sin_planning); con el planning pasado de su frescura
+# o sin cubrir los dias de una factura, sin_datos en esa factura: nunca ok.
+
+def _horas(mil: int) -> str:
+    """Unas horas como se leen: 8, 7,5 o 8,333."""
+    texto = str(compacto(Decimal(mil).scaleb(-3)))
+    return texto.replace(".", ",")
+
+
+def _dias_texto(celda: Celda) -> str:
+    if celda.desde == celda.hasta:
+        return f"el {celda.desde.isoformat()}"
+    if turnos.semana_entera(celda.desde, celda.hasta):
+        return f"la semana {turnos.semana_iso(celda.desde)}"
+    return f"del {celda.desde.isoformat()} al {celda.hasta.isoformat()}"
+
+
+def _de_quien(celda: Celda) -> str:
+    return "la persona" if celda.dimension == turnos.RECURSO else "el Objeto"
+
+
+def _sin_datos(regla: str, factura: Factura, motivo: str, clave: str) -> Resultado:
+    return Resultado(regla, "factura", factura.id, SIN_DATOS, motivo, clave=clave)
+
+
+def comparar_horas(instantanea: Instantanea, regla: str, sentido: str) -> list[Resultado]:
+    """G2 y V1: las horas facturadas de cada celda contra las validadas del planning.
+
+    En una compra, los turnos de su proveedor; en una venta, los facturables de
+    su cliente. La tolerancia es la de la politica por dia con turnos de la
+    celda (0,25 h: 0,25 pasa y 0,26 no). Una celda con algun turno sin validar,
+    una fila semanal que no se puede partir o unos dias que el planning no
+    cubre dan sin datos.
+    """
+    vacio = turnos.sin_planning(instantanea, regla)
+    if vacio is not None:
+        return vacio
+    plan = turnos.Planificacion(instantanea)
+    grupos, sueltas = turnos.agrupar(instantanea, sentido, plan.indice)
+    salida = [_sin_datos(regla, s.factura, s.motivo, f"imputacion:{s.imputacion.id}")
+              for s in sueltas]
+    for g in grupos:
+        motivo = plan.sin_datos(g.celda.desde, g.celda.hasta)
+        if motivo is not None:
+            salida.append(_sin_datos(regla, g.factura, motivo, g.clave))
+            continue
+        c = turnos.contenido(g.celda, plan.indice, turnos.de_la_parte(g.factura))
+        if c.parcial:
+            salida.append(_sin_datos(
+                regla, g.factura, f"El planning de {_dias_texto(g.celda)} solo tiene filas "
+                                  "semanales que no caben enteras: no se pueden partir.",
+                g.clave))
+            continue
+        pendientes = [t for t in c.turnos if t.horas_aprobadas_mil is None]
+        if pendientes:
+            salida.append(_sin_datos(
+                regla, g.factura, f"{len(pendientes)} turno(s) de {_dias_texto(g.celda)} todavía "
+                                  "sin validar en el planning: no hay horas validadas con qué "
+                                  "comparar.", g.clave))
+            continue
+        validadas = sum(t.horas_aprobadas_mil for t in c.turnos)
+        tolerancia = turnos.tolerancia_mil(plan.tolerancia, c.dias)
+        diferencia = g.horas_mil - validadas
+        dias = _dias_texto(g.celda)
+        if abs(diferencia) <= tolerancia:
+            salida.append(Resultado(
+                regla, "factura", g.factura.id, OK,
+                f"{_horas(g.horas_mil)} h facturadas {dias} y {_horas(validadas)} h validadas en "
+                "el planning.", clave=g.clave))
+            continue
+        tarifa_ = max((l.tarifa_e4 or 0 for l in g.factura.lineas
+                       if l.id in {i.linea_id for i in g.imputaciones}), default=0)
+        valores = {"nivel": g.celda.nivel, "desde": g.celda.desde.isoformat(),
+                   "hasta": g.celda.hasta.isoformat(), "facturadas_mil": g.horas_mil,
+                   "validadas_mil": validadas, "diferencia_mil": diferencia,
+                   "tolerancia_mil": tolerancia,
+                   "turnos": sorted(t.id_externo for t in c.turnos),
+                   "valor_cent": turnos.valor_cent(abs(diferencia), tarifa_)}
+        salida.append(Resultado(
+            regla, "factura", g.factura.id, FALLO,
+            f"{_horas(g.horas_mil)} h facturadas {dias} ({_de_quien(g.celda)}) y "
+            f"{_horas(validadas)} h validadas en el planning: "
+            f"{_horas(abs(diferencia))} h {'de más' if diferencia > 0 else 'de menos'}, más "
+            f"que la tolerancia de {_horas(tolerancia)} h.", valores, g.clave,
+            objetivos=tuple(Objetivo("factura_imputacion", i.id, "horas_mil", RELACIONADO)
+                            for i in g.imputaciones)))
+    return salida
+
+
+LEE_COMPARAR = (turnos.LEE_PLANIFICACION | turnos.LEE_GRUPOS | turnos.LEE_CONTENIDO
+                | frozenset({"turno.horas_aprobadas_mil", "linea.tarifa_e4"}))
+LEE_G2 = LEE_COMPARAR | turnos.LEE_COMPRA
+
+
+def g2(instantanea: Instantanea) -> list[Resultado]:
+    """G2: las horas facturadas contra las validadas, en la celda mas fina de los dos lados."""
+    return comparar_horas(instantanea, "G2", ENTRANTE)
+
+
+def g1(instantanea: Instantanea) -> list[Resultado]:
+    """G1: una compra sin ningun turno de su proveedor (ni de sus personas) en lo facturado.
+
+    Con el planning declarado obligatorio (politica.planning_obligatorio)
+    bloquea; si no, retiene. Anularlo pide segunda firma (catalogo).
+    """
+    vacio = turnos.sin_planning(instantanea, "G1")
+    if vacio is not None:
+        return vacio
+    plan = turnos.Planificacion(instantanea)
+    obligatorio = instantanea.politica.planning_obligatorio
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if f.sentido != ENTRANTE or f.tipo != turnos.FACTURA or not en_juego(f):
+            continue
+        if f.proveedor_id is None:
+            salida.append(_sin_datos("G1", f, "La factura no tiene su proveedor resuelto (A0).",
+                                     ""))
+            continue
+        desde, hasta = periodo_de(f)
+        if desde is None or hasta is None:
+            salida.append(_sin_datos("G1", f, "La factura no dice de qué periodo es (C2).", ""))
+            continue
+        motivo = plan.sin_datos(desde, hasta)
+        if motivo is not None:
+            salida.append(_sin_datos("G1", f, motivo, ""))
+            continue
+        tiene = plan.indice.de(turnos.PROVEEDOR, f.proveedor_id, desde, hasta)
+        recursos = {i.recurso_id for i in f.imputaciones if i.recurso_id is not None}
+        for recurso in sorted(recursos):
+            diarios, semanales = plan.indice.de(turnos.RECURSO, recurso, desde, hasta)
+            tiene = (tiene[0] + diarios, tiene[1] + semanales)
+        en_periodo = [t for t in tiene[0] if desde <= t.fecha <= hasta] + list(tiene[1])
+        if en_periodo:
+            salida.append(Resultado("G1", "factura", f.id, OK,
+                                    f"El planning tiene {len(en_periodo)} turno(s) de su "
+                                    "proveedor en lo facturado."))
+            continue
+        salida.append(Resultado(
+            "G1", "factura", f.id, FALLO,
+            f"Ningún turno de su proveedor ni de sus personas en el planning del "
+            f"{desde.isoformat()} al {hasta.isoformat()}"
+            + (": el planning es obligatorio." if obligatorio else "."),
+            {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "obligatorio": obligatorio},
+            severidad=B if obligatorio else None))
+    return salida
+
+
+LEE_G1 = (turnos.LEE_PLANIFICACION | LEE_PERIODO | frozenset({
+    "instantanea.facturas", "factura.id", "factura.sentido", "factura.tipo", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.proveedor_id",
+    "factura.imputaciones", "imputacion.recurso_id", "politica.planning_obligatorio"}))
+
+
+def _objetos_del_planning(plan: turnos.Planificacion, f: Factura, i: Imputacion,
+                          desde: date, hasta: date) -> set[int]:
+    """Los Objetos en que el planning tiene a la persona de la imputacion (o, sin persona, al
+    proveedor o al cliente de la factura) esos dias."""
+    filtro = turnos.de_la_parte(f)
+    if i.recurso_id is not None:
+        dimension, clave = turnos.RECURSO, i.recurso_id
+    elif f.sentido == ENTRANTE:
+        dimension, clave = turnos.PROVEEDOR, f.proveedor_id
+    else:
+        dimension, clave = turnos.CLIENTE, f.cliente_id
+    diarios, semanales = plan.indice.de(dimension, clave, desde, hasta)
+    return {t.objeto_id for t in diarios + semanales
+            if t.objeto_id is not None and filtro(t)
+            and (t.nivel == turnos.SEMANAL or desde <= t.fecha <= hasta)}
+
+
+def objeto_propuesto(regla: str, plan: turnos.Planificacion, f: Factura, i: Imputacion,
+                     linea: Linea | None, nombres: dict[int, str]) -> Resultado | None:
+    """Una imputacion sin Objeto: el que propone el planning (G4 en compras, V2 en ventas).
+
+    Solo es una propuesta: la imputacion no se toca, y una persona la
+    confirma con cambiar_objeto. None si no tiene dias o el planning no dice
+    nada esos dias.
+    """
+    dias = turnos.dias_de(i, linea, f)
+    clave = f"imputacion:{i.id}"
+    if dias is None:
+        return None
+    motivo = plan.sin_datos(*dias)
+    if motivo is not None:
+        return _sin_datos(regla, f, motivo, clave)
+    objetos = _objetos_del_planning(plan, f, i, *dias)
+    if not objetos:
+        return _sin_datos(regla, f, "La línea no dice su Objeto y el planning no tiene turnos "
+                                    "suyos esos días.", clave)
+    texto = ", ".join(nombres.get(o, str(o)) for o in sorted(objetos))
+    propuesta = next(iter(objetos)) if len(objetos) == 1 else None
+    orden = linea.orden if linea is not None else i.id
+    return Resultado(
+        regla, "factura", f.id, FALLO,
+        (f"La línea {orden} no dice su Objeto; el planning propone {texto} "
+         "(una persona lo confirma con cambiar_objeto)." if propuesta is not None else
+         f"La línea {orden} no dice su Objeto; el planning tiene esos días turnos en {texto}: "
+         "una persona decide con cambiar_objeto."),
+        {"propuesta": propuesta, "candidatos": sorted(objetos),
+         "desde": dias[0].isoformat(), "hasta": dias[1].isoformat()}, clave,
+        objetivos=(Objetivo("factura_imputacion", i.id, "objeto_id", RELACIONADO),))
+
+
+def g4(instantanea: Instantanea) -> list[Resultado]:
+    """G4: el Objeto de cada imputacion de una compra contra el planning.
+
+    Si la persona (o el proveedor) tiene turnos esos dias y ninguno en el
+    Objeto de la linea, retiene diciendo donde los tiene. Una linea sin Objeto
+    recibe la propuesta del planning (sin tocarla).
+    """
+    vacio = turnos.sin_planning(instantanea, "G4")
+    if vacio is not None:
+        return vacio
+    plan = turnos.Planificacion(instantanea)
+    nombres = {o.id: o.codigo for o in instantanea.objetos}
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if (f.sentido != ENTRANTE or f.tipo != turnos.FACTURA or not f.imputaciones
+                or not en_juego(f) or f.proveedor_id is None):
+            continue
+        lineas = {l.id: l for l in f.lineas}
+        for i in f.imputaciones:
+            if i.horas_mil is None:
+                continue
+            linea = lineas.get(i.linea_id) if i.linea_id is not None else None
+            if i.objeto_id is None:
+                propuesta = objeto_propuesto("G4", plan, f, i, linea, nombres)
+                if propuesta is not None:
+                    salida.append(propuesta)
+                continue
+            dias = turnos.dias_de(i, linea, f)
+            if dias is None or plan.sin_datos(*dias) is not None:
+                continue
+            objetos = _objetos_del_planning(plan, f, i, *dias)
+            clave = f"imputacion:{i.id}"
+            if not objetos or i.objeto_id in objetos:
+                salida.append(Resultado("G4", "factura", f.id, OK,
+                                        "El Objeto de la línea es el del planning.", clave=clave))
+                continue
+            texto = ", ".join(nombres.get(o, str(o)) for o in sorted(objetos))
+            salida.append(Resultado(
+                "G4", "factura", f.id, FALLO,
+                f"La línea {linea.orden if linea else i.id} es de "
+                f"{nombres.get(i.objeto_id, i.objeto_id)} y el planning tiene esos días sus "
+                f"turnos en {texto}.",
+                {"objeto": i.objeto_id, "planning": sorted(objetos),
+                 "desde": dias[0].isoformat(), "hasta": dias[1].isoformat()}, clave,
+                objetivos=(Objetivo("factura_imputacion", i.id, "objeto_id", RELACIONADO),)))
+    return salida
+
+
+LEE_G4 = (turnos.LEE_PLANIFICACION | turnos.LEE_CELDA | frozenset({
+    "instantanea.facturas", "instantanea.objetos", "objeto.id", "objeto.codigo", "factura.id",
+    "factura.sentido", "factura.tipo", "factura.imputaciones", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.lineas", "linea.id",
+    "linea.orden", "imputacion.id", "imputacion.horas_mil", "imputacion.linea_id"})
+          | turnos.LEE_COMPRA)
+# El Objeto que propone el planning sale de lo resuelto: no es evidencia de G4 (si se
+# resuelve otro Objeto, cambia la propuesta y sus valores).
+SOLO_TEXTO_G4 = frozenset({"objeto.codigo", "linea.orden"})
+
+# Cuanto se mira alrededor de una celda vacia buscando su trabajo en otra fecha (G5, V3).
+VENTANA_FECHA_DIAS = 28
+
+
+def fechas_contra_planning(instantanea: Instantanea, regla: str,
+                           sentido: str) -> list[Resultado]:
+    """G5 y V3: el periodo y la semana ISO de lo facturado contra el planning.
+
+    Dos cosas: la semana impresa en una linea no es la de sus fechas; o una
+    celda con horas facturadas no tiene ningun turno, y la misma persona u
+    Objeto tiene trabajo sin conciliar cerca (cuatro semanas antes o despues):
+    es el trabajo de otra fecha facturado con la que no es.
+    """
+    vacio = turnos.sin_planning(instantanea, regla)
+    if vacio is not None:
+        return vacio
+    plan = turnos.Planificacion(instantanea)
+    grupos, _sueltas = turnos.agrupar(instantanea, sentido, plan.indice)
+    conciliado = turnos.conciliado(instantanea, sentido)
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if f.sentido != sentido or f.tipo != turnos.FACTURA or not en_juego(f):
+            continue
+        for l in f.lineas:
+            fecha = l.fecha_trabajo or l.fecha_inicio
+            if l.semana_doc is None or fecha is None:
+                continue
+            semana = fecha.isocalendar()[1]
+            if semana != l.semana_doc:
+                salida.append(Resultado(
+                    regla, "factura", f.id, FALLO,
+                    f"La línea {l.orden} dice semana {l.semana_doc} y sus fechas son de la "
+                    f"semana {turnos.semana_iso(fecha)}.",
+                    {"semana_doc": l.semana_doc, "fecha": fecha.isoformat()}, f"semana:{l.id}",
+                    objetivos=(Objetivo("factura_linea", l.id, "semana_doc", RELACIONADO),)))
+    for g in grupos:
+        if plan.sin_datos(g.celda.desde, g.celda.hasta) is not None:
+            continue
+        filtro = turnos.de_la_parte(g.factura)
+        c = turnos.contenido(g.celda, plan.indice, filtro)
+        if c.turnos or g.horas_mil <= 0:
+            salida.append(Resultado(regla, "factura", g.factura.id, OK,
+                                    "Lo facturado cae en días con turnos en el planning.",
+                                    clave=g.clave))
+            continue
+        cerca = g.celda._replace(desde=g.celda.desde - timedelta(days=VENTANA_FECHA_DIAS),
+                                 hasta=g.celda.hasta + timedelta(days=VENTANA_FECHA_DIAS))
+        otros = [t for t in turnos.contenido(cerca, plan.indice, filtro).turnos
+                 if (t.fecha < g.celda.desde or t.fecha > g.celda.hasta)
+                 and conciliado.get(t.id_externo, (0,))[0] < turnos.horas_referencia(t)]
+        if not otros:
+            salida.append(Resultado(regla, "factura", g.factura.id, OK,
+                                    "El planning no tiene ese trabajo en otras fechas.",
+                                    clave=g.clave))
+            continue
+        semanas = sorted({turnos.semana_iso(t.fecha) for t in otros})
+        salida.append(Resultado(
+            regla, "factura", g.factura.id, FALLO,
+            f"{_horas(g.horas_mil)} h facturadas {_dias_texto(g.celda)}, sin turnos en el "
+            f"planning esos días; {_de_quien(g.celda)} tiene trabajo sin facturar en "
+            f"{', '.join(semanas)}.",
+            {"desde": g.celda.desde.isoformat(), "hasta": g.celda.hasta.isoformat(),
+             "facturadas_mil": g.horas_mil, "semanas": semanas,
+             "turnos": sorted(t.id_externo for t in otros)}, g.clave,
+            objetivos=tuple(Objetivo("factura_imputacion", i.id, None, RELACIONADO)
+                            for i in g.imputaciones)))
+    return salida
+
+
+LEE_FECHAS = (turnos.LEE_PLANIFICACION | turnos.LEE_GRUPOS | turnos.LEE_CONTENIDO
+              | turnos.LEE_CONCILIADO | frozenset({
+                  "linea.orden", "turno.horas_planificadas_mil", "turno.horas_realizadas_mil",
+                  "turno.horas_aprobadas_mil"}))
+LEE_G5 = LEE_FECHAS | turnos.LEE_COMPRA
+
+
+def g5(instantanea: Instantanea) -> list[Resultado]:
+    """G5: el periodo y la semana ISO de una compra contra el planning."""
+    return fechas_contra_planning(instantanea, "G5", ENTRANTE)
+
+
+def cambios_tras_conciliar(instantanea: Instantanea, regla: str,
+                           sentido: str) -> list[Resultado]:
+    """G7 y V9: el planning que vale ahora no es el de la foto con que se concilio.
+
+    Lo conciliado (conciliacion.py) son los turnos de la celda de cada
+    imputacion tal como eran en esa foto. Si la celda de hoy (con el planning
+    que vale) tiene otros turnos, otras horas, o alguno se cancelo, el planning
+    cambio despues de facturar (regla 9 de arquitectura.md): lo facturado ya
+    no es lo que dice el planning, y hace falta una correccion o un abono.
+    """
+    vacio = turnos.sin_planning(instantanea, regla)
+    if vacio is not None:
+        return vacio
+    plan = turnos.Planificacion(instantanea)
+    de_imputacion: dict[int, list] = defaultdict(list)
+    for c in instantanea.conciliaciones:
+        de_imputacion[c.imputacion_id].append(c)
+    if not de_imputacion:
+        return []
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if f.sentido != sentido or not en_juego(f) or not f.imputaciones:
+            continue
+        lineas = {l.id: l for l in f.lineas}
+        for i in f.imputaciones:
+            conciliadas = de_imputacion.get(i.id)
+            if not conciliadas:
+                continue
+            clave = f"imputacion:{i.id}"
+            linea = lineas.get(i.linea_id) if i.linea_id is not None else None
+            celda = turnos.celda_de(i, linea, f, plan.indice, turnos.de_la_parte(f))
+            antes = {c.turno.id_externo: turnos.horas_referencia(c.turno) for c in conciliadas}
+            if celda is None:
+                continue
+            motivo = plan.sin_datos(celda.desde, celda.hasta)
+            if motivo is not None:
+                salida.append(_sin_datos(regla, f, motivo, clave))
+                continue
+            ahora = {t.id_externo: turnos.horas_referencia(t)
+                     for t in turnos.contenido(celda, plan.indice, turnos.de_la_parte(f)).turnos}
+            if ahora == antes:
+                salida.append(Resultado(regla, "factura", f.id, OK,
+                                        "El planning de lo facturado no ha cambiado.",
+                                        clave=clave))
+                continue
+            quitados = sorted(set(antes) - set(ahora))
+            nuevos = sorted(set(ahora) - set(antes))
+            cambiados = sorted(k for k in set(antes) & set(ahora) if antes[k] != ahora[k])
+            partes = []
+            if cambiados:
+                partes.append(f"{len(cambiados)} turno(s) con otras horas")
+            if quitados:
+                partes.append(f"{len(quitados)} que ya no están o se cancelaron")
+            if nuevos:
+                partes.append(f"{len(nuevos)} nuevo(s)")
+            importaciones = sorted({c.turno.importacion_id for c in conciliadas})
+            salida.append(Resultado(
+                regla, "factura", f.id, FALLO,
+                f"El planning de lo facturado en la línea {linea.orden if linea else i.id} "
+                f"({_dias_texto(celda)}) cambió después de conciliarlo: {', '.join(partes)} "
+                f"({_horas(sum(antes.values()))} h entonces, {_horas(sum(ahora.values()))} h "
+                "ahora). Hace falta una corrección o un abono.",
+                {"antes": sorted([k, v] for k, v in antes.items()),
+                 "ahora": sorted([k, v] for k, v in ahora.items()),
+                 "fotos": importaciones}, clave,
+                objetivos=(Objetivo("factura_imputacion", i.id, "horas_mil", RELACIONADO),)))
+    return salida
+
+
+LEE_CAMBIOS = (turnos.LEE_PLANIFICACION | turnos.LEE_CELDA | turnos.LEE_CONTENIDO | frozenset({
+    "instantanea.facturas", "instantanea.conciliaciones", "conciliacion.imputacion_id",
+    "conciliacion.turno", "factura.id", "factura.sentido", "factura.anulada",
+    "factura.fusionada_en_id", "factura.sustituida_por", "factura.imputaciones",
+    "factura.lineas", "linea.id", "linea.orden",
+    "imputacion.id", "imputacion.linea_id", "turno.horas_planificadas_mil",
+    "turno.horas_realizadas_mil", "turno.horas_aprobadas_mil", "turno.importacion_id"}))
+LEE_G7 = LEE_CAMBIOS | turnos.LEE_COMPRA
+
+
+def g7(instantanea: Instantanea) -> list[Resultado]:
+    """G7: una foto mas nueva del planning cambia las horas ya conciliadas con una compra."""
+    return cambios_tras_conciliar(instantanea, "G7", ENTRANTE)
+
+
+def recargos_contra_planning(instantanea: Instantanea) -> list[Resultado]:
+    """La parte del planning de G6: las horas de cada recargo (noche, fin de semana...) de una
+    compra contra las de turnos de ese recargo en el planning, en la misma celda.
+
+    Cobrar como noche las horas de un turno que el planning tiene de dia es
+    cobrar un recargo que no toca, aunque sea a su tarifa pactada.
+    """
+    plan = turnos.Planificacion(instantanea)
+    grupos, _sueltas = turnos.agrupar(instantanea, ENTRANTE, plan.indice)
+    salida: list[Resultado] = []
+    for g in grupos:
+        por_turno: dict[str, list[Imputacion]] = defaultdict(list)
+        for i in g.imputaciones:
+            turno = normalizar_turno(i.tipo_turno)
+            if turno is not None:
+                por_turno[turno].append(i)
+        if not por_turno or plan.sin_datos(g.celda.desde, g.celda.hasta) is not None:
+            continue
+        c = turnos.contenido(g.celda, plan.indice, turnos.de_la_parte(g.factura))
+        tolerancia = turnos.tolerancia_mil(plan.tolerancia, c.dias)
+        for turno, imputaciones in sorted(por_turno.items()):
+            facturadas = sum(i.horas_mil for i in imputaciones)
+            planificadas = sum(turnos.horas_referencia(t) for t in c.turnos
+                               if t.tipo_turno == turno)
+            clave = f"recargo:{min(i.id for i in imputaciones)}"
+            if facturadas - planificadas <= tolerancia:
+                salida.append(Resultado("G6", "factura", g.factura.id, OK,
+                                        f"Las horas de {turno} son las del planning.",
+                                        clave=clave))
+                continue
+            salida.append(Resultado(
+                "G6", "factura", g.factura.id, FALLO,
+                f"{_horas(facturadas)} h cobradas como {turno} {_dias_texto(g.celda)} y el "
+                f"planning tiene {_horas(planificadas)} h de turnos de {turno}.",
+                {"turno": turno, "facturadas_mil": facturadas,
+                 "planificadas_mil": planificadas, "tolerancia_mil": tolerancia,
+                 "desde": g.celda.desde.isoformat(), "hasta": g.celda.hasta.isoformat()},
+                clave,
+                objetivos=tuple(Objetivo("factura_imputacion", i.id, "tipo_turno", RELACIONADO)
+                                for i in imputaciones)))
+    return salida
+
+
+LEE_RECARGOS = (turnos.LEE_PLANIFICACION | turnos.LEE_GRUPOS | turnos.LEE_CONTENIDO
+                | frozenset({"imputacion.tipo_turno", "turno.tipo_turno",
+                             "turno.horas_planificadas_mil", "turno.horas_realizadas_mil",
+                             "turno.horas_aprobadas_mil"}) | turnos.LEE_COMPRA)
+
+
+def contra_tarifa_del_turno(instantanea: Instantanea, regla: str, sentido: str,
+                            decididas: set[int], *, tambien_por_debajo: bool) -> list[Resultado]:
+    """El escalon del planning de G3 y V4: una linea sin tarifa pactada contra la tarifa de los
+    turnos de su celda (la de compra en una compra, la de venta en una venta).
+
+    Solo si todos los turnos de su celda con su mismo turno (dia, noche...)
+    dicen la misma tarifa: si dicen varias, no se adivina y la linea sigue con
+    lo que haya despues (el historico en G3). La linea comparada entra en
+    `decididas`.
+    """
+    plan = turnos.Planificacion(instantanea)
+    salida: list[Resultado] = []
+    for f in instantanea.facturas:
+        if (f.sentido != sentido or f.tipo != turnos.FACTURA or not f.imputaciones
+                or not en_juego(f) or turnos._parte(f) is None):
+            continue
+        lineas = {l.id: l for l in f.lineas}
+        filtro = turnos.de_la_parte(f)
+        for i in f.imputaciones:
+            linea = lineas.get(i.linea_id) if i.linea_id is not None else None
+            if linea is None or linea.tarifa_e4 is None or linea.id in decididas:
+                continue
+            celda = turnos.celda_de(i, linea, f, plan.indice, filtro)
+            if celda is None or plan.sin_datos(celda.desde, celda.hasta) is not None:
+                continue
+            turno = normalizar_turno(i.tipo_turno)
+            precios = {(t.tarifa_compra_e4 if sentido == ENTRANTE else t.tarifa_venta_e4)
+                       for t in turnos.contenido(celda, plan.indice, filtro).turnos
+                       if t.tipo_turno == turno}
+            precios.discard(None)
+            if len(precios) != 1:
+                continue
+            decididas.add(linea.id)
+            del_turno = precios.pop()
+            diferencia = linea.tarifa_e4 - del_turno
+            clave = f"turno:{i.id}"
+            texto_precio = euros_texto(tarifa(linea.tarifa_e4).quantize(Decimal("0.01")))
+            texto_turno = euros_texto(tarifa(del_turno).quantize(Decimal("0.01")))
+            if diferencia > 0 or (diferencia < 0 and tambien_por_debajo):
+                donde = "por encima" if diferencia > 0 else "por debajo"
+                salida.append(Resultado(
+                    regla, "factura", f.id, FALLO,
+                    f"La línea {linea.orden} cobra {texto_precio}, {donde} de la tarifa del "
+                    f"turno en el planning ({texto_turno}); no hay tarifa pactada.",
+                    {"imputacion": i.id, "linea": linea.id, "tarifa_e4": linea.tarifa_e4,
+                     "turno_e4": del_turno,
+                     "valor_cent": valor_de_la_diferencia(diferencia, i, linea)}, clave,
+                    objetivos=(Objetivo("factura_linea", linea.id, "tarifa_e4", RELACIONADO),)))
+            else:
+                salida.append(Resultado(regla, "factura", f.id, OK,
+                                        f"La línea {linea.orden} va a la tarifa del turno en "
+                                        "el planning.", clave=clave))
+    return salida
+
+
+LEE_TURNO_TARIFA = (turnos.LEE_PLANIFICACION | turnos.LEE_CELDA | turnos.LEE_CONTENIDO
+                    | frozenset({"factura.tipo", "imputacion.tipo_turno", "turno.tipo_turno",
+                                 "linea.cantidad_mil", "imputacion.horas_mil"}))
+LEE_G6 = (LEE_PACTADA_COMPRA | LEE_RECARGOS
+          | frozenset({"factura.proveedor_id", "instantanea.fotos_planning"}))
+SOLO_TEXTO_G6 = NO_EVIDENCIA_PACTADA & LEE_G6

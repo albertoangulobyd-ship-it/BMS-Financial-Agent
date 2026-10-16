@@ -508,6 +508,48 @@ SENTIDO_DE_LADO = {LadoOrdenCompra.CLIENTE.value: Sentido.SALIENTE.value,
                    LadoOrdenCompra.PROVEEDOR.value: Sentido.ENTRANTE.value}
 
 
+# ------------------------------------------------------------ planning (paso 10)
+
+class EstadoTurno(_Texto):
+    """Como esta un turno en el planning. Un turno cancelado no cuenta para nada.
+
+    validado es el turno cuyas horas dio por buenas el planning (las "approved
+    hours" del §7). No se llama "aprobado": nada en la V1 aprueba un pago, y la
+    suite de alcance no deja ningun estado con ese nombre.
+    """
+
+    PLANIFICADO = "planificado"
+    REALIZADO = "realizado"
+    VALIDADO = "validado"
+    CANCELADO = "cancelado"
+
+
+class NivelTurno(_Texto):
+    """De que es una fila del planning: un turno de un dia, o la suma de una semana (la
+    exportacion semanal pivotada, que se lee a nivel de semana)."""
+
+    DIA = "dia"
+    SEMANA = "semana"
+
+
+class NivelConciliacion(_Texto):
+    """A que nivel se casaron las horas de una imputacion con el planning: el mas fino que
+    llevan los dos lados (spec §7, G2: persona y dia, Objeto y dia, Objeto y semana), de mas
+    fino a mas grueso. El periodo es el de una linea que cubre mas de una semana."""
+
+    RECURSO_DIA = "recurso_dia"
+    OBJETO_DIA = "objeto_dia"
+    RECURSO_SEMANA = "recurso_semana"
+    OBJETO_SEMANA = "objeto_semana"
+    RECURSO_PERIODO = "recurso_periodo"
+    OBJETO_PERIODO = "objeto_periodo"
+
+
+class MetodoConciliacion(_Texto):
+    AUTOMATICA = "automatica"
+    MANUAL = "manual"
+
+
 # ------------------------------------------------------------ unidades
 
 # Unidades que son horas, en minusculas y sin puntuacion. Neerlandes, ingles y

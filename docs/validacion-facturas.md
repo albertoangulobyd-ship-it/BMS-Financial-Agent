@@ -96,7 +96,11 @@ R1-R5 (sección R), y D1, D2 y D2b retienen en una venta en vez de bloquear.
 Desde el paso 9, con las órdenes de compra y las tarifas pactadas: P1-P10
 (sección P; P8, P10 y la PO ya caducada de P7 dan sin datos hasta el
 planning), G3 contra la tarifa pactada con el histórico donde no hay
-ninguna, G6 y V4 (sección G). Su metadato
+ninguna, G6 y V4 (sección G). Desde el paso 10, con el planning de TRNSPRNT:
+G1, G2, G4, G5 y G7, la parte del planning de G6, el escalón del planning de
+G3 y V4, V1-V3, V5, V6, V8 y V9 (sección V), B5 (horas cobradas dos veces) y
+el caso de las horas en V7, y P7, P8 y P10 con el trabajo del planning. Sin
+ningún planning importado, cada una da un solo «sin datos», nunca «ok». Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -131,7 +135,8 @@ Handelsregister completo de KvK requiere suscripción de pago.
 | B2 | Duplicado exacto: mismo proveedor y mismo número ya contabilizado | historial | Bloqueo |
 | B3 | Duplicado probable: mismo proveedor, mismo importe, fecha a menos de catorce días, número distinto | historial | Retención |
 | B4 | Periodo ya facturado: el mismo rango de servicio ya cubierto por otra factura del proveedor | historial | Retención |
-| V7 | En las ventas, el caso de B2 o el de B3: se ha facturado dos veces a un cliente | historial | Retención |
+| B5 | Un turno del planning conciliado con más horas de compra de las que tiene, desde dos o más facturas que no se explican entre sí | planning, conciliación | Retención; pegajosa |
+| V7 | En las ventas, el caso de B2, el de B3 o el de B5: se ha facturado dos veces a un cliente | historial, conciliación | Retención |
 
 B2 y B3 miran las compras, donde un duplicado se pagaría dos veces; en una
 venta lo mismo es V7. Un abono, una corrección o una sustitución confirmada
@@ -270,13 +275,36 @@ Este es el núcleo del sistema y la razón por la que existe el proyecto.
 
 | ID | Comprobación | Fuente | Resultado |
 | --- | --- | --- | --- |
-| G1 | El proveedor tiene una asignación activa en el periodo facturado | planning | Bloqueo si no la tiene |
-| G2 | Horas facturadas por ubicación y asignación = horas registradas, dentro de tolerancia | planning | Retención si se sale |
+| G1 | El proveedor (o una persona de la factura) tiene turnos en el planning del periodo facturado | planning | Retención; bloqueo con el planning declarado obligatorio (`planning.obligatorio`). Se anula con segunda firma |
+| G2 | Horas facturadas = horas validadas del planning, en la celda más fina que llevan los dos lados (persona y día, Objeto y día, persona u Objeto y semana, periodo), con 0,25 h por día con turnos de tolerancia (0,25 pasa, 0,26 no) | planning | Retención. Un turno sin validar en la celda, una fila semanal que no cabe entera o días que el planning no cubre: sin datos |
 | G3 | La tarifa de una línea de compra coincide con la pactada (de lo más concreto a lo general: recurso y Objeto, Objeto, recurso, proveedor, general; el turno es condición de todos). Sin pactada ni planning, contra el histórico | tarifas pactadas, planning, historial | Retención por encima de la pactada, y bloqueo (se anula con segunda firma) por encima del exceso configurado (10 %). Dos pactadas igual de concretas con precios distintos: sin datos en la línea y la factura retenida (`ambigua`). Pactadas para la línea pero ninguna de su unidad o su día: sin datos y la factura retenida (`no_casa`), nunca el histórico |
-| G4 | La ubicación facturada existe y coincide con la del registro | planning | Retención |
-| G5 | La semana facturada coincide con la semana ISO del planning | planning | Retención |
-| G6 | Una línea de un recargo (horas extra, noche, festivo) se cobra a su propia tarifa pactada | tarifas pactadas | Retención por encima. Sin tarifa propia pero con otras pactadas para la línea: sin datos y la factura retenida (`no_casa`), para que una persona confirme el recargo. Sin ninguna pactada, no aplica y la mira G3 con el histórico |
-| V4 | La tarifa de una línea de venta es la de venta pactada, ni por encima ni por debajo | tarifas pactadas | Retención. Sin pactada, sin datos hasta el planning |
+| G4 | El Objeto de la línea es donde el planning tiene a la persona (o al proveedor) esos días. Una línea sin Objeto recibe la propuesta del planning, que confirma una persona con `cambiar_objeto` | planning | Retención |
+| G5 | La semana impresa es la de las fechas de la línea (el año lo da la fecha de la factura: la semana 52 de una factura del 6 de enero es la del año anterior), y lo facturado en días sin turnos no es trabajo de otras fechas sin facturar (cuatro semanas antes o después) | planning | Retención |
+| G6 | Una línea de un recargo (horas extra, noche, festivo) se cobra a su propia tarifa pactada, y solo por las horas que el planning tiene de ese recargo en su celda | tarifas pactadas, planning | Retención por encima. Sin tarifa propia pero con otras pactadas para la línea: sin datos y la factura retenida (`no_casa`), para que una persona confirme el recargo. Sin ninguna pactada, no aplica y la mira G3 |
+| G7 | El planning de lo facturado (la celda tal como se concilió) no ha cambiado en una foto más nueva | planning, conciliación | Aviso |
+| V4 | La tarifa de una línea de venta es la de venta pactada o, sin pactada, la del turno en el planning, ni por encima ni por debajo | tarifas pactadas, planning | Retención. Sin ninguna de las dos, sin datos |
+
+**La celda.** Una línea se compara con el planning al nivel más fino que
+llevan los dos lados: la persona si la línea la nombra y el planning tiene sus
+turnos, si no el Objeto; un día si la línea es de un día, una semana si es de
+una semana entera (o si el planning de esa semana solo tiene la fila semanal
+de la exportación pivotada) y el periodo en lo demás. En una compra cuentan
+los turnos de su proveedor; en una venta, los facturables de su cliente. Un
+turno cancelado no cuenta nunca. Lo facturado queda conciliado con los turnos
+de su celda tal como eran (la traza de la ficha de la factura); si una foto
+más nueva los cambia, es G7 o V9.
+
+### V · Facturas de venta contra el planning
+
+| ID | Comprobación | Fuente | Resultado |
+| --- | --- | --- | --- |
+| V1 | Horas facturadas = horas validadas facturables del planning, en la misma celda que G2 | planning | Retención |
+| V2 | El Objeto de cada línea existe, es del cliente facturado y estaba activo esos días; una línea sin Objeto retiene y recibe la propuesta del planning | maestro, planning | Retención |
+| V3 | La semana y el periodo facturados contra el planning (como G5) | planning | Retención |
+| V5 | Dentro del Objeto y el periodo que cobra una factura, turnos validados facturables que ninguna línea cubre | planning | Retención; valorado a la tarifa de venta pactada o, si no, estimado |
+| V6 | Trabajo validado facturable que ninguna venta cubre, pasado el fin de su periodo de facturación (el de su ciclo, o el mes) más sus días de gracia (los del ciclo, o 14) | planning, ciclos | Retención del cliente; valorado a la tarifa de venta pactada o marcado estimado |
+| V8 | Un periodo de un ciclo de facturación, pasado con su gracia, con trabajo en el planning y sin ninguna factura | planning, ciclos | Retención del cliente |
+| V9 | El planning de lo facturado cambió en una foto más nueva (como G7) | planning, conciliación | Retención: hace falta una corrección o un abono |
 
 **El turno, la unidad y el día los imprime el proveedor.** Si bastara con
 imprimir «Nacht», «stuk» o una fecha fuera de la vigencia para que la línea
@@ -316,10 +344,10 @@ modificación, que no puede tener una fecha posterior a hoy.
 | P4 | La factura carga a la PO más de lo que quedaba antes de ella, por fecha de factura y por id o por orden de llegada (una fecha atrasada no la libra) | órdenes de compra | Retención; se anula; pegajosa; suelo urgente |
 | P5 | La PO lleva consumido el umbral de la política (80 %, entre 50 y 100) o más | órdenes de compra | Aviso de la PO |
 | P6 | La PO ya estaba consumida entera antes de la factura y la factura le carga más | órdenes de compra | Retención; se anula; suelo urgente |
-| P7 | La PO caduca dentro de los días de la política (30) con valor por consumir. Los días se cuentan desde el fin fijo al calcular la prioridad: un P7 aceptado no se reabre al día siguiente | órdenes de compra | Aviso de la PO; se anula; puntos de caducidad |
-| P8 | El trabajo planificado por la tarifa de venta pasa lo que queda | planning | Sin datos hasta el planning |
+| P7 | La PO caduca dentro de los días de la política (30) con valor por consumir. Los días se cuentan desde el fin fijo al calcular la prioridad: un P7 aceptado no se reabre al día siguiente. Ya caducada con valor por consumir y con turnos en el planning después de su fin, retiene | órdenes de compra, planning | Aviso de la PO; se anula; puntos de caducidad |
+| P8 | El trabajo planificado (después de hoy) por la tarifa de su lado pasa lo que queda | planning | Aviso de la PO. Sin planning, sin datos |
 | P9 | Al ritmo de las últimas 8 semanas la PO se agota más de 14 días antes de su fin | órdenes de compra | Aviso de la PO |
-| P10 | Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor | planning | Sin datos hasta el planning |
+| P10 | Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor | planning, conciliación | Retención de la PO y de las facturas desde el punto en que se pasa. Sin planning, sin datos |
 
 P5 y P7-P10 son de la PO entera, no de una factura: dan la prioridad de la
 PO y no suben la de las facturas que le cargan (ver el registro del paso 9).

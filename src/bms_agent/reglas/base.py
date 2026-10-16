@@ -112,6 +112,14 @@ class Politica:
     # G3: una tarifa de compra por encima de la pactada retiene; por encima de
     # este porcentaje sobre la pactada, bloquea (y anularla pide segunda firma).
     tarifa_exceso_bloqueo_pct: int = 10
+    # Paso 10: el planning. Con el planning obligatorio, una compra sin ningun
+    # turno de su proveedor en lo facturado bloquea (G1); si no, retiene. Las
+    # horas facturadas y las del planning se admiten distintas en esto por cada
+    # dia comparado (G2, V1, G6). Sin ciclo de facturacion, el trabajo sin
+    # facturar de un mes se busca pasados estos dias de su fin (V6).
+    planning_obligatorio: bool = False
+    planning_tolerancia_horas_dia: Decimal = Decimal("0.25")
+    planning_dias_gracia: int = 14
 
     def valor(self, nombre: str) -> str:
         """El parametro como texto, para la huella (sin floats ni ambiguedad)."""
@@ -147,6 +155,9 @@ class Linea:
     fecha_trabajo: date | None
     objeto: str | None
     ilegibles: frozenset[str]
+    # Paso 10: el numero de semana impreso, sin ano (el ano lo pone la fecha de la
+    # factura al cruzar con el planning: reglas/turnos.semana_impresa).
+    semana_doc: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,6 +486,9 @@ class Lote:
     filas_rechazadas: int
     rechazos: tuple[tuple[int, str, str], ...]
     ultimo: bool
+    # Paso 10: lo que una foto del planning trae y no se encuentra en el maestro
+    # (fila, que es, como lo nombra el fichero): entra sin resolver, y es Z2.
+    sin_resolver: tuple[tuple[int, str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -549,6 +563,81 @@ class PagadoExact:
     fecha: date
 
 
+@dataclass(frozen=True, slots=True)
+class Turno:
+    """Un turno del planning (planning_turno): el que vale hoy (v_turno_vigente) o el de una
+    foto anterior con el que se concilio una factura (G7, V9).
+
+    `fecha` es el dia del turno o, en una fila de la exportacion semanal
+    (`nivel` semana), el lunes de su semana, y `dias` los dias con horas.
+    `tipo_turno` ya normalizado (tarifas.normalizar_turno: el de dia es None).
+    Los ids son los que se resolvieron al importar o, si entonces no se
+    resolvio, los de ahora (instantanea.py); el proveedor de un turno sin el es
+    el de su recurso, y el cliente el de su Objeto.
+    """
+
+    id: int
+    importacion_id: int
+    id_externo: str
+    clave_fragil: bool
+    nivel: str
+    fecha: date
+    dias: int
+    hora_inicio: str | None
+    hora_fin: str | None
+    horas_planificadas_mil: int | None
+    horas_realizadas_mil: int | None
+    horas_aprobadas_mil: int | None
+    estado: str
+    objeto_id: int | None
+    recurso_id: int | None
+    proveedor_id: int | None
+    cliente_id: int | None
+    tipo_servicio: str | None
+    tipo_turno: str | None
+    facturable: bool | None
+    tarifa_compra_e4: int | None = None
+    tarifa_venta_e4: int | None = None
+    orden_compra_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FotoPlanning:
+    """Una importacion aceptada del planning: de cuando es y que dias cubre."""
+
+    importacion_id: int
+    exportado: date
+    cubre_desde: date | None
+    cubre_hasta: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class Conciliacion:
+    """Lo que la conciliacion (conciliacion.py) dejo de una imputacion: un turno de su celda,
+    tal como era en la foto con la que se concilio, y las horas que se le asignaron."""
+
+    id: int
+    imputacion_id: int
+    factura_id: int
+    turno: Turno
+    horas_mil: int
+    nivel: str
+
+
+@dataclass(frozen=True, slots=True)
+class Ciclo:
+    """Un ciclo de facturacion de un cliente o de un Objeto (V6, V8)."""
+
+    id: int
+    cliente_id: int | None
+    objeto_id: int | None
+    frecuencia: str
+    ancla: date | None
+    dias_gracia: int
+    vigente_desde: date | None
+    vigente_hasta: date | None
+
+
 @dataclass(frozen=True)
 class Instantanea:
     """Todo lo que una regla puede ver, congelado. Lo construye reglas/instantanea.py.
@@ -585,6 +674,13 @@ class Instantanea:
     ordenes: tuple[OrdenCompra, ...] = ()
     tarifas: tuple[Tarifa, ...] = ()
     objetos: tuple[Objeto, ...] = ()
+    # Paso 10: el planning que vale (los turnos de la foto mas nueva de cada dia),
+    # las fotos aceptadas (de cuando son y que cubren), la conciliacion de cada
+    # imputacion con sus turnos y los ciclos de facturacion.
+    turnos: tuple[Turno, ...] = ()
+    fotos_planning: tuple[FotoPlanning, ...] = ()
+    conciliaciones: tuple[Conciliacion, ...] = ()
+    ciclos: tuple[Ciclo, ...] = ()
 
 
 # ------------------------------------------------------------ resultados

@@ -26,7 +26,9 @@ del paso 4, revision y prioridad_manual (igual); las del paso 6, reextraccion
 reextraccion_resultado, activacion y linea_sin_casar (como una nota); las
 del paso 7, extracto_bancario (como importacion) y sus movimientos, que van
 todos en el evento de su extracto (`MOVIMIENTOS`); la del paso 9,
-orden_compra_modificacion (como una nota). La procedencia de los campos
+orden_compra_modificacion (como una nota); la del paso 10, planning_turno,
+con todos los turnos de una importacion en su evento planning_registrado
+(`TURNOS`), como los movimientos. La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar).
@@ -114,6 +116,20 @@ COLUMNAS_MOVIMIENTO: tuple[str, ...] = (
     "ref_banco", "remesa", "huella",
 )
 
+# Paso 10: los turnos de una importacion del planning, como los movimientos de un
+# extracto: todos en el evento planning_registrado de su importacion, en
+# datos["turnos"] por su id (una exportacion trae cientos de turnos).
+TURNOS = "planning_turno"
+EVENTO_TURNOS = "planning_registrado"
+COLUMNAS_TURNO: tuple[str, ...] = (
+    "importacion_id", "posicion", "id_externo", "clave_fragil", "nivel", "fecha", "semana_iso",
+    "dias", "hora_inicio", "hora_fin", "pausa_min", "horas_planificadas_mil",
+    "horas_realizadas_mil", "horas_aprobadas_mil", "estado", "objeto_ref_doc", "recurso_ref_doc",
+    "proveedor_ref_doc", "cliente_ref_doc", "po_ref_doc", "objeto_id", "recurso_id",
+    "proveedor_id", "cliente_id", "tipo_servicio", "tipo_turno", "facturable",
+    "tarifa_compra_e4", "tarifa_venta_e4", "datos_origen_json",
+)
+
 # Filas que no se comprueban contra un evento porque no lo tienen: las
 # siembra una migracion, que ya esta fijada por su hash.
 FILTROS: dict[str, str] = {"usuario": "es_sistema = 0"}
@@ -158,7 +174,8 @@ _NOMBRES = {"table": "la tabla", "view": "la vista", "index": "el indice", "trig
 
 def foto(conn: sqlite3.Connection, tabla: str, fila_id: int) -> dict[str, Any]:
     """Las columnas de una fila de evidencia, para los datos de su evento."""
-    columnas = COLUMNAS_MOVIMIENTO if tabla == MOVIMIENTOS else COLUMNAS[tabla]
+    columnas = (COLUMNAS_MOVIMIENTO if tabla == MOVIMIENTOS
+                else COLUMNAS_TURNO if tabla == TURNOS else COLUMNAS[tabla])
     fila = conn.execute(
         f"SELECT {', '.join(columnas)} FROM {tabla} WHERE id = ?", (fila_id,)
     ).fetchone()
@@ -236,34 +253,47 @@ def _verificar_por_evento(conn: sqlite3.Connection, tabla: str, columna: str) ->
     return problemas
 
 
-def _verificar_movimientos(conn: sqlite3.Connection) -> list[str]:
-    """Cada movimiento igual a la foto que lleva el evento de su extracto, y ninguna foto suelta."""
+def _verificar_en_lote(conn: sqlite3.Connection, tabla: str, columnas: tuple[str, ...],
+                       evento: str, de_tabla: str, clave: str, donde: str) -> list[str]:
+    """Cada fila igual a la foto que lleva el evento de su lote, y ninguna foto suelta."""
     fotos: dict[int, dict[str, Any]] = {}
-    for evento in conn.execute(
-            "SELECT id, datos_json FROM evento WHERE tipo = ? AND tabla = 'extracto_bancario'",
-            (EVENTOS["extracto_bancario"][0],)):
-        movimientos = _datos(evento).get("movimientos") or {}
-        if isinstance(movimientos, dict):
-            for clave, valor in movimientos.items():
-                if str(clave).isdigit() and isinstance(valor, dict):
-                    fotos[int(clave)] = valor
+    for fila in conn.execute("SELECT id, datos_json FROM evento WHERE tipo = ? AND tabla = ?",
+                             (evento, de_tabla)):
+        del_lote = _datos(fila).get(clave) or {}
+        if isinstance(del_lote, dict):
+            for fila_id, valor in del_lote.items():
+                if str(fila_id).isdigit() and isinstance(valor, dict):
+                    fotos[int(fila_id)] = valor
     problemas = []
-    ids = [f[0] for f in conn.execute(f"SELECT id FROM {MOVIMIENTOS} ORDER BY id")]
+    ids = [f[0] for f in conn.execute(f"SELECT id FROM {tabla} ORDER BY id")]
     for fila_id in ids:
         esperada = fotos.get(fila_id)
         if esperada is None:
-            problemas.append(f"{MOVIMIENTOS} {fila_id} no esta en el evento de su extracto: se ha "
+            problemas.append(f"{tabla} {fila_id} no esta en el evento de su {donde}: se ha "
                              "metido por detras")
             continue
-        actual = foto(conn, MOVIMIENTOS, fila_id)
-        distintas = [c for c in COLUMNAS_MOVIMIENTO if esperada.get(c, _FALTA) != actual[c]]
+        actual = foto(conn, tabla, fila_id)
+        distintas = [c for c in columnas if esperada.get(c, _FALTA) != actual[c]]
         if distintas:
-            problemas.append(f"{MOVIMIENTOS} {fila_id}: {', '.join(distintas)} no es lo que "
-                             "registro el evento de su extracto: se ha modificado por detras")
+            problemas.append(f"{tabla} {fila_id}: {', '.join(distintas)} no es lo que "
+                             f"registro el evento de su {donde}: se ha modificado por detras")
     for fila_id in sorted(set(fotos) - set(ids)):
-        problemas.append(f"el movimiento {fila_id} esta en el evento de su extracto y ya no "
+        problemas.append(f"{tabla} {fila_id} esta en el evento de su {donde} y ya no "
                          "existe: se ha borrado")
     return problemas
+
+
+def _verificar_movimientos(conn: sqlite3.Connection) -> list[str]:
+    """Cada movimiento igual a la foto que lleva el evento de su extracto, y ninguna foto suelta."""
+    return _verificar_en_lote(conn, MOVIMIENTOS, COLUMNAS_MOVIMIENTO,
+                              EVENTOS["extracto_bancario"][0], "extracto_bancario",
+                              "movimientos", "extracto")
+
+
+def _verificar_turnos(conn: sqlite3.Connection) -> list[str]:
+    """Cada turno del planning igual a la foto del evento de su importacion (paso 10)."""
+    return _verificar_en_lote(conn, TURNOS, COLUMNAS_TURNO, EVENTO_TURNOS, "importacion",
+                              "turnos", "importacion")
 
 
 def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
@@ -302,6 +332,7 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
                 )
 
     problemas.extend(_verificar_movimientos(conn))
+    problemas.extend(_verificar_turnos(conn))
 
     aplicadas = {f["fila_id"]: _datos(f) for f in conn.execute(
         "SELECT fila_id, datos_json FROM evento WHERE tipo = 'migracion_aplicada' "

@@ -447,10 +447,14 @@ class LectorAgrupado:
 
 
 def _agrupados() -> dict[str, tuple[str, Callable[[LoteLeido], LoteLeido]]]:
-    """Los registros que se leen por filas y entran agrupados: tipo de fila -> (tipo, como)."""
+    """Los registros que se leen por filas y se preparan juntos antes de entrar: tipo de fila
+    -> (tipo, como). Las lineas de venta se juntan en facturas; los turnos del planning
+    reciben su clave y lo que cubre la foto (planning.py)."""
+    from . import planning
     from .ventas import TIPO, facturas_de_filas
 
-    return {"lineas_venta": (TIPO, facturas_de_filas)}
+    return {"lineas_venta": (TIPO, facturas_de_filas),
+            planning.TIPO: (planning.TIPO, planning.preparar)}
 
 
 def lectores(mapeo: Mapeo) -> list[LectorTabular | LectorAgrupado]:
@@ -492,9 +496,15 @@ def contrato(mapeo: Mapeo, contenido: bytes) -> dict[str, Any]:
     lotes = []
     for lector in lectores(mapeo):
         lote = lector.leer(contenido)
-        lotes.append({
+        salida: dict[str, Any] = {
             "tipo": lote.tipo, "formato": lote.formato, "completo": lote.completo,
             "registros": [r.model_dump(mode="json") for r in lote.registros],
             "rechazos": [r.a_dict() for r in lote.rechazos],
-        })
+        }
+        # Lo que cubre una foto (el planning), solo si lo dice: los contratos de
+        # los demas mapeos no cambian.
+        if lote.cubre_desde is not None or lote.cubre_hasta is not None:
+            salida["cubre"] = [d.isoformat() if d else None
+                               for d in (lote.cubre_desde, lote.cubre_hasta)]
+        lotes.append(salida)
     return {"mapeo": mapeo.id, "fuente": mapeo.fuente, "tipo": mapeo.tipo, "lotes": lotes}

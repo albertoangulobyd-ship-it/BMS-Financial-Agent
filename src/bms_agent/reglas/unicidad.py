@@ -1,4 +1,4 @@
-"""Reglas de unicidad que cruzan el historico: B2, B3, B4 y V7.
+"""Reglas de unicidad que cruzan el historico: B2, B3, B4, B5 y V7.
 
 Es lo que una factura mirada de una en una no puede ver: el mismo numero
 dos veces, el mismo importe dos veces en pocos dias, el mismo periodo
@@ -8,6 +8,11 @@ porque alguien edito un importe no es un duplicado resuelto.
 B2 y B3 miran las compras, donde un duplicado se pagaria dos veces (B2
 bloquea). En las ventas lo mismo es facturar dos veces a un cliente: V7
 (paso 8), que retiene. B4 mira las dos.
+
+Desde el paso 10, las horas: un turno del planning conciliado con mas horas
+de las que tiene desde dos o mas facturas que no se explican entre si (un
+abono, una correccion o una sustitucion confirmada si lo explican). En las
+compras es la parte del planning de B5; en las ventas, el caso de B5 en V7.
 
 Las comprobaciones de fondo (`numeros_repetidos`, `importes_repetidos`,
 `periodos_solapados`) trabajan sobre `Candidata`, que no sabe de donde
@@ -25,7 +30,9 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from . import turnos
 from .base import (
+    ENTRANTE,
     FALLO,
     LEE_PERIODO,
     LEE_RELACIONES,
@@ -417,9 +424,9 @@ def v7(instantanea: Instantanea) -> list[Resultado]:
 
     El mismo numero a la misma contraparte, o el mismo importe a pocos dias
     con periodos compatibles y otro numero. Retiene y es pegajosa, como sus
-    hermanas de compra; el caso de B5 (horas de un turno cobradas dos veces)
-    llega con el planning (paso 10). Un abono, una correccion o una
-    sustitucion confirmada entre las dos explica el parecido.
+    hermanas de compra. Desde el paso 10, tambien el caso de B5: las horas de
+    un turno cobradas dos veces (`turnos_cobrados_de_mas`). Un abono, una
+    correccion o una sustitucion confirmada entre las dos explica el parecido.
     """
     politica = instantanea.politica
     facturas = {f.id: f for f in instantanea.facturas}
@@ -466,6 +473,8 @@ def v7(instantanea: Instantanea) -> list[Resultado]:
 
     salida.extend(_por_pares("V7", importes_repetidos(importes, politica, enlazadas), facturas,
                              detalle, valores, ("total_cent",)))
+    # Paso 10: el caso de B5 en las ventas, las horas de un turno cobradas dos veces.
+    salida.extend(turnos_cobrados_de_mas(instantanea, "V7", SALIENTE))
     return salida
 
 
@@ -475,3 +484,65 @@ LEE_V7 = LEE_RELACIONES | LEE_PERIODO | frozenset({
     "factura.parte_nombre", "factura.numero", "factura.numero_norm", "factura.fecha_factura",
     "factura.total_cent", "politica.tolerancia_duplicado", "politica.ventana_duplicado_dias",
 })
+
+
+# ------------------------------------------------------------ horas cobradas dos veces (paso 10)
+
+def turnos_cobrados_de_mas(instantanea: Instantanea, regla: str,
+                           sentido: str) -> list[Resultado]:
+    """Cada turno conciliado (conciliacion.py) con mas horas de las que tiene, desde dos o mas
+    facturas de un sentido que no se explican entre si: las mismas horas cobradas dos veces.
+
+    Una sola factura que cobra de mas es G2 o V1, no un duplicado. El hallazgo
+    es del turno (su id_externo, que no depende de lo resuelto) y cubre todas
+    sus facturas; la principal es la mas reciente.
+    """
+    if not instantanea.conciliaciones:
+        return []
+    vigentes = {t.id_externo: t for t in instantanea.turnos}
+    tolerancia = int(instantanea.politica.planning_tolerancia_horas_dia * 1000)
+    enlazadas = vinculadas(instantanea.relaciones)
+    salida: list[Resultado] = []
+    for id_externo, (horas, ids) in sorted(turnos.conciliado(instantanea, sentido).items()):
+        turno = vigentes.get(id_externo)
+        if turno is None or len(ids) < 2:
+            continue
+        tiene = turnos.horas_referencia(turno)
+        if horas <= tiene + turnos.tolerancia_mil(tolerancia, turno.dias):
+            continue
+        facturas = sorted(ids)
+        if all(frozenset((a, b)) in enlazadas
+               for n, a in enumerate(facturas) for b in facturas[n + 1:]):
+            continue
+        principal = facturas[-1]
+        objetivos = (Objetivo("factura", principal),) + tuple(
+            Objetivo("factura", i, None, RELACIONADO) for i in facturas[:-1])
+        detalle = (f"El turno {id_externo} del {turno.fecha.isoformat()} tiene "
+                   f"{turnos.horas_referencia(turno) / 1000:g} h y {len(facturas)} facturas "
+                   f"le cobran {horas / 1000:g} h: las mismas horas dos veces.")
+        valores = {"caso": "turno", "turno": id_externo, "horas_mil": tiene,
+                   "conciliadas_mil": horas, "facturas": facturas}
+        for factura_id in facturas:
+            salida.append(Resultado(regla, "factura", factura_id, FALLO, detalle, valores,
+                                    grupo=f"turno:{id_externo}", objetivos=objetivos))
+    return salida
+
+
+LEE_TURNOS_DE_MAS = (LEE_RELACIONES | turnos.LEE_CONCILIADO | frozenset({
+    "instantanea.turnos", "instantanea.politica", "instantanea.facturas",
+    "politica.planning_tolerancia_horas_dia", "factura.id", "factura.sentido",
+    "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por",
+    "turno.id_externo", "turno.estado", "turno.horas_aprobadas_mil",
+    "turno.horas_realizadas_mil", "turno.horas_planificadas_mil", "turno.dias", "turno.fecha"}))
+
+
+def b5(instantanea: Instantanea) -> list[Resultado]:
+    """B5, la parte del planning: un turno conciliado con mas horas de compra de las que tiene,
+    desde dos o mas facturas que no se explican entre si. Sin planning, un solo sin_datos."""
+    vacio = turnos.sin_planning(instantanea, "B5")
+    if vacio is not None:
+        return vacio
+    return turnos_cobrados_de_mas(instantanea, "B5", ENTRANTE)
+
+
+LEE_B5 = LEE_TURNOS_DE_MAS | frozenset({"instantanea.fotos_planning"})

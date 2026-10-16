@@ -23,10 +23,11 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent proveedor|cliente N    su vista: totales, por Objeto, pagos, avisos
     bms-agent ordenes             las ordenes de compra: valor, consumido, lo que queda
     bms-agent orden N             una PO: sus facturas en orden, modificaciones y prevision
-    bms-agent objeto N            un Objeto y sus PO (consumido y lo que queda)
+    bms-agent objeto N            un Objeto, sus PO y sus horas por semana (planning)
     bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
-    bms-agent importar F T FICH   importa un maestro, el banco, pagos, ventas de Exact o la
+    bms-agent importar F T FICH   importa un maestro, el banco, pagos, ventas de Exact, la
                                   hoja de PO (po_csv ordenes_compra|modificaciones_po, CSV o YAML)
+                                  o el planning (trnsprnt planning, --desde/--hasta: lo que cubre)
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
     bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
@@ -1166,7 +1167,13 @@ def _cmd_orden(args: argparse.Namespace) -> int:
     print(f"  ritmo      {p['consumido_ventana']} en {p['dias']} dias desde el {p['desde']}: "
           + (f"se agotaria el {p['agotamiento']}" if p["agotamiento"]
              else "a este ritmo no se agota"))
-    print(f"  planificado: {o['planificado']['detalle']}")
+    for clave, nombre in (("planificado", "planificado"), ("sin_facturar", "sin facturar")):
+        bloque = o[clave]
+        if bloque["estado"] == "ok":
+            print(f"  {nombre:<11}{bloque['valor']:>12}  (planning)"
+                  + (f"; {bloque['nota']}" if bloque.get("nota") else ""))
+        else:
+            print(f"  {nombre}: {bloque['detalle']}")
     print("  Objetos: " + (", ".join(x["codigo"] for x in o["objetos"])
                            or "cualquiera de la parte"))
     for f in o["facturas"]:
@@ -1208,6 +1215,19 @@ def _cmd_objeto(args: argparse.Namespace) -> int:
               f"de este Objeto {o['consumido_objeto']}")
     if not v["ordenes_compra"]:
         print("  Sin ordenes de compra.")
+    h = v["horas"]
+    if h["planning"] != "ok":
+        print("  Horas: sin planning importado, solo las facturadas.")
+    print(f"  {'semana':<10} {'planif.':>8} {'valid.':>8} {'prov.':>8} {'cliente':>8} "
+          f"{'sin fact.':>9}")
+    for fila in (*h["semanas"], {**h["total"], "semana": "total"}):
+        print(f"  {fila['semana']:<10} {fila['planificadas'] or '-':>8} "
+              f"{fila['validadas'] or '-':>8} {fila['proveedor'] or '-':>8} "
+              f"{fila['cliente'] or '-':>8} {fila['sin_facturar'] or '-':>9}")
+    e = h["esperado"]
+    print(f"  esperado: por cobrar {e['entrante']}, por pagar {e['saliente']}"
+          + (f"; estimado aparte: por cobrar {e['entrante_estimado']}, por pagar "
+             f"{e['saliente_estimado']}" if e["entrante_estimado"] is not None else ""))
     return 0
 
 
@@ -1456,6 +1476,19 @@ def _cmd_importar(args: argparse.Namespace) -> int:
     if not fichero.is_file():
         print(f"No existe {fichero}", file=sys.stderr)
         return 1
+    cubre = {}
+    for nombre in ("desde", "hasta"):
+        texto = getattr(args, nombre, None)
+        if texto:
+            try:
+                cubre[nombre] = date.fromisoformat(texto)
+            except ValueError:
+                print(f"--{nombre} es una fecha AAAA-MM-DD, no {texto!r}", file=sys.stderr)
+                return 1
+    if cubre and (args.fuente, args.tipo) != ("trnsprnt", "planning"):
+        print("--desde y --hasta solo valen para el planning (trnsprnt planning)",
+              file=sys.stderr)
+        return 1
     if args.exportado:
         try:
             dia = date.fromisoformat(args.exportado)
@@ -1478,7 +1511,8 @@ def _cmd_importar(args: argparse.Namespace) -> int:
         try:
             r = importar_fichero(almacen, args.fuente, args.tipo, fichero,
                                  lanzado_por=usuario_id, mapeo=args.mapeo,
-                                 exportado_en=exportado, simular=args.simular)
+                                 exportado_en=exportado, simular=args.simular,
+                                 cubre_desde=cubre.get("desde"), cubre_hasta=cubre.get("hasta"))
         except (PermisoDenegado, MapeoNoValido, FicheroIlegible, ValueError) as exc:
             print(f"No se importa: {exc}", file=sys.stderr)
             _anclar(almacen)
@@ -1673,7 +1707,14 @@ def _cmd_flujo_caja(args: argparse.Namespace) -> int:
             cobrado, pagado = real[linea]["cobrado"][clave], real[linea]["pagado"][clave]
             if cobrado or pagado:
                 print(f"    {texto}: {_euros(cobrado)} / {_euros(pagado)}")
-    print(f"  estimado: {datos['estimado']['nota']}")
+    estimado = datos["estimado"]
+    if estimado["importe_cent"] is not None:
+        print(f"  estimado (aparte, sin IVA): por cobrar "
+              f"{_euros(estimado['entrada_sin_facturar_cent'])} sin facturar y "
+              f"{_euros(estimado['entrada_planificada_cent'])} planificado; por pagar "
+              f"{_euros(estimado['salida_sin_facturar_cent'])} sin facturar y "
+              f"{_euros(estimado['salida_planificada_cent'])} planificado")
+    print(f"  estimado: {estimado['nota']}")
     return 0
 
 
@@ -1955,12 +1996,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_imp = sub.add_parser(
         "importar", help="importa un fichero de un maestro, del banco, de pagos, de facturas "
-                         "de venta de Exact o la hoja de ordenes de compra")
+                         "de venta de Exact, la hoja de ordenes de compra o el planning")
     p_imp.add_argument("fuente", help="exact, trnsprnt, maestro_csv, banco o po_csv")
     p_imp.add_argument("tipo", help="proveedores, clientes, objetos, recursos, alias, tarifas, "
                                     "ciclos, pagos_exact y facturas_venta (exact), extracto "
-                                    "(banco) u ordenes_compra y modificaciones_po (po_csv, CSV "
-                                    "o YAML; pide cambiar_po)")
+                                    "(banco), ordenes_compra y modificaciones_po (po_csv, CSV "
+                                    "o YAML; pide cambiar_po) o planning (trnsprnt)")
     p_imp.add_argument("fichero")
     p_imp.add_argument("--mapeo", help="un fichero de mapeo (por defecto, el de "
                                        "config/importacion que reconoce sus columnas); para el "
@@ -1969,6 +2010,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="dice lo que seria nuevo, cambiaria o se rechazaria, sin escribir")
     p_imp.add_argument("--exportado", help="dia en que se saco del sistema (AAAA-MM-DD); por "
                                            "defecto, el del fichero")
+    p_imp.add_argument("--desde", help="el planning: primer dia que cubre la foto (por "
+                                       "defecto, el del primer turno)")
+    p_imp.add_argument("--hasta", help="el planning: ultimo dia que cubre la foto (por "
+                                       "defecto, el del ultimo turno)")
     p_imp.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
     p_imp.add_argument("--db", help=_AYUDA_DB)
     p_imp.set_defaults(func=_cmd_importar)

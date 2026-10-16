@@ -1,0 +1,4 @@
+Jaar;Week;Objectcode;Opdrachtgever;Medewerker;Leverancier;Dienstsoort;Diensttype;Ma;Di;Wo;Do;Vr;Za;Zo;Totaal;Status;Factureerbaar
+2026;42;Rijnhaven;10001;J. de Vries;20002;Objectbeveiliging;Dag;8,00;8,00;8,00;8,00;8,00;;;40,00;Goedgekeurd;Ja
+2026;42;Rijnhaven;10001;Jan Bakker;20004;Objectbeveiliging;Nacht;;;;;;8,00;8,00;16,00;Goedgekeurd;Ja
+2026;53;Waalhaven;10001;J. de Vries;20002;Objectbeveiliging;Feestdag;8,00;;;;;;;8,00;;Ja

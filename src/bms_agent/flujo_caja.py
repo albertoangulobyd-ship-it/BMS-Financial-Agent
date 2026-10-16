@@ -30,8 +30,9 @@ que manda en una factura sin pagos del banco) no se suma: va en sus lineas,
 `segun_exact` y `a_mano`, porque el banco no lo ha visto.
 
 El trabajo sin facturar y el planificado no se mezclan con nada de esto: van
-en una linea aparte, "estimado" (decision 22), que llega con el planning
-(paso 10). Hasta entonces dice que no hay datos, nunca cero.
+en una linea aparte, "estimado" (decision 22), que sale del planning
+(trabajo.estimado, paso 10). Sin ningun planning importado dice que no hay
+datos, nunca cero.
 
 Nada de aqui paga ni propone pagar: es una vista.
 """
@@ -45,7 +46,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from . import politica, relaciones
+from . import politica, relaciones, trabajo
 from .reglas import instantanea
 from .reglas.pagos import CONFIRMADA, PRECEDENCIA, en_el_movimiento, saldo, tolerancia_cent
 from .reloj import mes_de, semana_de
@@ -53,8 +54,8 @@ from .reloj import mes_de, semana_de
 ENTRADA = "entrada"
 SALIDA = "salida"
 VENTANAS = ("vencido", "semana", "mes", "proximos_30", "periodo", "sin_fecha", "total")
-SIN_ESTIMADO = ("El trabajo sin facturar y el planificado llegan con el planning (paso 10): "
-                "todavía no hay datos.")
+SIN_ESTIMADO = ("No se ha importado ningún planning de TRNSPRNT: el trabajo sin facturar y el "
+                "planificado no se pueden estimar.")
 
 
 @dataclass(frozen=True)
@@ -249,6 +250,9 @@ def flujo(conn: sqlite3.Connection, hoy: date, *, desde: date | None = None,
     """El flujo de caja del almacen visto desde hoy (lo pasa quien llama: el reloj, la CLI)."""
     partidas, movidos = datos(conn)
     salida = calcular(partidas, movidos, hoy, desde=desde, hasta=hasta)
+    if instantanea.fotos_planning(conn):
+        foto = instantanea.construir(conn, hoy=hoy, politica=politica.politica_reglas(conn))
+        salida["estimado"] = trabajo.estimado_como_dict(trabajo.estimado(foto), SIN_ESTIMADO)
     salida["facturas"] = len(partidas)
     salida["fuentes"] = list(PRECEDENCIA)
     return salida

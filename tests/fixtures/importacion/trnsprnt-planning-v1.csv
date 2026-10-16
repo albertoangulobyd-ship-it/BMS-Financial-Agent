@@ -1,0 +1,8 @@
+Dienst-ID;Datum;Begintijd;Eindtijd;Pauze (min);Objectcode;Objectnaam;Opdrachtgever;Medewerker;Leverancier;Dienstsoort;Diensttype;Gepland (u);Gewerkt (u);Goedgekeurd (u);Status;Factureerbaar;Inkooptarief;Verkooptarief;PO-nummer
+D-2026-104211;12-10-2026;07:00;15:00;30;Rijnhaven;Rijnhaven terminal;10001;J. de Vries;20002;Objectbeveiliging;Dag;8,00;7,50;7,50;Goedgekeurd;Ja;38,50;52,00;4500123
+D-2026-104212;12-10-2026;23:00;7:00;30;Rijnhaven;Rijnhaven terminal;10001;Jan Bakker;20004;Objectbeveiliging;Nacht;;7,50;7,50;Goedgekeurd;Ja;44,25;59,80;4500123
+D-2026-104213;13-10-2026;15:00;23:00;0;Waalhaven;;10001;Sanne;;Receptie;Avond;8,00;;;Gepland;Ja;;48,00;
+D-2026-104214;17-10-2026;08:00;20:00;60;Schiedam;Schiedam centrum;10002;J. de Vries;20002;Brandwacht;Weekend;11,00;11,00;;Uitgevoerd;Ja;41,00;61,50;
+D-2026-104215;18-10-2026;08:00;16:00;30;Waalhaven;;10001;Jan Bakker;20004;Objectbeveiliging;Weekend;7,50;;;Geannuleerd;Ja;;;
+;19-10-2026;07:00;15:00;30;Rijnhaven;Rijnhaven terminal;10001;J. de Vries;20002;Objectbeveiliging;Feestdag;7,50;7,50;7,50;Goedgekeurd;Ja;57,75;78,00;
+D-2026-104217;20-10-2026;07:10;15:30;0;IJsselmonde;;10009;Kees;;Training;Dag;;8,00;8,00;Goedgekeurd;Nee;;;

@@ -64,7 +64,7 @@ SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "ex
                   "reextraccion_resultado", "activacion", "linea_sin_casar",
                   "orden_compra_modificacion")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
-             "movimiento_bancario")
+             "movimiento_bancario", "planning_turno")
 
 
 def _tablas(conn) -> list[str]:
@@ -337,6 +337,18 @@ def _poblar(almacen: Almacen) -> None:
             (banco, extracto, "8" * 64))
         conn.execute("UPDATE importacion SET estado = 'aceptada', terminada_en = ? WHERE id = ?",
                      (AHORA, banco))
+        # Paso 10: un turno del planning, de una importacion de TRNSPRNT en curso.
+        planning = conn.execute(
+            "INSERT INTO importacion (fuente, tipo, formato, fichero_sha256, iniciada_en, "
+            "actor) VALUES ('trnsprnt', 'planning', 'csv:trnsprnt-planning-v1', ?, ?, ?)",
+            ("6" * 64, AHORA, importador)).lastrowid
+        conn.execute(
+            "INSERT INTO planning_turno (importacion_id, posicion, id_externo, clave_fragil, "
+            "nivel, fecha, semana_iso, dias, horas_planificadas_mil, estado, "
+            "datos_origen_json) VALUES (?, 1, 'D-1', 0, 'dia', '2026-10-12', '2026-W42', 1, "
+            "8000, 'planificado', '{}')", (planning,))
+        conn.execute("UPDATE importacion SET estado = 'aceptada', terminada_en = ? WHERE id = ?",
+                     (AHORA, planning))
         # Paso 9: una PO de un cliente que Ana (con cambiar_po) modifica.
         conn.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (?, 'cambiar_po')", (rol,))
         cliente = campos.crear(conn, "cliente", {"nombre": "Havenbedrijf"},

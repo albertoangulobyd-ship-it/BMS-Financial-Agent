@@ -63,3 +63,15 @@ tarifas:
   # G3: una compra por encima de la tarifa pactada retiene; por encima de este
   # porcentaje sobre la pactada, bloquea (y anularlo pide segunda firma).
   exceso_bloqueo_pct: 10
+
+planning:
+  # G1: con el planning obligatorio, una compra sin ningun turno de su
+  # proveedor en lo facturado bloquea (y anularla pide segunda firma); si no,
+  # retiene.
+  obligatorio: false
+  # G2, V1 y G6: horas facturadas y del planning se admiten distintas en esto
+  # por cada dia comparado (0,25 pasa; 0,26 no).
+  tolerancia_horas_dia: "0.25"
+  # V6: sin ciclo de facturacion, el trabajo sin facturar de un mes se busca
+  # pasados estos dias de su fin (con ciclo, los dias de gracia del ciclo).
+  dias_gracia_sin_ciclo: 14

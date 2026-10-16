@@ -34,7 +34,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -48,6 +48,8 @@ from ..almacen.unidades import (
     FueraDeRango,
     PerdidaDePrecision,
     a_cent,
+    a_e4,
+    a_mil,
     de_cent,
     json_canonico,
     sha256_texto,
@@ -57,7 +59,7 @@ from ..campos import Automatico, Leido
 from ..dominio import Fuente, Permiso
 from ..parsing import normalizar_unidad
 from ..permisos import exigir, orden_auditada
-from ..reloj import ZONA_EMPRESA, marca
+from ..reloj import ZONA_EMPRESA, marca, semana_iso
 from .base import ATOMICOS, LoteLeido, Rechazo
 from .tabular import LectorTabular, Mapeo, cargar_mapeo, elegir_mapeo, lectores
 
@@ -660,6 +662,86 @@ def _extractos(ctx: _Contexto) -> list[Rechazo]:
     return []
 
 
+# ------------------------------------------------------------ el planning de TRNSPRNT (paso 10)
+
+_REF_PLANNING = (("objeto", "objeto_ref"), ("recurso", "recurso_ref"),
+                 ("proveedor", "proveedor_ref"), ("cliente", "cliente_ref"))
+
+
+def _mil_o_nada(valor: Decimal | None) -> int | None:
+    return None if valor is None else a_mil(valor)
+
+
+def _e4_o_nada(valor: Decimal | None) -> int | None:
+    return None if valor is None else a_e4(valor)
+
+
+def _planning(ctx: _Contexto) -> list[Rechazo]:
+    """Una foto del planning: todos sus turnos o ninguno (decision 6).
+
+    Lo que no se lee (una fecha, unas horas que no caben en milesimas, una
+    tarifa en otra moneda) rechaza el fichero entero: medio planning daria por
+    no trabajado o no facturado lo que si lo esta. Lo que nombra cada turno
+    (Objeto, persona, proveedor, cliente) se busca en el maestro por
+    coincidencia exacta (instantanea.Resolutor) y, si no esta, entra con su
+    texto y sin resolver: no se crea nada, y lo dice Z2. Todos los turnos van
+    en un evento, planning_registrado, con la foto de cada uno.
+    """
+    from ..reglas.instantanea import Resolutor
+
+    lote, conn = ctx.lote, ctx.conn
+    if lote.fuente != "trnsprnt":
+        return [Rechazo(0, f"el planning llega de TRNSPRNT, no de {lote.fuente}")]
+    if lote.rechazos:
+        return []
+    resolutor = Resolutor(conn)
+    filas = []
+    for posicion, t in enumerate(lote.registros, start=1):
+        if (t.moneda or "").strip().upper() not in _EUROS:
+            return [Rechazo(t.fila, f"las tarifas del turno estan en {t.moneda}, no en euros: "
+                                    "el fichero no entra", dict(t.crudo), "X1")]
+        try:
+            horas = [_mil_o_nada(getattr(t, h)) for h in ("horas_planificadas",
+                                                         "horas_realizadas", "horas_aprobadas")]
+            tarifas_ = (_e4_o_nada(t.tarifa_compra), _e4_o_nada(t.tarifa_venta))
+        except (PerdidaDePrecision, FueraDeRango) as exc:
+            return [Rechazo(t.fila, f"un valor del turno no cabe: {exc}", dict(t.crudo))]
+        ids = {que: resolutor.resolver(que, getattr(t, campo)) for que, campo in _REF_PLANNING}
+        filas.append((posicion, t, horas, tarifas_, ids))
+    fotos: dict[str, dict[str, Any]] = {}
+    sin_resolver: dict[str, int] = defaultdict(int)
+    for posicion, t, horas, (compra, venta), ids in filas:
+        for que, campo in _REF_PLANNING:
+            if ids[que] is None and getattr(t, campo):
+                sin_resolver[que] += 1
+        turno_id = int(conn.execute(
+            "INSERT INTO planning_turno (importacion_id, posicion, id_externo, clave_fragil, "
+            "nivel, fecha, semana_iso, dias, hora_inicio, hora_fin, pausa_min, "
+            "horas_planificadas_mil, horas_realizadas_mil, horas_aprobadas_mil, estado, "
+            "objeto_ref_doc, recurso_ref_doc, proveedor_ref_doc, cliente_ref_doc, po_ref_doc, "
+            "objeto_id, recurso_id, proveedor_id, cliente_id, tipo_servicio, tipo_turno, "
+            "facturable, tarifa_compra_e4, tarifa_venta_e4, datos_origen_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "?, ?, ?, ?)",
+            (ctx.importacion_id, posicion, t.id_externo, int(t.clave_fragil), t.nivel,
+             t.dia.isoformat(), semana_iso(t.dia), t.dias, t.hora_inicio, t.hora_fin,
+             t.pausa_min, *horas, t.estado, t.objeto_ref, t.recurso_ref, t.proveedor_ref,
+             t.cliente_ref, t.po_ref, ids["objeto"], ids["recurso"], ids["proveedor"],
+             ids["cliente"], t.tipo_servicio, t.tipo_turno,
+             None if t.facturable is None else int(t.facturable), compra, venta,
+             json_canonico(dict(t.crudo)))).lastrowid)
+        fotos[str(turno_id)] = foto(conn, "planning_turno", turno_id)
+        ctx.resultado.nuevos.append(("planning_turno", turno_id))
+    for que, cuantos in sorted(sin_resolver.items()):
+        ctx.resultado.avisos.append(f"{cuantos} turno(s) nombran un {que} que no esta en el "
+                                    "maestro: entran sin resolver (Z2)")
+    registrar(conn, tipo="planning_registrado", actor=ctx.actor, usuario_id=ctx.persona,
+              tabla="importacion", fila_id=ctx.importacion_id,
+              datos={"importacion_id": ctx.importacion_id, "turnos": fotos,
+                     "sin_resolver": dict(sorted(sin_resolver.items()))})
+    return []
+
+
 # ------------------------------------------------------------ lo pagado segun Exact (paso 7)
 
 def _factura_de_exact(conn: sqlite3.Connection, registro: Any) -> int:
@@ -1053,6 +1135,10 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
         propios = _facturas_venta(ctx)
         rechazos.extend(propios)
         aceptadas = 0 if (propios or lote.rechazos) else len(lote.registros)
+    elif lote.tipo == "planning":
+        propios = _planning(ctx)
+        rechazos.extend(propios)
+        aceptadas = 0 if (propios or lote.rechazos) else len(lote.registros)
     elif lote.tipo in ATOMICOS or lote.tipo not in ESCRITORES:
         rechazos.append(Rechazo(0, f"el tipo {lote.tipo} todavia no se importa"))
         aceptadas = 0
@@ -1161,15 +1247,18 @@ def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
 
 def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path, *,
                      lanzado_por: int, mapeo: str | Path | Mapeo | None = None,
-                     exportado_en: datetime | None = None,
-                     simular: bool = False) -> ResultadoImportacion:
+                     exportado_en: datetime | None = None, simular: bool = False,
+                     cubre_desde: date | None = None,
+                     cubre_hasta: date | None = None) -> ResultadoImportacion:
     """La orden entera: elegir el mapeo, leer, registrar cada lote y recalcular, todo o nada.
 
     Un fichero de acreedores de Exact da dos lotes (proveedores y sus
     cuentas), en el orden del mapeo; cada uno es su importacion, y las
     cuentas entran o no enteras sin deshacer los proveedores. Al final se
     vuelven a resolver las facturas y se recalculan las reglas, en la misma
-    transaccion. Simulando, se hace todo y se deshace.
+    transaccion. Simulando, se hace todo y se deshace. Una foto del planning
+    cubre los dias que trae, o los que se digan (`cubre_desde`, `cubre_hasta`:
+    la exportacion de un periodo, aunque algun dia no tenga turnos).
     """
     from ..hallazgos import recalcular
 
@@ -1204,6 +1293,10 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
             raise ValueError(f"{ruta.name} no tiene las columnas del mapeo {elegido.id}")
         lotes = [lector.leer(contenido, ruta.name, exportado_en=exportado_en)
                  for lector in lectores(elegido)]
+        if tipo == "planning":
+            from .planning import con_cobertura
+
+            lotes = [con_cobertura(lote, cubre_desde, cubre_hasta) for lote in lotes]
         mapeo_id, tipo_mime = elegido.id, elegido.tipo_mime
     resultado = ResultadoImportacion(fichero=ruta.name, mapeo=mapeo_id, simulada=simular)
     conn = almacen.conn

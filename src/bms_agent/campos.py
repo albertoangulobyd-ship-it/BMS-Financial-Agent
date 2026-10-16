@@ -76,6 +76,8 @@ from .dominio import (
     FuenteTarifa,
     LadoOrdenCompra,
     MetodoAplicacion,
+    MetodoConciliacion,
+    NivelConciliacion,
     OrigenAlias,
     OrigenFactura,
     Permiso,
@@ -694,6 +696,18 @@ REGISTRO: dict[str, dict[str, Campo]] = {
         "objeto_id": _r(REF, **_FIJO),
         "retirada_en": _r(INSTANTE, **_FIJO),
     }, suplir=_PO, corregir=_PO),
+    # Paso 10. La traza de una imputacion a los turnos del planning con que se
+    # comparo. La escribe el motor (conciliacion.py) en cada pasada; nada de lo
+    # que dice cambia despues: se retira y se escribe otra (la base lo exige).
+    "conciliacion": _tabla("conciliacion", {
+        "imputacion_id": _r(REF, **_FIJO),
+        "planning_turno_id": _r(REF, **_FIJO),
+        "horas_mil": _r(MIL, **_FIJO),
+        "metodo": _r(ENUM, valores=MetodoConciliacion.valores(), **_FIJO),
+        "regla": _r(ENUM, valores=NivelConciliacion.valores(), **_FIJO),
+        "huella_imputacion": _r(TEXTO, **_FIJO),
+        "retirada_en": _r(INSTANTE, **_FIJO),
+    }, suplir=_OBJETO, corregir=_OBJETO),
 }
 
 TABLAS_CONTROLADAS: tuple[str, ...] = tuple(REGISTRO)
@@ -707,7 +721,7 @@ PERMISO_ALTA: dict[str, str | None] = {
     "factura_linea": _EDITAR, "factura_imputacion": _EDITAR, "factura_iva": _EDITAR,
     "factura_referencia": _PO, "factura_relacion": _ANULAR,
     "aplicacion_pago": _PAGADA, "factura_cita": _EDITAR,
-    "orden_compra": _PO, "orden_compra_objeto": _PO,
+    "orden_compra": _PO, "orden_compra_objeto": _PO, "conciliacion": _OBJETO,
 }
 
 # Lo que no se edita pero si da quien crea una fila a mano: a que fila
@@ -734,6 +748,9 @@ ESTRUCTURA: dict[str, frozenset[str]] = {
     "orden_compra": frozenset({"numero", "lado", "cliente_id", "proveedor_id", "fecha_fin",
                                "valor_original_cent"}),
     "orden_compra_objeto": frozenset({"orden_compra_id", "objeto_id"}),
+    # Una conciliacion a mano la da entera quien la escribe; despues no cambia.
+    "conciliacion": frozenset({"imputacion_id", "planning_turno_id", "horas_mil", "metodo",
+                               "regla"}),
 }
 
 # La columna que dice de donde viene una fila, y lo que vale cuando la crea

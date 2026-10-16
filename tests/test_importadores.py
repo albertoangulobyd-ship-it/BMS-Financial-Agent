@@ -96,7 +96,9 @@ def test_cada_mapeo_tiene_su_ejemplo_y_su_contrato() -> None:
         # Paso 8: las facturas de venta de Exact, con sus lineas.
         ("exact", "facturas_venta"),
         # Paso 9: la hoja de ordenes de compra y la de sus modificaciones.
-        ("po_csv", "ordenes_compra"), ("po_csv", "modificaciones_po")}
+        ("po_csv", "ordenes_compra"), ("po_csv", "modificaciones_po"),
+        # Paso 10: el planning de TRNSPRNT (diario y semanal pivotado, dos mapeos).
+        ("trnsprnt", "planning")}
 
 
 def test_la_hoja_de_po_en_yaml_lee_como_dice_su_contrato() -> None:

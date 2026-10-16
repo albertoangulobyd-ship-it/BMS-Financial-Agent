@@ -92,7 +92,9 @@ CATALOGO_SPEC = {
     "B2": ("bloqueo", None, True, True, True, "duplicado_exacto"),
     "B3": ("retencion", None, True, True, False, "duplicado"),
     "B4": ("retencion", None, True, True, False, "duplicado"),
-    # Paso 8: el caso de B2 y B3 en las ventas.
+    # Paso 10: la parte del planning de B5 (un turno cobrado dos veces).
+    "B5": ("retencion", None, True, True, False, "duplicado"),
+    # Paso 8: el caso de B2 y B3 en las ventas (y desde el paso 10, el de B5).
     "V7": ("retencion", None, True, True, False, "duplicado"),
     "D1": ("bloqueo", "retencion", False, False, False, "otra"),
     "D2": ("bloqueo", "retencion", False, False, False, "otra"),
@@ -123,10 +125,24 @@ CATALOGO_SPEC = {
     "K6": ("bloqueo", None, False, True, False, "otra"),
     "K7": ("aviso", None, True, False, False, "otra"),
     "K8": ("retencion", None, False, False, False, "otra"),
+    # Paso 10: el planning. G1 retiene (bloquea con el planning obligatorio, por
+    # resultado) y anularlo pide segunda firma (§7: "needs a 2nd signer").
+    "G1": ("retencion", None, True, False, True, "planning"),
+    "G2": ("retencion", None, True, False, False, "planning"),
     "G3": ("retencion", None, True, False, False, "planning"),
+    "G4": ("retencion", None, True, False, False, "planning"),
+    "G5": ("retencion", None, True, False, False, "planning"),
     # Paso 9: los recargos y la tarifa de venta contra lo pactado, y las PO.
     "G6": ("retencion", None, True, False, False, "planning"),
+    "G7": ("aviso", None, True, False, False, "planning"),
+    "V1": ("retencion", None, True, False, False, "planning"),
+    "V2": ("retencion", None, True, False, False, "planning"),
+    "V3": ("retencion", None, True, False, False, "planning"),
     "V4": ("retencion", None, True, False, False, "planning"),
+    "V5": ("retencion", None, True, False, False, "facturacion_ausente"),
+    "V6": ("retencion", None, True, False, False, "trabajo_sin_facturar"),
+    "V8": ("retencion", None, True, False, False, "facturacion_ausente"),
+    "V9": ("retencion", None, True, False, False, "planning"),
     "P1": ("retencion", None, True, False, False, "limite_po"),
     "P2": ("retencion", None, True, False, False, "limite_po"),
     "P3": ("retencion", None, True, False, False, "limite_po"),
@@ -151,7 +167,9 @@ AMBITOS = {"Z1": "importacion", "Z2": "importacion", "F0": "importacion", "F5": 
            "F7": "movimiento", "K6": "importacion", "K7": "movimiento",
            # Paso 9: lo que es de la PO entera y no de una factura.
            "P5": "orden_compra", "P7": "orden_compra", "P8": "orden_compra",
-           "P9": "orden_compra", "P10": "orden_compra"}
+           "P9": "orden_compra", "P10": "orden_compra",
+           # Paso 10: lo que es del cliente (no hay factura: falta).
+           "V6": "cliente", "V8": "cliente"}
 # Los avisos que abren una excepcion (spec §7: "+ exception"); F4 escala.
 CREAN_EXCEPCION = {"Q3", "U1", "F4", "K1"}
 
@@ -653,6 +671,8 @@ def _comparar_con_v1(conn) -> list[tuple[str, str]]:
     numero_de = {f["id"]: f["numero"] for f in conn.execute("SELECT id, numero FROM factura")}
     comparadas = []
     for r in motor.evaluar(construir(conn, hoy=HOY)):
+        if r.tabla != "factura":
+            continue                    # el sin_datos del planning entero (paso 10)
         legado = {c.rule: c for c in por_numero[numero_de[r.fila_id]]}
         if r.regla not in legado or r.regla not in _MISMO_TEXTO + ("D3",):
             continue

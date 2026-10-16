@@ -3982,3 +3982,309 @@ los días y el día de agotamiento se miran en el texto, no en los valores.
 `test_los_umbrales...`: el umbral de 40 % ya no se carga (límite 50); se
 prueba con la PO recortada. `test_reglas_paso9.escenarios` gana una
 instantánea con las ramas nuevas para la prueba de pureza.
+
+## Paso 10
+
+El planning de TRNSPRNT, con el mapeo hecho contra un ejemplo **sintético**
+(todavía no hay una exportación real). **1733 tests pasan** (1030 funciones
+de test; eran 1652 al cerrar el paso 9), ninguno llama a la API y ninguno escribe fuera de una
+carpeta temporal. Cinco mil facturas se recalculan en 1,21-1,54 s la primera
+vez y en 1,09-1,29 s las siguientes sin planning, y en 1,30-1,37 s y 1,06-1,25 s
+con una foto del planning importada (cuatro medidas de cada; el paso 9 medía
+1,69-1,79 s y 1,41-1,48 s): sin planning cada regla del planning da un solo sin
+datos y la conciliación no lee nada.
+
+**Nada aquí paga, factura ni aprueba.** El planning solo se importa, se
+concilia con lo facturado y se compara: lo que mueve es lo que retiene o
+avisa. El Objeto que propone el planning para una línea sin Objeto es una
+propuesta: la línea no se toca y la confirma una persona con
+`cambiar_objeto`.
+
+### Qué se construyó
+
+**Migración `0012_planning.sql`** (la siguiente libre; el §11 la llama 0007):
+
+- `planning_turno` (**evidencia**, como un movimiento del banco: sin UPDATE
+  ni DELETE, y la foto de cada fila en el evento `planning_registrado` de su
+  importación). Un turno de una importación del planning como lo da el
+  fichero: `id_externo` (el Dienst-ID o una clave sintética, `clave_fragil`),
+  `nivel` (`dia` o `semana`: una fila de la exportación pivotada, con `fecha`
+  el lunes y `dias` los días con horas), horas de inicio y fin, pausa, horas
+  planificadas, realizadas y validadas (en milésimas), `estado`
+  (`planificado`, `realizado`, `validado`, `cancelado`), lo que nombra
+  (`objeto_ref_doc`, `recurso_ref_doc`, `proveedor_ref_doc`,
+  `cliente_ref_doc`, `po_ref_doc`) y lo que se resolvió al importar
+  (`*_id`), tipo de servicio y de turno, si es facturable, las tarifas de
+  compra y venta del turno y la fila del fichero (`datos_origen_json`). Solo
+  la escribe el importador, en una importación de TRNSPRNT de tipo planning
+  en curso (disparador).
+- `v_turno_vigente`: el planning que vale. De cada turno, el de la
+  importación aceptada más nueva que cubre su fecha (`cubre_desde` a
+  `cubre_hasta`); una fila semanal deja de valer en cuanto una más nueva
+  cubre algún día de su semana.
+- `conciliacion` (controlada, guardas generadas): la traza de una imputación
+  a los turnos de su celda (§5 de arquitectura.md), con las horas que se le
+  asignaron a cada uno, el nivel (`regla`: `recurso_dia`, `objeto_dia`,
+  `recurso_semana`, `objeto_semana`, `recurso_periodo`, `objeto_periodo`),
+  `metodo` (`automatica`, que solo escribe el motor; `manual`, una persona
+  con `cambiar_objeto`) y `huella_imputacion`. No cambia nunca: se retira y
+  se escribe otra (disparador).
+- `v_planning_estado`: por turno vigente, sus horas de referencia y lo
+  conciliado con compras y con ventas que cuentan.
+
+**Los mapeos**: `config/importacion/trnsprnt-planning-v1.yaml` (la
+exportación de *diensten*, un turno por fila) y
+`trnsprnt-planning-semana-v1.yaml` (la *weekoverzicht* pivotada: una fila por
+persona, Objeto y semana, con una columna por día y el total), con su ejemplo
+y su contrato en `tests/fixtures/importacion/`. Las columnas que esperan
+están en `docs/sistemas.md` («La exportación del planning que espera el
+agente»). El ejemplo diario es una semana de seguridad en el puerto: un turno
+de día y uno de noche validados en Rijnhaven (la noche sin horas
+planificadas: salen de 23:00 a 7:00 menos la pausa), uno de tarde
+planificado en Waalhaven, uno de fin de semana realizado, uno cancelado, uno
+de festivo **sin Dienst-ID** (clave sintética) y una formación no facturable
+en un Objeto que el maestro no tiene. El semanal, dos filas de la semana 42 y
+una de la **semana 53** de 2026 (que termina el 3 de enero de 2027).
+
+**Módulos nuevos**
+
+| Módulo | Qué hace |
+| --- | --- |
+| `importadores/planning.py` | Antes de registrar: el identificador de cada turno (el Dienst-ID; si falta, la clave sintética `sint:` con día o semana, Objeto, persona, horas y turno, marcada frágil y con un aviso), los identificadores repetidos (rechazan el fichero) y lo que cubre la foto (del primer al último día, o lo que se diga: un turno de fuera rechaza el fichero) |
+| `importadores/canonico.py` (`TurnoCanonico`) | El turno leído: fecha o año y semana, horas por día de la fila semanal (que tienen que sumar el total), horas planificadas que faltan calculadas de las horas y la pausa (a la milésima, redondeo hacia arriba en el medio), un turno validado con sus horas validadas |
+| `importadores/registrar.py` (`_planning`) | La foto entera o nada; cada referencia se busca en el maestro por coincidencia exacta (`Resolutor`) y lo que no está entra con su texto y sin resolver; un solo evento con la foto de cada turno |
+| `reglas/turnos.py` | Puro. Las celdas (`celda_de`, `contenido`): de qué días es una imputación (sus fechas, las de su línea, la semana impresa con el año de la fecha de la factura, o el periodo), persona u Objeto, día, semana o periodo; lo que cubre el planning, sus horas de referencia, los periodos de los ciclos, el valor a la tarifa de venta o de compra, `Planificacion` (lo que una regla necesita del planning en una pasada) y `agrupar` |
+| `reglas/planning.py` | G1, G2, G4, G5, G7, la parte del planning de G6 y el escalón del planning de G3 |
+| `reglas/venta.py` | V1, V2, V3, V5, V6, V8, V9 y el escalón del planning de V4 |
+| `conciliacion.py` | `sincronizar` (en cada pasada del motor, después de casar las PO): concilia cada imputación con horas de una factura en juego que aún no tiene su conciliación y retira las que ya no valen; `traza` (la ficha de una factura) |
+| `trabajo.py` | Para las vistas: el estimado del flujo de caja y las horas de un Objeto por semana ISO |
+
+**La celda** (`reglas/turnos.py`). Una imputación se compara con el planning
+al nivel más fino que llevan los dos lados: la persona si la imputación la
+nombra y el planning tiene sus turnos esos días (con persona y Objeto, solo
+sus turnos en ese Objeto); si no, el Objeto. Un día si la línea es de un día
+y el planning de ese día es diario; una semana si la línea es de una semana
+entera, o si cae en una semana de la que el planning solo tiene la fila
+semanal (entonces se compara todo lo facturado de esa semana contra la
+fila); el periodo en lo demás. En una compra cuentan los turnos de su
+proveedor (el del turno o, si no lo dice, el de su persona); en una venta,
+los facturables de su cliente (el del turno o el de su Objeto). Un turno
+cancelado no cuenta nunca. Una celda con un día que ninguna foto cubre, una
+fila semanal que cae solo en parte en ella o el planning pasado de su
+frescura (Z1) dan sin datos, nunca «no hay turnos».
+
+**La conciliación** (`conciliacion.py`). En cada pasada, antes de evaluar,
+cada imputación con horas de una factura (no un abono) en juego, con su
+parte resuelta, que aún no está conciliada: sus horas se reparten entre los
+turnos de su celda en su orden (fecha, hora de inicio, identificador), a
+cada uno lo que le queda en ese sentido; lo que sobra va al último (cobrar
+más horas de las que hay se ve en la traza, y es B5 o V7); cada turno de la
+celda queda en una fila, también con cero horas. Lo escribe el motor (fuente
+`planning`, referencia la última importación) en un evento
+`conciliacion_sincronizada`, solo si algo cambia. Si cambia la imputación
+(su Objeto, su persona, sus días, sus horas, su turno o la parte de la
+factura) o la factura sale de juego, se retira y se rehace; si cambia el
+planning, no: es lo que se facturó (regla 9), y la diferencia la dicen G7 y
+V9. Con el planning pasado de su frescura no se concilia nada nuevo.
+
+**Reglas nuevas o que cambian**
+
+| Regla | Qué mira | Al fallar |
+| --- | --- | --- |
+| G1 | Una compra sin ningún turno de su proveedor ni de sus personas en el periodo facturado | Retención; bloqueo con `planning.obligatorio`. Se anula con segunda firma |
+| G2 | Horas facturadas de cada celda contra las validadas de su proveedor; tolerancia de la política por día con turnos (0,25 h) | Retención; se anula. Un turno sin validar en la celda: sin datos |
+| G3 (escalón nuevo) | Sin tarifa pactada, la tarifa del turno en el planning si todos los turnos de la celda con ese turno dicen la misma; si no, el histórico como antes | Retención por encima |
+| G4 | El Objeto de la línea contra los del planning de esa persona (o proveedor) esos días; sin Objeto, la propuesta del planning | Retención; se anula |
+| G5 | La semana impresa que no es la de las fechas de la línea; lo facturado en una celda sin turnos con trabajo sin conciliar de la misma persona u Objeto a menos de cuatro semanas | Retención; se anula |
+| G6 (parte nueva) | Las horas cobradas de cada recargo contra las del planning de ese recargo en la celda | Retención; se anula |
+| G7 | La celda de hoy no es la conciliada (otras horas, turnos que ya no están o se cancelaron, turnos nuevos) | Aviso |
+| V1 | Como G2, con los turnos facturables del cliente | Retención; se anula |
+| V2 | El Objeto de la línea es del cliente y estaba activo esos días; sin Objeto, retiene (con la propuesta del planning si lo hay) | Retención; se anula |
+| V3 | Como G5, en las ventas | Retención; se anula |
+| V4 (escalón nuevo) | Sin tarifa de venta pactada, la del turno; sin ninguna de las dos, sin datos | Retención por encima y por debajo |
+| V5 | Turnos validados facturables del Objeto y el periodo que cobra la factura que ninguna línea de venta cubre | Retención; valor a la tarifa de venta pactada o estimado |
+| V6 | Trabajo validado facturable que ninguna venta cubre, pasado el fin de su periodo (el del ciclo, o el mes natural) y sus días de gracia (los del ciclo, o `planning.dias_gracia_sin_ciclo`) | Retención del cliente (clave `objeto:<id>:<inicio>`); valor y si es estimado |
+| V8 | Un periodo de un ciclo de facturación, pasado con su gracia y cubierto por el planning, con trabajo facturable y sin ninguna venta que lo toque | Retención del cliente (clave `ciclo:<id>:<inicio>`) |
+| V9 | Como G7, en las ventas | Retención |
+| B5 (parte del planning) | Un turno conciliado con más horas de compra de las que tiene (más la tolerancia), desde dos o más facturas que no se explican entre sí | Retención; pegajosa; el hallazgo es del turno |
+| V7 (caso nuevo) | El de B5 en las ventas | Retención; pegajosa |
+| P7 (caducada) | Ya caducada con valor por consumir: sin planning, sin datos; con turnos de la PO después de su fin, retiene | Retención de la PO |
+| P8 | Lo planificado (después de hoy) de la PO por la tarifa de su lado pasa lo que queda | Aviso de la PO |
+| P10 | Facturado más lo trabajado sin conciliar más lo planificado pasa el valor; sus objetivos son las facturas desde el punto en que se pasa | Retención de la PO y de esas facturas |
+| Z2 (caso nuevo) | Lo que la última foto del planning nombra y el maestro no tiene | Retención de la importación |
+
+Los turnos de una PO (P7, P8, P10) son los que la nombran o, sin PO, los de
+su parte y de un Objeto suyo si una sola PO abierta los cubre; en una PO de
+cliente, solo los facturables.
+
+**La política** (`config/reglas.yaml`, sección `planning`, y `Politica`):
+`obligatorio` (falso), `tolerancia_horas_dia` («0.25», entre 0 y 1) y
+`dias_gracia_sin_ciclo` (14, entre 0 y 60; un ciclo tiene los suyos).
+
+**Lo que se lee**: `consultas.objeto` gana `horas` (`trabajo.horas_objeto`):
+por semana ISO, las horas planificadas, validadas y facturables del planning,
+las facturadas por los proveedores y al cliente (una línea de varias semanas
+se reparte por sus días), las sin facturar (validadas facturables menos lo
+facturado al cliente, en las semanas ya empezadas), las dos diferencias, y lo
+esperado por cobrar y por pagar del Objeto (lo que queda de sus facturas
+abiertas en la parte imputada a él) con lo trabajado sin facturar valorado
+aparte. `consultas.cliente` dice el trabajo sin facturar (los V6 abiertos);
+`consultas.orden_compra`, lo planificado y lo sin facturar de la PO
+valorados como en P8 y P10; la ficha de una factura, su `conciliacion`
+(`conciliacion.traza`). El flujo de caja lleva su línea `estimado` (decisión
+22): lo trabajado sin facturar y lo planificado, por cobrar y por pagar, sin
+IVA y aparte de lo esperado. Sin ningún planning, todo eso dice sin datos,
+nunca cero. En la CLI: `bms-agent importar trnsprnt planning FICHERO
+[--desde AAAA-MM-DD --hasta AAAA-MM-DD]` (solo para el planning), `objeto N`
+con la tabla de horas, `orden N` con lo planificado y `flujo-caja` con el
+estimado; en `/api/v2` por los mismos caminos, y en la consola (horas del
+Objeto, trabajo sin facturar del cliente, lo planificado de la PO).
+
+**La prioridad**: un V6 o un V8 es del cliente, no de una factura: entra en
+la prioridad del cliente como una hija más (`estados._avisos_de_cliente`,
+como las de una PO). Las semanas pasada la gracia de V6 las cuenta
+`estados._semanas_tras_gracia` desde la fecha fija `gracia_hasta` de sus
+valores: unas semanas que suben cada lunes en la huella reabrirían un V6
+aceptado.
+
+**Cambios en lo que había**: `dominio.py` (estados y niveles del turno y de
+la conciliación), `campos.py` (la tabla controlada `conciliacion`),
+`almacen/evidencia.py` (los turnos como evidencia), `reglas/base.py`
+(`Turno`, `FotoPlanning`, `Conciliacion`, `Ciclo`, la semana impresa de una
+línea, lo sin resolver de un lote y los parámetros de la política),
+`reglas/instantanea.py` (el `Resolutor`, los turnos vigentes con sus
+referencias resueltas en cada pasada, las fotos, las conciliaciones y los
+ciclos), `reglas/catalogo.py`, `reglas/unicidad.py`, `reglas/ordenes.py`,
+`reglas/calidad.py`, `politica.py`, `hallazgos.py` (`Diferencia.planning`),
+`estados.py`, `consultas.py`, `flujo_caja.py`, `consola_assets.py`,
+`cli.py` e `importadores/tabular.py` (lo que cubre la foto en el contrato).
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| La comparación elige el nivel (día, semana o periodo) | `test_reglas_paso10.py::test_la_comparacion_elige_el_nivel_mas_fino_de_los_dos_lados` (persona y día, Objeto y día, persona que el planning no tiene, semana entera, mes, un día de una semana que solo tiene la fila semanal), `test_cada_nivel_compara_sus_horas`, `test_la_fila_semanal_se_compara_con_todo_lo_facturado_de_su_semana` (y la que no cabe entera: sin datos), `test_planning.py::test_la_conciliacion_deja_la_traza_de_cada_linea_a_sus_turnos` (Objeto y semana, en el almacén) |
+| La frontera del año ISO (una factura del 6 de enero por la semana 52) | `test_la_semana_52_de_una_factura_de_enero_es_la_del_ano_anterior` (y la 53 de 2026, la 1 facturada por adelantado y una 53 que no existe), `test_una_factura_del_6_de_enero_por_la_semana_52_se_compara_con_esa_semana` (G2 compara la 2026-W52 y no la 2027-W52, y G5 no se queja) |
+| 0,25 h pasa y 0,26 h falla | `test_la_tolerancia_es_de_0_25_horas_por_dia` (G2 y V1, por encima y por debajo), `test_cada_nivel_compara_sus_horas` (0,5 h en una semana con dos días de turnos), `test_la_tolerancia_sale_de_la_politica` |
+| Los turnos cancelados no cuentan | `test_un_turno_cancelado_no_cuenta` (G2, V1, G1 y V6), `test_planning.py::test_la_conciliacion_deja_la_traza...` (el cancelado no entra en la celda) |
+| El trabajo sin facturar aparece solo pasado el fin del periodo más la gracia | `test_el_trabajo_sin_facturar_aparece_pasado_su_periodo_y_su_gracia` (septiembre sin ciclo: el 14 de octubre no, el 15 sí), `test_v6_valora_a_la_tarifa_pactada_y_sigue_el_ciclo`, `test_v8_un_periodo_de_un_ciclo_con_trabajo_y_sin_factura` (la gracia del ciclo), `test_planning.py::test_el_trabajo_sin_facturar_de_agosto_es_v6_del_cliente` (en el almacén, con la prioridad del cliente) |
+| Un recargo nocturno a su tarifa pactada no da G3 | `test_un_recargo_de_noche_a_su_tarifa_pactada_no_da_g3` (con la tarifa pactada y sin ella, contra la del turno), `test_horas_de_noche_que_el_planning_tiene_de_dia_son_g6` |
+| Un lote más nuevo que cambia una semana facturada da V9 | `test_una_foto_mas_nueva_que_cambia_una_semana_facturada_da_v9_y_g7` (otras horas y un cancelado), `test_planning.py::test_una_foto_nueva_que_cambia_una_semana_facturada_da_v9` (en el almacén: lo conciliado sigue en la primera foto) |
+| Sin datos hasta que hay una importación del planning | `test_sin_ningun_planning_cada_regla_da_un_solo_sin_datos` (G1, G2, G4, G5, G7, V1, V3, V5, V6, V8, V9, B5), `test_sin_planning_g6_conserva_lo_pactado_y_p8_p10_esperan`, `test_planning.py::test_sin_planning_las_vistas_dicen_sin_datos` |
+| Importar: entero o nada, clave frágil, semanal, cobertura, la más nueva manda, evidencia | `test_una_foto_del_planning_entra_entera_con_sus_turnos`, `test_una_fila_que_no_se_lee_rechaza_la_foto_entera`, `test_la_exportacion_semanal_se_lee_por_semanas`, `test_lo_que_cubre_una_foto_se_puede_decir_y_no_admite_turnos_de_fuera`, `test_vale_la_foto_mas_nueva_de_cada_dia`, los contratos de `test_importadores.py` y `test_almacen.py` (los turnos entre las tablas de evidencia) |
+| La conciliación: traza, retirada, frescura | `test_la_conciliacion_deja_la_traza_de_cada_linea_a_sus_turnos`, `test_si_cambia_la_imputacion_la_conciliacion_se_retira_y_se_rehace`, `test_con_el_planning_pasado_de_su_frescura_no_se_concilia` |
+| G1, G4, V2, G5, G6, B5, V7, P7, P8, P10 y el escalón del planning de G3 y V4 | Los tests de cada una en `test_reglas_paso10.py` |
+| Las horas del Objeto y el estimado; la CLI | `test_las_horas_del_objeto_y_el_estimado_salen_del_planning`, `test_la_cli_importa_el_planning_y_ensena_las_horas_del_objeto` |
+| Cada regla lee lo que declara | `test_pureza_reglas.py` con los escenarios del paso 10 (`test_reglas_paso10.escenarios`) |
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración es la 0012**, no la 0007 del §11: la numeración ya va por
+   la 0011.
+2. **El estado de un turno con sus horas dadas por buenas es `validado`, no
+   «aprobado»** (las *approved hours* del §7). La suite de alcance no deja
+   ningún estado que diga «aprobado»: nada en la V1 aprueba nada. La columna
+   de sus horas se llama `horas_aprobadas_mil`, como en el §5, porque es lo
+   que la exportación llama así (*Goedgekeurd*).
+3. **Seis niveles de celda, no tres.** El §7 dice «recurso y día, luego
+   Objeto y día, luego Objeto y semana». Hacen falta también la persona y la
+   semana (una fila de la exportación semanal es de una persona) y el
+   periodo (una línea de un mes entero o de unos días sueltos), con persona
+   u Objeto.
+4. **Sin ningún planning, un solo sin datos por regla** (tabla `planning`,
+   fila 0), no uno por factura: nunca ok, y la caché no crece en cinco mil
+   filas por regla (la puerta de rendimiento del paso 3). V2 no espera al
+   planning: lo que mira del Objeto no depende de él (solo la propuesta).
+5. **Lo que el planning nombra y el maestro no tiene entra sin resolver**, no
+   se rechaza: una foto sin un turno daría por no trabajado lo que sí lo
+   está. No se crea nada (§9); lo dice Z2, en la importación, solo de la
+   última foto (las anteriores ya no valen). Se vuelve a buscar en cada
+   pasada sin tocar la fila (evidencia).
+6. **Lo que cubre una foto** es del primer al último día que trae, o lo que
+   se diga al importar; un turno fuera de lo dicho rechaza la foto. Una
+   foto que no trae un día que dice cubrir dice que ese día no hay turnos.
+7. **La foto que vale es la más nueva por día**, y una fila semanal deja de
+   valer entera en cuanto una más nueva cubre algún día de su semana
+   (mezclarla con turnos diarios contaría dos veces).
+8. **La conciliación queda congelada por imputación**, con todos los turnos
+   de la celda (también los de cero horas): es la celda tal como era, que
+   es con lo que comparan G7 y V9. Se reparte en el orden de los turnos y lo
+   que sobra va al último (si no, B5 y V7 no verían las horas de más).
+9. **G1 bloquea solo con el planning declarado obligatorio** (la severidad de
+   cada resultado); si no, retiene. Anularlo pide segunda firma siempre.
+10. **G2 y V1 comparan solo horas validadas**: una celda con un turno sin
+    validar da sin datos (comparar con las planificadas daría por buenas
+    unas horas que nadie ha validado).
+11. **La tolerancia es la de la política por cada día con turnos de la
+    celda** (los de una fila semanal, sus días): 0,25 h en un día y 1,25 h en
+    una semana de cinco días.
+12. **G5 y V3 miran dos cosas**: la semana impresa que no es la de sus
+    fechas, y lo facturado en días sin turnos con trabajo sin facturar de la
+    misma persona u Objeto a menos de cuatro semanas (el trabajo de otra
+    fecha facturado con la que no es).
+13. **El escalón del planning de G3 y V4 solo vale si todos los turnos de la
+    celda con ese turno dicen la misma tarifa**: si dicen varias, no se
+    adivina (G3 sigue con el histórico; V4 da sin datos).
+14. **B5 es solo la parte del planning** (lo que pide el paso 10): un turno
+    conciliado con más horas de compra de las que tiene desde dos facturas o
+    más que no se explican entre sí. Una sola factura que cobra de más es G2.
+    El caso de «la misma persona, Objeto y día en dos líneas» sin planning
+    queda pendiente (B4 cubre los periodos que se pisan por Objeto).
+15. **V5 y V6 se separan por el periodo facturado**: V5 es lo que falta
+    dentro del Objeto y el periodo que cobra una factura; V6, el trabajo
+    fuera de cualquier periodo facturado del Objeto (o del cliente, sin
+    Objeto). Lo cubierto lo dicen las líneas y los periodos de las ventas,
+    no la conciliación.
+16. **V6 y V8 son hallazgos del cliente** (no hay factura): su clave lleva el
+    Objeto o el ciclo y el inicio del periodo. Sin ciclo, el periodo es el
+    mes natural y la gracia la de la política.
+17. **P7 de una PO ya caducada**: con planning, retiene si hay turnos de la
+    PO después de su fin, y es ok si no; sin planning, sin datos.
+18. **P10 pone objetivos** (desviación 22 del paso 9): las facturas que le
+    cargan desde el punto en que lo esperado pasa el valor, para que su
+    retención y su suelo urgente lleguen a ellas.
+19. **Las horas planificadas que faltan** se calculan de las horas y la pausa
+    redondeadas a la milésima (8,333 h de 7:10 a 15:30).
+20. **Las fechas de una línea no son evidencia de V2**: los días que salen
+    de ellas van en los valores; una línea sin Objeto no se reabre porque una
+    persona corrija la fecha de la factura (como `NO_EVIDENCIA_PACTADA`).
+21. **El estimado del flujo de caja** (decisión 22) cuenta por cobrar lo
+    trabajado (realizado o validado) que no está facturado: de un turno
+    conciliado con ventas, lo que le falta; de uno sin conciliar, nada si una
+    venta lo cubre y todo si no. Por pagar, lo trabajado que ninguna compra
+    ha conciliado. Lo planificado después de hoy, entero. Sin IVA.
+
+### Lo que deben saber los pasos siguientes
+
+- **Cuando llegue una exportación real de TRNSPRNT**: se escribe la versión
+  2 de los mapeos (no se editan las de ahora), con su ejemplo anonimizado y
+  su contrato. Si no trae un identificador estable por turno, hay que
+  pedirlo: la clave sintética no reconoce un turno al que le cambian la hora,
+  y G7/V9 lo verían como uno quitado y otro nuevo.
+- **Las cuentas de TRNSPRNT** (F5, F6 contra TRNSPRNT) siguen sin datos: no
+  hay exportación de cuentas.
+- **Una regla nueva que mire el planning** usa `turnos.Planificacion`,
+  `turnos.agrupar` y `turnos.celda_de` (las mismas celdas que la
+  conciliación) y empieza con `turnos.sin_planning`. Nada que dependa de hoy
+  va en los valores (el V6 guarda `gracia_hasta`, no las semanas).
+- **La conciliación manual** (`metodo` manual) ya la admite la base, con
+  `cambiar_objeto`; no hay todavía una orden que la escriba.
+- **Paso 12**: la vista del Objeto ya tiene sus horas y lo esperado; faltan
+  ingresos, costes y margen (`v_objeto_periodo`). Las horas por semana se
+  reparten por días; el margen tendrá que decidir si atribuye por periodo de
+  trabajo o por fecha de factura (pregunta 10 del §12).
+- **Una vista nueva que necesite el planning** construye la instantánea
+  (`consultas._planning`): es lo que cuesta, unas décimas de segundo con
+  cinco mil facturas.
+
+**Tests existentes cambiados, y por qué**: `test_reglas.py` (el catálogo
+del §7 gana B5, G1, G2, G4, G5, G7, V1, V2, V3, V5, V6, V8 y V9; V6 y V8
+son del cliente; y la comparación con las reglas de la v1 solo mira las
+filas de factura, porque el sin datos sin planning es de la fila 0 de la
+tabla `planning`), `test_hallazgos.py` (las reglas del planning solo hablan
+de las facturas que ponen en el planning, y la caché por factura no cuenta
+las filas que no son de una factura), `test_reglas_paso9.py` (P8 y P10 dicen
+que esperan al planning, no «al paso 10»), `test_importadores.py` (el mapeo
+del planning tiene su ejemplo y su contrato), `test_almacen.py` (los turnos
+son evidencia: una fila más al poblar) y `test_pureza_reglas.py` (los tipos
+y los escenarios del paso 10, y `turnos` entre los módulos propios).

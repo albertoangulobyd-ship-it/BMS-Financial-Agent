@@ -143,6 +143,9 @@ _REGLAS: dict[str, dict[str, tuple[str, type]]] = {
                        "margen_prevision_dias": ("po_margen_prevision_dias", int),
                        "semanas_ritmo": ("po_semanas_ritmo", int)},
     "tarifas": {"exceso_bloqueo_pct": ("tarifa_exceso_bloqueo_pct", int)},
+    "planning": {"obligatorio": ("planning_obligatorio", bool),
+                 "tolerancia_horas_dia": ("planning_tolerancia_horas_dia", Decimal),
+                 "dias_gracia_sin_ciclo": ("planning_dias_gracia", int)},
 }
 
 
@@ -179,6 +182,11 @@ _LIMITES: dict[str, tuple[Decimal | int, Decimal | int]] = {
     "po_margen_prevision_dias": (0, 90),
     "po_semanas_ritmo": (2, 26),
     "tarifa_exceso_bloqueo_pct": (1, 100),
+    # Paso 10: una tolerancia de mas de una hora por dia da por buena una factura con
+    # medio turno de mas; una gracia de mas de dos meses deja el trabajo sin
+    # facturar escondido un trimestre entero.
+    "planning_tolerancia_horas_dia": (Decimal("0"), Decimal("1.00")),
+    "planning_dias_gracia": (0, 60),
 }
 
 

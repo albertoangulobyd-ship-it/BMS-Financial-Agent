@@ -535,6 +535,13 @@ SCRIPT = r"""
           return [c.iban, c.estado, c.pagable ? 'sí' : 'no']; })),
         filas(['IBAN impreso', 'Primera', 'Última', 'Facturas'], v.ibanes.impresos.map(
           function (i) { return [i.iban, i.primera, i.ultima, i.facturas]; }))) : null,
+      v.trabajo_sin_facturar ? el('div', {}, el('h3', {}, 'Trabajo sin facturar'),
+        v.trabajo_sin_facturar.estado !== 'ok' ?
+          el('p', {clase: 'suave'}, v.trabajo_sin_facturar.detalle) :
+          filas(['Objeto', 'Desde', 'Hasta', 'Horas', 'Valor'],
+            v.trabajo_sin_facturar.periodos.map(function (t) {
+              return [t.objeto_id, t.desde, t.hasta, t.horas,
+                (t.valor || '-') + (t.estimado ? ' (estimado)' : '')]; }))) : null,
       el('h3', {}, 'Avisos activos'),
       el('ul', {}, v.avisos.hallazgos.map(function (h) {
         return el('li', {}, h.regla + ' (' + h.severidad + ', ' + h.estado + '): ' + h.detalle);
@@ -597,7 +604,8 @@ SCRIPT = r"""
       el('p', {clase: 'suave'}, 'Ritmo: ' + p.consumido_ventana + ' en ' + p.dias +
         ' días desde el ' + p.desde + ' · ' + (p.agotamiento ? 'se agotaría el ' +
         p.agotamiento : 'a este ritmo no se agota')),
-      el('p', {clase: 'suave'}, o.planificado.detalle + ' ' + o.sin_facturar.detalle),
+      el('p', {clase: 'suave'}, delPlanning('Planificado', o.planificado) + ' · ' +
+        delPlanning('Sin facturar', o.sin_facturar)),
       el('h3', {}, 'Objetos'),
       el('ul', {}, o.objetos.length ? o.objetos.map(function (x) {
         return el('li', {clase: 'fila', al_pulsar: function () { abrirObjeto(x.id); }},
@@ -630,8 +638,17 @@ SCRIPT = r"""
       })));
   }
 
+  // Lo que sale del planning: su valor, o por que no hay datos (nunca un cero).
+  function delPlanning(nombre, bloque) {
+    if (bloque.estado !== 'ok') { return bloque.detalle; }
+    return nombre + ' ' + bloque.valor + ' (planning)' + (bloque.nota ? ', ' + bloque.nota : '');
+  }
+
   function pintarObjeto(contenedor, v) {
     vaciar(contenedor);
+    var h = v.horas;
+    var e = h.esperado;
+    var semanas = h.semanas.concat([Object.assign({}, h.total, {semana: 'total'})]);
     anadir(contenedor,
       el('h2', {}, 'Objeto ' + v.codigo + (v.nombre ? ' (' + v.nombre + ')' : '')),
       el('p', {}, 'Cliente ' + (v.cliente.nombre || '?') + (v.requiere_po ? ' · pide PO' : '')),
@@ -643,7 +660,18 @@ SCRIPT = r"""
             o.fecha_fin]; })),
       el('p', {clase: 'suave'}, 'De cliente: queda ' + v.ordenes_resumen.cliente.restante +
         ' de ' + v.ordenes_resumen.cliente.valor + ' · a proveedores: queda ' +
-        v.ordenes_resumen.proveedor.restante + ' de ' + v.ordenes_resumen.proveedor.valor));
+        v.ordenes_resumen.proveedor.restante + ' de ' + v.ordenes_resumen.proveedor.valor),
+      el('h3', {}, 'Horas por semana'),
+      el('p', {clase: 'suave'}, h.planning === 'ok' ? 'Del planning y de las facturas.' :
+        'Sin planning importado: solo las horas facturadas.'),
+      filas(['Semana', 'Planificadas', 'Validadas', 'Proveedores', 'Cliente', 'Sin facturar',
+        'Dif. proveedor', 'Dif. cliente'], semanas.map(function (f) {
+          return [f.semana, f.planificadas || '-', f.validadas || '-', f.proveedor || '-',
+            f.cliente || '-', f.sin_facturar || '-', f.diferencia_proveedor || '-',
+            f.diferencia_cliente || '-']; })),
+      el('p', {}, 'Esperado: por cobrar ' + e.entrante + ' · por pagar ' + e.saliente +
+        (e.entrante_estimado !== null ? ' · estimado aparte: por cobrar ' +
+          e.entrante_estimado + ', por pagar ' + e.saliente_estimado : '')));
   }
 
   function abrirOrden(id) {

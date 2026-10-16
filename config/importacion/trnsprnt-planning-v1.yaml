@@ -1,0 +1,59 @@
+# El planning de TRNSPRNT: la exportacion de diensten (un turno por fila) a
+# CSV (spec §9, paso 10).
+#
+# El formato real de la exportacion de TRNSPRNT no se conoce todavia: este
+# mapeo esta hecho contra un ejemplo sintetico de turnos de seguridad y
+# facility (tests/fixtures/importacion/trnsprnt-planning-v1.csv). Las
+# columnas que espera estan en docs/sistemas.md y en el registro del paso 10,
+# para compararlas con una exportacion de verdad; cuando llegue, se escribe
+# la version 2 de este fichero (no se edita esta).
+#
+# Cada fichero aceptado es una foto congelada del planning de los dias que
+# cubre: entra todo o nada (decision 6). El Dienst-ID es lo que reconoce el
+# mismo turno en dos fotos; una fila sin el lleva una clave sintetica (dia,
+# Objeto, persona, horas y turno) marcada como fragil. Las horas planificadas
+# que falten salen de Eindtijd - Begintijd - Pauze. El Object, el
+# Medewerker, la Leverancier y la Opdrachtgever se buscan en el maestro por
+# coincidencia exacta (numero de TRNSPRNT o de Exact, codigo o alias): lo que
+# no se encuentra entra con su texto, sin resolver, y lo dice Z2.
+version: 1
+fuente: trnsprnt
+tipo: planning
+formato: "csv:trnsprnt-diensten-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  formatos_fecha: ["%d-%m-%Y", "%Y-%m-%d"]
+  fila_cabecera: 1
+cabecera: [Datum, Begintijd, Eindtijd, Objectcode, Medewerker, Status]
+completo: true
+registros:
+  planning:
+    campos:
+      id_externo: {columna: Dienst-ID}
+      fecha: {columna: Datum, tipo: fecha, obligatorio: true}
+      hora_inicio: {columna: Begintijd}
+      hora_fin: {columna: Eindtijd}
+      pausa_min: {columna: Pauze (min), tipo: entero}
+      objeto_ref: {columna: Objectcode}
+      objeto_nombre: {columna: Objectnaam}
+      cliente_ref: {columna: Opdrachtgever}
+      recurso_ref: {columna: Medewerker}
+      proveedor_ref: {columna: Leverancier}
+      tipo_servicio: {columna: Dienstsoort}
+      tipo_turno: {columna: Diensttype}
+      horas_planificadas: {columna: Gepland (u), tipo: decimal}
+      horas_realizadas: {columna: Gewerkt (u), tipo: decimal}
+      horas_aprobadas: {columna: Goedgekeurd (u), tipo: decimal}
+      estado:
+        columna: Status
+        obligatorio: true
+        valores: {Gepland: planificado, Ingepland: planificado, Uitgevoerd: realizado,
+                  Gewerkt: realizado, Goedgekeurd: validado, Geaccordeerd: validado,
+                  Geannuleerd: cancelado, Vervallen: cancelado}
+      facturable: {columna: Factureerbaar, tipo: bool}
+      tarifa_compra: {columna: Inkooptarief, tipo: decimal}
+      tarifa_venta: {columna: Verkooptarief, tipo: decimal}
+      po_ref: {columna: PO-nummer}
+      moneda: {columna: Valuta}

@@ -71,6 +71,67 @@ semana y festivos). Eso afecta a:
 No se rehacen los ejemplos sobre otra suposición: primero una factura real
 anonimizada de cada tipo.
 
+### La exportación del planning que espera el agente (paso 10)
+
+Todavía no hay una exportación real de TRNSPRNT. El mapeo está hecho contra
+un fichero **sintético** de turnos de seguridad y *facility* (diensten en
+objetos, con recargos de tarde, noche, fin de semana y festivo), y se
+enciende de verdad cuando llegue una exportación real: entonces se ajustan
+los nombres de las columnas en el YAML del mapeo, no el código. Se importa
+con `bms-agent importar trnsprnt planning FICHERO [--desde AAAA-MM-DD --hasta
+AAAA-MM-DD]` (por defecto, la foto cubre del primer al último turno que trae).
+
+**Por turnos** (`config/importacion/trnsprnt-planning-v1.yaml`, CSV con `;` y
+coma decimal, fechas `dd-mm-aaaa`; ejemplo en
+`tests/fixtures/importacion/trnsprnt-planning-v1.csv`):
+
+| Columna | Qué es | Valor obligatorio |
+|---|---|---|
+| `Dienst-ID` | identificador estable del turno | no (ver abajo) |
+| `Datum` | día del turno (el de inicio, si cruza la medianoche) | sí |
+| `Begintijd`, `Eindtijd` | hora de inicio y de fin (`7:00` o `07:00`) | no |
+| `Pauze (min)` | pausa en minutos | no |
+| `Objectcode`, `Objectnaam` | el Objeto (se busca por el código) | no |
+| `Opdrachtgever` | el cliente (número de deudor de Exact) | no |
+| `Medewerker` | la persona (recurso) | no |
+| `Leverancier` | el proveedor (número de acreedor de Exact) | no |
+| `Dienstsoort` | tipo de servicio (Objectbeveiliging, Receptie…) | no |
+| `Diensttype` | tipo de turno: Dag, Avond, Nacht, Weekend, Feestdag | no |
+| `Gepland (u)`, `Gewerkt (u)`, `Goedgekeurd (u)` | horas planificadas, trabajadas y validadas | no; sin planificadas se calculan de las horas menos la pausa; un turno validado lleva las validadas |
+| `Status` | Gepland/Ingepland, Uitgevoerd/Gewerkt, Goedgekeurd/Geaccordeerd, Geannuleerd/Vervallen | sí |
+| `Factureerbaar` | si se factura al cliente (Ja/Nee) | no |
+| `Inkooptarief`, `Verkooptarief` | tarifa de compra y de venta del turno | no |
+| `PO-nummer` | la PO del cliente | no |
+| `Valuta` | moneda (solo euros) | no |
+
+Las columnas `Datum`, `Begintijd`, `Eindtijd`, `Objectcode`, `Medewerker` y
+`Status` tienen que estar en la cabecera: así reconoce el agente el fichero.
+
+**Por semanas** (`config/importacion/trnsprnt-planning-semana-v1.yaml`, la
+exportación pivotada *weekoverzicht*): `Jaar`, `Week`, `Objectcode`,
+`Opdrachtgever`, `Medewerker`, `Leverancier`, `Dienstsoort`, `Diensttype`,
+una columna por día (`Ma` a `Zo`), `Totaal` (obligatorio, y tiene que ser la
+suma de los días), `Status` (vacío es validado) y `Factureerbaar`. Una fila
+semanal se compara **a nivel de semana**: nunca se parte en días.
+
+Lo que el agente hace con el fichero:
+
+- **Entra entero o no entra.** Una fila que no se lee (una fecha imposible,
+  unas horas negativas, un total que no suma, otra moneda, dos turnos con el
+  mismo identificador) rechaza la foto entera: medio planning daría por no
+  trabajado lo que sí lo está.
+- **Cada foto aceptada queda congelada** (evidencia, no se toca) y vale la más
+  nueva de cada día (`v_turno_vigente`). Lo ya facturado se concilia con la
+  foto de entonces; si una foto nueva cambia una semana facturada, es G7 (compras)
+  o V9 (ventas).
+- **Sin identificador estable** (`Dienst-ID` vacío), el turno lleva una clave
+  sintética (día, Objeto, persona, horas y tipo de turno) marcada como
+  **frágil**: si TRNSPRNT le cambia la hora a un turno, la foto siguiente lo ve
+  como otro turno. Hay que pedir a TRNSPRNT que exporte su identificador.
+- **Lo que no está en el maestro** (un Objeto, una persona, un proveedor o un
+  cliente desconocidos) entra con su texto y sin resolver: no se crea nada, y
+  Z2 lo dice. Se resuelve en cada pasada en cuanto el maestro lo tenga.
+
 ---
 
 ## Exact Online: la contabilidad

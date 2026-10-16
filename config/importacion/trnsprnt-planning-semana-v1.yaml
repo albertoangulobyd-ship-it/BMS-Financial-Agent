@@ -1,0 +1,50 @@
+# El planning de TRNSPRNT en su exportacion semanal pivotada: una fila por
+# Object, Medewerker y semana, con las horas de cada dia en una columna (Ma a
+# Zo) y el total (spec §9, paso 10).
+#
+# Se lee a nivel de semana, sin partirla en dias: la comparacion con las
+# facturas se hace entonces por Objeto y semana (o por periodo), nunca por
+# dia. Las columnas de los dias solo dicen cuantos dias tienen horas (la
+# tolerancia es por dia) y comprueban que el total sea su suma. Esta
+# exportacion no trae identificador de turno: cada fila lleva una clave
+# sintetica (semana, Objeto, persona y turno) marcada como fragil.
+#
+# Como el diario, esta hecho contra un ejemplo sintetico
+# (tests/fixtures/importacion/trnsprnt-planning-semana-v1.csv); el total es
+# de horas validadas (Goedgekeurd).
+version: 1
+fuente: trnsprnt
+tipo: planning
+formato: "csv:trnsprnt-weekoverzicht-v1"
+lectura:
+  codificaciones: [utf-8-sig, cp1252]
+  delimitador: ";"
+  separador_decimal: ","
+  fila_cabecera: 1
+cabecera: [Jaar, Week, Objectcode, Medewerker, Ma, Zo, Totaal]
+completo: true
+registros:
+  planning:
+    campos:
+      ano: {columna: Jaar, tipo: entero, obligatorio: true}
+      semana: {columna: Week, tipo: entero, obligatorio: true}
+      objeto_ref: {columna: Objectcode}
+      cliente_ref: {columna: Opdrachtgever}
+      recurso_ref: {columna: Medewerker}
+      proveedor_ref: {columna: Leverancier}
+      tipo_servicio: {columna: Dienstsoort}
+      tipo_turno: {columna: Diensttype}
+      horas_lunes: {columna: Ma, tipo: decimal}
+      horas_martes: {columna: Di, tipo: decimal}
+      horas_miercoles: {columna: Wo, tipo: decimal}
+      horas_jueves: {columna: Do, tipo: decimal}
+      horas_viernes: {columna: Vr, tipo: decimal}
+      horas_sabado: {columna: Za, tipo: decimal}
+      horas_domingo: {columna: Zo, tipo: decimal}
+      horas_aprobadas: {columna: Totaal, tipo: decimal, obligatorio: true}
+      estado:
+        columna: Status
+        por_defecto: validado
+        valores: {Gepland: planificado, Uitgevoerd: realizado, Goedgekeurd: validado,
+                  Geaccordeerd: validado, Geannuleerd: cancelado}
+      facturable: {columna: Factureerbaar, tipo: bool}

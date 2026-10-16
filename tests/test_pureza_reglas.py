@@ -26,17 +26,21 @@ from test_reglas_paso5 import escenarios as escenarios_paso5
 from test_reglas_paso7 import escenarios as escenarios_paso7
 from test_reglas_paso8 import escenarios as escenarios_paso8
 from test_reglas_paso9 import escenarios as escenarios_paso9
+from test_reglas_paso10 import escenarios as escenarios_paso10
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
     Aplicacion,
     Bloqueo,
     CambioTelefono,
+    Ciclo,
     Cita,
+    Conciliacion,
     Cuenta,
     EventoCuenta,
     Extracto,
     Factura,
+    FotoPlanning,
     Imputacion,
     Instantanea,
     Linea,
@@ -53,6 +57,7 @@ from bms_agent.reglas.base import (
     Resultado,
     Tarifa,
     TramoIva,
+    Turno,
     por_factura,
 )
 
@@ -66,7 +71,7 @@ PERMITIDOS = frozenset({
 })
 PROPIOS = frozenset({"base", "calidad", "aritmetica", "iva", "bancaria", "unicidad", "planning",
                      "catalogo", "motor", "anomalias", "identidad", "normas", "pagos",
-                     "relaciones", "ordenes", "tarifas", "venta"})
+                     "relaciones", "ordenes", "tarifas", "venta", "turnos"})
 DEL_PAQUETE = frozenset({"dominio"})
 LLAMADAS_PROHIBIDAS = frozenset({"open", "eval", "exec", "compile", "__import__", "input",
                                  "print", "breakpoint", "globals"})
@@ -156,7 +161,8 @@ _TIPOS = {Instantanea: "instantanea", Factura: "factura", Linea: "linea",
           Extracto: "extracto", Movimiento: "movimiento", Aplicacion: "aplicacion",
           Bloqueo: "bloqueo", PagadoExact: "pagado_exact", Cita: "cita",
           Imputacion: "imputacion", Referencia: "referencia", OrdenCompra: "orden_compra",
-          Tarifa: "tarifa", Objeto: "objeto"}
+          Tarifa: "tarifa", Objeto: "objeto", Turno: "turno", FotoPlanning: "foto_planning",
+          Conciliacion: "conciliacion", Ciclo: "ciclo"}
 
 
 class Grabadora:
@@ -243,6 +249,8 @@ def _escenarios() -> list[Instantanea]:
         *escenarios_paso8(),
         # Paso 9: ordenes de compra, imputaciones y referencias, tarifas pactadas.
         *escenarios_paso9(),
+        # Paso 10: el planning (turnos, fotos, conciliaciones y ciclos de facturacion).
+        *escenarios_paso10(),
     ]
 
 

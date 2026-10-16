@@ -23,6 +23,13 @@ El paso 9 trae las ordenes de compra (P1-P10), las tarifas pactadas en G3 (que
 sigue con el historico cuando no hay pactada, y sube a la version 2), G6 (un
 recargo a su propia tarifa) y V4 (la tarifa de venta pactada).
 
+El paso 10 trae el planning: G1, G2, G4, G5 y G7, la parte del planning de G6
+(las horas de cada recargo contra las de sus turnos) y de B5 (un turno
+conciliado con mas horas de compra de las que tiene), el escalon del planning
+de G3 y V4 (la tarifa del turno), V1, V2, V3, V5, V6, V8 y V9, el caso de B5
+en V7, y lo planificado de P7, P8 y P10. Sin ningun planning importado dan un
+solo sin_datos cada una (turnos.sin_planning), nunca ok.
+
 F0 no esta en la tabla del §7: es la tarea de atestacion de la decision 3
 (lo heredado del primer maestro, de nivel atencion), escrita como regla para
 que tenga su hallazgo, su excepcion y su prioridad como las demas.
@@ -65,6 +72,7 @@ _PROVEEDOR = AmbitoHallazgo.PROVEEDOR.value
 _IMPORTACION = AmbitoHallazgo.IMPORTACION.value
 _MOVIMIENTO = AmbitoHallazgo.MOVIMIENTO.value
 _PO = AmbitoHallazgo.ORDEN_COMPRA.value
+_CLIENTE = AmbitoHallazgo.CLIENTE.value
 
 
 def _de_factura(id_: str, funcion, lee: frozenset[str], **metadatos) -> Regla:
@@ -117,7 +125,8 @@ CATALOGO: tuple[Regla, ...] = (
     Regla("Z2", "Filas de importación rechazadas", "calidad", calidad.z2, calidad.LEE_Z2,
           severidad=R, calidad=_C.FALTANTE.value, ambito=_IMPORTACION,
           descripcion="La última importación de una fuente rechazó filas (o entera), o trae "
-                      "una parte, un Objeto o un recurso que no existe: nada se crea solo."),
+                      "una parte, un Objeto o un recurso que no existe (el planning los deja "
+                      "entrar sin resolver): nada se crea solo."),
     Regla("A0", "Contraparte desconocida", "identidad", identidad.EVALUAR["A0"],
           identidad.LEE_A0, severidad=R, calidad=_C.FALTANTE.value,
           descripcion="Ningún proveedor o cliente del maestro coincide exactamente (btw-id, "
@@ -160,13 +169,21 @@ CATALOGO: tuple[Regla, ...] = (
           calidad=_C.ANOMALIA.value,
           descripcion="Periodos de cobro que se pisan, por Objeto cuando las líneas lo "
                       "nombran; sin las relaciones confirmadas ni los abonos."),
-    Regla("V7", "Facturación doble", "unicidad", unicidad.v7, unicidad.LEE_V7,
+    Regla("B5", "Horas cobradas dos veces", "unicidad", unicidad.b5, unicidad.LEE_B5,
+          severidad=R, anulable=True, pegajosa=True, entrada_prioridad=_P.DUPLICADO.value,
+          calidad=_C.ANOMALIA.value,
+          descripcion="Un turno del planning conciliado con más horas de compra de las que "
+                      "tiene, desde dos o más facturas que no se explican entre sí (la parte "
+                      "del planning de B5)."),
+    Regla("V7", "Facturación doble", "unicidad", unicidad.v7,
+          unicidad.LEE_V7 | unicidad.LEE_TURNOS_DE_MAS,
           solo_texto=unicidad.SOLO_TEXTO,
           severidad=R, anulable=True, pegajosa=True, entrada_prioridad=_P.DUPLICADO.value,
           calidad=_C.ANOMALIA.value,
-          descripcion="En las ventas, el caso de B2 (el mismo número a la misma contraparte) o "
+          descripcion="En las ventas, el caso de B2 (el mismo número a la misma contraparte), "
                       "el de B3 (el mismo importe a pocos días, periodos compatibles y otro "
-                      "número): se le ha facturado dos veces."),
+                      "número) o el de B5 (las horas de un turno cobradas desde dos facturas): "
+                      "se le ha facturado dos veces."),
     # Aritmetica e IVA
     _de_factura("D1", aritmetica.d1, aritmetica.LEE_D1,
                 titulo="Desglose", familia="aritmetica", severidad=B, severidad_saliente=R,
@@ -298,8 +315,22 @@ CATALOGO: tuple[Regla, ...] = (
           severidad=R, calidad=_C.DISCREPANCIA.value,
           descripcion="El banco y Exact dicen importes pagados distintos de la misma factura."),
     # Planning
+    Regla("G1", "Sin turnos en el planning", "planning", planning.g1, planning.LEE_G1,
+          severidad=R, anulable=True, segunda_firma=True, entrada_prioridad=_P.PLANNING.value,
+          calidad=_C.FALTANTE.value,
+          descripcion="Una compra sin ningún turno de su proveedor ni de sus personas en el "
+                      "periodo facturado. Retiene; bloquea si el planning es obligatorio "
+                      "(config/reglas.yaml). Anularla pide segunda firma."),
+    Regla("G2", "Horas distintas de las validadas", "planning", planning.g2,
+          planning.LEE_G2, severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="Las horas facturadas contra las validadas del planning, en la celda más "
+                      "fina que llevan los dos lados (persona y día, Objeto y día, Objeto y "
+                      "semana, periodo), con 0,25 h por día de tolerancia. Turnos sin validar, "
+                      "filas semanales que no se pueden partir o días que el planning no cubre: "
+                      "sin datos."),
     Regla("G3", "Tarifa distinta de la pactada", "planning", planning.g3,
-          planning.LEE_G3,
+          planning.LEE_G3 | planning.LEE_TURNO_TARIFA,
           solo_texto=planning.SOLO_TEXTO_G3 | (planning.NO_EVIDENCIA_PACTADA & planning.LEE_G3),
           severidad=R, anulable=True, entrada_prioridad=_P.PLANNING.value,
           calidad=_C.ANOMALIA.value, version=2,
@@ -311,7 +342,20 @@ CATALOGO: tuple[Regla, ...] = (
                       "Objeto. Dos pactadas igual de concretas con precios distintos: sin datos "
                       "en la línea y la factura retenida, con su excepción. Con pactadas para "
                       "la línea pero ninguna de su unidad o su día (los imprime el proveedor): "
-                      "sin datos y la factura retenida, no el histórico."),
+                      "sin datos y la factura retenida, no el histórico. Sin pactada, la tarifa "
+                      "del turno en el planning, si todos los de su celda dicen la misma."),
+    Regla("G4", "Objeto distinto del planning", "planning", planning.g4, planning.LEE_G4,
+          solo_texto=planning.SOLO_TEXTO_G4, severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="El Objeto de una línea de compra contra el planning: la persona o el "
+                      "proveedor tienen esos días turnos en otro Objeto. Una línea sin Objeto "
+                      "recibe la propuesta del planning, que confirma una persona."),
+    Regla("G5", "Periodo distinto del planning", "planning", planning.g5, planning.LEE_G5,
+          solo_texto=frozenset({"linea.orden"}), severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="El periodo y la semana ISO de una compra contra el planning: la semana "
+                      "impresa no es la de sus fechas, o lo facturado cae en días sin turnos y "
+                      "ese trabajo está sin facturar en otra semana."),
     Regla("G6", "Recargo a otra tarifa que la suya", "planning", planning.g6, planning.LEE_G6,
           solo_texto=planning.SOLO_TEXTO_G6, severidad=R, anulable=True,
           entrada_prioridad=_P.PLANNING.value,
@@ -319,14 +363,59 @@ CATALOGO: tuple[Regla, ...] = (
           descripcion="Una línea de un recargo (noche, fin de semana, festivo) se cobra a su "
                       "propia tarifa pactada. Sin tarifa propia pero con otras pactadas para la "
                       "línea (la de día), sin datos y la factura retenida para que una persona "
-                      "confirme el recargo; sin ninguna pactada, la mira G3 con el histórico."),
+                      "confirme el recargo; sin ninguna pactada, la mira G3 con el histórico. "
+                      "Con el planning, las horas de cada recargo no pasan las de los turnos de "
+                      "ese recargo."),
+    Regla("G7", "El planning cambió tras conciliar", "planning", planning.g7,
+          planning.LEE_G7, solo_texto=frozenset({"linea.orden"}), severidad=A,
+          anulable=True, entrada_prioridad=_P.PLANNING.value, calidad=_C.ANOMALIA.value,
+          descripcion="Una foto más nueva del planning cambia las horas ya conciliadas con "
+                      "una compra (otras horas, turnos que ya no están o se cancelaron, turnos "
+                      "nuevos)."),
     # Facturas de venta
+    Regla("V1", "Horas facturadas distintas de las validadas", "venta", venta.v1, venta.LEE_V1,
+          severidad=R, anulable=True, entrada_prioridad=_P.PLANNING.value,
+          calidad=_C.DISCREPANCIA.value,
+          descripcion="Las horas de una venta contra las validadas facturables del planning, "
+                      "en la celda más fina de los dos lados (como G2)."),
+    Regla("V2", "Objeto de la venta", "venta", venta.v2, venta.LEE_V2,
+          solo_texto=venta.SOLO_TEXTO_V2, severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="El Objeto de cada línea de venta existe, es del cliente facturado y "
+                      "estaba activo; una línea sin Objeto retiene, con la propuesta del "
+                      "planning si la hay."),
+    Regla("V3", "Periodo de la venta distinto del planning", "venta", venta.v3, venta.LEE_V3,
+          solo_texto=frozenset({"linea.orden"}), severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.DISCREPANCIA.value,
+          descripcion="El periodo y la semana de lo facturado contra el planning (como G5)."),
     Regla("V4", "Tarifa de venta distinta de la pactada", "venta", venta.v4, venta.LEE_V4,
           solo_texto=venta.SOLO_TEXTO_V4, severidad=R, anulable=True,
           entrada_prioridad=_P.PLANNING.value,
           calidad=_C.DISCREPANCIA.value,
           descripcion="La tarifa de una línea de venta no es la de venta pactada (ni por encima "
-                      "ni por debajo). Sin tarifa pactada, sin datos hasta el planning."),
+                      "ni por debajo). Sin tarifa pactada, la del turno en el planning; sin "
+                      "ninguna, sin datos."),
+    Regla("V5", "Horas validadas sin facturar en lo facturado", "venta", venta.v5, venta.LEE_V5,
+          severidad=R, anulable=True, entrada_prioridad=_P.FACTURACION_AUSENTE.value,
+          calidad=_C.FALTANTE.value,
+          descripcion="Dentro del Objeto y el periodo que cobra una venta, turnos validados "
+                      "facturables que ninguna línea de venta cubre."),
+    Regla("V6", "Trabajo sin facturar", "venta", venta.v6, venta.LEE_V6, severidad=R,
+          anulable=True, entrada_prioridad=_P.TRABAJO_SIN_FACTURAR.value,
+          calidad=_C.FALTANTE.value, ambito=_CLIENTE,
+          descripcion="Turnos validados facturables que ninguna venta cubre, pasado el fin de "
+                      "su periodo de facturación más sus días de gracia. Valorado a la tarifa "
+                      "de venta pactada o, si no, marcado como estimado."),
+    Regla("V8", "Periodo de facturación sin factura", "venta", venta.v8, venta.LEE_V8,
+          severidad=R, anulable=True, entrada_prioridad=_P.FACTURACION_AUSENTE.value,
+          calidad=_C.FALTANTE.value, ambito=_CLIENTE,
+          descripcion="Un periodo del ciclo de facturación de un cliente u Objeto, con trabajo "
+                      "en el planning, ya pasado con su gracia y sin ninguna factura."),
+    Regla("V9", "El planning cambió tras facturar", "venta", venta.v9, venta.LEE_V9,
+          solo_texto=frozenset({"linea.orden"}), severidad=R, anulable=True,
+          entrada_prioridad=_P.PLANNING.value, calidad=_C.ANOMALIA.value,
+          descripcion="Una foto más nueva del planning cambia lo que se facturó (regla 9 de "
+                      "arquitectura.md): hace falta una corrección o un abono."),
     # Ordenes de compra (paso 9)
     Regla("P1", "PO no válida", "ordenes", ordenes.p1, ordenes.LEE_P1,
           solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
@@ -362,12 +451,13 @@ CATALOGO: tuple[Regla, ...] = (
           solo_texto=ordenes.SOLO_TEXTO, severidad=A, anulable=True,
           entrada_prioridad=_P.CADUCIDAD_PO.value, calidad=_C.ANOMALIA.value, ambito=_PO,
           descripcion="La PO caduca dentro de los días de la política (30) con valor por "
-                      "consumir. Caducada, lo que diga el planning (paso 10)."),
+                      "consumir. Ya caducada, retiene si el planning tiene trabajo después de "
+                      "su fin."),
     Regla("P8", "Planificado por encima de lo que queda", "ordenes", ordenes.p8, ordenes.LEE_P8,
           solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
           calidad=_C.ANOMALIA.value, ambito=_PO,
-          descripcion="El trabajo planificado por la tarifa pactada pasa lo que queda de la PO "
-                      "(sin datos hasta el planning)."),
+          descripcion="El trabajo planificado (después de hoy) por la tarifa pactada, o la del "
+                      "turno, pasa lo que queda de la PO."),
     Regla("P9", "PO que se agota antes de tiempo", "ordenes", ordenes.p9, ordenes.LEE_P9,
           solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
           calidad=_C.ANOMALIA.value, ambito=_PO,
@@ -377,7 +467,7 @@ CATALOGO: tuple[Regla, ...] = (
           solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
           entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value, ambito=_PO,
           descripcion="Lo facturado más lo trabajado sin facturar más lo planificado pasa el "
-                      "valor de la PO (sin datos hasta el planning)."),
+                      "valor de la PO; retiene también las facturas que le cargan desde ahí."),
     # Relaciones y anomalias
     Regla("R1", "Factura nombrada que no está", "relaciones", relaciones.EVALUAR["R1"],
           relaciones.LEE_R1, severidad=R, anulable=True, calidad=_C.FALTANTE.value,
