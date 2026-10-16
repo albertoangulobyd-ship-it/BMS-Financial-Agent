@@ -524,9 +524,16 @@ def comparar_horas(instantanea: Instantanea, regla: str, sentido: str) -> list[R
 
     En una compra, los turnos de su proveedor; en una venta, los facturables de
     su cliente. La tolerancia es la de la politica por dia con turnos de la
-    celda (0,25 h: 0,25 pasa y 0,26 no). Una celda con algun turno sin validar,
-    una fila semanal que no se puede partir o unos dias que el planning no
-    cubre dan sin datos.
+    celda (0,25 h: 0,25 pasa y 0,26 no). Una fila semanal que no se puede
+    partir o unos dias que el planning no cubre dan sin datos.
+
+    Lo que dice si unas horas estan validadas es el estado del turno. Una celda
+    con algun turno sin validar no tiene con que comparar del todo, pero si
+    tiene un tope: las horas de cada turno (las validadas, las realizadas o las
+    planificadas, turnos.horas_referencia). Cobrar mas que ese tope (con la
+    tolerancia) retiene; si no, sin datos hasta que se validen. Si no, una
+    factura podria cobrar cualquier cosa contra turnos sin validar sin que
+    nada la parase.
     """
     vacio = turnos.sin_planning(instantanea, regla)
     if vacio is not None:
@@ -547,25 +554,41 @@ def comparar_horas(instantanea: Instantanea, regla: str, sentido: str) -> list[R
                                   "semanales que no caben enteras: no se pueden partir.",
                 g.clave))
             continue
-        pendientes = [t for t in c.turnos if t.horas_aprobadas_mil is None]
+        tolerancia = turnos.tolerancia_mil(plan.tolerancia, c.dias)
+        dias = _dias_texto(g.celda)
+        tarifa_ = _tarifa_de(g)
+        pendientes = [t for t in c.turnos if turnos.horas_validadas(t) is None]
         if pendientes:
-            salida.append(_sin_datos(
-                regla, g.factura, f"{len(pendientes)} turno(s) de {_dias_texto(g.celda)} todavía "
-                                  "sin validar en el planning: no hay horas validadas con qué "
-                                  "comparar.", g.clave))
+            tope = sum(turnos.horas_referencia(t) for t in c.turnos)
+            exceso = g.horas_mil - tope
+            if exceso <= tolerancia:
+                salida.append(_sin_datos(
+                    regla, g.factura, f"{len(pendientes)} turno(s) de {dias} todavía sin validar "
+                                      "en el planning: no hay horas validadas con qué comparar.",
+                    g.clave))
+                continue
+            salida.append(Resultado(
+                regla, "factura", g.factura.id, FALLO,
+                f"{_horas(g.horas_mil)} h facturadas {dias} ({_de_quien(g.celda)}) y el planning "
+                f"tiene como mucho {_horas(tope)} h, con {len(pendientes)} turno(s) todavía sin "
+                f"validar: {_horas(exceso)} h de más, más que la tolerancia de "
+                f"{_horas(tolerancia)} h.",
+                {"nivel": g.celda.nivel, "desde": g.celda.desde.isoformat(),
+                 "hasta": g.celda.hasta.isoformat(), "facturadas_mil": g.horas_mil,
+                 "tope_mil": tope, "sin_validar": len(pendientes), "diferencia_mil": exceso,
+                 "tolerancia_mil": tolerancia, "turnos": sorted(t.id_externo for t in c.turnos),
+                 "valor_cent": turnos.valor_cent(exceso, tarifa_)}, g.clave,
+                objetivos=tuple(Objetivo("factura_imputacion", i.id, "horas_mil", RELACIONADO)
+                                for i in g.imputaciones)))
             continue
         validadas = sum(t.horas_aprobadas_mil for t in c.turnos)
-        tolerancia = turnos.tolerancia_mil(plan.tolerancia, c.dias)
         diferencia = g.horas_mil - validadas
-        dias = _dias_texto(g.celda)
         if abs(diferencia) <= tolerancia:
             salida.append(Resultado(
                 regla, "factura", g.factura.id, OK,
                 f"{_horas(g.horas_mil)} h facturadas {dias} y {_horas(validadas)} h validadas en "
                 "el planning.", clave=g.clave))
             continue
-        tarifa_ = max((l.tarifa_e4 or 0 for l in g.factura.lineas
-                       if l.id in {i.linea_id for i in g.imputaciones}), default=0)
         valores = {"nivel": g.celda.nivel, "desde": g.celda.desde.isoformat(),
                    "hasta": g.celda.hasta.isoformat(), "facturadas_mil": g.horas_mil,
                    "validadas_mil": validadas, "diferencia_mil": diferencia,
@@ -583,8 +606,16 @@ def comparar_horas(instantanea: Instantanea, regla: str, sentido: str) -> list[R
     return salida
 
 
+def _tarifa_de(g: turnos.Grupo) -> int:
+    """La tarifa con que se valora una diferencia de horas de una celda: la mas alta de sus
+    lineas (cero si ninguna la dice)."""
+    lineas = {i.linea_id for i in g.imputaciones}
+    return max((l.tarifa_e4 or 0 for l in g.factura.lineas if l.id in lineas), default=0)
+
+
 LEE_COMPARAR = (turnos.LEE_PLANIFICACION | turnos.LEE_GRUPOS | turnos.LEE_CONTENIDO
-                | frozenset({"turno.horas_aprobadas_mil", "linea.tarifa_e4"}))
+                | frozenset({"turno.horas_aprobadas_mil", "turno.horas_realizadas_mil",
+                             "turno.horas_planificadas_mil", "linea.tarifa_e4"}))
 LEE_G2 = LEE_COMPARAR | turnos.LEE_COMPRA
 
 
@@ -598,15 +629,24 @@ def g1(instantanea: Instantanea) -> list[Resultado]:
 
     Con el planning declarado obligatorio (politica.planning_obligatorio)
     bloquea; si no, retiene. Anularlo pide segunda firma (catalogo).
+
+    Obligatorio quiere decir que una compra no pasa sin planning con que
+    compararla: sin ningun planning, con el planning pasado de su frescura
+    (Z1) o sin cubrir lo facturado, bloquea igual (diciendo por que) en vez de
+    dar sin datos, que no retiene nada. Si no, no importar el planning (o
+    dejarlo envejecer) bastaria para saltarse el bloqueo.
     """
-    vacio = turnos.sin_planning(instantanea, "G1")
-    if vacio is not None:
-        return vacio
-    plan = turnos.Planificacion(instantanea)
     obligatorio = instantanea.politica.planning_obligatorio
+    if not instantanea.fotos_planning and not obligatorio:
+        return turnos.sin_planning(instantanea, "G1") or []
+    plan = turnos.Planificacion(instantanea) if instantanea.fotos_planning else None
     salida: list[Resultado] = []
     for f in instantanea.facturas:
         if f.sentido != ENTRANTE or f.tipo != turnos.FACTURA or not en_juego(f):
+            continue
+        if plan is None:
+            salida.append(_sin_planning_obligatorio(f, None, None, "sin_planning",
+                                                    turnos.SIN_PLANNING))
             continue
         if f.proveedor_id is None:
             salida.append(_sin_datos("G1", f, "La factura no tiene su proveedor resuelto (A0).",
@@ -618,14 +658,19 @@ def g1(instantanea: Instantanea) -> list[Resultado]:
             continue
         motivo = plan.sin_datos(desde, hasta)
         if motivo is not None:
-            salida.append(_sin_datos("G1", f, motivo, ""))
+            salida.append(
+                _sin_planning_obligatorio(f, desde, hasta,
+                                          "caducado" if plan.caducado else "sin_cubrir", motivo)
+                if obligatorio else _sin_datos("G1", f, motivo, ""))
             continue
         tiene = plan.indice.de(turnos.PROVEEDOR, f.proveedor_id, desde, hasta)
         recursos = {i.recurso_id for i in f.imputaciones if i.recurso_id is not None}
         for recurso in sorted(recursos):
             diarios, semanales = plan.indice.de(turnos.RECURSO, recurso, desde, hasta)
             tiene = (tiene[0] + diarios, tiene[1] + semanales)
-        en_periodo = [t for t in tiene[0] if desde <= t.fecha <= hasta] + list(tiene[1])
+        # Un turno de su proveedor y de una de sus personas sale por los dos lados: una vez.
+        en_periodo = list({t.id: t for t in tiene[0] + tiene[1]
+                           if t.nivel == turnos.SEMANAL or desde <= t.fecha <= hasta}.values())
         if en_periodo:
             salida.append(Resultado("G1", "factura", f.id, OK,
                                     f"El planning tiene {len(en_periodo)} turno(s) de su "
@@ -641,10 +686,22 @@ def g1(instantanea: Instantanea) -> list[Resultado]:
     return salida
 
 
+def _sin_planning_obligatorio(f: Factura, desde: date | None, hasta: date | None, causa: str,
+                              motivo: str) -> Resultado:
+    """G1 con el planning obligatorio y nada con que comparar: bloquea, y dice por que."""
+    return Resultado(
+        "G1", "factura", f.id, FALLO,
+        f"{motivo} El planning es obligatorio: la compra no pasa sin él.",
+        {"desde": desde.isoformat() if desde else None,
+         "hasta": hasta.isoformat() if hasta else None, "obligatorio": True, "causa": causa},
+        severidad=B)
+
+
 LEE_G1 = (turnos.LEE_PLANIFICACION | LEE_PERIODO | frozenset({
     "instantanea.facturas", "factura.id", "factura.sentido", "factura.tipo", "factura.anulada",
     "factura.fusionada_en_id", "factura.sustituida_por", "factura.proveedor_id",
-    "factura.imputaciones", "imputacion.recurso_id", "politica.planning_obligatorio"}))
+    "factura.imputaciones", "imputacion.recurso_id", "politica.planning_obligatorio",
+    "turno.id"}))
 
 
 def _objetos_del_planning(plan: turnos.Planificacion, f: Factura, i: Imputacion,
@@ -725,10 +782,18 @@ def g4(instantanea: Instantanea) -> list[Resultado]:
                     salida.append(propuesta)
                 continue
             dias = turnos.dias_de(i, linea, f)
-            if dias is None or plan.sin_datos(*dias) is not None:
+            clave = f"imputacion:{i.id}"
+            # Sin datos (nunca nada): un G4 abierto se queda como estaba hasta que se pueda
+            # volver a mirar, no se cierra porque el planning envejezca.
+            if dias is None:
+                salida.append(_sin_datos("G4", f, "La línea no dice de qué días es: no se puede "
+                                                  "mirar en el planning.", clave))
+                continue
+            motivo = plan.sin_datos(*dias)
+            if motivo is not None:
+                salida.append(_sin_datos("G4", f, motivo, clave))
                 continue
             objetos = _objetos_del_planning(plan, f, i, *dias)
-            clave = f"imputacion:{i.id}"
             if not objetos or i.objeto_id in objetos:
                 salida.append(Resultado("G4", "factura", f.id, OK,
                                         "El Objeto de la línea es el del planning.", clave=clave))
@@ -791,7 +856,9 @@ def fechas_contra_planning(instantanea: Instantanea, regla: str,
                     {"semana_doc": l.semana_doc, "fecha": fecha.isoformat()}, f"semana:{l.id}",
                     objetivos=(Objetivo("factura_linea", l.id, "semana_doc", RELACIONADO),)))
     for g in grupos:
-        if plan.sin_datos(g.celda.desde, g.celda.hasta) is not None:
+        motivo = plan.sin_datos(g.celda.desde, g.celda.hasta)
+        if motivo is not None:
+            salida.append(_sin_datos(regla, g.factura, motivo, g.clave))
             continue
         filtro = turnos.de_la_parte(g.factura)
         c = turnos.contenido(g.celda, plan.indice, filtro)
@@ -843,8 +910,12 @@ def cambios_tras_conciliar(instantanea: Instantanea, regla: str,
     Lo conciliado (conciliacion.py) son los turnos de la celda de cada
     imputacion tal como eran en esa foto. Si la celda de hoy (con el planning
     que vale) tiene otros turnos, otras horas, o alguno se cancelo, el planning
-    cambio despues de facturar (regla 9 de arquitectura.md): lo facturado ya
-    no es lo que dice el planning, y hace falta una correccion o un abono.
+    cambio despues de facturar (regla 9 de arquitectura.md). Solo es un
+    problema si lo facturado ya no es lo que dice el planning: de cada turno que
+    cambio, las horas de hoy contra las que le cobran las facturas de ese
+    sentido (lo conciliado con el, con la tolerancia de la politica por dia).
+    Una factura de antes de validar que ya cobraba las horas que despues se
+    validaron no necesita ni correccion ni abono.
     """
     vacio = turnos.sin_planning(instantanea, regla)
     if vacio is not None:
@@ -855,6 +926,7 @@ def cambios_tras_conciliar(instantanea: Instantanea, regla: str,
         de_imputacion[c.imputacion_id].append(c)
     if not de_imputacion:
         return []
+    facturado = turnos.conciliado(instantanea, sentido)
     salida: list[Resultado] = []
     for f in instantanea.facturas:
         if f.sentido != sentido or not en_juego(f) or not f.imputaciones:
@@ -874,16 +946,29 @@ def cambios_tras_conciliar(instantanea: Instantanea, regla: str,
             if motivo is not None:
                 salida.append(_sin_datos(regla, f, motivo, clave))
                 continue
-            ahora = {t.id_externo: turnos.horas_referencia(t)
-                     for t in turnos.contenido(celda, plan.indice, turnos.de_la_parte(f)).turnos}
+            de_hoy = turnos.contenido(celda, plan.indice, turnos.de_la_parte(f)).turnos
+            ahora = {t.id_externo: turnos.horas_referencia(t) for t in de_hoy}
             if ahora == antes:
                 salida.append(Resultado(regla, "factura", f.id, OK,
                                         "El planning de lo facturado no ha cambiado.",
                                         clave=clave))
                 continue
-            quitados = sorted(set(antes) - set(ahora))
-            nuevos = sorted(set(ahora) - set(antes))
-            cambiados = sorted(k for k in set(antes) & set(ahora) if antes[k] != ahora[k])
+            dias = {c.turno.id_externo: c.turno.dias for c in conciliadas}
+            dias.update((t.id_externo, t.dias) for t in de_hoy)
+            cobradas = {k: facturado.get(k, (0,))[0] for k in set(antes) | set(ahora)}
+            no_cuadran = {k for k in set(antes) | set(ahora)
+                          if antes.get(k) != ahora.get(k)
+                          and abs(ahora.get(k, 0) - cobradas[k])
+                          > turnos.tolerancia_mil(plan.tolerancia, dias[k])}
+            if not no_cuadran:
+                salida.append(Resultado(regla, "factura", f.id, OK,
+                                        "El planning de lo facturado cambió después de "
+                                        "conciliarlo, y lo facturado es lo que dice ahora.",
+                                        clave=clave))
+                continue
+            quitados = sorted(k for k in no_cuadran if k not in ahora)
+            nuevos = sorted(k for k in no_cuadran if k not in antes)
+            cambiados = sorted(k for k in no_cuadran if k in antes and k in ahora)
             partes = []
             if cambiados:
                 partes.append(f"{len(cambiados)} turno(s) con otras horas")
@@ -900,6 +985,7 @@ def cambios_tras_conciliar(instantanea: Instantanea, regla: str,
                 "ahora). Hace falta una corrección o un abono.",
                 {"antes": sorted([k, v] for k, v in antes.items()),
                  "ahora": sorted([k, v] for k, v in ahora.items()),
+                 "facturadas": sorted([k, cobradas[k]] for k in no_cuadran),
                  "fotos": importaciones}, clave,
                 objetivos=(Objetivo("factura_imputacion", i.id, "horas_mil", RELACIONADO),)))
     return salida
@@ -911,7 +997,8 @@ LEE_CAMBIOS = (turnos.LEE_PLANIFICACION | turnos.LEE_CELDA | turnos.LEE_CONTENID
     "factura.fusionada_en_id", "factura.sustituida_por", "factura.imputaciones",
     "factura.lineas", "linea.id", "linea.orden",
     "imputacion.id", "imputacion.linea_id", "turno.horas_planificadas_mil",
-    "turno.horas_realizadas_mil", "turno.horas_aprobadas_mil", "turno.importacion_id"}))
+    "turno.horas_realizadas_mil", "turno.horas_aprobadas_mil", "turno.importacion_id"})
+    | turnos.LEE_CONCILIADO)
 LEE_G7 = LEE_CAMBIOS | turnos.LEE_COMPRA
 
 
@@ -936,7 +1023,13 @@ def recargos_contra_planning(instantanea: Instantanea) -> list[Resultado]:
             turno = normalizar_turno(i.tipo_turno)
             if turno is not None:
                 por_turno[turno].append(i)
-        if not por_turno or plan.sin_datos(g.celda.desde, g.celda.hasta) is not None:
+        if not por_turno:
+            continue
+        motivo = plan.sin_datos(g.celda.desde, g.celda.hasta)
+        if motivo is not None:
+            salida.extend(_sin_datos("G6", g.factura, motivo,
+                                     f"recargo:{min(i.id for i in imputaciones)}")
+                          for _turno, imputaciones in sorted(por_turno.items()))
             continue
         c = turnos.contenido(g.celda, plan.indice, turnos.de_la_parte(g.factura))
         tolerancia = turnos.tolerancia_mil(plan.tolerancia, c.dias)
@@ -945,6 +1038,9 @@ def recargos_contra_planning(instantanea: Instantanea) -> list[Resultado]:
             planificadas = sum(turnos.horas_referencia(t) for t in c.turnos
                                if t.tipo_turno == turno)
             clave = f"recargo:{min(i.id for i in imputaciones)}"
+            lineas = {i.linea_id for i in imputaciones}
+            tarifa_ = max((l.tarifa_e4 or 0 for l in g.factura.lineas if l.id in lineas),
+                          default=0)
             if facturadas - planificadas <= tolerancia:
                 salida.append(Resultado("G6", "factura", g.factura.id, OK,
                                         f"Las horas de {turno} son las del planning.",
@@ -956,7 +1052,8 @@ def recargos_contra_planning(instantanea: Instantanea) -> list[Resultado]:
                 f"planning tiene {_horas(planificadas)} h de turnos de {turno}.",
                 {"turno": turno, "facturadas_mil": facturadas,
                  "planificadas_mil": planificadas, "tolerancia_mil": tolerancia,
-                 "desde": g.celda.desde.isoformat(), "hasta": g.celda.hasta.isoformat()},
+                 "desde": g.celda.desde.isoformat(), "hasta": g.celda.hasta.isoformat(),
+                 "valor_cent": turnos.valor_cent(facturadas - planificadas, tarifa_)},
                 clave,
                 objetivos=tuple(Objetivo("factura_imputacion", i.id, "tipo_turno", RELACIONADO)
                                 for i in imputaciones)))
@@ -966,7 +1063,8 @@ def recargos_contra_planning(instantanea: Instantanea) -> list[Resultado]:
 LEE_RECARGOS = (turnos.LEE_PLANIFICACION | turnos.LEE_GRUPOS | turnos.LEE_CONTENIDO
                 | frozenset({"imputacion.tipo_turno", "turno.tipo_turno",
                              "turno.horas_planificadas_mil", "turno.horas_realizadas_mil",
-                             "turno.horas_aprobadas_mil"}) | turnos.LEE_COMPRA)
+                             "turno.horas_aprobadas_mil", "linea.tarifa_e4"})
+                | turnos.LEE_COMPRA)
 
 
 def contra_tarifa_del_turno(instantanea: Instantanea, regla: str, sentido: str,

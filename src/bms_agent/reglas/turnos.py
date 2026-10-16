@@ -138,17 +138,46 @@ def horas_de(i: Imputacion) -> int | None:
 
 # ------------------------------------------------------------ lo que cubre el planning
 
-def tramos(fotos: Iterable[FotoPlanning]) -> list[tuple[date, date]]:
-    """Lo que cubren las fotos aceptadas, unido en tramos sin huecos."""
-    ordenados = sorted((f.cubre_desde, f.cubre_hasta) for f in fotos
-                       if f.cubre_desde is not None and f.cubre_hasta is not None)
+def _unir(tramos_: Iterable[tuple[date, date]]) -> list[tuple[date, date]]:
     salida: list[list[date]] = []
-    for desde, hasta in ordenados:
+    for desde, hasta in sorted(tramos_):
         if salida and desde <= salida[-1][1] + timedelta(days=1):
             salida[-1][1] = max(salida[-1][1], hasta)
         else:
             salida.append([desde, hasta])
     return [(d, h) for d, h in salida]
+
+
+def _quitar(tramos_: list[tuple[date, date]], hueco: tuple[date, date]
+            ) -> list[tuple[date, date]]:
+    salida = []
+    for desde, hasta in tramos_:
+        if hueco[1] < desde or hasta < hueco[0]:
+            salida.append((desde, hasta))
+            continue
+        if desde < hueco[0]:
+            salida.append((desde, hueco[0] - timedelta(days=1)))
+        if hueco[1] < hasta:
+            salida.append((hueco[1] + timedelta(days=1), hasta))
+    return salida
+
+
+def tramos(fotos: Iterable[FotoPlanning]) -> list[tuple[date, date]]:
+    """Lo que cubren las fotos aceptadas, unido en tramos, menos sus huecos.
+
+    Un hueco de una foto son los dias de la semana de una fila semanal suya
+    que ya no vale (una foto mas nueva cubre algun dia de esa semana,
+    v_turno_vigente) y que ninguna foto mas nueva cubre: la fila no se puede
+    partir, asi que de esos dias el planning ya no dice nada. Contarlos como
+    cubiertos daria "cero horas" donde lo que hay es "sin datos".
+    """
+    fotos = list(fotos)
+    salida = _unir((f.cubre_desde, f.cubre_hasta) for f in fotos
+                   if f.cubre_desde is not None and f.cubre_hasta is not None)
+    for f in fotos:
+        for hueco in f.huecos:
+            salida = _quitar(salida, hueco)
+    return salida
 
 
 def cubierto(desde: date, hasta: date, cubre: Sequence[tuple[date, date]]) -> bool:
@@ -158,14 +187,26 @@ def cubierto(desde: date, hasta: date, cubre: Sequence[tuple[date, date]]) -> bo
 # ------------------------------------------------------------ horas de un turno
 
 def horas_referencia(t: Turno) -> int:
-    """Las horas que tiene un turno: las validadas, si no las realizadas, si no las
-    planificadas; cero si esta cancelado (lo mismo que v_planning_estado)."""
+    """Las horas que tiene un turno: las validadas si esta validado, si no las realizadas, si
+    no las planificadas; cero si esta cancelado (lo mismo que v_planning_estado).
+
+    Lo que decide si unas horas estan validadas es el estado, no que haya un
+    numero en la columna: un turno planificado con horas en esa columna (una
+    exportacion que pone ahi su total) sigue siendo planificado.
+    """
     if t.estado == CANCELADO:
         return 0
-    for horas in (t.horas_aprobadas_mil, t.horas_realizadas_mil, t.horas_planificadas_mil):
+    validadas = t.horas_aprobadas_mil if t.estado == VALIDADO else None
+    for horas in (validadas, t.horas_realizadas_mil, t.horas_planificadas_mil,
+                  t.horas_aprobadas_mil):
         if horas is not None:
             return horas
     return 0
+
+
+def horas_validadas(t: Turno) -> int | None:
+    """Las horas validadas de un turno: solo las de uno en estado validado."""
+    return t.horas_aprobadas_mil if t.estado == VALIDADO else None
 
 
 def ultimo_dia(t: Turno) -> date:
@@ -184,6 +225,7 @@ class Indice:
     def __init__(self, turnos: Iterable[Turno]) -> None:
         self.por_dia: dict[tuple[str, int, date], list[Turno]] = defaultdict(list)
         self.por_semana: dict[tuple[str, int, date], list[Turno]] = defaultdict(list)
+        self._de_clave: dict[tuple[str, int], list[Turno]] = defaultdict(list)
         for t in turnos:
             if t.estado == CANCELADO:
                 continue
@@ -192,19 +234,30 @@ class Indice:
                                      (PROVEEDOR, t.proveedor_id), (CLIENTE, t.cliente_id)):
                 if clave is not None:
                     destino[(dimension, clave, t.fecha)].append(t)
+                    self._de_clave[(dimension, clave)].append(t)
 
     def de(self, dimension: str, clave: int, desde: date, hasta: date
            ) -> tuple[list[Turno], list[Turno]]:
-        """Los turnos diarios de esos dias y las filas semanales de las semanas que tocan."""
+        """Los turnos diarios de esos dias y las filas semanales de las semanas que tocan.
+
+        Un tramo corto se recorre dia a dia; uno largo (un trimestre, la
+        ventana de G5 alrededor de un periodo), por los turnos de esa persona,
+        Objeto o parte. Los dos dan lo mismo: un tramo largo nunca puede dar
+        "ningun turno" por haberse dejado de mirar.
+        """
+        if (hasta - desde).days > DIAS_MAXIMOS:
+            lunes = lunes_de(desde)
+            todos = self._de_clave.get((dimension, clave), ())
+            return ([t for t in todos if t.nivel != SEMANAL and desde <= t.fecha <= hasta],
+                    [t for t in todos if t.nivel == SEMANAL and lunes <= t.fecha <= hasta])
         diarios: list[Turno] = []
-        if (hasta - desde).days <= DIAS_MAXIMOS:
-            dia = desde
-            while dia <= hasta:
-                diarios.extend(self.por_dia.get((dimension, clave, dia), ()))
-                dia += timedelta(days=1)
+        dia = desde
+        while dia <= hasta:
+            diarios.extend(self.por_dia.get((dimension, clave, dia), ()))
+            dia += timedelta(days=1)
         semanales: list[Turno] = []
         lunes = lunes_de(desde)
-        while lunes <= hasta and (lunes - desde).days <= DIAS_MAXIMOS:
+        while lunes <= hasta:
             semanales.extend(self.por_semana.get((dimension, clave, lunes), ()))
             lunes += timedelta(days=7)
         return diarios, semanales
@@ -483,6 +536,7 @@ LEE_PLANIFICACION = frozenset({
     "instantanea.fotos_planning", "instantanea.turnos", "instantanea.politica",
     "instantanea.hoy", "instantanea.lotes", "politica.planning_tolerancia_horas_dia",
     "politica.frescura_trnsprnt_dias", "foto_planning.cubre_desde", "foto_planning.cubre_hasta",
+    "foto_planning.huecos",
     "lote.fuente", "lote.estado", "lote.id", "lote.exportado",
     "turno.estado", "turno.nivel", "turno.recurso_id", "turno.objeto_id", "turno.proveedor_id",
     "turno.cliente_id", "turno.fecha",

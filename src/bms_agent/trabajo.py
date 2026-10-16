@@ -23,7 +23,13 @@ Dos vistas lo usan, y ninguna decide nada (lo deciden las reglas):
   parte imputada al Objeto, mas lo trabajado sin facturar valorado, aparte).
 
 Las horas de una linea de varias semanas se reparten por sus dias (lo que
-sobra del redondeo, a la ultima); una linea sin dias va a "sin_semana".
+sobra del redondeo, a la ultima); una linea sin dias va a "sin_semana". De una
+semana que ninguna foto del planning cubre, el planning no dice nada: sus
+horas del planning y lo sin facturar son sin datos (None), nunca cero; de una
+que cubre solo en parte, las horas del planning son las de esos dias y lo sin
+facturar, sin datos. Con el planning pasado de su frescura (Z1) el bloque lo
+dice ("planning": "caducado"). El corte por mes del §5 (v_objeto_periodo) va
+con el paso 12, con los ingresos, costes y margen.
 Puro sobre la instantanea (reglas/instantanea.py), con las mismas celdas,
 coberturas y tarifas que las reglas.
 """
@@ -36,7 +42,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from .reglas import turnos
-from .reglas.base import ENTRANTE, SALIENTE, Instantanea, Turno, en_juego
+from .reglas.base import ENTRANTE, SALIENTE, Instantanea, Turno, caducada, en_juego
 from .reglas.tarifas import por_sentido
 from .reglas.venta import cubiertos, facturado
 
@@ -166,6 +172,19 @@ def repartir(desde: date, hasta: date, horas_mil: int) -> dict[str, int]:
 
 _COLUMNAS = ("planificadas_mil", "validadas_mil", "facturables_mil", "proveedor_mil",
              "cliente_mil")
+ENTERA, PARCIAL, NINGUNA = "entera", "parcial", "ninguna"
+
+
+def _cobertura(semana: str, cubre: list[tuple[date, date]]) -> str:
+    """Cuanto de una semana ISO cubre el planning: entera, en parte o nada."""
+    ano, numero = semana.split("-W")
+    lunes = date.fromisocalendar(int(ano), int(numero), 1)
+    domingo = lunes + timedelta(days=6)
+    if turnos.cubierto(lunes, domingo, cubre):
+        return ENTERA
+    if any(turnos.solapa((lunes, domingo), tramo) for tramo in cubre):
+        return PARCIAL
+    return NINGUNA
 
 
 def _facturadas(instantanea: Instantanea, objeto_id: int,
@@ -189,13 +208,21 @@ def _facturadas(instantanea: Instantanea, objeto_id: int,
 
 
 def _parte_del_objeto(instantanea: Instantanea, objeto_id: int) -> dict[int, tuple[int, int]]:
-    """Por factura con algo imputado al Objeto: lo imputado a el y lo imputado en total."""
+    """Por factura con algo imputado al Objeto: lo imputado a el y lo imputado en total, en
+    valor absoluto.
+
+    Con signos mezclados (un descuento o una correccion en otra linea) la suma
+    con signo puede dar al Objeto mas del 100 % de la factura (+10,00 suyo y
+    -9,00 de otro Objeto: diez veces lo que queda); en valor absoluto su
+    parte nunca pasa de la factura entera.
+    """
     salida = {}
     for f in instantanea.facturas:
         if not f.imputaciones:
             continue
-        propio = sum(i.importe_cent or 0 for i in f.imputaciones if i.objeto_id == objeto_id)
-        total = sum(i.importe_cent or 0 for i in f.imputaciones)
+        propio = sum(abs(i.importe_cent or 0) for i in f.imputaciones
+                     if i.objeto_id == objeto_id)
+        total = sum(abs(i.importe_cent or 0) for i in f.imputaciones)
         if propio and total:
             salida[f.id] = (propio, total)
     return salida
@@ -210,6 +237,7 @@ def horas_objeto(instantanea: Instantanea, objeto_id: int,
     son sin datos (None, nunca cero); las facturadas se cuentan igual.
     """
     hay_planning = bool(instantanea.fotos_planning)
+    cubre = turnos.tramos(instantanea.fotos_planning)
     hoy = instantanea.hoy
     semanas: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(_COLUMNAS, 0))
     valorar = _Valorador(instantanea)
@@ -243,20 +271,23 @@ def horas_objeto(instantanea: Instantanea, objeto_id: int,
     filas = []
     for semana in sorted(semanas, key=lambda s: (s == SIN_SEMANA, s)):
         fila = semanas[semana]
-        con_planning = hay_planning and semana != SIN_SEMANA
+        cobertura = (_cobertura(semana, cubre) if hay_planning and semana != SIN_SEMANA
+                     else None)
+        con_planning = cobertura in (ENTERA, PARCIAL)
         empezada = semana != SIN_SEMANA and semana <= actual
         filas.append({
             "semana": semana,
-            **{c: (fila[c] if hay_planning or c in ("proveedor_mil", "cliente_mil") else None)
+            "cobertura": cobertura,
+            **{c: (fila[c] if con_planning or c in ("proveedor_mil", "cliente_mil") else None)
                for c in _COLUMNAS},
             "sin_facturar_mil": (max(fila["facturables_mil"] - fila["cliente_mil"], 0)
-                                 if con_planning and empezada else None),
+                                 if cobertura == ENTERA and empezada else None),
             "diferencia_proveedor_mil": (fila["proveedor_mil"] - fila["validadas_mil"]
                                          if con_planning and fila["validadas_mil"] else None),
             "diferencia_cliente_mil": (fila["cliente_mil"] - fila["facturables_mil"]
                                        if con_planning and fila["facturables_mil"] else None),
         })
-    total: dict[str, Any] = {}
+    total: dict[str, Any] = {"cobertura": None}
     for clave in (*_COLUMNAS, "sin_facturar_mil"):
         valores = [f[clave] for f in filas if f[clave] is not None]
         total[clave] = sum(valores) if valores or clave in ("proveedor_mil", "cliente_mil") \
@@ -273,7 +304,8 @@ def horas_objeto(instantanea: Instantanea, objeto_id: int,
         if direccion in abierto:
             abierto[direccion] += importe * propio // total_imputado
     return {
-        "planning": "ok" if hay_planning else "sin_datos",
+        "planning": (("caducado" if caducada(instantanea, "trnsprnt") else "ok") if hay_planning
+                     else "sin_datos"),
         "semanas": filas,
         "total": total,
         "esperado": {

@@ -18,6 +18,16 @@ sin tocar la base. Tres cosas:
   que hace que una foto mas nueva sustituya a las anteriores en esos dias
   (v_turno_vigente): un turno que ya no viene en ella, dentro de lo que cubre,
   ya no esta en el planning.
+- **Lo que una foto puede borrar sin que nadie lo confirme** (`riesgos`).
+  Como lo que cubre una foto sustituye a todo lo anterior, una fecha mal
+  escrita (2016 por 2026), un fichero vacio con un --desde/--hasta amplio o
+  una exportacion filtrada a un Objeto borrarian en silencio el planning de
+  meses, y con el el trabajo sin facturar de V5 y V6. Una foto sin turnos,
+  con semanas enteras sin ningun turno dentro de lo que cubre, o que deja sin
+  valer muchos turnos del planning de ahora que ella no trae, no se importa
+  (no se escribe nada, ni la importacion) si quien la importa no lo confirma
+  (--confirmar); confirmada, entra con esos avisos. Cuantos turnos de antes
+  deja de valer se dice siempre.
 """
 
 from __future__ import annotations
@@ -33,6 +43,14 @@ from .canonico import TurnoCanonico
 
 TIPO = "planning"
 PREFIJO_SINTETICA = "sint:"
+# Dias seguidos sin ningun turno dentro de lo que cubre una foto a partir de los
+# cuales se pide confirmarla: un servicio de seguridad trabaja cada semana, y dos
+# semanas vacias son mas una fecha mal escrita que un planning.
+HUECO_MAXIMO_DIAS = 14
+# Turnos del planning que vale que una foto puede dejar sin valer (sin traerlos)
+# sin pedir confirmacion: hasta estos, o hasta este porcentaje de los que cubre.
+DESAPARECEN_MINIMO = 3
+DESAPARECEN_PCT = 20
 
 
 def clave_sintetica(turno: TurnoCanonico) -> str:
@@ -106,3 +124,48 @@ def con_cobertura(lote: LoteLeido, desde: date | None, hasta: date | None) -> Lo
              or (hasta is not None and ultimo_dia(t) > hasta)]
     return replace(lote, cubre_desde=desde, cubre_hasta=hasta,
                    rechazos=tuple(sorted((*lote.rechazos, *fuera), key=lambda r: r.fila)))
+
+
+class PideConfirmacion(ValueError):
+    """Una foto del planning que borraria mucho del de ahora, importada sin --confirmar."""
+
+
+def hueco_mas_largo(lote: LoteLeido) -> tuple[date, date] | None:
+    """Los dias seguidos mas largos sin ningun turno dentro de lo que cubre la foto (una fila
+    semanal ocupa su semana entera), o None si no tiene ninguno."""
+    if lote.cubre_desde is None or lote.cubre_hasta is None:
+        return None
+    ocupados = sorted((t.dia, ultimo_dia(t)) for t in lote.registros)
+    mas_largo, siguiente = None, lote.cubre_desde
+    for desde, hasta in [*ocupados, (lote.cubre_hasta + timedelta(days=1),) * 2]:
+        if desde > siguiente:
+            hueco = (siguiente, desde - timedelta(days=1))
+            if mas_largo is None or (hueco[1] - hueco[0]) > (mas_largo[1] - mas_largo[0]):
+                mas_largo = hueco
+        siguiente = max(siguiente, hasta + timedelta(days=1))
+    return mas_largo
+
+
+def riesgos(lote: LoteLeido, cubiertos: int, desaparecen: int) -> list[str]:
+    """Lo que hace que una foto pida confirmacion antes de entrar (ver el docstring).
+
+    `cubiertos`: los turnos (no cancelados) del planning que vale que la foto
+    deja sin valer; `desaparecen`: cuantos de ellos no trae.
+    """
+    salida = []
+    if not lote.registros:
+        salida.append("la foto no trae ningun turno: dejaria sin planning todo lo que dice "
+                      "cubrir")
+    hueco = hueco_mas_largo(lote)
+    if lote.registros and hueco is not None and (hueco[1] - hueco[0]).days + 1 > \
+            HUECO_MAXIMO_DIAS:
+        salida.append(f"del {hueco[0].isoformat()} al {hueco[1].isoformat()} "
+                      f"({(hueco[1] - hueco[0]).days + 1} dias) no trae ningun turno, y lo que "
+                      f"cubre va del {lote.cubre_desde.isoformat()} al "
+                      f"{lote.cubre_hasta.isoformat()}: una fecha mal escrita o un --desde/"
+                      "--hasta demasiado amplio borraria ese planning")
+    if desaparecen > DESAPARECEN_MINIMO and desaparecen * 100 > cubiertos * DESAPARECEN_PCT:
+        salida.append(f"deja sin valer {desaparecen} de los {cubiertos} turnos del planning de "
+                      "ahora en lo que cubre, que ella no trae (una exportacion filtrada o "
+                      "incompleta?)")
+    return salida

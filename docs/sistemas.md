@@ -79,7 +79,8 @@ objetos, con recargos de tarde, noche, fin de semana y festivo), y se
 enciende de verdad cuando llegue una exportación real: entonces se ajustan
 los nombres de las columnas en el YAML del mapeo, no el código. Se importa
 con `bms-agent importar trnsprnt planning FICHERO [--desde AAAA-MM-DD --hasta
-AAAA-MM-DD]` (por defecto, la foto cubre del primer al último turno que trae).
+AAAA-MM-DD] [--confirmar]` (por defecto, la foto cubre del primer al último
+turno que trae).
 
 **Por turnos** (`config/importacion/trnsprnt-planning-v1.yaml`, CSV con `;` y
 coma decimal, fechas `dd-mm-aaaa`; ejemplo en
@@ -89,7 +90,7 @@ coma decimal, fechas `dd-mm-aaaa`; ejemplo en
 |---|---|---|
 | `Dienst-ID` | identificador estable del turno | no (ver abajo) |
 | `Datum` | día del turno (el de inicio, si cruza la medianoche) | sí |
-| `Begintijd`, `Eindtijd` | hora de inicio y de fin (`7:00` o `07:00`) | no |
+| `Begintijd`, `Eindtijd` | hora de inicio y de fin (`7:00` o `07:00`; el fin puede ser `24:00`, medianoche; un fin igual al inicio son 24 horas) | no |
 | `Pauze (min)` | pausa en minutos | no |
 | `Objectcode`, `Objectnaam` | el Objeto (se busca por el código) | no |
 | `Opdrachtgever` | el cliente (número de deudor de Exact) | no |
@@ -97,7 +98,7 @@ coma decimal, fechas `dd-mm-aaaa`; ejemplo en
 | `Leverancier` | el proveedor (número de acreedor de Exact) | no |
 | `Dienstsoort` | tipo de servicio (Objectbeveiliging, Receptie…) | no |
 | `Diensttype` | tipo de turno: Dag, Avond, Nacht, Weekend, Feestdag | no |
-| `Gepland (u)`, `Gewerkt (u)`, `Goedgekeurd (u)` | horas planificadas, trabajadas y validadas | no; sin planificadas se calculan de las horas menos la pausa; un turno validado lleva las validadas |
+| `Gepland (u)`, `Gewerkt (u)`, `Goedgekeurd (u)` | horas planificadas, trabajadas y validadas | no; sin planificadas se calculan de las horas menos la pausa; un turno validado lleva las validadas, y uno que no lo está no las lleva (si las trae, la foto no entra) |
 | `Status` | Gepland/Ingepland, Uitgevoerd/Gewerkt, Goedgekeurd/Geaccordeerd, Geannuleerd/Vervallen | sí |
 | `Factureerbaar` | si se factura al cliente (Ja/Nee) | no |
 | `Inkooptarief`, `Verkooptarief` | tarifa de compra y de venta del turno | no |
@@ -111,8 +112,13 @@ Las columnas `Datum`, `Begintijd`, `Eindtijd`, `Objectcode`, `Medewerker` y
 exportación pivotada *weekoverzicht*): `Jaar`, `Week`, `Objectcode`,
 `Opdrachtgever`, `Medewerker`, `Leverancier`, `Dienstsoort`, `Diensttype`,
 una columna por día (`Ma` a `Zo`), `Totaal` (obligatorio, y tiene que ser la
-suma de los días), `Status` (vacío es validado) y `Factureerbaar`. Una fila
-semanal se compara **a nivel de semana**: nunca se parte en días.
+suma de los días), `Status` (vacío es validado) y `Factureerbaar`. `Totaal`
+son las horas de su estado: las validadas de una fila `Goedgekeurd`, las
+trabajadas de una `Uitgevoerd` y las planificadas de las demás (unas horas
+solo están validadas si su fila lo está). Una fila semanal se compara **a
+nivel de semana**: nunca se parte en días. Si una foto más nueva cubre solo
+parte de su semana, la fila deja de valer y los días que la nueva no cubre
+quedan **sin datos** (no «cero horas»).
 
 Lo que el agente hace con el fichero:
 
@@ -120,6 +126,14 @@ Lo que el agente hace con el fichero:
   unas horas negativas, un total que no suma, otra moneda, dos turnos con el
   mismo identificador) rechaza la foto entera: medio planning daría por no
   trabajado lo que sí lo está.
+- **Lo que cubre una foto sustituye a lo de antes**, así que una foto que
+  borraría mucho del planning de ahora no se importa sin `--confirmar` (y no
+  se escribe nada): una sin ningún turno, una con más de 14 días seguidos sin
+  turnos dentro de lo que cubre (una fecha mal escrita, un `--desde`/`--hasta`
+  demasiado amplio) o una que deja sin valer más de 3 turnos del planning de
+  ahora, y más del 20 % de los de esos días, sin traerlos (una exportación
+  filtrada a un Objeto). Confirmada, entra con esos avisos; cuántos turnos de
+  antes deja de valer se dice siempre, en el resultado y en el evento.
 - **Cada foto aceptada queda congelada** (evidencia, no se toca) y vale la más
   nueva de cada día (`v_turno_vigente`). Lo ya facturado se concilia con la
   foto de entonces; si una foto nueva cambia una semana facturada, es G7 (compras)

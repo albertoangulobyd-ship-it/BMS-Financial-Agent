@@ -663,6 +663,8 @@ SCRIPT = r"""
         v.ordenes_resumen.proveedor.restante + ' de ' + v.ordenes_resumen.proveedor.valor),
       el('h3', {}, 'Horas por semana'),
       el('p', {clase: 'suave'}, h.planning === 'ok' ? 'Del planning y de las facturas.' :
+        h.planning === 'caducado' ? 'El planning está pasado de su frescura (Z1): puede no ' +
+        'ser el de hoy. Una semana que no cubre dice «-», no cero.' :
         'Sin planning importado: solo las horas facturadas.'),
       filas(['Semana', 'Planificadas', 'Validadas', 'Proveedores', 'Cliente', 'Sin facturar',
         'Dif. proveedor', 'Dif. cliente'], semanas.map(function (f) {

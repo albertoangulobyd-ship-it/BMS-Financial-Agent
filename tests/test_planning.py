@@ -27,6 +27,7 @@ from conftest import RAIZ, cuentas_propias, factura_de, persona
 
 from bms_agent import campos, consultas, flujo_caja, hallazgos, servicios
 from bms_agent.almacen.evidencia import verificar_evidencia
+from bms_agent.importadores.planning import PideConfirmacion
 from bms_agent.importadores.registrar import importar_fichero
 
 IMPORTACION = RAIZ / "tests" / "fixtures" / "importacion"
@@ -173,8 +174,15 @@ def test_una_fila_que_no_se_lee_rechaza_la_foto_entera(maestros, tmp_path) -> No
 
 def test_la_exportacion_semanal_se_lee_por_semanas(maestros) -> None:
     conn = maestros.conn
-    [lote] = _planning(maestros, SEMANAL).lotes
+    # El ejemplo trae la semana 42 y la 53: diez semanas sin turnos en medio, que sin
+    # confirmarlo no se importan (borrarian el planning de esas semanas), sin escribir nada.
+    with pytest.raises(PideConfirmacion, match="2026-10-19 al 2026-12-27"):
+        _planning(maestros, SEMANAL)
+    assert conn.execute("SELECT count(*) FROM importacion WHERE tipo = 'planning'"
+                        ).fetchone()[0] == 0
+    [lote] = _planning(maestros, SEMANAL, confirmar=True).lotes
     assert lote.estado == "aceptada"
+    assert any(a.startswith("confirmado: del 2026-10-19 al 2026-12-27") for a in lote.avisos)
     filas = conn.execute("SELECT nivel, fecha, semana_iso, dias, horas_aprobadas_mil, estado "
                          "FROM planning_turno ORDER BY id").fetchall()
     assert [tuple(f) for f in filas] == [
@@ -420,3 +428,208 @@ def test_el_dominio_del_planning_es_el_de_la_base(db) -> None:
     assert set(dominio.NivelConciliacion.valores()) == check("conciliacion", "regla")
     # Validado, no aprobado: el sistema no aprueba nada (test_alcance_v1).
     assert "aprobado" not in dominio.EstadoTurno.valores()
+
+
+# ============================================================ revision del paso 10
+
+def _filtrado(tmp_path, nombre: str, quedan, fuente=PLANNING):
+    """Una copia del ejemplo con la cabecera y solo las filas para las que `quedan` es cierto."""
+    lineas = fuente.read_text(encoding="utf-8-sig").splitlines()
+    ruta = tmp_path / nombre
+    ruta.write_text("\n".join([lineas[0], *(l for l in lineas[1:] if quedan(l))]) + "\n",
+                    encoding="utf-8")
+    return ruta
+
+
+def _ventas(tmp_path, nombre: str, *ventas: dict):
+    """Un listado de ventas de Exact con una venta de una linea por cada dict (ver _venta)."""
+    filas = [_venta(tmp_path, nombre=f"_{n}.csv", **v).read_text(encoding="utf-8-sig")
+             .splitlines() for n, v in enumerate(ventas)]
+    ruta = tmp_path / nombre
+    ruta.write_bytes(("﻿" + "\n".join([filas[0][0], *(f[1] for f in filas)]) + "\n")
+                     .encode("utf-8"))
+    return ruta
+
+
+def test_el_total_de_una_fila_semanal_va_a_las_horas_de_su_estado(maestros, tmp_path) -> None:
+    conn = maestros.conn
+    ruta = _filtrado(tmp_path, "semana.csv", lambda l: ";42;" in l, fuente=SEMANAL)
+    ruta.write_text(ruta.read_text(encoding="utf-8").replace(";40,00;Goedgekeurd;",
+                                                             ";40,00;Gepland;"),
+                    encoding="utf-8")
+    [lote] = _planning(maestros, ruta).lotes
+    assert lote.estado == "aceptada"
+    filas = conn.execute("SELECT estado, horas_planificadas_mil, horas_aprobadas_mil "
+                         "FROM planning_turno ORDER BY id").fetchall()
+    assert [tuple(f) for f in filas] == [("planificado", 40000, None),
+                                         ("validado", None, 16000)]
+    # Un turno de un dia que no esta validado y trae horas validadas se contradice: no entra.
+    ruta = _cambiado(tmp_path, ("8,00;;;Gepland", "8,00;;8,00;Gepland"), nombre="diario.csv")
+    [lote] = _planning(maestros, ruta).lotes
+    assert lote.estado == "rechazada"
+    assert any("planificado trae horas validadas" in r.motivo for r in lote.rechazos)
+
+
+def test_un_fin_a_las_24_00_y_un_turno_de_24_horas() -> None:
+    from bms_agent.importadores.canonico import TurnoCanonico
+
+    tarde = TurnoCanonico(fila=2, crudo={}, fecha=date(2026, 10, 12), hora_inicio="16:00",
+                          hora_fin="24:00", estado="planificado")
+    assert (tarde.hora_fin, tarde.horas_planificadas) == ("24:00", 8)
+    guardia = TurnoCanonico(fila=2, crudo={}, fecha=date(2026, 10, 12), hora_inicio="07:00",
+                            hora_fin="07:00", pausa_min=60, estado="planificado")
+    assert guardia.horas_planificadas == 23
+    with pytest.raises(ValueError, match="no es una hora"):
+        TurnoCanonico(fila=2, crudo={}, fecha=date(2026, 10, 12), hora_inicio="24:00",
+                      hora_fin="08:00", estado="planificado")
+
+
+def test_las_horas_de_una_persona_no_se_las_lleva_una_linea_del_objeto(maestros,
+                                                                      tmp_path) -> None:
+    """La noche de Jan Bakker empieza la primera del dia: una linea de Rijnhaven sin persona
+    la ocupa, y la de Jan Bakker, que llega despues, amontonaria sus horas en ella (V7)."""
+    conn = maestros.conn
+    _planning(maestros, _cambiado(tmp_path, ("D-2026-104212;12-10-2026;23:00;7:00",
+                                             "D-2026-104212;12-10-2026;06:00;14:00")))
+    dia = {"desde": "12-10-2026", "hasta": "12-10-2026", "horas": "7,5"}
+    _importar_venta(maestros, _venta(tmp_path, "V2026-0301", fecha="13-10-2026", **dia,
+                                     nombre="objeto.csv"))
+    v301 = factura_de(conn, "V2026-0301")
+    assert _conciliacion(conn, v301) == [("D-2026-104212", 7500, "objeto_dia", 7),
+                                         ("D-2026-104211", 0, "objeto_dia", 7)]
+    _importar_venta(maestros, _venta(tmp_path, "V2026-0302", fecha="14-10-2026", **dia,
+                                     medewerker="Jan Bakker", nombre="persona.csv"))
+    v302 = factura_de(conn, "V2026-0302")
+    assert _conciliacion(conn, v302) == [("D-2026-104212", 7500, "recurso_dia", 7)]
+    # La del Objeto cede la noche y se queda con el turno de dia.
+    assert _conciliacion(conn, v301) == [("D-2026-104212", 0, "objeto_dia", 7),
+                                         ("D-2026-104211", 7500, "objeto_dia", 7)]
+    assert [h for h in _abiertos(conn, "V7") if "turno" in h["detalle"]] == []
+    _limpio(conn)
+
+
+def test_en_una_pasada_se_reparten_antes_las_lineas_de_una_persona(maestros, tmp_path) -> None:
+    conn = maestros.conn
+    _planning(maestros, _cambiado(tmp_path, ("D-2026-104212;12-10-2026;23:00;7:00",
+                                             "D-2026-104212;12-10-2026;06:00;14:00")))
+    dia = {"desde": "12-10-2026", "hasta": "12-10-2026", "horas": "7,5"}
+    _importar_venta(maestros, _ventas(tmp_path, "dos.csv",
+                                      {"numero": "V2026-0301", "fecha": "13-10-2026", **dia},
+                                      {"numero": "V2026-0302", "fecha": "14-10-2026", **dia,
+                                       "medewerker": "Jan Bakker"}))
+    assert _conciliacion(conn, factura_de(conn, "V2026-0302")) == [
+        ("D-2026-104212", 7500, "recurso_dia", 7)]
+    assert _conciliacion(conn, factura_de(conn, "V2026-0301")) == [
+        ("D-2026-104212", 0, "objeto_dia", 7), ("D-2026-104211", 7500, "objeto_dia", 7)]
+    # (Las dos suman lo mismo: ese V7 es otro caso, el de los importes.)
+    assert [h for h in _abiertos(conn, "V7") if "turno" in h["detalle"]] == []
+
+
+def test_los_dias_de_una_fila_semanal_que_ya_no_vale_no_estan_cubiertos(maestros,
+                                                                       tmp_path) -> None:
+    """La semana 42 en semanal y despues, desde el jueves 15, el diario: de lunes a miercoles
+    el planning ya no dice nada (la fila semanal no se puede partir), y no es "0 horas"."""
+    from bms_agent.reglas.instantanea import fotos_planning
+
+    conn = maestros.conn
+    [lote] = _planning(maestros, _filtrado(tmp_path, "w42.csv", lambda l: ";42;" in l,
+                                           fuente=SEMANAL)).lotes
+    semanal = lote.importacion_id
+    [lote] = _planning(maestros, _filtrado(tmp_path, "desde-15.csv", lambda l: any(
+        f";{d}-10-2026;" in l for d in (17, 18, 19, 20))), cubre_desde=date(2026, 10, 15),
+        cubre_hasta=date(2026, 10, 31)).lotes
+    assert lote.estado == "aceptada"
+    huecos = {f.importacion_id: f.huecos for f in fotos_planning(conn)}
+    assert huecos[semanal] == ((date(2026, 10, 12), date(2026, 10, 14)),)
+    _importar_venta(maestros, _venta(tmp_path, desde="12-10-2026", hasta="12-10-2026",
+                                     horas="8"))
+    v201 = factura_de(conn, "V2026-0201")
+    [r] = conn.execute("SELECT resultado, detalle FROM evaluacion WHERE regla = 'V1' "
+                       "AND fila_id = ? ORDER BY id DESC LIMIT 1", (v201,)).fetchall()
+    assert r["resultado"] == "sin_datos" and "no cubre" in r["detalle"]
+
+
+def test_una_foto_que_borraria_el_planning_pide_confirmacion(maestros, tmp_path) -> None:
+    conn = maestros.conn
+    agosto = _cambiado(tmp_path, *((f"{d}-10-2026", f"{d - 7:02d}-08-2026")
+                                   for d in (12, 13, 17, 18, 19, 20)), nombre="agosto.csv")
+    _planning(maestros, agosto)
+    antes = conn.execute("SELECT count(*) FROM v_turno_vigente").fetchone()[0]
+    assert _abiertos(conn, "V6", "cliente")
+
+    def nada_cambia() -> None:
+        assert conn.execute("SELECT count(*) FROM v_turno_vigente").fetchone()[0] == antes
+        assert conn.execute("SELECT count(*) FROM importacion WHERE tipo = 'planning'"
+                            ).fetchone()[0] == 1
+        assert _abiertos(conn, "V6", "cliente")
+
+    # Una fecha mal escrita (2016) en la exportacion de octubre.
+    errata = _cambiado(tmp_path, ("D-2026-104214;17-10-2026", "D-2026-104214;20-10-2016"),
+                       nombre="errata.csv")
+    with pytest.raises(PideConfirmacion, match="no trae ningun turno"):
+        _planning(maestros, errata)
+    nada_cambia()
+    # Un fichero con solo la cabecera y un --desde/--hasta amplio.
+    vacio = _filtrado(tmp_path, "vacio.csv", lambda l: False)
+    with pytest.raises(PideConfirmacion, match="ningun turno"):
+        _planning(maestros, vacio, cubre_desde=date(2000, 1, 1), cubre_hasta=date(2099, 12, 31))
+    nada_cambia()
+    # Una exportacion filtrada a un Objeto que dice cubrir todo agosto.
+    waalhaven = _filtrado(tmp_path, "waalhaven.csv", lambda l: ";Waalhaven;" in l, fuente=agosto)
+    with pytest.raises(PideConfirmacion, match="deja sin valer 5 de los 6 turnos"):
+        _planning(maestros, waalhaven, cubre_desde=date(2026, 8, 5),
+                  cubre_hasta=date(2026, 8, 13))
+    nada_cambia()
+    # Confirmada, entra y dice lo que quita.
+    [lote] = _planning(maestros, waalhaven, cubre_desde=date(2026, 8, 5),
+                       cubre_hasta=date(2026, 8, 13), confirmar=True).lotes
+    assert lote.estado == "aceptada"
+    assert any(a.startswith("5 turno(s) del planning que valia dejan de valer")
+               for a in lote.avisos)
+    evento = conn.execute("SELECT datos_json FROM evento WHERE tipo = 'planning_registrado' "
+                          "ORDER BY id DESC LIMIT 1").fetchone()[0]
+    assert '"dejan_de_valer":5' in evento and '"confirmado":true' in evento
+
+
+def test_una_conciliacion_manual_sobrevive_a_la_pasada_del_motor(maestros, tmp_path) -> None:
+    from decimal import Decimal
+
+    from bms_agent.campos import Persona
+
+    conn = maestros.conn
+    _planning(maestros)
+    _importar_venta(maestros, _venta(tmp_path))
+    v201 = factura_de(conn, "V2026-0201")
+    imputacion = conn.execute("SELECT id FROM factura_imputacion WHERE factura_id = ? "
+                              "AND retirada_en IS NULL", (v201,)).fetchone()[0]
+    automaticas = [f[0] for f in conn.execute(
+        "SELECT id FROM conciliacion WHERE imputacion_id = ? AND retirada_en IS NULL",
+        (imputacion,))]
+    noche = conn.execute("SELECT id FROM planning_turno WHERE id_externo = 'D-2026-104212'"
+                         ).fetchone()[0]
+    with campos.orden(conn, Persona(_ana(conn), motivo=MOTIVO), tipo="conciliacion_manual",
+                      tabla="conciliacion") as o:
+        for fila_id in automaticas:
+            o.retirar("conciliacion", fila_id)
+        o.crear("conciliacion", {"imputacion_id": imputacion, "planning_turno_id": noche,
+                                 "horas_mil": Decimal("15"), "metodo": "manual",
+                                 "regla": "objeto_semana"})
+    hallazgos.recalcular(conn)
+    assert [tuple(f) for f in conn.execute(
+        "SELECT planning_turno_id, horas_mil, metodo FROM conciliacion WHERE imputacion_id = ? "
+        "AND retirada_en IS NULL", (imputacion,))] == [(noche, 15000, "manual")]
+    _limpio(conn)
+
+
+def test_un_v3_abierto_no_se_cierra_porque_el_planning_envejezca(maestros, tmp_path) -> None:
+    from bms_agent.almacen import reloj_de
+
+    conn = maestros.conn
+    _planning(maestros, cubre_desde=date(2026, 10, 12), cubre_hasta=date(2026, 10, 25))
+    _importar_venta(maestros, _venta(tmp_path, objeto="Waalhaven", desde="21-10-2026",
+                                     hasta="23-10-2026", horas="8"))
+    v201 = factura_de(conn, "V2026-0201")
+    assert [h["fila_id"] for h in _abiertos(conn, "V3")] == [v201]
+    reloj_de(conn).avanzar(days=30)
+    hallazgos.recalcular(conn)
+    assert [h["fila_id"] for h in _abiertos(conn, "V3")] == [v201]

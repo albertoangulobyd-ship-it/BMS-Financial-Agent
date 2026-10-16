@@ -23,7 +23,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator, model_validator
 
 from ..reglas.bancaria import validar_iban
 from ..reglas.normas import normalizar_iban, parece_iban
@@ -442,9 +442,12 @@ class ModificacionPOCanonica(Canonico):
 # ------------------------------------------------------------ el planning (paso 10)
 
 _HORA = re.compile(r"([01]?[0-9]|2[0-3])[:.]([0-5][0-9])")
+# Las 24:00 solo como fin: el turno que acaba a medianoche (16:00 a 24:00).
+_FIN_DEL_DIA = re.compile(r"24[:.]00")
 DIAS_SEMANA = ("horas_lunes", "horas_martes", "horas_miercoles", "horas_jueves",
                "horas_viernes", "horas_sabado", "horas_domingo")
 _HORAS = ("horas_planificadas", "horas_realizadas", "horas_aprobadas")
+_HORAS_DEL_ESTADO = {"validado": "horas_aprobadas", "realizado": "horas_realizadas"}
 
 
 class TurnoCanonico(Canonico):
@@ -455,9 +458,16 @@ class TurnoCanonico(Canonico):
     (un turno de noche que acaba al dia siguiente suma 24 horas al fin). Una
     fila de la exportacion semanal pivotada lleva `ano` y `semana` y las horas de
     cada dia (`horas_lunes`...): se lee a nivel de semana, sin partirla en
-    dias, con el total en el campo de horas que diga su mapeo; el total tiene
-    que ser la suma de los dias. `estado` validado es el turno cuyas horas dio
-    por buenas el planning, y tiene que traer esas horas.
+    dias, con su total en `horas_total`, que va a las horas de su estado (las
+    validadas de una fila validada, las realizadas de una realizada, las
+    planificadas de las demas); el total tiene que ser la suma de los dias.
+    `estado` validado es el turno cuyas horas dio por buenas el planning, y
+    tiene que traer esas horas; un turno que no esta validado no trae horas
+    validadas (el fichero se contradice, y no se adivina cual de los dos
+    manda).
+
+    Un fin a las 24:00 es medianoche; un turno que empieza y acaba a la misma
+    hora dura 24 horas (una guardia de un dia entero), no cero.
 
     `id_externo` es el identificador estable del turno en TRNSPRNT. Si el
     fichero no lo trae, planning.py le pone una clave sintetica y la marca
@@ -476,6 +486,7 @@ class TurnoCanonico(Canonico):
     horas_planificadas: Decimal | None = None
     horas_realizadas: Decimal | None = None
     horas_aprobadas: Decimal | None = None
+    horas_total: Decimal | None = None
     horas_lunes: Decimal | None = None
     horas_martes: Decimal | None = None
     horas_miercoles: Decimal | None = None
@@ -499,9 +510,11 @@ class TurnoCanonico(Canonico):
 
     @field_validator("hora_inicio", "hora_fin")
     @classmethod
-    def _hora(cls, valor: str | None) -> str | None:
+    def _hora(cls, valor: str | None, info: ValidationInfo) -> str | None:
         if valor is None:
             return None
+        if info.field_name == "hora_fin" and _FIN_DEL_DIA.fullmatch(valor.strip()):
+            return "24:00"
         hora = _HORA.fullmatch(valor.strip())
         if hora is None:
             raise ValueError(f"{valor!r} no es una hora (HH:MM)")
@@ -519,7 +532,17 @@ class TurnoCanonico(Canonico):
         if (self.fecha is None) == (self.ano is None or self.semana is None):
             raise ValueError("un turno lleva su fecha (un dia) o su ano y su semana (la "
                              "exportacion semanal), una de las dos")
-        for nombre in (*_HORAS, *DIAS_SEMANA, "tarifa_compra", "tarifa_venta"):
+        if self.horas_total is not None:
+            destino = _HORAS_DEL_ESTADO.get(self.estado, "horas_planificadas")
+            if getattr(self, destino) is not None and getattr(self, destino) != self.horas_total:
+                raise ValueError(f"el total ({self.horas_total}) no es {destino} "
+                                 f"({getattr(self, destino)})")
+            object.__setattr__(self, destino, self.horas_total)
+        if self.estado != "validado" and self.horas_aprobadas is not None:
+            raise ValueError(f"un turno {self.estado} trae horas validadas "
+                             f"({self.horas_aprobadas}): o no esta validado o no lo estan sus "
+                             "horas")
+        for nombre in (*_HORAS, "horas_total", *DIAS_SEMANA, "tarifa_compra", "tarifa_venta"):
             valor = getattr(self, nombre)
             if valor is not None and valor < 0:
                 raise ValueError(f"{nombre} no puede ser negativo")
@@ -545,7 +568,8 @@ class TurnoCanonico(Canonico):
         return self
 
     def _duracion(self) -> Decimal:
-        """fin - inicio - pausa, en horas; un fin anterior al inicio es del dia siguiente.
+        """fin - inicio - pausa, en horas; un fin anterior al inicio es del dia siguiente, y
+        uno igual al inicio, 24 horas despues.
 
         Es un valor derivado, no impreso: un turno de 07:10 a 15:30 son 8,333...
         horas, y se guarda a la milesima de hora (3,6 segundos), redondeado a
@@ -553,7 +577,7 @@ class TurnoCanonico(Canonico):
         """
         inicio = int(self.hora_inicio[:2]) * 60 + int(self.hora_inicio[3:])
         fin = int(self.hora_fin[:2]) * 60 + int(self.hora_fin[3:])
-        minutos = (fin - inicio) % (24 * 60) - (self.pausa_min or 0)
+        minutos = ((fin - inicio) % (24 * 60) or 24 * 60) - (self.pausa_min or 0)
         if minutos < 0:
             raise ValueError("la pausa es mas larga que el turno")
         return (Decimal(minutos) / Decimal(60)).quantize(Decimal("0.001"), ROUND_HALF_UP)

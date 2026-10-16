@@ -27,7 +27,8 @@ Ninguna orden escribe en ningun sistema de la empresa:
     bms-agent politica cargar     apunta prioridad.yaml, reglas.yaml o empresa.yaml (admin)
     bms-agent importar F T FICH   importa un maestro, el banco, pagos, ventas de Exact, la
                                   hoja de PO (po_csv ordenes_compra|modificaciones_po, CSV o YAML)
-                                  o el planning (trnsprnt planning, --desde/--hasta: lo que cubre)
+                                  o el planning (trnsprnt planning, --desde/--hasta: lo que cubre;
+                                  --confirmar: una foto que borraria mucho del planning de ahora)
     bms-agent iban ...            el registro de cuentas: listar, verificar, rechazar, atestar
     bms-agent fuentes             de cuando es lo ultimo de cada fuente (Z1)
     bms-agent reextraer ...       vuelve a leer lo ya leido, con presupuesto (--activar: la puerta)
@@ -1216,8 +1217,10 @@ def _cmd_objeto(args: argparse.Namespace) -> int:
     if not v["ordenes_compra"]:
         print("  Sin ordenes de compra.")
     h = v["horas"]
-    if h["planning"] != "ok":
+    if h["planning"] == "sin_datos":
         print("  Horas: sin planning importado, solo las facturadas.")
+    elif h["planning"] == "caducado":
+        print("  Horas: el planning esta pasado de su frescura (Z1): puede no ser el de hoy.")
     print(f"  {'semana':<10} {'planif.':>8} {'valid.':>8} {'prov.':>8} {'cliente':>8} "
           f"{'sin fact.':>9}")
     for fila in (*h["semanas"], {**h["total"], "semana": "total"}):
@@ -1485,8 +1488,8 @@ def _cmd_importar(args: argparse.Namespace) -> int:
             except ValueError:
                 print(f"--{nombre} es una fecha AAAA-MM-DD, no {texto!r}", file=sys.stderr)
                 return 1
-    if cubre and (args.fuente, args.tipo) != ("trnsprnt", "planning"):
-        print("--desde y --hasta solo valen para el planning (trnsprnt planning)",
+    if (cubre or args.confirmar) and (args.fuente, args.tipo) != ("trnsprnt", "planning"):
+        print("--desde, --hasta y --confirmar solo valen para el planning (trnsprnt planning)",
               file=sys.stderr)
         return 1
     if args.exportado:
@@ -1512,7 +1515,8 @@ def _cmd_importar(args: argparse.Namespace) -> int:
             r = importar_fichero(almacen, args.fuente, args.tipo, fichero,
                                  lanzado_por=usuario_id, mapeo=args.mapeo,
                                  exportado_en=exportado, simular=args.simular,
-                                 cubre_desde=cubre.get("desde"), cubre_hasta=cubre.get("hasta"))
+                                 cubre_desde=cubre.get("desde"), cubre_hasta=cubre.get("hasta"),
+                                 confirmar=args.confirmar)
         except (PermisoDenegado, MapeoNoValido, FicheroIlegible, ValueError) as exc:
             print(f"No se importa: {exc}", file=sys.stderr)
             _anclar(almacen)
@@ -2014,6 +2018,9 @@ def main(argv: list[str] | None = None) -> int:
                                        "defecto, el del primer turno)")
     p_imp.add_argument("--hasta", help="el planning: ultimo dia que cubre la foto (por "
                                        "defecto, el del ultimo turno)")
+    p_imp.add_argument("--confirmar", action="store_true",
+                       help="el planning: importa una foto sin turnos, con semanas enteras sin "
+                            "turnos o que deja sin valer muchos turnos del planning de ahora")
     p_imp.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
     p_imp.add_argument("--db", help=_AYUDA_DB)
     p_imp.set_defaults(func=_cmd_importar)

@@ -69,8 +69,8 @@ def semanal(id_: int, lunes: date = LUNES, horas: int = 40000, dias: int = 5, **
 
 
 def foto(importacion: int = 1, desde: date = OCTUBRE[0], hasta: date = OCTUBRE[1],
-         exportado: date = HOY) -> FotoPlanning:
-    return FotoPlanning(importacion, exportado, desde, hasta)
+         exportado: date = HOY, huecos: tuple[tuple[date, date], ...] = ()) -> FotoPlanning:
+    return FotoPlanning(importacion, exportado, desde, hasta, huecos)
 
 
 def ciclo(id_: int, *, cliente: int | None = 3, objeto_id: int | None = None,
@@ -571,6 +571,190 @@ def test_p7_una_po_caducada_con_trabajo_despues_de_su_fin() -> None:
     assert uno("P7", plan(ordenes=[po], fotos=()), 1, "orden_compra").resultado == "sin_datos"
 
 
+# ============================================================ revision del paso 10
+
+def test_unas_horas_en_la_columna_de_validadas_de_un_turno_planificado_no_estan_validadas() -> None:
+    """Lo que dice si unas horas estan validadas es el estado: una fila semanal planificada con
+    su total en esa columna no hace buenas las 40 h facturadas."""
+    planificada = dataclasses.replace(semanal(1, estado="planificado"), horas_aprobadas_mil=40000)
+    semana = (LUNES, LUNES + timedelta(days=6))
+    instantanea = plan(trabajo(compra(1), dia=semana[0], hasta=semana[1], horas=40000),
+                       trabajo(venta(2), dia=semana[0], hasta=semana[1], horas=40000),
+                       turnos_=[planificada])
+    for regla_id, factura_id in (("G2", 1), ("V1", 2)):
+        r = uno(regla_id, instantanea, factura_id)
+        assert r.resultado == "sin_datos" and "sin validar" in r.detalle
+    assert turnos.horas_validadas(planificada) is None
+    assert turnos.horas_validadas(semanal(2)) == 40000
+
+
+def test_un_periodo_de_mas_de_92_dias_no_da_ningun_turno_por_no_haber_mirado() -> None:
+    trimestre = (date(2026, 9, 1), date(2026, 12, 15))
+    instantanea = plan(trabajo(compra(1), dia=None, periodo=trimestre),
+                       turnos_=[turno(1, date(2026, 10, 5))])
+    assert uno("G1", instantanea, 1).resultado == "ok"
+    # V5: la venta del trimestre cobra el 5 y el 6 no lo cubre ninguna linea.
+    venta_ = trabajo(venta(2), dia=LUNES, periodo=trimestre)
+    turnos_ = [turno(1, LUNES), turno(2, LUNES + timedelta(days=1), venta_e4=520000)]
+    r = uno("V5", plan(venta_, turnos_=turnos_), 2)
+    assert r.resultado == "fallo" and r.valores["turnos"] == ["D-2"]
+    # El indice da lo mismo recorriendo los dias que por los turnos de la clave.
+    indice = turnos.Indice([turno(1, LUNES), semanal(2, LUNES + timedelta(days=7))])
+    corto = indice.de(turnos.RECURSO, 5, LUNES, LUNES + timedelta(days=13))
+    largo = indice.de(turnos.RECURSO, 5, LUNES - timedelta(days=60), LUNES + timedelta(days=60))
+    assert [len(x) for x in corto] == [len(x) for x in largo] == [1, 1]
+
+
+def test_una_po_caducada_y_la_que_la_sustituye_no_se_quitan_los_turnos() -> None:
+    vieja = orden(1, fin=date(2026, 10, 1))
+    nueva = orden(2, inicio=date(2026, 10, 2))
+    futuro = [turno(n, HOY + timedelta(days=n), venta_e4=500000) for n in range(1, 4)]
+    instantanea = plan(turnos_=futuro, ordenes=[vieja, nueva])
+    p8 = uno("P8", instantanea, 2, "orden_compra")
+    assert p8.resultado == "fallo" and "1.200,00" in p8.detalle
+    assert uno("P10", instantanea, 2, "orden_compra").resultado == "fallo"
+    # La caducada no tiene trabajo suyo despues de su fin: lo cubre la nueva.
+    assert uno("P7", instantanea, 1, "orden_compra").resultado == "ok"
+    # Sin la nueva, ese trabajo si es de la caducada, despues de su fin.
+    sola = plan(turnos_=futuro, ordenes=[vieja])
+    r = uno("P7", sola, 1, "orden_compra")
+    assert r.resultado == "fallo" and r.valores["turnos_despues"] == 3
+
+
+def test_un_turno_planificado_que_se_valida_con_lo_facturado_no_da_v9() -> None:
+    planificado = turno(1, horas=8000, estado="planificado")
+    instantanea = plan(trabajo(venta(1), horas=7500), turnos_=[turno(1, horas=7500)],
+                       conciliaciones=[conciliado(1, 1010, 1, planificado, horas=7500)])
+    assert uno("V1", instantanea, 1).resultado == "ok"
+    r = uno("V9", instantanea, 1)
+    assert r.resultado == "ok" and "lo facturado es lo que dice ahora" in r.detalle
+    # Validado con otras horas que las facturadas, si.
+    otras = dataclasses.replace(instantanea, turnos=(turno(1, horas=6000),))
+    r = uno("V9", otras, 1)
+    assert r.resultado == "fallo" and r.valores["facturadas"] == [["D-1", 7500]]
+
+
+def test_cobrar_mas_de_lo_que_tienen_unos_turnos_sin_validar_retiene() -> None:
+    for estado in ("planificado", "realizado"):
+        instantanea = plan(trabajo(compra(1), horas=80000), trabajo(venta(2), horas=80000),
+                           turnos_=[turno(1, estado=estado)])
+        for regla_id, factura_id in (("G2", 1), ("V1", 2)):
+            r = uno(regla_id, instantanea, factura_id)
+            assert r.resultado == "fallo" and "sin validar" in r.detalle
+            assert (r.valores["tope_mil"], r.valores["diferencia_mil"]) == (8000, 72000)
+    # Dentro del tope (con la tolerancia), sin datos hasta que se validen.
+    dentro = plan(trabajo(compra(1), horas=8250), turnos_=[turno(1, estado="realizado")])
+    assert uno("G2", dentro, 1).resultado == "sin_datos"
+
+
+def test_con_el_planning_obligatorio_g1_bloquea_aunque_no_haya_con_que_comparar() -> None:
+    obligatorio = Politica(planning_obligatorio=True)
+    f = trabajo(compra(1))
+    sin = plan(f, fotos=(), politica=obligatorio)
+    r = uno("G1", sin, 1)
+    assert (r.resultado, r.severidad, r.valores["causa"]) == ("fallo", "bloqueo", "sin_planning")
+    sin_cubrir = plan(f, fotos=(foto(desde=date(2026, 11, 1)),), politica=obligatorio)
+    r = uno("G1", sin_cubrir, 1)
+    assert (r.resultado, r.severidad, r.valores["causa"]) == ("fallo", "bloqueo", "sin_cubrir")
+    viejo = (lote(1, "trnsprnt", "planning", exportado=date(2026, 9, 1)),)
+    caducado = plan(f, turnos_=[turno(1)], lotes=viejo, politica=obligatorio)
+    r = uno("G1", caducado, 1)
+    assert (r.resultado, r.severidad, r.valores["causa"]) == ("fallo", "bloqueo", "caducado")
+    assert "frescura" in r.detalle
+    # Sin obligatorio, lo de siempre: sin datos.
+    assert [x.resultado for x in resultados("G1", plan(f, fotos=()))] == ["sin_datos"]
+
+
+def test_g4_g5_v3_y_g6_dan_sin_datos_si_no_pueden_mirar_el_planning() -> None:
+    """Nunca nada: un hallazgo abierto solo se queda como estaba si su regla da sin datos."""
+    noviembre = (foto(desde=date(2026, 11, 1)),)
+    instantanea = plan(trabajo(compra(1), tipo="nacht"), trabajo(venta(2)),
+                       turnos_=[turno(1)], fotos=noviembre)
+    for regla_id, factura_id, clave in (("G4", 1, "imputacion:1010"), ("G5", 1, "imputacion:1010"),
+                                        ("V3", 2, "imputacion:1020"), ("G6", 1, "recargo:1010")):
+        r = [x for x in de(regla_id, instantanea, factura_id) if x.clave == clave]
+        assert [x.resultado for x in r] == ["sin_datos"], regla_id
+        assert "no cubre" in r[0].detalle
+
+
+def test_g6_valora_las_horas_de_un_recargo_que_no_estan_en_el_planning() -> None:
+    noche = trabajo(compra(1), tipo="nacht", tarifa_e4=442500)
+    instantanea = plan(noche, turnos_=[turno(1)],
+                       tarifas=[tarifa(2, 442500, proveedor=7, turno="nacht")])
+    [r] = [x for x in de("G6", instantanea, 1) if x.clave.startswith("recargo")]
+    assert r.resultado == "fallo" and r.valores["valor_cent"] == 35400
+
+
+def test_p7_p8_y_p10_no_dicen_ok_con_un_planning_viejo_o_que_no_llega() -> None:
+    po = orden(1, valor=50000)
+    futuro = [turno(n, HOY + timedelta(days=n), venta_e4=500000, po=1) for n in range(1, 4)]
+    viejo = (lote(1, "trnsprnt", "planning", exportado=date(2026, 8, 1)),)
+    caducado = plan(turnos_=futuro, ordenes=[po], lotes=viejo)
+    for regla_id in ("P8", "P10"):
+        r = uno(regla_id, caducado, 1, "orden_compra")
+        assert r.resultado == "sin_datos" and "frescura" in r.detalle
+    # Una PO que acaba despues de lo que cubre el planning: pasarse se ve, caber no.
+    po_larga = orden(1, valor=500000, fin=date(2027, 3, 31))
+    corto = plan(turnos_=futuro[:1], ordenes=[po_larga])
+    for regla_id in ("P8", "P10"):
+        r = uno(regla_id, corto, 1, "orden_compra")
+        assert r.resultado == "sin_datos" and "no cubre" in r.detalle
+    pequena = orden(1, valor=10000, fin=date(2027, 3, 31))
+    assert uno("P8", plan(turnos_=futuro, ordenes=[pequena]), 1,
+               "orden_compra").resultado == "fallo"
+    # P7 de una caducada: sin turnos despues de su fin y sin planning de esos dias, sin datos.
+    caducada = orden(1, fin=date(2026, 8, 15))
+    r = uno("P7", plan(ordenes=[caducada]), 1, "orden_compra")
+    assert r.resultado == "sin_datos" and "no cubre" in r.detalle
+    r = uno("P7", plan(ordenes=[caducada], lotes=viejo), 1, "orden_compra")
+    assert r.resultado == "sin_datos" and "frescura" in r.detalle
+
+
+def test_g1_cuenta_una_vez_el_turno_de_su_proveedor_y_de_su_persona() -> None:
+    r = uno("G1", plan(trabajo(compra(1)), turnos_=[turno(1)]), 1)
+    assert r.resultado == "ok" and "1 turno(s)" in r.detalle
+
+
+def test_lo_que_cubre_el_planning_no_cuenta_los_huecos_de_una_fila_semanal_que_ya_no_vale() -> None:
+    vieja = FotoPlanning(1, HOY, date(2026, 10, 12), date(2026, 10, 18),
+                         ((date(2026, 10, 12), date(2026, 10, 14)),))
+    nueva = foto(2, desde=date(2026, 10, 15), hasta=date(2026, 10, 31))
+    assert turnos.tramos([vieja, nueva]) == [(date(2026, 10, 15), date(2026, 10, 31))]
+    instantanea = plan(trabajo(venta(1), dia=date(2026, 10, 12)),
+                       turnos_=[turno(1, date(2026, 10, 17))], fotos=(vieja, nueva))
+    r = uno("V1", instantanea, 1)
+    assert r.resultado == "sin_datos" and "no cubre" in r.detalle
+
+
+def test_lo_esperado_de_un_objeto_no_pasa_de_lo_que_queda_de_la_factura() -> None:
+    from bms_agent import trabajo as trabajo_
+
+    f = dataclasses.replace(venta(1), lineas=(), imputaciones=(
+        imp(1, None, objeto=8, importe=1000, horas=None),
+        imp(2, None, objeto=9, importe=-900, horas=None)))
+    vista = trabajo_.horas_objeto(plan(f), 8, {1: ("entrada", 12100)})
+    assert 0 < vista["esperado"]["entrante_cent"] <= 12100
+
+
+def test_las_horas_de_un_objeto_de_una_semana_sin_planning_son_sin_datos() -> None:
+    from bms_agent import trabajo as trabajo_
+
+    septiembre = date(2026, 9, 7)
+    instantanea = plan(trabajo(compra(1), dia=septiembre), trabajo(venta(2), dia=septiembre),
+                       turnos_=[turno(1, date(2026, 10, 5))],
+                       fotos=(foto(desde=date(2026, 10, 1), hasta=date(2026, 10, 31)),))
+    semanas = {s["semana"]: s for s in trabajo_.horas_objeto(instantanea, 8)["semanas"]}
+    w37 = semanas["2026-W37"]
+    assert w37["cobertura"] == "ninguna" and w37["cliente_mil"] == 8000
+    assert (w37["planificadas_mil"], w37["validadas_mil"], w37["sin_facturar_mil"]) == (
+        None, None, None)
+    assert semanas["2026-W41"]["cobertura"] == "entera"
+    assert semanas["2026-W41"]["validadas_mil"] == 8000
+    viejo = (lote(1, "trnsprnt", "planning", exportado=date(2026, 8, 1)),)
+    assert trabajo_.horas_objeto(dataclasses.replace(instantanea, lotes=viejo), 8)[
+        "planning"] == "caducado"
+
+
 # ------------------------------------------------------------ escenarios
 
 def escenarios() -> list[Instantanea]:
@@ -671,4 +855,14 @@ def escenarios() -> list[Instantanea]:
             *tarifas, tarifa(4, 600000, sentido="venta", cliente=3, turno="nacht",
                              desde=date(2026, 1, 1), hasta=date(2026, 12, 31))]),
         plan(ventas[0], ventas[7], turnos_=diario, hoy=date(2026, 11, 20)),
+        # Revision: el planning obligatorio sin planning, uno viejo con PO y turnos sin
+        # validar cobrados de mas.
+        plan(*compras[:3], fotos=(), politica=Politica(planning_obligatorio=True)),
+        plan(*compras[:3], *ventas[:2], turnos_=diario, ordenes=pos, objetos=objetos,
+             lotes=(lote(1, "trnsprnt", "planning", exportado=date(2026, 8, 1)),),
+             politica=Politica(planning_obligatorio=True)),
+        plan(trabajo(compra(1), horas=80000), trabajo(venta(2), horas=80000),
+             turnos_=[turno(1, estado="realizado")], ordenes=pos,
+             fotos=(foto(1, desde=date(2026, 8, 1), hasta=date(2026, 10, 20),
+                         huecos=((date(2026, 8, 1), date(2026, 8, 2)),)),)),
     ]

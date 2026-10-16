@@ -603,12 +603,18 @@ class Turno:
 
 @dataclass(frozen=True, slots=True)
 class FotoPlanning:
-    """Una importacion aceptada del planning: de cuando es y que dias cubre."""
+    """Una importacion aceptada del planning: de cuando es y que dias cubre.
+
+    `huecos`: los dias de lo que cubre de los que ya no dice nada, aunque
+    ninguna foto mas nueva los cubra: los de las semanas de sus filas
+    semanales que una foto mas nueva tapa solo en parte (turnos.tramos).
+    """
 
     importacion_id: int
     exportado: date
     cubre_desde: date | None
     cubre_hasta: date | None
+    huecos: tuple[tuple[date, date], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

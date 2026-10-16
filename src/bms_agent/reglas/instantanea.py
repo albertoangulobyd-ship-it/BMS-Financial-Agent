@@ -963,14 +963,60 @@ def turnos_vigentes(conn: sqlite3.Connection,
 
 def fotos_planning(conn: sqlite3.Connection) -> tuple[FotoPlanning, ...]:
     """Las importaciones aceptadas del planning: de que dia son (lo que se exporto, nunca
-    despues de cuando se importo) y que dias cubren."""
+    despues de cuando se importo), que dias cubren y sus huecos (huecos_planning)."""
+    huecos = huecos_planning(conn)
     return tuple(
         FotoPlanning(id_, _dia(min(exportado or iniciada, iniciada)), _fecha(desde),
-                     _fecha(hasta))
+                     _fecha(hasta), huecos.get(id_, ()))
         for id_, exportado, iniciada, desde, hasta in _filas(
             conn, "SELECT id, exportado_en, iniciada_en, cubre_desde, cubre_hasta "
                   "FROM importacion WHERE fuente = 'trnsprnt' AND tipo = 'planning' "
                   "AND estado IN ('aceptada', 'parcial') ORDER BY id"))
+
+
+# Una importacion n es mas nueva que i como en v_turno_vigente: por cuando se
+# exporto (o, sin eso, cuando se importo) y, a igual hora, la que entro despues.
+_MAS_NUEVA = (
+    "n.fuente = i.fuente AND n.tipo = 'planning' AND n.estado IN ('aceptada', 'parcial') "
+    "AND n.id <> i.id AND (coalesce(n.exportado_en, n.iniciada_en) > "
+    "coalesce(i.exportado_en, i.iniciada_en) OR (coalesce(n.exportado_en, n.iniciada_en) = "
+    "coalesce(i.exportado_en, i.iniciada_en) AND n.id > i.id))")
+
+
+def huecos_planning(conn: sqlite3.Connection) -> dict[int, tuple[tuple[date, date], ...]]:
+    """Por foto, los dias de sus semanas con una fila semanal que ya no vale que ninguna foto
+    mas nueva cubre.
+
+    v_turno_vigente quita una fila semanal entera en cuanto una foto mas nueva
+    cubre algun dia de su semana (no se puede partir). Los demas dias de esa
+    semana siguen dentro de lo que cubre la foto vieja, pero ya no tienen
+    turnos: son un hueco, y lo que caiga en el da sin datos (turnos.tramos).
+    """
+    semanas: dict[int, set[date]] = defaultdict(set)
+    for importacion_id, lunes in _filas(
+            conn, "SELECT DISTINCT t.importacion_id, t.fecha FROM planning_turno AS t "
+                  "JOIN importacion AS i ON i.id = t.importacion_id "
+                  "WHERE t.nivel = 'semana' AND i.fuente = 'trnsprnt' AND i.tipo = 'planning' "
+                  "AND i.estado IN ('aceptada', 'parcial') "
+                  "AND t.id NOT IN (SELECT id FROM v_turno_vigente)"):
+        semanas[importacion_id].add(date.fromisoformat(lunes))
+    salida: dict[int, tuple[tuple[date, date], ...]] = {}
+    for importacion_id, lunes_ in sorted(semanas.items()):
+        nuevas = [(date.fromisoformat(d), date.fromisoformat(h)) for d, h in _filas(
+            conn, f"SELECT n.cubre_desde, n.cubre_hasta FROM importacion AS n, importacion AS i "
+                  f"WHERE i.id = ? AND {_MAS_NUEVA} AND n.cubre_desde IS NOT NULL "
+                  "AND n.cubre_hasta IS NOT NULL", (importacion_id,))]
+        dias = sorted(lunes + timedelta(days=n) for lunes in lunes_ for n in range(7)
+                      if not any(d <= lunes + timedelta(days=n) <= h for d, h in nuevas))
+        tramos_: list[list[date]] = []
+        for dia in dias:
+            if tramos_ and dia == tramos_[-1][1] + timedelta(days=1):
+                tramos_[-1][1] = dia
+            else:
+                tramos_.append([dia, dia])
+        if tramos_:
+            salida[importacion_id] = tuple((d, h) for d, h in tramos_)
+    return salida
 
 
 def sin_resolver_del_planning(conn: sqlite3.Connection, resolutor: Resolutor | None,

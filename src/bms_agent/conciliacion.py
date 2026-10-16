@@ -16,10 +16,22 @@ en juego que todavia no tiene su conciliacion:
 3. cada turno de la celda queda en una fila de conciliacion, tambien con cero
    horas: lo que se guarda es la celda entera tal como era.
 
+Las celdas mezclan niveles: una linea sin persona se reparte entre los turnos
+del Objeto, y una de una persona solo en los suyos. Si la del Objeto se lleva
+el turno de una persona, la de esa persona amontona sus horas en el y B5 ve
+las mismas horas cobradas dos veces (y el turno de otra persona queda sin
+facturar). Por eso en cada pasada se reparten antes las de persona, y una
+conciliacion de Objeto cede: si una imputacion nueva de una persona no cabe
+en sus turnos porque una de Objeto los ocupa, la de Objeto se retira y se
+vuelve a repartir despues, con lo que queda.
+
 Una conciliacion no cambia despues (la base lo exige). Si cambia la
 imputacion (su Objeto, su persona, sus dias, sus horas, la parte de su
 factura) o la factura sale de juego, se retira y, si hace falta, se vuelve a
-conciliar. Si cambia el planning, no: lo conciliado es con lo que se facturo
+conciliar. Una conciliacion manual (la hizo una persona) no la retira el
+motor porque su huella no sea la de ahora: solo si su imputacion ya no esta
+en juego; si no, el motor desharia el trabajo de una persona en la pasada
+siguiente. Si cambia el planning, no: lo conciliado es con lo que se facturo
 (regla 9), y la diferencia con el planning de ahora la dicen G7 y V9. Con el
 planning pasado de su frescura no se concilia nada nuevo: se esperaria a uno
 al dia.
@@ -42,7 +54,7 @@ from . import campos
 from .almacen import reloj_de, usuario_sistema
 from .almacen.unidades import json_canonico, sha256_texto
 from .campos import Automatico
-from .dominio import Fuente, MetodoConciliacion, Sentido, TipoFactura
+from .dominio import Fuente, MetodoConciliacion, NivelConciliacion, Sentido, TipoFactura
 from .reglas import turnos
 from .reglas.base import Imputacion, Politica
 from .reglas.instantanea import Resolutor, fotos_planning, turnos_vigentes
@@ -147,46 +159,47 @@ def sincronizar(conn: sqlite3.Connection, *, hoy: date | None = None,
     cubre = turnos.tramos(fotos)
     caducado = _caducado(conn, hoy, politica)
 
-    activas: dict[int, list[tuple[int, str | None, str, int]]] = defaultdict(list)
-    for fila_id, imputacion_id, huella, id_externo, horas, sentido in conn.execute(
-            "SELECT c.id, c.imputacion_id, c.huella_imputacion, t.id_externo, c.horas_mil, "
-            "f.sentido FROM conciliacion AS c JOIN planning_turno AS t "
+    activas: dict[int, list[_Activa]] = defaultdict(list)
+    for fila in conn.execute(
+            "SELECT c.id, c.huella_imputacion, t.id_externo, c.horas_mil, f.sentido, c.metodo, "
+            "c.regla, c.imputacion_id FROM conciliacion AS c JOIN planning_turno AS t "
             "ON t.id = c.planning_turno_id JOIN factura_imputacion AS i "
             "ON i.id = c.imputacion_id JOIN factura AS f ON f.id = i.factura_id "
             "WHERE c.retirada_en IS NULL ORDER BY c.id"):
-        activas[imputacion_id].append((fila_id, huella, id_externo, horas, sentido))
+        activas[fila[-1]].append(_Activa(*fila[:-1]))
 
     imputaciones = _imputaciones(conn)
     huellas = {i.id: huella_imputacion(f, i, l) for f, i, l in imputaciones}
-    retirar = sorted(fila_id for imputacion_id, filas in activas.items()
-                     for fila_id, huella, *_resto in filas
-                     if huellas.get(imputacion_id) != huella)
-    retiradas = set(retirar)
+    retiradas = {a.fila_id for imputacion_id, filas in activas.items() for a in filas
+                 if (huellas.get(imputacion_id) != a.huella if a.metodo == AUTOMATICA
+                     else imputacion_id not in huellas)}
     asignado: dict[tuple[str, str], int] = defaultdict(int)
     con_conciliacion = set()
     for imputacion_id, filas in activas.items():
-        for fila_id, _huella, id_externo, horas, sentido in filas:
-            if fila_id not in retiradas:
-                asignado[(sentido, id_externo)] += horas
+        for a in filas:
+            if a.fila_id not in retiradas:
+                asignado[(a.sentido, a.id_externo)] += a.horas
                 con_conciliacion.add(imputacion_id)
 
     nuevas: list[tuple[Imputacion, str, str, list[tuple[int, int]]]] = []
     if not caducado:
-        for f, i, linea in imputaciones:
-            if i.id in con_conciliacion or f.tipo != _FACTURA:
-                continue
-            parte = f.proveedor_id if f.sentido == Sentido.ENTRANTE.value else f.cliente_id
-            if parte is None:
-                continue
-            filtro = turnos.de_la_parte(f)
-            celda = turnos.celda_de(i, linea, f, indice, filtro)
-            if celda is None or not turnos.cubierto(celda.desde, celda.hasta, cubre):
-                continue
-            contenido = turnos.contenido(celda, indice, filtro)
-            if not contenido.turnos or contenido.parcial:
-                continue
-            nuevas.append((i, celda.nivel, huellas[i.id],
-                           _repartir(i.horas_mil, contenido.turnos, f.sentido, asignado)))
+        orden = {i.id: n for n, (_f, i, _l) in enumerate(imputaciones)}
+        candidatas = _candidatas(imputaciones, con_conciliacion, indice, cubre)
+        ceden = _ceden(candidatas, activas, retiradas, asignado)
+        for imputacion_id in ceden:
+            for a in activas[imputacion_id]:
+                retiradas.add(a.fila_id)
+                asignado[(a.sentido, a.id_externo)] -= a.horas
+            con_conciliacion.discard(imputacion_id)
+        if ceden:
+            candidatas = _candidatas(imputaciones, con_conciliacion, indice, cubre)
+        # Las de una persona primero: una de Objeto se reparte con lo que dejan.
+        for c in sorted(candidatas, key=lambda c: (c.celda.dimension != turnos.RECURSO,
+                                                   orden[c.imputacion.id])):
+            nuevas.append((c.imputacion, c.celda.nivel, huellas[c.imputacion.id],
+                           _repartir(c.imputacion.horas_mil, c.contenido.turnos, c.sentido,
+                                     asignado)))
+    retirar = sorted(retiradas)
 
     if not (retirar or nuevas):
         return resultado
@@ -208,6 +221,78 @@ def sincronizar(conn: sqlite3.Connection, *, hoy: date | None = None,
     resultado.conciliadas = [i.id for i, *_r in nuevas]
     resultado.evento_id = o.resultado.evento_id
     return resultado
+
+
+class _Activa(NamedTuple):
+    """Una fila de conciliacion viva."""
+
+    fila_id: int
+    huella: str | None
+    id_externo: str
+    horas: int
+    sentido: str
+    metodo: str
+    nivel: str
+
+
+class _Candidata(NamedTuple):
+    """Una imputacion que se puede conciliar: su sentido, su celda y los turnos de esta."""
+
+    imputacion: Imputacion
+    sentido: str
+    celda: turnos.Celda
+    contenido: turnos.Contenido
+
+
+def _candidatas(imputaciones: list[tuple[_Factura, Imputacion, _Linea | None]],
+                con_conciliacion: set[int], indice: turnos.Indice,
+                cubre: list[tuple[date, date]]) -> list[_Candidata]:
+    """Las imputaciones sin conciliacion que se pueden conciliar: de una factura (no un abono)
+    con su parte resuelta, dentro de lo que cubre el planning, con turnos en su celda y sin
+    una fila semanal partida."""
+    salida = []
+    for f, i, linea in imputaciones:
+        if i.id in con_conciliacion or f.tipo != _FACTURA:
+            continue
+        parte = f.proveedor_id if f.sentido == Sentido.ENTRANTE.value else f.cliente_id
+        if parte is None:
+            continue
+        filtro = turnos.de_la_parte(f)
+        celda = turnos.celda_de(i, linea, f, indice, filtro)
+        if celda is None or not turnos.cubierto(celda.desde, celda.hasta, cubre):
+            continue
+        contenido = turnos.contenido(celda, indice, filtro)
+        if contenido.turnos and not contenido.parcial:
+            salida.append(_Candidata(i, f.sentido, celda, contenido))
+    return salida
+
+
+_DE_OBJETO = frozenset({NivelConciliacion.OBJETO_DIA.value, NivelConciliacion.OBJETO_SEMANA.value,
+                        NivelConciliacion.OBJETO_PERIODO.value})
+
+
+def _ceden(candidatas: list[_Candidata], activas: dict[int, list[_Activa]],
+           retiradas: set[int], asignado: dict[tuple[str, str], int]) -> list[int]:
+    """Las imputaciones con una conciliacion automatica de Objeto que tienen que ceder sus
+    turnos a una imputacion nueva de una persona: las que ocupan alguno de sus turnos cuando
+    las horas de la persona no caben en lo que les queda (ver el docstring del modulo)."""
+    ocupan: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for imputacion_id, filas in activas.items():
+        for a in filas:
+            if (a.metodo == AUTOMATICA and a.nivel in _DE_OBJETO and a.horas > 0
+                    and a.fila_id not in retiradas):
+                ocupan[(a.sentido, a.id_externo)].add(imputacion_id)
+    salida: set[int] = set()
+    for c in candidatas:
+        if not ocupan or c.celda.dimension != turnos.RECURSO:
+            continue
+        claves = [(c.sentido, t.id_externo) for t in c.contenido.turnos]
+        de_objeto = set().union(*(ocupan.get(k, set()) for k in claves))
+        queda = sum(max(turnos.horas_referencia(t) - asignado[k], 0)
+                    for t, k in zip(c.contenido.turnos, claves))
+        if de_objeto and max(c.imputacion.horas_mil, 0) > queda:
+            salida.update(de_objeto)
+    return sorted(salida)
 
 
 def _repartir(horas_mil: int, lista: tuple, sentido: str,
@@ -253,8 +338,9 @@ def traza(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
         entrada["turnos"].append({
             "id_externo": id_externo, "clave_fragil": bool(fragil), "fecha": fecha,
             "hora_inicio": inicio, "hora_fin": fin, "estado": estado,
-            "horas_turno_mil": aprobadas if aprobadas is not None else (
-                realizadas if realizadas is not None else planificadas),
+            "horas_turno_mil": next((h for h in (
+                aprobadas if estado == "validado" else None, realizadas, planificadas, aprobadas)
+                if h is not None), None),
             "horas_asignadas_mil": horas, "objeto": objeto, "recurso": recurso,
             "importacion_id": importacion_id})
     return list(salida.values())

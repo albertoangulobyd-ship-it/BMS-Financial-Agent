@@ -11,7 +11,8 @@
 #
 # Como el diario, esta hecho contra un ejemplo sintetico
 # (tests/fixtures/importacion/trnsprnt-planning-semana-v1.csv); el total es
-# de horas validadas (Goedgekeurd).
+# de las horas de su estado (Status): las validadas de una fila Goedgekeurd,
+# las realizadas de una Uitgevoerd y las planificadas de las demas.
 version: 1
 fuente: trnsprnt
 tipo: planning
@@ -41,7 +42,7 @@ registros:
       horas_viernes: {columna: Vr, tipo: decimal}
       horas_sabado: {columna: Za, tipo: decimal}
       horas_domingo: {columna: Zo, tipo: decimal}
-      horas_aprobadas: {columna: Totaal, tipo: decimal, obligatorio: true}
+      horas_total: {columna: Totaal, tipo: decimal, obligatorio: true}
       estado:
         columna: Status
         por_defecto: validado

@@ -60,6 +60,7 @@ from ..dominio import Fuente, Permiso
 from ..parsing import normalizar_unidad
 from ..permisos import exigir, orden_auditada
 from ..reloj import ZONA_EMPRESA, marca, semana_iso
+from . import planning as planning_
 from .base import ATOMICOS, LoteLeido, Rechazo
 from .tabular import LectorTabular, Mapeo, cargar_mapeo, elegir_mapeo, lectores
 
@@ -126,6 +127,7 @@ class _Contexto:
     persona: int
     actor: int
     resultado: ResultadoLote
+    confirmar: bool = False
     # Lo que dice Exact de cada factura de un fichero de pagos, tambien cero (K8).
     exact_pagado: dict[int, int] = field(default_factory=dict)
 
@@ -694,6 +696,11 @@ def _planning(ctx: _Contexto) -> list[Rechazo]:
         return [Rechazo(0, f"el planning llega de TRNSPRNT, no de {lote.fuente}")]
     if lote.rechazos:
         return []
+    riesgos, desaparecen = _riesgos_del_planning(conn, lote)
+    ctx.resultado.avisos.extend(f"confirmado: {r}" for r in riesgos)
+    if desaparecen:
+        ctx.resultado.avisos.append(f"{desaparecen} turno(s) del planning que valia dejan de "
+                                    "valer: esta foto cubre sus dias y no los trae")
     resolutor = Resolutor(conn)
     filas = []
     for posicion, t in enumerate(lote.registros, start=1):
@@ -738,8 +745,48 @@ def _planning(ctx: _Contexto) -> list[Rechazo]:
     registrar(conn, tipo="planning_registrado", actor=ctx.actor, usuario_id=ctx.persona,
               tabla="importacion", fila_id=ctx.importacion_id,
               datos={"importacion_id": ctx.importacion_id, "turnos": fotos,
-                     "sin_resolver": dict(sorted(sin_resolver.items()))})
+                     "sin_resolver": dict(sorted(sin_resolver.items())),
+                     "dejan_de_valer": desaparecen, "riesgos": riesgos,
+                     "confirmado": ctx.confirmar})
     return []
+
+
+def _riesgos_del_planning(conn: sqlite3.Connection, lote: LoteLeido) -> tuple[list[str], int]:
+    """Lo que hace que una foto del planning pida confirmacion (planning_.riesgos), y cuantos
+    turnos del planning que vale ahora deja sin valer sin traerlos.
+
+    Los que deja sin valer son los turnos (no cancelados) de v_turno_vigente
+    cuyos dias cubre y de importaciones que no son mas nuevas que ella (la que
+    entra es la ultima, y a igual fecha de exportacion gana), como en la vista.
+    """
+    if lote.cubre_desde is None or lote.cubre_hasta is None:
+        return planning_.riesgos(lote, 0, 0), 0
+    cuando = marca(lote.exportado_en) if lote.exportado_en else marca(reloj_de(conn).ahora())
+    traidos = {t.id_externo for t in lote.registros}
+    cubiertos = [id_externo for (id_externo,) in conn.execute(
+        "SELECT v.id_externo FROM v_turno_vigente AS v "
+        "JOIN importacion AS i ON i.id = v.importacion_id "
+        "WHERE i.fuente = ? AND v.estado <> 'cancelado' "
+        "AND ? <= CASE v.nivel WHEN 'semana' THEN date(v.fecha, '+6 days') ELSE v.fecha END "
+        "AND ? >= v.fecha AND ? >= coalesce(i.exportado_en, i.iniciada_en)",
+        (lote.fuente, lote.cubre_desde.isoformat(), lote.cubre_hasta.isoformat(), cuando))]
+    desaparecen = sum(1 for id_externo in cubiertos if id_externo not in traidos)
+    return planning_.riesgos(lote, len(cubiertos), desaparecen), desaparecen
+
+
+def _confirmar_planning(conn: sqlite3.Connection, lote: LoteLeido, confirmar: bool) -> None:
+    """Una foto del planning que borraria mucho del de ahora no se importa sin confirmarla.
+
+    Se para antes de escribir nada (como una fecha de exportacion futura): un
+    fichero rechazado queda apuntado con su hash y no se podria volver a
+    importar con --confirmar.
+    """
+    if confirmar or lote.tipo != planning_.TIPO or lote.rechazos:
+        return
+    riesgos, _desaparecen = _riesgos_del_planning(conn, lote)
+    if riesgos:
+        raise planning_.PideConfirmacion(
+            "; ".join(riesgos) + ". Si es lo que se quiere, se importa con --confirmar.")
 
 
 # ------------------------------------------------------------ lo pagado segun Exact (paso 7)
@@ -1096,7 +1143,7 @@ def importacion_previa(conn: sqlite3.Connection, lote: LoteLeido) -> sqlite3.Row
 
 
 def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes | None,
-               nombre: str | None, tipo_mime: str) -> ResultadoLote:
+               nombre: str | None, tipo_mime: str, confirmar: bool = False) -> ResultadoLote:
     conn = almacen.conn
     resultado = ResultadoLote(lote.fuente, lote.tipo, lote.formato,
                               filas_leidas=lote.filas_leidas, avisos=list(lote.avisos))
@@ -1118,7 +1165,7 @@ def _registrar(almacen: Almacen, lote: LoteLeido, persona: int, contenido: bytes
          lote.cubre_desde.isoformat() if lote.cubre_desde else None,
          lote.cubre_hasta.isoformat() if lote.cubre_hasta else None, int(lote.completo),
          lote.filas_leidas, ahora, persona, actor)).lastrowid)
-    ctx = _Contexto(conn, lote, resultado.importacion_id, persona, actor, resultado)
+    ctx = _Contexto(conn, lote, resultado.importacion_id, persona, actor, resultado, confirmar)
     rechazos = list(lote.rechazos)
     if lote.tipo == "cuentas":
         propios = _cuentas(ctx)
@@ -1215,12 +1262,15 @@ def _exportado_no_futuro(conn: sqlite3.Connection, lote: LoteLeido) -> None:
 
 def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
                    simular: bool = False, contenido: bytes | None = None,
-                   nombre: str | None = None, tipo_mime: str = "text/csv") -> ResultadoLote:
+                   nombre: str | None = None, tipo_mime: str = "text/csv",
+                   confirmar: bool = False) -> ResultadoLote:
     """Lleva un lote al almacen (ver el docstring del modulo). El unico escritor.
 
     `lanzado_por` es la persona, con importar_datos. `contenido` son los
     bytes del fichero, que se guardan como documento (no al simular).
     Repetir el mismo fichero devuelve la importacion que ya hubo.
+    `confirmar`: una foto del planning que borraria mucho del planning de
+    ahora entra igual (importadores/planning.riesgos).
     """
     conn = almacen.conn
     with orden_auditada(conn):
@@ -1235,12 +1285,14 @@ def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
             return ResultadoLote(lote.fuente, lote.tipo, lote.formato,
                                  importacion_id=int(previa["id"]), estado=previa["estado"],
                                  repetida=True, filas_leidas=lote.filas_leidas)
+        _confirmar_planning(conn, lote, confirmar)
         if not simular:
-            return _registrar(almacen, lote, lanzado_por, contenido, nombre, tipo_mime)
+            return _registrar(almacen, lote, lanzado_por, contenido, nombre, tipo_mime,
+                              confirmar)
         try:
             with transaccion(conn):
                 raise _Simulacion(_registrar(almacen, lote, lanzado_por, None, nombre,
-                                             tipo_mime))
+                                             tipo_mime, confirmar))
         except _Simulacion as simulacion:
             return replace(simulacion.resultado, simulada=True)
 
@@ -1248,8 +1300,8 @@ def registrar_lote(almacen: Almacen, lote: LoteLeido, *, lanzado_por: int,
 def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path, *,
                      lanzado_por: int, mapeo: str | Path | Mapeo | None = None,
                      exportado_en: datetime | None = None, simular: bool = False,
-                     cubre_desde: date | None = None,
-                     cubre_hasta: date | None = None) -> ResultadoImportacion:
+                     cubre_desde: date | None = None, cubre_hasta: date | None = None,
+                     confirmar: bool = False) -> ResultadoImportacion:
     """La orden entera: elegir el mapeo, leer, registrar cada lote y recalcular, todo o nada.
 
     Un fichero de acreedores de Exact da dos lotes (proveedores y sus
@@ -1258,7 +1310,8 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
     vuelven a resolver las facturas y se recalculan las reglas, en la misma
     transaccion. Simulando, se hace todo y se deshace. Una foto del planning
     cubre los dias que trae, o los que se digan (`cubre_desde`, `cubre_hasta`:
-    la exportacion de un periodo, aunque algun dia no tenga turnos).
+    la exportacion de un periodo, aunque algun dia no tenga turnos). Una foto
+    que borraria mucho del planning de ahora solo entra con `confirmar`.
     """
     from ..hallazgos import recalcular
 
@@ -1305,7 +1358,8 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
         for lote in lotes:
             resultado.lotes.append(registrar_lote(
                 almacen, lote, lanzado_por=lanzado_por, nombre=ruta.name,
-                contenido=None if simular else contenido, tipo_mime=tipo_mime))
+                contenido=None if simular else contenido, tipo_mime=tipo_mime,
+                confirmar=confirmar))
         nuevas = [r for r in resultado.lotes if not r.repetida]
         if nuevas and elegido is not None and elegido.texto:
             # El mapeo aplicado queda en la politica con su texto (§5, tabla 2):
