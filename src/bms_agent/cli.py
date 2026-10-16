@@ -1769,7 +1769,11 @@ def _cmd_btw(args: argparse.Namespace) -> int:
                 Path(args.salida).write_bytes(hoja.en_bytes())
                 print(f"Hoja de trabajo {btw.etiqueta(*trimestre)} en {args.salida}")
             else:
-                sys.stdout.write(hoja.texto.lstrip("\ufeff"))
+                # Los mismos bytes que se hashean (con su BOM): una hoja guardada con
+                # `> hoja.csv` da el sha256 que se dice y el que queda en el periodo.
+                sys.stdout.flush()
+                sys.stdout.buffer.write(hoja.en_bytes())
+                sys.stdout.buffer.flush()
             print(f"sha256 {hoja.sha256}", file=sys.stderr if not args.salida else sys.stdout)
             return 0
         datos = btw.trimestre(conn, *trimestre) if trimestre else btw.resumen(conn)
@@ -2155,7 +2159,9 @@ def main(argv: list[str] | None = None) -> int:
     p_btw = sub.add_parser("btw", help="el BTW: ver, hoja, listo, reabrir, anotar (no presenta "
                                        "nada)")
     sub_btw = p_btw.add_subparsers(dest="accion", required=True)
-    p_ver = sub_btw.add_parser("ver", help="un trimestre, o el resumen sin trimestre")
+    p_ver = sub_btw.add_parser("ver", aliases=["estado"],
+                               help="un trimestre, o el resumen sin trimestre (el §6 la llama "
+                                    "btw estado)")
     p_ver.add_argument("trimestre", nargs="?", help="2026-T3")
     p_ver.add_argument("--json", action="store_true")
     p_ver.add_argument("--db", help=_AYUDA_DB)

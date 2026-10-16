@@ -12,6 +12,7 @@ cuenta para vencimientos y plazos de la empresa, no la del servidor.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -87,16 +88,18 @@ def limite_btw(ano: int, trimestre: int) -> date:
     return siguiente - timedelta(days=1)
 
 
-def proximo_limite_btw(dia: date, hoy: date) -> date:
+def proximo_limite_btw(dia: date, hoy: date,
+                       presentados: Collection[tuple[int, int]] = ()) -> date:
     """El plazo del BTW que le toca a algo fechado `dia`, visto desde hoy.
 
-    Es el de su trimestre si aun no ha pasado; si ya paso, el primero que no
-    ha pasado: lo que quede por arreglar de un trimestre ya vencido entra en
-    la siguiente declaracion.
+    Es el de su trimestre si aun no ha pasado y no esta presentado; si no, el
+    primero que no ha pasado y no esta presentado: lo que quede por arreglar de
+    un trimestre ya vencido o ya presentado (paso 11) entra en la siguiente
+    declaracion. `presentados` son (ano, trimestre).
     """
     ano, trimestre = trimestre_de(dia)
     limite = limite_btw(ano, trimestre)
-    while limite < hoy:
+    while limite < hoy or (ano, trimestre) in presentados:
         ano, trimestre = (ano + 1, 1) if trimestre == 4 else (ano, trimestre + 1)
         limite = limite_btw(ano, trimestre)
     return limite

@@ -39,7 +39,13 @@ persona que la presenta.
 
 Facturas que piden revisar el IVA: las del trimestre con un hallazgo de
 IVA pendiente (las reglas con entrada de IVA, dura o blanda), mas las de C4 de
-ese trimestre.
+ese trimestre, las que tienen pendiente algo que pone su IVA en duda (un
+duplicado, una mal encaminada, una lectura dudosa de lo que se declara) y las
+que tienen una linea fuera de las cifras (revisar).
+
+La hoja lleva escrita la huella de sus cifras (huella_cifras): presentar exige
+que las cifras de hoy sean las de la hoja marcada, no que la lista de revisar
+siga igual.
 """
 
 from __future__ import annotations
@@ -72,7 +78,7 @@ from .politica import FUERA, ConfigBtw
 from .reglas import catalogo
 from .reglas.base import euros_texto
 from .reglas.instantanea import moneda_extranjera
-from .reglas.iva import LineaIva, huella_iva, pais_iva
+from .reglas.iva import LineaIva, huella_iva, pais_iva, tipo_de_lineas
 from .reloj import limite_btw, marca, trimestre_de
 
 TABLA = "periodo_btw"
@@ -114,6 +120,13 @@ _CON_CUOTA = frozenset({"1a", "1b", "1c"})
 # pendiente de una de ellas pide revisar la factura antes de declarar.
 REGLAS_IVA = frozenset(r.id for r in catalogo.CATALOGO if r.entrada_prioridad in (
     EntradaPrioridad.IVA_DURA.value, EntradaPrioridad.IVA_BLANDA.value))
+# Las que no son de IVA pero lo ponen en duda: un duplicado (B2, B3) o una original
+# pendiente con su sustituta (R3) declararian el mismo IVA dos veces, y una factura
+# que no va dirigida a BMS (A8) no es suya. Q2 solo si la lectura dudosa es de lo
+# que se declara (CAMPOS_DUDA): la fecha decide el trimestre.
+REGLAS_DUDA = frozenset({"A8", "B2", "B3", "Q2", "R3"})
+CAMPOS_DUDA = frozenset({"base_cent", "iva_cent", "total_cent", "tipo_iva_pb",
+                         "tratamiento_iva", "fecha_factura"})
 _PENDIENTES = ("abierto", "desaparecido")
 
 
@@ -144,6 +157,11 @@ def limites(ano: int, trimestre: int) -> tuple[date, date]:
     return limite, limite
 
 
+def anterior(ano: int, trimestre: int) -> tuple[int, int]:
+    """El trimestre de antes: el anterior al primero es el cuarto del ano pasado."""
+    return (ano - 1, 4) if trimestre == 1 else (ano, trimestre - 1)
+
+
 def etiqueta(ano: int, trimestre: int) -> str:
     return f"{ano}-T{trimestre}"
 
@@ -167,7 +185,9 @@ class LineaBtw:
     """Una linea de IVA de una factura que cuenta (v_btw_linea), con lo que la hoja ensena.
 
     `moneda` es la moneda que no es el euro (X1), o None. `pais` es de donde es
-    la contraparte para el IVA trasladado (reglas.iva.pais_iva).
+    la contraparte para el IVA trasladado (reglas.iva.pais_iva). `tipo_lineas_pb`
+    es, en una venta con IVA normal sin tipo en la cabecera ni desglose, el unico
+    tipo de sus lineas (reglas.iva.tipo_de_lineas): lo que E0 acepta como tipo.
     """
 
     factura_id: int
@@ -183,6 +203,13 @@ class LineaBtw:
     cuota_cent: int | None
     moneda: str | None
     pais: str
+    tipo_lineas_pb: int | None = None
+
+    @property
+    def tipo_efectivo_pb(self) -> int | None:
+        """El tipo con que se declara: el de la linea o, sin el, el de las lineas de la
+        factura."""
+        return self.tipo_iva_pb if self.tipo_iva_pb is not None else self.tipo_lineas_pb
 
     @property
     def trimestre(self) -> tuple[int, int] | None:
@@ -199,7 +226,7 @@ def lineas(conn: sqlite3.Connection, ano: int | None = None,
     if ano is not None and trimestre is not None:
         filtro, parametros = "WHERE l.ano = ? AND l.trimestre = ?", (ano, trimestre)
     salida = []
-    for fila in conn.execute(
+    filas = conn.execute(
             "SELECT l.factura_id, l.factura_iva_id, l.sentido, l.tipo, l.fecha_factura, "
             "l.tratamiento, l.tipo_iva_pb, l.base_cent, l.cuota_cent, l.moneda_doc, f.numero, "
             "f.emisor_nombre_doc, f.emisor_btw_doc, f.receptor_nombre_doc, f.receptor_btw_doc, "
@@ -207,7 +234,13 @@ def lineas(conn: sqlite3.Connection, ano: int | None = None,
             "FROM v_btw_linea AS l JOIN factura AS f ON f.id = l.factura_id "
             "LEFT JOIN proveedor AS p ON p.id = f.proveedor_id "
             f"LEFT JOIN cliente AS c ON c.id = f.cliente_id {filtro} "
-            "ORDER BY l.fecha_factura, l.factura_id, coalesce(l.factura_iva_id, 0)", parametros):
+            "ORDER BY l.fecha_factura, l.factura_id, coalesce(l.factura_iva_id, 0)",
+            parametros).fetchall()
+    de_lineas = _tipos_de_lineas(conn, {
+        f["factura_id"] for f in filas if f["factura_iva_id"] is None
+        and f["tipo_iva_pb"] is None and f["sentido"] == "saliente"
+        and f["tratamiento"] == "estandar"})
+    for fila in filas:
         entrante = fila["sentido"] == "entrante"
         btw = fila["emisor_btw_doc"] if entrante else fila["receptor_btw_doc"]
         nombre = (fila["proveedor"] or fila["emisor_nombre_doc"] if entrante
@@ -219,8 +252,24 @@ def lineas(conn: sqlite3.Connection, ano: int | None = None,
             fecha=date.fromisoformat(fila["fecha_factura"]) if fila["fecha_factura"] else None,
             tratamiento=fila["tratamiento"], tipo_iva_pb=fila["tipo_iva_pb"],
             base_cent=fila["base_cent"], cuota_cent=fila["cuota_cent"],
-            moneda=moneda_extranjera(fila["moneda_doc"]), pais=pais_iva(btw)))
+            moneda=moneda_extranjera(fila["moneda_doc"]), pais=pais_iva(btw),
+            tipo_lineas_pb=de_lineas.get(fila["factura_id"])
+            if fila["factura_iva_id"] is None else None))
     return salida
+
+
+def _tipos_de_lineas(conn: sqlite3.Connection, facturas: set[int]) -> dict[int, int]:
+    """El unico tipo de las lineas vivas de cada factura, si lo tienen (tipo_de_lineas)."""
+    if not facturas:
+        return {}
+    tipos: dict[int, list[int | None]] = defaultdict(list)
+    marcas = ", ".join("?" * len(facturas))
+    for factura_id, tipo in conn.execute(
+            f"SELECT factura_id, tipo_iva_pb FROM factura_linea WHERE retirada_en IS NULL "
+            f"AND factura_id IN ({marcas})", sorted(facturas)):
+        tipos[factura_id].append(tipo)
+    salida = {f: tipo_de_lineas(t) for f, t in tipos.items()}
+    return {f: t for f, t in salida.items() if t is not None}
 
 
 def declarables(lineas_: list[LineaBtw]) -> dict[int, list[LineaBtw]]:
@@ -269,6 +318,12 @@ def por_tipo(base_cent: int, tipo_pb: int) -> int:
     return cociente if producto >= 0 else -cociente
 
 
+# Lo que falta es E0; lo que esta en el papel y no se pudo leer, Q2 (E0 no lo cuenta
+# como falta). La factura va igual a la lista de las que piden revisar el IVA.
+_SIN_TIPO_O_CUOTA = "IVA normal sin tipo o sin cuota (E0, o Q2 si no se pudo leer)"
+_SIN_CUOTA = "IVA normal sin cuota (E0, o Q2 si no se pudo leer)"
+
+
 def clasificar(linea: LineaBtw, config: ConfigBtw) -> Clasificada:
     """A que rubrica va una linea y con que importes (ver el docstring del modulo)."""
     if linea.moneda is not None:
@@ -279,11 +334,17 @@ def clasificar(linea: LineaBtw, config: ConfigBtw) -> Clasificada:
         return Clasificada(linea, None, motivo="sin base imponible")
     if linea.sentido == "saliente":
         if linea.tratamiento == "estandar":
-            if linea.tipo_iva_pb is None or linea.cuota_cent is None:
-                return Clasificada(linea, None, motivo="IVA normal sin tipo o sin cuota: E0")
-            clave = f"estandar:{linea.tipo_iva_pb}"
+            tipo = linea.tipo_efectivo_pb
+            if tipo is None or linea.cuota_cent is None:
+                return Clasificada(linea, None, motivo=_SIN_TIPO_O_CUOTA)
+            clave = f"estandar:{tipo}"
             rubrica = config.rubrica("saliente", clave) or config.rubrica(
                 "saliente", "estandar:otros")
+            if rubrica not in _CON_CUOTA and linea.cuota_cent != 0:
+                # Defensa: el cargador ya no deja poner un tipo con cuota en 1e, pero una
+                # cuota cobrada al cliente nunca se pierde de 5a en silencio.
+                return Clasificada(linea, None, motivo=f"IVA cobrado al {_tipo(tipo)} % y "
+                                   f"btw.yaml lo pone en {rubrica}, que no lleva IVA")
             return Clasificada(linea, rubrica, omzet_cent=linea.base_cent,
                                btw_cent=linea.cuota_cent if rubrica in _CON_CUOTA else 0)
         clave = (f"autoliquidacion:{linea.pais}" if linea.tratamiento == "autoliquidacion"
@@ -294,7 +355,7 @@ def clasificar(linea: LineaBtw, config: ConfigBtw) -> Clasificada:
         return Clasificada(linea, rubrica, omzet_cent=linea.base_cent)
     if linea.tratamiento == "estandar":
         if linea.cuota_cent is None:
-            return Clasificada(linea, None, motivo="IVA normal sin cuota: E0")
+            return Clasificada(linea, None, motivo=_SIN_CUOTA)
         rubrica = config.rubrica("entrante", "estandar")
         if rubrica == FUERA:
             return Clasificada(linea, FUERA)
@@ -364,6 +425,26 @@ def _de_clasificada(c: Clasificada) -> dict[str, Any]:
             "base_cent": c.linea.base_cent, "motivo": c.motivo or "no va en la declaración"}
 
 
+def huella_cifras(cifras_: Cifras) -> str:
+    """El sha256 de lo que se declara: las rubricas, 5a, 5b y 5c y cada linea con sus importes
+    y su rubrica.
+
+    No lleva lo que se revisa (los hallazgos abiertos) ni los nombres: resolver
+    o anular un hallazgo, o corregir el nombre de un proveedor, despues de marcar
+    la hoja lista no cambia lo que se presenta. Es lo que anotar_presentacion
+    compara con la hoja marcada, que la lleva escrita.
+    """
+    lineas_ = [[c.linea.factura_id, c.linea.factura_iva_id, c.linea.sentido, c.linea.tipo,
+                c.linea.fecha.isoformat() if c.linea.fecha else None, c.linea.tratamiento,
+                c.linea.tipo_efectivo_pb, c.linea.base_cent, c.linea.cuota_cent,
+                c.linea.moneda, c.linea.pais, c.rubrica, c.omzet_cent, c.btw_cent,
+                c.deducible_cent, c.autoliquidado_cent] for c in cifras_.lineas]
+    return sha256_texto(json_canonico({
+        "rubricas": {r: list(v) for r, v in cifras_.rubricas.items()},
+        "5a": cifras_.iva_a_declarar_cent, "5b": cifras_.voorbelasting_cent,
+        "5c": cifras_.saldo_cent, "lineas": lineas_}))
+
+
 def cifras(lineas_: list[LineaBtw], config: ConfigBtw) -> Cifras:
     """Las cifras de unas lineas: pura, sobre lo que da `lineas`."""
     salida = Cifras()
@@ -388,21 +469,33 @@ def cifras(lineas_: list[LineaBtw], config: ConfigBtw) -> Cifras:
 
 # ------------------------------------------------------------ lo que hay que revisar
 
-def revisar(conn: sqlite3.Connection, ano: int, trimestre: int,
-            facturas: set[int]) -> list[dict[str, Any]]:
-    """Las facturas del trimestre con un hallazgo de IVA pendiente, mas las de C4 del trimestre.
+def revisar(conn: sqlite3.Connection, ano: int, trimestre: int, facturas: set[int],
+            fuera: dict[int, str] | None = None) -> list[dict[str, Any]]:
+    """Las facturas del trimestre que piden revisar el IVA antes de declarar.
 
-    `facturas` son las del trimestre (sus lineas). Una de C4 puede no estarlo
-    ya (se anulo, cambio de fecha): entra por la clave de su C4.
+    - las que tienen un hallazgo de IVA pendiente (REGLAS_IVA), mas las de C4 del
+      trimestre; una de C4 puede no estar ya en el (se anulo, cambio de fecha) y
+      entra por la clave de su C4 (el §8);
+    - las que tienen pendiente un hallazgo que pone en duda su IVA aunque no sea
+      de IVA (REGLAS_DUDA: un duplicado contaria su IVA dos veces, una mal
+      encaminada no es de BMS) o una lectura dudosa sin verificar de lo que se
+      declara (Q2 en CAMPOS_DUDA);
+    - `fuera`: las que no entran en las cifras (sin clasificar, con su motivo),
+      tenga el hallazgo que tenga: lo que no se suma tiene que verlo alguien.
+
+    `facturas` son las del trimestre (sus lineas).
     """
-    reglas = sorted(REGLAS_IVA)
+    reglas = sorted(REGLAS_IVA | REGLAS_DUDA)
     marcas = ", ".join("?" * len(reglas))
     objetivos: dict[int, set[int]] = defaultdict(set)
-    for hallazgo_id, fila_id in conn.execute(
-            f"SELECT o.hallazgo_id, o.fila_id FROM hallazgo_objetivo AS o "
+    campos_q2: dict[int, set[str]] = defaultdict(set)
+    for hallazgo_id, fila_id, campo in conn.execute(
+            f"SELECT o.hallazgo_id, o.fila_id, o.campo FROM hallazgo_objetivo AS o "
             f"JOIN hallazgo AS h ON h.id = o.hallazgo_id WHERE o.tabla = 'factura' "
             f"AND h.estado IN ('abierto', 'desaparecido') AND h.regla IN ({marcas})", reglas):
         objetivos[hallazgo_id].add(fila_id)
+        if campo is not None:
+            campos_q2[hallazgo_id].add(campo)
     c4 = f"C4|factura:%|{etiqueta(ano, trimestre)}"
     por_factura: dict[int, set[str]] = defaultdict(set)
     for fila in conn.execute(
@@ -414,8 +507,13 @@ def revisar(conn: sqlite3.Connection, ano: int, trimestre: int,
             if _como(fila["clave"], c4):
                 por_factura[fila["factura_id"]].add("C4")
             continue
+        if fila["regla"] == "Q2" and not campos_q2.get(fila["id"], set()) & CAMPOS_DUDA:
+            continue
         for factura_id in de_este & facturas:
             por_factura[factura_id].add(fila["regla"])
+    fuera = {f: m for f, m in (fuera or {}).items() if f in facturas}
+    for factura_id in fuera:
+        por_factura.setdefault(factura_id, set())
     if not por_factura:
         return []
     marcas = ", ".join("?" * len(por_factura))
@@ -425,8 +523,17 @@ def revisar(conn: sqlite3.Connection, ano: int, trimestre: int,
     return [{"factura_id": f, "numero": datos[f]["numero"],
              "contraparte": datos[f]["emisor_nombre_doc"] if datos[f]["sentido"] == "entrante"
              else datos[f]["receptor_nombre_doc"],
-             "reglas": sorted(por_factura[f], key=_orden_regla)}
+             "reglas": sorted(por_factura[f], key=_orden_regla),
+             "fuera_de_las_cifras": fuera.get(f)}
             for f in sorted(por_factura)]
+
+
+def _fuera(cifras_: Cifras) -> dict[int, str]:
+    """Por factura, el motivo por el que una de sus lineas no entra en las cifras."""
+    salida: dict[int, str] = {}
+    for c in cifras_.sin_clasificar:
+        salida.setdefault(c.linea.factura_id, c.motivo or "sin clasificar")
+    return salida
 
 
 def _como(clave: str, patron: str) -> bool:
@@ -501,17 +608,25 @@ class Hoja:
     trimestre: int
     texto: str
     sha256: str
+    cifras_sha256: str = ""
 
     def en_bytes(self) -> bytes:
         """Los bytes que se exportan y de los que es el sha256."""
         return self.texto.encode("utf-8")
 
 
-def _escribir_hoja(ano: int, trimestre: int, config: ConfigBtw, empresa: str,
+HUELLA_CIFRAS = "Huella de las cifras"
+
+
+def _escribir_hoja(ano: int, trimestre: int, config: ConfigBtw, config_sha: str, empresa: str,
                    cifras_: Cifras, revisar_: list[dict[str, Any]],
                    diferencias_: list[dict[str, Any]]) -> str:
     """El texto de la hoja. No lleva ni la hora ni el estado: el mismo contenido da siempre
-    el mismo sha256, el que se marca listo y el que se presenta."""
+    el mismo sha256, el que se marca listo y el que se presenta.
+
+    `config_sha` es el sha256 del btw.yaml en politica_version (el texto con que
+    se hizo). La hoja lleva escrita la huella de sus cifras (huella_cifras): lo
+    que anotar_presentacion compara con las de hoy."""
     inicio, fin = periodo_de(ano, trimestre)
     presentar, pagar = limites(ano, trimestre)
     salida = io.StringIO()
@@ -522,9 +637,10 @@ def _escribir_hoja(ano: int, trimestre: int, config: ConfigBtw, empresa: str,
     escritor.writerow(["Plazo de presentación", presentar.isoformat()])
     escritor.writerow(["Plazo de pago", pagar.isoformat()])
     escritor.writerow(["Sistema", config.sistema, config.periodicidad])
-    escritor.writerow(["Configuración (btw.yaml)", config.sha256(),
+    escritor.writerow(["Configuración (btw.yaml)", config_sha,
                        "confirmada por el asesor" if config.confirmado
                        else "POR CONFIRMAR CON EL ASESOR"])
+    escritor.writerow([HUELLA_CIFRAS, huella_cifras(cifras_)])
     escritor.writerow(["La presenta una persona en el portal de la Belastingdienst; "
                        "el agente no presenta nada."])
     escritor.writerow([])
@@ -554,16 +670,16 @@ def _escribir_hoja(ano: int, trimestre: int, config: ConfigBtw, empresa: str,
         l = c.linea
         escritor.writerow([l.factura_id, l.sentido, l.tipo, celda(l.numero),
                            celda(l.contraparte), l.fecha.isoformat() if l.fecha else "",
-                           l.tratamiento or "", _tipo(l.tipo_iva_pb), importe(l.base_cent),
+                           l.tratamiento or "", _tipo(l.tipo_efectivo_pb), importe(l.base_cent),
                            importe(l.cuota_cent),
                            importe(c.autoliquidado_cent) if c.autoliquidado_cent else "",
                            c.rubrica or "", c.motivo or ""])
     escritor.writerow([])
     escritor.writerow(["Facturas que piden revisar el IVA"])
-    escritor.writerow(["Factura", "Número", "Contraparte", "Reglas"])
+    escritor.writerow(["Factura", "Número", "Contraparte", "Reglas", "Fuera de las cifras"])
     for r in revisar_:
         escritor.writerow([r["factura_id"], celda(r["numero"]), celda(r["contraparte"]),
-                           ", ".join(r["reglas"])])
+                           ", ".join(r["reglas"]), r["fuera_de_las_cifras"] or ""])
     escritor.writerow([])
     escritor.writerow(["Fuera de las cifras"])
     escritor.writerow(["Factura", "Número", "Contraparte", "Motivo"])
@@ -580,17 +696,27 @@ def _escribir_hoja(ano: int, trimestre: int, config: ConfigBtw, empresa: str,
     return "\ufeff" + salida.getvalue()
 
 
-def hoja(conn: sqlite3.Connection, ano: int, trimestre: int,
-         config: ConfigBtw | None = None) -> Hoja:
-    """La hoja de trabajo de un trimestre tal como esta ahora."""
+def hoja(conn: sqlite3.Connection, ano: int, trimestre: int) -> Hoja:
+    """La hoja de trabajo de un trimestre tal como esta ahora, con el btw.yaml vigente."""
     periodo_de(ano, trimestre)
-    config = config or politica.config_btw(conn)
+    config, config_sha = politica.config_btw_y_sha(conn)
     propias = lineas(conn, ano, trimestre)
     cifras_ = cifras(propias, config)
-    revisar_ = revisar(conn, ano, trimestre, {l.factura_id for l in propias})
-    texto = _escribir_hoja(ano, trimestre, config, politica.empresa(conn).nombre, cifras_,
-                           revisar_, diferencias(conn, periodo(conn, ano, trimestre), propias))
-    return Hoja(ano, trimestre, texto, sha256_texto(texto))
+    revisar_ = revisar(conn, ano, trimestre, {l.factura_id for l in propias}, _fuera(cifras_))
+    texto = _escribir_hoja(ano, trimestre, config, config_sha, politica.empresa(conn).nombre,
+                           cifras_, revisar_,
+                           diferencias(conn, periodo(conn, ano, trimestre), propias))
+    return Hoja(ano, trimestre, texto, sha256_texto(texto), huella_cifras(cifras_))
+
+
+def huella_escrita(texto: str) -> str | None:
+    """La huella de las cifras que lleva escrita una hoja (None en una de antes de llevarla)."""
+    for fila in csv.reader(io.StringIO(texto.lstrip("\ufeff")), delimiter=";"):
+        if not fila:
+            break
+        if fila[0] == HUELLA_CIFRAS and len(fila) > 1:
+            return fila[1]
+    return None
 
 
 # ------------------------------------------------------------ lo que se ve
@@ -611,17 +737,18 @@ def trimestre(conn: sqlite3.Connection, ano: int, trimestre_: int,
     """Todo lo de un trimestre: su estado, sus plazos, sus cifras, lo que hay que revisar, lo
     que quedo fuera y, si se presento, lo que ya no es lo declarado."""
     hoy = hoy or reloj_de(conn).hoy()
-    config = politica.config_btw(conn)
+    config, config_sha = politica.config_btw_y_sha(conn)
     inicio, fin = periodo_de(ano, trimestre_)
     presentar, pagar = limites(ano, trimestre_)
     fila = periodo(conn, ano, trimestre_)
     propias = lineas(conn, ano, trimestre_)
     cifras_ = cifras(propias, config)
-    revisar_ = revisar(conn, ano, trimestre_, {l.factura_id for l in propias})
+    revisar_ = revisar(conn, ano, trimestre_, {l.factura_id for l in propias}, _fuera(cifras_))
     diferencias_ = diferencias(conn, fila, propias)
-    texto = _escribir_hoja(ano, trimestre_, config, politica.empresa(conn).nombre, cifras_,
-                           revisar_, diferencias_)
+    texto = _escribir_hoja(ano, trimestre_, config, config_sha, politica.empresa(conn).nombre,
+                           cifras_, revisar_, diferencias_)
     sha = sha256_texto(texto)
+    marcada = _huella_marcada(conn, fila)
     estado = fila["estado"] if fila else ABIERTO
     return {
         "ano": ano, "trimestre": trimestre_, "etiqueta": etiqueta(ano, trimestre_),
@@ -636,9 +763,25 @@ def trimestre(conn: sqlite3.Connection, ano: int, trimestre_: int,
         "importe_declarado_cent": fila["importe_declarado_cent"] if fila else None,
         "hoja_sha256": sha, "hoja_marcada_sha256": fila["hoja_sha256"] if fila else None,
         "hoja_al_dia": fila is None or fila["hoja_sha256"] in (None, sha),
-        "configuracion": {"sha256": config.sha256(), "confirmada": config.confirmado},
+        "cifras_sha256": huella_cifras(cifras_),
+        "cifras_al_dia": marcada is None or marcada == huella_cifras(cifras_),
+        "configuracion": {"sha256": config_sha, "confirmada": config.confirmado},
         "cifras": cifras_.como_dict(), "revisar": revisar_, "diferencias": diferencias_,
     }
+
+
+def _huella_marcada(conn: sqlite3.Connection, fila: sqlite3.Row | None) -> str | None:
+    """La huella de las cifras de la hoja marcada lista de un periodo, o None si no la hay.
+
+    Una hoja guardada antes de llevarla escrita da su sha256 entero: con ella
+    solo vale la misma hoja, como antes."""
+    if fila is None or fila["hoja_id"] is None:
+        return None
+    guardada = conn.execute("SELECT sha256, contenido FROM hoja_btw WHERE id = ?",
+                            (fila["hoja_id"],)).fetchone()
+    if guardada is None:
+        return None
+    return huella_escrita(guardada["contenido"]) or guardada["sha256"]
 
 
 def _nombre(conn: sqlite3.Connection, usuario_id: int | None) -> str | None:
@@ -652,15 +795,17 @@ def resumen(conn: sqlite3.Connection, hoy: date | None = None) -> dict[str, Any]
     """El BTW de un vistazo: el trimestre en curso, los que estan por presentar con su
     plazo, los anteriores con su estado, el ano hasta hoy y lo que no tiene fecha."""
     hoy = hoy or reloj_de(conn).hoy()
-    config = politica.config_btw(conn)
+    config, config_sha = politica.config_btw_y_sha(conn)
     todas = lineas(conn)
     actual = trimestre_de(hoy)
-    # Los trimestres con facturas o con estado, y los ya terminados de este ano
-    # aunque no tengan nada: un trimestre sin facturas tambien se declara.
+    # Los trimestres con facturas o con estado, los ya terminados de este ano y el
+    # anterior al de hoy (en enero, el cuarto del ano pasado, que vence el 31) aunque
+    # no tengan nada: un trimestre sin facturas tambien se declara.
     vistos = {l.trimestre for l in todas if l.trimestre is not None}
     vistos |= {(f["ano"], f["trimestre"]) for f in conn.execute(
         "SELECT ano, trimestre FROM periodo_btw")}
     vistos |= {(actual[0], numero) for numero in range(1, actual[1])}
+    vistos.add(anterior(*actual))
     anteriores = []
     for ano, numero in sorted((t for t in vistos if t < actual), reverse=True):
         propias = [l for l in todas if l.trimestre == (ano, numero)]
@@ -677,7 +822,7 @@ def resumen(conn: sqlite3.Connection, hoy: date | None = None) -> dict[str, Any]
                and l.fecha <= hoy]
     return {
         "hoy": hoy.isoformat(),
-        "configuracion": {"sha256": config.sha256(), "confirmada": config.confirmado},
+        "configuracion": {"sha256": config_sha, "confirmada": config.confirmado},
         "actual": trimestre(conn, *actual, hoy=hoy),
         "por_presentar": [a for a in anteriores if a["estado"] != PRESENTADO],
         "anteriores": anteriores,
@@ -784,8 +929,9 @@ def marcar_lista(conn: sqlite3.Connection, persona: Persona, ano: int, trimestre
         if fila is not None and fila["estado"] == PRESENTADO:
             raise EstadoNoValido(f"el trimestre {etiqueta(ano, trimestre_)} ya esta presentado: "
                                  "es irreversible")
-        config = politica.apuntar_btw_en_uso(conn, persona.usuario_id)
-        hoja_ = hoja(conn, ano, trimestre_, config)
+        politica.apuntar_btw_en_uso(conn, persona.usuario_id)
+        _config, config_sha = politica.config_btw_y_sha(conn)
+        hoja_ = hoja(conn, ano, trimestre_)
         if hoja_sha256 != hoja_.sha256:
             raise Conflicto(f"la hoja del trimestre {etiqueta(ano, trimestre_)} cambio desde que "
                             "se miro: vuelve a generarla y a revisarla")
@@ -798,7 +944,8 @@ def marcar_lista(conn: sqlite3.Connection, persona: Persona, ano: int, trimestre
             {"estado": LISTO, "hoja_id": hoja_id, "hoja_sha256": hoja_.sha256,
              "listo_en": marca(reloj_de(conn).ahora()), "listo_por": persona.usuario_id},
             tipo=EVENTO_LISTO, motivo=(persona.motivo or "").strip() or None,
-            datos={**datos, "hoja_sha256": hoja_.sha256, "configuracion": config.sha256()})
+            datos={**datos, "hoja_sha256": hoja_.sha256, "cifras_sha256": hoja_.cifras_sha256,
+                   "configuracion": config_sha})
         return evento
 
 
@@ -828,13 +975,16 @@ def reabrir(conn: sqlite3.Connection, persona: Persona, ano: int, trimestre_: in
 
 def anotar_presentacion(conn: sqlite3.Connection, persona: Persona, ano: int, trimestre_: int,
                         *, hoja_sha256: str, referencia: str, importe_declarado: Decimal,
-                        fecha: date | None = None,
+                        fecha: date | None = None, rev: int | None = None,
                         datos: dict[str, Any] | None = None) -> int:
     """Anota que una persona presento el trimestre en el portal: es irreversible.
 
     Se presenta lo que se marco listo: `hoja_sha256` tiene que ser la hoja
-    marcada y las cifras de hoy tienen que seguir dando esa hoja (si no,
-    Conflicto: se vuelve a marcar lista y a revisar). La referencia es la del
+    marcada y las cifras de hoy tienen que seguir siendo las suyas (la huella
+    que lleva escrita; si no, Conflicto: se vuelve a marcar lista y a revisar).
+    Lo que se revisa no entra: resolver o anular un hallazgo despues de marcarla
+    es lo normal y no obliga a marcarla otra vez. `rev`, si se da, es la del
+    periodo que vio la persona (servicios la pide siempre). La referencia es la del
     acuse de la Belastingdienst; `importe_declarado`, lo que se declaro a pagar
     (en negativo, a devolver); `fecha`, el dia en que se presento (por
     defecto hoy), despues del trimestre y nunca en el futuro. Quien la marco
@@ -859,12 +1009,18 @@ def anotar_presentacion(conn: sqlite3.Connection, persona: Persona, ano: int, tr
         if dia <= fin or dia > hoy:
             raise ValueError(f"la presentacion es de despues del trimestre ({fin.isoformat()}) "
                              f"y no del futuro, no del {dia.isoformat()}")
+        if rev is not None and fila["rev"] != rev:
+            raise Conflicto(f"el trimestre {etiqueta(ano, trimestre_)} cambio (rev {fila['rev']}, "
+                            f"no {rev}): vuelve a mirarlo")
         if hoja_sha256 != fila["hoja_sha256"]:
             raise Conflicto("esa no es la hoja que se marco lista: se presenta la que se reviso")
         config = politica.apuntar_btw_en_uso(conn, persona.usuario_id)
         propias = lineas(conn, ano, trimestre_)
-        hoja_ = hoja(conn, ano, trimestre_, config)
-        if hoja_.sha256 != fila["hoja_sha256"]:
+        cifras_ = cifras(propias, config)
+        marcada = _huella_marcada(conn, fila)
+        ahora = (huella_cifras(cifras_) if marcada != fila["hoja_sha256"]
+                 else hoja(conn, ano, trimestre_).sha256)
+        if ahora != marcada:
             raise Conflicto(f"las cifras del trimestre {etiqueta(ano, trimestre_)} cambiaron desde "
                             "que se marco listo: vuelve a marcarlo listo y a revisarlo")
         decision = separacion(conn, GESTIONAR, fila["listo_por"], persona.usuario_id)
@@ -873,7 +1029,6 @@ def anotar_presentacion(conn: sqlite3.Connection, persona: Persona, ano: int, tr
                 persona.usuario_id, GESTIONAR, "quien marco la hoja lista no anota su "
                 "presentacion habiendo otra persona con gestionar_btw",
                 "anotar la presentacion de un trimestre del BTW")
-        cifras_ = cifras(propias, config)
         declaradas = _declaradas(conn, propias)
         importe_cent = a_cent(importe_declarado)
         evento, periodo_id = _escribir(
@@ -883,7 +1038,8 @@ def anotar_presentacion(conn: sqlite3.Connection, persona: Persona, ano: int, tr
              "importe_declarado_cent": importe_cent,
              "nota": (persona.motivo or "").strip() or fila["nota"]},
             tipo=EVENTO_PRESENTADO, motivo=(persona.motivo or "").strip() or None,
-            datos={**(datos or {}), "hoja_sha256": hoja_.sha256,
+            datos={**(datos or {}), "hoja_sha256": fila["hoja_sha256"],
+                   "cifras_sha256": huella_cifras(cifras_),
                    "autorrevisado": decision == AUTORREVISADO,
                    "estimado_cent": cifras_.saldo_cent,
                    "declaradas": {str(i): {**d, "periodo_id": fila["id"]}

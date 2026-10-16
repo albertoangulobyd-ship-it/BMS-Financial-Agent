@@ -56,7 +56,7 @@ bms-agent ordenes              # las PO: valor, consumido sin IVA y lo que queda
 bms-agent objeto 7             # un Objeto y sus PO
 bms-agent btw ver              # el BTW: el trimestre en curso, los por presentar y el año; `btw ver 2026-T3`
 bms-agent btw hoja 2026-T3 --salida hoja.csv   # la hoja de trabajo (CSV) y su sha256
-bms-agent btw listo --trimestre 2026-T3 --hoja-sha256 ... --token ...   # lista para revisar; `btw anotar`, la presentación hecha a mano
+bms-agent btw listo --trimestre 2026-T3 --hoja-sha256 ... --motivo "..." --token ...   # lista para revisar; `btw anotar` (con --rev y --motivo), la presentación hecha a mano
 bms-agent fuentes              # de cuándo es lo último de cada fuente (Z1)
 bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import dataclasses
 import hashlib
 import io
 import json
@@ -512,12 +513,23 @@ def test_solo_una_persona_con_gestionar_btw_pone_el_estado(almacen, ana) -> None
 
 
 def test_la_primera_hoja_lista_apunta_la_configuracion_que_usa(almacen, ana) -> None:
+    """El hash de la configuracion que lleva la hoja (y el evento de listo) es el de una fila
+    de politica_version: se resuelve a un texto con una consulta (revision del paso 11)."""
     conn = almacen.conn
     assert politica.vigente(conn, politica.FICHERO_BTW) is None
+    antes = btw.hoja(conn, 2026, 3)
     _listo(conn, ana)
     fila = politica.vigente(conn, politica.FICHERO_BTW)
     assert politica.config_btw_de_yaml(fila["contenido"]) == politica.ConfigBtw()
-    assert politica.ConfigBtw().sha256() in btw.hoja(conn, 2026, 3).texto
+    [linea] = [l for l in btw.hoja(conn, 2026, 3).texto.split("\r\n")
+               if l.startswith("Configuración (btw.yaml);")]
+    sha = linea.split(";")[1]
+    assert sha == fila["sha256"] and sha in antes.texto
+    assert conn.execute("SELECT count(*) FROM politica_version WHERE sha256 = ?",
+                        (sha,)).fetchone()[0] == 1
+    evento = conn.execute("SELECT id FROM evento WHERE tipo = 'btw_lista_revision'").fetchone()
+    assert _datos_evento(conn, evento["id"])["configuracion"] == sha
+    assert btw.trimestre(conn, 2026, 3)["configuracion"]["sha256"] == sha
 
 
 def test_el_resumen_trae_el_trimestre_en_curso_los_pendientes_y_el_ano(almacen, ana) -> None:
@@ -572,6 +584,13 @@ def test_la_configuracion_de_partida_es_config_btw_yaml() -> None:
     ('umbral: "20000.00"', 'umbral: "500.00"'),
     ("aviso_pct: 90", "aviso_pct: 10"),
     ("  tipo_cero: fuera\n  exento: fuera\n  kor: fuera", "  tipo_cero: fuera\n  exento: fuera"),
+    # Revision del paso 11: 1e no lleva columna de IVA, solo admite el tipo cero (una venta
+    # al 21 % alli perderia de 5a la cuota cobrada), y el tipo cero solo va a 1e.
+    ('    "21": 1a', '    "21": 1e'),
+    ("    otros: 1c", "    otros: 1e"),
+    ('    "0": 1e', '    "0": 1a'),
+    # Un umbral con mas de dos decimales no se trunca en silencio.
+    ('umbral: "20000.00"', 'umbral: "20000.009"'),
 ])
 def test_un_btw_yaml_que_la_v1_no_sabe_aplicar_no_se_carga(antes, despues) -> None:
     texto = (RAIZ / "config" / "btw.yaml").read_text(encoding="utf-8")
@@ -647,21 +666,40 @@ def test_el_btw_por_la_cli(tmp_path, capsys) -> None:
     assert main(["btw", "hoja", "2026-T3", "--salida", str(hoja), "--db", str(db)]) == 0
     sha = hashlib.sha256(hoja.read_bytes()).hexdigest()
     assert f"sha256 {sha}" in capsys.readouterr().out
+    # Sin --salida, en pantalla van los mismos bytes (con su BOM) cuyo sha256 se dice: una
+    # hoja guardada con `> hoja.csv` da el hash que queda en el periodo.
+    assert main(["btw", "hoja", "2026-T3", "--db", str(db)]) == 0
+    salida = capsys.readouterr()
+    assert salida.out.encode("utf-8") == hoja.read_bytes()
+    assert hashlib.sha256(salida.out.encode("utf-8")).hexdigest() == sha
+    assert f"sha256 {sha}" in salida.err
     assert main(["btw", "hoja", "2026-T5", "--db", str(db)]) == 1
     capsys.readouterr()
-    assert main(["btw", "listo", "--trimestre", "2026-T3", "--hoja-sha256", sha, "--token",
-                 token, "--db", str(db)]) == 0
+    # `btw estado` (el nombre del §6) es `btw ver`.
+    assert main(["btw", "estado", "2026-T3", "--db", str(db)]) == 0
+    assert "BTW 2026-T3 (2026-07-01 a 2026-09-30): abierto" in capsys.readouterr().out
+    # Marcar lista y anotar piden un motivo (§6); anotar, ademas, la rev del periodo.
+    listo = ["btw", "listo", "--trimestre", "2026-T3", "--hoja-sha256", sha, "--token",
+             token, "--db", str(db)]
+    assert main(listo) != 0
+    assert "pide un motivo" in capsys.readouterr().err
+    assert main([*listo, "--motivo", "Revisada con el asesor"]) == 0
     capsys.readouterr()
-    # Lo declarado a devolver va en negativo.
-    assert main(["btw", "anotar", "--trimestre", "2026-T3", "--hoja-sha256", sha,
-                 "--referencia", REFERENCIA, "--importe-declarado", "-210,00", "--token", token,
-                 "--db", str(db)]) == 0
+    assert main(["btw", "ver", "2026-T3", "--json", "--db", str(db)]) == 0
+    rev = json.loads(capsys.readouterr().out)["rev"]
+    # Lo declarado a devolver va en negativo, sin separador de miles.
+    anotar = ["btw", "anotar", "--trimestre", "2026-T3", "--hoja-sha256", sha,
+              "--referencia", REFERENCIA, "--importe-declarado", "-1234,56",
+              "--motivo", "Presentada en el portal", "--token", token, "--db", str(db)]
+    assert main([*anotar, "--rev", str(rev + 1)]) != 0
+    assert "cambio" in capsys.readouterr().err
+    assert main([*anotar, "--rev", str(rev)]) == 0
     capsys.readouterr()
     assert main(["btw", "ver", "2026-T3", "--json", "--db", str(db)]) == 0
     datos = json.loads(capsys.readouterr().out)
     assert (datos["estado"], datos["importe_declarado_cent"], datos["referencia"],
             datos["hoja_marcada_sha256"], datos["presentado_por"]) == (
-        "presentado", -21_000, REFERENCIA, sha, "Ana")
+        "presentado", -123_456, REFERENCIA, sha, "Ana")
     assert main(["btw", "reabrir", "--trimestre", "2026-T3", "--rev", str(datos["rev"]),
                  "--motivo", MOTIVO, "--token", token, "--db", str(db)]) != 0
     capsys.readouterr()
@@ -719,20 +757,22 @@ def test_el_btw_por_la_api(servidor_btw) -> None:
         assert _leer(puerto, ruta, tokens["carla"])[0] == 404, ruta
     assert _pedir(puerto, "GET", "/api/v2/btw")[0] == 401
     cuerpo = {"accion": "btw_lista_para_revision",
-              "datos": {"trimestre": "2026-T3", "hoja_sha256": hoja["sha256"]}}
+              "datos": {"trimestre": "2026-T3", "hoja_sha256": hoja["sha256"], "motivo": MOTIVO}}
     assert _orden(puerto, tokens["carla"], cuerpo)[0] == 403
     estado, respuesta = _orden(puerto, tokens["ana"], cuerpo)
     assert estado == 200, respuesta
     # El trimestre en curso no se marca, y se presenta la hoja que se marco.
     assert _orden(puerto, tokens["ana"], {"accion": "btw_lista_para_revision", "datos": {
-        "trimestre": "2026-T4", "hoja_sha256": hoja["sha256"]}})[0] == 409
+        "trimestre": "2026-T4", "hoja_sha256": hoja["sha256"], "motivo": MOTIVO}})[0] == 409
+    _e, _c, visto = _leer(puerto, "/api/v2/btw/2026-T3", tokens["carla"])
+    rev = visto["trimestre"]["rev"]
     assert _orden(puerto, tokens["ana"], {"accion": "btw_anotar_presentacion", "datos": {
-        "trimestre": "2026-T3", "hoja_sha256": "0" * 64, "referencia": REFERENCIA,
-        "importe_declarado": "-210,00"}})[0] == 409
+        "trimestre": "2026-T3", "rev": rev, "hoja_sha256": "0" * 64, "referencia": REFERENCIA,
+        "importe_declarado": "-210,00", "motivo": MOTIVO}})[0] == 409
     estado, respuesta = _orden(puerto, tokens["ana"], {"accion": "btw_anotar_presentacion",
                                                        "datos": {
-        "trimestre": "2026-T3", "hoja_sha256": hoja["sha256"], "referencia": REFERENCIA,
-        "importe_declarado": "-210,00"}})
+        "trimestre": "2026-T3", "rev": rev, "hoja_sha256": hoja["sha256"],
+        "referencia": REFERENCIA, "importe_declarado": "-210,00", "motivo": MOTIVO}})
     assert estado == 200, respuesta
     _e, _c, datos = _leer(puerto, "/api/v2/btw/2026-T3", tokens["carla"])
     assert datos["trimestre"]["estado"] == "presentado"
@@ -781,3 +821,178 @@ def test_btw_no_habla_con_nadie_de_fuera() -> None:
                    if isinstance(n, ast.ImportFrom) and n.level == 0}
     assert not importados & {"http", "urllib", "socket", "ssl", "smtplib", "requests",
                              "httpx", "anthropic", "subprocess"}
+
+
+# ============================================================ correcciones de la revision
+
+def _linea(conn, factura_id: int, orden: int, tipo: str | None) -> None:
+    """Una linea de factura con su tipo de IVA, como la daria la extraccion."""
+    origen = Automatico("extraccion", usuario_sistema(conn, "extractor"))
+    with campos.orden(conn, origen, tipo="factura_alta") as o:
+        o.crear("factura_linea", {k: v for k, v in {
+            "factura_id": factura_id, "orden": orden, "importe_cent": Decimal("500.00"),
+            "tipo_iva_pb": None if tipo is None else Decimal(tipo)}.items() if v is not None})
+
+
+def _abiertos(conn, factura_id: int) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "SELECT regla FROM hallazgo WHERE factura_id = ? AND estado = 'abierto'", (factura_id,))}
+
+
+def test_e0_y_la_declaracion_dicen_lo_mismo_de_lo_que_falta(almacen) -> None:
+    """Revision del paso 11: lo que E0 acepta, la declaracion lo clasifica; lo que no se
+    puede clasificar, E0 lo dice o la factura va igual a la lista de revisar."""
+    conn = almacen.conn
+    # Una venta con el tipo solo en sus lineas (un tipo) va a 1a con su base y su cuota.
+    lineas = _alta(conn, "V-lin", sentido="saliente", base="1000.00", iva="210.00",
+                   tipo_iva=None)
+    _linea(conn, lineas, 1, "21")
+    _linea(conn, lineas, 2, "21")
+    # Con dos tipos en las lineas y sin desglose no se sabe que base va a 1a y cual a 1b: E0.
+    mezcla = _alta(conn, "V-mezcla", sentido="saliente", base="1000.00", iva="150.00",
+                   tipo_iva=None)
+    _linea(conn, mezcla, 1, "21")
+    _linea(conn, mezcla, 2, "9")
+    # Una fila con IVA normal sin tipo bajo una cabecera con IVA trasladado: E0.
+    fila = _alta(conn, "V-fila", sentido="saliente", base="700.00", iva="105.00",
+                 tipo_iva=None, tratamiento="autoliquidacion",
+                 desglose=(("estandar", None, "500.00", "105.00"),
+                           ("autoliquidacion", None, "200.00", None)))
+    # Sin base no se declara; no es de E0 (es Q1), pero va a la lista.
+    sin_base = _alta(conn, "C-sin-base", base=None, iva="21.00")
+    hallazgos.recalcular(conn)
+    assert "E0" not in _abiertos(conn, lineas)
+    assert "E0" in _abiertos(conn, mezcla) and "E0" in _abiertos(conn, fila)
+    assert "E0" not in _abiertos(conn, sin_base)
+    t = btw.trimestre(conn, 2026, 3)
+    assert _rubricas(t["cifras"])["1a"] == (100_000, 21_000)
+    assert ";V-lin;Parte V-lin;2026-08-10;estandar;21;1000,00;210,00;;1a;" in btw.hoja(
+        conn, 2026, 3).texto
+    fuera = {f["factura_id"] for f in t["cifras"]["sin_clasificar"]}
+    assert fuera == {mezcla, fila, sin_base}
+    revisar = {r["factura_id"]: r for r in t["revisar"]}
+    assert fuera <= set(revisar)
+    assert "E0" in revisar[mezcla]["reglas"] and "E0" in revisar[fila]["reglas"]
+    assert revisar[sin_base]["fuera_de_las_cifras"] == "sin base imponible"
+    assert "\r\n" + f"{sin_base};C-sin-base;Parte C-sin-base;;sin base imponible\r\n" in \
+        btw.hoja(conn, 2026, 3).texto.split("Facturas que piden revisar el IVA")[1]
+
+
+def test_lo_que_no_se_pudo_leer_lo_dice_el_motivo() -> None:
+    """Un tipo o una cuota ilegibles no son E0 (son Q2): el motivo no cita solo un E0 que no
+    existe."""
+    linea = btw.LineaBtw(1, None, "saliente", "factura", "V-1", "Cliente", date(2026, 8, 10),
+                         "estandar", None, 100_000, None, None, "nacional")
+    c = btw.clasificar(linea, politica.ConfigBtw())
+    assert c.rubrica is None and "Q2" in c.motivo and "E0" in c.motivo
+
+
+def test_una_venta_con_iva_en_una_rubrica_sin_iva_no_pierde_la_cuota() -> None:
+    """Defensa (el cargador ya lo rechaza): una venta al 21 % que la configuracion pusiera en
+    1e no suma su base sin la cuota; queda sin clasificar."""
+    ventas = tuple(sorted({**dict(politica.ConfigBtw().ventas), "estandar:2100": "1e"}.items()))
+    config = politica.ConfigBtw(ventas=ventas)
+    linea = btw.LineaBtw(1, None, "saliente", "factura", "V-1", "Cliente", date(2026, 8, 10),
+                         "estandar", 2100, 1_000_000, 210_000, None, "nacional")
+    c = btw.cifras([linea], config)
+    assert c.rubricas["1e"] == [0, 0] and c.iva_a_declarar_cent == 0
+    assert [x.linea.factura_id for x in c.sin_clasificar] == [1]
+    assert "1e" in c.sin_clasificar[0].motivo
+    # Al tipo cero, 1e es lo suyo.
+    cero = dataclasses.replace(linea, tipo_iva_pb=0, cuota_cent=0)
+    assert btw.cifras([cero], config).rubricas["1e"] == [1_000_000, 0]
+
+
+def test_un_duplicado_o_una_lectura_dudosa_del_iva_piden_revisarlo(almacen, ana) -> None:
+    """Revision del paso 11: dos compras con el mismo numero de la misma contraparte (B2)
+    sumarian el IVA dos veces; la lista de revisar las ensena aunque B2 no sea de IVA."""
+    conn = almacen.conn
+    a = _alta(conn, "C-77", nombre="Schoonmaak BV", btw_doc="NL001234567B01")
+    b = _alta(conn, "C-77", nombre="Schoonmaak BV", btw_doc="NL001234567B01")
+    hallazgos.recalcular(conn)
+    assert "B2" in _abiertos(conn, a) | _abiertos(conn, b)
+    t = btw.trimestre(conn, 2026, 3)
+    assert t["cifras"]["5b"] == 42_000
+    revisar = {r["factura_id"]: r["reglas"] for r in t["revisar"]}
+    assert "B2" in revisar.get(a, []) + revisar.get(b, [])
+    assert "B2" in btw.hoja(conn, 2026, 3).texto.split("Facturas que piden revisar el IVA")[1]
+
+
+def test_resolver_un_hallazgo_entre_listo_y_anotar_no_obliga_a_marcar_otra_vez(almacen,
+                                                                              ana) -> None:
+    """Revision del paso 11: la hoja marcada lleva la huella de sus cifras; lo que se revisa
+    (los hallazgos, los nombres) puede cambiar hasta anotar, las cifras no."""
+    conn = almacen.conn
+    raro = _alta(conn, "C-6", base="1000.00", iva="60.00", tipo_iva="6")
+    hoja = _listo(conn, ana)
+    assert btw.huella_escrita(hoja.texto) == hoja.cifras_sha256
+    hallazgos.recalcular(conn)       # abre E7 (un tipo que no es de la lista)
+    assert "E7" in _abiertos(conn, raro)
+    t = btw.trimestre(conn, 2026, 3)
+    assert t["hoja_sha256"] != hoja.sha256 and not t["hoja_al_dia"]
+    assert t["cifras_al_dia"] and t["cifras_sha256"] == hoja.cifras_sha256
+    # Una cifra que cambia si obliga: una compra mas del trimestre.
+    otra = _alta(conn, "C-tarde")
+    with pytest.raises(Conflicto, match="cifras"):
+        btw.anotar_presentacion(conn, Persona(ana), 2026, 3, hoja_sha256=hoja.sha256,
+                                referencia=REFERENCIA, importe_declarado=Decimal("-60"))
+    servicios.ejecutar(conn, "anular_factura", {
+        "factura_id": otra, "rev": _rev_factura(conn, otra), "motivo": "No era"},
+        usuario_id=ana)
+    evento = btw.anotar_presentacion(conn, Persona(ana), 2026, 3, hoja_sha256=hoja.sha256,
+                                     referencia=REFERENCIA, importe_declarado=Decimal("-60"))
+    fila = btw.periodo(conn, 2026, 3)
+    assert (fila["estado"], fila["hoja_sha256"]) == ("presentado", hoja.sha256)
+    datos = _datos_evento(conn, evento)
+    assert (datos["hoja_sha256"], datos["cifras_sha256"]) == (hoja.sha256, hoja.cifras_sha256)
+
+
+def test_en_enero_se_ve_el_cuarto_trimestre_aunque_este_vacio(almacen) -> None:
+    """Revision del paso 11: el cuarto trimestre vence el 31 de enero; sin facturas tambien
+    se declara."""
+    r = btw.resumen(almacen.conn, hoy=date(2027, 1, 15))
+    assert r["actual"]["etiqueta"] == "2027-T1"
+    assert [(a["etiqueta"], a["limite_presentacion"], a["dias_para_limite"])
+            for a in r["por_presentar"]] == [("2026-T4", "2027-01-31", 16)]
+
+
+def test_un_iva_por_revisar_de_un_trimestre_presentado_cuenta_hacia_el_siguiente(
+        almacen, ana, reloj) -> None:
+    """Revision del paso 11: un C4 de un trimestre ya presentado no corre contra el plazo que
+    ya se cumplio; la correccion va en la declaracion siguiente."""
+    conn = almacen.conn
+    _alta(conn, "C-1", btw_doc="NL001234567B01")
+    hallazgos.recalcular(conn)
+    _presentar(conn, ana, importe="-210")
+    reloj.avanzar(days=11)           # 2026-10-25: el tercero presentado vence el 31
+    tarde = _alta(conn, "C-tarde", btw_doc="NL001234567B02", base="50.00", iva="10.50")
+    hallazgos.recalcular(conn)
+    assert "C4" in _abiertos(conn, tarde)
+    motivos = conn.execute("SELECT motivos_json FROM factura_estado WHERE factura_id = ?",
+                           (tarde,)).fetchone()[0]
+    assert "IVA por revisar (C4)" in motivos
+    assert "el BTW vence en" not in motivos and "Urgente" not in motivos
+
+
+def test_un_trimestre_tiene_la_prioridad_de_sus_facturas_pagadas_o_no(almacen, ana) -> None:
+    """Revision del paso 11: un trimestre no se paga; una compra pagada con E0 sigue pidiendo
+    revisar su IVA y el trimestre sigue con su prioridad."""
+    from bms_agent import pagos
+
+    conn = almacen.conn
+    f = _alta(conn, "C-e0", tratamiento="desconocido", btw_doc="NL001234567B01")
+    hallazgos.recalcular(conn)
+
+    def del_trimestre():
+        return conn.execute("SELECT nivel FROM prioridad WHERE entidad = 'trimestre' "
+                            "AND entidad_id = 20263").fetchone()
+
+    antes = del_trimestre()
+    assert antes is not None
+    pagos.marcar_pagada(conn, Persona(ana, "pagada por transferencia"), factura_id=f,
+                        fecha_pago=date(2026, 10, 1))
+    hallazgos.recalcular(conn)
+    assert conn.execute("SELECT estado_pago FROM factura_estado WHERE factura_id = ?",
+                        (f,)).fetchone()[0] == "pagada"
+    assert [r["factura_id"] for r in btw.trimestre(conn, 2026, 3)["revisar"]] == [f]
+    assert del_trimestre() is not None and del_trimestre()[0] == antes[0]

@@ -31,7 +31,7 @@ import yaml
 
 from .almacen import reloj_de, transaccion, usuario_sistema
 from .almacen.evidencia import foto
-from .almacen.unidades import sha256_texto
+from .almacen.unidades import PerdidaDePrecision, a_cent, sha256_texto
 from .auditoria import registrar as registrar_evento
 from .prioridad import PESOS, Pesos, pesos_a_yaml, pesos_de_yaml
 from .reglas.base import Politica
@@ -322,13 +322,15 @@ PAISES_BTW = ("nacional", "ue", "fuera_ue")
 TRATAMIENTOS_BTW = ("estandar", "tipo_cero", "autoliquidacion", "exento", "kor")
 
 # Lo que puede ser cada linea en la declaracion, segun lo que es (y no segun lo
-# que diga el fichero): una venta con IVA normal va a 1a-1c (base y cuota) o a
-# 1e si su tipo es cero; una sin IVA (tipo cero, IVA trasladado al cliente) va
+# que diga el fichero): una venta con IVA normal va a 1a-1c (base y cuota) y solo
+# a 1e si su tipo es cero (1e no lleva columna de IVA: un 21 % alli perderia la
+# cuota cobrada de 5a); una sin IVA (tipo cero, IVA trasladado al cliente) va
 # solo con su base a 1e o a 3a-3c; el IVA trasladado de una compra se
 # autoliquida en 2a, 4a o 4b; la cuota de una compra con IVA es IVA soportado
 # (5b). Un fichero que pone una linea donde no puede ir no se carga: el mapeo es
 # del asesor, pero que 5b no reciba una venta es de la declaracion.
-_RUBRICAS_VENTA_CON_IVA = frozenset({"1a", "1b", "1c", "1e"})
+_RUBRICAS_VENTA_CON_IVA = frozenset({"1a", "1b", "1c"})
+_RUBRICAS_VENTA_AL_CERO = frozenset({"1e"})
 _RUBRICAS_VENTA_SIN_IVA = frozenset({"1e", "3a", "3b", "3c"})
 _RUBRICAS_AUTOLIQUIDACION = frozenset({"2a", "4a", "4b"})
 RUBRICAS_AUTOLIQUIDACION = _RUBRICAS_AUTOLIQUIDACION
@@ -476,6 +478,11 @@ def config_btw_de_yaml(texto: str | None) -> ConfigBtw:
     umbral = _valor(kor["umbral"], Decimal, "btw.yaml: kor.umbral")
     if not Decimal(1000) <= umbral <= Decimal(1_000_000):
         raise PoliticaNoValida("btw.yaml: kor.umbral va de 1.000 a 1.000.000 euros")
+    try:
+        umbral_cent = a_cent(umbral)
+    except PerdidaDePrecision:
+        raise PoliticaNoValida(f"btw.yaml: kor.umbral {kor['umbral']!r} tiene mas de dos "
+                               "decimales") from None
     aviso = _valor(kor["aviso_pct"], int, "btw.yaml: kor.aviso_pct")
     if not 50 <= aviso <= 100:
         raise PoliticaNoValida("btw.yaml: kor.aviso_pct va de 50 a 100: por debajo avisaria "
@@ -490,8 +497,9 @@ def config_btw_de_yaml(texto: str | None) -> ConfigBtw:
     for tipo, rubrica in estandar.items():
         clave = "otros" if tipo == "otros" else str(_porcentaje_pb(
             tipo, "btw.yaml: ventas.estandar"))
-        ventas[f"estandar:{clave}"] = _rubrica(rubrica, f"btw.yaml: ventas.estandar.{tipo}",
-                                               _RUBRICAS_VENTA_CON_IVA)
+        ventas[f"estandar:{clave}"] = _rubrica(
+            rubrica, f"btw.yaml: ventas.estandar.{tipo}",
+            _RUBRICAS_VENTA_AL_CERO if clave == "0" else _RUBRICAS_VENTA_CON_IVA)
     ventas["tipo_cero"] = _rubrica(ventas_["tipo_cero"], "btw.yaml: ventas.tipo_cero",
                                    _RUBRICAS_VENTA_SIN_IVA | {FUERA})
     ventas.update(_por_pais(ventas_["autoliquidacion"], "btw.yaml: ventas.autoliquidacion",
@@ -511,7 +519,7 @@ def config_btw_de_yaml(texto: str | None) -> ConfigBtw:
     return ConfigBtw(confirmado=datos["confirmado"], tipos_habituales_pb=habituales,
                      tipo_autoliquidacion_pb=autoliquidacion,
                      autoliquidacion_deducible=tipos["autoliquidacion_deducible"],
-                     kor_umbral_cent=int(umbral * 100), kor_aviso_pct=aviso,
+                     kor_umbral_cent=umbral_cent, kor_aviso_pct=aviso,
                      ventas=tuple(sorted(ventas.items())), compras=tuple(sorted(compras.items())))
 
 
@@ -556,6 +564,20 @@ def config_btw(conn: sqlite3.Connection) -> ConfigBtw:
     """La configuracion del BTW que vale ahora: la del ultimo btw.yaml cargado."""
     fila = vigente(conn, FICHERO_BTW)
     return config_btw_de_yaml(fila["contenido"] if fila else None)
+
+
+def config_btw_y_sha(conn: sqlite3.Connection) -> tuple[ConfigBtw, str]:
+    """La configuracion que vale y el sha256 de su texto en politica_version.
+
+    Es el hash que lleva la hoja de trabajo: se resuelve a un texto con una
+    consulta. Mientras no hay ninguno cargado es el del texto de partida
+    (btw_a_yaml), el mismo que apuntar_btw_en_uso apunta al marcar una hoja lista.
+    """
+    fila = vigente(conn, FICHERO_BTW)
+    if fila is not None:
+        return config_btw_de_yaml(fila["contenido"]), fila["sha256"]
+    config = ConfigBtw()
+    return config, sha256_texto(btw_a_yaml(config))
 
 
 def apuntar_btw_en_uso(conn: sqlite3.Connection, usuario_id: int | None = None) -> ConfigBtw:

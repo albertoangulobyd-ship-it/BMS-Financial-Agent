@@ -374,13 +374,34 @@ LEE_HUELLA_IVA = LEE_LINEAS_IVA | LEE_PAIS
 _SIN_TRATAMIENTO = (None, "desconocido")
 
 
+def tipo_de_lineas(tipos: Iterable[int | None]) -> int | None:
+    """El tipo de una factura sin tipo en la cabecera ni desglose, sacado de sus lineas: el
+    unico que traen todas, o None si alguna no lo trae o no traen el mismo.
+
+    Es la misma definicion para E0 y para la declaracion (btw.clasificar): una
+    venta sin tipo en la cabecera va a la rubrica del tipo de sus lineas si es
+    uno solo; con dos tipos y sin desglose no se sabe que base va a cada rubrica.
+    """
+    distintos = set(tipos)
+    if len(distintos) != 1 or None in distintos:
+        return None
+    return next(iter(distintos))
+
+
 def e0(factura: Factura, _contexto: Any) -> list[Resultado]:
     """E0: falta la informacion del IVA: el tratamiento no se sabe o, con IVA normal, falta
     el tipo o la cuota (de la cabecera o de una fila del desglose).
 
-    Un literal que esta en el papel y no se pudo leer no falta (eso es Q2). Sin
-    desglose, el tipo puede venir de las lineas. Con desglose solo mira las
-    filas con IVA normal: una fila de IVA trasladado no lleva cuota.
+    Falta lo que la declaracion (btw.clasificar) necesita para poner la linea
+    en su rubrica, y un test lo comprueba sobre el almacen. Un literal que esta
+    en el papel y no se pudo leer no falta (eso es Q2; la hoja del BTW lista
+    igual la factura entre las que piden revisar). Sin desglose, el tipo puede
+    venir de las lineas: en una compra basta con que todas lo traigan (5b solo
+    pide la cuota); en una venta tiene que ser uno solo (tipo_de_lineas), porque
+    decide la rubrica. Con desglose mira cada fila: sin base, o con un
+    tratamiento que no se sabe, falta; con IVA normal (tambien bajo una
+    cabecera con otro tratamiento) falta si no trae el tipo o la cuota. Una fila
+    de IVA trasladado no lleva cuota.
     """
     if factura.moneda is not None:
         return []
@@ -389,13 +410,12 @@ def e0(factura: Factura, _contexto: Any) -> list[Resultado]:
                                      "consta.",
                       valores={"tratamiento_iva": factura.tratamiento_iva},
                       objetivos=(Objetivo("factura", factura.id, "tratamiento_iva"),))]
-    if factura.tratamiento_iva != "estandar":
-        return []
     if factura.desglose:
         incompletos = [t for t in factura.desglose
-                       if (t.tratamiento or factura.tratamiento_iva) == "estandar"
-                       and (t.tipo_iva_pb is None or t.base_cent is None
-                            or t.cuota_cent is None)]
+                       if t.base_cent is None
+                       or (t.tratamiento or factura.tratamiento_iva) in _SIN_TRATAMIENTO
+                       or ((t.tratamiento or factura.tratamiento_iva) == "estandar"
+                           and (t.tipo_iva_pb is None or t.cuota_cent is None))]
         if not incompletos:
             return []
         return [fallo("E0", factura, f"Con IVA normal, {len(incompletos)} tipo(s) del desglose "
@@ -404,8 +424,13 @@ def e0(factura: Factura, _contexto: Any) -> list[Resultado]:
                                                  for t in incompletos), key=json.dumps)},
                       objetivos=tuple(Objetivo("factura_iva", t.id, "cuota_cent")
                                       for t in incompletos))]
+    if factura.tratamiento_iva != "estandar":
+        return []
     faltan = []
-    tipo_en_lineas = factura.lineas and all(l.tipo_iva_pb is not None for l in factura.lineas)
+    tipos = [l.tipo_iva_pb for l in factura.lineas]
+    tipo_en_lineas = bool(tipos) and (
+        tipo_de_lineas(tipos) is not None if factura.sentido == SALIENTE
+        else None not in tipos)
     if (factura.tipo_iva_pb is None and "tipo_iva_pb" not in factura.ilegibles
             and not tipo_en_lineas):
         faltan.append("tipo_iva_pb")
@@ -421,7 +446,7 @@ def e0(factura: Factura, _contexto: Any) -> list[Resultado]:
 
 
 LEE_E0 = LEE_EN_JUEGO | frozenset({
-    "factura.id", "factura.moneda", "factura.tratamiento_iva", "factura.desglose",
+    "factura.id", "factura.moneda", "factura.sentido", "factura.tratamiento_iva", "factura.desglose",
     "factura.tipo_iva_pb", "factura.iva_cent", "factura.ilegibles", "factura.lineas",
     "linea.tipo_iva_pb", "tramo_iva.id", "tramo_iva.tratamiento", "tramo_iva.tipo_iva_pb",
     "tramo_iva.base_cent", "tramo_iva.cuota_cent",

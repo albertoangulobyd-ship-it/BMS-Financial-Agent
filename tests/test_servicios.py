@@ -218,8 +218,8 @@ def _preparar_btw_lista(almacen, admin) -> None:
 
     conn = almacen.conn
     servicios.ejecutar(conn, "btw_lista_para_revision", {
-        "trimestre": "2026-T3", "hoja_sha256": btw.hoja(conn, 2026, 3).sha256},
-        usuario_id=admin)
+        "trimestre": "2026-T3", "hoja_sha256": btw.hoja(conn, 2026, 3).sha256,
+        "motivo": "Revisada con el asesor"}, usuario_id=admin)
 
 
 def _periodo_btw(conn) -> tuple[int, str]:
@@ -367,13 +367,15 @@ CASOS = [
      _preparar_po),
     # Paso 11: el estado del BTW.
     ("btw_lista_para_revision", "btw_lista_para_revision", "gestionar_btw", lambda c, i: {
-        "trimestre": "2026-T3", "hoja_sha256": _hoja_btw(c)}, None),
+        "trimestre": "2026-T3", "hoja_sha256": _hoja_btw(c),
+        "motivo": "Revisada con el asesor"}, None),
     ("btw_reabrir", "btw_reabrir", "gestionar_btw", lambda c, i: {
         "trimestre": "2026-T3", "rev": _periodo_btw(c)[0],
         "motivo": "El asesor pide repasar dos compras"}, _preparar_btw_lista),
     ("btw_anotar_presentacion", "btw_anotar_presentacion", "gestionar_btw", lambda c, i: {
-        "trimestre": "2026-T3", "hoja_sha256": _periodo_btw(c)[1], "referencia": "OB-2026-T3",
-        "importe_declarado": "-1234,56"}, _preparar_btw_lista),
+        "trimestre": "2026-T3", "rev": _periodo_btw(c)[0], "hoja_sha256": _periodo_btw(c)[1],
+        "referencia": "OB-2026-T3", "importe_declarado": "-1234,56",
+        "motivo": "Presentada en el portal"}, _preparar_btw_lista),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 

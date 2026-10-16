@@ -23,7 +23,7 @@ import pytest
 from test_reglas import HOY, factura, linea
 from test_reglas_paso8 import venta
 
-from bms_agent.reglas import catalogo
+from bms_agent.reglas import catalogo, iva
 from bms_agent.reglas.base import (
     FALLO,
     SIN_DATOS,
@@ -170,6 +170,37 @@ def test_e0_con_una_linea_sin_tipo_si_falta() -> None:
     f = factura(1, tipo_iva_pb=None, lineas=(linea(10, tipo_iva_pb=2100), linea(11, 2)))
     [r] = de("E0", inst(f), 1)
     assert r.valores == {"faltan": ["tipo_iva_pb"]}
+
+
+def test_e0_en_una_venta_pide_un_solo_tipo_en_las_lineas() -> None:
+    """Revision del paso 11: la declaracion pone una venta en la rubrica de su tipo. Sin tipo
+    en la cabecera vale el de sus lineas si es uno solo (tipo_de_lineas); con dos y sin
+    desglose no se sabe que base va a cada rubrica: E0. En una compra basta con que todas
+    lo traigan (5b solo pide la cuota)."""
+    uno = venta(1, tipo_iva_pb=None, lineas=(linea(10, tipo_iva_pb=2100),
+                                             linea(11, 2, tipo_iva_pb=2100)))
+    assert de("E0", inst(uno), 1) == []
+    dos = venta(2, tipo_iva_pb=None, lineas=(linea(20, tipo_iva_pb=2100),
+                                             linea(21, 2, tipo_iva_pb=900)))
+    [r] = de("E0", inst(dos), 2)
+    assert r.valores == {"faltan": ["tipo_iva_pb"]}
+    assert iva.tipo_de_lineas([2100, 2100]) == 2100
+    assert iva.tipo_de_lineas([2100, 900]) is None and iva.tipo_de_lineas([2100, None]) is None
+    assert iva.tipo_de_lineas([]) is None
+
+
+def test_e0_mira_una_fila_con_iva_normal_bajo_otra_cabecera() -> None:
+    """Revision del paso 11: la declaracion clasifica cada fila por su tratamiento; una con IVA
+    normal sin tipo bajo una cabecera con IVA trasladado tambien es E0, y una sin base."""
+    f = factura(1, tratamiento_iva="autoliquidacion", tipo_iva_pb=None, iva_cent=None,
+                desglose=(TramoIva(10, None, 20000, 4200, "estandar"),
+                          TramoIva(11, None, 5000, None, "autoliquidacion")))
+    [r] = de("E0", inst(f), 1)
+    assert [(o.tabla, o.fila_id) for o in r.objetivos] == [("factura_iva", 10)]
+    sin_base = factura(2, desglose=(TramoIva(20, 2100, 20000, 4200),
+                                    TramoIva(21, None, None, None, "autoliquidacion")))
+    [r] = de("E0", inst(sin_base), 2)
+    assert [(o.tabla, o.fila_id) for o in r.objetivos] == [("factura_iva", 21)]
 
 
 def test_e0_mira_las_filas_con_iva_normal_del_desglose() -> None:

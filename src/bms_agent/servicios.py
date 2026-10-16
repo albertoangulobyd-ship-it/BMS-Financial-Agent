@@ -1556,7 +1556,7 @@ def _btw_anotar_presentacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     evento = btw.anotar_presentacion(
         ctx.conn, ctx.persona, ano, trimestre, hoja_sha256=d["hoja_sha256"],
         referencia=d["referencia"], importe_declarado=importe,
-        fecha=_fecha_o_nada(d.get("fecha_presentacion")), datos=ctx.datos_evento)
+        fecha=_fecha_o_nada(d.get("fecha_presentacion")), rev=d["rev"], datos=ctx.datos_evento)
     return Hecho(evento, detalle={"trimestre": btw.etiqueta(ano, trimestre),
                                   "hoja_sha256": d["hoja_sha256"]})
 
@@ -1777,7 +1777,7 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "(su sha256: bms-agent btw hoja). La hoja se guarda entera.",
            (_p("trimestre", TEXTO, ayuda="2026-T3"),
             _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se reviso"), _MOTIVO),
-           _btw_lista_para_revision),
+           _btw_lista_para_revision, motivo="obligatorio"),
     Accion("btw_reabrir", P.GESTIONAR_BTW.value,
            "Devolver a abierto un trimestre listo para revisar (la hoja ya no vale).",
            (_p("trimestre", TEXTO, ayuda="2026-T3"), _p("rev"), _MOTIVO), _btw_reabrir,
@@ -1785,12 +1785,13 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
     Accion("btw_anotar_presentacion", P.GESTIONAR_BTW.value,
            "Anotar que el trimestre se presento en el portal de la Belastingdienst, con la "
            "referencia y lo declarado. Es irreversible; el agente no presenta nada.",
-           (_p("trimestre", TEXTO, ayuda="2026-T3"),
+           (_p("trimestre", TEXTO, ayuda="2026-T3"), _p("rev"),
             _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se marco lista"),
             _p("referencia", TEXTO, ayuda="la del acuse de la Belastingdienst"),
-            _p("importe_declarado", VALOR, ayuda="a pagar; en negativo, a devolver"),
+            _p("importe_declarado", VALOR,
+               ayuda="a pagar; en negativo, a devolver; sin separador de miles: -1234,56"),
             _p("fecha_presentacion", FECHA, False, "por defecto, hoy"), _MOTIVO),
-           _btw_anotar_presentacion),
+           _btw_anotar_presentacion, motivo="obligatorio", rev=True),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),

@@ -529,3 +529,15 @@ def test_los_pesos_con_que_se_calcula_estan_siempre_en_la_politica(tipado) -> No
     recalcular(conn)
     assert conn.execute("SELECT count(*) FROM politica_version").fetchone()[0] == 1
     assert conn.execute("SELECT count(*) FROM evento").fetchone()[0] == eventos
+
+
+def test_los_dias_del_btw_saltan_los_trimestres_presentados() -> None:
+    """Revision del paso 11: el plazo de un trimestre ya presentado se cumplio; lo que quede
+    de su IVA va a la declaracion siguiente y corre contra su plazo."""
+    hoy = date(2026, 10, 25)
+    assert prioridad.dias_hasta_btw(date(2026, 8, 10), hoy) == 6
+    assert prioridad.dias_hasta_btw(date(2026, 8, 10), hoy, frozenset({(2026, 3)})) == 98
+    assert prioridad.dias_hasta_btw(date(2026, 8, 10), hoy,
+                                    frozenset({(2026, 3), (2026, 4)})) == 187
+    # Otro trimestre presentado no cambia nada.
+    assert prioridad.dias_hasta_btw(date(2026, 8, 10), hoy, frozenset({(2026, 2)})) == 6

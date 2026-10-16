@@ -325,7 +325,9 @@ class Entradas:
 
     `en_juego` es falso si la factura no tiene plazo que correr ni importe
     que reclamar (pagada, anulada o fusionada en otra). `esperando_a` y `fecha_seguimiento` solo
-    con su excepcion esperando a alguien de fuera.
+    con su excepcion esperando a alguien de fuera. `btw_presentados` son los
+    trimestres (ano, trimestre) ya presentados: su plazo ya se cumplio y lo que
+    quede de IVA va a la declaracion siguiente (dias_hasta_btw).
     """
 
     sentido: str
@@ -341,6 +343,7 @@ class Entradas:
     dudosos: int = 0
     sin_resolver: int = 0
     subidas: tuple[Subida, ...] = ()
+    btw_presentados: frozenset[tuple[int, int]] = frozenset()
 
     @property
     def necesita_accion(self) -> bool:
@@ -415,11 +418,14 @@ def _desde(tramos: Sequence[Tramo], valor: int) -> tuple[int, int | None]:
     return puntos, limite
 
 
-def dias_hasta_btw(fecha_factura: date | None, hoy: date) -> int | None:
-    """Cuantos dias quedan para el plazo del BTW que le toca a la factura."""
+def dias_hasta_btw(fecha_factura: date | None, hoy: date,
+                   presentados: frozenset[tuple[int, int]] = frozenset()) -> int | None:
+    """Cuantos dias quedan para el plazo del BTW que le toca a la factura: el de su
+    trimestre o, si ya vencio o ya se presento, el del primero que no (la correccion va
+    en esa declaracion)."""
     if fecha_factura is None:
         return None
-    return (proximo_limite_btw(fecha_factura, hoy) - hoy).days
+    return (proximo_limite_btw(fecha_factura, hoy, presentados) - hoy).days
 
 
 def nivel_de_puntos(puntos: int, pesos: Pesos = PESOS) -> str:
@@ -577,7 +583,7 @@ def calcular(entradas: Entradas, hoy: date, pesos: Pesos = PESOS) -> Resultado:
     e = entradas
     dias = (e.vencimiento - hoy).days if e.vencimiento is not None and e.en_juego else None
     vencida = -dias if dias is not None and dias < 0 else 0
-    dias_btw = dias_hasta_btw(e.fecha_factura, hoy)
+    dias_btw = dias_hasta_btw(e.fecha_factura, hoy, e.btw_presentados)
 
     suelo, por_suelo = _suelo(e, dias_btw, vencida)
     aportes = _puntos(e, hoy, pesos, dias, vencida, dias_btw)
@@ -619,6 +625,9 @@ def huella_entradas(entradas: Entradas, hoy: date, pesos: Pesos = PESOS) -> str:
         e.sin_resolver, [[s.nivel, s.motivo, s.quien, _iso(s.hasta)] for s in e.subidas],
         hoy.isoformat(), pesos.sha256(),
     ]
+    # Solo cuando cuenta: sin trimestres presentados la huella es la de antes del paso 11.
+    if e.btw_presentados and e.fecha_factura is not None:
+        contenido.append(dias_hasta_btw(e.fecha_factura, hoy, e.btw_presentados))
     texto = json.dumps(contenido, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 

@@ -17,7 +17,8 @@ los demas modulos y lo deja en una fila que se puede filtrar con SQL:
   los pesos con que se calculo.
 
 Y en la cache prioridad, la de cada excepcion sin resolver y la de cada
-proveedor, cliente, Objeto y trimestre (el maximo de sus facturas). Desde el
+proveedor, cliente, Objeto y trimestre (el maximo de sus facturas; las de un
+trimestre son las que se declaran en el, pagadas o no, y las de su C4). Desde el
 paso 9 tambien la de cada orden de compra: el maximo de las facturas imputadas
 a ella y de sus propios avisos (P5, P7-P10, que no son de ninguna factura).
 
@@ -59,7 +60,7 @@ from .prioridad import Entradas, Hallazgo, Hija, Pesos, Subida
 from .reglas import catalogo, instantanea
 from .reglas.base import Politica
 from .reglas.pagos import saldo, tolerancia_cent
-from .reloj import marca, trimestre_de
+from .reloj import marca
 
 _PIDEN_REVISION = frozenset({Severidad.BLOQUEO.value, Severidad.RETENCION.value})
 # Como texto: se miran en cada factura de cada pasada, y un Enum.value cuesta.
@@ -365,6 +366,8 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         conn, "SELECT id, fila_id, estado, esperando_a, fecha_seguimiento FROM excepcion "
               "WHERE tabla = 'factura' AND estado <> 'resuelta'")}
     subidas = _subidas(conn)
+    presentados = frozenset(_filas(conn, "SELECT ano, trimestre FROM periodo_btw "
+                                         "WHERE estado = 'presentado'"))
 
     resultados: dict[int, prioridad.Resultado] = {}
     filas_estado: dict[int, tuple] = {}
@@ -390,7 +393,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
             esperando_a=excepcion[2] if esperando else None,
             fecha_seguimiento=excepcion[3] if esperando else None,
             dudosos=n_dudosos, sin_resolver=n_sin_resolver,
-            subidas=tuple(subidas.get(("factura", f.id), ())))
+            subidas=tuple(subidas.get(("factura", f.id), ())), btw_presentados=presentados)
         resultado = prioridad.calcular(entradas, hoy, pesos)
         resultados[f.id] = resultado
         dias = (hoy - f.vencimiento).days if pago == VENCIDA else None
@@ -495,9 +498,10 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
             hijas[("proveedor", f.proveedor_id)].append(hija)
         if f.sentido == SALIENTE and f.cliente_id is not None:
             hijas[("cliente", f.cliente_id)].append(hija)
-        if f.fecha_factura is not None:
-            ano, trimestre = trimestre_de(f.fecha_factura)
-            hijas[("trimestre", ano * 10 + trimestre)].append(hija)
+    for trimestre_id, factura_id in sorted(_del_trimestre(conn)):
+        f = por_id_factura.get(factura_id)
+        if f is not None:
+            hijas[("trimestre", trimestre_id)].append(_hija(f, resultados[f.id]))
     for factura_id, objeto_id in _filas(
             conn, "SELECT DISTINCT factura_id, objeto_id FROM factura_imputacion "
                   "WHERE objeto_id IS NOT NULL AND retirada_en IS NULL ORDER BY 1, 2"):
@@ -522,6 +526,27 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
                                agregada.importe_cent,
                                [[h.id, h.resultado.nivel, h.resultado.puntos] for h in lista]
                                + [agregada.resultado.nivel])
+    return salida
+
+
+def _del_trimestre(conn: sqlite3.Connection) -> set[tuple[int, int]]:
+    """(ano * 10 + trimestre, factura) de lo que cuenta en cada trimestre del BTW.
+
+    Un trimestre no se paga: cuenta lo que se declara en el, pagado o no (las
+    facturas de v_iva_vigente, por su fecha), mas las de un C4 de ese trimestre
+    aunque ya no esten en el (anulada, sustituida, con otra fecha). Son las
+    mismas que la lista de btw.revisar: un trimestre con facturas que piden
+    revisar el IVA tiene la prioridad de ellas (§5.F n.º 44, §8).
+    """
+    salida = {(ano * 10 + trimestre, factura_id) for factura_id, ano, trimestre in _filas(
+        conn, "SELECT factura_id, ano, trimestre FROM v_iva_vigente "
+              "WHERE fecha_factura IS NOT NULL")}
+    for factura_id, clave in _filas(
+            conn, "SELECT factura_id, clave FROM hallazgo WHERE regla = 'C4' "
+                  "AND estado IN ('abierto', 'desaparecido') AND factura_id IS NOT NULL"):
+        ano, _, numero = clave.rsplit("|", 1)[-1].partition("-T")
+        if ano.isdigit() and numero.isdigit():
+            salida.add((int(ano) * 10 + int(numero), factura_id))
     return salida
 
 
