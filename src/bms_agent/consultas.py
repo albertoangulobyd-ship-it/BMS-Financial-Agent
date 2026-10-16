@@ -1007,9 +1007,11 @@ def orden_compra(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
 def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
     """La vista de un Objeto (§5): por ahora su ficha y su bloque de PO (paso 9).
 
-    Las PO del Objeto son las que lo cubren (orden_compra_objeto) y aquellas a
-    las que se imputa trabajo suyo. De cada una, lo consumido y lo que queda
-    de la PO entera, y lo que ha consumido este Objeto. Las horas, los
+    Las PO del Objeto son las que lo cubren y aquellas a las que se imputa
+    trabajo suyo. Lo cubre una PO que lo nombra (orden_compra_objeto) y una
+    abierta de su cliente que no nombra ninguno: una PO sin Objetos cubre
+    cualquiera de su parte (como en P3). De cada una, lo consumido y lo que
+    queda de la PO entera, y lo que ha consumido este Objeto. Las horas, los
     ingresos y los costes del Objeto son de los pasos siguientes.
     """
     fila = conn.execute(
@@ -1019,7 +1021,16 @@ def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
         raise LookupError(f"no hay Objeto {objeto_id}")
     ordenes = po_.ordenes(conn)
     del_objeto = po_.cargos(conn, objeto_id=objeto_id)
-    relacionadas = {o.id for o in ordenes.values() if objeto_id in o.objetos} | set(del_objeto)
+    cliente_id = fila["cliente_id"]
+
+    def cubre(orden: Any) -> bool:
+        return objeto_id in orden.objetos or (
+            not orden.objetos and orden.lado == "cliente" and cliente_id is not None
+            and orden.parte_id == cliente_id)
+
+    relacionadas = ({o.id for o in ordenes.values()
+                     if objeto_id in o.objetos or (cubre(o) and not o.cerrada)}
+                    | set(del_objeto))
     cargos = po_.cargos(conn) if relacionadas else {}
     nombres = _nombres_de_partes(conn)
     filas = []
@@ -1027,7 +1038,7 @@ def objeto(conn: sqlite3.Connection, objeto_id: int) -> dict[str, Any]:
         orden = ordenes[po_id]
         propio = sum(c.importe_cent for c in del_objeto.get(po_id, []))
         filas.append({**_cabecera_po(orden, nombres), **_cifras(orden, cargos.get(po_id, [])),
-                      "cubre_objeto": objeto_id in orden.objetos,
+                      "cubre_objeto": cubre(orden),
                       "consumido_objeto_cent": propio, "consumido_objeto": _euros(propio)})
     resumen = {}
     for lado in ("cliente", "proveedor"):

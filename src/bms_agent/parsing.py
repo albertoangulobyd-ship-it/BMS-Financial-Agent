@@ -15,10 +15,14 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+# La unidad es vocabulario comun (las reglas la comparan): vive en dominio.py.
+from .dominio import es_unidad_hora, normalizar_unidad
+
 __all__ = [
     "ParseError",
     "detectar_moneda",
     "es_unidad_hora",
+    "normalizar_unidad",
     "normalizar_referencia",
     "normalize_iban",
     "parse_amount",
@@ -251,35 +255,6 @@ def normalize_iban(raw: str) -> str:
     if raw is None:
         raise ParseError("IBAN vacio")
     return _SPACES.sub("", str(raw)).upper()
-
-
-# Unidades que son horas, en minusculas y sin puntuacion. Neerlandes, ingles y
-# las abreviaturas alemanas que aparecen en facturas de la frontera.
-_UNIDADES_HORA = frozenset({
-    "uur", "uren", "u", "manuur", "manuren", "werkuur", "werkuren",
-    "h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden",
-})
-
-
-def es_unidad_hora(unidad: str | None) -> bool:
-    """La unidad impresa en una linea es la hora.
-
-    Antes se miraba solo si empezaba por "uur", y una linea en "uren", "u" o
-    "hours" daba cero horas sin avisar: el panel, la proyeccion de venta y el
-    simulador perdian esas horas en silencio. Se sigue aceptando todo lo que
-    empieza por "uur" para no perder nada de lo que ya contaba.
-
-    Decide la primera palabra de la unidad ("u." es "u", "uren (avond)" es
-    "uren"). Una unidad desconocida no es hora: es mejor declararla aparte,
-    como hace el panel, que sumarla como lo que no es.
-    """
-    texto = str(unidad or "").strip().lower()
-    if not texto:
-        return False
-    if texto.startswith("uur"):
-        return True
-    palabra = next((p for p in re.split(r"[^a-z]+", texto) if p), "")
-    return palabra in _UNIDADES_HORA
 
 
 _SEPARADORES_REFERENCIA = re.compile(r"[\s\u00a0\u202f.\-/_]+")

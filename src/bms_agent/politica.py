@@ -174,7 +174,7 @@ _LIMITES: dict[str, tuple[Decimal | int, Decimal | int]] = {
     # de una semana avisa cuando ya no hay tiempo; un ritmo de menos de dos
     # semanas es ruido y uno de mas de medio ano no ve un cambio de ritmo; un
     # exceso que bloquea por encima del 100 % no bloquearia nunca.
-    "po_aviso_consumo_pct": (1, 100),
+    "po_aviso_consumo_pct": (50, 100),
     "po_dias_caducidad": (7, 180),
     "po_margen_prevision_dias": (0, 90),
     "po_semanas_ritmo": (2, 26),

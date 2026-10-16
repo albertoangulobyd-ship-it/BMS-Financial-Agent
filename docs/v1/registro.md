@@ -3650,8 +3650,8 @@ llama 0006, pero la 0006-0009 ya son de los pasos 6-8):
 que apuntan a ella en las facturas que cuentan (ni anuladas, ni fusionadas,
 ni sustituidas o corregidas: `v_imputacion_vigente`), del sentido que
 consume su lado. Un abono resta solo cuando tiene una relación confirmada
-(`acredita` o `anula`) que dice a qué factura abona; antes, sus líneas no
-mueven la PO. Lo que no está en euros no tiene importe (X1) y no cuenta. El
+(`acredita` o `anula`) que dice a qué factura abona, y mientras esa factura
+cuente (revisión: migración 0011); antes, sus líneas no mueven la PO. Lo que no está en euros no tiene importe (X1) y no cuenta. El
 orden es el del §7: por fecha de factura y, a igual fecha, por id; una
 factura sin fecha va al final. Lo mismo en tres sitios que un test compara:
 `v_po_consumo`, `ordenes_compra.cargos` y `reglas.ordenes.cargos`.
@@ -3678,9 +3678,9 @@ factura sin fecha va al final. Lo mismo en tres sitios que un test compara:
 | Regla | Qué mira | Al fallar |
 | --- | --- | --- |
 | P1 | La PO imputada está cerrada, o el trabajo (fechas de la imputación, de la línea, el periodo o la fecha de la factura) cae fuera de su vigencia | Retención; se anula. Sin ningún día, sin datos |
-| P2 | Una venta sin PO (ni imputada ni impresa) donde el Objeto (o, si no dice, el cliente) la pide | Retención; se anula |
-| P3 | La PO impresa no está registrada o es de otra parte; la imputada es de otra parte o no cubre el Objeto de la línea | Retención; se anula. Sin ninguna PO de ese lado, o sin la parte resuelta, sin datos |
-| P4 | La factura carga a la PO más de lo que quedaba antes de ella (en el orden del §7) | Retención; se anula; pegajosa; suelo urgente |
+| P2 | Una venta (no un abono) sin PO (ni imputada ni impresa) donde el Objeto (o, si no dice, el cliente) la pide | Retención; se anula |
+| P3 | La PO impresa no está registrada o es de otra parte; la imputada es de otra parte o no cubre el Objeto de la línea; la factura imprime varias PO y una imputación no va a ninguna | Retención; se anula. Sin ninguna PO de ese lado, o sin la parte resuelta, sin datos |
+| P4 | La factura carga a la PO más de lo que quedaba antes de ella, en el orden del §7 o en el de llegada | Retención; se anula; pegajosa; suelo urgente |
 | P5 | Consumido el umbral de la política (80 %) o más | Aviso de la PO |
 | P6 | La PO ya estaba consumida entera y la factura le carga más | Retención; se anula; suelo urgente |
 | P7 | La PO caduca dentro de los días de la política (30) con valor por consumir; ya caducada, sin datos hasta el planning | Aviso de la PO; se anula; puntos de caducidad por los días que quedan |
@@ -3688,7 +3688,7 @@ factura sin fecha va al final. Lo mismo en tres sitios que un test compara:
 | P9 | Al ritmo de las últimas 8 semanas la PO se agota más de 14 días antes de su fin | Aviso de la PO |
 | P10 | Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor | Sin datos hasta el paso 10 |
 | G3 (versión 2) | La tarifa de una línea de compra contra la pactada; sin pactada, contra el histórico como antes | Retención por encima de la pactada; bloqueo (que se anula con segunda firma) por encima del exceso de la política (10 %) |
-| G6 | Una línea de un recargo (noche, fin de semana...) contra su propia tarifa pactada | Retención; se anula |
+| G6 | Una línea de un recargo (noche, fin de semana...) contra su propia tarifa pactada; sin ella, si hay otras pactadas para la línea, retiene (`no_casa`) | Retención; se anula |
 | V4 | La tarifa de una línea de venta contra la de venta pactada, por encima y por debajo | Retención; se anula. Sin pactada, sin datos hasta el planning |
 
 Una tarifa ambigua (dos igual de concretas con precios distintos) da sin
@@ -3761,10 +3761,10 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
 | --- | --- |
 | Aritmética del consumo: sin IVA | `test_reglas_paso9.py::test_el_consumo_es_sin_iva_con_los_abonos_confirmados_y_sin_lo_que_no_cuenta` (la base de cada línea, no el total con IVA); `test_ordenes_compra.py::test_el_abono_confirmado_resta_de_la_po_y_antes_no` (4.256,00 de V2026-0101, no 5.149,76) |
 | Los abonos confirmados restan (y los propuestos no) | Los dos anteriores, `test_un_abono_no_consume_y_libera_lo_que_abona` y `test_un_abono_sin_po_impresa_toma_la_de_la_factura_que_abona` |
-| Anuladas y sustituidas fuera | `test_el_consumo_es_sin_iva...` (anulada, sustituida, fusionada, otro lado, sin euros), `test_ordenes_compra.py::test_una_sustituida_no_consume` y `test_una_anulada_no_consume` |
+| Anuladas y sustituidas fuera | `test_el_consumo_es_sin_iva...` (anulada, sustituida, fusionada, otro lado, sin euros; y el abono de una que ya no cuenta), `test_ordenes_compra.py::test_una_sustituida_no_consume`, `test_una_anulada_no_consume`, `test_el_abono_de_una_original_anulada_ya_no_resta` y `test_el_abono_de_una_original_sustituida_ya_no_resta` |
 | La vista, el almacén y las reglas dicen lo mismo | `_tres_cuentas` en cada test de consumo del almacén |
-| P4 respeta el orden | `test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id` (fecha y luego id, sin fecha al final, con las facturas revueltas), `test_p4_retiene_la_factura_que_pasa_lo_que_quedaba_y_es_pegajosa` (sobre el almacén, con una modificación de valor) |
-| Los umbrales salen de la configuración | `test_ordenes_compra.py::test_los_umbrales_de_las_po_salen_de_la_configuracion` (`config/reglas.yaml` cargado con otro umbral abre P5; uno fuera de límites no se carga), `test_p5_avisa_desde_el_umbral_de_la_politica`, `test_p7_caduca_dentro_de_los_dias_de_la_politica`, `test_la_prevision_es_determinista...` (margen y semanas), `test_g3_compara_con_la_pactada...` (exceso) |
+| P4 respeta el orden | `test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id` (fecha y luego id, sin fecha al final, con las facturas revueltas; y el de llegada), `test_p4_una_factura_con_fecha_atrasada_no_se_cuela_delante`, `test_p4_retiene_la_factura_que_pasa_lo_que_quedaba_y_es_pegajosa` (sobre el almacén, con una modificación de valor) |
+| Los umbrales salen de la configuración | `test_ordenes_compra.py::test_los_umbrales_de_las_po_salen_de_la_configuracion` (`config/reglas.yaml` cargado con las cinco claves cambiadas llega entero a la política; P5 se cierra con el umbral más alto y P7 se abre con 90 días; uno fuera de límites no se carga), `test_p5_avisa_desde_el_umbral_de_la_politica`, `test_p7_caduca_dentro_de_los_dias_de_la_politica`, `test_la_prevision_es_determinista...` (margen y semanas), `test_g3_compara_con_la_pactada...` (exceso) |
 | La caducidad con fecha fija | `test_p7_caduca_dentro_de_los_dias_de_la_politica` (hoy 2026-10-14: 27, 30, 31 y 0 días, ya caducada) y `test_la_caducidad_con_la_fecha_fija_y_la_prioridad_de_la_po` (en el almacén, con los puntos de caducidad en la prioridad de la PO) |
 | La previsión es determinista | `test_la_prevision_es_determinista_y_sale_del_ritmo_de_las_semanas` (la ventana, el ritmo y el día exactos; el mismo resultado en cualquier orden) y `test_la_prevision_empieza_en_el_inicio_de_la_po_y_sin_consumo_no_se_agota` |
 | Qué referencia es una PO lo decide el código | `test_la_referencia_impresa_casa_con_la_po_de_su_cliente_y_la_imputa`, `test_una_referencia_que_una_persona_dice_que_no_es_po_no_casa`, `test_una_referencia_que_no_casa_es_una_po_desconocida` |
@@ -3808,6 +3808,8 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
 9. **El valor y el fin vigentes son los de la última modificación que cambia
    cada uno**, por su fecha y, a igual fecha, la apuntada después: una
    modificación que solo alarga el fin no devuelve el valor al original.
+   Desde la revisión, una modificación no puede tener fecha posterior a hoy
+   (desviación 23).
 10. **Los niveles de la tarifa pactada son cinco**, no los cuatro del §7: se
     añaden «recurso» (la tarifa propia de un zzp'er en cualquier obra; sin
     él una tarifa por persona del maestro no se usaría nunca) y «general»
@@ -3829,9 +3831,10 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
     vez. La contraparte, el Objeto, el recurso y la PO resueltos no entran
     en la huella de G3, G6 y V4 (sí la tarifa elegida y su precio, en los
     valores): dar de alta el proveedor o sembrar los Objetos no reabre nada.
-13. **G6 solo compara un recargo que tiene su propia tarifa pactada**; sin
-    ella no aplica, y G3 lo mira con el histórico (la puerta del paso 10:
-    «un recargo nocturno a su tarifa pactada no da G3»).
+13. **G6 compara un recargo con su propia tarifa pactada** (la puerta del
+    paso 10: «un recargo nocturno a su tarifa pactada no da G3»). Sin ella,
+    si la parte, el recurso o el Objeto tienen otras pactadas, retiene
+    (desviación 24); sin ninguna, no aplica y G3 lo mira con el histórico.
 14. **V4 en los dos sentidos y sin histórico**: por encima, el cliente
     reclamará; por debajo, BM Support BV pierde dinero. Sin pactada, sin
     datos hasta el planning (el §7 no le da histórico).
@@ -3848,8 +3851,8 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
     con una columna de tipo: cada uno con su mapeo, su contrato y su
     importación, y la modificación de una PO nueva entra después de ella. En
     YAML, un fichero con las dos listas.
-19. **Los límites de la política** (`_LIMITES`): umbral de P5 entre 1 y
-    100 %, días de caducidad entre 7 y 180, margen de la previsión entre 0 y
+19. **Los límites de la política** (`_LIMITES`): umbral de P5 entre 50 y
+    100 % (revisión; era 1), días de caducidad entre 7 y 180, margen de la previsión entre 0 y
     90 días, semanas del ritmo entre 2 y 26, exceso de G3 entre 1 y 100 %.
 20. **La vista del Objeto** tiene por ahora su ficha y su bloque de PO; las
     horas, ingresos y costes son de los pasos siguientes.
@@ -3857,6 +3860,56 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
     Exact** se pierde con ella: la copia no cuenta, y las imputaciones de la
     venta de Exact casan con sus propias referencias. Fusionar no se impide
     por eso (no mueve dinero).
+22. **P5 y P7-P10 son de la PO entera, no de cada factura** (revisión). El
+    §8 cuenta sus puntos (límite blando de PO 10; caducidad de P7 10/20) y el
+    suelo urgente de P10 en `prioridad.calcular` por factura. Aquí van a la
+    fila de prioridad de la PO (`estados._avisos_de_po`): una PO casi
+    consumida o a punto de caducar no es un problema de ninguna factura en
+    concreto, y ponerlo en cada factura imputada subiría a la vez, y por lo
+    mismo, todas las de la PO (y las ya pagadas). Lo que sí es de la factura
+    lo dicen P1-P4 y P6 (los puntos de límite blando y duro y el suelo
+    urgente de P4 y P6, por factura). **P10 hoy da sin datos**: cuando el
+    paso 10 la encienda, una retención de la PO entera no retiene ninguna
+    factura ni pone su suelo urgente en ninguna; el paso 10 tiene que decidir
+    a qué facturas se la pone (las que cargan a la PO desde que lo esperado
+    pasa el valor, como objetivos del hallazgo) para que el suelo del §8 se
+    aplique.
+23. **Una modificación de una PO no puede tener fecha posterior a hoy**
+    (revisión). El valor y el fin vigentes no dependen de hoy (como
+    `v_po_vigente`), así que una modificación vale entera en cuanto se
+    apunta: con una fecha de junio, una ampliación subía el límite hoy (P4 y
+    P6 dejaban pasar lo que hoy no cabe) y un recorte abría P4 y P5 hoy. Y
+    como la vigente es la de fecha mayor, una equivocada con fecha futura no
+    se podía arreglar con otra de hoy, y no se puede borrar. Lo que empieza
+    más adelante se apunta ese día. Con esto, una corrección con la fecha
+    por defecto (hoy) gana siempre a la equivocada, como dice la cabecera de
+    la 0010. `modificar_po` y la hoja de modificaciones lo rechazan (la fila,
+    no el fichero).
+24. **Una línea que no casa con lo pactado por su turno, su unidad o su día
+    retiene** (revisión; G3 y G6). Esas tres cosas las imprime el
+    proveedor: antes, con «Nacht», «x», otra unidad o un día fuera de la
+    vigencia la línea no casaba con nada y volvía al histórico, donde una
+    primera factura es siempre «la de siempre»; un precio un 50 % por encima
+    de lo pactado, que bloquea, salía ok. Ahora, si la parte, el recurso o el
+    Objeto tienen tarifas pactadas (de ese tipo de trabajo) y ninguna casa,
+    es `no_casa`: sin datos en la línea y la factura retenida (clave
+    `no_casa`, con su excepción, como una ambigua), en G3 si es de día y en
+    G6 si es un recargo. No se compara un recargo sin tarifa propia con la de
+    día: un recargo cobra más que la de día por definición, y cuánto es lo
+    que una persona confirma. V4 lo trata como sin pactada (sin datos): una
+    venta la escribe BM Support BV. El tipo de trabajo y los resueltos
+    (recurso, Objeto, PO) siguen siendo condición: un trabajo que no tiene
+    tarifa pactada sigue con el histórico.
+25. **P4 y P6 miran también el orden de llegada** (revisión). El §7 ordena
+    por fecha de factura, que imprime el proveedor: una factura con fecha
+    atrasada se colaba delante de las que ya se habían mirado (y quizá
+    pagado), salía ok y pasaba la retención a una de ellas. Ahora lo que
+    quedaba antes de una factura es lo menos de los dos órdenes (el del §7 y
+    el de llegada, por id): la que llega con la PO ya casi consumida se
+    retiene aunque su fecha la ponga antes. En ese caso la anterior también
+    retiene, porque en el orden del §7 es la que pasa: P4 es pegajosa y una
+    persona decide cuál se anula. La ficha de la PO sigue enseñando el orden
+    del §7.
 
 ### Lo que deben saber los pasos siguientes
 
@@ -3868,7 +3921,7 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
   `sin_facturar` (`consultas._SIN_PLANNING`). La puerta del paso 10 «un
   recargo nocturno a su tarifa pactada no da G3» ya se cumple con G6.
 - **Lo consumido de una PO** se cuenta en un solo sitio por capa:
-  `v_po_consumo` (SQL), `ordenes_compra.cargos` (almacén) y
+  `v_po_consumo` (SQL, rehecha en la 0011), `ordenes_compra.cargos` (almacén) y
   `reglas.ordenes.cargos` (instantánea); un cambio en una tiene que ir a las
   tres (el test de las tres cuentas lo vigila).
 - **Una PO solo la escribe** `ordenes_compra.py` (personas) y la importación
@@ -3878,6 +3931,54 @@ factura), `serve.py`, `consola_assets.py`, `cli.py`,
   modificaciones).
 - **La prioridad de una PO** se calcula en `estados._avisos_de_po` como una
   factura sin plazo ni importe; los pesos de límite y caducidad de PO son los
-  de `config/prioridad.yaml`.
+  de `config/prioridad.yaml`. Los días de caducidad de P7 los cuenta
+  `estados._dias_hasta_fin` desde el fin fijo del hallazgo: nada que dependa
+  de hoy va en los valores de un hallazgo (son su huella).
+- **P10 en el paso 10** (desviación 22): es de la PO entera; para que su
+  retención y su suelo urgente lleguen a una factura, el paso 10 tiene que
+  ponerle objetivos (las facturas que cargan a la PO).
 - **La consola** tiene ya las PO y el bloque de PO del Objeto; la vista
   entera del Objeto (horas, ingresos, costes) sigue pendiente.
+
+### Correcciones de la revisión
+
+La revisión del paso 9 dejó diecisiete hallazgos. Tres decían lo mismo (una
+modificación con fecha futura vale ya y no se puede corregir), así que son
+quince. Cada uno se reprodujo antes de tocarlo (con los scripts del revisor y
+con el test nuevo contra el código del paso 9: los tests nuevos de lo que se
+arregla fallan sin las correcciones). Todos eran reales. Trece se arreglan en
+el código con su test; dos se documentan (el alcance de P5 y P7-P10, como la
+desviación 22, y el catálogo de `docs/validacion-facturas.md`). **1652 tests pasan**
+(eran 1630). Sin una sola llamada a la API. Cinco mil facturas se recalculan
+en 1,69-1,79 s la primera vez y en 1,41-1,48 s las siguientes (tres medidas):
+lo mismo que antes, dentro del ruido del contenedor.
+
+| Hallazgo | Qué se hizo | Test |
+| --- | --- | --- |
+| **Bloqueante.** Un turno, una unidad o un día impresos por el proveedor que no casan con lo pactado sacaban la línea de G3 y G6: volvía al histórico (ok en una primera factura) y el bloqueo por encima del 10 % desaparecía sin ningún hallazgo | Desviación 24: `tarifas.pactada` da `no_casa` cuando hay tarifas pactadas para la línea (por su parte, recurso, Objeto, PO y tipo de trabajo) y ninguna de su turno, su unidad o su día; G3 (de día) y G6 (recargos) dan sin datos en la línea y retienen la factura con la clave `no_casa`, y la línea no vuelve al histórico | `test_reglas_paso9.py::test_un_turno_una_unidad_o_un_dia_que_no_casan_no_se_saltan_la_pactada` (Nacht, x, stuk y fuera de vigencia), `test_g6_un_recargo_a_su_propia_tarifa_y_sin_ella_lo_mira_g3` |
+| **Mayor.** P7 y P9 guardaban en los valores (la huella) días que bajan cada día: un P7 aceptado se reabría a la mañana siguiente, y los abiertos apuntaban un cambio de evidencia diario | P7 guarda el fin, lo que queda y el límite; P9, lo que queda, el fin y el margen. Los días que quedan van en el texto, y la prioridad los cuenta desde el fin fijo (`estados._dias_hasta_fin`) | `test_ordenes_compra.py::test_un_p7_aceptado_sigue_aceptado_al_dia_siguiente`, `test_la_caducidad_con_la_fecha_fija_y_la_prioridad_de_la_po` (26 días al día siguiente), `test_p7_caduca_dentro_de_los_dias_de_la_politica` |
+| **Mayor** (tres hallazgos). Una modificación con fecha futura valía ya (una ampliación de junio subía el límite hoy; un recorte abría P4 y P5 hoy) y, como la vigente es la de fecha mayor, una equivocada no se podía corregir con otra de hoy | Desviación 23: `apuntar_modificacion` rechaza una fecha posterior a hoy (`modificar_po` da 400 y la hoja de modificaciones rechaza la fila). La vista y `vigentes` siguen por (fecha, id): una corrección de hoy gana siempre | `test_una_modificacion_no_vale_desde_el_futuro_y_la_de_hoy_corrige` |
+| **Mayor.** La hoja de tarifas guarda «dag» como `dia` y la línea dejaba «dag»: una tarifa por día no casaba nunca y V4 daba sin datos | `dominio.normalizar_unidad` (hora, dia, stuk o el texto): la usan `campos._unidad`, la importación de tarifas y `tarifas.pactada`. `es_unidad_hora` pasa a `dominio.py` (las reglas no importan `parsing`) y `parsing` la sigue exportando | `test_ordenes_compra.py::test_una_tarifa_por_dia_del_maestro_casa_con_la_linea_por_dia`, `test_reglas_paso9.py::test_una_tarifa_por_dia_casa_con_una_linea_por_dia` |
+| **Mayor.** Una compra que imprime dos PO de su proveedor no consumía de ninguna y P3 daba ok: escapaba a P1, P4 y P6 | P3 retiene la factura con una imputación sin PO donde lo impreso dice varias (en su línea o, si su línea no dice ninguna, en la cabecera): «una persona decide con `imputar_po`» | `test_p3_retiene_una_compra_que_imprime_dos_po_y_no_consume_ninguna` |
+| **Mayor.** P4 ordenaba por la fecha impresa: una factura con fecha atrasada se colaba delante, salía ok y la retención pasaba a una anterior ya mirada | Desviación 25: P4 y P6 toman lo menos de lo que quedaba en el orden del §7 y en el de llegada (`antes_por_llegada`); el texto dice cuándo es por la llegada | `test_p4_una_factura_con_fecha_atrasada_no_se_cuela_delante`, `test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id` |
+| **Mayor.** El YAML de PO leía `012500` como octal (5440), `12:30` como sexagesimal (750) y `1_000` como 1000, sin aviso, y el crudo era el número convertido | `importadores/ordenes.py` carga con un `SafeLoader` sin enteros ni floats implícitos: los números quedan como texto (el crudo es lo tecleado) y un importe que no es una cifra con, si acaso, decimales tras un punto se rechaza. `1250.50` sin comillas ya no pierde céntimos y entra | `test_importadores.py::test_un_importe_del_yaml_de_po_es_lo_que_se_tecleo`; el contrato `po_csv-yaml` (la fila 3 lleva ahora `12:30`) |
+| **Mayor.** Un abono confirmado seguía restando de la PO con la original anulada o sustituida: contaba dos veces y lo consumido quedaba negativo | Migración **0011** (la 0010 no se edita): `v_po_consumo` cuenta el abono solo si la factura que abona sigue contando; lo mismo `ordenes_compra.cargos` y `reglas.ordenes.abonos_confirmados`. La sincronización no hereda la PO de una que ya no cuenta | `test_el_abono_de_una_original_anulada_ya_no_resta`, `test_el_abono_de_una_original_sustituida_ya_no_resta`, `test_el_consumo_es_sin_iva...` |
+| P2 retenía un abono sin PO a un cliente que la pide | P2 no mira los abonos: toman la PO de la factura que abonan al confirmarse, y la relación que les falta la dice R4 | `test_p2_pide_la_po_donde_el_objeto_o_el_cliente_la_piden` |
+| La vista del Objeto no enseñaba las PO de su cliente sin Objetos, que lo cubren | `consultas.objeto` incluye las abiertas de su cliente sin Objetos (`cubre_objeto`) | `test_la_ficha_de_la_po_y_la_vista_del_objeto` (Schiedam y la 4500777) |
+| `corregir_po` aceptaba un inicio después del fin vigente (y uno después del fin original daba un error de la base, 409); `registrar_po` con un número solo de separadores daba un `NOT NULL` | `_corregir_po` comprueba el inicio contra el fin original y el vigente (400); `registrar_po` y la hoja rechazan un número sin nada que normalizar | `test_una_po_sin_numero_o_que_empieza_despues_de_su_fin_no_entra` |
+| El test de los umbrales no comprobaba P7 ni las claves `margen_prevision_dias`, `semanas_ritmo` y `exceso_bloqueo_pct` a través de `config/reglas.yaml` | El test carga las cinco claves cambiadas y comprueba la política entera, P5 y P7 | `test_los_umbrales_de_las_po_salen_de_la_configuracion` |
+| P5 y P7-P10 son de la PO y no llegan a la prioridad de las facturas, como pide el §8 | No se cambia: desviación 22 (y lo que tiene que hacer el paso 10 con P10) | — |
+| `docs/validacion-facturas.md` no decía nada del paso 9 | La frase «desde el paso 9», la sección P y las filas de G3, G6 y V4 como en `catalogo.py` (y sus descripciones, con lo de la revisión) | — |
+| El comentario de los límites de P5 decía «por debajo de la mitad» y el límite era 1 % | El límite es 50-100 % (desviación 19) | `test_los_umbrales_de_las_po_salen_de_la_configuracion` (49 no se carga) |
+
+**Tests existentes cambiados, y por qué**: `test_p4_sigue_el_orden...`: la
+factura 9 (fecha más temprana, id mayor que la 3 y la 5) llega la última y
+también retiene (desviación 25). `test_g6_un_recargo...`: un recargo sin
+tarifa propia con la de día pactada ya no va al histórico, retiene
+(desviación 24); sin ninguna pactada sí. `test_la_tarifa_pactada_va...` y
+`test_dentro_del_nivel...`: la de noche para una línea de día y la caducada
+son `no_casa`, no `ninguna`. `test_p7_caduca...` y `test_la_prevision...`:
+los días y el día de agotamiento se miran en el texto, no en los valores.
+`test_los_umbrales...`: el umbral de 40 % ya no se carga (límite 50); se
+prueba con la PO recortada. `test_reglas_paso9.escenarios` gana una
+instantánea con las ramas nuevas para la prueba de pureza.

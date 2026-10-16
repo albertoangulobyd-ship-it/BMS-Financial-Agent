@@ -62,12 +62,12 @@
         {
           "fila": 3,
           "codigo": "fila",
-          "motivo": "valor: un importe con decimales va entre comillas (\"1250.50\")",
+          "motivo": "valor: un importe es una cifra con, si acaso, sus decimales tras un punto (\"1250.50\")",
           "crudo": {
             "numero": "PO-4500555",
             "lado": "cliente",
             "parte_ref": "10001",
-            "valor": "1250.5"
+            "valor": "12:30"
           }
         },
         {

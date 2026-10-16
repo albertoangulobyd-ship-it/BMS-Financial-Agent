@@ -199,6 +199,36 @@ def test_un_abono_sin_po_impresa_toma_la_de_la_factura_que_abona(otra_venta) -> 
     _limpio(conn)
 
 
+def test_el_abono_de_una_original_anulada_ya_no_resta(ventas) -> None:
+    """Anulada la original, su cargo sale de la PO: su abono no puede seguir restando (contaria
+    dos veces y lo consumido quedaria en -248,00)."""
+    conn = ventas.conn
+    po = _con_pos(ventas)
+    _confirmar_abono(conn)
+    assert _tres_cuentas(conn, po) == (400800,) * 3
+    v101 = factura_de(conn, "V2026-0101")
+    _orden(conn, "anular_factura", {"factura_id": v101, "rev": _rev(conn, "factura", v101),
+                                    "motivo": MOTIVO})
+    assert _tres_cuentas(conn, po) == (0, 0, 0)
+    assert _consumo(conn, po) == (0, 1000000)
+    _limpio(conn)
+
+
+def test_el_abono_de_una_original_sustituida_ya_no_resta(otra_venta) -> None:
+    conn = otra_venta.conn
+    po = _con_pos(otra_venta)
+    _confirmar_abono(conn)
+    abono = factura_de(conn, "C2026-0005")
+    assert {i["orden_compra_id"] for i in _imputaciones(conn, abono)} == {po}   # heredada
+    v101, v103 = factura_de(conn, "V2026-0101"), factura_de(conn, "V2026-0103")
+    _orden(conn, "enlazar_facturas", {"origen_id": v103, "destino_id": v101,
+                                      "tipo": "sustituye", "motivo": MOTIVO})
+    # Solo la sustituta: 1.000,00, no 1.000,00 - 248,00. Y el abono ya no hereda la PO.
+    assert _tres_cuentas(conn, po) == (100000,) * 3
+    assert {i["orden_compra_id"] for i in _imputaciones(conn, abono)} == {None}
+    _limpio(conn)
+
+
 def test_una_sustituida_no_consume(otra_venta) -> None:
     conn = otra_venta.conn
     po = _con_pos(otra_venta)
@@ -292,32 +322,51 @@ def test_lo_que_imputa_una_persona_gana_a_lo_que_casa_el_sistema(ventas) -> None
 # ============================================================ umbrales y fechas
 
 def test_los_umbrales_de_las_po_salen_de_la_configuracion(ventas, tmp_path) -> None:
-    conn = ventas.conn
-    po = _con_pos(ventas)                                  # 42,56 % consumido
-    assert [h for h in _hallazgos(conn, "P5") if h["fila_id"] == po] == []
-    texto = (RAIZ / "config" / "reglas.yaml").read_text(encoding="utf-8")
-    assert "aviso_consumo_pct: 80" in texto and "dias_caducidad: 30" in texto
-    carpeta = tmp_path / "config"
-    carpeta.mkdir()
-    (carpeta / "reglas.yaml").write_text(
-        texto.replace("aviso_consumo_pct: 80", "aviso_consumo_pct: 50")
-        .replace("dias_caducidad: 30", "dias_caducidad: 90"), encoding="utf-8")
+    """Cada clave de las secciones ordenes_compra y tarifas de config/reglas.yaml llega a la
+    politica con la que evaluan las reglas (y uno fuera de sus limites no se carga)."""
     from bms_agent import politica
 
-    politica.cargar(conn, carpeta / "reglas.yaml", _ana(conn))
+    conn = ventas.conn
+    po = _con_pos(ventas)
+    schiedam = _po(conn, "PO 4500777")                     # acaba en 47 dias
+    _orden(conn, "modificar_po", {"orden_compra_id": po, "valor": "5000", "motivo": "Recorte"})
+    [p5] = [h for h in _hallazgos(conn, "P5") if h["fila_id"] == po]       # 85,12 % >= 80
+    assert "85,12 %" in p5["detalle"]
+    assert [h for h in _hallazgos(conn, "P7") if h["fila_id"] == schiedam] == []  # 47 > 30
+    texto = (RAIZ / "config" / "reglas.yaml").read_text(encoding="utf-8")
+    for clave in ("aviso_consumo_pct: 80", "dias_caducidad: 30", "margen_prevision_dias: 14",
+                  "semanas_ritmo: 8", "exceso_bloqueo_pct: 10"):
+        assert clave in texto, clave
+    carpeta = tmp_path / "config"
+    carpeta.mkdir()
+    ruta = carpeta / "reglas.yaml"
+
+    def cargar(*cambios: tuple[str, str]) -> None:
+        nuevo = texto
+        for viejo, otro in cambios:
+            nuevo = nuevo.replace(viejo, otro)
+        ruta.write_text(nuevo, encoding="utf-8")
+        politica.cargar(conn, ruta, _ana(conn))
+
+    cargar(("aviso_consumo_pct: 80", "aviso_consumo_pct: 90"),
+           ("dias_caducidad: 30", "dias_caducidad: 90"),
+           ("margen_prevision_dias: 14", "margen_prevision_dias: 30"),
+           ("semanas_ritmo: 8", "semanas_ritmo: 4"),
+           ("exceso_bloqueo_pct: 10", "exceso_bloqueo_pct: 25"))
+    vigente = politica.politica_reglas(conn)
+    assert (vigente.po_aviso_consumo_pct, vigente.po_dias_caducidad,
+            vigente.po_margen_prevision_dias, vigente.po_semanas_ritmo,
+            vigente.tarifa_exceso_bloqueo_pct) == (90, 90, 30, 4, 25)
     _orden(conn, "recalcular", {})
-    assert [h for h in _hallazgos(conn, "P5") if h["fila_id"] == po] == []      # 42,56 < 50
-    (carpeta / "reglas.yaml").write_text(
-        texto.replace("aviso_consumo_pct: 80", "aviso_consumo_pct: 40"), encoding="utf-8")
-    politica.cargar(conn, carpeta / "reglas.yaml", _ana(conn))
-    _orden(conn, "recalcular", {})
-    [p5] = [h for h in _hallazgos(conn, "P5") if h["fila_id"] == po]
-    assert "42,56 %" in p5["detalle"] and "40 %" in p5["detalle"]
-    # Un umbral fuera de sus limites no se carga.
-    (carpeta / "reglas.yaml").write_text(
-        texto.replace("aviso_consumo_pct: 80", "aviso_consumo_pct: 101"), encoding="utf-8")
-    with pytest.raises(politica.PoliticaNoValida):
-        politica.cargar(conn, carpeta / "reglas.yaml", _ana(conn))
+    assert [h for h in _hallazgos(conn, "P5") if h["fila_id"] == po] == []      # 85,12 < 90
+    [p7] = [h for h in _hallazgos(conn, "P7") if h["fila_id"] == schiedam]      # 47 <= 90
+    assert "(en 47 días)" in p7["detalle"]
+    # Un umbral fuera de sus limites no se carga: por debajo de la mitad, P5 saltaria con
+    # cualquier PO; por encima del 100 %, nunca.
+    for malo in ("aviso_consumo_pct: 49", "aviso_consumo_pct: 101"):
+        with pytest.raises(politica.PoliticaNoValida):
+            cargar(("aviso_consumo_pct: 80", malo))
+    assert politica.politica_reglas(conn).po_aviso_consumo_pct == 90
 
 
 def test_la_caducidad_con_la_fecha_fija_y_la_prioridad_de_la_po(ventas) -> None:
@@ -336,6 +385,40 @@ def test_la_caducidad_con_la_fecha_fija_y_la_prioridad_de_la_po(ventas) -> None:
     assert "la PO caduca en 27 días (P7)" in motivos
     [fila] = [o for o in consultas.ordenes_compra(conn) if o["id"] == schiedam]
     assert fila["fecha_fin"] == "2026-11-10" and fila["nivel"] == nivel
+    # Al dia siguiente la prioridad cuenta los dias de hoy desde el fin fijo del hallazgo.
+    from bms_agent.almacen import reloj_de
+
+    reloj_de(conn).avanzar(days=1)
+    hallazgos.recalcular(conn, motivo="diaria")
+    assert "la PO caduca en 26 días (P7)" in conn.execute(
+        "SELECT motivos_json FROM prioridad WHERE entidad = 'orden_compra' AND entidad_id = ?",
+        (schiedam,)).fetchone()[0]
+
+
+def test_un_p7_aceptado_sigue_aceptado_al_dia_siguiente(ventas) -> None:
+    """Los dias que quedan bajan cada dia: si estuvieran en la huella, un P7 aceptado se
+    reabriria cada manana y apuntaria un cambio de evidencia cada dia."""
+    from bms_agent.almacen import reloj_de
+
+    conn = ventas.conn
+    _con_pos(ventas)
+    schiedam = _po(conn, "PO 4500777")
+    _orden(conn, "modificar_po", {"orden_compra_id": schiedam, "fecha_fin": "2026-11-10",
+                                  "motivo": "El cliente adelanta el fin de obra"})
+    [p7] = [h for h in _hallazgos(conn, "P7") if h["fila_id"] == schiedam]
+    _orden(conn, "anular_hallazgo", {"hallazgo_id": p7["id"], "huella": p7["huella"],
+                                     "motivo": "Hablado con el cliente: no se alarga"})
+    eventos = conn.execute("SELECT count(*) FROM hallazgo_evento WHERE hallazgo_id = ?",
+                           (p7["id"],)).fetchone()[0]
+    for _ in range(2):
+        reloj_de(conn).avanzar(days=1)
+        hallazgos.recalcular(conn, motivo="diaria")
+    estado, detalle = conn.execute("SELECT estado, detalle FROM hallazgo WHERE id = ?",
+                                   (p7["id"],)).fetchone()
+    assert estado == "aceptado" and "(en 25 días)" in detalle
+    assert conn.execute("SELECT count(*) FROM hallazgo_evento WHERE hallazgo_id = ?",
+                        (p7["id"],)).fetchone()[0] == eventos
+    _limpio(conn)
 
 
 # ============================================================ P4 contra lo que quedaba
@@ -398,6 +481,62 @@ def test_una_modificacion_es_de_solo_escritura_y_la_firma_quien_puede(ventas) ->
     from bms_agent.almacen.evidencia import verificar_evidencia
 
     assert verificar_evidencia(conn) == []
+    _limpio(conn)
+
+
+def test_una_modificacion_no_vale_desde_el_futuro_y_la_de_hoy_corrige(ventas,
+                                                                         tmp_path) -> None:
+    """Una modificacion vale en cuanto se apunta: con fecha futura subiria el limite hoy, y
+    como la vigente es la de fecha mayor, una equivocada no se arreglaria con otra de hoy."""
+    conn = ventas.conn
+    po = _con_pos(ventas)                                   # hoy es 2026-10-14
+    with pytest.raises(servicios.DatosNoValidos, match="posterior a hoy"):
+        _orden(conn, "modificar_po", {"orden_compra_id": po, "valor": "100000",
+                                      "fecha": "2027-06-01", "motivo": "Ampliacion de junio"})
+    assert conn.execute("SELECT count(*) FROM orden_compra_modificacion").fetchone()[0] == 0
+    # Una equivocada (de hoy o de antes) se corrige con otra sin fecha: la de hoy gana.
+    _orden(conn, "modificar_po", {"orden_compra_id": po, "valor": "5000", "fecha": "2026-10-14",
+                                  "motivo": "Recorte"})
+    _orden(conn, "modificar_po", {"orden_compra_id": po, "valor": "9000",
+                                  "motivo": "Corrijo la anterior: eran 9.000"})
+    assert consultas.orden_compra(conn, po)["valor_cent"] == 900000
+    assert _tres_cuentas(conn, po)[0] == 425600 and _consumo(conn, po)[1] == 900000 - 425600
+    # La hoja de modificaciones tampoco apunta una futura: la fila se rechaza.
+    hoja = tmp_path / "mods.csv"
+    hoja.write_text(MODIFICACIONES_CSV.read_text(encoding="utf-8-sig").splitlines()[0] + "\n"
+                    "PO-4500123;Klant;10001;01-06-2027;20.000,00;;Ampliacion de junio;EUR\n",
+                    encoding="utf-8")
+    [lote] = importar_fichero(ventas, "po_csv", "modificaciones_po", hoja,
+                              lanzado_por=_ana(conn)).lotes
+    assert lote.aceptadas == 0 and "posterior a hoy" in lote.rechazos[0].motivo
+    assert consultas.orden_compra(conn, po)["valor_cent"] == 900000
+    _limpio(conn)
+
+
+def test_una_po_sin_numero_o_que_empieza_despues_de_su_fin_no_entra(ventas, tmp_path) -> None:
+    conn = ventas.conn
+    po = _con_pos(ventas)                                   # 2026-09-01 a 2026-12-31
+    cliente = conn.execute("SELECT id FROM cliente WHERE exact_id = '10001'").fetchone()[0]
+    with pytest.raises(servicios.DatosNoValidos, match="separadores"):
+        _orden(conn, "registrar_po", {"numero": "--", "lado": "cliente", "parte_id": cliente,
+                                      "valor": "100"})
+    hoja = tmp_path / "pos.csv"
+    hoja.write_text(PO_CSV.read_text(encoding="utf-8-sig").splitlines()[0] + "\n"
+                    "-/-;Klant;10001;;;;;100,00;EUR;\n", encoding="utf-8")
+    [lote] = importar_fichero(ventas, "po_csv", "ordenes_compra", hoja,
+                              lanzado_por=_ana(conn)).lotes
+    assert lote.aceptadas == 0 and "separadores" in lote.rechazos[0].motivo
+    # El inicio no se corrige a despues del fin vigente (acortado) ni del original.
+    _orden(conn, "modificar_po", {"orden_compra_id": po, "fecha_fin": "2026-11-01",
+                                  "motivo": "Se acorta"})
+    for inicio, que in (("2026-12-15", "fin vigente"), ("2027-01-15", "fin original")):
+        with pytest.raises(servicios.DatosNoValidos, match=que):
+            _orden(conn, "corregir_po", {"orden_compra_id": po, "campo": "fecha_inicio",
+                                         "valor": inicio, "rev": _rev(conn, "orden_compra", po),
+                                         "motivo": MOTIVO})
+    _orden(conn, "corregir_po", {"orden_compra_id": po, "campo": "fecha_inicio",
+                                 "valor": "2026-10-01", "rev": _rev(conn, "orden_compra", po),
+                                 "motivo": MOTIVO})
     _limpio(conn)
 
 
@@ -564,6 +703,12 @@ def test_la_ficha_de_la_po_y_la_vista_del_objeto(otra_venta) -> None:
     assert (fila["consumido_cent"], fila["consumido_objeto_cent"]) == (525600, 348000)
     assert fila["cubre_objeto"] and vista["ordenes_resumen"]["cliente"]["restante_cent"] == (
         1000000 - 525600)
+    # Una PO sin Objetos cubre cualquiera de su cliente: la 4500777 de Bouwgroep, Schiedam.
+    schiedam = conn.execute("SELECT id FROM objeto WHERE codigo = 'Schiedam'").fetchone()[0]
+    vista_schiedam = consultas.objeto(conn, schiedam)
+    [general] = vista_schiedam["ordenes_compra"]
+    assert general["numero"] == "PO 4500777" and general["cubre_objeto"]
+    assert vista_schiedam["ordenes_resumen"]["cliente"]["ordenes"] == 1
     lista = consultas.ordenes_compra(conn)
     # Sin el maestro de proveedores, la PO a Van Dijk no entro.
     assert {o["numero"] for o in lista} == {"PO-4500123", "PO 4500777"}
@@ -597,6 +742,32 @@ def test_v4_con_las_tarifas_de_venta_del_maestro(ventas) -> None:
     assert resultados[f"pactada:{segunda['id']}"]["resultado"] == "fallo"
     [v4] = [h for h in _hallazgos(conn, "V4") if h["factura_id"] == v101]
     assert "por debajo" in v4["detalle"]
+
+
+def test_una_tarifa_por_dia_del_maestro_casa_con_la_linea_por_dia(almacen, tmp_path) -> None:
+    """La hoja de tarifas dice "dag" (la guarda como dia) y la linea de Exact imprime "dag": las
+    dos son la misma unidad, y V4 compara con la pactada en vez de dar sin datos."""
+    conn = almacen.conn
+    ana = persona(conn, "Ana", "administrador")
+    cuentas_propias(almacen, ana)
+    importar_fichero(almacen, "exact", "clientes", EXACT_CLIENTES, lanzado_por=ana)
+    importar_fichero(almacen, "maestro_csv", "objetos", OBJETOS, lanzado_por=ana)
+    ruta = _ventas_cambiadas(tmp_path, ("40;uur;62,00;2.480,00", "5;dag;496,00;2.480,00"))
+    importar_fichero(almacen, "exact", "facturas_venta", ruta, lanzado_por=ana)
+    tarifas = tmp_path / "tarifas.csv"
+    tarifas.write_text("Richting;Leverancier;Medewerker;Klant;Object;Soort werk;Dienst;Eenheid;"
+                       "Tarief;Valuta;Geldig vanaf;Geldig tot\n"
+                       "Verkoop;;;10001;Rijnhaven;Montagewerk;;dag;496,00;EUR;01-01-2026;\n",
+                       encoding="utf-8")
+    importar_fichero(almacen, "maestro_csv", "tarifas", tarifas, lanzado_por=ana)
+    assert conn.execute("SELECT unidad FROM tarifa_acordada").fetchone()[0] == "dia"
+    v101 = factura_de(conn, "V2026-0101")
+    primera = _imputaciones(conn, v101)[0]
+    assert conn.execute("SELECT unidad FROM factura_linea WHERE id = ?",
+                        (primera["linea_id"],)).fetchone()[0] == "dia"
+    assert conn.execute("SELECT resultado FROM evaluacion WHERE regla = 'V4' AND fila_id = ? "
+                        "AND clave LIKE ?", (v101, f"%pactada:{primera['id']}")
+                        ).fetchone()[0] == "ok"
 
 
 # ============================================================ la CLI

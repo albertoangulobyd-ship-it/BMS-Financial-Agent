@@ -22,13 +22,17 @@ ModificacionPOCanonica):
         motivo: Ampliacion de Waalhaven
 
 Da los mismos registros que el CSV y entra por el mismo registrar_lote, con
-las mismas reglas. Un importe con decimales va entre comillas: el YAML lo
-leeria como float y se perderian centimos sin que nadie lo viera, asi que un
-float se rechaza. Leer es puro, como todo lector.
+las mismas reglas. Los numeros se leen como texto, nunca como numeros de YAML:
+YAML 1.1 lee 1250.50 como float (pierde centimos), 012500 como octal (5440) y
+12:30 como sexagesimal (750), sin que nadie lo vea. Leidos como texto, el
+importe es lo que la persona tecleo, y el crudo tambien; un importe que no es
+una cifra con, si acaso, decimales tras un punto ("12:30", "1_000") se
+rechaza. Leer es puro, como todo lector.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -44,13 +48,30 @@ FORMATO = "yaml:po-v1"
 SECCIONES = {"ordenes_compra": "ordenes", "modificaciones_po": "modificaciones"}
 
 
+# Un importe tecleado: cifras y, si acaso, sus decimales tras un punto.
+_IMPORTE = re.compile(r"\d+(\.\d+)?")
+
+
 class YamlNoValido(ValueError):
     """Un fichero que no es un YAML de PO (no es un mapa con ordenes o modificaciones)."""
 
 
+class _Cargador(yaml.SafeLoader):
+    """SafeLoader sin enteros ni floats implicitos: un numero sin comillas queda como texto.
+
+    Las fechas, los si/no y los nulos se siguen resolviendo como siempre.
+    """
+
+
+_Cargador.yaml_implicit_resolvers = {
+    inicial: [(etiqueta, regexp) for etiqueta, regexp in resolvers
+              if etiqueta not in ("tag:yaml.org,2002:int", "tag:yaml.org,2002:float")]
+    for inicial, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+
+
 def _cargar(contenido: bytes) -> dict[str, Any]:
     try:
-        datos = yaml.safe_load(contenido.decode("utf-8-sig"))
+        datos = yaml.load(contenido.decode("utf-8-sig"), Loader=_Cargador)  # noqa: S506
     except (UnicodeDecodeError, yaml.YAMLError) as exc:
         raise YamlNoValido(f"no es un YAML legible: {exc}") from None
     if not isinstance(datos, dict) or not set(datos) & set(SECCIONES.values()):
@@ -77,8 +98,12 @@ def _crudo(entrada: dict[str, Any]) -> dict[str, str]:
             for k, v in entrada.items()}
 
 
-def _floats(entrada: dict[str, Any]) -> list[str]:
-    return sorted(str(k) for k, v in entrada.items() if isinstance(v, float))
+def _importes_no_validos(entrada: dict[str, Any]) -> list[str]:
+    """Los importes que no son una cifra tecleada (un si/no, una fecha, "12:30", "1_000")."""
+    return sorted(clave for clave in ("valor", "valor_nuevo")
+                  if entrada.get(clave) is not None
+                  and not (isinstance(entrada[clave], str)
+                           and _IMPORTE.fullmatch(entrada[clave].strip())))
 
 
 def leer(contenido: bytes, tipo: str, *, exportado_en: datetime | None = None) -> LoteLeido:
@@ -97,18 +122,19 @@ def leer(contenido: bytes, tipo: str, *, exportado_en: datetime | None = None) -
                                     {"entrada": str(entrada)}))
             continue
         crudo = _crudo(entrada)
-        floats = _floats(entrada)
-        if floats:
-            rechazos.append(Rechazo(fila, f"{', '.join(floats)}: un importe con decimales va "
-                                          "entre comillas (\"1250.50\")", crudo))
+        malos = _importes_no_validos(entrada)
+        if malos:
+            rechazos.append(Rechazo(fila, f"{', '.join(malos)}: un importe es una cifra con, si "
+                                          "acaso, sus decimales tras un punto (\"1250.50\")",
+                                    crudo))
             continue
         if "fila" in entrada or "crudo" in entrada:
             rechazos.append(Rechazo(fila, "fila y crudo no son campos de la hoja", crudo))
             continue
         valores = dict(entrada)
         for clave in ("valor", "valor_nuevo"):
-            if isinstance(valores.get(clave), (str, int)) and not isinstance(valores[clave], bool):
-                valores.setdefault(f"{clave}_crudo", str(valores[clave]))
+            if isinstance(valores.get(clave), str):
+                valores.setdefault(f"{clave}_crudo", valores[clave])
         try:
             registros.append(modelo.model_validate({**valores, "fila": fila, "crudo": crudo}))
         except ValidationError as exc:

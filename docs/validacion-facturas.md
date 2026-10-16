@@ -92,7 +92,11 @@ F4, F5, F6, F8 y F9 (y X1 también sobre las importaciones). Desde el paso
 6, M2: la edición manual de una línea que una extracción nueva no trae (ver
 la sección M). Desde el paso 7, con el banco y los pagos: K1-K8 y F7. Desde
 el paso 8, con las ventas y las relaciones entre facturas: V7, F10, M3 y
-R1-R5 (sección R), y D1, D2 y D2b retienen en una venta en vez de bloquear. Su metadato
+R1-R5 (sección R), y D1, D2 y D2b retienen en una venta en vez de bloquear.
+Desde el paso 9, con las órdenes de compra y las tarifas pactadas: P1-P10
+(sección P; P8, P10 y la PO ya caducada de P7 dan sin datos hasta el
+planning), G3 contra la tarifa pactada con el histórico donde no hay
+ninguna, G6 y V4 (sección G). Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -268,10 +272,20 @@ Este es el núcleo del sistema y la razón por la que existe el proyecto.
 | --- | --- | --- | --- |
 | G1 | El proveedor tiene una asignación activa en el periodo facturado | planning | Bloqueo si no la tiene |
 | G2 | Horas facturadas por ubicación y asignación = horas registradas, dentro de tolerancia | planning | Retención si se sale |
-| G3 | La tarifa coincide con la de esa asignación concreta | planning | Retención, y bloqueo por encima del exceso configurado |
+| G3 | La tarifa de una línea de compra coincide con la pactada (de lo más concreto a lo general: recurso y Objeto, Objeto, recurso, proveedor, general; el turno es condición de todos). Sin pactada ni planning, contra el histórico | tarifas pactadas, planning, historial | Retención por encima de la pactada, y bloqueo (se anula con segunda firma) por encima del exceso configurado (10 %). Dos pactadas igual de concretas con precios distintos: sin datos en la línea y la factura retenida (`ambigua`). Pactadas para la línea pero ninguna de su unidad o su día: sin datos y la factura retenida (`no_casa`), nunca el histórico |
 | G4 | La ubicación facturada existe y coincide con la del registro | planning | Retención |
 | G5 | La semana facturada coincide con la semana ISO del planning | planning | Retención |
-| G6 | Los recargos de horas extra, nocturnidad o festivo tienen su propia tarifa y su propia regla | planning | Retención |
+| G6 | Una línea de un recargo (horas extra, noche, festivo) se cobra a su propia tarifa pactada | tarifas pactadas | Retención por encima. Sin tarifa propia pero con otras pactadas para la línea: sin datos y la factura retenida (`no_casa`), para que una persona confirme el recargo. Sin ninguna pactada, no aplica y la mira G3 con el histórico |
+| V4 | La tarifa de una línea de venta es la de venta pactada, ni por encima ni por debajo | tarifas pactadas | Retención. Sin pactada, sin datos hasta el planning |
+
+**El turno, la unidad y el día los imprime el proveedor.** Si bastara con
+imprimir «Nacht», «stuk» o una fecha fuera de la vigencia para que la línea
+no casara con nada y volviera al histórico (donde una primera factura es
+siempre «la de siempre»), el control de la tarifa pactada, y su bloqueo,
+dependería de un texto del proveedor. Por eso una línea con tarifas pactadas
+para ella que no casa con ninguna retiene. La unidad se compara en un
+vocabulario común (hora, día, stuk): «dag» en la hoja de tarifas y «dag» en
+la línea son lo mismo.
 
 **G3 no asume tarifa plana.** La tarifa se busca por asignación, no por
 proveedor. Un mismo autónomo puede tener tarifas distintas en dos obras a la
@@ -282,6 +296,33 @@ error que esta regla existe para evitar.
 configuración y no escrita en el código. Qué se hace con las pausas, con el
 tiempo de desplazamiento y con el redondeo al cuarto de hora tiene que estar
 decidido antes de escribir la comparación, o la regla saltará constantemente.
+
+### P · Órdenes de compra
+
+Una PO es de un lado: la que un cliente da a BM Support BV (la consumen las
+ventas a ese cliente) o la que BM Support BV da a un proveedor (la consumen
+sus compras). Lo consumido es la base sin IVA de las imputaciones de las
+facturas que cuentan (ni anuladas, ni fusionadas, ni sustituidas), menos los
+abonos con su relación confirmada mientras la factura que abonan cuenta. Qué
+referencia impresa es una PO lo decide el código casando con la lista de PO,
+nunca el modelo. El valor y el fin vigentes son los de la última
+modificación, que no puede tener una fecha posterior a hoy.
+
+| ID | Comprobación | Fuente | Resultado |
+| --- | --- | --- | --- |
+| P1 | La PO imputada está abierta y su vigencia cubre los días del trabajo | órdenes de compra | Retención; se anula. Sin ningún día, sin datos |
+| P2 | Una venta sin PO donde el Objeto (o, si no lo dice, el cliente) la pide. Un abono no: toma la de la factura que abona | maestro | Retención; se anula |
+| P3 | La PO impresa está registrada y es de su parte; la imputada es de su parte y cubre el Objeto de la línea; una factura que imprime varias PO no deja una imputación sin ninguna | órdenes de compra | Retención; se anula. Sin ninguna PO de ese lado, sin datos |
+| P4 | La factura carga a la PO más de lo que quedaba antes de ella, por fecha de factura y por id o por orden de llegada (una fecha atrasada no la libra) | órdenes de compra | Retención; se anula; pegajosa; suelo urgente |
+| P5 | La PO lleva consumido el umbral de la política (80 %, entre 50 y 100) o más | órdenes de compra | Aviso de la PO |
+| P6 | La PO ya estaba consumida entera antes de la factura y la factura le carga más | órdenes de compra | Retención; se anula; suelo urgente |
+| P7 | La PO caduca dentro de los días de la política (30) con valor por consumir. Los días se cuentan desde el fin fijo al calcular la prioridad: un P7 aceptado no se reabre al día siguiente | órdenes de compra | Aviso de la PO; se anula; puntos de caducidad |
+| P8 | El trabajo planificado por la tarifa de venta pasa lo que queda | planning | Sin datos hasta el planning |
+| P9 | Al ritmo de las últimas 8 semanas la PO se agota más de 14 días antes de su fin | órdenes de compra | Aviso de la PO |
+| P10 | Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor | planning | Sin datos hasta el planning |
+
+P5 y P7-P10 son de la PO entera, no de una factura: dan la prioridad de la
+PO y no suben la de las facturas que le cargan (ver el registro del paso 9).
 
 ### H · Riesgo laboral y de cadena
 
@@ -315,7 +356,7 @@ código.
 | Redondeo en la aritmética de importes | Un céntimo por línea, dos por factura |
 | Diferencia de horas antes de retener (G2) | Un cuarto de hora por jornada |
 | Diferencia de tarifa antes de retener (G3) | Cualquier diferencia |
-| Exceso de tarifa que bloquea en vez de retener (G3) | Por decidir con vosotros |
+| Exceso de tarifa que bloquea en vez de retener (G3) | 10 % sobre la pactada (`config/reglas.yaml`, entre 1 y 100) |
 | Ventana del duplicado por contenido (B3) | Catorce días |
 | Margen de aviso del umbral KOR (E5) | El último diez por ciento |
 

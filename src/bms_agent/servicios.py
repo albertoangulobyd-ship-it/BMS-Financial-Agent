@@ -727,6 +727,21 @@ def _objetos_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(evento)
 
 
+def _inicio_antes_del_fin(conn: sqlite3.Connection, orden_compra_id: int,
+                          inicio: date | str) -> None:
+    """Un inicio nuevo no puede caer despues del fin original ni del vigente (el de la ultima
+    modificacion): P1 retendria todo lo imputado como fuera de su vigencia."""
+    inicio = inicio if isinstance(inicio, date) else date.fromisoformat(str(inicio))
+    orden = ordenes_compra.ordenes(conn).get(orden_compra_id)
+    if orden is None:
+        raise LookupError(f"no hay orden de compra {orden_compra_id}")
+    for fin, que in ((orden.fecha_fin_original, "el fin original"),
+                     (orden.fecha_fin, "el fin vigente")):
+        if fin is not None and inicio > fin:
+            raise DatosNoValidos(f"la PO empezaria el {inicio.isoformat()}, despues de {que} "
+                                 f"({fin.isoformat()})")
+
+
 def _corregir_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     """Corregir un dato de una PO que no es su identidad: emision, inicio o documento.
 
@@ -739,8 +754,11 @@ def _corregir_po(ctx: Contexto, d: dict[str, Any]) -> Hecho:
         raise DatosNoValidos("de una PO se corrigen fecha_emision, fecha_inicio y documento_id; "
                              "el valor y el fin con modificar_po, el cierre con cerrar_po")
     definicion = _definicion("orden_compra", nombre)
+    valor = valor_de_entrada(definicion, d["valor"])
+    if nombre == "fecha_inicio" and valor is not None:
+        _inicio_antes_del_fin(ctx.conn, d["orden_compra_id"], valor)
     resultado = campos.fijar(ctx.conn, "orden_compra", d["orden_compra_id"],
-                             {nombre: valor_de_entrada(definicion, d["valor"])}, ctx.persona,
+                             {nombre: valor}, ctx.persona,
                              tipo="po_corregida", rev_esperada=d["rev"], datos=ctx.datos_evento)
     return Hecho(resultado.evento_id)
 
@@ -1552,7 +1570,7 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "Apuntar una modificacion de una PO (valor nuevo, fin nuevo o los dos, desde una "
            "fecha). No se borra: una equivocada se arregla con otra.",
            (_p("orden_compra_id"), _p("valor", VALOR, False), _p("fecha_fin", FECHA, False),
-            _p("fecha", FECHA, False, "desde cuando; por defecto, hoy"),
+            _p("fecha", FECHA, False, "desde cuando (hoy o antes); por defecto, hoy"),
             _p("documento_id", ENTERO, False), _MOTIVO), _modificar_po, motivo="obligatorio"),
     Accion("cerrar_po", P.CAMBIAR_PO.value,
            "Cerrar una PO (lo que se le impute despues retiene) o reabrirla.",

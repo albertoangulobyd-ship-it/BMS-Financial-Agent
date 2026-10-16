@@ -21,8 +21,9 @@ una persona imputa a mano gana siempre (M1): el calculo queda como valor
 automatico, y la sincronizacion solo escribe cuando cambia.
 
 Lo consumido de una PO (`cargos`) es la misma cuenta que reglas/ordenes.cargos
-y que la vista v_po_consumo: la base sin IVA de las imputaciones que cuentan,
-con los abonos confirmados restando. Un test compara las tres.
+y que la vista v_po_consumo (0011): la base sin IVA de las imputaciones que
+cuentan, con los abonos confirmados restando mientras la factura que abonan
+cuenta. Un test compara las tres.
 
 Escribir una PO, sus Objetos o su cierre va por campos.py como cualquier
 tabla controlada; una modificacion (valor o fin nuevos) es evidencia de solo
@@ -128,11 +129,17 @@ def _po_de_imputacion(linea_id: int | None,
 
 
 def _abonados(conn: sqlite3.Connection) -> dict[int, set[int]]:
-    """Por abono, las facturas que abona con una relacion confirmada (acredita o anula)."""
+    """Por abono, las facturas que abona con una relacion confirmada (acredita o anula) y que
+    siguen contando: de una anulada, fusionada o sustituida no se hereda la PO (su cargo ya
+    no esta en la PO, y el abono no tiene nada que devolverle)."""
     salida: dict[int, set[int]] = defaultdict(set)
     for origen, destino in conn.execute(
-            "SELECT origen_id, destino_id FROM factura_relacion WHERE estado = 'confirmada' "
-            "AND retirada_en IS NULL AND tipo IN ('acredita', 'anula')"):
+            "SELECT r.origen_id, r.destino_id FROM factura_relacion AS r "
+            "JOIN factura AS d ON d.id = r.destino_id "
+            "JOIN v_factura_relaciones AS dr ON dr.factura_id = d.id "
+            "WHERE r.estado = 'confirmada' AND r.retirada_en IS NULL "
+            "AND r.tipo IN ('acredita', 'anula') AND d.anulada = 0 "
+            "AND d.fusionada_en_id IS NULL AND dr.sustituida_por IS NULL"):
         salida[origen].add(destino)
     return salida
 
@@ -223,9 +230,11 @@ def cargos(conn: sqlite3.Connection, orden_compra_id: int | None = None, *,
             "WITH abonos AS ("
             "  SELECT DISTINCT r.origen_id AS factura_id FROM factura_relacion AS r "
             "  JOIN factura AS o ON o.id = r.origen_id JOIN factura AS d ON d.id = r.destino_id "
+            "  JOIN v_factura_relaciones AS dr ON dr.factura_id = d.id "
             "  WHERE r.estado = 'confirmada' AND r.retirada_en IS NULL "
             "    AND r.tipo IN ('acredita', 'anula') AND o.anulada = 0 "
-            "    AND o.fusionada_en_id IS NULL AND d.fusionada_en_id IS NULL) "
+            "    AND o.fusionada_en_id IS NULL AND d.anulada = 0 "
+            "    AND d.fusionada_en_id IS NULL AND dr.sustituida_por IS NULL) "
             "SELECT i.orden_compra_id, f.id, f.fecha_factura, sum(i.importe_cent) "
             "FROM v_imputacion_vigente AS i JOIN factura AS f ON f.id = i.factura_id "
             "JOIN orden_compra AS po ON po.id = i.orden_compra_id "
@@ -270,9 +279,13 @@ def registrar_po(conn: sqlite3.Connection, persona: Persona, *, numero: str, lad
                  objetos: list[int] | None = None, documento_id: int | None = None,
                  datos: Mapping[str, Any] | None = None) -> tuple[int, int | None]:
     """Una PO nueva tecleada por una persona (cambiar_po), con sus Objetos. (id, evento)."""
+    from .parsing import normalizar_referencia
+
     numero = (numero or "").strip()
     if not numero:
         raise PONoValida("una PO necesita su numero")
+    if normalizar_referencia(numero) is None:
+        raise PONoValida(f"{numero!r} no es un numero de PO: solo tiene separadores")
     if lado not in (CLIENTE, PROVEEDOR):
         raise PONoValida(f"una PO es de cliente o de proveedor, no de {lado!r}")
     _parte_de(conn, lado, parte_id)
@@ -281,8 +294,6 @@ def registrar_po(conn: sqlite3.Connection, persona: Persona, *, numero: str, lad
     if fecha_inicio and fecha_fin and fecha_inicio > fecha_fin:
         raise PONoValida("la PO acaba antes de empezar")
     columna = "cliente_id" if lado == CLIENTE else "proveedor_id"
-    from .parsing import normalizar_referencia
-
     if conn.execute(f"SELECT 1 FROM orden_compra WHERE lado = ? AND {columna} = ? AND "
                     "numero_norm = ?", (lado, parte_id, normalizar_referencia(numero))
                     ).fetchone() is not None:
@@ -317,8 +328,20 @@ def apuntar_modificacion(conn: sqlite3.Connection, *, orden_compra_id: int, fech
     La fila entra despues de su evento (la base lo exige), con la foto en el
     evento: es evidencia, y db verificar la compara con la fila. La base
     comprueba ademas que la firme una persona con cambiar_po en ese momento.
+
+    `fecha` es desde cuando vale, y no puede ser posterior a hoy. Una
+    modificacion vale entera en cuanto se apunta (el valor y el fin vigentes no
+    dependen de hoy, como v_po_vigente): con una fecha futura, una ampliacion
+    para junio subiria el limite hoy y P4 y P6 dejarian pasar lo que hoy no
+    cabe. Y como la vigente es la de fecha mayor, una equivocada con fecha
+    futura no se podria arreglar con otra de hoy. Lo que empieza mas adelante
+    se apunta ese dia.
     """
     po = _po(conn, orden_compra_id)
+    hoy = reloj_de(conn).hoy()
+    if fecha > hoy:
+        raise PONoValida(f"una modificacion vale desde una fecha que no es posterior a hoy "
+                         f"({hoy.isoformat()}): la del {fecha.isoformat()} se apunta ese dia")
     motivo = (motivo or "").strip()
     if not motivo:
         raise PONoValida("una modificacion de una PO pide su motivo")

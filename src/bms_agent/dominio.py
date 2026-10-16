@@ -10,6 +10,7 @@ en la base y lo que viaja en el contrato JSON.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 
@@ -505,3 +506,59 @@ class FuenteOrdenCompra(_Texto):
 # El sentido de las facturas que consumen cada lado de PO.
 SENTIDO_DE_LADO = {LadoOrdenCompra.CLIENTE.value: Sentido.SALIENTE.value,
                    LadoOrdenCompra.PROVEEDOR.value: Sentido.ENTRANTE.value}
+
+
+# ------------------------------------------------------------ unidades
+
+# Unidades que son horas, en minusculas y sin puntuacion. Neerlandes, ingles y
+# las abreviaturas alemanas que aparecen en facturas de la frontera.
+_UNIDADES_HORA = frozenset({
+    "uur", "uren", "u", "manuur", "manuren", "werkuur", "werkuren",
+    "h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden",
+})
+
+
+def es_unidad_hora(unidad: str | None) -> bool:
+    """La unidad impresa en una linea es la hora.
+
+    Antes se miraba solo si empezaba por "uur", y una linea en "uren", "u" o
+    "hours" daba cero horas sin avisar: el panel, la proyeccion de venta y el
+    simulador perdian esas horas en silencio. Se sigue aceptando todo lo que
+    empieza por "uur" para no perder nada de lo que ya contaba.
+
+    Decide la primera palabra de la unidad ("u." es "u", "uren (avond)" es
+    "uren"). Una unidad desconocida no es hora: es mejor declararla aparte,
+    como hace el panel, que sumarla como lo que no es.
+    """
+    texto = str(unidad or "").strip().lower()
+    if not texto:
+        return False
+    if texto.startswith("uur"):
+        return True
+    palabra = next((p for p in re.split(r"[^a-z]+", texto) if p), "")
+    return palabra in _UNIDADES_HORA
+
+
+# Las demas unidades de una tarifa, por su primera palabra: el dia y la pieza.
+_UNIDADES = {
+    **{u: "dia" for u in ("dag", "dagen", "dia", "dias", "day", "days", "tag", "tage")},
+    **{u: "stuk" for u in ("stuk", "stuks", "st", "stk", "pcs", "pc", "piece", "pieces",
+                          "pieza", "piezas")},
+}
+
+
+def normalizar_unidad(unidad: str | None) -> str | None:
+    """La unidad de una linea o de una tarifa en el vocabulario comun: hora, dia, stuk o, si
+    no es ninguna de esas, el texto en minusculas.
+
+    La linea y la tarifa pactada se comparan por su unidad: si la hoja de
+    tarifas dice "dag" (dia) y la linea imprime "dag", tienen que ser lo mismo,
+    o una tarifa por dia no casaria nunca y su linea pasaria sin mirarse.
+    """
+    texto = " ".join(str(unidad or "").lower().split())
+    if not texto:
+        return None
+    if es_unidad_hora(texto):
+        return "hora"
+    palabra = next((p for p in re.split(r"[^a-z]+", texto) if p), "")
+    return _UNIDADES.get(palabra, texto)

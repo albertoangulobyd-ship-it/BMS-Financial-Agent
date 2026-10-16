@@ -55,6 +55,7 @@ from ..almacen.unidades import (
 from ..auditoria import registrar
 from ..campos import Automatico, Leido
 from ..dominio import Fuente, Permiso
+from ..parsing import normalizar_unidad
 from ..permisos import exigir, orden_auditada
 from ..reloj import ZONA_EMPRESA, marca
 from .base import ATOMICOS, LoteLeido, Rechazo
@@ -338,7 +339,7 @@ def _tarifa(ctx: _Contexto, registro: Any) -> None:
         raise RechazoFila("una tarifa de compra no es de un cliente")
     clave = {**ids, "tipo_servicio": (registro.tipo_servicio or "").strip().lower() or None,
              "tipo_turno": (registro.tipo_turno or "").strip().lower() or None,
-             "unidad": (registro.unidad or "").strip().lower() or None,
+             "unidad": normalizar_unidad(registro.unidad),
              "vigente_desde": registro.vigente_desde.isoformat() if registro.vigente_desde
              else None}
     condicion = " AND ".join(f"{c} IS ?" for c in clave)
@@ -411,8 +412,12 @@ def _orden_compra(ctx: _Contexto, registro: Any) -> None:
     deja rastro de quien, cuando y por que. Un Objeto que la hoja ya no trae
     no se retira (no es una foto completa).
     """
+    from ..parsing import normalizar_referencia
+
     conn = ctx.conn
     _en_euros(registro.moneda, "la PO")
+    if normalizar_referencia(registro.numero) is None:
+        raise RechazoFila(f"{registro.numero!r} no es un numero de PO: solo tiene separadores")
     columna, parte = _parte_de_po(conn, registro)
     objetos = sorted({referencia_objeto(conn, ref) for ref in registro.objetos_ref})
     try:
@@ -473,11 +478,14 @@ def _modificacion_po(ctx: _Contexto, registro: Any) -> None:
         ctx.resultado.avisos.append(f"fila {registro.fila}: la modificacion de la PO "
                                     f"{registro.numero} ya estaba apuntada")
         return
-    modificacion = ordenes_compra.apuntar_modificacion(
-        conn, orden_compra_id=po, fecha=registro.fecha, valor_nuevo_cent=valor,
-        fecha_fin_nueva=registro.fecha_fin_nueva, motivo=registro.motivo,
-        usuario_id=ctx.persona, actor=ctx.actor, importacion_id=ctx.importacion_id,
-        datos={"importacion_id": ctx.importacion_id, "fila_importada": registro.fila})
+    try:
+        modificacion = ordenes_compra.apuntar_modificacion(
+            conn, orden_compra_id=po, fecha=registro.fecha, valor_nuevo_cent=valor,
+            fecha_fin_nueva=registro.fecha_fin_nueva, motivo=registro.motivo,
+            usuario_id=ctx.persona, actor=ctx.actor, importacion_id=ctx.importacion_id,
+            datos={"importacion_id": ctx.importacion_id, "fila_importada": registro.fila})
+    except ordenes_compra.PONoValida as exc:
+        raise RechazoFila(str(exc)) from None
     ctx.resultado.nuevos.append(("orden_compra_modificacion", modificacion))
 
 

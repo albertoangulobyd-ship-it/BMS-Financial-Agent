@@ -32,7 +32,14 @@ from bms_agent.reglas.base import (
     Tarifa,
 )
 from bms_agent.reglas.ordenes import cargos, prevision, situacion, vigentes
-from bms_agent.reglas.tarifas import AMBIGUA, NINGUNA, UNICA, normalizar_turno, pactada
+from bms_agent.reglas.tarifas import (
+    AMBIGUA,
+    NINGUNA,
+    NO_CASA,
+    UNICA,
+    normalizar_turno,
+    pactada,
+)
 
 # ------------------------------------------------------------ constructores
 
@@ -145,6 +152,14 @@ def test_el_consumo_es_sin_iva_con_los_abonos_confirmados_y_sin_lo_que_no_cuenta
                                                        imp(3, 10, po=2, importe=999)))
     assert [(c.factura_id, c.importe_cent) for c in cargos(
         inst(partida, ordenes=[po, orden(2)]))[1]] == [(1, 34000)]
+    # Un abono de una factura que ya no cuenta (anulada, o sustituida) no resta: su cargo ya
+    # salio de la PO, y restaria dos veces.
+    de_anulada = inst(anulada, abonada, ordenes=[po], relaciones=[Relacion(6, 2, "acredita")])
+    assert cargos(de_anulada) == {}
+    de_sustituida = inst(sustituida, sustituta, abonada, ordenes=[po],
+                         relaciones=[Relacion(4, 3, "sustituye", id=1),
+                                     Relacion(6, 3, "acredita", id=2)])
+    assert [c.factura_id for c in cargos(de_sustituida)[1]] == [4]
 
 
 def test_el_valor_y_el_fin_vigentes_son_los_de_la_ultima_modificacion() -> None:
@@ -170,10 +185,15 @@ def test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id() -> None:
     i = inst(tarde, pronto, mismo_dia, despues, sin_fecha, ordenes=[po])
     assert [c.factura_id for c in cargos(i)[1]] == [9, 3, 5, 11, 12]
     # Antes de la 9 quedaban 500,00; antes de la 3, 200,00 (cabe); antes de la 5, 100,00.
-    assert uno("P4", i, 9).resultado == "ok" and uno("P4", i, 3).resultado == "ok"
+    assert uno("P4", i, 3).resultado == "ok"
     p4 = uno("P4", i, 5)
     assert p4.resultado == "fallo" and p4.clave == "po:1"
     assert (p4.valores["antes_cent"], p4.valores["exceso_cent"]) == (10000, 20000)
+    # La 9 va la primera por su fecha, pero llego despues de la 3 y la 5 (ids menores), que
+    # ya dejaban 100,00: tambien se pasa (una fecha atrasada no la libra).
+    p4_9 = uno("P4", i, 9)
+    assert p4_9.resultado == "fallo" and "llegó después" in p4_9.detalle
+    assert (p4_9.valores["antes_cent"], p4_9.valores["antes_llegada_cent"]) == (50000, 10000)
     # Antes de la 11 ya no quedaba nada: eso lo dice P6, no P4.
     assert uno("P4", i, 11).resultado == "no_aplica"
     p6 = uno("P6", i, 11)
@@ -186,6 +206,23 @@ def test_p4_sigue_el_orden_por_fecha_de_factura_y_por_id() -> None:
     revuelta = [tarde, pronto, mismo_dia, despues, sin_fecha]
     random.Random(9).shuffle(revuelta)
     assert resultados("P4", inst(*revuelta, ordenes=[po])) == resultados("P4", i)
+
+
+def test_p4_una_factura_con_fecha_atrasada_no_se_cuela_delante() -> None:
+    """La A (1 de octubre) llega y cabe. La B llega despues con fecha del 2 de septiembre: por
+    el §7 va antes y pasaria el limite a la A, ya mirada; la B se retiene igual."""
+    po = orden(1, valor=100000)
+    a = con_po(venta(1, numero_norm="A", fecha_factura=date(2026, 10, 1)), 1, 80000)
+    assert uno("P4", inst(a, ordenes=[po]), 1).resultado == "ok"
+    b = con_po(venta(2, numero_norm="B", fecha_factura=date(2026, 9, 2)), 1, 80000)
+    i = inst(a, b, ordenes=[po])
+    p4_b = uno("P4", i, 2)
+    assert p4_b.resultado == "fallo" and p4_b.valores["exceso_cent"] == 60000
+    assert uno("P4", i, 1).resultado == "fallo"                     # el orden del §7
+    # Si la B ya no cabia en nada (la A lo consumio todo), es P6, en cualquier orden.
+    toda = con_po(venta(1, numero_norm="A", fecha_factura=date(2026, 10, 1)), 1, 100000)
+    j = inst(toda, b, ordenes=[po])
+    assert uno("P6", j, 2).resultado == "fallo" and uno("P4", j, 2).resultado == "no_aplica"
 
 
 def test_un_abono_no_consume_y_libera_lo_que_abona() -> None:
@@ -228,7 +265,10 @@ def test_p7_caduca_dentro_de_los_dias_de_la_politica(fin, esperado, dias) -> Non
     p7 = uno("P7", i, 1, "orden_compra")
     assert p7.resultado == esperado
     if esperado != "ok":
-        assert p7.valores["dias_para_caducar"] == dias
+        # La huella no lleva los dias (bajan cada dia): el fin fijo, y los dias en el texto.
+        assert p7.valores["fin"] == fin.isoformat() and "dias_para_caducar" not in p7.valores
+    if esperado == "fallo":
+        assert ("(hoy)" if dias == 0 else f"(en {dias} días)") in p7.detalle
     corta = dataclasses.replace(i, politica=Politica(po_dias_caducidad=7))
     if esperado == "fallo" and dias > 7:
         assert uno("P7", corta, 1, "orden_compra").resultado == "ok"
@@ -255,7 +295,7 @@ def test_la_prevision_es_determinista_y_sale_del_ritmo_de_las_semanas() -> None:
     assert (p.desde, p.dias, p.consumido_cent) == (date(2026, 8, 20), 56, 56000)
     assert p.agotamiento == HOY + timedelta(days=39) == date(2026, 11, 22)
     p9 = uno("P9", i, 1, "orden_compra")
-    assert p9.resultado == "fallo" and p9.valores["agotamiento"] == "2026-11-22"
+    assert p9.resultado == "fallo" and "se agota el 2026-11-22" in p9.detalle
     # Lo mismo en cualquier orden y cada vez.
     for semilla in range(3):
         revueltas = facturas[:]
@@ -318,6 +358,9 @@ def test_p2_pide_la_po_donde_el_objeto_o_el_cliente_la_piden() -> None:
     assert uno("P2", por_objeto, 1).resultado == "fallo"
     assert resultados("P2", inst(sin, clientes=[cliente(3, None)])) == []
     assert de("P2", inst(con_po(compra(4), None), clientes=[cliente(3, True)]), 4) == []
+    # Un abono no se factura contra una PO: la toma de la que abona al confirmarse (R4).
+    nota = con_po(abono(5, -12100, sentido="saliente", cliente_id=3, parte="cliente:3"), None)
+    assert de("P2", inst(nota, clientes=[cliente(3, True)]), 5) == []
 
 
 def test_p3_ve_la_po_desconocida_la_de_otro_y_la_que_no_cubre_el_objeto() -> None:
@@ -343,6 +386,24 @@ def test_p3_ve_la_po_desconocida_la_de_otro_y_la_que_no_cubre_el_objeto() -> Non
     # Sin ninguna PO de ese lado no se sabe si es desconocida: sin datos, nunca ok.
     solo_compras = inst(desconocida, ordenes=[orden(5, lado="proveedor", parte=7)])
     assert uno("P3", solo_compras, 1).resultado == "sin_datos"
+
+
+def test_p3_retiene_una_compra_que_imprime_dos_po_y_no_consume_ninguna() -> None:
+    """Dos PO de su proveedor en la cabecera: la sincronizacion no reparte y la imputacion queda
+    sin PO; sin P3 no consumiria de ninguna y P1, P4 y P6 no dirian nada."""
+    pos = [orden(1, lado="proveedor", parte=7, valor=10000),
+           orden(2, lado="proveedor", parte=7, valor=10000)]
+    dos = compra(1, referencias=(ref(1, "PO-1", po=1), ref(2, "PO-2", po=2)))
+    i = inst(con_po(dos, None, 500000), ordenes=pos)
+    p3 = uno("P3", i, 1)
+    assert p3.resultado == "fallo" and "imputar_po" in p3.detalle
+    assert p3.valores["varias"] == [[1010, ["PO-1", "PO-2"]]]
+    # La de su linea manda sobre la cabecera, como en la sincronizacion.
+    en_linea = compra(1, referencias=(ref(1, "PO-1", po=1), ref(2, "PO-2", po=2),
+                                      ref(3, "PO-1", po=1, linea_id=10)))
+    assert uno("P3", inst(con_po(en_linea, 1, 5000), ordenes=pos), 1).resultado == "ok"
+    # Imputada a una (lo decidio una persona): ya no retiene por eso.
+    assert uno("P3", inst(con_po(dos, 2, 5000), ordenes=pos), 1).resultado == "ok"
 
 
 def test_p8_y_p10_esperan_al_planning() -> None:
@@ -383,8 +444,9 @@ def test_la_tarifa_pactada_va_de_lo_mas_concreto_a_lo_general() -> None:
     # Lo que la tarifa dice tiene que coincidir: otro recurso u otro proveedor no vale.
     assert _p([tarifa(6, 1, recurso=6), tarifa(7, 1, proveedor=9)]).estado == NINGUNA
     # El turno es condicion: la de noche no es la de una linea de dia, ni al reves.
+    # (Una linea de dia con solo la de noche pactada no casa: no es que no haya nada.)
     noche = tarifa(8, 500000, proveedor=7, turno="nacht")
-    assert _p([noche]).estado == NINGUNA
+    assert dataclasses.astuple(_p([noche])) == (NO_CASA, None, None, (8,))
     assert _p([noche, parte], turno="nacht").tarifa_e4 == 500000
     assert normalizar_turno("Dag") is None and normalizar_turno(" Nacht ") == "nacht"
 
@@ -398,7 +460,7 @@ def test_dentro_del_nivel_gana_la_mas_concreta_y_si_no_es_ambigua() -> None:
     assert _p([vieja, de_la_po], orden_compra_id=4).tarifa_e4 == 280000
     assert _p([vieja, de_la_po]).tarifa_e4 == 300000
     caducada = tarifa(4, 1, proveedor=7, hasta=date(2026, 8, 31))
-    assert _p([caducada]).estado == NINGUNA
+    assert _p([caducada]).estado == NO_CASA
     # Dos igual de concretas con precios distintos: ambigua (no se adivina)...
     otra = tarifa(5, 310000, proveedor=7, desde=date(2026, 1, 1))
     assert dataclasses.astuple(_p([vieja, otra])) == (AMBIGUA, None, "parte", (1, 5))
@@ -455,9 +517,54 @@ def test_g6_un_recargo_a_su_propia_tarifa_y_sin_ella_lo_mira_g3() -> None:
     assert de("G3", i, 1) == []                                  # y G3 no la mira
     cara = inst(noche, tarifas=[*tarifas[:1], dataclasses.replace(tarifas[1], tarifa_e4=410000)])
     assert uno("G6", cara, 1).resultado == "fallo"
+    # Sin tarifa propia pero con la de dia de su proveedor: no casa, y no vuelve al
+    # historico (alli una primera factura siempre es "la de siempre"): retiene.
     sin_propia = inst(noche, tarifas=tarifas[:1])
-    assert uno("G6", sin_propia, 1).resultado == "no_aplica"
-    assert de("G3", sin_propia, 1)                               # al historico
+    por_clave = {r.clave: r for r in de("G6", sin_propia, 1)}
+    assert por_clave["pactada:1010"].resultado == "sin_datos"
+    assert (por_clave["no_casa"].resultado, por_clave["no_casa"].valores) == (
+        "fallo", {"imputaciones": [1010], "tarifas": [1]})
+    assert de("G3", sin_propia, 1) == []
+    # Sin ninguna tarifa pactada de su proveedor, si: no aplica y la mira G3 con el historico.
+    sin_ninguna = inst(noche, tarifas=[tarifa(1, 400000, proveedor=99)])
+    assert uno("G6", sin_ninguna, 1).resultado == "no_aplica"
+    assert de("G3", sin_ninguna, 1)
+
+
+@pytest.mark.parametrize("cambio", [
+    {"turno": "Nacht"}, {"turno": "x"}, {"unidad": "stuk"}, {"fecha": date(2027, 2, 1)},
+])
+def test_un_turno_una_unidad_o_un_dia_que_no_casan_no_se_saltan_la_pactada(cambio) -> None:
+    """El turno, la unidad y el dia los imprime el proveedor: una linea a 60,00 contra una
+    pactada de 40,00 (un 50 % por encima) bloquea; con otro turno, otra unidad o fuera de la
+    vigencia no puede quedar en ok por volver al historico (una primera factura)."""
+    pactada_ = tarifa(1, 400000, proveedor=7, unidad="hora", desde=date(2026, 1, 1),
+                      hasta=date(2026, 12, 31))
+    lineas = (linea(10, tarifa_e4=600000, importe_cent=48000,
+                    unidad=cambio.get("unidad", "hora"),
+                    fecha_trabajo=cambio.get("fecha", date(2026, 9, 10))),)
+    f = con_po(compra(1, lineas=lineas), None, turno=cambio.get("turno"))
+    base = con_po(compra(1, lineas=(dataclasses.replace(lineas[0], unidad="hora",
+                                                        fecha_trabajo=date(2026, 9, 10)),)),
+                  None)
+    assert uno("G3", inst(base, tarifas=[pactada_]), 1).severidad == "bloqueo"
+    i = inst(f, tarifas=[pactada_])
+    todos = de("G3", i, 1) + de("G6", i, 1)
+    assert not any(r.resultado == "ok" for r in todos)
+    [retiene] = [r for r in todos if r.clave == "no_casa"]
+    assert retiene.resultado == "fallo" and retiene.regla == ("G6" if "turno" in cambio
+                                                               else "G3")
+
+
+def test_una_tarifa_por_dia_casa_con_una_linea_por_dia() -> None:
+    """La hoja de tarifas dice "dag" (dia) y la linea imprime "dag": son lo mismo."""
+    por_dia = tarifa(1, 4000000, proveedor=7, unidad="dia")
+    assert _p([por_dia], unidad="dag").estado == UNICA
+    assert _p([por_dia], unidad="Dagen").estado == UNICA
+    assert _p([tarifa(2, 1, proveedor=7, unidad="stuk")], unidad="stuks").estado == UNICA
+    f = con_po(compra(1, lineas=(linea(10, unidad="dia", tarifa_e4=4500000,
+                                       cantidad_mil=1000, importe_cent=45000),)), None)
+    assert uno("G3", inst(f, tarifas=[por_dia]), 1).resultado == "fallo"
 
 
 def test_v4_la_venta_a_la_tarifa_pactada_ni_por_encima_ni_por_debajo() -> None:
@@ -542,4 +649,13 @@ def escenarios() -> list[Instantanea]:
              clientes=[cliente(3, None)]),
         inst(con_po(venta(1), 1, 120000, inicio=date(2026, 8, 1)),
              ordenes=[orden(1, valor=100000)]),
+        # Revision: dos PO impresas sin imputar, lineas que no casan por turno o unidad, y
+        # una factura con fecha atrasada que llega la ultima.
+        inst(con_po(compra(40, referencias=(ref(40, "PO-1", po=1), ref(41, "PO-2", po=2))),
+                    None, turno="x"),
+             con_po(compra(41, numero_norm="C41", lineas=(linea(410, unidad="stuk"),)), None),
+             con_po(compra(42, numero_norm="C42", fecha_factura=date(2026, 9, 1)), 1, 90000),
+             con_po(compra(39, numero_norm="C39", fecha_factura=date(2026, 10, 1)), 1, 90000),
+             ordenes=[orden(1, lado="proveedor", parte=7), orden(2, lado="proveedor", parte=7)],
+             tarifas=[tarifa(1, 400000, proveedor=7, unidad="dag")]),
     ]

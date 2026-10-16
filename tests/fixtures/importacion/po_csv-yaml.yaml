@@ -19,7 +19,7 @@ ordenes:
   - numero: PO-4500555
     lado: cliente
     parte_ref: "10001"
-    valor: 1250.50
+    valor: 12:30
   - numero: PO-4500556
     lado: otro
     parte_ref: "10001"

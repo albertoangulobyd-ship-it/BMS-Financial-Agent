@@ -106,6 +106,34 @@ def test_la_hoja_de_po_en_yaml_lee_como_dice_su_contrato() -> None:
     assert ordenes.contrato((FIXTURES / "po_csv-yaml.yaml").read_bytes()) == esperado
 
 
+@pytest.mark.parametrize("tecleado, valor", [
+    ("012500", "12500"), ("1250.50", "1250.50"), ("8000", "8000"), ('"10000.00"', "10000.00"),
+    ("12:30", None), ("1_000", None), ("0x10", None), ("yes", None), ("2026-10-01", None),
+])
+def test_un_importe_del_yaml_de_po_es_lo_que_se_tecleo(tecleado, valor) -> None:
+    """YAML 1.1 lee 012500 como octal (5440), 12:30 como sexagesimal (750) y 1250.50 como
+    float: los numeros se leen como texto, y lo que no es una cifra se rechaza."""
+    from decimal import Decimal
+
+    from bms_agent.importadores import ordenes
+
+    contenido = ("ordenes:\n  - numero: PO-1\n    lado: cliente\n    parte_ref: 10001\n"
+                 f"    valor: {tecleado}\nmodificaciones:\n  - numero: PO-1\n"
+                 "    lado: cliente\n    parte_ref: 10001\n    fecha: 2026-10-01\n"
+                 f"    valor_nuevo: {tecleado}\n    motivo: Ampliacion\n").encode()
+    for tipo, campo in (("ordenes_compra", "valor"), ("modificaciones_po", "valor_nuevo")):
+        lote = ordenes.leer(contenido, tipo)
+        if valor is None:
+            [rechazo] = lote.rechazos
+            assert campo in rechazo.motivo and lote.registros == ()
+            continue
+        [registro] = lote.registros
+        assert getattr(registro, campo) == Decimal(valor)
+        literal = tecleado.strip('"')
+        assert getattr(registro, f"{campo}_crudo") == literal == registro.crudo[campo]
+        assert registro.parte_ref == "10001"
+
+
 def test_la_semilla_de_tarifas_lee_como_dice_su_contrato() -> None:
     esperado = json.loads((FIXTURES / "config-tarifas.esperado.json").read_text(encoding="utf-8"))
     assert contrato_semilla(TARIFAS_V1.read_text(encoding="utf-8")) == esperado

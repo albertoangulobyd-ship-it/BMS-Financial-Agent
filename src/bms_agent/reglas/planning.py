@@ -12,7 +12,15 @@ compra.
 
 Una linea de un recargo (noche, fin de semana, festivo: un turno que no es el
 de dia) con su propia tarifa pactada la mira G6: un recargo se cobra a su
-propia tarifa. Sin tarifa propia, sigue con el historico de G3, como antes.
+propia tarifa. Si su parte, su recurso o su Objeto no tienen ninguna tarifa
+pactada, sigue con el historico de G3, como antes.
+
+El turno, la unidad y el dia salen del documento. Una linea que no casa con
+ninguna pactada por su turno, su unidad o su dia, cuando si las hay para ella
+(tarifas.NO_CASA), no vuelve al historico: da sin datos y la factura queda
+retenida (clave "no_casa"), en G3 si es de dia y en G6 si es un recargo, para
+que una persona confirme el recargo, la unidad o el dia. Si no, imprimir
+"Nacht" o "stuk" bastaria para saltarse la tarifa pactada y su bloqueo.
 
 Si para una linea hay dos tarifas igual de concretas con precios distintos, no
 se adivina: la comparacion da sin datos y la factura queda retenida con su
@@ -52,6 +60,7 @@ from .tarifas import (
     LEE_TARIFA_COMPRA,
     LEE_TARIFA_VENTA,
     NINGUNA,
+    NO_CASA,
     Pactada,
     normalizar_turno,
     pactada,
@@ -215,25 +224,65 @@ def ambiguas(regla: str, factura: Factura, imputaciones: list[int],
                      "ambigua")
 
 
+def no_casa(regla: str, factura: Factura, i: Imputacion, linea: Linea, turno: str | None,
+            p: Pactada) -> Resultado:
+    """Una linea que no casa con ninguna tarifa pactada por su turno, su unidad o su dia,
+    cuando si las hay para ella: sin datos (la retencion la da `sin_casar`)."""
+    dia = dia_de(i, linea, factura)
+    return Resultado(regla, "factura", factura.id, SIN_DATOS,
+                     f"La línea {linea.orden} (turno {turno or 'de día'}, unidad "
+                     f"{linea.unidad or 'sin unidad'}, del {dia.isoformat() if dia else '…'}) no "
+                     f"casa con ninguna de las tarifas pactadas que tiene "
+                     f"({', '.join(map(str, p.tarifas))}): no se compara con el histórico.",
+                     {"imputacion": i.id, "turno": turno, "unidad": linea.unidad,
+                      "dia": dia.isoformat() if dia else None, "tarifas": list(p.tarifas)},
+                     f"pactada:{i.id}")
+
+
+def sin_casar(regla: str, factura: Factura, imputaciones: list[int],
+              tarifas_: set[int]) -> Resultado:
+    """La retencion de una factura con lineas que no casan con lo pactado por su turno, su
+    unidad o su dia: una persona confirma el recargo, la unidad o el dia (como una ambigua)."""
+    return Resultado(regla, "factura", factura.id, FALLO,
+                     f"{len(imputaciones)} línea(s) con un turno, una unidad o un día que no "
+                     f"tiene ninguna de las tarifas pactadas ({', '.join(map(str, sorted(tarifas_)))}"
+                     "): una persona confirma el recargo, la unidad o el día.",
+                     {"imputaciones": sorted(imputaciones), "tarifas": sorted(tarifas_)},
+                     NO_CASA)
+
+
 def comparar_con_pactadas(instantanea: Instantanea, regla: str, sentido: str, *,
                           recargos: bool | None, tambien_por_debajo: bool,
                           exceso_bloqueo_pct: int | None, sin_pactada: str | None,
+                          retiene_sin_casar: bool = False,
                           decididas: set[int] | None = None) -> list[Resultado]:
     """Las comparaciones de una regla contra la tarifa pactada, y la retencion de las ambiguas.
 
     `recargos`: True, solo las lineas de un recargo; False, solo las demas; None,
     todas. `sin_pactada`: el resultado (no_aplica o sin_datos) de una linea sin
     tarifa pactada, o None para no dar ninguno (G3 la deja al historico).
-    `decididas` recoge las lineas que tenian tarifa pactada (unica o ambigua).
+    `retiene_sin_casar`: una linea que no casa por su turno, su unidad o su dia
+    da sin datos y retiene la factura (G3, G6); si no, es como sin pactada (V4).
+    `decididas` recoge las lineas que tenian tarifa pactada (unica o ambigua) o
+    que no casan con ella: ninguna vuelve al historico.
     """
     salida: list[Resultado] = []
     ambigua: dict[int, tuple[Factura, list[int], set[int]]] = {}
+    no_casan: dict[int, tuple[Factura, list[int], set[int]]] = {}
     for factura, i, linea, turno, p in con_pactada(instantanea, sentido):
         if recargos is not None and (turno is not None) != recargos:
             if decididas is not None and p.estado != NINGUNA:
                 decididas.add(linea.id)
             continue
-        if p.estado == NINGUNA:
+        if p.estado == NO_CASA and retiene_sin_casar:
+            if decididas is not None:
+                decididas.add(linea.id)
+            salida.append(no_casa(regla, factura, i, linea, turno, p))
+            _f, ids, tarifas_ = no_casan.setdefault(factura.id, (factura, [], set()))
+            ids.append(i.id)
+            tarifas_.update(p.tarifas)
+            continue
+        if p.estado in (NINGUNA, NO_CASA):
             if sin_pactada is not None:
                 salida.append(Resultado(regla, "factura", factura.id,
                                         SIN_DATOS if sin_pactada == SIN_DATOS else NO_APLICA,
@@ -251,11 +300,15 @@ def comparar_con_pactadas(instantanea: Instantanea, regla: str, sentido: str, *,
     for factura_id in sorted(ambigua):
         factura, ids, tarifas_ = ambigua[factura_id]
         salida.append(ambiguas(regla, factura, ids, tarifas_))
+    for factura_id in sorted(no_casan):
+        factura, ids, tarifas_ = no_casan[factura_id]
+        salida.append(sin_casar(regla, factura, ids, tarifas_))
     return salida
 
 
 _SIN_PACTADA = {
-    "G6": "El recargo no tiene tarifa pactada propia: G3 lo compara con el histórico.",
+    "G6": "Ni el recargo ni su parte, su recurso o su Objeto tienen tarifa pactada: G3 lo "
+          "compara con el histórico.",
     "V4": "Sin tarifa de venta pactada para la línea: la del turno en el planning llega en el "
           "paso 10.",
 }
@@ -287,12 +340,15 @@ NO_EVIDENCIA_PACTADA = frozenset({"factura.proveedor_id", "factura.cliente_id",
 def g6(instantanea: Instantanea) -> list[Resultado]:
     """G6: un recargo se cobra a su propia tarifa pactada (las compras).
 
-    Solo las lineas de un turno que no es el de dia. Sin tarifa propia no
-    aplica: la compara G3 con el historico.
+    Solo las lineas de un turno que no es el de dia. Si su parte, su recurso o
+    su Objeto tienen tarifas pactadas pero ninguna de ese turno (o de su unidad
+    o su dia), no casa: sin datos y la factura retenida, para que una persona
+    confirme el recargo. Sin ninguna tarifa pactada no aplica: la compara G3
+    con el historico.
     """
     return comparar_con_pactadas(instantanea, "G6", ENTRANTE, recargos=True,
                                  tambien_por_debajo=False, exceso_bloqueo_pct=None,
-                                 sin_pactada=NO_APLICA)
+                                 sin_pactada=NO_APLICA, retiene_sin_casar=True)
 
 
 LEE_G6 = LEE_PACTADA_COMPRA | frozenset({"factura.proveedor_id"})
@@ -314,7 +370,8 @@ def g3(instantanea: Instantanea) -> Iterator[Resultado]:
     exceso = instantanea.politica.tarifa_exceso_bloqueo_pct if instantanea.tarifas else None
     yield from comparar_con_pactadas(instantanea, "G3", ENTRANTE, recargos=False,
                                      tambien_por_debajo=False, exceso_bloqueo_pct=exceso,
-                                     sin_pactada=None, decididas=decididas)
+                                     sin_pactada=None, retiene_sin_casar=True,
+                                     decididas=decididas)
     facturas = {f.id: f for f in instantanea.facturas}
     observaciones: list[Observacion] = []
     lineas_de: dict[tuple, dict[int, list]] = defaultdict(lambda: defaultdict(list))

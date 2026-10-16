@@ -5,8 +5,8 @@ apuntan a ella, en las facturas que cuentan (ni anuladas, ni fusionadas en
 otra, ni sustituidas o corregidas por otra) del sentido que consume su lado:
 una PO de cliente la consumen las ventas a ese cliente; una de proveedor, sus
 compras. Un abono resta solo cuando tiene una relacion confirmada que dice a
-que factura abona (§7: "minus confirmed credits"); antes, sus lineas no mueven
-la PO. Lo que no esta en euros no tiene importe (X1) y no cuenta.
+que factura abona (§7: "minus confirmed credits"), y mientras esa factura
+cuente; antes, sus lineas no mueven la PO. Lo que no esta en euros no tiene importe (X1) y no cuenta.
 
 El orden es el del §7: por fecha de factura y, a igual fecha, por id. Lo que
 queda antes de una factura es el valor vigente menos lo de las anteriores; una
@@ -34,7 +34,7 @@ from collections.abc import Iterable, Sequence
 from datetime import date, timedelta
 from typing import NamedTuple
 
-from ..dominio import SENTIDO_DE_LADO, ClaseReferencia, LadoOrdenCompra
+from ..dominio import SENTIDO_DE_LADO, ClaseReferencia, LadoOrdenCompra, TipoFactura
 from .base import (
     FALLO,
     NO_APLICA,
@@ -59,6 +59,7 @@ from .base import (
 CLIENTE = LadoOrdenCompra.CLIENTE.value
 PROVEEDOR = LadoOrdenCompra.PROVEEDOR.value
 PO = ClaseReferencia.PO.value
+NOTA_CREDITO = TipoFactura.NOTA_CREDITO.value
 ABONAN = frozenset({"acredita", "anula"})
 
 
@@ -107,9 +108,12 @@ def en_orden(cargos: Iterable[Cargo]) -> list[Cargo]:
     return sorted(cargos, key=lambda c: (c.fecha is None, c.fecha or date.min, c.factura_id))
 
 
-def abonos_confirmados(relaciones: Iterable) -> frozenset[int]:
-    """Los abonos con una relacion confirmada que dice a que factura abonan (las vivas)."""
-    return frozenset(r.origen_id for r in relaciones if r.tipo in ABONAN)
+def abonos_confirmados(relaciones: Iterable, cuentan: frozenset[int]) -> frozenset[int]:
+    """Los abonos con una relacion confirmada (viva) que dice a que factura abonan, mientras
+    esa factura cuente (`cuentan`: las facturas en juego). Si la original se anula o se
+    sustituye, su cargo sale de la PO; si su abono siguiera restando, contaria dos veces."""
+    return frozenset(r.origen_id for r in relaciones
+                     if r.tipo in ABONAN and r.destino_id in cuentan)
 
 
 def cuenta_para_po(factura: Factura, abonos: frozenset[int]) -> bool:
@@ -122,7 +126,8 @@ def cargos(instantanea: Instantanea) -> dict[int, list[Cargo]]:
     if not instantanea.ordenes:
         return {}
     lados = {o.id: o.lado for o in instantanea.ordenes}
-    abonos = abonos_confirmados(instantanea.relaciones)
+    abonos = abonos_confirmados(instantanea.relaciones,
+                                frozenset(f.id for f in instantanea.facturas if en_juego(f)))
     sumas: dict[tuple[int, int], int] = defaultdict(int)
     fechas: dict[int, date | None] = {}
     for f in instantanea.facturas:
@@ -170,6 +175,21 @@ def antes_de_cada(orden: OrdenCompra, cargos_po: Sequence[Cargo]) -> list[tuple[
     salida, consumido = [], 0
     for c in cargos_po:
         salida.append((c, orden.valor_cent - consumido))
+        consumido += c.importe_cent
+    return salida
+
+
+def antes_por_llegada(orden: OrdenCompra, cargos_po: Sequence[Cargo]) -> dict[int, int]:
+    """Por factura, lo que quedaba de la PO con lo que llego antes que ella (id menor).
+
+    El orden del §7 va por la fecha impresa, que pone el proveedor: una factura
+    con fecha atrasada se colaria delante de las que ya se miraron (y quiza se
+    pagaron) y pasaria el limite a una de ellas. Por llegada, la que llega la
+    ultima es la que pasa lo que quedaba.
+    """
+    salida, consumido = {}, 0
+    for c in sorted(cargos_po, key=lambda c: c.factura_id):
+        salida[c.factura_id] = orden.valor_cent - consumido
         consumido += c.importe_cent
     return salida
 
@@ -342,13 +362,18 @@ def p2(instantanea: Instantanea) -> list[Resultado]:
     PO la imputacion que apunta a una, o la que tiene una PO impresa en su
     linea o en la cabecera: si esa PO es buena lo dicen P1 y P3, no P2. Un
     resultado por venta en juego a la que se le pide: ok o fallo.
+
+    Un abono no se factura contra una PO: toma la de la factura que abona
+    cuando su relacion se confirma (ordenes_compra.sincronizar), y la relacion
+    que le falta ya la dice R4. Pedirle la PO retendria cada abono de un
+    cliente que la pide por algo que no depende de el.
     """
     clientes, objetos = _requisitos(instantanea)
     if not any(clientes.values()) and not any(o.requiere_po for o in objetos.values()):
         return []
     salida: list[Resultado] = []
     for f in instantanea.facturas:
-        if f.sentido != SALIENTE or not en_juego(f):
+        if f.sentido != SALIENTE or f.tipo == NOTA_CREDITO or not en_juego(f):
             continue
         del_cliente = clientes.get(f.cliente_id) if f.cliente_id is not None else None
         en_cabecera = any(r.linea_id is None and es_po(r) for r in f.referencias)
@@ -384,7 +409,7 @@ def p2(instantanea: Instantanea) -> list[Resultado]:
 LEE_P2 = frozenset({
     "instantanea.clientes", "instantanea.objetos", "instantanea.facturas", "parte.id",
     "parte.requiere_po", "objeto.id", "objeto.requiere_po", "factura.id", "factura.sentido",
-    "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.cliente_id",
+    "factura.tipo", "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.cliente_id",
     "factura.imputaciones", "factura.referencias", "imputacion.id", "imputacion.objeto_id",
     "imputacion.orden_compra_id", "imputacion.linea_id", "referencia.linea_id",
     "referencia.clase", "referencia.orden_compra_id",
@@ -401,6 +426,12 @@ def p3(instantanea: Instantanea) -> list[Resultado]:
     numero es de una PO de otro. Una imputacion a una PO de otra parte (o de
     otro lado), o a una que no cubre su Objeto. Sin ninguna PO registrada de
     ese lado no se sabe si es desconocida: sin datos.
+
+    Una imputacion sin PO donde lo impreso dice varias PO registradas (en su
+    linea o, si su linea no dice ninguna, en la cabecera) tambien retiene: la
+    sincronizacion no reparte adivinando, y sin esto la factura no consumiria
+    de ninguna y escaparia a P1, P4 y P6 por imprimir un numero de mas. Una
+    persona decide con imputar_po.
     """
     por_numero: dict[tuple[str, str], list[OrdenCompra]] = defaultdict(list)
     for o in instantanea.ordenes:
@@ -416,6 +447,10 @@ def p3(instantanea: Instantanea) -> list[Resultado]:
         valores: dict[str, list] = {"desconocidas": [], "de_otra_parte": [], "de_otro_objeto": []}
         sin_datos: list[str] = []
         mira = False
+        casadas: dict[int | None, set[int]] = defaultdict(set)
+        for r in f.referencias:
+            if r.orden_compra_id is not None:
+                casadas[r.linea_id].add(r.orden_compra_id)
         for r in f.referencias:
             if r.clase != PO or r.orden_compra_id is not None:
                 mira = mira or r.orden_compra_id is not None
@@ -435,9 +470,12 @@ def p3(instantanea: Instantanea) -> list[Resultado]:
             else:
                 valores["desconocidas"].append(r.valor_doc)
                 problemas.append(f"la PO {r.valor_doc} no está registrada")
+        varias: list[int] = []
         for i in f.imputaciones:
             orden = ordenes.get(i.orden_compra_id) if i.orden_compra_id is not None else None
             if orden is None:
+                if i.orden_compra_id is None and len(_impresas_para(i, casadas)) > 1:
+                    varias.append(i.id)
                 continue
             mira = True
             if orden.lado != lado or orden.parte_id != parte:
@@ -448,6 +486,13 @@ def p3(instantanea: Instantanea) -> list[Resultado]:
                 valores["de_otro_objeto"].append([i.id, orden.numero])
                 problemas.append(f"la imputación {i.id} va a {_po_texto(orden)}, que no cubre "
                                  "su Objeto")
+        if varias:
+            mira = True
+            numeros = sorted({ordenes[po].numero for i in f.imputaciones if i.id in varias
+                              for po in _impresas_para(i, casadas) if po in ordenes})
+            valores["varias"] = [[i, numeros] for i in varias]
+            problemas.append(f"{len(varias)} imputación(es) sin PO y la factura imprime varias "
+                             f"({', '.join(numeros)}): una persona decide con imputar_po")
         if not mira:
             continue
         if problemas:
@@ -463,6 +508,12 @@ def p3(instantanea: Instantanea) -> list[Resultado]:
     return salida
 
 
+def _impresas_para(i: Imputacion, casadas: dict[int | None, set[int]]) -> set[int]:
+    """Las PO que lo impreso dice para una imputacion: las de su linea o, si su linea no dice
+    ninguna, las de la cabecera (el orden de ordenes_compra._po_de_imputacion)."""
+    return casadas.get(i.linea_id) if i.linea_id in casadas else casadas.get(None, set())
+
+
 LEE_P3 = frozenset({
     "instantanea.ordenes", "instantanea.facturas", "orden_compra.id", "orden_compra.lado",
     "orden_compra.numero_norm", "orden_compra.numero", "orden_compra.parte_id",
@@ -470,7 +521,8 @@ LEE_P3 = frozenset({
     "factura.anulada", "factura.fusionada_en_id", "factura.sustituida_por", "factura.sentido",
     "factura.cliente_id", "factura.proveedor_id", "referencia.clase",
     "referencia.orden_compra_id", "referencia.valor_norm", "referencia.valor_doc",
-    "imputacion.id", "imputacion.orden_compra_id", "imputacion.objeto_id",
+    "referencia.linea_id", "imputacion.id", "imputacion.orden_compra_id",
+    "imputacion.objeto_id", "imputacion.linea_id",
 })
 
 
@@ -481,10 +533,14 @@ def _p4_p6(instantanea: Instantanea, regla: str) -> list[Resultado]:
     salida: list[Resultado] = []
     for po_id, lista in sorted(cargos(instantanea).items()):
         orden = ordenes[po_id]
+        por_llegada = antes_por_llegada(orden, lista)
         for cargo, antes in antes_de_cada(orden, lista):
             clave = f"po:{po_id}"
             valores = {"po": po_id, "numero": orden.numero, "valor_cent": orden.valor_cent,
                        "antes_cent": antes, "importe_cent": cargo.importe_cent}
+            llegada = por_llegada[cargo.factura_id]
+            if llegada < antes:
+                valores["antes_llegada_cent"] = llegada
             if cargo.importe_cent <= 0:
                 salida.append(Resultado(regla, "factura", cargo.factura_id, OK,
                                         f"Abona a {_po_texto(orden)}: no la consume.",
@@ -495,9 +551,11 @@ def _p4_p6(instantanea: Instantanea, regla: str) -> list[Resultado]:
                                         "Sin fecha de factura no se sabe qué quedaba de "
                                         f"{_po_texto(orden)} antes de ella.", valores, clave))
                 continue
-            texto_antes = euros_texto(euros(antes))
+            # Lo que quedaba es lo menos de los dos ordenes: el del §7 y el de llegada.
+            quedaba = min(antes, llegada)
+            texto_antes = euros_texto(euros(quedaba))
             if regla == "P6":
-                if antes <= 0:
+                if quedaba <= 0:
                     salida.append(Resultado(
                         "P6", "factura", cargo.factura_id, FALLO,
                         f"{_mayus(_po_texto(orden))} ya estaba consumida (quedaban "
@@ -509,17 +567,20 @@ def _p4_p6(instantanea: Instantanea, regla: str) -> list[Resultado]:
                                             f"A {_po_texto(orden)} le quedaba valor.",
                                             clave=clave))
                 continue
-            if antes <= 0:
+            if quedaba <= 0:
                 salida.append(Resultado("P4", "factura", cargo.factura_id, NO_APLICA,
                                         f"{_mayus(_po_texto(orden))} ya estaba consumida: "
                                         "lo dice P6.", clave=clave))
-            elif cargo.importe_cent > antes:
+            elif cargo.importe_cent > quedaba:
+                atrasada = cargo.importe_cent <= antes
                 salida.append(Resultado(
                     "P4", "factura", cargo.factura_id, FALLO,
                     f"La factura carga {euros_texto(euros(cargo.importe_cent))} a "
                     f"{_po_texto(orden)} y solo quedaban {texto_antes} (se pasa en "
-                    f"{euros_texto(euros(cargo.importe_cent - antes))}).",
-                    {**valores, "exceso_cent": cargo.importe_cent - antes}, clave,
+                    f"{euros_texto(euros(cargo.importe_cent - quedaba))})"
+                    + ("; por su fecha va antes, pero llegó después de facturas que ya "
+                       "contaban con ese valor." if atrasada else "."),
+                    {**valores, "exceso_cent": cargo.importe_cent - quedaba}, clave,
                     objetivos=(_objetivo_po(orden),)))
             else:
                 salida.append(Resultado("P4", "factura", cargo.factura_id, OK,
@@ -529,19 +590,26 @@ def _p4_p6(instantanea: Instantanea, regla: str) -> list[Resultado]:
 
 
 def p4(instantanea: Instantanea) -> list[Resultado]:
-    """La factura carga a una PO mas de lo que le quedaba antes de ella (en el orden del §7)."""
+    """La factura carga a una PO mas de lo que le quedaba antes de ella.
+
+    Antes de ella en el orden del §7 (fecha de factura e id) o en el de llegada
+    (id): retiene si se pasa en cualquiera de los dos. Una factura con fecha
+    atrasada que llega cuando la PO ya estaba casi consumida no se libra por
+    colarse delante (antes_por_llegada).
+    """
     return _p4_p6(instantanea, "P4")
 
 
 def p6(instantanea: Instantanea) -> list[Resultado]:
-    """La PO ya estaba consumida entera antes de la factura, y la factura le carga mas."""
+    """La PO ya estaba consumida entera antes de la factura (en el orden del §7 o en el de
+    llegada, como P4), y la factura le carga mas."""
     return _p4_p6(instantanea, "P6")
 
 
 LEE_CARGOS = frozenset({
     "instantanea.ordenes", "instantanea.relaciones", "instantanea.facturas", "orden_compra.id",
     "orden_compra.lado", "orden_compra.valor_cent", "orden_compra.numero", "relacion.origen_id",
-    "relacion.tipo", "factura.id", "factura.imputaciones", "factura.anulada",
+    "relacion.destino_id", "relacion.tipo", "factura.id", "factura.imputaciones", "factura.anulada",
     "factura.fusionada_en_id", "factura.sustituida_por", "factura.tipo", "factura.sentido",
     "factura.fecha_factura", "imputacion.orden_compra_id", "imputacion.importe_cent",
 })
@@ -592,8 +660,11 @@ def _p7(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Res
                          f"{_mayus(_po_texto(orden))} está consumida: no queda valor que "
                          "caduque.")
     dias = (orden.fecha_fin - hoy).days
-    valores = {"fin": orden.fecha_fin.isoformat(), "dias_para_caducar": dias,
-               "restante_cent": s.restante_cent, "limite_dias": limite}
+    # Solo lo que no cambia con hoy: los valores son la huella, y unos dias que
+    # bajan cada dia reabririan cada manana un P7 aceptado. Los dias que quedan
+    # los cuenta la prioridad desde el fin (estados._dias_hasta_fin).
+    valores = {"fin": orden.fecha_fin.isoformat(), "restante_cent": s.restante_cent,
+               "limite_dias": limite}
     if dias < 0:
         return Resultado("P7", "orden_compra", orden.id, SIN_DATOS,
                          f"{_mayus(_po_texto(orden))} caducó el "
@@ -644,9 +715,10 @@ def _p9(orden: OrdenCompra, lista: list[Cargo], instantanea: Instantanea) -> Res
                          f"Sin consumo desde el {p.desde.isoformat()}: a este ritmo "
                          f"{_po_texto(orden)} no se agota.")
     tope = orden.fecha_fin - timedelta(days=politica.po_margen_prevision_dias)
-    valores = {"desde": p.desde.isoformat(), "dias": p.dias,
-               "consumido_ventana_cent": p.consumido_cent, "restante_cent": s.restante_cent,
-               "agotamiento": p.agotamiento.isoformat(), "fin": orden.fecha_fin.isoformat(),
+    # Como en P7, nada que se mueva con hoy (la ventana, sus dias y el dia de
+    # agotamiento se mueven cada dia aunque no llegue ninguna factura): eso va
+    # en el texto. La evidencia es lo que queda, el fin y el margen.
+    valores = {"restante_cent": s.restante_cent, "fin": orden.fecha_fin.isoformat(),
                "margen_dias": politica.po_margen_prevision_dias}
     if p.agotamiento < tope:
         return Resultado("P9", "orden_compra", orden.id, FALLO,

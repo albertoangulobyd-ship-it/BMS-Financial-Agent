@@ -309,13 +309,17 @@ CATALOGO: tuple[Regla, ...] = (
                       "de la política bloquea. Sin pactada ni planning, contra el histórico: la "
                       "misma contraparte cobra otra tarifa por el mismo trabajo en el mismo "
                       "Objeto. Dos pactadas igual de concretas con precios distintos: sin datos "
-                      "en la línea y la factura retenida, con su excepción."),
+                      "en la línea y la factura retenida, con su excepción. Con pactadas para "
+                      "la línea pero ninguna de su unidad o su día (los imprime el proveedor): "
+                      "sin datos y la factura retenida, no el histórico."),
     Regla("G6", "Recargo a otra tarifa que la suya", "planning", planning.g6, planning.LEE_G6,
           solo_texto=planning.SOLO_TEXTO_G6, severidad=R, anulable=True,
           entrada_prioridad=_P.PLANNING.value,
           calidad=_C.ANOMALIA.value,
           descripcion="Una línea de un recargo (noche, fin de semana, festivo) se cobra a su "
-                      "propia tarifa pactada; sin tarifa propia, la mira G3 con el histórico."),
+                      "propia tarifa pactada. Sin tarifa propia pero con otras pactadas para la "
+                      "línea (la de día), sin datos y la factura retenida para que una persona "
+                      "confirme el recargo; sin ninguna pactada, la mira G3 con el histórico."),
     # Facturas de venta
     Regla("V4", "Tarifa de venta distinta de la pactada", "venta", venta.v4, venta.LEE_V4,
           solo_texto=venta.SOLO_TEXTO_V4, severidad=R, anulable=True,
@@ -331,17 +335,20 @@ CATALOGO: tuple[Regla, ...] = (
                       "de su vigencia (que sea de la parte y cubra el Objeto lo mira P3)."),
     Regla("P2", "Falta la PO", "ordenes", ordenes.p2, ordenes.LEE_P2, severidad=R, anulable=True,
           entrada_prioridad=_P.LIMITE_PO.value, calidad=_C.FALTANTE.value,
-          descripcion="Una venta sin PO donde el Objeto (o, si no lo dice, el cliente) la pide."),
+          descripcion="Una venta sin PO donde el Objeto (o, si no lo dice, el cliente) la pide. "
+                      "Un abono no: toma la PO de la factura que abona."),
     Regla("P3", "PO desconocida o de otro", "ordenes", ordenes.p3, ordenes.LEE_P3,
           solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
           entrada_prioridad=_P.LIMITE_PO.value, calidad=_C.DISCREPANCIA.value,
           descripcion="La PO que dice la factura no está registrada, es de otra parte o no "
-                      "cubre el Objeto de la línea."),
+                      "cubre el Objeto de la línea; o la factura imprime varias PO y una "
+                      "imputación no va a ninguna (una persona decide con imputar_po)."),
     Regla("P4", "Factura por encima de lo que queda", "ordenes", ordenes.p4, ordenes.LEE_CARGOS,
           solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True, pegajosa=True,
           entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value,
-          descripcion="La factura carga a la PO más de lo que le quedaba antes de ella (por "
-                      "fecha de factura y por id), sin IVA."),
+          descripcion="La factura carga a la PO más de lo que le quedaba antes de ella, sin IVA: "
+                      "por fecha de factura y por id, o por orden de llegada (una fecha "
+                      "atrasada no la libra)."),
     Regla("P5", "PO casi consumida", "ordenes", ordenes.p5, ordenes.LEE_P5,
           solo_texto=ordenes.SOLO_TEXTO, severidad=A, entrada_prioridad=_P.LIMITE_PO.value,
           calidad=_C.ANOMALIA.value, ambito=_PO,
@@ -349,8 +356,8 @@ CATALOGO: tuple[Regla, ...] = (
     Regla("P6", "PO consumida y se sigue facturando", "ordenes", ordenes.p6, ordenes.LEE_CARGOS,
           solo_texto=ordenes.SOLO_TEXTO, severidad=R, anulable=True,
           entrada_prioridad=_P.LIMITE_PO_DURO.value, calidad=_C.ANOMALIA.value,
-          descripcion="La PO ya estaba consumida entera antes de la factura, y la factura le "
-                      "carga más."),
+          descripcion="La PO ya estaba consumida entera antes de la factura (por fecha o por "
+                      "llegada), y la factura le carga más."),
     Regla("P7", "PO a punto de caducar", "ordenes", ordenes.p7, ordenes.LEE_P7,
           solo_texto=ordenes.SOLO_TEXTO, severidad=A, anulable=True,
           entrada_prioridad=_P.CADUCIDAD_PO.value, calidad=_C.ANOMALIA.value, ambito=_PO,

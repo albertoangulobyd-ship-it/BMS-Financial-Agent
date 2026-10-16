@@ -20,6 +20,14 @@ parte, la de ese tipo de trabajo, la de esa unidad, y la de vigencia mas
 reciente: una tarifa nueva sustituye a la anterior sin que nadie cierre la
 vieja). Si quedan varias con precios distintos, es ambigua: no se adivina, la
 regla da sin_datos y abre una excepcion (spec §7). Puro: no lee la base.
+
+El turno, la unidad y el dia de una linea salen del documento, que escribe el
+proveedor. Si la linea no casa con ninguna tarifa pero si con alguna de su
+parte, su recurso o su Objeto mirando solo esas tres cosas, no es que no haya
+nada pactado: es que la linea dice un turno, una unidad o un dia que lo
+pactado no tiene. Eso es `no_casa`, y no sigue con el historico como si nada
+(G3 y G6 retienen): sin esto, imprimir "Nacht" o "stuk" bastaria para saltarse
+el control de la tarifa pactada.
 """
 
 from __future__ import annotations
@@ -29,11 +37,13 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from ..dominio import normalizar_unidad
 from .base import Tarifa
 
 UNICA = "unica"
 AMBIGUA = "ambigua"
 NINGUNA = "ninguna"
+NO_CASA = "no_casa"
 
 COMPRA = "compra"
 VENTA = "venta"
@@ -52,10 +62,11 @@ def normalizar_turno(texto: object) -> str | None:
 
 @dataclass(frozen=True)
 class Pactada:
-    """La tarifa pactada que vale para una imputacion: unica (con su precio), ambigua o ninguna.
+    """La tarifa pactada que vale para una imputacion: unica (con su precio), ambigua, ninguna
+    o no_casa (hay pactadas para ella, pero ninguna de su turno, su unidad o su dia).
 
     `nivel` es el nivel en que se encontro; `tarifas`, los ids de las que quedaron (una si es
-    unica, varias si es ambigua).
+    unica, varias si es ambigua, las que casarian sin turno, unidad ni dia si no_casa).
     """
 
     estado: str
@@ -106,18 +117,24 @@ def pactada(tarifas: Sequence[Tarifa], *, parte_id: int | None, recurso_id: int 
             objeto_id: int | None, orden_compra_id: int | None, turno: str | None,
             servicio: str | None, unidad: str | None, fecha: date | None) -> Pactada:
     """La tarifa pactada de una imputacion entre `tarifas` (las de su sentido)."""
-    candidatas = [
+    unidad = normalizar_unidad(unidad)
+    suyas = [
         t for t in tarifas
-        if t.tipo_turno == turno
-        and (t.recurso_id is None or t.recurso_id == recurso_id)
+        if (t.recurso_id is None or t.recurso_id == recurso_id)
         and (t.objeto_id is None or t.objeto_id == objeto_id)
         and (t.orden_compra_id is None or t.orden_compra_id == orden_compra_id)
         and (_parte(t) is None or _parte(t) == parte_id)
         and (t.tipo_servicio is None or t.tipo_servicio == servicio)
-        and (t.unidad is None or t.unidad == unidad)
+    ]
+    candidatas = [
+        t for t in suyas
+        if t.tipo_turno == turno
+        and (t.unidad is None or normalizar_unidad(t.unidad) == unidad)
         and _vigente(t, fecha)
     ]
     if not candidatas:
+        if suyas:
+            return Pactada(NO_CASA, tarifas=tuple(sorted(t.id for t in suyas)))
         return SIN_PACTADA
     for nivel, cumple in _NIVELES:
         del_nivel = [t for t in candidatas if cumple(t)]

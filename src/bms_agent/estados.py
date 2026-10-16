@@ -187,8 +187,23 @@ def _valor(valores_json: str | None, clave: str) -> int | None:
     return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
 
 
-def _hallazgos(conn: sqlite3.Connection) -> tuple[dict[int, list[Hallazgo]], dict[int, Hallazgo],
-                                                  dict[int, list[str | None]]]:
+def _dias_hasta_fin(valores_json: str | None, hoy: date) -> int | None:
+    """Los dias que le quedan a una PO hasta su fin (P7), contados hoy.
+
+    P7 guarda la fecha fija del fin, no los dias: lo que va en los valores
+    entra en la huella, y unos dias que bajan cada dia reabririan cada manana
+    un P7 aceptado. Los dias se cuentan aqui, al calcular la prioridad.
+    """
+    try:
+        fin = json.loads(valores_json or "{}").get("fin")
+        return (date.fromisoformat(fin) - hoy).days if isinstance(fin, str) else None
+    except (json.JSONDecodeError, AttributeError, ValueError):
+        return None
+
+
+def _hallazgos(conn: sqlite3.Connection, hoy: date,
+               ) -> tuple[dict[int, list[Hallazgo]], dict[int, Hallazgo],
+                          dict[int, list[str | None]]]:
     """Los hallazgos pendientes por factura (la principal y las que cubre), y por id."""
     por_id: dict[int, Hallazgo] = {}
     calidad_de: dict[int, str | None] = {}
@@ -204,7 +219,9 @@ def _hallazgos(conn: sqlite3.Connection) -> tuple[dict[int, list[Hallazgo]], dic
             regla=regla, severidad=severidad, estado=estado, entrada=entrada, texto=detalle,
             valor_cent=_valor(valores, "valor_cent"),
             semanas_tras_gracia=_valor(valores, "semanas_tras_gracia"),
-            dias_para_caducar=_valor(valores, "dias_para_caducar"))
+            dias_para_caducar=(_dias_hasta_fin(valores, hoy)
+                               if entrada == EntradaPrioridad.CADUCIDAD_PO.value
+                               else _valor(valores, "dias_para_caducar")))
         calidad_de[hallazgo_id] = calidad_ if estado != "aceptado" else None
         if factura_id is not None:
             facturas[hallazgo_id].add(factura_id)
@@ -316,7 +333,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     # cargo ningun fichero, se apuntan los del codigo la primera vez que se usan.
     pesos = pesos or politica.apuntar_pesos_en_uso(conn)
     politica_sha = pesos.sha256()
-    hallazgos_de, por_id, calidades = _hallazgos(conn)
+    hallazgos_de, por_id, calidades = _hallazgos(conn, hoy)
     ultimas = revision.ultimas(conn)
     # La huella del contenido solo hace falta donde hay una revision que
     # comprobar: rehacerla para todo el historico en cada pasada costaria mas

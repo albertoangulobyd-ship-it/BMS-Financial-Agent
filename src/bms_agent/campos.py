@@ -257,12 +257,10 @@ def _contacto_id(ctx: Contexto) -> Any:
 
 
 def _unidad(ctx: Contexto) -> Any:
-    from .parsing import es_unidad_hora
+    """La unidad de la linea en el vocabulario de las tarifas pactadas (hora, dia, stuk)."""
+    from .parsing import normalizar_unidad
 
-    texto = (ctx.fila.get("unidad_doc") or "").strip().lower()
-    if not texto:
-        return None
-    return "hora" if es_unidad_hora(texto) else texto
+    return normalizar_unidad(ctx.fila.get("unidad_doc"))
 
 
 def _tipo_servicio(ctx: Contexto) -> Any:
