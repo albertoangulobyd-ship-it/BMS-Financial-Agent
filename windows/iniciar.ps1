@@ -18,6 +18,9 @@ Elegir-Base -Demo:$Demo
 # Si la consola ya estaba en marcha (con esta base o con la otra), se para antes: la base de
 # prueba se rehace, y no se borra una base que alguien tiene abierta.
 Parar-Rol "consola"
+# Una salida que se quedo encendida (una ventana de leer-facturas cerrada con la X) se para:
+# solo esta encendida mientras se lee. Si el lector esta leyendo ahora, no se toca.
+if ((Procesos-De "lector").Count -eq 0) { Parar-Rol "salida" }
 # Si el puerto sigue ocupado es otro programa (la consola de Docker, por ejemplo): el
 # navegador acabaria en esa y no en esta.
 if (Puerto-Abierto $Inst.PuertoConsola) {

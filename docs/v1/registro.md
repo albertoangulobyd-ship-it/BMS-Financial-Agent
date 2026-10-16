@@ -6271,3 +6271,157 @@ comprobación abre conexiones a propósito, para ver que no llegan.
   `Escribir-Pth` (`python3XY._pth`) y los tests, con la suite pasando antes en esa versión.
 - **Un destino nuevo para la salida** es un `--permitir` en `Arrancar-Salida`
   (`windows/comun.ps1`) y en `docker-compose.yml`, y los tests estáticos de los dos.
+- **Cambiar de versión de Python** también es `nativo.FICHERO_PTH` (`python3XY._pth`), que
+  `detectar` usa para reconocer un intérprete de la instalación sin `instalacion.json`.
+
+### Correcciones de la revisión
+
+Diecinueve hallazgos, con tres repetidos (el 8 es el 2, el 16 es el 15 y el 18 es el 3).
+Todos se reprodujeron o se comprobaron contra el código y todos eran reales; tres no se
+pueden reproducir aquí porque solo pasan en Windows (el 9, el 12 y el 14) y se corrigen
+igual, con su test estático. Cada corrección de Python tiene un test que falla con el
+código de antes y pasa con el de ahora (comprobado volviendo `src/` a `02325b6`: fallan
+quince), y los tests estáticos nuevos de los scripts fallan con los `windows/` de
+`02325b6` (fallan diez). **2328 tests pasan** (eran 2303) y nueve se saltan, los mismos
+de antes (cinco de Docker y cuatro de PowerShell: aquí no hay `pwsh` ni la imagen, así
+que esta vez los `.ps1` cambiados **no** han pasado el analizador; se mira con
+`BMS_PROBAR_PWSH=1` antes de dárselo al dueño).
+
+1. **La comprobación fallaba abierta por el proxy** (mayor). Un «no contesta» en un
+   destino prohibido, o sin la credencial, contaba como un no, y esas pruebas tenían 2 s
+   mientras la de la API tenía 12. Una salida mal puesta (con `--permitir` de más o sin
+   `--clave-del-entorno`) conecta con el destino antes de contestar: con una conexión
+   lenta su 200 llegaba tarde y el lector salía BIEN. Ahora **solo un no explícito es un
+   no**: un destino prohibido tiene que recibir un 4xx (`aislamiento.es_negativa`; un 502
+   o un 503 dicen que estaba permitido) y sin la credencial un 407; `None` es «no
+   contesta: no se ha podido comprobar», grave. Todas las pruebas por el proxy tienen el
+   plazo de la API (`espera_api`). Si el lector no llega al proxy, las de túnel no se
+   juzgan (ya falla «llegar al proxy»). Tests:
+   `test_un_proxy_lento_que_deja_pasar_de_mas_no_se_da_por_bueno` (la salida de verdad
+   con la conexión al destino un segundo más lenta que el plazo corto) y
+   `test_por_el_proxy_solo_un_no_explicito_es_un_no` (puro: 403, 400, 405, 407, nada,
+   200, 502, 503).
+2. **No se podía volver a instalar donde se desinstaló o donde falló un intento** (mayor;
+   el 8 es el mismo). `Validar-Raiz` rechazaba toda carpeta sin `instalacion.json` que no
+   estuviera vacía. Ahora acepta una carpeta con solo lo que deja bms-agent
+   (`$DeLaInstalacion`: `instalacion.json`, `instalacion.log`, `descargas`, `runtime`,
+   `lib`, `app`, `windows`, `datos`, `buzon`) y rechaza la que tiene algo más o un enlace
+   (reparse point). Además `Leer-Fijado` y `Leer-Requisitos` se miran antes de elevar y
+   antes de crear la carpeta: sin los hashes fijados ya no queda una carpeta a medias.
+   Tests: `test_se_puede_volver_a_instalar_donde_se_desinstalo_o_fallo` (lo que crea el
+   instalador y lo que deja `desinstalar`, sacado de los scripts, está en la lista) y
+   `test_sin_los_hashes_fijados_no_se_crea_la_carpeta`.
+3. **Sin `instalacion.json`, las puertas se apagaban** (mayor; el 18 es el mismo).
+   `detectar` devolvía `None` también para `runtime\lector\python.exe`. Ahora un intérprete
+   en `runtime\<papel>` con su `python311._pth` (`nativo.FICHERO_PTH`) y sin
+   `instalacion.json` es `InstalacionNoValida`: `coste`, `extract` y `serve` salen con 2.
+   Y `carpetas_a_probar` prueba también la raíz (`raiz`, donde está `instalacion.json`) y
+   `windows`, que no se tienen que poder escribir. Tests:
+   `test_un_interprete_de_la_instalacion_sin_instalacion_json_no_apaga_las_puertas` y
+   `test_el_codigo_no_se_puede_escribir_y_los_datos_si` (cambiado: el conjunto de
+   carpetas lleva ahora `raiz` y `windows`, y una raíz o unos scripts que se pueden
+   escribir fallan).
+4. **`clave comprobar --fichero` miraba la de la instalación** (menor). Ahora
+   `clave_del_lector(instalacion, fichero=ruta)`: el fichero pedido, con la misma regla
+   del lector. Test: `test_en_la_instalacion_clave_comprobar_mira_el_fichero_pedido`.
+5. **El test del proxy no usaba el cliente del SDK** (menor). No era un fallo del código
+   (el SDK manda la credencial), sino de cobertura. Test nuevo:
+   `test_el_sdk_de_la_api_manda_la_credencial_de_https_proxy`, con
+   `anthropic.Anthropic(...).models.list()` contra la salida de verdad: con la credencial
+   pasa (y el TLS falla contra el eco local), con otra, 407.
+6. **La raíz nueva era de todos hasta el último paso** (mayor). Bajo `C:\` heredaba
+   «modificar» para cada usuario, y el instalador comprobaba, copiaba y ejecutaba como
+   administrador lo de una carpeta que cualquiera podía cambiar. Ahora `Cerrar-Raiz` va
+   justo después de crear la carpeta y antes de `Start-Transcript`, de bajar nada y de
+   ejecutar nada: dueño los administradores, sin herencia, SYSTEM y administradores con
+   control total y tu usuario solo leer y ejecutar; quita con `/remove:g` todo permiso
+   que no sea de esos tres (`/inheritance:r` deja los puestos a mano, como «Todos:
+   control total») y para si queda alguno; rechaza enlaces; y lo que ya había del
+   programa pasa a heredar de la raíz (`/reset`), salvo `datos` y `buzon`, que tienen los
+   suyos. `descargas` está dentro de la raíz ya cerrada. Todo va dentro del `try`: un
+   fallo al cerrar se dice y espera. Test:
+   `test_la_raiz_se_cierra_antes_de_bajar_copiar_o_ejecutar_nada`.
+7. **«El código de bms-agent no arranca ningún programa» no valía para las
+   dependencias** (menor). Comprobado en el `platform.py` de 3.11: en Windows
+   `platform.system()` llama a `win32_ver()`, que ejecuta `ver` con `shell=True` (y con
+   él `%COMSPEC%`); el SDK lo llama para su cabecera `X-Stainless-OS`. Además de corregir
+   la guía, ahora **`cli.main` pone, en la instalación, `nativo.prohibir_procesos`**: un
+   gancho de auditoría (`sys.addaudithook`, que no se quita) que contesta
+   `PermissionError` a `subprocess.Popen`, `os.system`, `os.startfile`, `os.exec*`,
+   `os.spawn*`, `os.posix_spawn`, `os.fork*`, `pty.spawn`, `_winapi.CreateProcess` y
+   `webbrowser.open`. `platform` lo toma como «no hay `ver`» y saca la versión de
+   `sys.getwindowsversion`. Mira el intérprete de verdad (`detectar()`), no
+   `instalacion_actual`, que los tests sustituyen: en los tests no se pone. Tests:
+   `test_en_la_instalacion_ni_las_dependencias_arrancan_programas` (en otro proceso, con
+   un `ver` de mentira en el PATH que deja una marca: sin el gancho corre, con él no) y
+   `test_el_gancho_conoce_cada_forma_de_lanzar_de_python`.
+   `test_ningun_modulo_lanza_procesos` cambia: deja en `nativo.py` exactamente los
+   nombres de `SUCESOS_DE_PROCESO`, que son nombres de sucesos y no llamadas.
+8. Es el 2.
+9. **`Enabled -ne $true` con el perfil del cortafuegos** (mayor, sin Windows para
+   reproducirlo). `Get-NetFirewallProfile` da `Enabled` como `GpoBoolean`; ahora se
+   compara como texto (`@("True", "1") -notcontains ("" + $_.Enabled)`) en `instalar` y
+   en `comprobar`. Test: `test_el_cortafuegos_se_compara_como_texto` (y ningún script
+   compara `Enabled` con `$true`). **Se mira en el primer Windows.**
+10. **127.0.0.1 no se filtra para nadie** (mayor, de documentación). La guía, apartado
+    11, lo dice ahora junto al hueco de otro programa y del DNS, con una fila en la
+    tabla, y `comprobar.ps1` (punto 4) enseña como aviso los programas que escuchan en
+    127.0.0.1 o ::1 y no son de bms-agent. Es la desviación 15, abajo.
+11. **El desinstalador se elevaba desde una copia en `%TEMP%`** (menor). Ahora se eleva
+    `$PSCommandPath`, en su sitio (windows\ es de los administradores), sin copia.
+    PowerShell lee el script entero antes de empezar: que la carpeta se borre mientras
+    corre da igual. Ningún script usa ya `$env:TEMP`. Test:
+    `test_el_desinstalador_se_eleva_en_su_sitio_y_sale_de_la_carpeta`.
+12. **La carpeta actual de la ventana no dejaba borrar windows\** (menor, sin Windows
+    para reproducirlo). `desinstalar.bat` hace `cd /d "%SystemRoot%"` en la misma línea,
+    antes de PowerShell, y el script empieza con `Set-Location` a `%SystemRoot%`. Si con
+    `SI` aún queda la carpeta, lo dice en amarillo en vez de «Quitado, también tus
+    datos». Mismo test.
+13. **Python guardaba lo que decía por la tubería** (menor). Comprobado con el Python del
+    entorno: con la salida por una tubería no hay bufer de línea. Ahora los tres
+    lanzadores (`Orden-De`, `Orden-Directa`, `Arrancar-En-Segundo-Plano`) usan
+    `$OpcionesPython = @("-u", "-X", "utf8")`. Test: `test_cada_python_corre_sin_bufer`;
+    `test_comprobar_prueba_cada_papel_con_su_programa` cambia la línea que espera.
+14. **La cadena de certificados de la API, dentro del lector sin red** (menor, plausible y
+    sin Windows para reproducirlo). `comun.ps1` tiene `Preparar-Certificados`: una
+    petición HEAD a `https://api.anthropic.com/` desde PowerShell (que sí tiene red), sin
+    guardar nada, para que Windows baje y guarde la cadena; solo un fallo de TLS da un
+    aviso. Va en `comprobar` y en `leer-facturas`, antes de comprobar el lector (y el
+    instalador termina con `comprobar`). La comprobación del lector sigue sin hacer un
+    TLS por el túnel: el módulo solo manda el CONNECT. Test:
+    `test_windows_prepara_la_cadena_de_la_api_antes_de_comprobar_el_lector`.
+15. **La salida seguía encendida si se cerraba la ventana con la X** (menor; el 16 es el
+    mismo). `bms-agent salida --max-segundos` (`salida.servir(vida=...)`): se para sola
+    al cumplir su plazo. `Arrancar-Salida` lo exige: 3 horas para una lectura
+    (`$VidaSalidaLectura`, un lote grande tarda) y 10 minutos para `comprobar`
+    (`$VidaSalidaComprobacion`). `iniciar.ps1` para una salida que se quedó encendida si
+    no hay un lector leyendo. La guía dice la excepción. Tests:
+    `test_la_salida_se_para_sola_al_cumplir_su_vida` y
+    `test_la_salida_se_apaga_sola_si_nadie_la_para`.
+16. Es el 15.
+17. **`comprobar.bat` salía en verde con la clave en MAL o sin leer el cortafuegos**
+    (menor). Ahora `$todoBien = $cortafuegosBien -and $claveBien`, y un cortafuegos que
+    no se puede leer cuenta como MAL (no se sabe si está encendido ni si están sus
+    reglas). Una clave que todavía no se ha guardado sigue siendo un aviso: hay usos sin
+    lectura. Test: `test_comprobar_solo_sale_en_verde_con_el_cortafuegos_y_la_clave`.
+18. Es el 3.
+19. **La tabla de Docker y nativa no decía lo de 127.0.0.1 ni lo del buzón** (menor, de
+    documentación). Dos filas nuevas en el apartado 11 y en el hueco; son las
+    desviaciones 15 y 16.
+
+**Desviaciones nuevas, y por qué** (siguen a las catorce de arriba):
+
+15. **127.0.0.1 sin filtrar, también para la consola, el lector y las órdenes.** El
+    cortafuegos de Windows no filtra el tráfico local, así que cualquier programa del
+    ordenador que escuche en 127.0.0.1 y reenvíe a internet (un proxy, el agente de una
+    VPN o de un antivirus, un túnel, el reenvío de WSL2) es una salida que las reglas no
+    paran. En Docker las redes internas no llegan al ordenador. No hay forma de cerrarlo
+    con reglas por programa; se dice, `comprobar.bat` lo enseña como aviso, y para quien
+    tenga programas así están el usuario aparte y Docker.
+16. **El buzón se puede cambiar desde los cuatro programas.** En Docker el lector y las
+    órdenes lo montan de solo lectura; aquí los permisos de Windows son por usuario y los
+    cuatro corren con el tuyo. `importar.ps1` mueve los ficheros con PowerShell, no con el
+    programa, pero eso no impide que un programa comprometido los cambie. Lo que los
+    protege es la copia semanal.
+17. **Un gancho de auditoría contra los procesos** (no estaba en el diseño): ver el
+    hallazgo 7. Es una capa más, no un muro: código nativo con `ctypes` lo salta.

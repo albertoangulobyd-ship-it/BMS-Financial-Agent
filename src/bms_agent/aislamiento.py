@@ -11,10 +11,13 @@ salida, orden) corre con su propio programa y prueba a salir:
   1.1.1.1:80 y api.anthropic.com:443). La consola, el lector y las ordenes no pueden
   llegar a ninguno; la salida solo al puerto 443;
 - el lector, ademas, tiene que llegar al proxy de la salida, y por el solo a
-  api.anthropic.com:443: otro destino, otro puerto o una IP tienen que recibir un no, y
-  sin la credencial de esta pasada tambien;
-- en la instalacion, el codigo (app, lib, runtime) no se puede escribir y los datos y el
-  buzon si.
+  api.anthropic.com:443: otro destino, otro puerto o una IP tienen que recibir un no
+  explicito del proxy (un 4xx), y sin la credencial de esta pasada un 407. Un proxy que no
+  contesta a tiempo no ha dicho que no: esa prueba no se ha podido hacer y cuenta como
+  mal (falla cerrada). Todas las pruebas por el proxy tienen el mismo plazo, el de la API:
+  una salida mal puesta que conecta antes de negarse tarda lo que tarda en conectar;
+- en la instalacion, el codigo (la raiz, app, lib, runtime, windows) no se puede escribir
+  y los datos y el buzon si.
 
 El resultado va a datos/aislamiento.json, con la hora y el papel. La consola pinta una
 banda roja si falta o falla alguno (`problemas`), y una pasada de lectura no se hace si
@@ -22,8 +25,10 @@ la comprobacion del lector y de la salida de esa misma pasada no salio bien
 (`motivo_para_no_leer`): falla cerrada.
 
 Lo que no puede probar (y la guia lo dice): que el programa no lance otro programa sin
-reglas (eso lo vigila un test del codigo), y las consultas de nombres, que en Windows
-hace un servicio del sistema y no el programa.
+reglas (eso lo vigilan un test del codigo y, en la instalacion, nativo.prohibir_procesos),
+las consultas de nombres, que en Windows hace un servicio del sistema y no el programa, y
+otros programas que escuchen en 127.0.0.1 y reenvien a internet (el cortafuegos no filtra
+127.0.0.1; comprobar.bat los ensena como aviso).
 
 Solo abre conexiones a esa lista fija y al proxy local, no manda nada mas que la peticion
 CONNECT y una consulta DNS de example.com, y cierra cada una en seguida.
@@ -233,6 +238,17 @@ def _codigo(codigo: int | None) -> str:
     return "no contesta" if codigo is None else f"contesta {codigo}"
 
 
+def es_negativa(codigo: int | None) -> bool:
+    """Si el proxy ha dicho que no (un 4xx). Un 200 deja pasar, un 502 o un 503 dicen que el
+    destino estaba permitido (fallo despues, al conectar), y None es que no ha contestado:
+    ninguno de los tres es un no."""
+    return codigo is not None and 400 <= codigo < 500
+
+
+def _sin_respuesta(codigo: int | None) -> str:
+    return "no contesta: no se ha podido comprobar" if codigo is None else _codigo(codigo)
+
+
 def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
             *, escribibles: Iterable[str] = ("datos", "buzon")) -> tuple[Comprobacion, ...]:
     """Lo que se vio, juzgado segun el papel. Funcion pura: es la regla del aislamiento.
@@ -241,8 +257,10 @@ def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
     - salida: nada que no sea TCP al 443 (llegar a la API es lo normal, y no llegar es un
       aviso: sin internet tampoco se puede leer);
     - lector: el proxy se alcanza, por el con la credencial la API dice que si, cualquier
-      otro destino dice que no, y sin la credencial tambien no;
-    - consola y orden, si se les da el proxy: sin credencial no pasan;
+      otro destino dice que no (un 4xx) y sin la credencial 407. Si no se llega al proxy,
+      lo demas no se juzga: sin proxy no se ha probado nada y eso ya falla;
+    - consola y orden, si se les da el proxy: sin credencial 407;
+    - por el proxy, solo un no explicito es un no: "no contesta" no se da por bueno;
     - el codigo no se puede escribir; los datos y el buzon si (si no, es un aviso: no es
       una fuga, pero nada funcionaria).
     """
@@ -266,7 +284,8 @@ def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
                     else CONECTA if vistas.proxy_alcanzable else NO_CONECTA)
         salida.append(Comprobacion("llegar al proxy de la salida", "conecta", obtenido,
                                    vistas.proxy_alcanzable is True))
-    for destino, codigo in vistas.con_credencial.items():
+    tuneles = rol != "lector" or vistas.proxy_alcanzable is True
+    for destino, codigo in (vistas.con_credencial.items() if tuneles else ()):
         if destino == API:
             if codigo == 200:
                 salida.append(Comprobacion(f"por el proxy a {destino}", "contesta 200",
@@ -281,10 +300,10 @@ def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
                                            _codigo(codigo), False))
         else:
             salida.append(Comprobacion(f"por el proxy a {destino}", "no pasa (403)",
-                                       _codigo(codigo), codigo != 200))
-    for destino, codigo in vistas.sin_credencial.items():
+                                       _sin_respuesta(codigo), es_negativa(codigo)))
+    for destino, codigo in (vistas.sin_credencial.items() if tuneles else ()):
         salida.append(Comprobacion(f"por el proxy a {destino} sin la credencial",
-                                   "no pasa (407)", _codigo(codigo), codigo != 200))
+                                   "no pasa (407)", _sin_respuesta(codigo), codigo == 407))
     for nombre, puede in vistas.escritura.items():
         if nombre in escribibles:
             salida.append(Comprobacion(f"escribir en {nombre}", "se puede",
@@ -305,7 +324,11 @@ def observar(rol: str, *, proxy: tuple[str, int] | None = None, credencial: str 
              crear_udp: Callable[..., socket.socket] = socket.socket,
              escribir: Callable[[Path], bool] | None = None) -> Observaciones:
     """Hace las pruebas a la vez (cada una tiene su plazo corto): lo que tarda es el plazo,
-    no la suma de todos."""
+    no la suma de todos.
+
+    Las pruebas directas tienen `espera`; las del proxy, todas `espera_api`: una salida que
+    deja pasar de mas conecta con el destino antes de contestar, y con un plazo mas corto
+    que ese su 200 no se veria."""
     sondas = tuple(sondas)
     escribir = escribir or se_puede_escribir
     vistas = Observaciones()
@@ -319,10 +342,9 @@ def observar(rol: str, *, proxy: tuple[str, int] | None = None, credencial: str 
         if proxy is not None and rol != "salida":
             if rol == "lector":
                 alcanzable = hilos.submit(probar_tcp, proxy[0], proxy[1], espera, conectar)
-                con = {d: hilos.submit(pedir_tunel, proxy, d, credencial,
-                                       espera_api if d == API else espera, conectar)
+                con = {d: hilos.submit(pedir_tunel, proxy, d, credencial, espera_api, conectar)
                        for d in (API, *PROHIBIDOS_POR_EL_PROXY)}
-            sin = {API: hilos.submit(pedir_tunel, proxy, API, None, espera, conectar)}
+            sin = {API: hilos.submit(pedir_tunel, proxy, API, None, espera_api, conectar)}
         vistas.directas = {nombre: f.result() for nombre, f in directas.items()}
         if alcanzable is not None:
             vistas.proxy_alcanzable = alcanzable.result() == CONECTA

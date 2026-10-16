@@ -18,6 +18,11 @@ $Grupo = "BMS Finanzas"
 $RaizPorDefecto = "C:\BMS"
 $Roles = @("consola", "lector", "salida", "orden")
 $Api = "api.anthropic.com:443"
+$ApiNombre = "api.anthropic.com"
+# Lo que vive como mucho la salida, si nadie la para: una lectura (la de un lote grande tarda)
+# y una comprobacion.
+$VidaSalidaLectura = 3 * 60 * 60
+$VidaSalidaComprobacion = 10 * 60
 
 function Escribir([string]$Texto, [string]$Color = "Gray") {
     Write-Host $Texto -ForegroundColor $Color
@@ -88,16 +93,21 @@ function Elegir-Base([switch]$Demo) {
     }
 }
 
+# Las opciones de cada Python: -u, sin bufer (lo que dice va saliendo, tambien a un fichero o
+# por una tuberia; con el ._pth no se mira PYTHONUNBUFFERED), y -X utf8.
+$OpcionesPython = @("-u", "-X", "utf8")
+
 function Orden-De([string]$Rol, [string[]]$Argumentos) {
     # Una orden de bms-agent con el programa de ese papel, que es el que tiene sus reglas del
     # cortafuegos. Out-Host: lo que dice se ve y no se mezcla con lo que devuelve la funcion.
+    # Con -u se ve segun sale (una lectura larga no deja la ventana parada) y en su orden.
     $programa = Programa $Rol
     if (-not (Test-Path -LiteralPath $programa)) {
         Fallar "Falta $programa. Vuelve a instalar con instalar.bat."
     }
     Push-Location -LiteralPath $Inst.Raiz
     try {
-        & $programa -X utf8 -m bms_agent.cli @Argumentos | Out-Host
+        & $programa @OpcionesPython -m bms_agent.cli @Argumentos | Out-Host
         $codigo = $LASTEXITCODE
     } finally {
         Pop-Location
@@ -112,7 +122,7 @@ function Orden-Directa([string]$Rol, [string[]]$Argumentos) {
     if (-not (Test-Path -LiteralPath $programa)) {
         Fallar "Falta $programa. Vuelve a instalar con instalar.bat."
     }
-    $todos = @("-X", "utf8", "-m", "bms_agent.cli") + $Argumentos
+    $todos = $OpcionesPython + @("-m", "bms_agent.cli") + $Argumentos
     $proceso = Start-Process -FilePath $programa -ArgumentList (Linea-De-Argumentos $todos) `
         -WorkingDirectory $Inst.Raiz -NoNewWindow -Wait -PassThru
     return $proceso.ExitCode
@@ -138,7 +148,7 @@ function Arrancar-En-Segundo-Plano([string]$Rol, [string[]]$Argumentos) {
     $programa = Programa $Rol
     $registro = Join-Path $Inst.Raiz ("datos\" + $Rol + ".log")
     $errores = Join-Path $Inst.Raiz ("datos\" + $Rol + "-errores.log")
-    $todos = @("-X", "utf8", "-m", "bms_agent.cli") + $Argumentos
+    $todos = $OpcionesPython + @("-m", "bms_agent.cli") + $Argumentos
     return (Start-Process -FilePath $programa -ArgumentList (Linea-De-Argumentos $todos) `
         -WorkingDirectory $Inst.Raiz -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $registro -RedirectStandardError $errores)
@@ -163,9 +173,12 @@ function Nueva-Credencial {
     return (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
 }
 
-function Arrancar-Salida([string]$Credencial) {
+function Arrancar-Salida([string]$Credencial, [int]$Segundos) {
     # El proxy de salida, solo en 127.0.0.1 y solo mientras dura la pasada. La credencial va
-    # por el entorno del proceso de la salida, nunca en su linea de ordenes.
+    # por el entorno del proceso de la salida, nunca en su linea de ordenes. Se para con
+    # Parar-Salida al acabar; y si la ventana se cierra con la X (PowerShell muere sin llegar
+    # al finally), se para sola a los $Segundos (--max-segundos).
+    if ($Segundos -le 0) { Fallar "La salida necesita un plazo para pararse sola." }
     Parar-Rol "salida"
     if (Puerto-Abierto $Inst.PuertoSalida) {
         Fallar ("El puerto " + $Inst.PuertoSalida + " de este ordenador lo usa otro programa: la salida no puede arrancar.")
@@ -174,7 +187,8 @@ function Arrancar-Salida([string]$Credencial) {
     $env:BMS_PROXY_CLAVE = $Credencial
     try {
         $proceso = Arrancar-En-Segundo-Plano "salida" @("salida", "--escuchar", ("127.0.0.1:" + $Inst.PuertoSalida),
-            "--permitir", $Api, "--registro", $registro, "--clave-del-entorno")
+            "--permitir", $Api, "--registro", $registro, "--clave-del-entorno",
+            "--max-segundos", ([string]$Segundos))
     } finally {
         Remove-Item Env:\BMS_PROXY_CLAVE -ErrorAction SilentlyContinue
     }
@@ -192,6 +206,22 @@ function Parar-Salida($Proceso) {
         Stop-Process -Id $Proceso.Id -Force -ErrorAction SilentlyContinue
     }
     Parar-Rol "salida"
+}
+
+function Preparar-Certificados {
+    # El lector comprueba el certificado de la API con los de Windows (truststore), dentro de
+    # su propio proceso, que no tiene red. Si Windows aun no tiene la raiz o los intermedios de
+    # la API (los baja cuando le hacen falta), el lector no los puede bajar y la lectura fallaria
+    # con un error de TLS. PowerShell si tiene red: con una peticion a la API, Windows baja y
+    # guarda la cadena. Lo que conteste la API da igual; solo cuenta un fallo de TLS.
+    try {
+        Invoke-WebRequest -UseBasicParsing -Method Head -TimeoutSec 20 -Uri ("https://" + $ApiNombre + "/") | Out-Null
+        return $true
+    } catch {
+        if ($null -ne $_.Exception.Response) { return $true }
+        Escribir ("   aviso no se ha podido hablar con " + $ApiNombre + " desde este ordenador (" + $_.Exception.Message + "): si el lector falla con un error de certificado, prueba otra vez con internet") "Yellow"
+        return $false
+    }
 }
 
 function Comprobar-Rol([string]$Rol, [string[]]$Extra = @()) {

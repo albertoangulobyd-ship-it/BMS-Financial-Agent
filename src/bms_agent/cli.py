@@ -2495,6 +2495,9 @@ def _cmd_salida(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"No se arranca la salida: {exc}", file=sys.stderr)
         return 2
+    if args.max_segundos is not None and args.max_segundos <= 0:
+        print("No se arranca la salida: --max-segundos tiene que ser mas de 0", file=sys.stderr)
+        return 2
     clave = None
     if args.clave_del_entorno:
         clave = salida.clave_del_entorno()
@@ -2509,7 +2512,7 @@ def _cmd_salida(args: argparse.Namespace) -> int:
             print(f"No se arranca la salida: no se puede escribir el registro {args.registro}: "
                   f"{exc.strerror or exc}", file=sys.stderr)
             return 2
-    salida.servir(args.escuchar, permitidos, args.reenviar, clave=clave)
+    salida.servir(args.escuchar, permitidos, args.reenviar, clave=clave, vida=args.max_segundos)
     return 0
 
 
@@ -2615,9 +2618,11 @@ def _cmd_clave(args: argparse.Namespace) -> int:
         print("Clave borrada." if borrada else "No habia ninguna clave guardada.")
         return 0
     if args.accion == "comprobar":
+        # La que se ha pedido (--fichero o la de la instalacion), y en la instalacion solo
+        # con el programa del lector.
         instalacion = nativo.instalacion_actual()
         if instalacion is not None:
-            nativo.clave_del_lector(instalacion)
+            nativo.clave_del_lector(instalacion, fichero=ruta)
         else:
             secretos.leer_clave(ruta)
         print("Hay una clave guardada y este usuario de Windows la puede descifrar.")
@@ -3174,6 +3179,10 @@ def main(argv: list[str] | None = None) -> int:
                           help="instalacion nativa: solo deja pasar a quien trae la credencial "
                                "de la pasada (variable BMS_PROXY_CLAVE; contesta 407 a los "
                                "demas)")
+    p_salida.add_argument("--max-segundos", type=float, metavar="SEGUNDOS",
+                          help="instalacion nativa: se para sola al pasar estos segundos, "
+                               "aunque nadie la pare (si se cierra la ventana de "
+                               "leer-facturas con la X)")
     p_salida.add_argument("--registro", metavar="FICHERO",
                           help="apunta cada intento tambien en este fichero, anadiendo al final "
                                "(en Docker, el volumen de la salida: el registro de Docker se "
@@ -3235,6 +3244,11 @@ def main(argv: list[str] | None = None) -> int:
     salida, errores = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = SalidaSegura(salida), SalidaSegura(errores)
     try:
+        # En la instalacion nativa, antes de nada: ni la app ni sus dependencias arrancan
+        # otro programa (nativo.prohibir_procesos).
+        from . import nativo
+
+        nativo.prohibir_procesos_si_nativa()
         return args.func(args)
     except BaseDePruebaMezclada as exc:
         print(f"No se abre la base: {exc}", file=sys.stderr)

@@ -173,11 +173,17 @@ def _sondas(*, abierto: int | None = None, dns: int | None = None) -> tuple:
 
 
 @contextmanager
-def _proxy(*, clave: str | None = CREDENCIAL, permitidos=("api.anthropic.com:443",)):
+def _proxy(*, clave: str | None = CREDENCIAL, permitidos=("api.anthropic.com:443",),
+           retraso: float = 0.0):
     """La salida de verdad (salida.Proxy) en 127.0.0.1, con la API de mentira: lo que pide
-    api.anthropic.com va a un eco local. Nada sale de esta maquina."""
+    api.anthropic.com va a un eco local. Nada sale de esta maquina. `retraso`: lo que tarda
+    en conectar con el destino (una conexion lenta)."""
     with _servidor(_Aceptador) as eco:
         def conectar(_direccion, espera):
+            if retraso:
+                import time
+
+                time.sleep(retraso)
             return socket.create_connection(eco.server_address, espera)
 
         proxy = salida.Proxy(("127.0.0.1", 0), salida.lista_blanca(permitidos),
@@ -289,6 +295,23 @@ def test_la_cli_guarda_comprueba_y_borra_sin_ensenar_la_clave(tmp_path, monkeypa
     assert not ruta.exists()
 
 
+def test_en_la_instalacion_clave_comprobar_mira_el_fichero_pedido(tmp_path, como, protector,
+                                                                 capsys) -> None:
+    """Revision del paso 14: con --fichero, comprobar miraba la de la instalacion."""
+    lector = como("lector")
+    otra = tmp_path / "otra" / secretos.FICHERO
+    secretos.guardar_clave(CLAVE, otra)
+    assert not lector.fichero_clave.exists()
+    assert main(["clave", "comprobar", "--fichero", str(otra)]) == 0
+    secretos.guardar_clave(CLAVE, lector.fichero_clave)
+    assert main(["clave", "comprobar", "--fichero", str(tmp_path / "no-hay.dpapi")]) == 2
+    assert main(["clave", "comprobar"]) == 0
+    # La regla del lector sigue: otro programa no la descifra, venga de donde venga.
+    como("consola")
+    assert main(["clave", "comprobar", "--fichero", str(otra)]) == 2
+    assert "solo la descifra el lector" in capsys.readouterr().err
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="en Windows si hay DPAPI")
 def test_la_cli_fuera_de_windows_no_pide_la_clave(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.setattr("getpass.getpass", lambda texto: pytest.fail("no se pide"))
@@ -367,6 +390,44 @@ def test_un_proxy_que_no_pide_la_credencial_falla_cerrado() -> None:
     assert _malas(informe) == ["por el proxy a api.anthropic.com:443 sin la credencial"]
 
 
+def test_un_proxy_lento_que_deja_pasar_de_mas_no_se_da_por_bueno() -> None:
+    """Revision del paso 14: una salida mal puesta conecta con el destino antes de contestar.
+    Con una conexion lenta, su 200 llegaba despues del plazo corto y "no contesta" contaba
+    como un no. Ahora todas las pruebas por el proxy tienen el plazo de la API, y solo un no
+    explicito es un no."""
+    with _proxy(permitidos=("api.anthropic.com:443", "example.com:443"), retraso=1.0) as proxy:
+        informe = aislamiento.comprobar("lector", sondas=_sondas(), proxy=proxy,
+                                        credencial=CREDENCIAL, espera=0.3, espera_api=4)
+    assert _malas(informe) == ["por el proxy a example.com:443"]
+    assert "Aislamiento del lector: MAL" in aislamiento.formatear(informe)
+    with _proxy(clave=None, retraso=1.0) as proxy:
+        lector = aislamiento.comprobar("lector", sondas=_sondas(), proxy=proxy,
+                                       credencial=CREDENCIAL, espera=0.3, espera_api=4)
+        consola_ = aislamiento.comprobar("consola", sondas=_sondas(), proxy=proxy, espera=0.3,
+                                         espera_api=4)
+    malo = "por el proxy a api.anthropic.com:443 sin la credencial"
+    assert _malas(lector) == [malo] and _malas(consola_) == [malo]
+
+
+@pytest.mark.parametrize("codigo, bien", [(403, True), (400, True), (405, True), (407, True),
+                                          (None, False), (200, False), (502, False),
+                                          (503, False)])
+def test_por_el_proxy_solo_un_no_explicito_es_un_no(codigo, bien) -> None:
+    """Pura: un destino prohibido tiene que recibir un 4xx; no contestar no se ha podido
+    comprobar (y es grave), y un 502 o un 503 dicen que el destino estaba permitido."""
+    vistas = aislamiento.Observaciones(proxy_alcanzable=True, con_credencial={
+        aislamiento.API: 200, "example.com:443": codigo})
+    juicio = {c.nombre: c for c in aislamiento.evaluar("lector", vistas, ())}
+    prohibido = juicio["por el proxy a example.com:443"]
+    assert (prohibido.bien, prohibido.grave) == (bien, True)
+    if codigo is None:
+        assert prohibido.obtenido == "no contesta: no se ha podido comprobar"
+    # Sin la credencial, solo el 407: un 403 diria que la credencial no se ha mirado.
+    sin = aislamiento.evaluar("consola", aislamiento.Observaciones(
+        sin_credencial={aislamiento.API: codigo}), ())
+    assert [(c.bien, c.grave) for c in sin] == [(codigo == 407, True)]
+
+
 def test_un_lector_sin_proxy_no_se_da_por_bueno() -> None:
     sin_proxy = aislamiento.comprobar("lector", sondas=_sondas(), espera=1)
     assert _malas(sin_proxy) == ["llegar al proxy de la salida"]
@@ -421,7 +482,10 @@ def test_lo_que_contesta_la_api_por_el_proxy(codigo, bien, grave) -> None:
 def test_el_codigo_no_se_puede_escribir_y_los_datos_si(tmp_path) -> None:
     instalacion = _instalacion(tmp_path / "BMS", "lector")
     carpetas = instalacion.carpetas_a_probar()
-    assert set(carpetas) == {"app", "lib", "runtime/lector", "datos", "buzon"}
+    # La raiz (instalacion.json) y windows (los scripts) tambien: revision del paso 14.
+    assert set(carpetas) == {"app", "lib", "windows", "raiz", "runtime/lector", "datos",
+                             "buzon"}
+    assert carpetas["raiz"] == instalacion.raiz
     bien = {"datos", "buzon"}
     vistas = aislamiento.observar("orden", sondas=(), carpetas=carpetas,
                                   escribir=lambda c: c.name in bien)
@@ -431,6 +495,13 @@ def test_el_codigo_no_se_puede_escribir_y_los_datos_si(tmp_path) -> None:
                                   escribir=lambda c: c.name in bien | {"lector"})
     juicio = aislamiento.evaluar("orden", vistas, ())
     assert [c.nombre for c in juicio if c.grave and not c.bien] == ["escribir en runtime/lector"]
+    # Una raiz o unos scripts que se pueden cambiar: se podria borrar instalacion.json, o
+    # cambiar lo que arranca la salida.
+    for carpeta, nombre in (("BMS", "raiz"), ("windows", "windows")):
+        vistas = aislamiento.observar("orden", sondas=(), carpetas=carpetas,
+                                      escribir=lambda c, x=carpeta: c.name in bien | {x})
+        juicio = aislamiento.evaluar("orden", vistas, ())
+        assert [c.nombre for c in juicio if c.grave and not c.bien] == [f"escribir en {nombre}"]
     # Unos datos que no se pueden escribir no son una fuga: un aviso.
     vistas = aislamiento.observar("orden", sondas=(), carpetas=carpetas, escribir=lambda c: False)
     juicio = aislamiento.evaluar("orden", vistas, ())
@@ -635,8 +706,31 @@ def test_un_instalacion_json_roto_no_se_toma_por_ninguno(tmp_path, capsys) -> No
         nativo.detectar(raiz / "runtime" / "orden" / "python.exe")
     # Fuera de runtime\<papel> no hay instalacion: el desarrollo, Docker y los tests.
     assert nativo.detectar(raiz / "otra" / "python.exe") is None
+    # Sin instalacion.json y sin el ._pth de la instalacion, tampoco.
+    (raiz / nativo.FICHERO_INSTALACION).unlink()
+    assert nativo.detectar(raiz / "runtime" / "orden" / "python.exe") is None
     assert nativo.detectar(sys.executable) is None
     assert nativo.instalacion_actual() is None
+
+
+def test_un_interprete_de_la_instalacion_sin_instalacion_json_no_apaga_las_puertas(
+        tmp_path, monkeypatch, pdfs_ejemplo, capsys) -> None:
+    """Revision del paso 14: sin instalacion.json, detectar decia "no hay instalacion" tambien
+    para runtime\\lector\\python.exe, y la puerta de la API, la clave solo cifrada y la consola
+    sin lectura se apagaban. Con el ._pth de la instalacion al lado, es un error."""
+    raiz = tmp_path / "BMS"
+    lector = raiz / "runtime" / "lector"
+    lector.mkdir(parents=True)
+    (lector / "python.exe").write_bytes(b"")
+    (lector / nativo.FICHERO_PTH).write_text(nativo.contenido_pth(), encoding="ascii")
+    with pytest.raises(nativo.InstalacionNoValida, match="falta .*instalacion.json"):
+        nativo.detectar(lector / "python.exe")
+    assert nativo.FICHERO_PTH == "python311._pth" and nativo.RUTAS_PTH[0] == "python311.zip"
+    # La CLI de ese programa no sigue: ni paga, ni abre la consola como si fuera la de siempre.
+    monkeypatch.setattr(sys, "executable", str(lector / "python.exe"))
+    for orden in (["coste", "--estimar", str(pdfs_ejemplo)], ["serve", "--puerto", "0"]):
+        assert main(orden) == 2, orden
+        assert "falta" in capsys.readouterr().err
 
 
 # ============================================================ la consola
@@ -779,6 +873,50 @@ def test_el_cliente_http_del_sdk_manda_la_credencial_de_https_proxy(monkeypatch,
                 assert "407" in str(error.value) or "codigo=407" in registro
 
 
+def test_el_sdk_de_la_api_manda_la_credencial_de_https_proxy(monkeypatch, caplog) -> None:
+    """Revision del paso 14: lo mismo, pero con el cliente que usa el lector de verdad
+    (anthropic.Anthropic), que monta sus propios proxies y su propio transporte. Con la
+    credencial pasa (y el TLS falla contra el eco local); con otra, 407."""
+    import anthropic
+
+    caplog.set_level(logging.INFO, logger="bms_agent.salida")
+    for variable in ("https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy",
+                     "NO_PROXY", "ANTHROPIC_BASE_URL"):
+        monkeypatch.delenv(variable, raising=False)
+    with _proxy() as (host, puerto):
+        for credencial, pasa in ((CREDENCIAL, True), ("otra" * 8, False)):
+            caplog.clear()
+            monkeypatch.setenv("HTTPS_PROXY", f"http://bms:{credencial}@{host}:{puerto}")
+            cliente = anthropic.Anthropic(api_key="sk-ant-x", max_retries=0, timeout=3)
+            with pytest.raises(anthropic.APIConnectionError):
+                cliente.models.list()
+            registro = "\n".join(r.getMessage() for r in caplog.records)
+            assert ("decision=permitida" in registro) is pasa, (credencial, registro)
+            assert ("codigo=407" in registro) is not pasa, (credencial, registro)
+            assert "api.anthropic.com:443" in registro
+            cliente.close()
+
+
+def test_la_salida_se_para_sola_al_cumplir_su_vida(monkeypatch) -> None:
+    """Revision del paso 14: si se cierra la ventana de leer-facturas con la X, PowerShell
+    muere sin parar la salida. Con --max-segundos se para sola."""
+    import time
+
+    monkeypatch.setenv(salida.VARIABLE_CLAVE, CREDENCIAL)
+    resultado = {}
+    hilo = threading.Thread(target=lambda: resultado.setdefault("codigo", main(
+        ["salida", "--escuchar", "127.0.0.1:0", "--clave-del-entorno", "--max-segundos",
+         "0.5"])), daemon=True)
+    inicio = time.monotonic()
+    hilo.start()
+    hilo.join(10)
+    assert not hilo.is_alive() and resultado == {"codigo": 0}
+    assert time.monotonic() - inicio < 5
+    with pytest.raises(ValueError):
+        salida.servir("127.0.0.1:0", vida=0)
+    assert main(["salida", "--escuchar", "127.0.0.1:0", "--max-segundos", "-1"]) == 2
+
+
 def test_la_salida_con_credencial_la_exige_en_el_entorno(monkeypatch, capsys) -> None:
     monkeypatch.delenv(salida.VARIABLE_CLAVE, raising=False)
     assert main(["salida", "--escuchar", "127.0.0.1:0", "--clave-del-entorno"]) == 2
@@ -847,10 +985,14 @@ def test_ningun_modulo_lanza_procesos() -> None:
     os.system u os.popen, ni os.exec* u os.spawn*, ni os.startfile, ni multiprocessing, ni
     ShellExecute o CreateProcess por ctypes, ni el navegador."""
     malos = {}
+    # Los nombres de los sucesos de auditoria que nativo prohibe no son llamadas.
+    sucesos = {repr(s) for s in nativo.SUCESOS_DE_PROCESO}
     for ruta in sorted(SRC.rglob("*.py")):
         codigo = ruta.read_text(encoding="utf-8")
         nombre = str(ruta.relative_to(SRC))
         encontrados = lanzamientos(codigo)
+        if nombre == "nativo.py":
+            encontrados = [e for e in encontrados if e not in sucesos]
         if encontrados and nombre not in PUEDEN_LANZAR:
             malos[nombre] = encontrados
         if _usa_ctypes(codigo) and nombre not in PUEDEN_USAR_CTYPES:
@@ -860,6 +1002,60 @@ def test_ningun_modulo_lanza_procesos() -> None:
     assert set(re.findall(r'WinDLL\("(\w+)"', texto)) == {"crypt32", "kernel32"}
     assert set(re.findall(r"(?:crypt32|kernel32)\.(\w+)", texto)) == {
         "CryptProtectData", "CryptUnprotectData", "LocalFree"}
+
+
+GANCHO = r'''
+import os, platform, subprocess, sys
+sys.path.insert(0, sys.argv[1])
+from bms_agent import nativo
+if sys.argv[2] == "si":
+    nativo.prohibir_procesos()
+    for intento in (lambda: subprocess.run(["true"]), lambda: os.system("true")):
+        try:
+            intento()
+        except PermissionError as exc:
+            assert "no arranca otros programas" in str(exc)
+        else:
+            raise SystemExit("ha lanzado un proceso")
+# Lo que hace platform en Windows con Python 3.11 (y por el, el SDK de la API): `ver`.
+sys.platform = "win32"
+print(platform._syscmd_ver("s", "r", "v"))
+'''
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="el `ver` de mentira es un script de sh")
+@pytest.mark.parametrize("gancho", [False, True])
+def test_en_la_instalacion_ni_las_dependencias_arrancan_programas(tmp_path, gancho) -> None:
+    """Revision del paso 14: el SDK llama a platform.system(), que en Windows ejecuta `ver`
+    con cmd.exe, un programa sin reglas. Con el gancho de nativo (que main pone en la
+    instalacion), platform no arranca nada y sigue con lo que sabe. Se prueba en otro proceso:
+    un gancho de auditoria no se quita."""
+    marca = tmp_path / "ver-ha-corrido"
+    carpeta = tmp_path / "bin"
+    carpeta.mkdir()
+    ver = carpeta / "ver"
+    ver.write_text(f"#!/bin/sh\ntouch '{marca}'\necho 'Microsoft Windows [Version 10.0.1.2]'\n",
+                   encoding="ascii")
+    ver.chmod(0o755)
+    entorno = dict(os.environ, PATH=f"{carpeta}{os.pathsep}{os.environ.get('PATH', '')}")
+    proceso = subprocess.run([sys.executable, "-c", GANCHO, str(SRC.parent),
+                              "si" if gancho else "no"], capture_output=True, text=True,
+                             env=entorno, timeout=60)
+    assert proceso.returncode == 0, proceso.stderr
+    assert marca.exists() is not gancho
+    if gancho:
+        assert proceso.stdout.strip() == "('s', 'r', 'v')"
+    # En este proceso (los tests) no hay instalacion: el gancho no se pone.
+    nativo.prohibir_procesos_si_nativa()
+    assert nativo._prohibidos is False
+
+
+def test_el_gancho_conoce_cada_forma_de_lanzar_de_python() -> None:
+    assert {"subprocess.Popen", "os.system", "os.startfile", "os.exec", "os.spawn",
+            "os.posix_spawn", "_winapi.CreateProcess"} <= nativo.SUCESOS_DE_PROCESO
+    with pytest.raises(PermissionError):
+        nativo._sin_procesos("subprocess.Popen", ("cmd.exe", "ver", None, None))
+    assert nativo._sin_procesos("open", ("x", "r", 0)) is None
 
 
 @pytest.mark.parametrize("codigo", [
@@ -1056,6 +1252,89 @@ def test_el_desinstalador_quita_las_reglas_por_el_prefijo_y_deja_los_datos() -> 
     assert sum("Remove-NetFirewallRule" in _ps1(n) for n in SCRIPTS) == 0
 
 
+def _de_la_instalacion() -> set[str]:
+    instalar = _ps1("instalar")
+    lista = re.search(r"\$DeLaInstalacion = @\(([^)]*)\)", instalar).group(1)
+    return set(re.findall(r'"([^"]+)"', lista))
+
+
+def test_se_puede_volver_a_instalar_donde_se_desinstalo_o_fallo() -> None:
+    """Revision del paso 14: Validar-Raiz rechazaba toda carpeta sin instalacion.json que no
+    estuviera vacia, y eso es justo lo que dejan desinstalar (con tus datos) y un intento que
+    no acaba. Ahora acepta una carpeta con solo lo que deja bms-agent."""
+    nuestros = _de_la_instalacion()
+    instalar = _ps1("instalar")
+    validar = _funcion(instalar, "Validar-Raiz")
+    assert "$DeLaInstalacion -notcontains $_.Name" in validar
+    assert "instalacion.json" in nuestros
+    # Lo que crea el instalador en la raiz: todo es de la lista.
+    creados = set(re.findall(r'Join-Path \$Raiz \(?"([a-z.]+)[\\"]', instalar))
+    carpetas = re.search(r'foreach \(\$carpeta in @\(("datos"[^)]*)\)\)', instalar).group(1)
+    creados |= {c.split("\\")[0] for c in re.findall(r'"([^"]+)"', carpetas)}
+    assert {"descargas", "runtime", "lib", "app", "windows", "instalacion.json",
+            "instalacion.log"} <= creados
+    assert creados <= nuestros, creados - nuestros
+    # Lo que deja desinstalar: lo que habia menos lo que borra.
+    desinstalar = _ps1("desinstalar")
+    borrados = set()
+    for lista in re.findall(r"foreach \(\$\w+ in @\(([^)]*)\)\) \{\s*Remove-Item", desinstalar):
+        borrados |= set(re.findall(r'"([^"]+)"', lista))
+    assert {"runtime", "lib", "app", "windows", "descargas", "instalacion.json",
+            "instalacion.log", "datos", "buzon"} <= borrados
+    sin_borrar_datos = creados - (borrados - {"datos", "buzon"})
+    assert sin_borrar_datos == {"datos", "buzon"} and sin_borrar_datos <= nuestros
+    # Una carpeta con algo mas sigue sin valer, y un enlace tampoco.
+    assert "ya existe y no es una instalacion de bms-agent" in validar
+    assert validar.count("ReparsePoint") == 2
+
+
+def test_sin_los_hashes_fijados_no_se_crea_la_carpeta() -> None:
+    instalar = _ps1("instalar")
+    elevado = instalar.index("if (-not $Elevado) {")
+    for llamada in ("$null = Leer-Fijado", "$null = @(Leer-Requisitos)"):
+        assert instalar.index(llamada) < elevado, llamada
+    assert instalar.index("function Leer-Fijado") < instalar.index("$null = Leer-Fijado")
+    assert instalar.index("New-Item -ItemType Directory -Force -Path $Raiz") > elevado
+
+
+def test_la_raiz_se_cierra_antes_de_bajar_copiar_o_ejecutar_nada() -> None:
+    """Revision del paso 14: bajo C:\\ la raiz nueva heredaba "modificar" para cada usuario
+    hasta el ultimo paso, y el instalador comprobaba, copiaba y ejecutaba como administrador
+    lo de una carpeta que cualquiera podia cambiar."""
+    instalar = _ps1("instalar")
+    principal = instalar[instalar.rindex("$bien = $false"):]
+    orden = [principal.index(t) for t in ("try {", "New-Item -ItemType Directory -Force -Path $Raiz",
+                                          "Cerrar-Raiz $Raiz $Usuario", "Start-Transcript",
+                                          "Instalar $Raiz $Usuario")]
+    # Todo dentro del try: un fallo al cerrar tambien se dice y espera a que lo leas.
+    assert orden == sorted(orden)
+    cerrar = _funcion(instalar, "Cerrar-Raiz")
+    for trozo in ('Icacls @($Raiz, "/setowner", $administradores, "/T", "/C", "/Q")',
+                  '$Raiz, "/inheritance:r", "/grant:r"', '("*" + $Sid + ":(OI)(CI)RX")',
+                  '"/remove:g"', "ReparsePoint", '"/reset", "/T"',
+                  '@("datos", "buzon") -notcontains $hijo.Name'):
+        assert trozo in cerrar, trozo
+    assert "(OI)(CI)M" not in cerrar
+    # Lo que se baja va dentro de la raiz ya cerrada; nada en %TEMP%.
+    assert '$descargas = Join-Path $Raiz "descargas"' in instalar
+    for nombre in (*SCRIPTS, "comun"):
+        assert "$env:TEMP" not in _codigo(_ps1(nombre)), nombre
+
+
+def test_el_desinstalador_se_eleva_en_su_sitio_y_sale_de_la_carpeta() -> None:
+    """Revision del paso 14: la parte de administrador corria desde una copia en %TEMP%, que
+    tu usuario puede cambiar; y la ventana, con su carpeta actual en windows\\, no dejaba
+    borrarla."""
+    desinstalar = _ps1("desinstalar")
+    assert '"-File", $PSCommandPath' in desinstalar and "TEMP" not in _codigo(desinstalar)
+    assert "Copy-Item" not in desinstalar
+    assert desinstalar.index("Set-Location -LiteralPath $env:SystemRoot") < desinstalar.index(
+        "if (-not $Elevado) {")
+    bat = (WINDOWS / "desinstalar.bat").read_text(encoding="utf-8")
+    orden = [linea for linea in bat.splitlines() if "powershell" in linea]
+    assert len(orden) == 1 and orden[0].startswith('cd /d "%SystemRoot%" & powershell')
+
+
 def test_el_instalador_hace_un_python_por_papel_con_su_pth() -> None:
     instalar = _ps1("instalar")
     pth = instalar[instalar.index("function Escribir-Pth"):]
@@ -1156,7 +1435,82 @@ def test_comprobar_prueba_cada_papel_con_su_programa() -> None:
     comun = _ps1("comun")
     assert 'function Comprobar-Rol' in comun and '@("comprobar-aislamiento", "--rol", $Rol)' in comun
     orden = comun[comun.index("function Orden-De"):]
-    assert "& $programa -X utf8 -m bms_agent.cli @Argumentos" in orden[:orden.index("\n}\n")]
+    assert "& $programa @OpcionesPython -m bms_agent.cli @Argumentos" in orden[:orden.index("\n}\n")]
+
+
+def _funcion(texto: str, nombre: str) -> str:
+    cuerpo = texto[texto.index(f"function {nombre}"):]
+    return cuerpo[:cuerpo.index("\n}\n")]
+
+
+def test_cada_python_corre_sin_bufer() -> None:
+    """Revision del paso 14: con la salida por una tuberia (Out-Host) o a un fichero, Python
+    guardaba lo que decia hasta acabar: una lectura de pago dejaba la ventana parada. Con el
+    ._pth no se mira PYTHONUNBUFFERED; -u si vale."""
+    comun = _ps1("comun")
+    assert '$OpcionesPython = @("-u", "-X", "utf8")' in comun
+    for nombre in ("Orden-De", "Orden-Directa", "Arrancar-En-Segundo-Plano"):
+        assert "OpcionesPython" in _funcion(comun, nombre), nombre
+    assert '"-X", "utf8", "-m"' not in comun
+    for nombre in (*SCRIPTS, "comun"):
+        assert not re.search(r"python\.exe[\"']?\s+-X", _ps1(nombre)), nombre
+
+
+def test_el_cortafuegos_se_compara_como_texto() -> None:
+    """Revision del paso 14: Get-NetFirewallProfile da Enabled como GpoBoolean (no un
+    booleano), y `-ne $true` daba siempre "apagado"."""
+    for nombre in (*SCRIPTS, "comun"):
+        assert not re.search(r"Enabled\s+-(eq|ne)\s+\$(true|false)", _ps1(nombre),
+                             re.IGNORECASE), nombre
+    assert '@("True", "1") -notcontains ("" + $perfil.Enabled)' in _ps1("comprobar")
+    assert '@("True", "1") -notcontains ("" + $_.Enabled)' in _ps1("instalar")
+
+
+def test_comprobar_solo_sale_en_verde_con_el_cortafuegos_y_la_clave() -> None:
+    """Revision del paso 14: una clave que no se puede usar, o un cortafuegos que no se puede
+    leer, salian como "Todo en verde"."""
+    texto = _ps1("comprobar")
+    assert "$todoBien = $cortafuegosBien -and $claveBien" in texto
+    clave = texto[texto.index('"3. La clave de la API"'):texto.index('"4. Otros programas')]
+    assert clave.index("if ($codigo -ne 0) {") < clave.index("$claveBien = $false")
+    cortafuegos = texto[texto.index('"1. El cortafuegos'):texto.index('"2. Cada papel')]
+    captura = cortafuegos[cortafuegos.index("} catch {"):]
+    assert "$cortafuegosBien = $false" in captura and "MAL" in captura
+    # Lo que escucha en 127.0.0.1 (el cortafuegos no lo filtra) se ensena, como aviso.
+    escucha = texto[texto.index('"4. Otros programas'):texto.index('"Resumen"')]
+    assert "Get-NetTCPConnection -State Listen" in escucha and '"127.0.0.1", "::1"' in escucha
+    assert "$todoBien" not in escucha
+    assert texto.index("$todoBien = ") < texto.index("if ($todoBien)")
+
+
+def test_la_salida_se_apaga_sola_si_nadie_la_para() -> None:
+    """Revision del paso 14: cerrar la ventana con la X no llega al finally."""
+    comun = _ps1("comun")
+    arrancar = _funcion(comun, "Arrancar-Salida")
+    assert "function Arrancar-Salida([string]$Credencial, [int]$Segundos)" in arrancar
+    assert '"--max-segundos", ([string]$Segundos)' in arrancar
+    assert "if ($Segundos -le 0)" in arrancar
+    assert "$VidaSalidaLectura = 3 * 60 * 60" in comun
+    assert "$VidaSalidaComprobacion = 10 * 60" in comun
+    assert "Arrancar-Salida $credencial $VidaSalidaLectura" in _ps1("leer-facturas")
+    assert "Arrancar-Salida $credencial $VidaSalidaComprobacion" in _ps1("comprobar")
+    # Al abrir la consola, una salida que se quedo encendida se para (si no se esta leyendo).
+    assert 'if ((Procesos-De "lector").Count -eq 0) { Parar-Rol "salida" }' in _ps1("iniciar")
+
+
+def test_windows_prepara_la_cadena_de_la_api_antes_de_comprobar_el_lector() -> None:
+    """Revision del paso 14: el lector valida el certificado con Windows dentro de su proceso,
+    sin red; si Windows aun no tiene la cadena de la API, la baja PowerShell (que si tiene
+    red) con una peticion HEAD, sin guardar nada."""
+    comun = _ps1("comun")
+    preparar = _funcion(comun, "Preparar-Certificados")
+    assert re.search(r"Invoke-WebRequest -UseBasicParsing -Method Head [^\n]*"
+                     r'-Uri \("https://" \+ \$ApiNombre \+ "/"\)', preparar)
+    assert "-OutFile" not in preparar and '$ApiNombre = "api.anthropic.com"' in comun
+    assert "$_.Exception.Response" in preparar
+    for nombre in ("comprobar", "leer-facturas"):
+        texto = _ps1(nombre)
+        assert texto.index("Preparar-Certificados") < texto.index('Comprobar-Rol "lector"'), nombre
 
 
 def _importables() -> set[tuple[str, str]]:

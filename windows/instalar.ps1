@@ -30,6 +30,12 @@ param(
 
 $Proyecto = Split-Path $PSScriptRoot -Parent
 
+# Lo unico que puede haber en la carpeta de instalacion: lo que deja bms-agent. Una carpeta asi
+# se acepta aunque no tenga instalacion.json: es la que deja desinstalar.bat con tus datos
+# (datos y buzon) o un intento de instalar que no acabo (instalacion.log, descargas, runtime...).
+$DeLaInstalacion = @("instalacion.json", "instalacion.log", "descargas", "runtime", "lib", "app",
+    "windows", "datos", "buzon")
+
 function Validar-Raiz([string]$Texto) {
     if (-not [System.IO.Path]::IsPathRooted($Texto)) {
         Fallar "La carpeta de instalacion tiene que ser una ruta completa, como C:\BMS."
@@ -41,78 +47,24 @@ function Validar-Raiz([string]$Texto) {
     if ($completa -notmatch '^[A-Za-z]:\\[A-Za-z0-9_\\ .-]+$') {
         Fallar "La carpeta de instalacion solo puede llevar letras sin acentos, numeros, espacios, puntos y guiones."
     }
-    $fichero = Join-Path $completa "instalacion.json"
-    if ((Test-Path -LiteralPath $completa) -and -not (Test-Path -LiteralPath $fichero)) {
+    if (Test-Path -LiteralPath $completa) {
+        # Un enlace (o un hijo que lo es) llevaria lo que se instala a otra carpeta, que no
+        # tendria los permisos de esta.
+        if ((Get-Item -Force -LiteralPath $completa).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            Fallar "$completa es un enlace a otra carpeta: elige una carpeta de verdad."
+        }
         $dentro = @(Get-ChildItem -Force -LiteralPath $completa -ErrorAction SilentlyContinue)
-        if ($dentro.Count -gt 0) { Fallar "$completa ya existe y no es una instalacion de bms-agent: elige otra carpeta." }
+        $ajenos = @($dentro | Where-Object { $DeLaInstalacion -notcontains $_.Name } | ForEach-Object { $_.Name })
+        if ($ajenos.Count -gt 0) {
+            Fallar ("$completa ya existe y no es una instalacion de bms-agent (tiene " + ($ajenos -join ", ") + "): elige otra carpeta.")
+        }
+        $enlaces = @($dentro | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } | ForEach-Object { $_.Name })
+        if ($enlaces.Count -gt 0) {
+            Fallar ("En $completa, " + ($enlaces -join ", ") + " es un enlace a otra carpeta: borralo y vuelve a instalar.")
+        }
     }
     return $completa
 }
-
-function Crear-Accesos([string]$Raiz) {
-    # Los accesos directos del escritorio de tu usuario (por eso, fuera de la parte de
-    # administrador).
-    $escritorio = [Environment]::GetFolderPath("Desktop")
-    $shell = New-Object -ComObject WScript.Shell
-    $accesos = @(
-        @{ Nombre = "Abrir la consola"; Script = "iniciar.bat"; Argumentos = "" },
-        @{ Nombre = "Datos de prueba"; Script = "iniciar.bat"; Argumentos = "-Demo" },
-        @{ Nombre = "Parar"; Script = "parar.bat"; Argumentos = "" },
-        @{ Nombre = "Importar el buzon"; Script = "importar.bat"; Argumentos = "" },
-        @{ Nombre = "Leer facturas"; Script = "leer-facturas.bat"; Argumentos = "" },
-        @{ Nombre = "Comprobar aislamiento"; Script = "comprobar.bat"; Argumentos = "" }
-    )
-    foreach ($a in $accesos) {
-        $acceso = $shell.CreateShortcut((Join-Path $escritorio ($Prefijo + $a.Nombre + ".lnk")))
-        $acceso.TargetPath = Join-Path $Raiz ("windows\" + $a.Script)
-        $acceso.Arguments = $a.Argumentos
-        $acceso.WorkingDirectory = Join-Path $Raiz "windows"
-        $acceso.Save()
-    }
-    $buzon = $shell.CreateShortcut((Join-Path $escritorio ($Prefijo + "Buzon.lnk")))
-    $buzon.TargetPath = Join-Path $Raiz "buzon"
-    $buzon.Save()
-}
-
-# ---------------------------------------------------------------- la parte de tu usuario
-
-$Raiz = Validar-Raiz $Raiz
-if (-not (Test-Path -LiteralPath (Join-Path $Proyecto "src\bms_agent\cli.py"))) {
-    Fallar "Abre instalar.bat desde la carpeta del proyecto (la que tiene src y config), no desde la instalacion."
-}
-if (-not $Elevado) {
-    $sid = Sid-Actual
-    Escribir "Instalando bms-agent en $Raiz. Windows te va a pedir permiso de administrador (una vez)." "Cyan"
-    $argumentos = Linea-De-Argumentos @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
-        "-Raiz", $Raiz, "-Usuario", $sid, "-Elevado")
-    try {
-        $proceso = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argumentos `
-            -Verb RunAs -Wait -PassThru
-    } catch {
-        Fallar "Sin permiso de administrador no se puede instalar: las reglas del cortafuegos lo necesitan. Vuelve a abrir instalar.bat y di que si."
-    }
-    if ($proceso.ExitCode -ne 0) {
-        Fallar ("La instalacion no ha terminado bien. Lo que ha pasado esta en " + (Join-Path $Raiz "instalacion.log"))
-    }
-    Crear-Accesos $Raiz
-    Escribir ""
-    Escribir "Instalado en $Raiz, con sus accesos en el escritorio (BMS Finanzas - ...)." "Green"
-    $respuesta = Read-Host "Quieres guardar ahora la clave de la API? (escribe si; tambien se puede luego con clave.bat)"
-    if (Es-Si $respuesta) {
-        & (Join-Path $Raiz "windows\clave.ps1")
-    }
-    Escribir ""
-    Escribir "Comprobando el aislamiento (lo mismo que comprobar.bat)..." "Cyan"
-    & (Join-Path $Raiz "windows\comprobar.ps1")
-    Escribir ""
-    Escribir "Siguiente paso: tu token personal (persona.bat) y la empresa (empresa.bat), como dice docs/instalacion-nativa.md." "Cyan"
-    exit 0
-}
-
-# ---------------------------------------------------------------- la parte de administrador
-
-# Aqui un fallo no cierra la ventana sin mas: se dice, se apunta y se espera a que lo leas.
-function Fallar([string]$Texto) { throw $Texto }
 
 function Leer-Fijado {
     $fijado = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "fijado.json") | ConvertFrom-Json
@@ -148,6 +100,75 @@ function Leer-Requisitos {
     }
     return $requisitos
 }
+
+function Crear-Accesos([string]$Raiz) {
+    # Los accesos directos del escritorio de tu usuario (por eso, fuera de la parte de
+    # administrador).
+    $escritorio = [Environment]::GetFolderPath("Desktop")
+    $shell = New-Object -ComObject WScript.Shell
+    $accesos = @(
+        @{ Nombre = "Abrir la consola"; Script = "iniciar.bat"; Argumentos = "" },
+        @{ Nombre = "Datos de prueba"; Script = "iniciar.bat"; Argumentos = "-Demo" },
+        @{ Nombre = "Parar"; Script = "parar.bat"; Argumentos = "" },
+        @{ Nombre = "Importar el buzon"; Script = "importar.bat"; Argumentos = "" },
+        @{ Nombre = "Leer facturas"; Script = "leer-facturas.bat"; Argumentos = "" },
+        @{ Nombre = "Comprobar aislamiento"; Script = "comprobar.bat"; Argumentos = "" }
+    )
+    foreach ($a in $accesos) {
+        $acceso = $shell.CreateShortcut((Join-Path $escritorio ($Prefijo + $a.Nombre + ".lnk")))
+        $acceso.TargetPath = Join-Path $Raiz ("windows\" + $a.Script)
+        $acceso.Arguments = $a.Argumentos
+        $acceso.WorkingDirectory = Join-Path $Raiz "windows"
+        $acceso.Save()
+    }
+    $buzon = $shell.CreateShortcut((Join-Path $escritorio ($Prefijo + "Buzon.lnk")))
+    $buzon.TargetPath = Join-Path $Raiz "buzon"
+    $buzon.Save()
+}
+
+# ---------------------------------------------------------------- la parte de tu usuario
+
+$Raiz = Validar-Raiz $Raiz
+if (-not (Test-Path -LiteralPath (Join-Path $Proyecto "src\bms_agent\cli.py"))) {
+    Fallar "Abre instalar.bat desde la carpeta del proyecto (la que tiene src y config), no desde la instalacion."
+}
+# Sin los hashes fijados no se sigue, y antes de crear nada: asi un intento sin ellos no deja
+# una carpeta a medias.
+$null = Leer-Fijado
+$null = @(Leer-Requisitos)
+if (-not $Elevado) {
+    $sid = Sid-Actual
+    Escribir "Instalando bms-agent en $Raiz. Windows te va a pedir permiso de administrador (una vez)." "Cyan"
+    $argumentos = Linea-De-Argumentos @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
+        "-Raiz", $Raiz, "-Usuario", $sid, "-Elevado")
+    try {
+        $proceso = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argumentos `
+            -Verb RunAs -Wait -PassThru
+    } catch {
+        Fallar "Sin permiso de administrador no se puede instalar: las reglas del cortafuegos lo necesitan. Vuelve a abrir instalar.bat y di que si."
+    }
+    if ($proceso.ExitCode -ne 0) {
+        Fallar ("La instalacion no ha terminado bien. Lo que ha pasado esta en " + (Join-Path $Raiz "instalacion.log"))
+    }
+    Crear-Accesos $Raiz
+    Escribir ""
+    Escribir "Instalado en $Raiz, con sus accesos en el escritorio (BMS Finanzas - ...)." "Green"
+    $respuesta = Read-Host "Quieres guardar ahora la clave de la API? (escribe si; tambien se puede luego con clave.bat)"
+    if (Es-Si $respuesta) {
+        & (Join-Path $Raiz "windows\clave.ps1")
+    }
+    Escribir ""
+    Escribir "Comprobando el aislamiento (lo mismo que comprobar.bat)..." "Cyan"
+    & (Join-Path $Raiz "windows\comprobar.ps1")
+    Escribir ""
+    Escribir "Siguiente paso: tu token personal (persona.bat) y la empresa (empresa.bat), como dice docs/instalacion-nativa.md." "Cyan"
+    exit 0
+}
+
+# ---------------------------------------------------------------- la parte de administrador
+
+# Aqui un fallo no cierra la ventana sin mas: se dice, se apunta y se espera a que lo leas.
+function Fallar([string]$Texto) { throw $Texto }
 
 function Descargar-Verificado([string]$Url, [string]$Sha256, [string]$Destino) {
     # Lo unico de este instalador que trae algo de fuera. Si esta en windows\paquetes (un
@@ -209,6 +230,43 @@ function Escribir-Pth([string]$Carpeta) {
 function Icacls([string[]]$Argumentos) {
     & icacls.exe @Argumentos | Out-Null
     if ($LASTEXITCODE -ne 0) { Fallar ("No se han podido poner los permisos (icacls " + ($Argumentos -join " ") + ").") }
+}
+
+function Cerrar-Raiz([string]$Raiz, [string]$Sid) {
+    # Lo primero de la parte de administrador, antes de bajar, copiar o ejecutar nada: la raiz,
+    # de los administradores, y tu usuario solo lee. Lo que se crea dentro lo hereda. Sin
+    # esto, bajo C:\ (que deja a cualquier usuario crear y cambiar ficheros) lo bajado se
+    # podria cambiar despues de comprobar su sha256, y el paso 5 ejecutaria como administrador
+    # codigo de una carpeta que cualquiera escribe.
+    $sistema = "*S-1-5-18"
+    $administradores = "*S-1-5-32-544"
+    $nuestros = @("S-1-5-18", "S-1-5-32-544", $Sid)
+    if ((Get-Item -Force -LiteralPath $Raiz).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        Fallar "$Raiz es un enlace a otra carpeta: no se instala ahi."
+    }
+    Icacls @($Raiz, "/setowner", $administradores, "/T", "/C", "/Q")
+    Icacls @($Raiz, "/inheritance:r", "/grant:r", ($sistema + ":(OI)(CI)F"),
+        ($administradores + ":(OI)(CI)F"), ("*" + $Sid + ":(OI)(CI)RX"), "/Q")
+    # /inheritance:r deja los permisos puestos a mano (Todos: control total, por ejemplo): fuera
+    # todo permiso que no sea de estos tres.
+    foreach ($regla in @((Get-Acl -LiteralPath $Raiz).Access | Where-Object { -not $_.IsInherited -and "$($_.AccessControlType)" -eq "Allow" })) {
+        $quien = $regla.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        if ($nuestros -notcontains $quien) { Icacls @($Raiz, "/remove:g", ("*" + $quien), "/Q") }
+    }
+    $quedan = @((Get-Acl -LiteralPath $Raiz).Access | Where-Object { "$($_.AccessControlType)" -eq "Allow" } |
+        ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } |
+        Where-Object { $nuestros -notcontains $_ })
+    if ($quedan.Count -gt 0) { Fallar ("La carpeta $Raiz tiene permisos de " + ($quedan -join ", ") + " que no se pueden quitar: elige otra carpeta.") }
+    # Lo que ya habia del programa (de una instalacion anterior o de un intento que no acabo)
+    # pasa a heredar de la raiz; los datos y el buzon tienen los suyos, solo para tu usuario.
+    foreach ($hijo in @(Get-ChildItem -Force -LiteralPath $Raiz)) {
+        if ($hijo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            Fallar ("En $Raiz, " + $hijo.Name + " es un enlace a otra carpeta: borralo y vuelve a instalar.")
+        }
+        if (@("datos", "buzon") -notcontains $hijo.Name) {
+            Icacls @($hijo.FullName, "/reset", "/T", "/C", "/Q")
+        }
+    }
 }
 
 function Poner-Permisos([string]$Raiz, [string]$Sid) {
@@ -355,7 +413,8 @@ function Instalar([string]$Raiz, [string]$Sid) {
 
     Escribir "7/7 El cortafuegos de Windows y los permisos de las carpetas..." "Cyan"
     Crear-Reglas $Raiz
-    $apagados = @(Get-NetFirewallProfile | Where-Object { $_.Enabled -ne $true })
+    # Enabled no es un booleano (es GpoBoolean, o un numero): se compara como texto.
+    $apagados = @(Get-NetFirewallProfile | Where-Object { @("True", "1") -notcontains ("" + $_.Enabled) })
     if ($apagados.Count -gt 0) {
         Escribir ("ATENCION: el cortafuegos de Windows esta apagado en " + (($apagados | ForEach-Object { $_.Name }) -join ", ") + ". Sin el, las reglas no hacen nada: enciendelo (Seguridad de Windows, Firewall y proteccion de red).") "Red"
     }
@@ -371,18 +430,20 @@ if ($Usuario -notmatch '^S-1-(5-21|12-1)(-\d+)+$') {
     Write-Host "Falta el usuario para el que se instala: abre instalar.bat con doble clic." -ForegroundColor Red
     exit 1
 }
-New-Item -ItemType Directory -Force -Path $Raiz | Out-Null
-$registro = Join-Path $Raiz "instalacion.log"
-Start-Transcript -Path $registro -Force | Out-Null
 $bien = $false
+$apuntando = $false
 try {
+    New-Item -ItemType Directory -Force -Path $Raiz | Out-Null
+    Cerrar-Raiz $Raiz $Usuario
+    Start-Transcript -Path (Join-Path $Raiz "instalacion.log") -Force | Out-Null
+    $apuntando = $true
     Instalar $Raiz $Usuario
     $bien = $true
 } catch {
     Write-Host ""
     Write-Host ("No se ha instalado: " + $_.Exception.Message) -ForegroundColor Red
 } finally {
-    Stop-Transcript | Out-Null
+    if ($apuntando) { Stop-Transcript | Out-Null }
 }
 if (-not $bien) {
     Read-Host "Pulsa Intro para cerrar esta ventana"

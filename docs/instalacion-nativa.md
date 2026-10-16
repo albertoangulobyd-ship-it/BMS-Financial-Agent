@@ -115,7 +115,11 @@ Queda así:
 | `C:\BMS\buzon` | Donde dejas los ficheros | **Sí** |
 
 Para instalar en otra carpeta, en PowerShell en la carpeta `windows`:
-`.\instalar.ps1 -Raiz D:\BMS`.
+`.\instalar.ps1 -Raiz D:\BMS`. La carpeta tiene que estar vacía o tener solo lo que deja
+bms-agent: si un intento no acaba, o desinstalas dejando tus datos, se vuelve a instalar
+en la misma. Lo primero que hace la parte de administrador, antes de descargar nada, es
+dejar esa carpeta de los administradores (tu usuario solo puede leerla): así nada de lo
+que se descarga y se comprueba se puede cambiar antes de instalarlo.
 
 Si quien mantiene el programa te ha dado una carpeta **`paquetes`**, ponla dentro de
 `windows` antes de instalar: el instalador toma de ahí lo que haya (igual de
@@ -213,7 +217,9 @@ mismas carpetas que el entorno de Docker: la tabla está en
      nada ni paga nada**, y lo dice en rojo. No hay forma de saltarse esto;
   3. cuenta lo que va a mandar (gratis), te enseña el coste y solo sigue si escribes
      `si`;
-  4. lee, y apaga la salida al acabar (también si algo falla o cierras la ventana).
+  4. lee, y apaga la salida al acabar (también si algo falla). Si cierras la ventana
+     con la X a mitad, Windows no deja al script apagarla: la salida se apaga sola a las
+     tres horas como mucho, y también al abrir la consola o con **Parar**.
 
   Un PDF que ya se leyó no se vuelve a pagar.
 
@@ -297,11 +303,16 @@ mira lo que pasa. Tarda unos segundos.
 | lector | Por la salida, con la credencial: `api.anthropic.com:443` | Sí (200) |
 | lector | Por la salida: `example.com:443`, `api.anthropic.com:80`, `1.1.1.1:443` y `api.anthropic.com.evil.example:443` | No (403) |
 | lector | Por la salida, sin la credencial | No (407) |
-| todos | Escribir en `app`, `lib` y su carpeta de `runtime` | No pueden |
+| todos | Escribir en la raíz (`C:\BMS`, donde está `instalacion.json`), `app`, `lib`, `windows` y su carpeta de `runtime` | No pueden |
 | todos | Escribir en `datos` y `buzon` | Pueden |
 
+Por la salida, **solo un «no» de la salida cuenta como no**: si no contesta a tiempo,
+esa prueba no se ha podido hacer y sale en rojo (no se da por buena).
+
 Además dice si el cortafuegos está encendido en todos sus perfiles, si están sus 12
-reglas y si la clave guardada se puede descifrar.
+reglas y si la clave guardada se puede descifrar: si el cortafuegos no se puede leer o la
+clave guardada no se puede usar, **tampoco sale en verde**. Y enseña, como aviso, los
+otros programas que escuchan en `127.0.0.1` (el apartado siguiente dice por qué).
 
 El resultado de cada programa queda en `C:\BMS\datos\aislamiento.json`, con la hora.
 Con él:
@@ -331,6 +342,8 @@ es el muro:
 | La clave de la API | Fichero de texto en `docker\secretos`, que solo ve el lector | Cifrada con DPAPI; la descifra cualquier programa de tu usuario, y el código solo lo hace en el lector |
 | El código, sin cambios | Imagen de solo lectura | Permisos de Windows: solo lectura para tu usuario |
 | Lo que ve cada programa del disco | Cada caja solo sus volúmenes (la salida no ve tus datos) | Los cuatro corren con tu usuario y ven lo mismo (también la salida) |
+| El buzón (tus PDF y CSV originales) | El lector y las órdenes lo ven de solo lectura | Los cuatro programas lo pueden cambiar: los permisos de Windows son por usuario, no por programa (la copia semanal es lo que guarda los originales) |
+| Otros programas del ordenador que escuchan en 127.0.0.1 (un proxy, una VPN, un túnel) | No los ve: las redes internas no llegan al ordenador | **Los ve**: el cortafuegos no filtra 127.0.0.1. Si uno reenvía a internet, es una salida que las reglas no paran; `comprobar.bat` los enseña como aviso |
 | **Un programa comprometido que arranca otro programa** | El otro sigue dentro de la caja, sin red | **El otro no tiene reglas: podría salir** (ver abajo) |
 | Consultas de nombres (DNS) | Las de la red interna no salen | Las hace un servicio de Windows, no el programa: el cortafuegos del programa no las para |
 | Lo que hay que instalar | Docker Desktop (y WSL2) | Nada: Python va dentro, el cortafuegos ya está |
@@ -342,16 +355,27 @@ consiguiera que uno de los programas de bms-agent ejecutara código suyo (por ej
 con un fallo en una biblioteca al leer un fichero), ese código podría arrancar otro
 programa del ordenador que no tiene reglas (PowerShell, un navegador) y salir por él.
 También podría codificar datos en consultas de nombres, que en Windows hace un servicio
-del sistema. Docker no tiene ese hueco: lo que se arranca dentro de una caja sigue en
-la caja.
+del sistema, o hablar con otro programa que escuche en `127.0.0.1` y reenvíe a internet
+(un proxy como Fiddler, el agente de una VPN o de un antivirus, un túnel SSH, el reenvío
+de WSL2): el cortafuegos no filtra `127.0.0.1`, ni para la consola, ni para el lector,
+ni para las órdenes. Docker no tiene esos huecos: lo que se arranca dentro de una caja
+sigue en la caja, y sus redes internas no llegan al ordenador. Si en tu ordenador hay
+programas así (`comprobar.bat` enseña los que escuchan en `127.0.0.1`), es un motivo
+más para el usuario de Windows aparte o para la variante de Docker.
 
 Lo que se hace contra eso, por capas:
 
-- **El código de bms-agent no arranca ningún programa**, nunca: un test lo vigila en
-  cada módulo (ni `subprocess`, ni `os.system`, ni `ShellExecute`…). Un atacante
-  tendría que traer su propio camino.
-- **La salida solo está encendida mientras lees**, y solo deja pasar a quien trae la
-  credencial de esa lectura.
+- **El código de bms-agent no arranca ningún programa**: un test lo vigila en cada
+  módulo (ni `subprocess`, ni `os.system`, ni `ShellExecute`…). Ese test no ve las
+  dependencias, y alguna sí lo haría: el SDK de la API, al preparar su primera petición,
+  pregunta la versión de Windows, y Python 3.11 lo hace ejecutando `ver` con `cmd.exe`.
+  Por eso, en esta instalación, cada programa de bms-agent arranca prohibiendo a todo su
+  código de Python (también al de las dependencias) lanzar otro programa: un gancho de
+  auditoría de Python, que no se puede quitar. Un atacante que ejecutara código nativo
+  (con `ctypes`) podría saltárselo: tendría que traer su propio camino.
+- **La salida solo está encendida mientras lees** (si cierras la ventana con la X, se
+  apaga sola a las tres horas como mucho), y solo deja pasar a quien trae la credencial
+  de esa lectura.
 - **Lo que entra de fuera** (los PDF y los CSV) no lo interpreta como instrucciones
   nadie: el modelo solo extrae, y el lector no tiene herramientas.
 - Si quieres más: **un usuario de Windows aparte** (apartado 12), que separa tus
@@ -418,6 +442,9 @@ copias siguen funcionando sin crédito.
 | «El aislamiento no esta bien … no se lee nada ni se paga nada» | Lo mismo: `comprobar.bat`. No se ha gastado nada. |
 | «el perfil … del cortafuegos esta apagado» | Seguridad de Windows → Firewall y protección de red → enciéndelo en los tres perfiles. |
 | «falta la regla …» | Vuelve a abrir `instalar.bat` desde la carpeta del proyecto: rehace las reglas sin tocar tus datos. |
+| «no se puede leer el cortafuegos» | Abre `comprobar.bat` otra vez; si sigue, puede que un antivirus haya sustituido el cortafuegos de Windows: avisa a quien mantiene el programa. |
+| «… ya existe y no es una instalacion de bms-agent (tiene …)» | Esa carpeta tiene cosas que no son de bms-agent. Elige otra (`-Raiz`) o vacíala. Una carpeta con solo lo que deja bms-agent (lo que queda al desinstalar con tus datos, o un intento que no acabó) sí vale. |
+| La lectura falla con un error de certificado (SSL) | El lector no tiene red y no puede bajar los certificados de la API: `comprobar.bat` con internet los prepara. Si sigue, avisa. |
 | «Falta la clave de la API» | `clave.bat` (apartado 4). |
 | «se guardo con otro usuario de Windows o en otro ordenador» | Vuelve a guardarla con `clave.bat`, con el usuario con el que usas bms-agent. |
 | «El puerto 3128 de este ordenador lo usa otro programa» | Otro programa ocupa el puerto de la salida. Reinicia el ordenador; si sigue, avisa. |
@@ -520,7 +547,13 @@ ventana tal cual.
   desarrollo, Docker) nada de esto se aplica.
 - **Ningún módulo lanza procesos**: `tests/test_instalacion_nativa.py`
   (`test_ningun_modulo_lanza_procesos`). Si alguno lo necesitara, va en `PUEDEN_LANZAR`
-  con su porqué, y es un hueco más de esta variante.
+  con su porqué, y es un hueco más de esta variante. Además, en la instalación,
+  `cli.main` pone `nativo.prohibir_procesos` (un gancho de auditoría que dice que no a
+  `subprocess.Popen`, `os.system`, `os.startfile`, `os.exec*`, `os.spawn*` y
+  `_winapi.CreateProcess`): vale también para las dependencias, que el test no ve.
+- **La instalación se reconoce** también sin `instalacion.json`: un intérprete en
+  `runtime\<papel>` con su `python311._pth` y sin ese fichero es un error
+  (`InstalacionNoValida`), no «fuera de la instalación».
 - **Los tests**: `pytest tests/test_instalacion_nativa.py`. Con `pwsh` en el PATH, o con
   `BMS_PROBAR_PWSH=1` y Docker (la imagen `mcr.microsoft.com/powershell`, sin red),
   además cada `.ps1` pasa el analizador de PowerShell y se ejecutan de verdad la

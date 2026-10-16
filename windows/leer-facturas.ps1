@@ -11,7 +11,9 @@
 #      lector no puede llegar a internet por su cuenta, y por el proxy solo a la API;
 #   3. si algo de eso falla, NO LEE NADA ni paga nada (y el lector tampoco lo haria: mira
 #      esa misma comprobacion antes de llamar a la API);
-#   4. cuenta, pregunta, lee, y para la salida al acabar (tambien si algo falla).
+#   4. cuenta, pregunta, lee, y para la salida al acabar (tambien si algo falla). Si se cierra
+#      la ventana con la X, PowerShell no llega a pararla: se para sola a las 3 horas, y
+#      tambien la para abrir la consola (iniciar.bat) o parar.bat.
 #
 #   .\leer-facturas.ps1          a tus datos de verdad
 #
@@ -41,7 +43,7 @@ if ((Get-ChildItem -File -Path $facturas -Filter *.pdf).Count -eq 0) {
 
 Escribir "Arrancando la salida (solo hacia api.anthropic.com, y solo durante esta lectura)..." "Cyan"
 $credencial = Nueva-Credencial
-$salida = Arrancar-Salida $credencial
+$salida = Arrancar-Salida $credencial $VidaSalidaLectura
 if ($null -eq $salida) {
     Fallar ("La salida no ha arrancado: no se lee nada. Mira " + (Join-Path $Inst.Raiz "datos\salida-errores.log"))
 }
@@ -55,6 +57,7 @@ try {
     Remove-Item Env:\BMS_PROXY_CLAVE -ErrorAction SilentlyContinue
 
     # El lector sale por el proxy de esta pasada, con su credencial, y por nada mas.
+    Preparar-Certificados | Out-Null
     $env:HTTPS_PROXY = "http://bms:" + $credencial + "@127.0.0.1:" + $Inst.PuertoSalida
     Remove-Item Env:\NO_PROXY -ErrorAction SilentlyContinue
     Remove-Item Env:\ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue

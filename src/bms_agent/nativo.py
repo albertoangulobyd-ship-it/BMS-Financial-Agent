@@ -12,8 +12,11 @@ Lo que el codigo sabe de esa instalacion vive aqui:
 
 - `detectar`: si el interprete que corre es uno de los de la instalacion, y cual (su
   carpeta es su papel). Lo dice instalacion.json, en la raiz, que solo escribe el
-  instalador y que el usuario no puede tocar (la raiz es de solo lectura para el). Fuera
-  de ella (el desarrollo, Docker, los tests) no hay instalacion y nada de esto cambia.
+  instalador y que el usuario no puede tocar (la raiz es de solo lectura para el, y la
+  comprobacion de aislamiento lo prueba). Un interprete con la forma de la instalacion
+  (runtime/<papel>/ con su python311._pth) sin instalacion.json es un error, no un "no
+  hay": si no, borrar ese fichero apagaria todas las puertas. Fuera de ella (el
+  desarrollo, Docker, los tests) no hay instalacion y nada de esto cambia.
 - `exigir_lectura`: la puerta de cualquier llamada a la API (extract, coste --estimar,
   reextraer). Solo el lector, solo por el proxy de esta pasada y solo si la comprobacion
   de aislamiento del lector y de la salida de esta misma pasada salio bien
@@ -23,10 +26,19 @@ Lo que el codigo sabe de esa instalacion vive aqui:
   lector.
 - `contenido_pth`: lo que el instalador escribe en python311._pth de cada papel.
 
+- `prohibir_procesos`: en la instalacion, ningun codigo de Python del proceso (tampoco
+  el de las dependencias) arranca otro programa. El codigo de la app no lo hace (lo
+  vigila test_instalacion_nativa por el AST), pero las dependencias si podrian sin que
+  nadie lo viera: el SDK de la API, al montar su cabecera X-Stainless-OS, llama a
+  platform.system(), y en Windows con Python 3.11 eso ejecuta `ver` con cmd.exe. Un gancho
+  de auditoria (sys.addaudithook, que no se puede quitar) dice que no a cada forma de
+  lanzar un proceso; platform lo toma como "no hay ver" y saca la version de
+  sys.getwindowsversion.
+
 Lo que no puede hacer y se dice en la guia: el cortafuegos distingue programas, y un
-proceso comprometido podria arrancar otro programa que no tenga reglas. Contra eso, que
-ningun modulo lance procesos (test_instalacion_nativa) y, si se quiere mas, el usuario
-de Windows aparte, AppContainer o la variante de Docker.
+proceso comprometido podria arrancar otro programa que no tenga reglas. Contra eso, el
+gancho (que codigo nativo con ctypes podria saltarse) y, si se quiere mas, el usuario de
+Windows aparte, AppContainer o la variante de Docker.
 """
 
 from __future__ import annotations
@@ -61,6 +73,13 @@ ESCRIBIBLES = ("datos", "buzon")
 # un ._pth, Python no mira PYTHONPATH, PYTHONHOME ni el registro, entra en modo aislado
 # y no importa site: solo ve su biblioteca, las dependencias y el codigo de la app.
 RUTAS_PTH = ("python311.zip", ".", r"..\..\lib", r"..\..\app\src")
+FICHERO_PTH = "python311._pth"
+
+# Los sucesos de auditoria con los que Python arranca otro proceso (la lista de la
+# documentacion de sys.audit). Son nombres de sucesos, no llamadas: aqui no se lanza nada.
+SUCESOS_DE_PROCESO = frozenset({
+    "subprocess.Popen", "os.system", "os.startfile", "os.exec", "os.spawn", "os.posix_spawn",
+    "os.fork", "os.forkpty", "pty.spawn", "_winapi.CreateProcess", "webbrowser.open"})
 
 
 class InstalacionNoValida(RuntimeError):
@@ -102,8 +121,11 @@ class Instalacion:
     def carpetas_a_probar(self) -> dict[str, Path]:
         """Las carpetas que la comprobacion intenta escribir: el codigo (no tiene que poder),
         la carpeta del propio interprete (un DLL dejado alli lo cargaria el siguiente
-        arranque) y los datos y el buzon (tienen que poder)."""
-        carpetas = {nombre: self.raiz / nombre for nombre in ("app", "lib")}
+        arranque), la raiz (alli esta instalacion.json, del que dependen las puertas) y
+        windows (los scripts que arrancan la salida con su credencial y corren elevados al
+        desinstalar), y los datos y el buzon (tienen que poder)."""
+        carpetas = {nombre: self.raiz / nombre for nombre in ("app", "lib", "windows")}
+        carpetas["raiz"] = self.raiz
         carpetas[f"runtime/{self.rol}"] = self.raiz / "runtime" / self.rol
         carpetas.update({nombre: self.raiz / nombre for nombre in ESCRIBIBLES})
         return carpetas
@@ -114,7 +136,9 @@ def detectar(ejecutable: str | Path | None = None) -> Instalacion | None:
 
     El interprete esta en <raiz>/runtime/<papel>/python.exe y la raiz tiene
     instalacion.json. Un instalacion.json que no se entiende es un error, no un "no hay":
-    fuera de la instalacion las puertas de este modulo no se aplican.
+    fuera de la instalacion las puertas de este modulo no se aplican. Por lo mismo, un
+    interprete de la instalacion (en runtime/<papel>, con su python311._pth al lado) sin
+    instalacion.json tambien es un error: que falte el fichero no apaga las puertas.
     """
     programa = Path(ejecutable if ejecutable is not None else sys.executable)
     carpeta = programa.parent
@@ -124,6 +148,9 @@ def detectar(ejecutable: str | Path | None = None) -> Instalacion | None:
     raiz = carpeta.parent.parent
     fichero = raiz / FICHERO_INSTALACION
     if not fichero.is_file():
+        if (carpeta / FICHERO_PTH).is_file():
+            raise InstalacionNoValida(f"falta {fichero}: este programa es el de {rol} de la "
+                                      "instalacion nativa; vuelve a instalar con instalar.bat")
         return None
     try:
         datos = json.loads(fichero.read_text(encoding="utf-8-sig"))
@@ -209,15 +236,45 @@ def exigir_lectura_si_nativa() -> None:
         exigir_lectura(instalacion)
 
 
-def clave_del_lector(instalacion: Instalacion, protector=None) -> str:
-    """La clave de la API, descifrada, solo para el lector."""
+def clave_del_lector(instalacion: Instalacion, protector=None,
+                     fichero: str | Path | None = None) -> str:
+    """La clave de la API, descifrada, solo para el lector. `fichero`: otra que la de la
+    instalacion (clave comprobar --fichero); la regla del lector es la misma."""
     from .config import ClaveNoValida
     from .secretos import leer_clave
 
     if instalacion.rol != "lector":
         raise ClaveNoValida(f"la clave de la API solo la descifra el lector; este programa es el "
                             f"de {instalacion.rol}")
-    return leer_clave(instalacion.fichero_clave, protector)
+    return leer_clave(instalacion.fichero_clave if fichero is None else Path(fichero),
+                      protector)
+
+
+def _sin_procesos(suceso: str, _argumentos: tuple) -> None:
+    if suceso in SUCESOS_DE_PROCESO:
+        # PermissionError es un OSError: quien prueba un programa que puede no estar (platform
+        # con `ver`) lo toma como que no esta, y sigue.
+        raise PermissionError(f"la instalacion nativa no arranca otros programas ({suceso})")
+
+
+_prohibidos = False
+
+
+def prohibir_procesos() -> None:
+    """Desde ahora, ningun codigo de Python de este proceso arranca otro programa. Para
+    siempre: un gancho de auditoria no se puede quitar. Solo en la instalacion nativa (en
+    los tests romperia lo que si lanza procesos, como pytest con pwsh)."""
+    global _prohibidos
+    if not _prohibidos:
+        sys.addaudithook(_sin_procesos)
+        _prohibidos = True
+
+
+def prohibir_procesos_si_nativa() -> None:
+    """El gancho, si el interprete que corre es uno de la instalacion. Mira el interprete de
+    verdad (detectar), no instalacion_actual, que los tests sustituyen."""
+    if detectar() is not None:
+        prohibir_procesos()
 
 
 def contenido_pth() -> str:

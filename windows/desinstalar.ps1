@@ -14,6 +14,10 @@ param(
 
 . "$PSScriptRoot\comun.ps1"
 
+# Fuera de la carpeta de la instalacion: una ventana cuya carpeta actual es C:\BMS\windows no
+# deja borrarla (desinstalar.bat tambien sale de ella antes de empezar).
+Set-Location -LiteralPath $env:SystemRoot
+
 if (-not $Elevado) {
     if ($Raiz) {
         $Inst = [pscustomobject]@{ Raiz = $Raiz.TrimEnd("\") }
@@ -28,13 +32,12 @@ if (-not $Elevado) {
     Escribir ("Tus datos (la base, los originales, la clave cifrada y el buzon) se quedan en " + $Inst.Raiz + "\datos y \buzon.") "Yellow"
     $borrar = Read-Host "Para borrarlos tambien, escribe SI en mayusculas (haz antes una copia con copia.bat). Cualquier otra cosa los deja"
     $borrarDatos = ($borrar -ceq "SI")
-    # La parte de administrador corre desde una copia de este script: la carpeta windows\ de
-    # la instalacion se borra.
-    $temporal = Join-Path $env:TEMP "bms-desinstalar"
-    New-Item -ItemType Directory -Force -Path $temporal | Out-Null
-    Copy-Item -Force -LiteralPath (Join-Path $PSScriptRoot "desinstalar.ps1") -Destination $temporal
-    Copy-Item -Force -LiteralPath (Join-Path $PSScriptRoot "comun.ps1") -Destination $temporal
-    $lista = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $temporal "desinstalar.ps1"),
+    # La parte de administrador corre este mismo script, en su sitio: windows\ es de los
+    # administradores y tu usuario no lo puede cambiar. Una copia en %TEMP%, que tu usuario si
+    # puede cambiar, la podria cambiar cualquier programa tuyo antes de que digas que si a la
+    # ventana de permiso. Que la carpeta se borre mientras corre da igual: PowerShell lee el
+    # script entero (y comun.ps1) antes de empezar.
+    $lista = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
         "-Raiz", $Inst.Raiz, "-Elevado")
     if ($borrarDatos) { $lista += "-BorrarDatos" }
     try {
@@ -47,7 +50,9 @@ if (-not $Elevado) {
     Get-ChildItem -File -LiteralPath $escritorio -Filter ($Prefijo + "*.lnk") -ErrorAction SilentlyContinue |
         Remove-Item -Force -ErrorAction SilentlyContinue
     if ($proceso.ExitCode -ne 0) { Fallar "No se ha podido quitar todo. Mira la otra ventana." }
-    if ($borrarDatos) {
+    if ($borrarDatos -and (Test-Path -LiteralPath $Inst.Raiz)) {
+        Escribir ("Quitado, tambien tus datos, pero queda la carpeta " + $Inst.Raiz + " (algo la tenia abierta): borrala a mano.") "Yellow"
+    } elseif ($borrarDatos) {
         Escribir "Quitado, tambien tus datos." "Green"
     } else {
         Escribir ("Quitado. Tus datos siguen en " + $Inst.Raiz + "\datos y \buzon; para volver a usarlos, instalar.bat en la misma carpeta.") "Green"

@@ -38,7 +38,9 @@ cortafuegos de Windows no filtra 127.0.0.1, y cualquier programa del ordenador (
 la consola) llegaria al proxy. Por eso, con una credencial (`clave`, que leer-facturas
 saca al azar para cada pasada y solo dan a la salida y al lector), el proxy contesta 407
 a quien no la trae (Proxy-Authorization: Basic). En Docker no se usa: alli la red ya
-deja al lector solo.
+deja al lector solo. Alli tambien tiene una vida maxima (`vida`, --max-segundos): el script
+que la arranca la para al acabar, pero si se cierra su ventana con la X, PowerShell muere
+sin llegar a pararla, y la salida se apaga sola al cumplir su plazo.
 """
 
 from __future__ import annotations
@@ -619,16 +621,23 @@ def comprobar(texto: str, espera: float = 3.0) -> bool:
 
 
 def servir(escucha: str, permitidos: Iterable[str] = PERMITIDOS_POR_DEFECTO,
-           reenvios: Iterable[str] = (), clave: str | None = None) -> None:
-    """Arranca el proxy y los reenvios y se queda atendiendo hasta que lo paran."""
+           reenvios: Iterable[str] = (), clave: str | None = None,
+           vida: float | None = None) -> None:
+    """Arranca el proxy y los reenvios y se queda atendiendo hasta que lo paran o, con
+    `vida`, hasta que pasan esos segundos: entonces cierra y vuelve, con los tuneles que
+    hubiera abiertos."""
+    if vida is not None and vida <= 0:
+        raise ValueError("la vida de la salida tiene que ser de mas de 0 segundos")
+    limite = None if vida is None else time.monotonic() + vida
     lista = lista_blanca(permitidos)
     proxy = Proxy(direccion_de_escucha(*leer_escucha(escucha)), lista, clave=clave)
     servidores: list[_Servidor] = [proxy]
     for texto in reenvios:
         (host, puerto), destino = leer_reenvio(texto)
         servidores.append(Reenvio(direccion_de_escucha(host, puerto), destino))
-    registro.info("salida escucha=%s:%d permitidos=%s credencial=%s", *proxy.server_address[:2],
-                  ",".join(sorted(map(str, lista))), "si" if clave else "no")
+    registro.info("salida escucha=%s:%d permitidos=%s credencial=%s vida=%s",
+                  *proxy.server_address[:2], ",".join(sorted(map(str, lista))),
+                  "si" if clave else "no", "sin limite" if vida is None else f"{vida:g}s")
     for servidor in servidores[1:]:
         registro.info("entrada escucha=%s:%d hacia=%s", *servidor.server_address[:2],
                       servidor.destino)
@@ -637,7 +646,14 @@ def servir(escucha: str, permitidos: Iterable[str] = PERMITIDOS_POR_DEFECTO,
         hilo.start()
     try:
         while all(h.is_alive() for h in hilos):
-            time.sleep(1)
+            if limite is not None:
+                queda = limite - time.monotonic()
+                if queda <= 0:
+                    registro.info("salida se para: ha cumplido su vida de %gs", vida)
+                    break
+                time.sleep(min(1.0, queda))
+            else:
+                time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
