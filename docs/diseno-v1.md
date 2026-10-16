@@ -581,6 +581,17 @@ El avance real de cada paso se apunta en [v1/registro.md](v1/registro.md).
 | **11. BTW** | Periodos, `config/btw.yaml` confirmado con el contador, autoliquidación de la inversión del sujeto pasivo, reglas C4, E0, E7. | Rúbricas 2a y 5b que se compensan; plazo del Q4 el 31 de enero; presentar es irreversible y queda con huella. |
 | **12. Panel principal, búsqueda, contrato v2 y documentación** | Bloques del panel y filtros de búsqueda, `/api/v2`, `export --v2`, consola con procedencia y marcas de edición. | Los totales cuadran entre vistas; un test por filtro; `/api/datos` sigue idéntico byte a byte. |
 
+**Estado de la construcción (octubre de 2026).** Los doce pasos están
+construidos y la puerta de cada uno pasa; el detalle, con cada desviación, está
+en [v1/registro.md](v1/registro.md). El paso 12 cerró la V1 con el panel
+principal de siete bloques, la búsqueda con todos los filtros del §18, la
+vista económica de cada Objeto, la historia de cada factura, el contrato v2
+(`/api/v2` y `export --v2`, en [integracion-web.md](integracion-web.md)) y la
+guía de uso diario ([uso-v1.md](uso-v1.md)). Lo que queda no es código:
+confirmar `config/btw.yaml` con el asesor, mapear el planning con la primera
+exportación real de TRNSPRNT, medir la extracción v2 con facturas reales antes
+de activarla, y las respuestas del apartado 9.
+
 **Tests de alcance, desde el paso 4.** Comprueban que nada crea ni prepara
 facturas, paga, aprueba pagos o presenta el BTW; que no hay generador SEPA ni
 credenciales del banco; que no hay planes de plazos; que lo que no está en
@@ -628,3 +639,5 @@ defecto descritos arriba.
 - [ ] **Atribución y motivos.** ¿Los márgenes por objeto y las cifras del año
       se atribuyen por periodo de trabajo o por fecha de factura? ¿El motivo es
       obligatorio en toda edición manual o solo en las correcciones?
+      Mientras tanto (paso 12): por mes y por año cuenta la fecha de factura;
+      por semana, los días trabajados de su periodo, igual que las horas.

@@ -459,6 +459,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 def _cmd_export(args: argparse.Namespace) -> int:
     from .dashboard import construir_datos
 
+    if args.v2:
+        return _cmd_export_v2(args)
     registros = _leer(args)
     if not registros:
         return 1
@@ -469,6 +471,34 @@ def _cmd_export(args: argparse.Namespace) -> int:
         json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"{len(datos['filas'])} facturas exportadas a {destino}")
+    print(f"  {destino.stat().st_size:,} bytes")
+    return 0
+
+
+def _cmd_export_v2(args: argparse.Namespace) -> int:
+    """El contrato v2 (docs/integracion-web.md) del almacen, en un fichero JSON. Solo lee.
+
+    Sin almacen no hay contrato v2: el v1 (sin --v2) sigue leyendo out/ tal cual.
+    """
+    from .consultas import comprobar_v2, exportar_v2
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}: el contrato v2 sale del almacen "
+              "(bms-agent importar-out lo crea desde out/)", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        datos = exportar_v2(almacen.conn)
+    errores = comprobar_v2(datos)
+    if errores:  # nunca deberia pasar: es el codigo el que escribe el contrato
+        print("El export no cumple el contrato v2:\n  " + "\n  ".join(errores), file=sys.stderr)
+        return 1
+    destino = Path(args.file if args.file != "datos.json" else "datos-v2.json")
+    destino.write_text(json.dumps(datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"Contrato v2 ({datos['contrato']}): {len(datos['facturas'])} facturas a {destino}")
+    if not datos["al_dia"]:
+        print(f"  AVISO: el estado de las facturas es del {datos['estado_del']}; "
+              "bms-agent recalcular --diaria lo pone al dia")
     print(f"  {destino.stat().st_size:,} bytes")
     return 0
 
@@ -979,6 +1009,177 @@ def _cmd_facturas(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_resumen(args: argparse.Namespace) -> int:
+    """El panel principal (§17): lo que entra y sale, la caja, la facturacion, las PO, el BTW
+    y lo que pide atencion. Solo lee."""
+    from .consultas import panel
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        p = panel(almacen.conn)
+    if args.json:
+        print(json.dumps(p, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Panel a {p['hoy']}" + ("" if p["al_dia"] else
+                                   f" (AVISO: el estado es del {p['estado_del']}; "
+                                   "bms-agent recalcular --diaria)"))
+    for f in p["fuentes_caducadas"]:
+        print(f"AVISO (Z1): lo ultimo de {f['fuente']} ({f['tipo']}) es del {f['exportado']}")
+    for clave, titulo in (("dinero_entra", "Entra (cobros)"), ("dinero_sale", "Sale (pagos)")):
+        b = p[clave]
+        print(f"{titulo:<16} pendiente {b['pendiente']:>12} en {b['facturas']} · vencido "
+              f"{b['vencido']:>12} · esta semana {b['semana']:>12} · este mes {b['mes']:>12}"
+              f" · 30 dias {b['proximos_30']:>12}")
+    caja = p["caja"]["ventanas"]
+    print(f"{'Caja':<16} neto 30 dias {caja['proximos_30']['neto']:>12} · neto total "
+          f"{caja['total']['neto']:>12} · estimado: "
+          + (p["caja"]["estimado"].get("nota") or "ver flujo-caja"))
+    fact = p["facturacion"]
+    if fact["estado"] != "ok":
+        print(f"{'Facturacion':<16} {fact['detalle']}")
+    else:
+        print(f"{'Facturacion':<16} sin facturar {fact['sin_facturar']['valor']} "
+              f"({fact['sin_facturar']['periodos']} periodos) · periodos sin factura "
+              f"{len(fact['periodos_sin_factura'])} · diferencias con el planning "
+              f"{fact['diferencias_planning']['hallazgos']}")
+    po = p["ordenes_compra"]
+    print(f"{'PO':<16} {po['activas']} activas: valor {po['valor']} · consumido "
+          f"{po['consumido']} · queda {po['restante']} · cerca del limite "
+          f"{len(po['cerca_del_limite'])} · cerca de caducar {len(po['cerca_de_caducar'])}"
+          f" · se agotan antes {len(po['agotamiento_previsto'])}")
+    b = p["btw"]
+    plazo = b["proximo_plazo"]
+    print(f"{'BTW ' + b['trimestre']:<16} ingresos {b['ingresos']} · IVA {b['iva_repercutido']}"
+          f" · deducible {b['iva_deducible']} · saldo {b['saldo']} ({b['estado']})"
+          + (f" · proximo plazo {plazo['trimestre']} el {plazo['limite_presentacion']}"
+             if plazo else ""))
+    a = p["atencion"]
+    print(f"Atencion: {a['bloqueadas']} bloqueadas, {a['urgentes']} urgentes, "
+          f"{a['excepciones']['abiertas']} excepciones abiertas")
+    print(f"  compras vencidas {a['compras_vencidas']['facturas']} "
+          f"({a['compras_vencidas']['pendiente']}) · ventas vencidas "
+          f"{a['ventas_vencidas']['facturas']} ({a['ventas_vencidas']['pendiente']})")
+    for c in a["categorias"]:
+        if c["activos"] or c["aceptados"]:
+            print(f"  {c['titulo']:<44} {c['activos']:>4} activos, {c['aceptados']} aceptados"
+                  f"  ({', '.join(f'{r} {n}' for r, n in c['reglas'].items())})")
+    return 0
+
+
+def _cmd_buscar(args: argparse.Namespace) -> int:
+    """La busqueda con los filtros del §18 (`--filtro nombre=valor`, repetible). Solo lee."""
+    from .consultas import FILTROS, FiltroNoValido, buscar
+
+    if args.filtros:
+        for f in FILTROS.values():
+            valores = f" ({', '.join(f.valores)})" if f.valores else ""
+            print(f"  {f.nombre:<20} {f.descripcion}{valores}")
+        return 0
+    peticion: dict[str, list[str]] = {}
+    for texto in args.filtro or []:
+        nombre, igual, valor = texto.partition("=")
+        if not igual:
+            print(f"--filtro {texto!r}: se escribe nombre=valor", file=sys.stderr)
+            return 2
+        peticion.setdefault(nombre.strip(), []).append(valor)
+    for nombre in ("orden", "limite", "pagina"):
+        if getattr(args, nombre) is not None:
+            peticion[nombre] = [str(getattr(args, nombre))]
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            r = buscar(almacen.conn, peticion)
+        except FiltroNoValido as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    if not r["al_dia"]:
+        print(f"AVISO: el estado es del {r['estado_del']}; bms-agent recalcular --diaria")
+    for f in r["facturas"]:
+        print(f"{_SIMBOLO.get(f['nivel'], f['nivel'])} {f['id']:>5}  "
+              f"{(f['numero'] or '(sin numero)'):<18} {(f['contraparte'] or '')[:28]:<28} "
+              f"{f['fecha_factura'] or '':<10} {f['total'] or '':>12}  "
+              f"{f['estado_pago'] or '':<10} {f['estado_revision'] or ''}")
+    print(f"{r['total']} factura(s); suman {r['suma']['total']} y quedan pendientes "
+          f"{r['suma']['pendiente']}" + (f" (pagina {r['pagina']}, de {r['limite']} en "
+                                         f"{r['limite']})" if r["total"] > r["limite"] else ""))
+    return 0
+
+
+def _cmd_objetos(args: argparse.Namespace) -> int:
+    """Los Objetos con sus ingresos, costes y margen, y lo que no es de ninguno (§5)."""
+    from .consultas import objetos_resumen
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        r = objetos_resumen(almacen.conn)
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'Objeto':<20} {'ingresos':>12} {'costes':>12} {'margen':>12} {'%':>9}"
+          f"   ({r['ano']}: ingresos, margen)")
+    for o in r["objetos"]:
+        s_, a = o["siempre"], o["ano"]
+        print(f"{o['codigo'][:20]:<20} {s_['ingresos']:>12} {s_['costes']:>12} "
+              f"{s_['margen']:>12} {s_['margen_pct'] or '-':>9}   {a['ingresos']}, {a['margen']}")
+    sin = r["sin_objeto"]["total"]
+    print(f"{'(sin Objeto)':<20} {sin['ingresos']:>12} {sin['costes']:>12}")
+    t = r["totales"]
+    print(f"{'base total':<20} {t['ingresos']:>12} {t['costes']:>12}"
+          + (f"   ({t['sin_base']} factura(s) sin base o en otra moneda no suman)"
+             if t["sin_base"] else ""))
+    return 0
+
+
+def _cmd_historial(args: argparse.Namespace) -> int:
+    """La historia de una factura (§12): original, cambios, revisiones y avisos. Solo lee."""
+    from .consultas import historial_factura
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        try:
+            h = historial_factura(almacen.conn, args.id)
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(h, ensure_ascii=False, indent=2))
+        return 0
+    d = h["documento"]
+    print(f"Factura {h['numero'] or '(sin numero)'}"
+          + (f" · original {d['nombre']} ({d['sha256'][:12]}, "
+             + ("guardado" if d["conservado"] else "NO guardado: Q4") + ")" if d else ""))
+    for e in h["eventos"]:
+        quien = e["usuario"] or e["actor"]
+        print(f"  {e['en']}  {e['tipo']} ({quien})" + (f": {e['motivo']}" if e["motivo"] else ""))
+        for c in e["cambios"]:
+            if e["persona"] or args.todo:
+                print(f"      {c['tabla']}.{c['campo']}: {c['anterior_texto'] or '-'} -> "
+                      f"{c['nuevo_texto'] or '-'} [{c['fuente_nueva']}]"
+                      + (f" «{c['motivo']}»" if c["motivo"] else ""))
+    for r in h["revisiones"]:
+        print(f"  revision: {r['resultado']} por {r['usuario']} el {r['en']}"
+              + ("" if r["vigente"] else " (ya no vale)"))
+    for hz in h["hallazgos"]:
+        print(f"  {hz['regla']} {hz['titulo']} ({hz['estado']}): "
+              + " · ".join(f"{e['tipo']} {e['en'][:10]}" for e in hz["eventos"]))
+    return 0
+
+
 def _cmd_factura(args: argparse.Namespace) -> int:
     """La ficha de una factura: campos con su original y su fuente, hallazgos y excepcion."""
     from .consultas import detalle
@@ -1239,6 +1440,12 @@ def _cmd_objeto(args: argparse.Namespace) -> int:
         print(f"  {fila['semana']:<10} {fila['planificadas'] or '-':>8} "
               f"{fila['validadas'] or '-':>8} {fila['proveedor'] or '-':>8} "
               f"{fila['cliente'] or '-':>8} {fila['sin_facturar'] or '-':>9}")
+    eco = v["economia"]
+    for nombre, b in (("periodo " + eco["periodo"]["desde"] + " a " + eco["periodo"]["hasta"],
+                       eco["periodo"]), (f"ano {eco['ano']['ano']}", eco["ano"]),
+                      ("de siempre", eco["siempre"])):
+        print(f"  {nombre:<32} ingresos {b['ingresos']:>12}  costes {b['costes']:>12}  "
+              f"margen {b['margen']:>12} ({b['margen_pct'] or '-'})")
     e = h["esperado"]
     print(f"  esperado: por cobrar {e['entrante']}, por pagar {e['saliente']}"
           + (f"; estimado aparte: por cobrar {e['entrante_estimado']}, por pagar "
@@ -1916,6 +2123,10 @@ def main(argv: list[str] | None = None) -> int:
         help="tabla de tarifas de venta (por defecto: config/tarifas.yaml)",
     )
     p_export.add_argument("--db", help=_AYUDA_DB)
+    p_export.add_argument(
+        "--v2", action="store_true",
+        help="el contrato v2 del almacen (panel, facturas, vistas, BTW...; por defecto en "
+             "datos-v2.json): docs/integracion-web.md")
     p_export.set_defaults(func=_cmd_export)
 
     p_sim = sub.add_parser(
@@ -2067,6 +2278,40 @@ def main(argv: list[str] | None = None) -> int:
     p_facturas.add_argument("--limite", type=int)
     p_facturas.add_argument("--db", help=_AYUDA_DB)
     p_facturas.set_defaults(func=_cmd_facturas)
+
+    p_resumen = sub.add_parser("resumen", help="el panel principal: lo que entra y sale, la "
+                                               "caja, las PO, el BTW y lo que pide atencion")
+    p_resumen.add_argument("--json", action="store_true", help="el panel entero en JSON")
+    p_resumen.add_argument("--db", help=_AYUDA_DB)
+    p_resumen.set_defaults(func=_cmd_resumen)
+
+    p_buscar = sub.add_parser("buscar", help="buscar facturas por numero, parte, Objeto, PO, "
+                                             "fechas y estados (--filtros los lista)")
+    p_buscar.add_argument("--filtro", action="append", metavar="NOMBRE=VALOR",
+                          help="un filtro (repetible): numero=4471, estado_pago=vencida,pagada")
+    p_buscar.add_argument("--filtros", action="store_true", help="lista los filtros")
+    p_buscar.add_argument("--orden", choices=("prioridad", "fecha", "vencimiento", "importe",
+                                              "numero"))
+    p_buscar.add_argument("--limite", type=int)
+    p_buscar.add_argument("--pagina", type=int)
+    p_buscar.add_argument("--json", action="store_true", help="el resultado entero en JSON")
+    p_buscar.add_argument("--db", help=_AYUDA_DB)
+    p_buscar.set_defaults(func=_cmd_buscar)
+
+    p_objetos = sub.add_parser("objetos", help="los Objetos: ingresos, costes y margen, y lo "
+                                               "que no es de ninguno")
+    p_objetos.add_argument("--json", action="store_true", help="la lista en JSON")
+    p_objetos.add_argument("--db", help=_AYUDA_DB)
+    p_objetos.set_defaults(func=_cmd_objetos)
+
+    p_historial = sub.add_parser("historial", help="la historia de una factura: original, "
+                                                   "cambios, revisiones y avisos")
+    p_historial.add_argument("id", type=int)
+    p_historial.add_argument("--todo", action="store_true",
+                             help="tambien los cambios automaticos campo a campo")
+    p_historial.add_argument("--json", action="store_true", help="la historia en JSON")
+    p_historial.add_argument("--db", help=_AYUDA_DB)
+    p_historial.set_defaults(func=_cmd_historial)
 
     p_factura = sub.add_parser("factura", help="la ficha de una factura")
     p_factura.add_argument("id", type=int)

@@ -11,6 +11,12 @@ Esto es deliberado: la precisión de lectura no depende de cómo llegue el
 correo, así que medirla no requiere conectar nada. Ver
 [arquitectura.md](arquitectura.md) § 7 y [validacion-facturas.md](validacion-facturas.md).
 
+> **Si ya trabajáis con la V1** (el almacén, la consola, el banco, las ventas
+> y el BTW), la guía del día a día es [uso-v1.md](uso-v1.md): la rutina de
+> cada mañana, qué quiere decir cada prioridad, cómo se corrige un dato, cómo
+> se verifica un IBAN por teléfono y cómo se cierra un trimestre del BTW. Este
+> documento sigue valiendo para medir la lectura de las facturas.
+
 ---
 
 ## Cómo probarlo
@@ -24,7 +30,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-1534 tests, ninguno llama a la API. Cubren la conversión de importes
+1922 tests, ninguno llama a la API. Cubren la conversión de importes
 neerlandeses, la comparación de precisión, las propiedades estructurales del
 contrato de extracción (incluida la que comprueba que la petición no lleva
 herramientas), la política de caché, la seguridad del servidor local, el
@@ -100,7 +106,7 @@ Aquí es donde sale el número que decide si se pasa a la fase 1.
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 export ANTHROPIC_API_KEY=sk-ant-...
-pytest                                    # 1534 tests, sin llamadas a la API
+pytest                                    # 1922 tests, sin llamadas a la API
 ```
 
 ## Uso
@@ -387,8 +393,10 @@ Todo eso sin haber dado un solo permiso de escritura.
 
 ## Lo que falta para la fase 1
 
-Un adaptador de Exact, la ingesta de correo y el resto del catálogo de
-validación en el motor de reglas (hoy evalúa Q1, X1, B2-B4, D1-D4, E3, E4,
-F1 y G3 contra el histórico). El núcleo de la fase 0 (esquema, conversión,
+Un adaptador de Exact que hable con su API (hoy entra por ficheros
+exportados) y la ingesta de correo. El catálogo de validación ya está entero
+en el motor de reglas de la V1 (la tabla, generada del código, al final de
+[validacion-facturas.md](validacion-facturas.md)), y la consola y el panel
+principal lo enseñan ([uso-v1.md](uso-v1.md)). El núcleo de la fase 0 (esquema, conversión,
 procedencia) no se tira: la fase 1 le añade un camino de escritura a algo
 que ya habéis visto acertar durante semanas.

@@ -246,9 +246,14 @@ def datos(conn: sqlite3.Connection,
 
 
 def flujo(conn: sqlite3.Connection, hoy: date, *, desde: date | None = None,
-          hasta: date | None = None) -> dict[str, Any]:
-    """El flujo de caja del almacen visto desde hoy (lo pasa quien llama: el reloj, la CLI)."""
-    partidas, movidos = datos(conn)
+          hasta: date | None = None,
+          leidos: tuple[list[Partida], list[Movido]] | None = None) -> dict[str, Any]:
+    """El flujo de caja del almacen visto desde hoy (lo pasa quien llama: el reloj, la CLI).
+
+    `leidos` son las partidas y lo movido ya leidos con `datos` (el panel
+    principal los cuenta tambien por factura): asi no se leen dos veces.
+    """
+    partidas, movidos = leidos if leidos is not None else datos(conn)
     salida = calcular(partidas, movidos, hoy, desde=desde, hasta=hasta)
     if instantanea.fotos_planning(conn):
         foto = instantanea.construir(conn, hoy=hoy, politica=politica.politica_reglas(conn))

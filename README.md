@@ -23,8 +23,10 @@ sistema funcione.
 | [docs/sistemas.md](docs/sistemas.md) | TRNSPRNT y Exact Online: qué se sabe de cada uno, de dónde sale cada dato y qué obliga a cambiar en el diseño. |
 | [docs/instalacion-windows.md](docs/instalacion-windows.md) | **Si no has ejecutado esto nunca, empieza aquí.** Clave de API, instalación y primera prueba en Windows, paso a paso. |
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
-| [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral. |
-| [docs/integracion-web.md](docs/integracion-web.md) | Cómo conecta un sitio propio con el agente: contrato de datos, servidor local y dónde puede vivir un botón de ejecutar. |
+| [docs/uso-v1.md](docs/uso-v1.md) | **Para el día a día.** La rutina diaria, qué quiere decir cada prioridad, cómo corregir un dato, cómo verificar un IBAN por teléfono y cómo cerrar un trimestre del BTW. |
+| [docs/diseno-v1.md](docs/diseno-v1.md) | Resumen en castellano de la V1: modelo de datos, comprobaciones, prioridad y orden de construcción. |
+| [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral; al final, la tabla de las reglas del motor, generada del código. |
+| [docs/integracion-web.md](docs/integracion-web.md) | Cómo conecta un sitio propio con el agente: el contrato de datos v1 (`/api/datos`) y el v2 (`/api/v2`, `export --v2`), servidor local y dónde puede vivir un botón de ejecutar. |
 | [docs/portal-consulta.md](docs/portal-consulta.md) | Arquitectura del portal web de consulta: modelo de lectura separado, API de solo lectura y frontend estático sin datos. |
 | [docs/costes.md](docs/costes.md) | Por qué la suscripción y la API son carteras distintas, cómo ponerle un techo duro al gasto y las palancas para bajarlo. |
 | [docs/mcp-setup.md](docs/mcp-setup.md) | Registro del servidor MCP de Zapier y por qué queda fuera del camino que toca dinero. |
@@ -53,7 +55,8 @@ bms-agent clientes             # lo mismo de los clientes; `cliente 2`, su vista
 bms-agent importar po_csv ordenes_compra pos.csv --token ...   # la hoja de PO (CSV o YAML)
 bms-agent importar po_csv modificaciones_po cambios.csv --token ...   # sus modificaciones
 bms-agent ordenes              # las PO: valor, consumido sin IVA y lo que queda; `orden 4`, su ficha
-bms-agent objeto 7             # un Objeto y sus PO
+bms-agent objetos              # ingresos, costes y margen de cada Objeto, y lo que no es de ninguno
+bms-agent objeto 7             # un Objeto: su economía por mes y semana, sus facturas, horas y PO
 bms-agent btw ver              # el BTW: el trimestre en curso, los por presentar y el año; `btw ver 2026-T3`
 bms-agent btw hoja 2026-T3 --salida hoja.csv   # la hoja de trabajo (CSV) y su sha256
 bms-agent btw listo --trimestre 2026-T3 --hoja-sha256 ... --motivo "..." --token ...   # lista para revisar; `btw anotar` (con --rev y --motivo), la presentación hecha a mano
@@ -61,7 +64,10 @@ bms-agent fuentes              # de cuándo es lo último de cada fuente (Z1)
 bms-agent recalcular --diaria  # reglas y hallazgos al día (--simular: qué cambiaría)
 bms-agent usuario crear Ana --rol administracion   # personas y sus permisos
 bms-agent usuario token Ana    # su token personal (solo se guarda su hash)
+bms-agent resumen              # el panel principal: dinero, caja, facturación, PO, BTW y lo que pide atención
+bms-agent buscar --filtro proveedor_id=3 --filtro vencida=si   # búsqueda; `buscar --filtros`, cuáles hay
 bms-agent facturas             # la más urgente primero; `factura 12` da la ficha
+bms-agent historial 12         # la historia de una factura: quién cambió qué, cuándo y por qué
 bms-agent accion marcar_revisada --factura-id 12 --huella ... --token ...   # las órdenes
 bms-agent politica cargar config/reglas.yaml --token ...   # admin: pesos, reglas, empresa o btw, con su hash
 bms-agent db verificar         # auditoría, anclas, evidencia y hash de cada original
@@ -73,7 +79,8 @@ bms-agent score --comparar-versiones     # la puerta: la versión nueva contra l
 bms-agent reextraer --activar --token ...        # admin: lo releído pasa a vigente si pasa la puerta
 bms-agent panel                # panel del historico (del almacén, con lo corregido)
 bms-agent simulador            # simulador de tarifas, para decidir el modelo de precios
-bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio
+bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio (contrato v1)
+bms-agent export --v2          # todo lo de /api/v2 en un fichero (contrato v2, sin IBAN)
 bms-agent serve                # servidor local en 127.0.0.1; la consola en /consola
 bms-agent report               # ficha detallada de cada factura
 ```
@@ -87,5 +94,6 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1848 tests sin
-llamar a la API.
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1922 tests sin
+llamar a la API. Con el paso 12 la V1 está construida entera; el uso del día
+a día está en [docs/uso-v1.md](docs/uso-v1.md).

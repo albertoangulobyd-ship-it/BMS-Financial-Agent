@@ -66,6 +66,39 @@ from .pricing import estimate_cost
 
 HOSTS_LOCALES = ("127.0.0.1", "localhost")
 CABECERA_TOKEN = "X-BMS-Token"
+CABECERA_CONTRATO = "X-BMS-Contrato"
+
+# Paso 12: las lecturas de /api/v2, con los parametros que admite cada una. Un
+# parametro que no esta en la lista es un 400: el filtro mal escrito no se
+# ignora en silencio. La busqueda los comprueba ella misma (consultas.FILTROS).
+LECTURAS_V2 = (
+    ("/api/v2/contrato", ()),
+    ("/api/v2/yo", ()),
+    ("/api/v2/panel", ()),
+    ("/api/v2/buscar", ("ver consultas.FILTROS: /api/v2/contrato",)),
+    ("/api/v2/facturas", ("nivel",)),
+    ("/api/v2/facturas/N", ()),
+    ("/api/v2/facturas/N/historial", ()),
+    ("/api/v2/excepciones", ()),
+    ("/api/v2/personas", ()),
+    ("/api/v2/proveedores", ()),
+    ("/api/v2/proveedores/N", ()),
+    ("/api/v2/clientes", ()),
+    ("/api/v2/clientes/N", ()),
+    ("/api/v2/objetos", ()),
+    ("/api/v2/objetos/N", ("desde", "hasta")),
+    ("/api/v2/ordenes", ()),
+    ("/api/v2/ordenes/N", ()),
+    ("/api/v2/relaciones", ()),
+    ("/api/v2/btw", ()),
+    ("/api/v2/btw/AAAA-TN", ()),
+    ("/api/v2/btw/AAAA-TN/hoja", ()),
+    ("/api/v2/flujo", ("desde", "hasta")),
+    ("/api/v2/fuentes", ()),
+    ("/api/v2/cuentas", ()),
+    ("/api/v2/acciones", ()),
+    ("/api/v2/exportar", ()),
+)
 # El POST de ejecutar no necesita cuerpo; esto solo impide que alguien
 # tenga el hilo ocupado leyendo megas. Una orden de la consola lleva sus datos
 # (una nota, un reparto de una linea) y cabe en 64 KiB.
@@ -324,6 +357,10 @@ class Manejador(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(datos)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if getattr(self, "_contrato_v2", False):
+            # Paso 12: cada respuesta de /api/v2 dice con que version del contrato
+            # se escribio (docs/integracion-web.md, "El contrato v2").
+            self.send_header(CABECERA_CONTRATO, consultas.CONTRATO_V2)
         if cors:
             self._cors()
         self.end_headers()
@@ -357,6 +394,7 @@ class Manejador(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
+        self._contrato_v2 = False
         if self._rechazada():
             return
         ruta = self.path.split("?", 1)[0].rstrip("/")
@@ -425,6 +463,7 @@ class Manejador(BaseHTTPRequestHandler):
         return cuerpo
 
     def do_POST(self) -> None:  # noqa: N802
+        self._contrato_v2 = False
         if self._rechazada():
             return
         ruta = self.path.split("?", 1)[0].rstrip("/")
@@ -480,7 +519,8 @@ class Manejador(BaseHTTPRequestHandler):
 
     def _leer_v2(self, ruta: str) -> None:
         """Las lecturas de la consola: piden un token personal con ver_facturas."""
-        consulta = parse_qs(urlsplit(self.path).query)
+        self._contrato_v2 = True
+        consulta = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
         with self._almacen() as almacen:
             conn = almacen.conn
             usuario_id = self._persona(conn, f"GET {ruta}")
@@ -493,6 +533,8 @@ class Manejador(BaseHTTPRequestHandler):
                 return
             partes = ruta.split("/")[3:]
             try:
+                if self._leer_paso_12(conn, partes, consulta):
+                    return
                 if partes == ["yo"]:
                     fila = conn.execute("SELECT nombre FROM usuario WHERE id = ?",
                                         (usuario_id,)).fetchone()
@@ -507,10 +549,6 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"excepciones": consultas.excepciones_abiertas(conn)})
                 elif partes == ["personas"]:
                     self._json(200, {"personas": consultas.personas(conn)})
-                elif partes == ["objetos"]:
-                    self._json(200, {"objetos": consultas.objetos(conn)})
-                elif len(partes) == 2 and partes[0] == "objetos" and partes[1].isdigit():
-                    self._json(200, {"objeto": consultas.objeto(conn, int(partes[1]))})
                 elif partes == ["ordenes"]:
                     self._json(200, {"ordenes": consultas.ordenes_compra(conn)})
                 elif len(partes) == 2 and partes[0] == "ordenes" and partes[1].isdigit():
@@ -554,9 +592,77 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(404, {"error": "no existe"})
             except LookupError as exc:
                 self._json(404, {"error": str(exc)})
+            except ValueError as exc:
+                # Un filtro o un parametro que no se entiende (FiltroNoValido es uno).
+                self._json(400, {"error": str(exc)})
+
+    def _leer_paso_12(self, conn: Any, partes: list[str], consulta: dict[str, list[str]]) -> bool:
+        """Las lecturas del paso 12: el panel, la busqueda, la historia de una factura, los
+        Objetos con su economia, el flujo de caja, el contrato y el export entero. True si la
+        ruta era una de ellas (y ya se contesto)."""
+        from datetime import date as _date
+
+        def solo(*admitidos: str) -> dict[str, str]:
+            raros = sorted(set(consulta) - set(admitidos))
+            if raros:
+                raise ValueError(f"parametro desconocido: {', '.join(raros)}"
+                                 + (f" (admite {', '.join(admitidos)})" if admitidos else ""))
+            salida = {}
+            for nombre, valores in consulta.items():
+                if len(valores) != 1:
+                    raise ValueError(f"{nombre}: lleva un valor")
+                salida[nombre] = valores[0]
+            return salida
+
+        def fecha(datos: dict[str, str], nombre: str) -> _date | None:
+            if nombre not in datos:
+                return None
+            try:
+                return _date.fromisoformat(datos[nombre])
+            except ValueError:
+                raise ValueError(f"{nombre}: {datos[nombre]!r} no es una fecha AAAA-MM-DD") from None
+
+        if partes == ["contrato"]:
+            solo()
+            self._json(200, {"contrato": consultas.CONTRATO_V2,
+                             "lecturas": [{"ruta": r, "parametros": list(p)}
+                                          for r, p in LECTURAS_V2],
+                             "filtros": consultas.filtros(),
+                             "ordenes": "POST /api/v2/acciones (GET /api/v2/acciones las lista)"})
+        elif partes == ["panel"]:
+            solo()
+            self._json(200, {"panel": consultas.panel(conn)})
+        elif partes == ["buscar"]:
+            self._json(200, {"busqueda": consultas.buscar(conn, consulta)})
+        elif len(partes) == 3 and partes[0] == "facturas" and partes[1].isdigit() \
+                and partes[2] == "historial":
+            solo()
+            self._json(200, {"historial": consultas.historial_factura(conn, int(partes[1]))})
+        elif partes == ["objetos"]:
+            solo()
+            self._json(200, consultas.objetos_resumen(conn))
+        elif len(partes) == 2 and partes[0] == "objetos" and partes[1].isdigit():
+            datos = solo("desde", "hasta")
+            self._json(200, {"objeto": consultas.objeto(
+                conn, int(partes[1]), desde=fecha(datos, "desde"), hasta=fecha(datos, "hasta"))})
+        elif partes == ["flujo"]:
+            from . import flujo_caja
+            from .almacen import reloj_de
+
+            datos = solo("desde", "hasta")
+            self._json(200, {"flujo_caja": flujo_caja.flujo(
+                conn, reloj_de(conn).hoy(), desde=fecha(datos, "desde"),
+                hasta=fecha(datos, "hasta"))})
+        elif partes == ["exportar"]:
+            solo()
+            self._json(200, consultas.exportar_v2(conn))
+        else:
+            return False
+        return True
 
     def _accion_v2(self) -> None:
         """Una orden de una persona: su token, su permiso y todo en una transaccion."""
+        self._contrato_v2 = True
         cuerpo = self._cuerpo_json(MAX_CUERPO_V2)
         if cuerpo is None:
             return
@@ -682,8 +788,9 @@ def servir(
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print("  GET  /consola         consola interna (se entra con el token personal)")
-    print("  GET  /api/v2/...      facturas, ficha, excepciones, proveedores, clientes, "
-          "ordenes de compra, Objetos, BTW (token personal)")
+    print("  GET  /api/v2/...      panel, busqueda, facturas, ficha e historia, excepciones, "
+          "proveedores, clientes, ordenes de compra, Objetos, BTW, flujo de caja y el "
+          f"export entero (token personal; contrato {consultas.CONTRATO_V2}: /api/v2/contrato)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")

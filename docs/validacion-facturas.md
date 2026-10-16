@@ -102,7 +102,10 @@ G3 y V4, V1-V3, V5, V6, V8 y V9 (sección V), B5 (horas cobradas dos veces) y
 el caso de las horas en V7, y P7, P8 y P10 con el trabajo del planning. Sin
 ningún planning importado, cada una da un solo «sin datos», nunca «ok». Desde
 el paso 11, con el BTW: C4 contra los trimestres presentados, E0, E5 y E7
-(sección E, y `config/btw.yaml` para la lista de tipos y el umbral). Su metadato
+(sección E, y `config/btw.yaml` para la lista de tipos y el umbral). Desde el
+paso 12, la tabla del [apartado 6](#6-el-catálogo-del-motor-regla-a-regla)
+sale entera del catálogo del código y un test comprueba que es la misma: si
+este texto y esa tabla no dicen lo mismo, manda la tabla. Su metadato
 (qué hace un fallo, si se puede anular, si el hallazgo es pegajoso) está en
 `src/bms_agent/reglas/catalogo.py`, que sigue la tabla del §7 de la
 [especificación](v1/spec.md); las tolerancias, en `reglas.base.Politica`,
@@ -431,3 +434,109 @@ activa en el código.
 | Mapeo de rúbricas de la declaración trimestral | Ya recogido en la arquitectura, se cruza con C4. Desde el paso 11 está en `config/btw.yaml`, marcado por confirmar: cada hoja de trabajo lo dice hasta que se confirme |
 | Tratamiento de las facturas que llegan tras el cierre del trimestre | Define qué hace C4 además de avisar |
 | Umbral de exceso de tarifa que justifica bloquear un pago | Única cifra del catálogo que es decisión de negocio pura |
+
+---
+
+## 6. El catálogo del motor, regla a regla
+
+Lo que el motor evalúa hoy, regla a regla, tal como lo dice el código: qué
+mira, qué hace un fallo en una factura de compra y en una de venta
+(**Bloqueo**, **Retención** o **Aviso**, como en el apartado 2), si se puede
+anular (con la lista dura de la decisión 12: la familia F, X1, E3, E4, K2, K4,
+K6, R2, R3 y, en las compras, D2, D3, D4 y D6 no se anulan nunca), si es
+pegajosa (su aviso no se cierra solo aunque desaparezca la condición), si
+anularla pide la firma de una segunda persona, si abre una excepción (lo que
+bloquea o retiene la abre siempre), qué aporta a la prioridad y de qué es el
+aviso (una factura, un proveedor, un cliente, una PO, una importación o un
+movimiento del banco).
+
+<!-- catalogo:inicio -->
+
+_Generado de `src/bms_agent/reglas/catalogo.py` con `python scripts/generar_catalogo_doc.py`: no se edita a mano. 82 reglas._
+
+| Regla | Qué mira | Compra | Venta | Anulable (compra / venta) | Pegajosa | Segunda firma | Abre excepción | Prioridad | De qué |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Q1 | **Campos obligatorios**. Falta un campo obligatorio para el sentido de la factura: número, contraparte, fecha, periodo, base, IVA o régimen, total. Bloquea si falta el número, el total o la contraparte. | Retención | Retención | no / no | no | no | sí | otra | factura |
+| Q2 | **Lectura dudosa sin verificar**. Un campo crítico se leyó con duda (low_confidence_fields o un literal que no se pudo leer) y nadie lo ha verificado. | Retención | Retención | no / no | no | no | sí | otra | factura |
+| Q3 | **Texto sospechoso en el documento**. Las notas del documento traen texto dirigido a quien lo procesa (un IBAN, cambiar datos, llamar): señal de un intento de inyección. | Aviso | Aviso | sí / sí | no | no | sí | otra | factura |
+| Q4 | **Original no guardado**. El original del documento no está en el almacén. | Aviso | Aviso | sí / sí | no | no | no | otra | factura |
+| X1 | **Moneda**. La factura no está en euros: queda fuera de todos los totales. En un maestro, una fila con un importe en otra moneda no entra y bloquea su importación. | Bloqueo | Bloqueo | no / no | sí | no | sí | otra | factura |
+| M2 | **Edición manual sin casar**. Una línea que una persona editó o excluyó no aparece en la extracción vigente (no se pudo casar por su huella): se conserva tal cual y una persona decide si sigue. | Retención | Retención | sí / sí | no | no | sí | otra | factura |
+| M3 | **Exact y el documento no coinciden**. Una venta de Exact (o TRNSPRNT) y su PDF no dicen lo mismo (fecha, base, IVA, total, tipo o periodo), o tienen el mismo número y no se pudieron unir: cuenta la de Exact, y una persona mira la diferencia. | Retención | Retención | sí / sí | no | no | sí | otra | factura |
+| Z1 | **Fuente pasada de frescura**. Lo último de una fuente es más viejo que su límite (banco 3 días laborables, Exact y TRNSPRNT 7 días): lo que depende de ella queda sin datos. | Aviso | Aviso | no / no | no | no | no | otra | importacion |
+| Z2 | **Filas de importación rechazadas**. La última importación de una fuente rechazó filas (o entera), o trae una parte, un Objeto o un recurso que no existe (el planning los deja entrar sin resolver): nada se crea solo. | Retención | Retención | no / no | no | no | sí | otra | importacion |
+| A0 | **Contraparte desconocida**. Ningún proveedor o cliente del maestro coincide exactamente (btw-id, KvK o alias confirmado), o coincide más de uno. | Retención | Retención | no / no | no | no | sí | otra | factura |
+| A2 | **Distinto del maestro**. El nombre, el KvK o el btw-id impresos no dicen lo mismo que el maestro de la contraparte (un alias confirmado cuenta como su nombre). | Retención | Retención | sí / sí | no | no | sí | otra | factura |
+| A5 | **btw-id**. Una compra sin btw-id que no dice KOR bloquea; un btw-id neerlandés que no es NL + nueve cifras + B + dos cifras retiene. | Bloqueo | Bloqueo | no / no | no | no | sí | otra | factura |
+| A7 | **Datos cambiados respecto a su historia**. Lo que imprime un proveedor cambia respecto a su factura anterior: btw-id o KvK retienen, nombre o dirección avisan. | Retención | Retención | sí / sí | sí | no | sí | otra | factura |
+| A8 | **Destinatario**. La factura no va dirigida a BM Support BV (config/empresa.yaml); una que llega por la vía de salida y no emite BM Support BV está mal encaminada y bloquea. | Retención | Retención | sí / sí | no | no | sí | otra | factura |
+| B2 | **Número de factura repetido**. La misma contraparte con el mismo número normalizado, sin fusionar ni enlazar. Se cierra fusionando o enlazando. | Bloqueo | Bloqueo | sí / sí | sí | sí | sí | duplicado exacto | factura |
+| B3 | **Posible duplicado por contenido**. Misma contraparte, el mismo total (0,01), como mucho 14 días entre las dos, periodos compatibles y número distinto. | Retención | Retención | sí / sí | sí | no | sí | duplicado | factura |
+| B4 | **Periodo facturado dos veces**. Periodos de cobro que se pisan, por Objeto cuando las líneas lo nombran; sin las relaciones confirmadas ni los abonos. | Retención | Retención | sí / sí | sí | no | sí | duplicado | factura |
+| B5 | **Horas cobradas dos veces**. Un turno del planning conciliado con más horas de compra de las que tiene, desde dos o más facturas que no se explican entre sí (la parte del planning de B5). | Retención | Retención | sí / sí | sí | no | sí | duplicado | factura |
+| V7 | **Facturación doble**. En las ventas, el caso de B2 (el mismo número a la misma contraparte), el de B3 (el mismo importe a pocos días, periodos compatibles y otro número) o el de B5 (las horas de un turno cobradas desde dos facturas): se le ha facturado dos veces. | Retención | Retención | sí / sí | sí | no | sí | duplicado | factura |
+| C4 | **Trimestre del BTW ya presentado**. La factura cae en un trimestre del BTW ya presentado y no es lo que se declaró de ella: llegó después, cambió después o ya no cuenta allí. Va a la lista del trimestre para el contable. | Aviso | Aviso | sí / sí | no | no | no | IVA blando | factura |
+| D1 | **Desglose**. El desglose está: líneas con cantidad, tarifa e importe, base, total y, si se repercute IVA, tipo y cuota. | Bloqueo | Retención | no / no | no | no | sí | otra | factura |
+| D2 | **Suma de líneas**. La suma de las líneas es la base (0,01 por línea más 0,02). | Bloqueo | Retención | no / no | no | no | sí | otra | factura |
+| D2b | **Aritmética de línea**. Cantidad por tarifa es el importe de cada línea (0,01). | Bloqueo | Retención | sí / sí | no | no | sí | otra | factura |
+| D3 | **Cuota de IVA**. La base por el tipo es la cuota, tipo a tipo (0,02). | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
+| D4 | **Total**. La base más la cuota es el total (0,02). | Bloqueo | Bloqueo | no / no | no | no | sí | otra | factura |
+| E0 | **Falta información del IVA**. No se sabe cómo trata el IVA la factura, o con IVA normal le falta el tipo o la cuota (en la cabecera o en una fila del desglose). | Retención | Retención | no / no | no | no | sí | IVA blando | factura |
+| E1 | **Régimen distinto del maestro**. El régimen de IVA de la factura no es el que el maestro tiene registrado del proveedor. | Retención | Retención | sí / sí | no | no | sí | IVA blando | factura |
+| E2 | **Cambio de régimen**. El régimen cambia respecto a la factura anterior del mismo proveedor. | Retención | Retención | sí / sí | sí | no | sí | IVA blando | factura |
+| E3 | **IVA con KOR**. Con KOR la factura no repercute IVA. | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
+| E4 | **IVA trasladado**. Con IVA trasladado no hay cuota y figura el btw-id del receptor. | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
+| E5 | **Cerca del umbral de la KOR**. Lo que un proveedor con KOR ha facturado este año a BM Support BV llega al porcentaje de la política del umbral de la KOR (un indicio: el umbral es de todo lo que factura). | Aviso | Aviso | sí / sí | no | no | no | IVA blando | proveedor |
+| E7 | **Tipo o tratamiento de IVA raro**. Un tipo de IVA que no es de la lista de la política (0, 9 y 21), o una venta con IVA trasladado o al 0 % a un cliente que el maestro no tiene marcado para facturarle así. | Retención | Retención | sí / sí | no | no | sí | IVA blando | factura |
+| F0 | **Cuentas heredadas sin atestar**. Las cuentas del primer maestro se aceptan como referencia pero nadie las ha comprobado: una tarea, de nivel atención, para atestarlas. | Retención | Retención | no / no | sí | no | sí | IBAN | importacion |
+| F1 | **IBAN**. El IBAN impreso pasa el dígito de control módulo 97. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | factura |
+| F2 | **IBAN no pagable**. El IBAN de la factura no es una cuenta pagable de su proveedor: verificada, atestada o heredada, en el último maestro de Exact y sin un cambio por verificar. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | factura |
+| F3 | **IBAN nuevo o cambiado**. El IBAN de la factura es nuevo para el proveedor, o está rechazado: verificación telefónica al número del maestro de antes del documento. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | factura |
+| F4 | **IBAN de un tercero o factoring**. El IBAN está registrado para otro titular, o la factura habla de factoring, cesión o G-rekening. Bloquea y se escala. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | factura |
+| F5 | **Cuenta cambiada en el maestro**. Una cuenta añadida, cambiada o quitada en un maestro posterior al primero, sin verificar por teléfono. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | proveedor |
+| F6 | **Exact y TRNSPRNT no coinciden**. Exact y TRNSPRNT dicen cuentas distintas del mismo proveedor. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | proveedor |
+| F7 | **Cargo a una cuenta no pagable**. Un cargo del banco a un proveedor (casado con una factura suya, o a una cuenta registrada para él) fue a una cuenta que no es pagable para él, y no es un beneficiario conocido ni una cuenta propia. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | movimiento |
+| F8 | **Verificación que no vale**. La llamada no fue al teléfono del maestro de antes del documento, el teléfono cambió dentro del enfriamiento o quien verificó no tenía el permiso. | Bloqueo | Bloqueo | no / no | sí | no | sí | IBAN | proveedor |
+| F9 | **Teléfono de verificación cambiado**. El teléfono de verificación de un proveedor acaba de cambiar: empieza el enfriamiento. | Aviso | Aviso | no / no | sí | no | no | IBAN | proveedor |
+| F10 | **IBAN ajeno en una venta**. Una factura de venta lleva un IBAN que no es una cuenta de BM Support BV (config/empresa.yaml): el cliente pagaría a otra cuenta. | Retención | Retención | no / no | sí | no | sí | IBAN | factura |
+| K1 | **Vencida**. Sin pagar pasado su vencimiento: una compra desde el día siguiente, una venta pasados los días de la política. Sin extractos que cubran desde su fecha, sin datos. | Aviso | Aviso | sí / sí | no | no | sí | días vencida | factura |
+| K2 | **Pagado distinto del saldo**. Lo confirmado no deja el saldo a cero: un pago parcial (la factura sigue pendiente o vencida con lo que queda) o de más. | Retención | Aviso | no / no | sí | no | sí | otra | factura |
+| K3 | **Pagada a mano sin rastro en el banco**. Marcada pagada a mano y, pasados los días de la política, ningún extracto trae el pago. | Aviso | Aviso | sí / sí | no | no | no | otra | factura |
+| K4 | **Pago doble**. Dos cargos a la misma cuenta, por el mismo importe y con la misma referencia en pocos días, o una factura pagada de más con dos cargos. | Bloqueo | Bloqueo | no / no | sí | no | sí | duplicado | factura |
+| K5 | **Pagada estando Bloqueada**. Se pagó un día en que la factura tenía un hallazgo que bloquea, pendiente y sin anular. | Retención | Retención | no / no | sí | no | sí | otra | factura |
+| K6 | **Extractos que no encadenan**. El saldo de apertura de un extracto no es el de cierre del anterior, o falta un número: lo pagado desde ahí no se da por bueno. | Bloqueo | Bloqueo | no / no | sí | no | sí | otra | importacion |
+| K7 | **Movimiento sin casar**. Un movimiento del banco que, pasados los días de la política, no está casado con ninguna factura. | Aviso | Aviso | sí / sí | no | no | no | otra | movimiento |
+| K8 | **Banco y Exact no coinciden**. El banco y Exact dicen importes pagados distintos de la misma factura. | Retención | Retención | no / no | no | no | sí | otra | factura |
+| G1 | **Sin turnos en el planning**. Una compra sin ningún turno de su proveedor ni de sus personas en el periodo facturado. Retiene; bloquea si el planning es obligatorio (config/reglas.yaml). Anularla pide segunda firma. | Retención | Retención | sí / sí | no | sí | sí | planning | factura |
+| G2 | **Horas distintas de las validadas**. Las horas facturadas contra las validadas del planning, en la celda más fina que llevan los dos lados (persona y día, Objeto y día, Objeto y semana, periodo), con 0,25 h por día de tolerancia. Turnos sin validar, filas semanales que no se pueden partir o días que el planning no cubre: sin datos. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| G3 | **Tarifa distinta de la pactada**. La tarifa de una línea de compra contra la pactada (de lo más concreto a lo general: recurso y Objeto, Objeto, recurso, proveedor; el turno tiene que ser el mismo): por encima retiene, y por encima del porcentaje de la política bloquea. Sin pactada ni planning, contra el histórico: la misma contraparte cobra otra tarifa por el mismo trabajo en el mismo Objeto. Dos pactadas igual de concretas con precios distintos: sin datos en la línea y la factura retenida, con su excepción. Con pactadas para la línea pero ninguna de su unidad o su día (los imprime el proveedor): sin datos y la factura retenida, no el histórico. Sin pactada, la tarifa del turno en el planning, si todos los de su celda dicen la misma. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| G4 | **Objeto distinto del planning**. El Objeto de una línea de compra contra el planning: la persona o el proveedor tienen esos días turnos en otro Objeto. Una línea sin Objeto recibe la propuesta del planning, que confirma una persona. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| G5 | **Periodo distinto del planning**. El periodo y la semana ISO de una compra contra el planning: la semana impresa no es la de sus fechas, o lo facturado cae en días sin turnos y ese trabajo está sin facturar en otra semana. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| G6 | **Recargo a otra tarifa que la suya**. Una línea de un recargo (noche, fin de semana, festivo) se cobra a su propia tarifa pactada. Sin tarifa propia pero con otras pactadas para la línea (la de día), sin datos y la factura retenida para que una persona confirme el recargo; sin ninguna pactada, la mira G3 con el histórico. Con el planning, las horas de cada recargo no pasan las de los turnos de ese recargo. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| G7 | **El planning cambió tras conciliar**. Una foto más nueva del planning cambia las horas ya conciliadas con una compra (otras horas, turnos que ya no están o se cancelaron, turnos nuevos). | Aviso | Aviso | sí / sí | no | no | no | planning | factura |
+| V1 | **Horas facturadas distintas de las validadas**. Las horas de una venta contra las validadas facturables del planning, en la celda más fina de los dos lados (como G2). | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| V2 | **Objeto de la venta**. El Objeto de cada línea de venta existe, es del cliente facturado y estaba activo; una línea sin Objeto retiene, con la propuesta del planning si la hay. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| V3 | **Periodo de la venta distinto del planning**. El periodo y la semana de lo facturado contra el planning (como G5). | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| V4 | **Tarifa de venta distinta de la pactada**. La tarifa de una línea de venta no es la de venta pactada (ni por encima ni por debajo). Sin tarifa pactada, la del turno en el planning; sin ninguna, sin datos. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| V5 | **Horas validadas sin facturar en lo facturado**. Dentro del Objeto y el periodo que cobra una venta, turnos validados facturables que ninguna línea de venta cubre. | Retención | Retención | sí / sí | no | no | sí | facturación ausente | factura |
+| V6 | **Trabajo sin facturar**. Turnos validados facturables que ninguna venta cubre, pasado el fin de su periodo de facturación más sus días de gracia. Valorado a la tarifa de venta pactada o, si no, marcado como estimado. | Retención | Retención | sí / sí | no | no | sí | trabajo sin facturar | cliente |
+| V8 | **Periodo de facturación sin factura**. Un periodo del ciclo de facturación de un cliente u Objeto, con trabajo en el planning, ya pasado con su gracia y sin ninguna factura. | Retención | Retención | sí / sí | no | no | sí | facturación ausente | cliente |
+| V9 | **El planning cambió tras facturar**. Una foto más nueva del planning cambia lo que se facturó (regla 9 de arquitectura.md): hace falta una corrección o un abono. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
+| P1 | **PO no válida**. La PO a la que se imputa la factura está cerrada, o el trabajo cae fuera de su vigencia (que sea de la parte y cubra el Objeto lo mira P3). | Retención | Retención | sí / sí | no | no | sí | límite de PO | factura |
+| P2 | **Falta la PO**. Una venta sin PO donde el Objeto (o, si no lo dice, el cliente) la pide. Un abono no: toma la PO de la factura que abona. | Retención | Retención | sí / sí | no | no | sí | límite de PO | factura |
+| P3 | **PO desconocida o de otro**. La PO que dice la factura no está registrada, es de otra parte o no cubre el Objeto de la línea; o la factura imprime varias PO y una imputación no va a ninguna (una persona decide con imputar_po). | Retención | Retención | sí / sí | no | no | sí | límite de PO | factura |
+| P4 | **Factura por encima de lo que queda**. La factura carga a la PO más de lo que le quedaba antes de ella, sin IVA: por fecha de factura y por id, o por orden de llegada (una fecha atrasada no la libra). | Retención | Retención | sí / sí | sí | no | sí | límite de PO duro | factura |
+| P5 | **PO casi consumida**. La PO lleva consumido el porcentaje de la política (80 %) o más. | Aviso | Aviso | no / no | no | no | no | límite de PO | orden_compra |
+| P6 | **PO consumida y se sigue facturando**. La PO ya estaba consumida entera antes de la factura (por fecha o por llegada), y la factura le carga más. | Retención | Retención | sí / sí | no | no | sí | límite de PO duro | factura |
+| P7 | **PO a punto de caducar**. La PO caduca dentro de los días de la política (30) con valor por consumir. Ya caducada, retiene si el planning tiene trabajo después de su fin. | Aviso | Aviso | sí / sí | no | no | no | caducidad de PO | orden_compra |
+| P8 | **Planificado por encima de lo que queda**. El trabajo planificado (después de hoy) por la tarifa pactada, o la del turno, pasa lo que queda de la PO. | Aviso | Aviso | no / no | no | no | no | límite de PO | orden_compra |
+| P9 | **PO que se agota antes de tiempo**. Al ritmo de las últimas semanas (8), la PO se agota antes de los días de margen (14) de su fin. | Aviso | Aviso | no / no | no | no | no | límite de PO | orden_compra |
+| P10 | **Esperado por encima de la PO**. Lo facturado más lo trabajado sin facturar más lo planificado pasa el valor de la PO; retiene también las facturas que le cargan desde ahí. | Retención | Retención | sí / sí | no | no | sí | límite de PO duro | orden_compra |
+| R1 | **Factura nombrada que no está**. Un abono o una corrección nombra una factura de la misma contraparte que no está en el almacén (o que está repetida). | Retención | Retención | sí / sí | no | no | sí | otra | factura |
+| R2 | **Abonos por encima de la original**. Los abonos confirmados le quitan a una factura más de lo que vale, o un abono se aplica por más de lo que vale. | Retención | Retención | no / no | sí | no | sí | otra | factura |
+| R3 | **Original y sustituta a la vez**. La original y la que la sustituye (o corrige) están las dos pendientes (se pagaría el mismo trabajo dos veces) o las dos pagadas. | Bloqueo | Bloqueo | no / no | sí | no | sí | duplicado | factura |
+| R4 | **Abono sin relación**. Un abono sin ninguna relación confirmada que diga a qué factura abona. | Aviso | Aviso | no / no | no | no | no | otra | factura |
+| R5 | **Relación por confirmar**. La extracción o Exact proponen una relación entre dos facturas: hasta que una persona la confirma no mueve saldos, IVA ni duplicados. | Aviso | Aviso | no / no | no | no | no | otra | factura |
+| U1 | **Importe inusual**. La base se sale de lo habitual de la contraparte (mediana y MAD de sus facturas anteriores; con menos de tres, sin datos). | Aviso | Aviso | sí / sí | no | no | sí | otra | factura |
+
+<!-- catalogo:fin -->

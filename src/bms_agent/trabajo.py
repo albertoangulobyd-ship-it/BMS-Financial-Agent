@@ -207,6 +207,37 @@ def _facturadas(instantanea: Instantanea, objeto_id: int,
                 semanas[semana][columna] += horas
 
 
+def importes_por_semana(instantanea: Instantanea, objeto_id: int) -> dict[str, dict[str, int]]:
+    """Lo facturado al cliente (ingresos) y por los proveedores (costes) del Objeto, sin IVA,
+    por semana ISO de trabajo (paso 12).
+
+    Las mismas imputaciones que v_objeto_periodo (las de facturas en juego con
+    base conocida; una en otra moneda la tiene vacia, X1) y los mismos dias que
+    las horas de la vista del Objeto (turnos.dias_de): una linea de varias
+    semanas se reparte por sus dias, con el resto del redondeo en la ultima, asi
+    que la suma de las semanas es lo de siempre del Objeto. Una imputacion sin
+    dias va a "sin_semana".
+    """
+    salida: dict[str, dict[str, int]] = defaultdict(lambda: {"ingresos_cent": 0,
+                                                            "costes_cent": 0})
+    for f in instantanea.facturas:
+        if not f.imputaciones or not en_juego(f) or f.base_cent is None:
+            continue
+        columna = "costes_cent" if f.sentido == ENTRANTE else "ingresos_cent"
+        lineas = {l.id: l for l in f.lineas}
+        for i in f.imputaciones:
+            if i.objeto_id != objeto_id or not i.importe_cent:
+                continue
+            dias = turnos.dias_de(i, lineas.get(i.linea_id) if i.linea_id is not None else None,
+                                  f)
+            reparto = (repartir(dias[0], dias[1], i.importe_cent) if dias is not None
+                       and (dias[1] - dias[0]).days <= turnos.DIAS_MAXIMOS
+                       else {SIN_SEMANA: i.importe_cent})
+            for semana, importe in reparto.items():
+                salida[semana][columna] += importe
+    return dict(salida)
+
+
 def _parte_del_objeto(instantanea: Instantanea, objeto_id: int) -> dict[int, tuple[int, int]]:
     """Por factura con algo imputado al Objeto: lo imputado a el y lo imputado en total, en
     valor absoluto.

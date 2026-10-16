@@ -4831,3 +4831,234 @@ de `politica_version`; la CLI y la API dan motivo y rev, y anotan un importe
 de cuatro cifras) y `test_servicios.py` (motivo en listo y anotar, rev en
 anotar). El caso «el tipo en todas las líneas basta» de
 `test_reglas_paso11.py::test_e0_no_dice_nada` se queda: es una compra.
+
+## Paso 12
+
+El panel principal, la búsqueda, la vista económica de cada Objeto, la
+historia de cada factura, el contrato v2 y la documentación de uso. Con este
+paso la V1 queda construida entera. **1922 tests pasan** (eran 1863),
+ninguno llama a la API y ninguno escribe fuera de una carpeta temporal. Cinco
+mil facturas se recalculan en 1,21-1,30 s la primera vez y en 0,99-1,06 s las
+siguientes (el paso 11 medía 1,18-1,32 s y 0,97-1,09 s: el motor no cambia).
+Sobre ese almacén, el panel tarda 0,13-0,15 s, una búsqueda de todo con
+1.000 filas 0,11-0,14 s, el resumen de los Objetos 0,04-0,05 s y
+`export --v2` entero 0,43-0,57 s.
+
+**Aquí no hay nada que escriba.** Todo lo del paso es lectura: consultas
+sobre lo que ya hay, sin ninguna orden nueva ni ninguna tabla nueva. Ninguna
+lectura nueva toca `cuenta_bancaria` ni enseña un IBAN fuera de lo que ya lo
+enseñaba (`/api/v2/cuentas`, con su permiso); `export --v2` no lleva
+ninguno. La suite de alcance pasa sin tocarla.
+
+### Qué se construyó
+
+**Migración `0015_panel_busqueda.sql`** (la siguiente libre), solo vistas,
+independientes de hoy:
+
+- `v_factura_listado`: una fila por factura para buscar (§5, «One row per
+  invoice for search»): la contraparte impresa (el emisor de una compra, el
+  receptor de una venta), el periodo de prestación (el de la cabecera o, si no
+  lo imprime, el de sus líneas activas), base, IVA y total, `importe_cent`
+  (la base o, sin ella, el total), si está anulada, fusionada o sustituida,
+  `cuenta` (ni lo uno ni lo otro ni lo otro), y las columnas de estado de
+  `factura_estado` (pago, saldo, vencimiento, revisión, calidad, marcas de
+  edición, prioridad, excepción y la pasada que las escribió).
+- `v_objeto_periodo`: por Objeto (NULL, lo imputado sin Objeto) y mes de la
+  fecha de factura: ingresos (lo imputado de las ventas), costes (lo de las
+  compras), margen, horas de venta y de compra y cuántas facturas; de
+  `v_imputacion_vigente` y solo de facturas con base conocida.
+
+**`consultas.py`**, el grueso del paso:
+
+- **Búsqueda (§18)**: `FILTROS`, un catálogo cerrado de 27 filtros (uno o
+  más por cada filtro del §18, más `texto`, `sentido`, `excepcion`,
+  `importe_min` e `importe_max`). Cada filtro es un fragmento de SQL fijo con
+  `?` y una función que valida y convierte su valor (entero, día ISO, lista de
+  valores permitidos, sí/no, importe con dos decimales como mucho, trimestre
+  `2026-T3`). Nada de lo que escribe quien busca entra en el SQL: un nombre de
+  filtro que no está en el catálogo, un valor que no se entiende o un orden
+  desconocido dan `FiltroNoValido` (un 400 en la API, salida 2 en la CLI).
+  `buscar(conn, peticion)` devuelve los filtros aplicados, la página, el total,
+  la suma de lo encontrado (total, base y pendiente), de qué día es el estado
+  (`estado_del`, el hoy de la última pasada del motor) y si está al día
+  (`al_dia`). Orden: prioridad (por defecto, el del §8), fecha, vencimiento,
+  importe o número; 200 por página por defecto, 1.000 como mucho.
+  `filtros()` describe el catálogo (lo que pinta el buscador de la consola y lo
+  que dice el contrato).
+- **Panel principal (§17)**: `panel(conn)` con los siete bloques: dinero que
+  entra y que sale (pendiente, vencido, esta semana, este mes, próximos 30
+  días, sin fecha, de `flujo_caja`), caja (lo esperado por ventana, el neto,
+  lo que movió el banco este mes y el estimado del planning aparte, decisión
+  22), facturación (V6 con su importe, V5 y V8 con sus periodos, las
+  diferencias con el planning; sin datos sin planning), PO (valor, consumido y
+  lo que queda de las activas, y las que están cerca del límite, de caducar o
+  de agotarse), BTW (el trimestre en curso, el próximo plazo y los
+  trimestres pasados sin presentar) y «Requiere atención» (los hallazgos
+  pendientes por categoría, con cuántos activos y cuántos aceptados, y las
+  compras y ventas vencidas). `categoria_de(regla)` reparte cada regla del
+  catálogo en una sola categoría por su entrada de prioridad y su calidad.
+- **Vista del Objeto (§5) completa**: `objeto(conn, id, desde=, hasta=)`
+  gana `economia` (ingresos, costes, margen, margen en puntos básicos y en
+  porcentaje y horas, del periodo pedido, por defecto el mes en curso hasta
+  hoy, del año y de siempre; mes a mes de `v_objeto_periodo` y semana a semana
+  de `trabajo.importes_por_semana`) y `facturas` (las de compra y las de venta
+  con lo imputado al Objeto, sus horas y si cuentan). `objetos_resumen(conn)`:
+  todos los Objetos con lo del año y lo de siempre, y lo que no es de ninguno
+  (`sin_objeto`: lo imputado sin Objeto, lo que las bases no imputan y el
+  total), de modo que todo cuadra con la base total.
+- **Procedencia y marcas por campo (§11-14)**: cada campo de la ficha dice su
+  fuente en palabras (`fuente_texto`: «Extraído del documento», «Corregido a
+  mano»...), su referencia y, si lo cambió una persona, el motivo del último
+  cambio (de `cambio_campo`), además de quién y cuándo, que ya estaban.
+- **Historia de una factura (§12)**: `historial_factura(conn, id)`: el
+  documento original (sha256, nombre, si se conserva, por dónde y cuándo
+  llegó), cada extracción (cuál es la vigente), cada evento que la tocó con
+  cada cambio de campo (antes y después, en texto, con su fuente y su
+  motivo), las revisiones, los hallazgos con sus eventos y anulaciones, las
+  excepciones y las notas.
+- **Contrato v2**: `CONTRATO_V2 = "2.0"`, `CLAVES_V2` (las claves que el
+  contrato promete, por ruta), `exportar_v2(conn)` y `comprobar_v2(datos)`
+  (claves que faltan, números con decimales, versión).
+
+**`serve.py`**: las lecturas nuevas de `/api/v2` (`contrato`, `panel`,
+`buscar`, `facturas/N/historial`, `objetos` con el resumen, `objetos/N` con
+`desde` y `hasta`, `flujo` con `desde` y `hasta`, `exportar`), todas con
+`ver_facturas`; las respuestas de `/api/v2` (también las órdenes y los
+errores) llevan la cabecera `X-BMS-Contrato: 2.0`. `LECTURAS_V2` es la lista de rutas que el contrato documenta. Un
+parámetro que una ruta no conoce, o un valor que no se entiende, da 400.
+`/api/datos` no cambia.
+
+**`cli.py`**: `export --v2` (por defecto a `datos-v2.json`; necesita el
+almacén y comprueba el contrato antes de escribir), `resumen` (el panel),
+`buscar --filtro NOMBRE=VALOR ...` (con `--filtros`, `--orden`, `--limite`,
+`--pagina` y `--json`), `objetos` y `historial ID`; `objeto N` enseña ya la
+economía.
+
+**La consola** (`consola_assets.py`): una barra de navegación y las páginas
+Panel (los siete bloques, con enlaces a cada factura), Buscar (un formulario
+que sale del catálogo de filtros, con listas para proveedor, cliente, Objeto
+y PO), Objetos (el resumen y lo sin Objeto) y BTW (el resumen, el detalle de
+un trimestre y sus tres órdenes); la ficha del Objeto con su economía y sus
+facturas; en la ficha de factura, la fuente de cada campo y cada marca de
+edición como insignias, con quién, cuándo y por qué, y la historia completa;
+una columna «Pago» en las listas. Todo con `createElement` y `textContent`
+(el test con nodo pinta un nombre con HTML dentro en cada función nueva).
+
+**Documentación**: el contrato v2 en `docs/integracion-web.md` (la
+política de versiones, cuatro reglas que valen para todo, cada clave, cada
+ruta y cada filtro con el apartado del §18 al que responde, y un ejemplo en
+JavaScript); la guía de uso diario `docs/uso-v1.md` (rutina, prioridades,
+corregir un campo, verificar un IBAN por teléfono, cerrar un trimestre del
+BTW); el apartado 6 de `docs/validacion-facturas.md`, la tabla de las 82
+reglas del motor, **generada del catálogo** con
+`scripts/generar_catalogo_doc.py` (`--comprobar` dice si se ha quedado
+atrás); el README, `docs/fase-0.md` y el estado en `docs/diseno-v1.md`.
+
+Otros: `flujo_caja.flujo` admite lo ya leído (`leidos=`) para que el panel
+no lea dos veces las partidas; `trabajo.importes_por_semana`.
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| Lo pendiente de un proveedor es la suma de lo pendiente de sus facturas | `test_panel_busqueda.py::test_lo_pendiente_de_cada_parte_es_lo_que_encuentra_la_busqueda` (cinco semillas: pagos parciales, enteros y de más, un abono, una sustitución o corrección, anulaciones, una línea dividida entre dos Objetos y otra que pasa a sin Objeto, al azar sobre el escenario; para cada proveedor y cada cliente, lo pendiente y lo vencido de su vista es la suma de lo que la búsqueda da con `proveedor_id`/`cliente_id` y `pendiente`/`vencida`, y lo que da el panel es la suma de todos) |
+| Lo facturado por Objeto más lo sin Objeto es la base total de las ventas | `test_lo_de_cada_objeto_mas_lo_sin_objeto_es_la_base_total` (cinco semillas; también con los costes, y la suma de los meses y de las semanas de cada Objeto es lo de siempre; la base total se calcula aparte, con `relaciones.efectos`), `test_lo_sin_objeto_dice_de_donde_sale` |
+| Un test por cada filtro del §18 | `test_filtro_numero_de_factura`, `test_filtro_proveedor`, `test_filtro_cliente`, `test_filtro_objeto`, `test_filtro_po`, `test_filtro_periodo`, `test_filtro_vencimiento`, `test_filtro_estado_de_pago`, `test_filtro_estado_de_revision`, `test_filtro_prioridad`, `test_filtro_calidad_del_dato`, `test_filtro_ediciones_manuales`, `test_filtro_pendiente`, `test_filtro_vencida`, `test_filtro_pagada`, `test_filtro_anulada_o_acreditada`: cada uno contra un oráculo calculado aparte, sobre un escenario (`escenario`) donde ningún filtro da todas las facturas ni ninguna (`test_el_escenario_tiene_de_todo`); los de más en `test_los_filtros_de_mas`, la suma de filtros en `test_los_filtros_se_suman` |
+| Sin SQL hecho con lo que escribe el usuario | `test_un_filtro_que_no_se_entiende_se_rechaza` (once casos), `test_el_texto_de_quien_busca_nunca_entra_en_el_sql` (una inyección clásica es un texto más, y ningún fragmento del catálogo cambia con un valor centinela) |
+| `/api/datos` sigue idéntico byte a byte a la foto | `test_contrato_v2.py::test_api_datos_sigue_siendo_byte_a_byte_la_foto` (desde un almacén importado de `out/`, sin cabecera de contrato, y otra vez después de leer todo `/api/v2`); `test_golden.py` sigue igual |
+| La suite de alcance | `test_alcance_v1.py`, sin cambios |
+| Lo demás | El contrato v2 contra su documentación (`test_el_contrato_v2_es_el_que_dice_la_documentacion`: cada clave, cada filtro y cada ruta están en el documento), `export --v2` (`test_export_v2_cumple_el_contrato_documentado`: sin decimales, sin IBAN), las rutas y sus errores, los permisos, la CLI, la consola con nodo (`test_la_consola_nueva_pinta_el_html_de_los_documentos_como_texto`), el panel (`test_el_panel_tiene_los_siete_bloques_del_paragrafo_17`, `test_cada_aviso_pendiente_va_a_una_sola_categoria`, `test_el_panel_dice_el_trabajo_sin_facturar_del_planning`), la procedencia por campo, la historia, la vista del Objeto, `estado_del` y `al_dia`, y la tabla del catálogo (`test_la_tabla_de_validacion_facturas_es_la_del_catalogo`) |
+
+### Desviaciones de la especificación, y por qué
+
+1. **La migración es la 0015**: la numeración iba por la 0014.
+2. **`v_objeto_periodo` va solo por mes; el corte por semana ISO se hace en
+   Python** (`trabajo.importes_por_semana`). Una línea de un mes entero tiene
+   que repartirse entre sus semanas por sus días, con el resto del redondeo
+   en la última, y eso es `trabajo.repartir` con `turnos.dias_de`: lo mismo
+   que ya hacían las horas del Objeto. Escribirlo en SQL sería una segunda
+   versión de la misma cuenta.
+3. **A qué mes y a qué semana va un importe** (pregunta 10 del §12, abierta):
+   por mes y por año, la fecha de factura (como el BTW y los totales de las
+   partes); por semana, los días trabajados (como las horas). Si la respuesta
+   es otra, cambia `v_objeto_periodo` y nada más.
+4. **No hay vista `v_campo_calidad`.** La calidad de un campo depende de los
+   hallazgos que lo señalan y de sus marcas de verificación; ya la calcula
+   `consultas._campos_de` (paso 4), con el orden del §5 y «neutra», nunca
+   verde. La de la factura está en `factura_estado` y de ahí en
+   `v_factura_listado`.
+5. **`v_factura_listado` lee la caché `factura_estado`**, que escribe cada
+   pasada del motor: el estado de pago, el vencimiento y la prioridad
+   dependen de hoy, y la vista no puede. Por eso la búsqueda dice de qué día
+   es su estado (`estado_del`) y si está al día (`al_dia`); la consola y el
+   panel lo avisan y dicen que hace falta `recalcular --diaria`.
+6. **Lo que «no es de ningún Objeto» son dos cosas**: lo imputado a una línea
+   sin Objeto y lo que la base de una factura no reparte entre sus
+   imputaciones (una factura sin líneas, o con líneas que no suman la base).
+   Las dos van en `sin_objeto` por separado, y su suma con lo de los Objetos
+   es la base total.
+7. **Una factura sin base no es ingreso ni coste de nadie** (Q1; y X1, porque
+   en otra moneda se lee sin importes): ni en los Objetos, ni en la base
+   total, ni en la semana. Se cuenta aparte (`sin_base`) para que se vea.
+8. **«Incoming / outgoing» del §17 se leen como dinero que entra y que sale**
+   (cobros de ventas, pagos de compras), y las facturas vencidas van en
+   «Requiere atención» separadas en compras y ventas. Una vencida en otra
+   moneda cuenta como vencida pero no suma (`sin_importe`): lo está, y su
+   importe no se sabe en euros.
+9. **Las categorías de «Requiere atención»** salen de la entrada de
+   prioridad de cada regla (IBAN, duplicados, IVA, planning, sin facturar,
+   PO, vencidas), de su calidad (faltan datos), de Q2 (lecturas dudosas) y
+   el resto a «otros». Un hallazgo va a una sola categoría. Cada una cuenta
+   los activos (abierto y desaparecido) y los aceptados aparte, porque un
+   aceptado ya lo ha mirado alguien.
+10. **El bloque de PO** dice «cerca del límite» con P5, «cerca de caducar»
+    con P7 y «agotamiento previsto» con P8, P9 y P10, abiertos o aceptados.
+11. **El bloque del BTW** dice el próximo plazo que no ha pasado y, aparte,
+    los trimestres cuyo plazo pasó sin presentar (`plazos_pasados`): poner
+    un plazo pasado como «próximo» escondía justo lo urgente.
+12. **Filtros de más** (`texto`, `sentido`, `excepcion`, `importe_min`,
+    `importe_max`, y `po` por número además de `orden_compra_id`): los pide
+    la consola y no cambian nada de los del §18. Un filtro de lista con
+    varios valores es un «o» (`estado_pago=vencida,pendiente`); filtros
+    distintos se suman con «y».
+13. **El filtro de cliente** da sus ventas y también las compras imputadas a
+    un Objeto suyo: es lo que hace falta para ver lo de un cliente entero, y
+    lo que hace la vista del cliente con sus Objetos.
+14. **`/api/v2/objetos` devuelve ya el resumen** (`objetos_resumen`), que
+    lleva lo que daba antes (id, código, nombre, cliente) y más. Ningún test
+    ni la consola dependían de que no lo llevara.
+15. **`export --v2` necesita el almacén** (el v1 podía leer `out/`) y no lleva
+    IBAN: el contrato es para la web del dueño, y una cuenta bancaria no tiene
+    que salir del ordenador para eso.
+16. **Política de versiones del contrato**: una clave nueva sube el menor
+    (2.1); quitar o cambiar una sube el mayor (3.0), y entonces el sitio tiene
+    que cambiar. Todos los importes son enteros en céntimos con su texto al
+    lado; no hay números con decimales (`comprobar_v2` lo mira).
+17. **La tabla del catálogo de `docs/validacion-facturas.md` se genera** del
+    código; el resto del documento, que explica por qué existe cada
+    comprobación, sigue escrito a mano. Las dos cosas son coherentes porque el
+    test compara la tabla con el catálogo, no porque alguien se acuerde.
+
+### Lo que deben saber los pasos siguientes
+
+- **El contrato v2 es una promesa.** `CLAVES_V2` y `LECTURAS_V2` son lo que
+  dice el documento y el test los compara: una clave o una ruta nueva va en
+  los dos y en `docs/integracion-web.md` a la vez, y sube la versión menor.
+- **Un filtro nuevo** es una entrada de `FILTROS` con su fragmento fijo y su
+  conversor, y un test con su oráculo en `test_panel_busqueda.py`. Nunca un
+  fragmento hecho con el valor.
+- **La búsqueda lee la caché.** Si una columna nueva de estado depende de
+  hoy, va a `factura_estado` (lo escribe el motor) y a `v_factura_listado`,
+  no a la vista directamente.
+- **Una regla nueva** cae sola en una categoría del panel por su entrada de
+  prioridad; si no tiene, va a «otros». Y hay que volver a generar la tabla
+  de `docs/validacion-facturas.md` (`python scripts/generar_catalogo_doc.py`):
+  el test lo exige.
+- **El teléfono de verificación de un proveedor** no sale todavía en la
+  consola ni en `iban listar`; la guía dice que se busque en el maestro de
+  Exact. Enseñarlo es una lectura más, sin riesgo, si se pide.
+- **Con la respuesta a la pregunta 10** (atribución) solo cambia
+  `v_objeto_periodo` y, si va por trabajo, el mes sale de
+  `trabajo.repartir` como la semana.
+
+**Tests existentes cambiados**: ninguno.

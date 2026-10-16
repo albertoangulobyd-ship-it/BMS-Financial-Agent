@@ -47,12 +47,19 @@ Van en orden. Cada uno sirve para una fase distinta del proyecto.
 ### Nivel 1 · Un fichero JSON (funciona hoy)
 
 ```bash
-bms-agent export --file datos.json
+bms-agent export --file datos.json        # contrato v1: el panel de compras de siempre
+bms-agent export --v2 --file datos-v2.json   # contrato v2: todo lo de la V1 (ver abajo)
 ```
 
 Escribe todo lo que el panel necesita. El sitio lo lee con un `fetch`. Sin
 servidor, sin base de datos, sin nada que desplegar. Es el camino más rápido
 para tener un sitio funcionando, y sirve mientras el agente se ejecute a mano.
+
+El **contrato v1** (sin `--v2`) es el panel de compras de la fase 0 y no
+cambia (abajo, «El contrato de datos v1»). El **contrato v2** (`--v2`) sale del
+almacén y lleva el panel principal, la búsqueda, las vistas de proveedores,
+clientes, Objetos y órdenes de compra, el BTW y el flujo de caja: es el que
+debería leer un sitio propio nuevo (abajo, «El contrato v2»).
 
 ### Nivel 2 · Servidor local de desarrollo (funciona hoy)
 
@@ -69,6 +76,9 @@ Levanta en `http://127.0.0.1:8765`:
 | `GET /api/datos` | Los mismos datos que el export, siempre frescos |
 | `GET /api/ejecucion` | Estado de la última pasada |
 | `POST /api/ejecutar` | Lanza una pasada. Pide cabecera `X-BMS-Token` y cuerpo JSON. Devuelve `409` si ya hay una |
+| `GET /api/v2/...` | El contrato v2, por partes (abajo): piden el token **personal** de quien lee en `X-BMS-Token` |
+| `POST /api/v2/acciones` | Las órdenes de las personas (corregir un campo, revisar, verificar un IBAN...), con su token personal |
+| `GET /consola` | La consola interna, que se pinta con lo de `/api/v2` |
 
 **Escucha solo en `127.0.0.1`, a propósito.** No acepta una IP de red. Es un
 servidor de desarrollo para construir el sitio contra datos reales, no un paso
@@ -130,10 +140,14 @@ del portal no puede ser esta misma en otro puerto.
 
 ---
 
-## El contrato de datos
+## El contrato de datos v1
 
-Lo que devuelven `bms-agent export` y `GET /api/datos`. Es estable: si cambia,
-cambia con una nota en este fichero.
+Lo que devuelven `bms-agent export` (sin `--v2`) y `GET /api/datos`. Es
+estable: si cambia, cambia con una nota en este fichero. Desde la V1 es el
+panel de compras de siempre, con los valores corregidos del almacén: un test
+comprueba que `GET /api/datos` sigue siendo byte a byte la foto de referencia
+(`tests/golden/construir_datos_v1.json`). Lo nuevo de la V1 no entra aquí: va
+en el contrato v2.
 
 ```
 {
@@ -234,6 +248,280 @@ recuentos de la tabla; no entra en ninguna suma: ni `totales.importe`,
 
 Las líneas en «uur», «uren», «u» u «hours» son horas.
 
+
+---
+
+## El contrato v2
+
+Lo que devuelven `bms-agent export --v2` y `GET /api/v2/exportar`, y por partes
+las lecturas de `/api/v2`. Es el contrato con el que construir un sitio propio
+(por ejemplo, el panel en React del dueño) contra la V1. Lo escribe
+`consultas.exportar_v2` y lo comprueba `consultas.comprobar_v2`, clave a clave
+con lo que dice esta sección (`tests/test_contrato_v2.py`).
+
+### La versión
+
+```
+{"contrato": "2.0", ...}
+```
+
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.0`. El
+número sube así:
+
+- **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
+  no conoce sigue funcionando;
+- **2.x → 3.0** cuando una clave **cambia de forma o desaparece**: el sitio
+  tiene que cambiar, y este fichero dice qué.
+
+Un sitio debería comprobar el número mayor al leer y negarse a pintar uno que
+no conoce.
+
+### Cuatro reglas que valen para todo
+
+**Importes en enteros, con su texto al lado.** `_cent` son céntimos de euro
+con signo (un abono es negativo), `_mil` milésimas de hora, `_pb` puntos
+básicos (2100 es 21 %). Al lado va el mismo valor ya escrito como se lee en la
+empresa (`"pendiente": "2.902,79"`). Ningún número lleva decimales: un
+`float` no entra nunca (lo comprueba el test). Los importes agregados son
+**sin IVA** salvo los de dinero (`dinero_entra`, `dinero_sale`, `caja`,
+`pendiente_cent`), que son lo que sale del banco.
+
+**El texto de un documento llega tal cual.** `contraparte`, `numero`, los
+nombres de proveedores, clientes y Objetos y los motivos pueden traer HTML o
+texto escrito para que un sistema lo obedezca. Van al DOM con `textContent`,
+nunca con `innerHTML`; en un CSV, neutralizando lo que empieza por `=`, `+`,
+`-` o `@`.
+
+**Sin datos no es cero.** Lo que no se puede saber (sin planning, sin
+extractos del banco) llega como `null` o con `"estado": "sin_datos"` y un
+`detalle` que dice por qué: el sitio lo enseña así, nunca como 0.
+
+**No lleva ningún IBAN.** Los da la vista de un proveedor
+(`GET /api/v2/proveedores/N`), con token, y solo a la consola interna; el
+portal de consulta los enmascara ([portal-consulta.md](portal-consulta.md)).
+
+### Lo de arriba
+
+```
+{
+  "contrato": "2.0",
+  "generado_en",                      // instante UTC del export
+  "hoy",                              // el día con que se calcula (Ámsterdam)
+  "estado_del", "al_dia",             // de qué día es el estado de las facturas;
+                                      // false: falta `bms-agent recalcular --diaria`
+  "panel": {...},                     // el panel principal (§17), abajo
+  "facturas": [ {...} ],              // todas, la más urgente primero (la búsqueda sin filtros)
+  "proveedores": [ {...} ],           // como GET /api/v2/proveedores
+  "clientes": [ {...} ],              // como GET /api/v2/clientes
+  "objetos": {...},                   // como GET /api/v2/objetos
+  "ordenes_compra": [ {...} ],        // como GET /api/v2/ordenes
+  "btw": {...},                       // como GET /api/v2/btw
+  "flujo_caja": {...},                // como GET /api/v2/flujo
+  "excepciones": [ {...} ],           // las abiertas, la más urgente primero
+  "fuentes": [ {...} ],               // de cuándo es lo último de cada fuente (Z1)
+  "filtros": [ {...} ]                // los filtros de la búsqueda, como /api/v2/contrato
+}
+```
+
+### El panel principal (`panel`, `GET /api/v2/panel`)
+
+```
+"panel": {
+  "contrato", "hoy", "estado_del", "al_dia",
+  "fuentes_caducadas": [ {"fuente", "tipo", "exportado", "edad", "limite"} ],
+  "dinero_entra": {                   // lo que se espera cobrar: ventas y abonos de proveedores
+    "facturas", "vencidas",
+    "pendiente_cent", "vencido_cent", "semana_cent", "mes_cent",
+    "proximos_30_cent", "sin_fecha_cent"          // y cada uno sin _cent, como texto
+  },
+  "dinero_sale": { ...lo mismo, lo que se espera pagar... },
+  "caja": {
+    "ventanas": {"vencido"|"semana"|"mes"|"proximos_30"|"total":
+                 {"entrada_cent", "salida_cent", "neto_cent"}},
+    "fechas",                         // de qué día a qué día es cada ventana
+    "cobrado_mes_cent", "pagado_mes_cent",        // lo que movió el banco este mes
+    "estimado": {"importe_cent", "nota", ...}     // trabajo sin facturar y planificado,
+                                                  // aparte; null sin planning
+  },
+  "facturacion": {"estado": "ok"|"sin_datos", "detalle",
+                  "sin_facturar", "periodos_sin_factura", "diferencias_planning"},
+  "ordenes_compra": {"activas", "valor_cent", "consumido_cent", "restante_cent",
+                     "cerca_del_limite", "cerca_de_caducar", "agotamiento_previsto"},
+  "btw": {"trimestre", "estado", "ingresos_cent", "iva_repercutido_cent",
+          "iva_deducible_cent", "saldo_cent", "limite_presentacion", "limite_pago",
+          "proximo_plazo", "plazos_pasados", "por_presentar", "revisar"},
+  "atencion": {
+    "compras_vencidas", "ventas_vencidas",        // {"facturas", "pendiente_cent", "lista"}
+    "categorias": [ {"clave", "titulo", "activos", "aceptados", "reglas",
+                     "facturas", "factura_ids"} ],
+    "hallazgos", "aceptados",                     // avisos activos y aceptados
+    "excepciones", "bloqueadas", "urgentes", "atencion"
+  }
+}
+```
+
+Las ventanas son las del flujo de caja: «esta semana» va de hoy al domingo,
+«este mes» de hoy al último día, «próximos 30 días» cuenta hoy; lo vencido va
+aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
+`iva`, `planning`, `sin_facturar`, `ordenes_compra`, `vencidas`,
+`faltan_datos`, `lecturas_dudosas` y `otros`; cada regla va a una sola.
+
+### Una factura (`facturas[]`, la búsqueda y la lista)
+
+```
+{
+  "id", "numero", "sentido",          // entrante (compra) | saliente (venta)
+  "tipo",                             // factura | nota_credito
+  "contraparte",                      // el nombre impreso: TEXTO DE UN DOCUMENTO
+  "proveedor_id", "cliente_id",       // del maestro, o null
+  "fecha_factura", "vencimiento",     // el vencimiento efectivo
+  "periodo_desde", "periodo_hasta",   // de la cabecera o de sus líneas
+  "base_cent", "total_cent", "total",
+  "pendiente_cent", "pendiente",      // lo que queda (null si no está en euros: X1)
+  "estado_pago",                      // pendiente | vencida | pagada | anulada | acreditada
+  "estado_revision",                  // sin_revisar | necesita_revision | revisada
+  "calidad",                          // faltante | discrepancia | anomalia | dudoso |
+                                      // verificado | null (neutra: nunca verde)
+  "nivel", "puntos", "motivos",       // normal | atencion | urgente | bloqueada, y por qué
+  "editada", "suplementada", "corregida", "sin_resolver",   // las marcas de edición (§11)
+  "cuenta",                           // false: anulada, fusionada o sustituida
+  "objetos",                          // los códigos de sus Objetos
+  "etiqueta"                          // «Sin objeciones del sistema»... nunca «aprobada»
+}
+```
+
+### Proveedores, clientes, Objetos y órdenes de compra
+
+```
+"proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel", ...} ],
+"clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel", ...} ],
+"objetos": {
+  "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel"} ],
+  "sin_objeto": {"imputado", "sin_imputar", "total"},
+  "totales": {"ingresos_cent", "costes_cent", "sin_base", ...}
+},
+"ordenes_compra": [ {"id", "numero", "lado", "parte", "valor_cent", "consumido_cent",
+                     "restante_cent", "fecha_fin", "cerrada", "nivel", ...} ]
+```
+
+Cada `siempre`, `ano`, `imputado`, `sin_imputar`, `total` y `totales` lleva
+`ingresos_cent`, `costes_cent`, `margen_cent` y `margen_pb` (sin IVA). Los
+ingresos de cada Objeto más `sin_objeto.total` son la base de todas las
+ventas que cuentan (`totales.ingresos_cent`), y lo mismo con los costes: un
+test lo comprueba con escenarios al azar. `sin_base` cuenta las facturas sin
+base o en otra moneda, que no suman en ningún sitio hasta que se corrigen.
+
+### El BTW y el flujo de caja
+
+```
+"btw": {"hoy", "configuracion", "actual", "por_presentar", "anteriores",
+        "ano_hasta_hoy", "sin_fecha"},
+"flujo_caja": {"hoy", "ventanas", "esperado", "real", "estimado", "facturas", "fuentes"}
+```
+
+`btw.actual` es el trimestre en curso con sus rúbricas (`cifras`), lo que hay
+que revisar y sus plazos; el detalle de cualquier trimestre está en
+`GET /api/v2/btw/AAAA-TN`. El agente no presenta nada: el estado
+«presentado» lo anota una persona después de presentarlo en el portal.
+
+### Las lecturas de `/api/v2`
+
+Todas piden el token personal de quien lee (`X-BMS-Token`) con el permiso
+`ver_facturas`; sin token, `401`; sin permiso, `403`; lo que no existe, `404`;
+un parámetro que no admiten o un valor que no se entiende, `400` (no se ignora
+en silencio).
+
+| Lectura | Qué da | Parámetros |
+| --- | --- | --- |
+| `GET /api/v2/contrato` | La versión, las lecturas y los filtros de la búsqueda | — |
+| `GET /api/v2/yo` | Quién es el token y sus permisos | — |
+| `GET /api/v2/panel` | El panel principal | — |
+| `GET /api/v2/buscar` | La búsqueda (abajo) | los filtros, `orden`, `limite`, `pagina` |
+| `GET /api/v2/facturas` | Todas, la más urgente primero | `nivel` |
+| `GET /api/v2/facturas/N` | La ficha: cada campo con su valor, su original, su fuente, sus marcas y su calidad | — |
+| `GET /api/v2/facturas/N/historial` | La historia (§12): original, extracciones, cada cambio con quién, cuándo y por qué, revisiones, avisos y su resolución, excepciones | — |
+| `GET /api/v2/excepciones` | Las abiertas | — |
+| `GET /api/v2/personas` | Las personas activas | — |
+| `GET /api/v2/proveedores` | Los proveedores | — |
+| `GET /api/v2/proveedores/N` | La vista de un proveedor (§3), con su registro de cuentas | — |
+| `GET /api/v2/clientes` | Los clientes | — |
+| `GET /api/v2/clientes/N` | La vista de un cliente (§4) | — |
+| `GET /api/v2/objetos` | Los Objetos con ingresos, costes y margen, y lo sin Objeto | — |
+| `GET /api/v2/objetos/N` | La vista de un Objeto (§5): PO, horas, economía por mes y por semana, sus facturas | `desde`, `hasta` (el periodo de «ingresos»; por defecto, el mes en curso) |
+| `GET /api/v2/ordenes` | Las órdenes de compra | — |
+| `GET /api/v2/ordenes/N` | La ficha de una PO (§6) | — |
+| `GET /api/v2/relaciones` | Las relaciones propuestas | — |
+| `GET /api/v2/btw` | El BTW de un vistazo | — |
+| `GET /api/v2/btw/AAAA-TN` | Un trimestre | — |
+| `GET /api/v2/btw/AAAA-TN/hoja` | Su hoja de trabajo y su sha256 | — |
+| `GET /api/v2/flujo` | El flujo de caja | `desde`, `hasta` (un periodo pedido) |
+| `GET /api/v2/fuentes` | De cuándo es cada fuente | — |
+| `GET /api/v2/cuentas` | El registro de cuentas de los proveedores | — |
+| `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
+| `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
+
+### La búsqueda (`GET /api/v2/buscar`)
+
+```
+GET /api/v2/buscar?proveedor_id=3&pendiente=si&orden=vencimiento
+→ {"busqueda": {"filtros", "orden", "limite", "pagina", "total",
+                "suma": {"total_cent", "base_cent", "pendiente_cent"},
+                "estado_del", "al_dia", "facturas": [ ...como facturas[]... ]}}
+```
+
+Los filtros se suman (y); dentro de uno de lista, basta uno de sus valores
+(`estado_pago=pendiente,vencida` o el parámetro repetido). Cada filtro es un
+fragmento fijo de SQL con su valor como parámetro: lo que se escribe no entra
+nunca en la consulta. `limite` va de 1 a 1000 (200 por defecto). `orden`:
+`prioridad` (por defecto), `fecha`, `vencimiento`, `importe` o `numero`.
+
+| Filtro | §18 | Qué pide |
+| --- | --- | --- |
+| `numero` | Invoice number | Parte del número, sin espacios, puntos, guiones ni barras |
+| `texto` | — | Parte del número o del nombre impreso de la contraparte |
+| `sentido` | — | `entrante` (compras) o `saliente` (ventas) |
+| `proveedor_id` | Provider | Del proveedor del maestro |
+| `cliente_id` | Client | Sus ventas y las compras imputadas a un Objeto suyo |
+| `objeto_id` | Object | Con alguna línea imputada al Objeto |
+| `orden_compra_id` | PO | Imputada a la PO, o que la imprime |
+| `po` | PO | Con ese número de PO impreso o imputado |
+| `fecha_desde`, `fecha_hasta` | Period | Fecha de factura (AAAA-MM-DD, incluidas) |
+| `periodo_desde`, `periodo_hasta` | Period | Periodo de prestación que se cruza con esas fechas |
+| `trimestre` | Period | Fecha de factura en el trimestre del BTW (`2026-T3`) |
+| `vence_desde`, `vence_hasta` | Due date | Vencimiento efectivo |
+| `estado_pago` | Payment status | `pendiente`, `vencida`, `pagada`, `anulada`, `acreditada` |
+| `estado_revision` | Review status | `sin_revisar`, `necesita_revision`, `revisada` |
+| `nivel` | Priority | `normal`, `atencion`, `urgente`, `bloqueada` |
+| `calidad` | Data-quality status | `faltante`, `discrepancia`, `anomalia`, `dudoso`, `verificado`, `neutra` |
+| `edicion` | Manual edits | `editada`, `suplementada`, `corregida`, `sin_resolver` |
+| `pendiente` | Outstanding | `si` (pendiente o vencida) o `no` |
+| `vencida` | Overdue | `si` o `no` |
+| `pagada` | Paid | `si` o `no` |
+| `anulada_acreditada` | Cancelled / credited | `si` o `no` |
+| `excepcion` | — | Con una excepción abierta: `si` o `no` |
+| `importe_min`, `importe_max` | — | Importe sin IVA en valor absoluto (`10000` o `10000,50`, sin separador de miles) |
+
+Lo que depende del estado (pago, revisión, prioridad, calidad, ediciones) sale
+de la caché que rehace cada pasada del motor y la diaria: `estado_del` dice de
+qué día es, y `al_dia` si es el de hoy.
+
+### Ejemplo, desde un sitio en `http://localhost:5173`
+
+```js
+const BMS = 'http://127.0.0.1:8765'
+const TOKEN = import.meta.env.VITE_BMS_TOKEN_PERSONAL   // bms-agent usuario token Ana
+
+async function leer(ruta) {
+  const r = await fetch(`${BMS}${ruta}`, {headers: {'X-BMS-Token': TOKEN}})
+  if (r.headers.get('X-BMS-Contrato')?.split('.')[0] !== '2') throw new Error('otro contrato')
+  if (!r.ok) throw new Error((await r.json()).error)
+  return r.json()
+}
+
+const {panel} = await leer('/api/v2/panel')
+const {busqueda} = await leer('/api/v2/buscar?vencida=si&sentido=entrante&orden=vencimiento')
+// Cada nombre va al DOM con textContent: celda.textContent = factura.contraparte
+```
 
 ---
 

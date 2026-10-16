@@ -175,9 +175,13 @@ alcanzables por teclado; la tabla completa como alternativa a todo color.
 
 ## 11. Estado real del proyecto
 
-- Código: unas 34.600 líneas de Python, 1534 tests, ninguno llama a la API.
+- Código: unas 46.000 líneas de Python (73.000 con los tests), 1922 tests,
+  ninguno llama a la API. La V1 está construida entera (los doce pasos de
+  `docs/v1/spec.md`).
 - La extracción funciona sobre facturas reales con acierto medido.
 - El agente **no tiene credenciales de ningún sistema de la empresa**. Ni
-  correo, ni contabilidad, ni banco. Solo lee PDF de una carpeta.
+  correo, ni contabilidad, ni banco. Lee PDF de una carpeta y los ficheros
+  que alguien exporta de Exact, del banco y del planning.
 - Documentación en `docs/`: arquitectura, catálogo de validación, portal,
-  costes, instalación y fase 0.
+  costes, instalación, fase 0, diseño de la V1, integración web (contratos v1
+  y v2) y la guía de uso diario (`uso-v1.md`).
