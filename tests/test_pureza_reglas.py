@@ -28,6 +28,7 @@ from test_reglas_paso8 import escenarios as escenarios_paso8
 from test_reglas_paso9 import escenarios as escenarios_paso9
 from test_reglas_paso10 import escenarios as escenarios_paso10
 from test_reglas_paso11 import escenarios as escenarios_paso11
+from test_revision_final import escenarios as escenarios_revision_final
 
 from bms_agent.reglas import catalogo
 from bms_agent.reglas.base import (
@@ -256,6 +257,8 @@ def _escenarios() -> list[Instantanea]:
         # Paso 11: el BTW (trimestres presentados, clientes que admiten el IVA trasladado,
         # proveedores con KOR).
         *escenarios_paso11(),
+        # Revision final: D6, I1, el tipo nuevo de E2 y K9.
+        *escenarios_revision_final(),
     ]
 
 

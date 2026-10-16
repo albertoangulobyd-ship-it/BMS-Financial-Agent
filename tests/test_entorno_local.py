@@ -258,7 +258,9 @@ def test_dockerignore_y_gitignore_dejan_fuera_los_datos_y_la_clave() -> None:
 # ============================================================ los scripts de Windows
 
 SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar", "persona",
-           "ver-salida")
+           "ver-salida",
+           # Revision final: la identidad de la empresa y las ordenes sueltas con el token.
+           "empresa", "orden")
 
 
 @pytest.mark.parametrize("nombre", SCRIPTS)
@@ -298,7 +300,8 @@ def test_leer_facturas_cuenta_antes_y_pide_que_si() -> None:
     preguntar = texto.index("Read-Host")
     leer = texto.index("lector extract")
     assert contar < preguntar < leer
-    assert '$respuesta -ne "si"' in texto
+    # Revision final: "si", "s" y "si" con tilde valen (comun.ps1, Es-Si); otra cosa no lee.
+    assert "-not (Es-Si $respuesta)" in texto
 
 
 def test_importar_conoce_cada_carpeta_del_buzon() -> None:

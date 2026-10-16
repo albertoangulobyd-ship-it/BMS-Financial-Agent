@@ -169,13 +169,31 @@ class Diferencia:
     def a_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @property
+    def no_vale(self) -> str | None:
+        """Por que la orden quedo apuntada sin el efecto que se pidio, o None si lo tuvo.
+
+        Hoy solo pasa con verificar_iban: una llamada a un telefono que no es
+        el del maestro de antes queda en el historial (es evidencia de lo que
+        se hizo), pero la cuenta sigue sin verificar (F8). Decir "Hecho" ahi
+        es lo que haria pagar a quien no lo tiene que cobrar.
+        """
+        if self.detalle.get("eficaz") is False:
+            return str(self.detalle.get("motivo_ineficaz") or "no cuenta")
+        return None
+
     def lineas(self) -> list[str]:
         """La diferencia en castellano, linea a linea, para la CLI."""
         if self.repetida:
             return [f"Esta peticion ya se aplico (evento {self.evento_id}): no se repite."]
         if self.evento_id is None:
             return ["No cambia nada: los valores ya eran esos."]
-        salida = [f"Hecho (evento {self.evento_id}, pasada {self.ejecucion_id})."]
+        if self.no_vale is not None:
+            salida = [f"Apuntada (evento {self.evento_id}), pero la verificacion NO VALE: "
+                      f"{self.no_vale}. La cuenta sigue sin verificar y no se puede pagar a "
+                      "ella."]
+        else:
+            salida = [f"Hecho (evento {self.evento_id}, pasada {self.ejecucion_id})."]
         for clave, texto in (("abiertos", "abiertos"), ("cerrados", "cerrados"),
                              ("reabiertos", "reabiertos"), ("aceptados", "aceptados"),
                              ("cambios_evidencia", "con otra evidencia")):
@@ -317,6 +335,8 @@ _ENTERO_TEXTO = re.compile(r"^[+-]?[0-9]+$")
 # miles: "1.000" son mil para quien escribe en holandes y uno para quien escribe
 # en ingles. No se adivina: se pide escribirlo sin ambiguedad.
 _MILES = re.compile(r"^[+-]?[1-9][0-9]{0,2}[.,][0-9]{3}$")
+# Como la consola ensena un importe: puntos de miles y coma decimal (6.200,04).
+_COMO_SE_VE = re.compile(r"^[+-]?[1-9][0-9]{0,2}(?:\.[0-9]{3})+,[0-9]+$")
 _SI = {"si", "sí", "true", "1", "verdadero"}
 _NO = {"no", "false", "0", "falso"}
 
@@ -325,11 +345,12 @@ def valor_de_entrada(definicion: campos.Campo, valor: Any) -> Any:
     """El valor que escribe una persona, del tipo que espera campos.py.
 
     Los importes, cantidades, tarifas y tipos llegan como texto ("2902,79" o
-    "2902.79", sin separador de miles: "2.902,79" seria ambiguo) o como
-    entero; nunca como float, que ya habria perdido decimales. Un texto que
-    puede ser un grupo de miles ("1.000", "12.400") tampoco entra: el
-    extractor lo lee como mil, y leerlo aqui como uno guardaba un importe
-    mil veces menor como si fuera una correccion de una persona.
+    "2902.79") o como entero; nunca como float, que ya habria perdido
+    decimales. Un texto que puede ser un grupo de miles ("1.000", "12.400")
+    no entra: el extractor lo lee como mil, y leerlo aqui como uno guardaba un
+    importe mil veces menor como si fuera una correccion de una persona. Lo que
+    escribe la consola si entra ("2.902,79", puntos de miles y coma decimal):
+    con los dos separadores no hay duda, y es como se ve cada importe.
     """
     if valor is None or (isinstance(valor, str) and not valor.strip()):
         return None
@@ -340,9 +361,11 @@ def valor_de_entrada(definicion: campos.Campo, valor: Any) -> Any:
         if isinstance(valor, (int, Decimal)):
             return Decimal(valor)
         texto = str(valor).strip().replace(" ", "").replace(" ", "")
+        if _COMO_SE_VE.match(texto):
+            texto = texto.replace(".", "")
         if not _DECIMAL.match(texto):
-            raise DatosNoValidos(f"{nombre}: {valor!r} no es un numero; se escribe sin "
-                                 "separador de miles, como 2902,79")
+            raise DatosNoValidos(f"{nombre}: {valor!r} no es un numero; se escribe como "
+                                 "2902,79 (o como lo ensena la consola: 2.902,79)")
         if _MILES.match(texto):
             raise DatosNoValidos(f"{nombre}: {valor!r} no se sabe si son miles o decimales; "
                                  "se escribe sin separador de miles (1000) o con los decimales "
@@ -902,6 +925,12 @@ def _anular_factura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     que nadie lo decidiera, y la original volveria a deber lo acreditado o a
     contar entera. Se retira antes la relacion, a la vista. La original si se
     anula: es lo que pide R3.
+
+    Tampoco se anula una factura con un pago propuesto o confirmado: una
+    anulada no cuenta, y lo pagado de ella saldria de lo pagado del proveedor
+    sin que el dinero volviera al banco (como al fusionar). Se retira antes el
+    pago, o la factura se abona (un abono o una devolucion), que es lo que
+    mueve el dinero a la vista.
     """
     _motivo(ctx, "anular una factura")
     vivas = [f[0] for f in ctx.conn.execute(
@@ -911,6 +940,12 @@ def _anular_factura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
         raise DatosNoValidos(f"la factura {d['factura_id']} es el origen de la relacion "
                              f"{', '.join(map(str, vivas))}: retirala antes (retirar_relacion) "
                              "para que deje de mover nada a la vista")
+    pagos_ = relaciones.lo_que_lleva(ctx.conn, d["factura_id"])["pagos"]
+    if pagos_:
+        raise DatosNoValidos(f"la factura {d['factura_id']} lleva el pago "
+                             f"{', '.join(map(str, pagos_))}: anulada, ese dinero dejaria de "
+                             "contar. Retira antes el pago (retirar_pago) si no es de ella, o "
+                             "apunta un abono o una devolucion en vez de anularla")
     resultado = campos.fijar(ctx.conn, "factura", d["factura_id"], {"anulada": True},
                              ctx.persona, tipo="factura_anulada", rev_esperada=d["rev"],
                              datos=ctx.datos_evento)
@@ -1774,7 +1809,8 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
     # persona en el portal de la Belastingdienst y aqui solo se anota.
     Accion("btw_lista_para_revision", P.GESTIONAR_BTW.value,
            "Marcar un trimestre terminado listo para revisar, con la hoja de trabajo que se vio "
-           "(su sha256: bms-agent btw hoja). La hoja se guarda entera.",
+           "(su sha256: lo ensena la pagina BTW de la consola, o bms-agent btw hoja). La hoja se "
+           "guarda entera.",
            (_p("trimestre", TEXTO, ayuda="2026-T3"),
             _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se reviso"), _MOTIVO),
            _btw_lista_para_revision, motivo="obligatorio"),
@@ -1789,7 +1825,7 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
             _p("hoja_sha256", TEXTO, ayuda="el de la hoja que se marco lista"),
             _p("referencia", TEXTO, ayuda="la del acuse de la Belastingdienst"),
             _p("importe_declarado", VALOR,
-               ayuda="a pagar; en negativo, a devolver; sin separador de miles: -1234,56"),
+               ayuda="a pagar; en negativo, a devolver: -1234,56 (o -1.234,56)"),
             _p("fecha_presentacion", FECHA, False, "por defecto, hoy"), _MOTIVO),
            _btw_anotar_presentacion, motivo="obligatorio", rev=True),
     Accion("recalcular", P.VER_FACTURAS.value,

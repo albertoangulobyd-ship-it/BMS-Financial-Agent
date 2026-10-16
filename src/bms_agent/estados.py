@@ -59,7 +59,7 @@ from .permisos import exigir, orden_auditada
 from .prioridad import Entradas, Hallazgo, Hija, Pesos, Subida
 from .reglas import catalogo, instantanea
 from .reglas.base import Politica
-from .reglas.pagos import saldo, tolerancia_cent
+from .reglas.pagos import de_mas, saldo, tolerancia_cent, vence
 from .reloj import marca
 
 _PIDEN_REVISION = frozenset({Severidad.BLOQUEO.value, Severidad.RETENCION.value})
@@ -179,14 +179,20 @@ def periodos(conn: sqlite3.Connection) -> dict[int, tuple[str | None, str | None
 
 def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
                 hoy: date, pagada: bool = False, *, sustituida: bool = False,
-                solo_abonos: bool = False, anulada_por_abono: bool = False) -> str | None:
+                solo_abonos: bool = False, anulada_por_abono: bool = False,
+                de_mas: bool = False, vence: bool = True) -> str | None:
     """El estado de pago de una factura (spec §5, "where each status lives").
 
     Anulada si se anulo o si otra la sustituye o la corrige (sale de todo);
     saldada (`pagada`: lo pagado y lo acreditado dejan su saldo en la
-    tolerancia) es acreditada si nada se pago (`solo_abonos`), o anulada si
-    el abono la anula, y si no pagada; si no, pendiente o vencida por su
-    vencimiento, tambien con un pago parcial o un abono parcial.
+    tolerancia; o `de_mas`: lo dejan del otro signo) es acreditada si nada se
+    pago (`solo_abonos`), o anulada si el abono la anula, y si no pagada; si
+    no, pendiente o vencida por su vencimiento, tambien con un pago parcial o
+    un abono parcial.
+
+    Solo vence una deuda (`vence`, reglas.pagos.vence): un abono sin enlazar
+    no es una factura vencida ni "sin pagar", y lo pagado de mas es lo que
+    sobra (K2), no una deuda negativa que se reste de lo vencido.
 
     Una sustituida que ya se pago con dinero sigue pagada: sale de los
     totales igual, pero el dinero salio del banco y no se esconde detras de
@@ -196,13 +202,14 @@ def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
         return None
     if anulada:
         return ANULADA
-    if sustituida and not (pagada and not solo_abonos):
+    saldada = pagada or de_mas
+    if sustituida and not (saldada and not solo_abonos):
         return ANULADA
-    if pagada:
+    if saldada:
         if solo_abonos:
             return ANULADA if anulada_por_abono else ACREDITADA
         return PAGADA
-    if vencimiento is not None and vencimiento < hoy:
+    if vencimiento is not None and vencimiento < hoy and vence:
         return VENCIDA
     return PENDIENTE
 
@@ -334,11 +341,16 @@ class _Factura:
     pagado_cent: int = 0
     acreditado_cent: int = 0
     fuente_pago: str | None = None        # la fuente que manda en lo pagado (banco, exact...)
+    # Revision final: lo que queda va al reves (pagado o acreditado de mas), y si lo que
+    # queda es una deuda que vence (no un abono ni lo que sobra).
+    de_mas: bool = False
+    vence: bool = True
 
     def estado(self, hoy: date) -> str | None:
         return estado_pago(self.anulada, self.fusionada, self.vencimiento, hoy, self.pagada,
                            sustituida=self.sustituida, solo_abonos=self.solo_abonos,
-                           anulada_por_abono=self.anulada_por_abono)
+                           anulada_por_abono=self.anulada_por_abono, de_mas=self.de_mas,
+                           vence=self.vence)
 
 
 def facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
@@ -349,7 +361,7 @@ def facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
     confirmados): la cache dice lo mismo que K1 y K2, y las vistas de
     proveedores y clientes (consultas.py) leen de aqui con su `hoy`.
     """
-    vence = instantanea.vencimientos(conn)
+    vencimientos = instantanea.vencimientos(conn)
     por_factura: dict[int, list] = defaultdict(list)
     for a in instantanea.aplicaciones(conn):
         por_factura[a.factura_id].append(a)
@@ -366,14 +378,16 @@ def facturas(conn: sqlite3.Connection, tolerancia: int = 0) -> list[_Factura]:
         salida.append(_Factura(
             id=id_, sentido=sentido, numero=numero, parte=emisor if entrante else receptor,
             proveedor_id=proveedor_id, cliente_id=cliente_id, fecha_factura=_fecha(fecha),
-            vencimiento=vence.get(id_),
+            vencimiento=vencimientos.get(id_),
             importe_cent=base if base is not None else total, total_cent=total,
             anulada=bool(anulada), fusionada=fusionada is not None,
             pendiente_cent=s.pendiente_cent, pagada=s.pagada,
             sustituida=efecto.sustituida_por is not None,
-            solo_abonos=s.pagada and s.fuente is None,
+            solo_abonos=s.fuente is None,
             anulada_por_abono=efecto.anulada_por_abono, pagado_cent=s.pagado_cent,
-            acreditado_cent=efecto.acreditado_cent, fuente_pago=s.fuente))
+            acreditado_cent=efecto.acreditado_cent, fuente_pago=s.fuente,
+            de_mas=not s.pagada and de_mas(total, s.pendiente_cent, tolerancia),
+            vence=vence(total, s.pendiente_cent)))
     return salida
 
 
@@ -398,7 +412,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     # importacion o de un proveedor (F0, F5, Z2...), con su prioridad.
     if not facturas and conn.execute(
             "SELECT 1 FROM excepcion WHERE estado <> 'resuelta' UNION ALL "
-            "SELECT 1 FROM hallazgo WHERE tabla IN ('orden_compra', 'cliente') "
+            "SELECT 1 FROM hallazgo WHERE tabla IN ('orden_compra', 'cliente', 'proveedor') "
             "AND estado IN ('abierto', 'desaparecido') LIMIT 1").fetchone() is None:
         return cambios
     # Los pesos con que se calcula quedan siempre en politica_version: si no se
@@ -441,8 +455,10 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
         pago = f.estado(hoy)
         excepcion = excepciones.get(f.id)
         esperando = excepcion is not None and excepcion[1] == "esperando_externo"
+        # Solo una deuda corre plazo: un abono o lo que sobra no suma puntos ni suelos de
+        # vencida (reglas.pagos.vence).
         entradas = Entradas(
-            sentido=f.sentido, vencimiento=f.vencimiento,
+            sentido=f.sentido, vencimiento=f.vencimiento if f.vence else None,
             en_juego=pago in EN_JUEGO,
             importe_cent=f.importe_cent, fecha_factura=f.fecha_factura, hallazgos=tuple(lista),
             excepcion_abierta=excepcion is not None,
@@ -470,7 +486,7 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
             *periodos_.get(f.id, (None, None)))
     _escribir_estados(conn, filas_estado, ejecucion_id, cambios)
     _escribir_prioridades(conn, _agregados(conn, facturas, resultados, por_id, subidas, hoy,
-                                           pesos), ejecucion_id, cambios)
+                                           pesos, hallazgos_de), ejecucion_id, cambios)
     return cambios
 
 
@@ -509,11 +525,31 @@ def _hija(f: _Factura, resultado: prioridad.Resultado) -> Hija:
     return Hija(f.id, resultado, f.vencimiento, f.importe_cent, nombre)
 
 
+_PIDE_SALDADA = frozenset({prioridad.BLOQUEADA, prioridad.URGENTE})
+
+
+def _sigue_pidiendo(resultado: prioridad.Resultado, hallazgos: Sequence[Hallazgo]) -> bool:
+    """Si una factura saldada sigue contando en su proveedor, cliente y Objeto.
+
+    Lo que ya se pago no se reclama, y por eso sale de los agregados (paso 4).
+    Pero una que sigue Bloqueada o Urgente por una regla (pagada a una cuenta
+    sin verificar: F2, F3), o con un pago mal hecho abierto (K2 de mas, K4,
+    K5, K8, K9), es justo lo que hay que mirar de ese proveedor: si saliera,
+    el proveedor bajaria de Bloqueada a nada en el momento en que se paga mal.
+    """
+    if resultado.suelo in _PIDE_SALDADA:
+        return True
+    return any(h.estado == "abierto" and h.regla.startswith("K") and h.severidad != "aviso"
+               for h in hallazgos)
+
+
 def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
                resultados: dict[int, prioridad.Resultado], por_id: dict[int, Hallazgo],
                subidas: dict[tuple[str, int], list[Subida]], hoy: date,
-               pesos: Pesos) -> dict[tuple[str, int], tuple]:
+               pesos: Pesos, hallazgos_de: dict[int, list[Hallazgo]] | None = None,
+               ) -> dict[tuple[str, int], tuple]:
     """La prioridad de cada excepcion sin resolver y de lo que tiene facturas."""
+    hallazgos_de = hallazgos_de or {}
     salida: dict[tuple[str, int], tuple] = {}
     por_id_factura = {f.id: f for f in facturas}
 
@@ -545,8 +581,13 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
     # Lo que no esta en juego (anulada, fusionada en otra, sustituida, pagada o
     # acreditada) no cuenta en su proveedor, cliente, Objeto ni trimestre: no se
     # paga ni se reclama. Su trabajo pendiente, si lo tiene, sigue en su excepcion.
+    # Salvo una saldada que sigue pidiendo (_sigue_pidiendo): pagada estando
+    # Bloqueada, o a una cuenta que no era la suya, sigue siendo lo mas grave de
+    # su proveedor y de su Objeto aunque ya no haya nada que pagar.
     en_juego = {f.id for f in facturas
-                if not (f.anulada or f.fusionada or f.pagada or f.sustituida)}
+                if f.estado(hoy) in EN_JUEGO
+                or (not (f.anulada or f.fusionada or f.sustituida)
+                    and _sigue_pidiendo(resultados[f.id], hallazgos_de.get(f.id, ())))}
     hijas: dict[tuple[str, int], list[Hija]] = defaultdict(list)
     for f in facturas:
         if f.id not in en_juego:
@@ -576,6 +617,8 @@ def _agregados(conn: sqlite3.Connection, facturas: list[_Factura],
         hijas[("orden_compra", po_id)].append(hija)
     for cliente_id, hija in _avisos_de_cliente(conn, por_id, hoy, pesos):
         hijas[("cliente", cliente_id)].append(hija)
+    for proveedor_id, hija in _avisos_de_proveedor(conn, por_id, hoy, pesos):
+        hijas[("proveedor", proveedor_id)].append(hija)
     for entidad, lista in sorted(hijas.items()):
         agregada = prioridad.agregar(lista, hoy, subidas.get(entidad, ()))
         if agregada is None:
@@ -655,6 +698,42 @@ def _avisos_de_cliente(conn: sqlite3.Connection, por_id: dict[int, Hallazgo], ho
         if resultado.nivel != prioridad.NORMAL or resultado.puntos:
             salida.append((cliente_id, Hija(-cliente_id, resultado, None, None,
                                             "lo que el cliente tiene sin facturar")))
+    return salida
+
+
+def _avisos_de_proveedor(conn: sqlite3.Connection, por_id: dict[int, Hallazgo], hoy: date,
+                         pesos: Pesos) -> list[tuple[int, Hija]]:
+    """Lo que piden los hallazgos de un proveedor que no son de ninguna factura, como una hija
+    mas del proveedor; como _avisos_de_cliente.
+
+    Son los del propio proveedor (F5, F6, F8, F9, A7 sobre su ficha) y los F7 de
+    un cargo a una cuenta que no es pagable para el: van sobre el movimiento,
+    con el proveedor en su clave (reglas/bancaria.f7), y bloquean aunque el
+    cargo no este casado con ninguna factura. Sin esto el proveedor tenia la
+    prioridad de sus facturas pendientes y nada mas (spec §8: la de un
+    proveedor es el maximo de sus hijas).
+    """
+    del_proveedor: dict[int, list[Hallazgo]] = defaultdict(list)
+    for hallazgo_id, tabla, fila_id, clave in _filas(
+            conn, "SELECT id, tabla, fila_id, clave FROM hallazgo WHERE estado IN ('abierto', "
+                  "'desaparecido') AND (tabla = 'proveedor' OR (tabla = 'movimiento' AND "
+                  "regla = 'F7')) ORDER BY id"):
+        if hallazgo_id not in por_id:
+            continue
+        if tabla == "proveedor":
+            del_proveedor[fila_id].append(por_id[hallazgo_id])
+            continue
+        ultima = clave.rsplit("|", 1)[-1]
+        if ultima.startswith("proveedor:") and ultima[len("proveedor:"):].isdigit():
+            del_proveedor[int(ultima[len("proveedor:"):])].append(por_id[hallazgo_id])
+    salida = []
+    for proveedor_id in sorted(del_proveedor):
+        resultado = prioridad.calcular(Entradas(sentido=ENTRANTE,
+                                                hallazgos=tuple(del_proveedor[proveedor_id]),
+                                                revisada=True), hoy, pesos)
+        if resultado.nivel != prioridad.NORMAL or resultado.puntos:
+            salida.append((proveedor_id, Hija(-proveedor_id, resultado, None, None,
+                                              "lo que el proveedor tiene sin factura")))
     return salida
 
 

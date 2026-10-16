@@ -73,7 +73,7 @@ Levanta en `http://127.0.0.1:8765`:
 | Endpoint | Qué hace |
 | --- | --- |
 | `GET /` | Página local mínima con el botón de ejecutar y el estado de la pasada |
-| `GET /api/datos` | Los mismos datos que el export, siempre frescos |
+| `GET /api/datos` | Los mismos datos que el export, siempre frescos. Pide el token **personal** de quien lee en `X-BMS-Token` (como `/api/v2`), y desde un origen declarado con `--origen` sale con los IBAN enmascarados |
 | `GET /api/ejecucion` | Estado de la última pasada |
 | `POST /api/ejecutar` | Lanza una pasada. Pide cabecera `X-BMS-Token` y cuerpo JSON. Devuelve `409` si ya hay una |
 | `GET /api/v2/...` | El contrato v2, por partes (abajo): piden el token **personal** de quien lee en `X-BMS-Token` |
@@ -108,7 +108,10 @@ al arrancar en la configuración del sitio:
 const BMS = 'http://127.0.0.1:8765'
 const TOKEN = import.meta.env.VITE_BMS_TOKEN   // el que imprime `bms-agent serve`
 
-const datos = await (await fetch(`${BMS}/api/datos`)).json()
+// El token personal de una persona de solo lectura (token(), en «Ejemplo», abajo), no el de arriba.
+const datos = await (await fetch(`${BMS}/api/datos`, {
+  headers: {'X-BMS-Token': token()},
+})).json()
 
 async function ejecutar() {
   const r = await fetch(`${BMS}/api/ejecutar`, {
@@ -143,7 +146,11 @@ del portal no puede ser esta misma en otro puerto.
 ## El contrato de datos v1
 
 Lo que devuelven `bms-agent export` (sin `--v2`) y `GET /api/datos`. Es
-estable: si cambia, cambia con una nota en este fichero. Desde la V1 es el
+estable: si cambia, cambia con una nota en este fichero. Desde la revisión
+final, `GET /api/datos` pide el token personal de alguien con `ver_facturas`
+(antes lo leía cualquier proceso del ordenador, IBAN enteros incluidos) y,
+pedido desde un origen declarado con `--origen`, enmascara cada IBAN como
+`/api/v2`; a la consola (el mismo origen) le llega byte a byte como siempre. Desde la V1 es el
 panel de compras de siempre, con los valores corregidos del almacén: un test
 comprueba que `GET /api/datos` sigue siendo byte a byte la foto de referencia
 (`tests/golden/construir_datos_v1.json`). Lo nuevo de la V1 no entra aquí: va
@@ -486,8 +493,10 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/facturas` | Todas, la más urgente primero | `nivel` (`normal`, `atencion`, `urgente`, `bloqueada`; otro, `400`) |
 | `GET /api/v2/facturas/N` | La ficha: cada campo con su valor, su original, su fuente, sus marcas y su calidad | — |
 | `GET /api/v2/facturas/N/historial` | La historia (§12): original, extracciones, sus relaciones en los dos sentidos (la que abona, sustituye o corrige, y la abonada, sustituida o corregida), cada cambio con quién, cuándo y por qué (también el de una relación que la tiene de destino), revisiones, avisos y su resolución, excepciones | — |
+| `GET /api/v2/facturas/N/original` | El original, como fichero adjunto (sus bytes tal cual, con su tipo). Cada descarga queda en la auditoría (`documento_abierto`). Solo desde la consola: desde otro origen, `403` y sin CORS | — |
 | `GET /api/v2/excepciones` | Las abiertas | — |
 | `GET /api/v2/personas` | Las personas activas | — |
+| `GET /api/v2/recursos` | Las personas y recursos del maestro (los de las líneas de horas), para imputar una línea a uno de ellos | — |
 | `GET /api/v2/proveedores` | Los proveedores | — |
 | `GET /api/v2/proveedores/N` | La vista de un proveedor (§3), con su registro de cuentas (IBAN enmascarados si se pide desde otro origen) | — |
 | `GET /api/v2/clientes` | Los clientes | — |
@@ -500,6 +509,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/btw` | El BTW de un vistazo | — |
 | `GET /api/v2/btw/AAAA-TN` | Un trimestre | — |
 | `GET /api/v2/btw/AAAA-TN/hoja` | Su hoja de trabajo y su sha256 | — |
+| `GET /api/v2/btw/AAAA-TN/hoja.csv` | La hoja como fichero adjunto, con los bytes exactos que se hashean (su sha256 es el que se anota al presentar). Solo desde la consola | — |
 | `GET /api/v2/flujo` | El flujo de caja | `desde`, `hasta` (un periodo pedido) |
 | `GET /api/v2/fuentes` | De cuándo es cada fuente | — |
 | `GET /api/v2/cuentas` | El registro de cuentas de los proveedores (IBAN enmascarados si se pide desde otro origen) | — |

@@ -216,25 +216,31 @@ def importes_por_semana(instantanea: Instantanea, objeto_id: int) -> dict[str, d
     las horas de la vista del Objeto (turnos.dias_de): una linea de varias
     semanas se reparte por sus dias, con el resto del redondeo en la ultima, asi
     que la suma de las semanas es lo de siempre del Objeto. Una imputacion sin
-    dias va a "sin_semana".
+    dias va a "sin_semana". Las horas de cada imputacion se reparten igual
+    (revision final: antes cada semana decia cero horas aunque las tuviera).
     """
-    salida: dict[str, dict[str, int]] = defaultdict(lambda: {"ingresos_cent": 0,
-                                                            "costes_cent": 0})
+    salida: dict[str, dict[str, int]] = defaultdict(lambda: {
+        "ingresos_cent": 0, "costes_cent": 0, "horas_venta_mil": 0, "horas_compra_mil": 0})
     for f in instantanea.facturas:
         if not f.imputaciones or not en_juego(f) or f.base_cent is None:
             continue
-        columna = "costes_cent" if f.sentido == ENTRANTE else "ingresos_cent"
+        compra = f.sentido == ENTRANTE
+        columna = "costes_cent" if compra else "ingresos_cent"
+        horas = "horas_compra_mil" if compra else "horas_venta_mil"
         lineas = {l.id: l for l in f.lineas}
         for i in f.imputaciones:
-            if i.objeto_id != objeto_id or not i.importe_cent:
+            if i.objeto_id != objeto_id or not (i.importe_cent or i.horas_mil):
                 continue
             dias = turnos.dias_de(i, lineas.get(i.linea_id) if i.linea_id is not None else None,
                                   f)
-            reparto = (repartir(dias[0], dias[1], i.importe_cent) if dias is not None
-                       and (dias[1] - dias[0]).days <= turnos.DIAS_MAXIMOS
-                       else {SIN_SEMANA: i.importe_cent})
-            for semana, importe in reparto.items():
-                salida[semana][columna] += importe
+            con_dias = dias is not None and (dias[1] - dias[0]).days <= turnos.DIAS_MAXIMOS
+            for cantidad, destino in ((i.importe_cent, columna), (i.horas_mil, horas)):
+                if not cantidad:
+                    continue
+                reparto = (repartir(dias[0], dias[1], cantidad) if con_dias
+                           else {SIN_SEMANA: cantidad})
+                for semana, parte in reparto.items():
+                    salida[semana][destino] += parte
     return dict(salida)
 
 

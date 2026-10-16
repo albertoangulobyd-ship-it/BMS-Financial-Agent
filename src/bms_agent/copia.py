@@ -82,17 +82,45 @@ def leer_manifiesto(carpeta: Path) -> dict[str, str]:
     return salida
 
 
-def _problemas_de_la_cadena(conn: sqlite3.Connection, anclas: Path) -> list[str]:
+def cortes_que_valen(fichero, ruta_db: Path, *, comprobar_antes: bool = True,
+                     ) -> tuple[set[tuple[int, str]], list[str]]:
+    """Las anclas que perdonan los cortes del fichero de anclas, y lo que falla de ellos.
+
+    Un corte perdona su ancla si lo sustituido sigue donde dice, con el hash
+    que dice (la base guardada en antes-de-restaurar/ al restaurar). Si ya no
+    esta, es un problema: lo que la restauracion quito no se puede ver en
+    ningun sitio. Un corte sin nada guardado (una instalacion nueva) perdona
+    sin mas. En una copia (`comprobar_antes` falso) lo sustituido se quedo en
+    el ordenador de la base, y basta con que el corte este en sus anclas.
+    """
+    perdonadas: set[tuple[int, str]] = set()
+    problemas: list[str] = []
+    for corte in fichero.cortes:
+        if comprobar_antes and corte.antes is not None:
+            guardada = ruta_db.parent / corte.antes / ruta_db.name
+            if not guardada.is_file() or _sha256(guardada) != corte.antes_sha256:
+                problemas.append(
+                    f"la restauracion que corto el ancla {corte.id} dejo lo sustituido en "
+                    f"{corte.antes}, y ya no esta ahi (o no es lo que se guardo)")
+                continue
+        perdonadas.add((corte.id, corte.hash))
+    return perdonadas, problemas
+
+
+def _problemas_de_la_cadena(conn: sqlite3.Connection, anclas: Path,
+                            ruta_db: Path | None = None) -> list[str]:
     """Lo que `db verificar` diria de la cadena de la copia con sus anclas: sin esto, una copia
     con un ancla mas alla de su cadena pasaria por buena y no se podria restaurar."""
-    from .auditoria import leer_anclas, verificar_cadena
+    from .auditoria import leer_fichero, verificar_cadena
 
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'evento'"
                     ).fetchone() is None:
         return []
-    leidas, malas = leer_anclas(anclas)
+    fichero = leer_fichero(anclas)
+    perdonadas, _ = cortes_que_valen(fichero, ruta_db or anclas, comprobar_antes=False)
     return [f"la cadena de la copia: {p}"
-            for p in malas + verificar_cadena(conn, leidas).problemas]
+            for p in fichero.malas + verificar_cadena(conn, fichero.anclas, fichero=fichero,
+                                                      perdonadas=perdonadas).problemas]
 
 
 def comprobar(carpeta: Path, nombre_base: str, *, cadena: bool = True) -> list[str]:
@@ -281,14 +309,23 @@ def restaurar(origen: str | Path, ruta_db: str | Path, *, reloj: Reloj | None = 
     va. Eso no se esconde. El fichero de anclas no se reescribe (solo crece:
     se le anaden las de la copia que no tenga), y la base restaurada recibe un
     evento `restauracion` con la copia, las dos cabezas y las anclas que deja
-    sin cumplir, que se ancla en seguida. `db verificar` solo perdona esas
-    anclas, y dice que hubo una restauracion. Lo firma el operador del fichero
+    sin cumplir, que se ancla en seguida. Esas anclas se apuntan tambien en el
+    fichero de anclas, con la carpeta y el hash de lo sustituido: `db
+    verificar` solo perdona las que nombra el fichero, si lo sustituido sigue
+    alli, y dice que hubo una restauracion. Lo firma el operador del fichero
     (el usuario de sistema), como las ordenes de `usuario`: quien tiene la
     base ya puede sacar un token con `usuario token`, asi que pedir uno aqui no
     protegeria nada.
     """
     from .almacen import MARCA_DEMO, NOMBRE_DEMO, marca_de_fichero, transaccion, usuario_sistema
-    from .auditoria import TIPO_RESTAURACION, anclar, anclas_sin_cumplir, leer_anclas, registrar
+    from .auditoria import (
+        TIPO_RESTAURACION,
+        anclar,
+        anclas_sin_cumplir,
+        apuntar_cortes,
+        leer_anclas,
+        registrar,
+    )
 
     origen, ruta_db = Path(origen), Path(ruta_db)
     copia_db = origen / ruta_db.name
@@ -339,6 +376,12 @@ def restaurar(origen: str | Path, ruta_db: str | Path, *, reloj: Reloj | None = 
             return resultado
         leidas, _malas = leer_anclas(ruta_anclas)
         cortadas = anclas_sin_cumplir(conn, leidas)
+        # Lo que perdona el corte va fuera de la base, con donde quedo lo sustituido: un
+        # evento de restauracion lo puede escribir quien escribe la base (auditoria).
+        apuntar_cortes(conn, ruta_anclas, cortadas,
+                       antes=(str(antes.relative_to(ruta_db.parent)) if antes is not None
+                              else None),
+                       antes_sha256=_sha256(antes / ruta_db.name) if antes is not None else None)
         with transaccion(conn):
             resultado.evento_id = registrar(
                 conn, tipo=TIPO_RESTAURACION, actor=usuario_sistema(conn, "sistema"),

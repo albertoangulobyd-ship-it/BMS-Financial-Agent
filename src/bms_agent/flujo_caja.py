@@ -5,8 +5,13 @@ por lo que les queda (reglas.pagos.saldo: un pago parcial deja lo que falta,
 decision 5), en euros (lo que no lo esta, X1, no entra en ninguna suma), por
 su fecha esperada: el vencimiento efectivo (el impreso, o la fecha mas el
 plazo acordado; instantanea.vencimientos). "Entrada" es lo que se espera
-cobrar (ventas, y abonos de proveedores); "salida", lo que se espera pagar
-(compras, y abonos a clientes).
+cobrar (ventas); "salida", lo que se espera pagar (compras).
+
+Solo se espera una deuda (reglas.pagos.vence, aqui `es_deuda`). Un abono no es un cobro ni un
+pago con fecha: lo que acredita ya baja lo que queda de su factura, y lo que
+queda de el sin enlazar (R4) se descuenta de otra o lo devuelve el banco, que
+lo trae cuando pasa. Lo pagado de mas (K2) tampoco es dinero que vaya a
+entrar: se dice en su factura, no se suma a la caja esperada.
 
 Las ventanas se cuentan desde `hoy` (en Amsterdam, inyectado):
 
@@ -48,7 +53,14 @@ from typing import Any
 
 from . import politica, relaciones, trabajo
 from .reglas import instantanea
-from .reglas.pagos import CONFIRMADA, PRECEDENCIA, en_el_movimiento, saldo, tolerancia_cent
+from .reglas.pagos import (
+    CONFIRMADA,
+    PRECEDENCIA,
+    en_el_movimiento,
+    saldo,
+    tolerancia_cent,
+)
+from .reglas.pagos import vence as es_deuda
 from .reloj import mes_de, semana_de
 
 ENTRADA = "entrada"
@@ -238,7 +250,7 @@ def datos(conn: sqlite3.Connection,
                 if a.estado == CONFIRMADA and a.fuente == s.fuente:
                     movidos.append(Movido(id_, direccion(sentido, a.importe_cent),
                                           a.fecha_pago, abs(a.importe_cent), s.fuente))
-        if s.pagada or not s.pendiente_cent:
+        if s.pagada or not s.pendiente_cent or not es_deuda(total, s.pendiente_cent):
             continue
         partidas.append(Partida(id_, direccion(sentido, s.pendiente_cent), vence.get(id_),
                                 abs(s.pendiente_cent)))

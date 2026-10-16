@@ -10,7 +10,8 @@ caches de estado (estados.py) y el flujo de caja: una sola cuenta.
 Las reglas:
 
 - K1 vencida (una compra desde el dia siguiente a su vencimiento, una venta
-  pasados N dias): aviso con excepcion. Sin extractos de cada cuenta propia
+  pasados N dias): aviso con excepcion. Solo vence una deuda: ni un abono ni
+  lo pagado o acreditado de mas (`vence`). Sin extractos de cada cuenta propia
   que cubran desde la fecha de la factura sin una rotura de la cadena (K6)
   por medio (o un Exact de pagos al dia), no se sabe si se pago: sin datos.
 - K2 lo confirmado no es el saldo (parcial o de mas): retiene una compra,
@@ -120,6 +121,33 @@ def saldo(total_cent: int | None, aplicaciones: Iterable[Any], tolerancia: int,
     pendiente = None if total_cent is None else total_cent - acreditado_cent
     saldada = bool(acreditado_cent) and pendiente is not None and abs(pendiente) <= tolerancia
     return Saldo(total_cent, 0, None, 0, pendiente, saldada, acreditado_cent)
+
+
+def vence(total_cent: int | None, pendiente_cent: int | None) -> bool:
+    """Si lo que queda de una factura es una deuda que vence: algo por pagar (o por cobrar)
+    en el signo de una factura.
+
+    Un abono (total negativo) no vence: lo que queda de el se descuenta de otra
+    factura (R4 dice que falta la relacion) o lo devuelve el banco. Lo pagado o
+    acreditado de mas (un saldo del otro signo) tampoco: no es deuda, es lo que
+    sobra, y K2 o R2 lo dicen. Sin un importe en euros (X1) no se sabe el
+    signo, y manda la fecha.
+    """
+    if total_cent is None or pendiente_cent is None:
+        return True
+    return total_cent > 0 and pendiente_cent > 0
+
+
+def de_mas(total_cent: int | None, pendiente_cent: int | None, tolerancia: int = 0) -> bool:
+    """Lo que queda va al reves de la factura: se pago o se acredito de mas.
+
+    Una factura asi esta saldada (no se le debe nada en su sentido); lo que
+    sobra lo dicen K2 (pagado de mas) o R2 (acreditado de mas), no un estado
+    de vencida con un importe negativo.
+    """
+    if total_cent is None or pendiente_cent is None or abs(pendiente_cent) <= tolerancia:
+        return False
+    return pendiente_cent < 0 if total_cent >= 0 else pendiente_cent > 0
 
 
 def en_el_movimiento(aplicacion: Any, sentido: str) -> int:
@@ -314,7 +342,11 @@ def _se_puede_saber(factura: Factura, c: Contexto) -> bool:
 
 
 def k1(factura: Factura, contexto: tuple[Contexto, int]) -> list[Resultado]:
-    """K1: vencida y sin pagar (aviso con excepcion)."""
+    """K1: vencida y sin pagar (aviso con excepcion).
+
+    Solo una deuda vence (`vence`): un abono sin enlazar o lo pagado de mas no
+    es una factura "sin pagar" aunque su fecha haya pasado.
+    """
     c, dias_venta = contexto
     if factura.pagada or factura.total_cent is None or factura.vencimiento is None:
         return []
@@ -322,6 +354,8 @@ def k1(factura: Factura, contexto: tuple[Contexto, int]) -> list[Resultado]:
     if (c.hoy - factura.vencimiento).days <= limite:
         return []
     pendiente = factura.total_cent - factura.pagado_cent - factura.acreditado_cent
+    if not vence(factura.total_cent, pendiente):
+        return []
     if not _se_puede_saber(factura, c):
         return [sin_datos("K1", factura, "Vencida, pero ningún extracto ni Exact al día cubre "
                                          "desde su fecha sin huecos: no se sabe si se pagó.")]
@@ -592,6 +626,46 @@ LEE_K7 = LEE_CONTEXTO | frozenset({
     "movimiento.contraparte_iban", "movimiento.contraparte_nombre", "movimiento.fecha",
     "aplicacion.estado", "aplicacion.importe_cent",
 })
+
+
+# ------------------------------------------------------------ K9
+
+def k9(instantanea: Instantanea) -> list[Resultado]:
+    """K9: dinero confirmado en una factura que no cuenta (anulada o fusionada en otra).
+
+    Una anulada o una fusionada sale de todos los totales, y lo pagado de ella
+    tambien: si lleva un pago confirmado, ese dinero salio (o entro) del banco
+    y no esta en ningun sitio. Las ordenes ya no lo dejan hacer (ni anular ni
+    fusionar con un pago, ni confirmar un pago de una que no cuenta), pero
+    Exact puede traer el pago de una factura que aqui esta anulada. Retiene,
+    no se anula y no se cierra sola: alguien tiene que decir donde esta el
+    dinero (retirar el pago y apuntarlo en la que paga, o volver a ponerla en
+    juego).
+    """
+    c = preparar(instantanea)
+    salida: list[Resultado] = []
+    for factura in instantanea.facturas:
+        if not factura.anulada and factura.fusionada_en_id is None:
+            continue
+        confirmadas = _confirmadas(c.por_factura.get(factura.id, ()))
+        if not confirmadas:
+            continue
+        s = saldo(None, confirmadas, c.tolerancia)
+        if not s.pagado_cent:
+            continue
+        como = "Anulada" if factura.anulada else "Fusionada en otra factura"
+        salida.append(fallo(
+            "K9", factura, f"{como} y con {_texto(s.pagado_cent)} confirmados ({s.fuente}): ese "
+                           "dinero no cuenta en ningún total. Di dónde está: retira el pago y "
+                           "apúntalo en la factura que paga, o vuelve a ponerla en juego.",
+            valores={"pagado_cent": s.pagado_cent, "fuente": s.fuente,
+                     "aplicaciones": sorted(a.id for a in confirmadas)}))
+    return salida
+
+
+LEE_K9 = LEE_CONTEXTO | frozenset({
+    "factura.anulada", "factura.fusionada_en_id", "aplicacion.estado", "aplicacion.fuente",
+    "aplicacion.importe_cent", "aplicacion.id"})
 
 
 # ------------------------------------------------------------ las de factura

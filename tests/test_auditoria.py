@@ -222,12 +222,17 @@ def test_anclar_no_repite_la_misma_cabeza(db, tmp_path) -> None:
 
 
 def test_dos_bases_pueden_compartir_el_fichero_de_anclas(tmp_path, reloj) -> None:
-    """Cada linea dice de que base es: la otra base no da por reescrita a esta."""
+    """Cada linea dice de que base es: la otra base no da por reescrita a esta. Cada una se
+    declara en el fichero al crearla (lo hacen almacen.preparar y `db init`; revision final:
+    sin eso, unas anclas de otra base son una cadena reescrita desde su primer evento)."""
+    from bms_agent.auditoria import declarar_base
+
     log = tmp_path / "anclas.log"
     bases = []
     for nombre in ("una", "otra"):
         conn = abrir(tmp_path / f"{nombre}.sqlite3", reloj=reloj)
         migrar(conn)
+        declarar_base(conn, log)
         _eventos(conn, 2)
         anclar(conn, log)
         bases.append(conn)

@@ -543,11 +543,28 @@ def _citas(leida: compat.ExtraccionLeida) -> list[dict[str, Leido]]:
     return filas
 
 
+# Los documentos que entran leyendo una carpeta (extract, la consola): el dia en que el
+# sistema los registro es el dia en que llegaron a el.
+_LLEGAN_AL_LEERLOS = frozenset({"carpeta"})
+
+
 def _fecha_recepcion(documento: sqlite3.Row) -> Leido:
-    """Solo si se sabe de verdad cuando llego (correo, ingesta), no por la fecha del fichero."""
-    if documento["recibido_fuente"] not in ("correo", "ingesta") or not documento["recibido_en"]:
+    """Cuando llego la factura, si se sabe de verdad: nunca por la fecha del fichero.
+
+    Por correo o por una ingesta que lo apunta, su instante. Leida de una
+    carpeta (extract, la consola), el dia en que el sistema la registro
+    (documento.registrado_en): es cuando llego al sistema, y la fecha del
+    fichero (mtime) la cambia cualquier copia. Lo que viene de out/ (una
+    extraccion de antes, origen out_v1) se registro al migrar, no al llegar:
+    queda sin fecha, para que la escriba una persona si importa.
+    """
+    if documento["recibido_fuente"] in ("correo", "ingesta") and documento["recibido_en"]:
+        instante = documento["recibido_en"]
+    elif documento["origen"] in _LLEGAN_AL_LEERLOS:
+        instante = documento["registrado_en"]
+    else:
         return Leido(None)
-    dia = datetime.fromisoformat(documento["recibido_en"]).astimezone(ZoneInfo(ZONA_EMPRESA)).date()
+    dia = datetime.fromisoformat(instante).astimezone(ZoneInfo(ZONA_EMPRESA)).date()
     return Leido(dia, fuente=Fuente.CALCULADO.value, ref=f"documento:{documento['id']}")
 
 

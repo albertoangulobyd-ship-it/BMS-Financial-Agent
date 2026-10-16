@@ -72,7 +72,7 @@ def render_html(datos: dict[str, Any], generado: str) -> str:
         '      <option value="30">Ultimos 30 dias</option>\n'
         '      <option value="90">Ultimos 90 dias</option>\n'
         '      <option value="180">Ultimos 6 meses</option>\n'
-        '      <option value="365">Ultimo ano</option>\n'
+        '      <option value="365">Último año</option>\n'
         "    </select></label>\n"
         '    <label><span>Proveedor</span><select id="f-proveedor">\n'
         '      <option value="">Todos</option>\n'

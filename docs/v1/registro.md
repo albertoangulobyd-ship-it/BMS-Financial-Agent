@@ -5696,3 +5696,330 @@ hiciera falta otro, iría como `restauracion` (con las anclas que corta) o
 `exigir_de_su_base` (no solo a `exigir_sin_datos_de_prueba`). Un tipo nuevo de
 importación es un mapeo en `config/importacion/` y una carpeta en
 `importar.ps1`: el test estático lo exige.
+
+---
+
+## Revision final
+
+La revisión del sistema completo (sobre `800b936`) dejó treinta hallazgos: uno
+bloqueante, doce mayores y diecisiete menores. Los treinta se reprodujeron y los
+treinta eran reales; veintinueve están corregidos y uno (el 17) a medias, por lo que
+dice «Pendiente». Cada corrección de código tiene su test en
+`tests/test_revision_final.py`, y cada test falla con el código de antes: se
+comprobó poniendo el `src/` de `800b936` delante (`git archive 800b936 src`, con
+`PYTHONPATH`) y pasando el fichero. De los 56 tests de los hallazgos fallan 51. Los cinco que pasan
+son tres de control y dos que leen ficheros de fuera de `src/`. Los de control: un
+IBAN compacto en mayúsculas, que ya se enmascaraba; un texto que no es un IBAN, que
+no se toca; y una factura que viene de `out/`, que sigue sin fecha de recepción. Los
+otros dos leen `docker/` y `docs/`, y fallan contra los ficheros de `800b936`, que no
+tienen `Es-Si` ni la guía de los trimestres de antes. Hay además un test que no
+es de un hallazgo: `test_una_base_de_antes_con_anclas_suyas_no_se_da_por_reescrita`
+vigila que la corrección del 4 no rompa una base creada antes de ella.
+
+### Los hallazgos, uno a uno
+
+1. **Se podía anular una factura pagada, y confirmar un pago de una anulada**
+   (mayor). Era real. El dinero que había salido del banco dejaba de contar en
+   todos los totales. Ahora `anular_factura` y `fusionar_factura` no se hacen si la
+   factura lleva un pago (confirmado o propuesto): se retira antes el pago, si no
+   es de ella, o se apunta un abono. `confirmar_pago` y `marcar_pagada` no se hacen
+   sobre una factura anulada, fusionada o sustituida (`pagos._exigir_que_cuente`).
+   Una importación de Exact puede seguir trayendo un pago de una factura anulada.
+   Para eso está la regla nueva **K9** (pegajosa, de R): una factura anulada o
+   fusionada con pagos confirmados dice dónde está ese dinero. Tests:
+   `test_no_se_anula_una_factura_pagada_ni_con_un_pago_propuesto`,
+   `test_no_se_confirma_un_pago_de_una_factura_que_ya_no_cuenta`,
+   `test_k9_el_pago_de_exact_de_una_anulada_no_desaparece`, `test_k9_pura`.
+2. **Un saldo del otro signo se trataba como deuda vencida** (mayor). Era real:
+   una factura pagada entera y después abonada salía «vencida», con K1 y con su
+   cobro esperado en la caja. Ahora `reglas.pagos.vence` y `de_mas` lo deciden en
+   un solo sitio. Un abono, o un saldo del otro signo que la factura, no vence ni
+   es un cobro o un pago esperado (`flujo_caja`, K1, prioridad). Una factura
+   pagada de más queda saldada («pagada» o «acreditada»), y K2 o R2 dicen lo que
+   sobra. La migración **0017** rehace `v_proveedor_totales` y `v_cliente_totales`:
+   lo pendiente de una parte deja fuera lo que sobra. Un abono sin enlazar sigue
+   restando, porque acredita a la parte aunque todavía no diga de qué factura.
+   Tests: `test_una_factura_pagada_y_despues_abonada_no_esta_vencida`,
+   `test_un_abono_sin_enlazar_no_vence_ni_es_un_cobro_esperado`,
+   `test_vence_y_de_mas_son_puras`.
+3. **La prioridad del proveedor y del Objeto no veía lo más grave de los pagos**
+   (menor). Era real. Pagar una factura Bloqueada a una cuenta que no era pagable
+   la dejaba pagada y fuera del agregado. Ahora una factura saldada sigue contando
+   en el agregado mientras su suelo sea Bloqueada o Urgente, o tenga abierto un
+   hallazgo de K que no sea un aviso (`estados._sigue_pidiendo`). Los hallazgos
+   del propio proveedor también suben su prioridad: los de `tabla = 'proveedor'` y
+   el F7 de un movimiento con su clave. Antes solo contaban los de sus facturas.
+   Tests: `test_pagar_mal_una_factura_bloqueada_no_baja_a_su_proveedor_ni_a_su_objeto`,
+   `test_un_hallazgo_del_proveedor_sin_facturas_le_da_su_prioridad`.
+4. **Las anclas se podían burlar sin tocar `anclas.log`** (mayor). Era real, por
+   las dos vías. (1) Reescribir la cadena desde el evento 1 cambiaba la identidad
+   de la base: las anclas de verdad pasaban por «de otra base», y la siguiente
+   orden anclaba la cadena falsa. (2) Un evento `restauracion` escrito en la base
+   perdonaba cualquier corte. Ahora solo perdona lo que está fuera de la base, en
+   `anclas.log`. Cada base nueva apunta allí su identidad y su nombre
+   (`nueva_base`, desde `almacen.preparar` y `db init`). `copia.restaurar` apunta
+   el corte (`restauracion`) con el sha256 de lo que guardó en
+   `antes-de-restaurar`, y `db verificar` solo lo perdona mientras eso siga ahí y
+   sea lo guardado. Unas anclas de otra base no se dan por buenas si ninguna es de
+   esta base y esta no consta como creada allí. En ese mismo caso, `anclar` no
+   apunta (`AnclasDeOtraBase`) y la orden lo avisa. Tests:
+   `test_reescribir_la_cadena_desde_el_primer_evento_no_pasa_db_verificar`,
+   `test_un_evento_de_restauracion_falso_no_perdona_un_corte`,
+   `test_una_restauracion_de_verdad_sigue_cuadrando_y_sin_lo_sustituido_no`.
+5. **`GET /api/datos` lo daba todo sin token** (mayor). Era real: también daba
+   los IBAN enteros, con CORS, a otro origen. Ahora pide el token personal
+   (`X-BMS-Token`) de alguien con `ver_facturas`. A un origen declarado le da los
+   IBAN enmascarados. El cuerpo sigue siendo byte a byte la foto de referencia
+   (desviación 5). Test: `test_api_datos_pide_token_y_no_da_un_iban_entero_a_otro_origen`.
+6. **Los caracteres de control de un documento llegaban a la terminal** (mayor).
+   Era real: una secuencia ESC en el nombre de un proveedor movía el cursor, y
+   OSC 52 escribía en el portapapeles. Ahora `terminal.SalidaSegura` envuelve
+   stdout y stderr en `cli.main`, y `campos.a_columna` guarda los textos sin
+   controles (`terminal.sin_control`; cambian por U+FFFD, que se ve). El salto de
+   línea y el tabulador se quedan, y la evidencia original no se toca. El registro
+   del servidor los traduce también. Tests:
+   `test_un_pdf_con_secuencias_de_escape_no_manda_en_la_terminal`,
+   `test_la_salida_segura_y_el_registro_del_servidor`.
+7. **`sin_ibanes` solo veía un IBAN en mayúsculas y compacto o en grupos de
+   cuatro** (menor). Era real. Ahora encuentra también los IBAN en minúsculas, con
+   puntos o guiones y con cualquier agrupación. Antes de enmascarar comprueba el
+   dígito de control y toma el prefijo válido más largo, así que un texto que no
+   es un IBAN no se toca. Tests:
+   `test_sin_ibanes_ve_un_iban_escrito_de_cualquier_manera` (siete formas),
+   `test_sin_ibanes_no_toca_lo_que_no_es_un_iban`.
+8. **D6 no existía** (mayor). Era real: el desglose de IVA podía no sumar la
+   cabecera, y el BTW lo declaraba sin objeciones. **D6** es una regla nueva, de
+   B en los dos sentidos, como la familia D del §7. Compara la suma del desglose
+   con la base y la cuota de la cabecera, con la tolerancia de línea por tramo más
+   la de factura. Tests:
+   `test_d6_un_desglose_que_no_es_la_cabecera_no_se_declara_sin_objeciones` (de
+   extremo a extremo, contra el BTW) y `test_d6_el_desglose_que_no_suma_la_cabecera_bloquea`.
+9. **Lo de cada día solo se podía hacer por la CLI** (mayor). Era real. La consola
+   tiene ahora un formulario para cada una de estas órdenes: verificar, rechazar
+   y atestar una cuenta, cambiar el teléfono, apuntar, confirmar y retirar un
+   pago, anular, fusionar y deshacer una fusión, repartir y añadir una línea, la
+   referencia, registrar y corregir una PO, corregir el maestro, el alias, y el
+   Objeto y la persona de una línea. Tiene además la página **Caja** (el flujo
+   por ventanas). Todo se pinta con `el()`, sin `innerHTML`. Tests:
+   `test_la_consola_tiene_un_formulario_para_cada_orden_de_cada_dia` y
+   `test_la_consola_pinta_las_cuentas_los_pagos_y_la_caja_como_texto` (con node:
+   lo inyectado en los datos sale como texto).
+10. **El original no se podía abrir** (mayor). Era real. Ahora se descarga desde la
+    ficha (`GET /api/v2/facturas/N/original`, como adjunto, con CSP `sandbox` y 403
+    a otro origen) y con `bms-agent original N --salida F`, que no pisa un fichero
+    que exista. Cada apertura es un evento de la auditoría
+    (`documentos.abrir`). Tests:
+    `test_el_original_se_descarga_desde_la_consola_y_queda_en_la_auditoria`,
+    `test_bms_agent_original_guarda_el_pdf`.
+11. **Los permisos solo se daban en tres paquetes** (mayor). Era real. Ahora
+    `bms-agent rol crear NOMBRE --permiso ...`, `rol listar` y `rol permisos` (todos,
+    con lo que deja hacer cada uno). Hay un rol ya pensado, `captura`: ver,
+    rellenar, corregir, el Objeto y la PO. Test:
+    `test_un_rol_a_medida_por_la_cli_no_da_lo_que_no_lleva`.
+12. **I1 no era una regla** (menor). Era real: solo se cumplía al dividir una
+    línea, y corregir después el importe de la línea dejaba sus partes sin cuadrar.
+    **I1** es una regla nueva, de R: las imputaciones activas de una línea suman su
+    importe, con la tolerancia de línea. Tests:
+    `test_i1_corregir_una_linea_dividida_deja_sus_partes_a_la_vista`,
+    `test_i1_unas_imputaciones_que_no_cubren_su_linea_retienen`.
+13. **La fecha de recepción no se rellenaba nunca** (menor). Era real. Ahora una
+    factura que llega por correo o por ingesta toma la fecha en que se recibió, y
+    una leída de una carpeta toma la fecha en que se registró. Lo que llega de
+    `out/` sigue sin fecha: no se sabe cuándo llegó (`ingesta._fecha_recepcion`).
+    Tests: `test_una_factura_leida_de_una_carpeta_lleva_su_fecha_de_recepcion`,
+    `test_lo_que_llega_de_out_no_toma_la_fecha_de_la_migracion`.
+14. **La persona de una línea no se veía ni se corregía** (menor). Era real. La
+    ficha enseña la persona, la semana y el turno leídos de cada línea, y en cada
+    imputación la persona, el importe y las horas. En la consola, la persona se
+    cambia con el Objeto. Test:
+    `test_la_ficha_ensena_la_persona_de_la_linea_las_etiquetas_y_de_donde_vence`.
+15. **Las horas por semana del Objeto eran siempre 0** (menor). Era real:
+    `importes_por_semana` no repartía las horas. Ahora reparte también las de venta
+    y las de compra, como `por_mes`. Test: `test_la_economia_por_semana_lleva_sus_horas`.
+16. **`Fuente.MAESTRO` no se usaba** (menor). Era real. Ahora el vencimiento que
+    sale del plazo pactado en el maestro dice «Del maestro», con el proveedor o el
+    cliente de donde viene (`consultas._vencimiento_de`). Se ve en la ficha y en la
+    consola. Test: el del 14.
+17. **E1 y E2 solo miraban el régimen, no el tipo** (menor). Era real, y queda **a
+    medias**. E2 avisa ahora también cuando una factura trae un tipo estándar que
+    ninguna factura anterior del proveedor traía (del 21 % al 9 %). E1 por tipo
+    queda pendiente: compara con lo que se espera del proveedor, y eso es el
+    btw-code de Exact, cuyo significado hay que confirmar (ver «Pendiente»). Test:
+    `test_e2_un_tipo_que_el_proveedor_nunca_habia_traido`.
+18. **No había cómo poner las cuentas propias** (bloqueante). Era
+    real: con datos de verdad se rechazaba cada extracto del banco, y en Docker
+    `config/empresa.yaml` está en la imagen. Ahora `bms-agent empresa ver|fijar`
+    (`--cuenta`, que se repite, `--btw-id`, `--kvk`; con `admin` y en la
+    auditoría). `docker/empresa.ps1` y su `.bat` la llaman. El rechazo dice cómo se
+    arregla, y la guía (entorno-local §5 y uso-v1 «El primer día») lo explica.
+    Test: `test_las_cuentas_propias_se_ponen_por_una_orden_y_el_extracto_entra`.
+19. **La guía de uso solo daba órdenes `bms-agent`, que en Docker no existen**
+    (mayor). Era real. Ahora `docker/orden.ps1` y su `.bat` corren cualquier orden
+    en la caja `orden`: piden el token, lo pasan por el entorno y lo olvidan al
+    acabar. entorno-local.md tiene «Las órdenes sueltas», y uso-v1.md dice al
+    principio cómo se traduce cada orden. Lo de cada día está además en la consola
+    (el 9). El test estático exige los dos scripts nuevos (`test_entorno_local.py`).
+20. **En Docker la hoja del BTW no se podía sacar** (mayor). Era real. La página
+    BTW de la consola tiene **Descargar la hoja**
+    (`GET /api/v2/btw/AAAA-TN/hoja.csv`: los bytes exactos, cuyo sha256 es el
+    de la hoja). Un `--salida` que no se puede escribir es una línea en castellano,
+    no una traza; dentro del contenedor dice además que se descarga de la consola.
+    `btw hoja` en una terminal escribe el texto ya limpio de controles. Tests:
+    `test_la_hoja_del_btw_se_descarga_con_sus_bytes_y_su_sha256`,
+    `test_una_salida_que_no_se_puede_escribir_es_una_linea_y_no_una_traza`.
+21. **La verificación de un IBAN no tenía su último paso, ni el teléfono ni la
+    cuenta por verificar** (mayor). Era real. `iban listar` va ahora por
+    proveedor: el teléfono al que se llama, cada cuenta con su estado y la cuenta
+    impresa en una factura y que todavía no está en el registro (F3)
+    (`consultas.registro_de_cuentas`). La vista `proveedor N` dice lo mismo, y la
+    consola también, en el bloque Cuentas. uso-v1.md añade el último paso: poner la
+    cuenta en Exact y volver a importar los acreedores, porque hasta entonces F2
+    la sigue bloqueando. Tests:
+    `test_iban_listar_da_el_telefono_y_la_cuenta_impresa_que_f3_pide_verificar`,
+    `test_iban_listar_por_la_cli`.
+22. **Una verificación a otro teléfono decía «Hecho» y salía con 0** (menor). Era
+    real. Ahora `Diferencia.no_vale` lo detecta, y la orden dice «Apuntada, pero la
+    verificación NO VALE: …» con el porqué. La CLI sale con `SALIDA_SIN_EFECTO`
+    (5), y la consola lo enseña como un error. Tests:
+    `test_una_verificacion_a_otro_telefono_no_dice_hecho_ni_sale_con_cero`,
+    `test_la_consola_dice_como_error_una_verificacion_que_no_vale`.
+23. **Ninguna guía decía qué es F0 ni cómo se atesta** (menor). Era real. Ahora
+    uso-v1.md «El primer día» explica qué es atestar, quién lo hace y cómo (el
+    botón de la consola o `orden.bat iban atestar`). El botón existe ahora (el 9).
+    Es un cambio de documentación; el de la consola tiene su test en el 9.
+24. **Los trimestres de antes de empezar salían por presentar y con el plazo
+    pasado** (menor). Era real. Se eligió documentarlo: uso-v1.md «El primer día»
+    da el camino (`btw hoja`, `btw listo` y `btw anotar` con lo que dice el acuse).
+    No se añadió un trimestre de inicio configurable: escondería sin firma un
+    trimestre que de verdad estuviera sin presentar, y anotar deja la referencia
+    del acuse y quién lo hizo. Test del camino:
+    `test_un_trimestre_presentado_antes_de_empezar_se_anota_como_dice_la_guia`.
+25. **Los errores y la ayuda de la CLI salían en inglés, y la descripción era de la
+    fase 0** (menor). Era real. Ahora `argumentos.Parser` (los subcomandos heredan
+    la clase) dice «uso: », «argumentos», «opciones» y «muestra esta ayuda y
+    sale». Los errores de argparse se traducen por su forma, y uno que no se
+    reconoce se queda como estaba. La descripción dice lo que hace la V1. El
+    destino de las órdenes es `orden` (antes `command`), que es lo que se ve en un
+    error. Tests: `test_los_errores_de_la_linea_de_comandos_son_en_castellano`
+    (los cuatro ejemplos de la revisión), `test_la_ayuda_es_en_castellano_y_dice_lo_que_hace_la_v1`,
+    `test_un_error_que_no_se_conoce_se_queda_como_estaba`.
+26. **«None», «()» y «Ano» en la salida** (menor). Era real. Sin pasada, el aviso
+    dice «todavía no se ha hecho ninguna pasada del día» (`cli._de_cuando`). Un
+    aviso de la parte no dice «factura None». La lista de revisar del BTW da el id y
+    el número, y el porqué, o «fuera de las cifras». Se escribe «Año» y «año» en lo
+    que se ve (la CLI, el panel de la fase 0 y tres mensajes de error). Test:
+    `test_la_cli_no_ensena_none_ni_parentesis_vacios_ni_ano`.
+27. **En Docker las pistas decían `bms-agent serve` o `bms-agent importar`**
+    (menor). Era real. `cli._como_se_hace` da la pista de Docker cuando la orden
+    corre en un contenedor: en `demo crear`, en `usuario token` y en `ordenes` sin
+    ninguna, dice `iniciar.bat -Demo`, la dirección de la consola, `buzon\po` e
+    `importar.bat`. Test: `test_en_docker_las_pistas_son_las_de_docker`.
+28. **Actualizar el programa perdía el buzón** (menor). Era real. entorno-local.md
+    §12.5 dice ahora que se guarden aparte `docker\secretos` y `buzon` y se
+    vuelvan a poner. Lo demás (la empresa, las personas, la política) está en la
+    base. Es un cambio de documentación.
+29. **Las preguntas no aceptaban «sí»** (menor). Era real. `Es-Si` (comun.ps1)
+    acepta `si`, `sí` y `s`, en mayúsculas o no; la tilde se compara por su código,
+    porque el `.ps1` es ASCII. `leer-facturas.ps1` y `restaurar.ps1` dicen «No has
+    escrito si». Aquí no hay PowerShell, así que el test es estático (y repite la
+    regla en Python): `test_las_preguntas_de_los_scripts_aceptan_si_con_tilde`.
+30. **La ficha enseñaba identificadores internos, y un importe con punto de miles
+    no se aceptaba** (menor). Era real. Cada campo tiene su etiqueta en castellano
+    (`consultas.ETIQUETA_CAMPO`), con el identificador al pasar el ratón. Un
+    importe escrito como lo enseña la consola (`2.902,79`) se acepta: el punto
+    solo vale como separador de miles, en grupos de tres y con la coma decimal.
+    Tests: el del 14 y `test_un_importe_se_escribe_como_lo_ensena_la_consola`.
+
+### Tests que cambian, y por qué
+
+- `test_reglas.py`: el catálogo del spec suma D6, I1 y K9, y la lista de las
+  pegajosas suma K9 (hallazgos 8, 12 y 1).
+- `test_hallazgos.py`: `SOLO_OBJECIONES` suma K9, que solo dice lo que falla.
+- `test_pureza_reglas.py`: suma los escenarios de `test_revision_final`, para que
+  D6, I1, E2 y K9 lean lo que declaran.
+- `test_flujo_caja.py`: el abono de Van Dijk ya no es una entrada esperada; todo lo
+  esperado de ese escenario es salida (hallazgo 2, desviación 3).
+- `test_panel_busqueda.py`: la propiedad que compara el panel con la búsqueda solo
+  suma lo que `vence()` (hallazgo 2).
+- `test_auditoria.py::test_dos_bases_pueden_compartir_el_fichero_de_anclas`: cada
+  base se declara en el fichero al crearla, como hacen ya `preparar` y `db init`.
+  El test la creaba con `migrar` a secas (hallazgo 4).
+- `test_serve_seguridad.py::test_el_origen_propio_y_el_declarado_si_reciben_cors`:
+  mira la cabecera CORS en `/api/ejecucion`, porque `/api/datos` pide ahora un
+  token (hallazgo 5). Que la pida y enmascare lo prueba el test del 5.
+- `test_contrato_v2.py` y `test_equivalencia_legado.py`: la petición a `/api/datos`
+  lleva el token de una persona con `consulta`, y sin él es un 401. El cuerpo se
+  sigue comparando byte a byte con la foto (hallazgo 5).
+- `test_entorno_local.py`: los scripts suman `empresa` y `orden`, y la pregunta de
+  `leer-facturas.ps1` se comprueba con `Es-Si` (hallazgos 18, 19 y 29).
+- `test_servicios.py::test_los_datos_se_comprueban_antes_de_hacer_nada`: `"2.900,50"`
+  era uno de los importes que se rechazaban, y ahora se acepta (hallazgo 30,
+  desviación 6). En su lugar se comprueban `"2.900"` y `"2,900.50"`, que no dicen
+  si son miles o decimales.
+- `test_servicios.py::test_la_cli_pasa_valores_que_empiezan_por_guion`: el error de
+  argparse se espera en castellano («le falta su valor»; hallazgo 25).
+
+### Desviaciones, y por qué
+
+1. **K9 es una regla que el §7 no tiene.** Las órdenes ya no dejan anular algo
+   pagado. Pero una importación de Exact trae los pagos como vienen, y puede
+   traer uno de una factura anulada. Ese dinero no puede desaparecer en silencio
+   de los totales.
+2. **D6 es de B también en las ventas.** La revisión proponía R para las salientes.
+   El §7 pone la familia D de B, y una venta con un desglose que no suma la
+   cabecera declara en el BTW un IVA que no es el de la factura.
+3. **Un abono, o un saldo del otro signo, nunca es un cobro ni un pago esperado**,
+   y no vence. Cambia lo que el paso 7 esperaba de la caja: lo que se espera es
+   deuda. Una factura pagada de más pasa a saldada, y lo que sobra lo dicen K2 o
+   R2, no la caja.
+4. **Las anclas de otra base sin la línea `nueva_base` ya no pasan** si la base no
+   tiene ninguna ancla suya. Un fichero de anclas compartido desde antes de esta
+   versión por una base sin anclas y otra con ellas da error en `db verificar`.
+   Es el precio de que reescribir el primer evento no esconda nada. Una base con
+   anclas suyas no cambia (el test de antes de la lista lo vigila).
+5. **`/api/datos` pide un token.** El spec lo quiere idéntico byte a byte. Lo es
+   el cuerpo; el acceso ya no es libre, porque daba los IBAN enteros a cualquiera.
+6. **El importe se acepta con el punto de miles de la consola.** El paso 4
+   (desviación 20) lo rechazaba por ambiguo, porque `2902.79` también entra.
+   Con los dos separadores no lo es: `2.902,79`, con grupos de tres y coma
+   decimal, solo puede ser dos mil novecientos. Esa forma completa se acepta,
+   también con signo (`-1.234,56`). `2.902` o `1.000`, sin coma, se siguen
+   rechazando: no se sabe si son miles o decimales.
+7. **El destino de los subcomandos se llama `orden`, no `command`.** Nada lo leía,
+   y es la palabra que sale en un error.
+
+**La suite entera**: 2182 tests pasan y cinco se saltan, los de los contenedores,
+que piden `BMS_PROBAR_DOCKER=1` (aquí no hay Docker). Al acabar el paso 13 pasaban
+2120.
+
+### Pendiente
+
+Lo que la V1 todavía no puede hacer, y por qué:
+
+- **E1 por tipo de IVA.** Para saber qué tipo se espera de un proveedor hace falta
+  confirmar con el dueño o el asesor qué quiere decir cada btw-code de Exact (VH21,
+  VERL, …) y en qué columna llega. Hasta entonces, E2 avisa del cambio entre una
+  factura y las anteriores.
+- **A4 (KvK) y A6 (VIES).** Son consultas a fuera: la consola no tiene red, y el
+  Handelsregister completo es de pago. Quedan como dice validacion-facturas.md, en
+  el alta y cada trimestre, fuera de la V1.
+- **Los formatos de verdad.** Las ventas, los pagos y los acreedores de Exact, el
+  planning de TRNSPRNT y el extracto del banco (qué banco, qué versión de CAMT,
+  qué perfil de MT940 o de CSV) están hechos contra ejemplos sintéticos. El
+  primer fichero de verdad puede no entrar: el rechazo dice la fila y el motivo, y
+  se ajusta su mapeo en `config/importacion/`.
+- **`config/btw.yaml` por confirmar con el asesor**: las rúbricas, la KOR, el
+  verlegd y el resto del mapeo. Cada hoja lo dice.
+- **Las decisiones del dueño que siguen abiertas.** Si C4 mira la fecha de la
+  factura o el periodo de prestación (paso 11, desviación 8). Si una cuenta
+  heredada es pagable antes de atestarla (`cuentas.solo_verificadas`). Y si
+  prefiere un trimestre de inicio del BTW configurado, en vez de anotar a mano los
+  de antes (hallazgo 24).
+- **Lo que solo se puede probar en el ordenador del dueño.** Docker Desktop y
+  Windows PowerShell 5.1: lo de los pasos anteriores, y ahora también `orden.bat`
+  y `empresa.bat` con argumentos que empiezan por `--` y escribir «sí» en
+  `Read-Host`. Y la primera lectura de verdad con su clave y la puerta de
+  `reextraer --activar`, porque aquí no hay API ni facturas reales.
+- **`Fuente.MAESTRO` solo se ve en el vencimiento.** Lo que el maestro completa
+  en otros campos no se apunta como «Del maestro» (hallazgo 16): se apuntaría
+  cuando se sepa qué copia de verdad cada importación.

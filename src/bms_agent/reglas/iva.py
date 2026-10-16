@@ -1,4 +1,5 @@
-"""Reglas de IVA: D3 (la cuota por el tipo), E3 (KOR), E4 (IVA trasladado), desde el
+"""Reglas de IVA: D3 (la cuota por el tipo), D6 (el desglose suma la cabecera; revision
+final), E3 (KOR), E4 (IVA trasladado), desde el
 paso 5 E1 (contra el regimen del maestro) y E2 (contra la factura anterior), y desde el
 paso 11 E0 (falta la informacion del IVA), E5 (umbral de la KOR) y E7 (tipo o
 tratamiento raro), con las lineas de IVA de una factura (`lineas_iva`) y su huella
@@ -114,6 +115,58 @@ LEE_D3 = frozenset({
     "factura.tratamiento_iva", "factura.base_cent", "factura.iva_cent", "factura.tipo_iva_pb",
     "factura.desglose", "tramo_iva.id", "tramo_iva.tipo_iva_pb", "tramo_iva.base_cent",
     "tramo_iva.cuota_cent", "politica.tolerancia_factura",
+})
+
+# --------------------------------------------------------------- D6
+
+
+def d6(factura: Factura, politica: Politica) -> list[Resultado]:
+    """D6: el desglose de IVA suma lo que dice la cabecera (base y cuota).
+
+    El BTW declara el desglose cuando lo hay (v_btw_linea lo prefiere a la
+    cabecera), y D3 solo mira que cada fila cuadre consigo misma. Una persona
+    que corrige la base de la cabecera deja el desglose de antes, y sin D6 la
+    factura quedaba "sin objeciones" declarando otra base y otra cuota. La
+    tolerancia es la de D2: un centimo por fila mas la de la factura.
+    """
+    if not factura.desglose:
+        return [resultado_de("D6", factura, Comprobacion(
+            NO_APLICA, "Sin desglose de IVA: se declara la cabecera."))]
+    tramos = sorted(factura.desglose, key=lambda t: t.id)
+    valores = {"base_cent": factura.base_cent, "iva_cent": factura.iva_cent,
+               "tramos": [[t.base_cent, t.cuota_cent] for t in tramos]}
+    if (factura.base_cent is None or factura.iva_cent is None
+            or any(t.base_cent is None or t.cuota_cent is None for t in tramos)):
+        return [resultado_de("D6", factura, Comprobacion(
+            SIN_DATOS, "Falta la base o la cuota de la cabecera o de alguna fila del "
+                       "desglose."), valores=valores)]
+    base = sum(t.base_cent for t in tramos)
+    cuota = sum(t.cuota_cent for t in tramos)
+    tolerancia = politica.tolerancia_linea * len(tramos) + politica.tolerancia_factura
+    distintos = [(que, de_filas, cabecera) for que, de_filas, cabecera in (
+        ("base", base, factura.base_cent), ("cuota", cuota, factura.iva_cent))
+        if abs(euros(de_filas) - euros(cabecera)) > tolerancia]
+    if not distintos:
+        return [resultado_de("D6", factura, Comprobacion(
+            OK, f"Las {len(tramos)} filas del desglose suman la base y la cuota de la "
+                "cabecera."), valores=valores)]
+    detalle = "; ".join(f"la {que} del desglose suma {euros_texto(euros(de_filas))} y la "
+                        f"cabecera dice {euros_texto(euros(cabecera))}"
+                        for que, de_filas, cabecera in distintos)
+    columnas = {"base": ("base_cent", "base_cent"), "cuota": ("iva_cent", "cuota_cent")}
+    objetivos = tuple(Objetivo("factura", factura.id, columnas[que][0])
+                      for que, _d, _c in distintos) + tuple(
+        Objetivo("factura_iva", t.id, columnas[que][1], RELACIONADO)
+        for que, _d, _c in distintos for t in tramos)
+    return [resultado_de("D6", factura, Comprobacion(
+        FALLO, f"El desglose de IVA no es la cabecera: {detalle}. El BTW declara el desglose."),
+        valores=valores, objetivos=objetivos)]
+
+
+LEE_D6 = frozenset({
+    "factura.desglose", "factura.base_cent", "factura.iva_cent", "tramo_iva.id",
+    "tramo_iva.base_cent", "tramo_iva.cuota_cent", "politica.tolerancia_linea",
+    "politica.tolerancia_factura",
 })
 
 # --------------------------------------------------------------- E3 y E4
@@ -237,42 +290,85 @@ LEE_E1 = LEE_EN_JUEGO | LEE_CADUCIDAD | frozenset({
 })
 
 
-def _preparar_e2(instantanea: Instantanea) -> dict[int, tuple[int, str]]:
-    """Para cada compra con regimen, la anterior de su contraparte (por fecha) y el suyo."""
+def _tipos_normales(f: Factura) -> frozenset[int]:
+    """Los tipos con IVA normal de una factura: los de su desglose o el de la cabecera."""
+    if f.desglose:
+        return frozenset(t.tipo_iva_pb for t in f.desglose if t.tipo_iva_pb is not None
+                         and (t.tratamiento or f.tratamiento_iva) == "estandar")
+    if f.tratamiento_iva == "estandar" and f.tipo_iva_pb is not None:
+        return frozenset({f.tipo_iva_pb})
+    return frozenset()
+
+
+class _Anterior(NamedTuple):
+    """La compra anterior de la contraparte (por fecha), su regimen, y los tipos con IVA
+    normal que traian todas las anteriores."""
+
+    id: int
+    tratamiento: str
+    tipos_vistos: frozenset[int]
+
+
+def _preparar_e2(instantanea: Instantanea) -> dict[int, _Anterior]:
+    """Para cada compra con regimen, la anterior de su contraparte y los tipos ya vistos."""
     grupos: dict[str, list[Factura]] = defaultdict(list)
     for f in instantanea.facturas:
         if (f.sentido == ENTRANTE and f.parte is not None and en_juego(f)
                 and f.tratamiento_iva not in _SIN_REGIMEN):
             grupos[f.parte].append(f)
-    anterior: dict[int, tuple[int, str]] = {}
+    anterior: dict[int, _Anterior] = {}
     for lista in grupos.values():
         lista.sort(key=lambda f: (f.fecha_factura or date.min, f.id))
+        vistos: frozenset[int] = frozenset()
         for previa, actual in zip(lista, lista[1:]):
-            anterior[actual.id] = (previa.id, previa.tratamiento_iva)
+            vistos = vistos | _tipos_normales(previa)
+            anterior[actual.id] = _Anterior(previa.id, previa.tratamiento_iva, vistos)
     return anterior
 
 
-def e2(factura: Factura, anterior: dict[int, tuple[int, str]]) -> list[Resultado]:
-    """E2: el regimen cambia respecto a la factura anterior del mismo proveedor.
+def _pc(tipo_pb: int) -> str:
+    return f"{Decimal(tipo_pb).scaleb(-2).normalize():f} %".replace(".", ",")
+
+
+def e2(factura: Factura, anterior: dict[int, _Anterior]) -> list[Resultado]:
+    """E2: el regimen cambia respecto a la factura anterior del mismo proveedor, o con IVA
+    normal trae un tipo que ninguna de sus facturas anteriores traia.
 
     Casi siempre es un cambio legitimo que hay que llevar al maestro; verlo en
     la factura y no en la declaracion es la diferencia entre un ajuste y una
     correccion (validacion-facturas.md §3.E). El hallazgo no se cierra solo.
+    El tipo se compara con todos los anteriores, no solo con la ultima: un
+    proveedor que factura a veces al 9 % y a veces al 21 % no da un aviso cada
+    vez, pero el primer 9 % de quien siempre cobro el 21 % si (§8, "unusual VAT
+    rate"; E7 solo mira que el tipo este en la lista de la politica).
     """
     previa = anterior.get(factura.id)
-    if previa is None or previa[1] == factura.tratamiento_iva:
+    if previa is None:
+        return []
+    if previa.tratamiento != factura.tratamiento_iva:
+        return [fallo("E2", factura,
+                      f"Pasa de {_NOMBRE_REGIMEN.get(previa.tratamiento)} a "
+                      f"{_NOMBRE_REGIMEN.get(factura.tratamiento_iva)} respecto a su factura "
+                      "anterior.",
+                      valores={"anterior": previa.id, "antes": previa.tratamiento,
+                               "ahora": factura.tratamiento_iva},
+                      objetivos=(Objetivo("factura", factura.id, "tratamiento_iva"),))]
+    nuevos = sorted(_tipos_normales(factura) - previa.tipos_vistos)
+    if not previa.tipos_vistos or not nuevos:
         return []
     return [fallo("E2", factura,
-                  f"Pasa de {_NOMBRE_REGIMEN.get(previa[1])} a "
-                  f"{_NOMBRE_REGIMEN.get(factura.tratamiento_iva)} respecto a su factura anterior.",
-                  valores={"anterior": previa[0], "antes": previa[1],
-                           "ahora": factura.tratamiento_iva},
-                  objetivos=(Objetivo("factura", factura.id, "tratamiento_iva"),))]
+                  f"Trae el tipo {', '.join(_pc(t) for t in nuevos)} y ninguna factura anterior "
+                  f"del proveedor lo traía (antes: "
+                  f"{', '.join(_pc(t) for t in sorted(previa.tipos_vistos))}).",
+                  valores={"anterior": previa.id, "tipos_antes": sorted(previa.tipos_vistos),
+                           "tipos_nuevos": nuevos},
+                  objetivos=(Objetivo("factura", factura.id, "tipo_iva_pb"),))]
 
 
 LEE_E2 = LEE_EN_JUEGO | frozenset({
     "factura.id", "factura.sentido", "factura.parte", "factura.fecha_factura",
-    "factura.tratamiento_iva",
+    "factura.tratamiento_iva", "factura.tipo_iva_pb", "factura.desglose",
+    "tramo_iva.tipo_iva_pb", "tramo_iva.tratamiento",
 })
 
 EVALUAR_E = {"E1": solo_objeciones(e1, _preparar_e1), "E2": solo_objeciones(e2, _preparar_e2)}

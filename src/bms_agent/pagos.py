@@ -430,6 +430,23 @@ def _movimiento_enlazable(conn: sqlite3.Connection, factura: sqlite3.Row, movimi
     return movimiento, resto
 
 
+def _exigir_que_cuente(conn: sqlite3.Connection, factura: sqlite3.Row) -> None:
+    """Un pago solo se apunta o se confirma en una factura que cuenta.
+
+    En una anulada, fusionada o sustituida, lo pagado no cuenta en ningun
+    total: el dinero que salio del banco desapareceria de lo pagado sin que
+    ninguna regla lo dijera. Se paga la que cuenta (la nueva, o aquella en
+    que se fusiono), o se deja la factura en juego antes.
+    """
+    factura_id = factura["id"]
+    if factura["anulada"] or factura["fusionada_en_id"] is not None:
+        raise PagoNoValido(f"la factura {factura_id} esta anulada o fusionada: no se paga")
+    sustituta = relaciones.efecto_de(relaciones.efectos(conn), factura_id).sustituida_por
+    if sustituta is not None:
+        raise PagoNoValido(f"la factura {factura_id} esta sustituida por la {sustituta}: "
+                           "se paga la nueva")
+
+
 def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int,
                   importe: Decimal | None = None, fecha_pago: date | None = None,
                   movimiento_id: int | None = None, rev: int | None = None,
@@ -458,12 +475,7 @@ def marcar_pagada(conn: sqlite3.Connection, persona: Persona, *, factura_id: int
             raise FaltaMotivo("marcar una factura pagada a mano pide un motivo")
         factura = _factura(conn, factura_id)
         _comprobar_rev(factura, rev, f"la factura {factura_id}")
-        if factura["anulada"] or factura["fusionada_en_id"] is not None:
-            raise PagoNoValido(f"la factura {factura_id} esta anulada o fusionada: no se paga")
-        sustituta = relaciones.efecto_de(relaciones.efectos(conn), factura_id).sustituida_por
-        if sustituta is not None:
-            raise PagoNoValido(f"la factura {factura_id} esta sustituida por la {sustituta}: "
-                               "se paga la nueva")
+        _exigir_que_cuente(conn, factura)
         if factura["total_cent"] is None:
             raise PagoNoValido(f"la factura {factura_id} no tiene un total en euros (X1): no se "
                                "apunta ningun pago")
@@ -523,6 +535,7 @@ def confirmar_pago(conn: sqlite3.Connection, persona: Persona, *, aplicacion_id:
         if aplicacion["estado"] != PROPUESTA:
             raise PagoNoValido(f"el pago {aplicacion_id} esta {aplicacion['estado']}: solo se "
                                "confirma una propuesta")
+        _exigir_que_cuente(conn, _factura(conn, aplicacion["factura_id"]))
         with campos.orden(conn, persona, tipo="pago_confirmado", tabla="aplicacion_pago",
                           fila_id=aplicacion_id, factura_id=aplicacion["factura_id"],
                           datos=datos) as o:

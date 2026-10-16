@@ -82,13 +82,16 @@ def test_api_datos_sigue_siendo_byte_a_byte_la_foto(desde_out) -> None:
     puerto, token, _db = desde_out
     foto = json.loads((GOLDEN / "construir_datos_v1.json").read_text(encoding="utf-8"))
     esperado = json.dumps(foto, ensure_ascii=False).encode("utf-8")
-    estado, cabeceras, cuerpo = _pedir(puerto, "GET", "/api/datos")
+    # Revision final: con el token personal de quien lee, como /api/v2 (sin el, 401).
+    con_token = {CABECERA_TOKEN: token}
+    estado, cabeceras, cuerpo = _pedir(puerto, "GET", "/api/datos", con_token)
     assert estado == 200 and cuerpo == esperado
     assert CABECERA_CONTRATO.lower() not in cabeceras
     for ruta in ("/api/v2/panel", "/api/v2/buscar?numero=4471", "/api/v2/objetos",
                  "/api/v2/exportar", "/api/v2/facturas/1/historial"):
         assert _leer(puerto, ruta, token)[0] == 200, ruta
-    assert _pedir(puerto, "GET", "/api/datos")[2] == esperado
+    assert _pedir(puerto, "GET", "/api/datos", con_token)[2] == esperado
+    assert _pedir(puerto, "GET", "/api/datos")[0] == 401
 
 
 # ============================================================ puerta: el contrato v2

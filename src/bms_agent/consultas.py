@@ -79,6 +79,34 @@ ETIQUETA_FUENTE = {
 }
 
 
+# Como se llama cada campo en la ficha (revision final): el identificador de la columna
+# (base_cent, tipo_iva_pb) queda para quien programa, en el `campo` de cada uno.
+ETIQUETA_CAMPO = {
+    "numero": "Número", "proveedor_id": "Proveedor (del maestro)",
+    "cliente_id": "Cliente (del maestro)", "contacto_id": "Contacto",
+    "emisor_nombre_doc": "Emisor (impreso)", "emisor_direccion_doc": "Dirección del emisor",
+    "emisor_kvk_doc": "KvK del emisor", "emisor_btw_doc": "BTW-id del emisor",
+    "receptor_nombre_doc": "Destinatario (impreso)", "receptor_btw_doc": "BTW-id del destinatario",
+    "contacto_nombre_doc": "Contacto (impreso)", "fecha_factura": "Fecha de la factura",
+    "fecha_recepcion": "Recibida el", "fecha_envio": "Enviada el",
+    "periodo_inicio": "Periodo desde", "periodo_fin": "Periodo hasta",
+    "fecha_vencimiento": "Vence (impreso)", "plazo_pago_dias": "Plazo de pago (días)",
+    "condiciones_pago_doc": "Condiciones de pago (impresas)", "base_cent": "Base (sin IVA)",
+    "iva_cent": "IVA", "total_cent": "Total", "tipo_iva_pb": "Tipo de IVA",
+    "tratamiento_iva": "Régimen de IVA", "kor_mencionada": "Menciona la KOR",
+    "autoliquidacion_mencionada": "Menciona IVA trasladado (verlegd)",
+    "referencia_pago": "Referencia de pago", "iban_doc": "IBAN impreso (no se paga a él)",
+    "moneda_doc": "Moneda", "notas_doc": "Notas del documento",
+    "descripcion_doc": "Descripción", "objeto_doc": "Objeto (impreso)",
+    "recurso_doc": "Persona o recurso (impreso)", "unidad_doc": "Unidad (impresa)",
+    "semana_doc": "Semana (impresa)", "tipo_turno_doc": "Tipo de turno (impreso)",
+    "fecha_inicio": "Desde", "fecha_fin": "Hasta", "fecha_trabajo": "Día de trabajo",
+    "cantidad_mil": "Cantidad", "tarifa_e4": "Tarifa", "importe_cent": "Importe",
+    "objeto_id": "Objeto", "recurso_id": "Persona o recurso", "orden_compra_id": "PO",
+    "horas_mil": "Horas", "facturable": "Facturable",
+}
+
+
 def _decimal_texto(valor: Decimal, decimales: int | None = None) -> str:
     """Con punto de millares y coma decimal: 2.902,79."""
     texto = f"{valor:,.{decimales}f}" if decimales is not None else f"{valor:,f}"
@@ -293,6 +321,7 @@ def _campos_de(conn: sqlite3.Connection, tabla: str, fila: sqlite3.Row, sentido:
         automatico = p["valor_automatico"] if p else None
         salida.append({
             "tabla": tabla, "fila_id": fila["id"], "campo": nombre, "tipo": definicion.tipo,
+            "etiqueta": ETIQUETA_CAMPO.get(nombre, nombre),
             "valor": valor, "texto": texto_de(definicion, valor),
             "entrada": entrada_de(definicion, valor),
             "fuente": estado.fuente, "original": original,
@@ -360,12 +389,16 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
             orden = conn.execute("SELECT numero FROM orden_compra WHERE id = ?",
                                  (imp["orden_compra_id"],)).fetchone() if imp[
                 "orden_compra_id"] else None
+            recurso = conn.execute("SELECT nombre FROM recurso WHERE id = ?",
+                                   (imp["recurso_id"],)).fetchone() if imp["recurso_id"] else None
             imputaciones.append({
                 "id": imp["id"], "rev": imp["rev"], "retirada": imp["retirada_en"] is not None,
                 "objeto_id": imp["objeto_id"],
                 "objeto": f"{objeto['codigo']}" if objeto else None,
                 "orden_compra_id": imp["orden_compra_id"],
                 "orden_compra": orden["numero"] if orden else None,
+                "recurso_id": imp["recurso_id"], "recurso": recurso["nombre"] if recurso else None,
+                "importe": _euros(imp["importe_cent"]), "horas": _horas_texto(imp["horas_mil"]),
                 "campos": _campos_de(conn, "factura_imputacion", imp, sentido, de_hallazgos,
                                      sin_resolver, nombres,
                                      solo=("objeto_id", "recurso_id", "orden_compra_id",
@@ -377,7 +410,8 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
             "retirada": linea["retirada_en"] is not None,
             "campos": _campos_de(conn, "factura_linea", linea, sentido, de_hallazgos,
                                  sin_resolver, nombres,
-                                 solo=("descripcion_doc", "objeto_doc", "unidad_doc",
+                                 solo=("descripcion_doc", "objeto_doc", "recurso_doc",
+                                       "unidad_doc", "semana_doc", "tipo_turno_doc",
                                        "fecha_inicio", "fecha_fin", "fecha_trabajo",
                                        "cantidad_mil", "tarifa_e4", "importe_cent",
                                        "tipo_iva_pb"), motivos=motivos),
@@ -451,7 +485,64 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
                                         "ORDER BY id", (factura_id,))],
         # Paso 10: de cada imputacion, los turnos del planning con que se concilio.
         "conciliacion": conciliacion.traza(conn, factura_id),
+        # Revision final: lo pagado (para confirmar o retirar un pago desde la consola), el
+        # original (se descarga, y queda en la auditoria) y de donde sale su vencimiento.
+        "pagos": _pagos_de_factura(conn, factura_id),
+        "original": _original_de(conn, factura["documento_id"]),
+        "vencimiento": _vencimiento_de(conn, factura, estado),
     }
+
+
+def _pagos_de_factura(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
+    """Cada pago apuntado de una factura (propuesto, confirmado o retirado), con su rev."""
+    from . import pagos
+
+    return [{"id": a["id"], "rev": a["rev"], "estado": a["estado"], "fuente": a["fuente"],
+             "metodo": a["metodo"], "importe_cent": a["importe_cent"],
+             "importe": _euros(a["importe_cent"]), "fecha_pago": a["fecha_pago"],
+             "movimiento_id": a["movimiento_id"], "regla": a["regla"],
+             "concepto": a["concepto_doc"], "contraparte": a["contraparte_nombre_doc"]}
+            for a in pagos.de_factura(conn, factura_id)["aplicaciones"]]
+
+
+def _original_de(conn: sqlite3.Connection, documento_id: int | None) -> dict[str, Any] | None:
+    """El original de una factura: si esta guardado, se descarga desde la consola
+    (GET /api/v2/facturas/N/original) o con `bms-agent original`."""
+    if documento_id is None:
+        return None
+    d = conn.execute("SELECT id, nombre_original, tipo_mime, bytes, sha256, ruta_cas "
+                     "FROM documento WHERE id = ?", (documento_id,)).fetchone()
+    if d is None:
+        return None
+    return {"documento_id": d["id"], "nombre": d["nombre_original"], "tipo": d["tipo_mime"],
+            "bytes": d["bytes"], "sha256": d["sha256"], "guardado": d["ruta_cas"] is not None}
+
+
+def _vencimiento_de(conn: sqlite3.Connection, factura: sqlite3.Row,
+                    estado: sqlite3.Row | None) -> dict[str, Any]:
+    """El vencimiento efectivo y de donde sale (§13): el impreso, o la fecha mas el plazo, del
+    maestro antes que del papel (instantanea.vencimientos). Si sale del plazo acordado en el
+    maestro, la fuente es el maestro, con el proveedor o el cliente de donde viene."""
+    fecha = estado["vencimiento"] if estado is not None else None
+    fuente, referencia, plazo = None, None, None
+    procedencias = campos.procedencia(conn, "factura", factura["id"])
+    if factura["fecha_vencimiento"] is not None:
+        fuente = (procedencias.get("fecha_vencimiento") or {}).get("fuente")
+    elif fecha is not None:
+        tabla = "proveedor" if factura["sentido"] == "entrante" else "cliente"
+        parte_id = factura["proveedor_id"] if tabla == "proveedor" else factura["cliente_id"]
+        acordado = conn.execute(f"SELECT plazo_pago_dias FROM {tabla} WHERE id = ?",
+                                (parte_id,)).fetchone() if parte_id is not None else None
+        propio = procedencias.get("plazo_pago_dias")
+        del_papel = (propio is not None and propio["fuente"] == Fuente.CALCULADO.value
+                     and propio["fuente_ref"] == "condiciones_pago_doc")
+        if acordado is not None and acordado[0] is not None and (
+                factura["plazo_pago_dias"] is None or del_papel):
+            fuente, referencia, plazo = Fuente.MAESTRO.value, f"{tabla}:{parte_id}", acordado[0]
+        else:
+            fuente, plazo = (propio or {}).get("fuente"), factura["plazo_pago_dias"]
+    return {"fecha": fecha, "fuente": fuente, "fuente_texto": ETIQUETA_FUENTE.get(fuente or ""),
+            "fuente_ref": referencia, "plazo_dias": plazo}
 
 
 def _planning(conn: sqlite3.Connection) -> Any:
@@ -470,6 +561,14 @@ def personas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Las personas activas, para asignar una excepcion."""
     return [{"id": f["id"], "nombre": f["nombre"]} for f in conn.execute(
         "SELECT id, nombre FROM usuario WHERE es_sistema = 0 AND activo = 1 ORDER BY nombre")]
+
+
+def recursos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Las personas y recursos del maestro (los de las lineas de horas), para imputar una linea a
+    uno de ellos desde la consola."""
+    return [{"id": f["id"], "nombre": f["nombre"], "tipo": f["tipo"],
+             "activo": bool(f["activo"])} for f in conn.execute(
+        "SELECT id, nombre, tipo, activo FROM recurso ORDER BY activo DESC, nombre, id")]
 
 
 def objetos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -815,27 +914,95 @@ def _avisos(conn: sqlite3.Connection, tabla: str, parte_id: int,
             "hallazgos": hallazgos_, "excepciones": excepciones_}
 
 
-def _ibanes(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
-    """Las cuentas del registro (con su estado) y los IBAN que han impreso sus facturas.
+def _impresos(conn: sqlite3.Connection,
+              proveedor_id: int | None = None) -> dict[int, dict[str, dict[str, Any]]]:
+    """Los IBAN que han impreso las facturas de cada proveedor (o de uno), por IBAN.
 
     La primera y la ultima fecha son las de las facturas fechadas: una sin
     fecha legible cuenta en el numero, pero no deja la primera sin fecha.
     """
     from .reglas.normas import normalizar_iban
 
-    impresos: dict[str, dict[str, Any]] = {}
-    for iban, fecha in conn.execute(
-            "SELECT iban_doc, fecha_factura FROM factura WHERE proveedor_id = ? "
+    impresos: dict[int, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for proveedor, iban, fecha in conn.execute(
+            "SELECT proveedor_id, iban_doc, fecha_factura FROM factura "
+            "WHERE proveedor_id IS NOT NULL AND (? IS NULL OR proveedor_id = ?) "
             "AND iban_doc IS NOT NULL ORDER BY fecha_factura IS NULL, fecha_factura, id",
-            (proveedor_id,)):
+            (proveedor_id, proveedor_id)):
         clave = normalizar_iban(iban) or iban
-        visto = impresos.setdefault(clave, {"iban": clave, "primera": fecha, "ultima": fecha,
-                                            "facturas": 0})
+        visto = impresos[proveedor].setdefault(
+            clave, {"iban": clave, "primera": fecha, "ultima": fecha, "facturas": 0})
         visto["primera"] = visto["primera"] or fecha
         visto["ultima"] = fecha or visto["ultima"]
         visto["facturas"] += 1
-    return {"registro": [c for c in cuentas(conn) if c["proveedor_id"] == proveedor_id],
-            "impresos": list(impresos.values())}
+    return impresos
+
+
+def _con_registro(impresos: dict[str, dict[str, Any]],
+                  registro: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Los IBAN impresos, cada uno con si esta en el registro de cuentas del proveedor.
+
+    Lo que trae una factura y el registro no tiene es lo que F3 pide verificar.
+    """
+    from .reglas.normas import normalizar_iban
+
+    registradas = {normalizar_iban(c["iban"]) for c in registro}
+    return [{**visto, "en_el_registro": visto["iban"] in registradas}
+            for visto in impresos.values()]
+
+
+def _ibanes(conn: sqlite3.Connection, proveedor_id: int) -> dict[str, Any]:
+    """Las cuentas del registro (con su estado) y los IBAN que han impreso sus facturas."""
+    registro = [c for c in cuentas(conn) if c["proveedor_id"] == proveedor_id]
+    impresos = _impresos(conn, proveedor_id).get(proveedor_id, {})
+    return {"registro": registro, "impresos": _con_registro(impresos, registro)}
+
+
+def registro_de_cuentas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Por proveedor: el telefono al que se llama, sus cuentas y lo impreso fuera del registro.
+
+    Es lo que `iban listar` ensena. Quien verifica necesita las tres cosas a
+    la vez: el numero del maestro (el unico al que se llama), el estado de
+    cada cuenta y la cuenta que una factura trae y nadie ha verificado
+    todavia (F3), que no esta en el registro hasta que alguien la verifica o
+    la rechaza.
+    """
+    por_proveedor: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for c in cuentas(conn):
+        por_proveedor[c["proveedor_id"]].append(c)
+    impresos = _impresos(conn)
+    salida = []
+    for fila in conn.execute("SELECT id, nombre, telefono_verificacion FROM proveedor "
+                             "ORDER BY nombre, id"):
+        registro = por_proveedor.get(fila["id"], [])
+        fuera = [v for v in _con_registro(impresos.get(fila["id"], {}), registro)
+                 if not v["en_el_registro"]]
+        if registro or fuera:
+            salida.append({"proveedor_id": fila["id"], "proveedor": fila["nombre"],
+                           "telefono_verificacion": fila["telefono_verificacion"],
+                           "cuentas": registro, "sin_registrar": fuera})
+    return salida
+
+
+# Lo que se cambia con su propia orden y no con corregir_maestro.
+_CON_SU_ORDEN = {"telefono_verificacion"}
+
+
+def _corregibles(tabla: str, fila: sqlite3.Row) -> list[dict[str, Any]]:
+    """Los campos de un proveedor o un cliente que una persona puede corregir en la consola
+    (corregir_maestro): en una fila de Exact o de TRNSPRNT, solo los que esos sistemas no
+    traen (lo suyo se corrige alli y lo trae la siguiente importacion)."""
+    de_fuera = bool(fila["exact_id"] or fila["trnsprnt_id"])
+    salida = []
+    for nombre, definicion in campos.REGISTRO[tabla].items():
+        if not definicion.editable or nombre in campos.ESTRUCTURA.get(tabla, ()):
+            continue
+        if nombre in _CON_SU_ORDEN or (definicion.externo and de_fuera):
+            continue
+        salida.append({"campo": nombre, "etiqueta": ETIQUETA_CAMPO.get(nombre, nombre),
+                       "texto": texto_de(definicion, fila[nombre]),
+                       "entrada": entrada_de(definicion, fila[nombre])})
+    return salida
 
 
 def _parte(conn: sqlite3.Connection, tabla: str, parte_id: int) -> sqlite3.Row:
@@ -869,8 +1036,13 @@ def _vista(conn: sqlite3.Connection, tabla: str, parte_id: int) -> dict[str, Any
         "avisos": _avisos(conn, tabla, parte_id, facturas),
     }
     vista["prioridad"] = _prioridades(conn, tabla).get(parte_id, _SIN_PRIORIDAD)
+    vista["rev"] = fila["rev"]
+    vista["corregibles"] = _corregibles(tabla, fila)
     if tabla == "proveedor":
         vista["ibanes"] = _ibanes(conn, parte_id)
+        # El numero al que se llama para verificar una cuenta (uso-v1.md): el del maestro, no
+        # el de ninguna factura.
+        vista["telefono_verificacion"] = fila["telefono_verificacion"]
     else:
         vista["trabajo_sin_facturar"] = _sin_facturar(conn, parte_id)
     return vista
@@ -1342,7 +1514,9 @@ def _economia_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any,
                    "ORDER BY mes = 'sin_fecha', mes", (objeto_id,))]
     semanas = trabajo.importes_por_semana(foto, objeto_id)
     por_semana = [{"semana": s, **_cifras_economia(semanas[s]["ingresos_cent"],
-                                                   semanas[s]["costes_cent"])}
+                                                   semanas[s]["costes_cent"],
+                                                   semanas[s]["horas_venta_mil"],
+                                                   semanas[s]["horas_compra_mil"])}
                   for s in sorted(semanas, key=lambda s: (s == trabajo.SIN_SEMANA, s))]
     return {
         "periodo": {"desde": desde_.isoformat(), "hasta": hasta_.isoformat(),
@@ -2366,18 +2540,51 @@ CLAVES_V2 = {
 # escriben entero, y de ahi llega a los motivos de la prioridad y a los avisos.
 _IBAN_EN_TEXTO = re.compile(
     r"\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,3})?)\b")
+# Y como lo escribe una persona o lo trae un PDF en sus notas: en minusculas, con
+# puntos, guiones o espacios en cualquier sitio (nl75-ingb-0002-4456-89,
+# NL 75 INGB 0002 445689). Esta forma suelta casa tambien con cosas que no son
+# un IBAN, asi que solo se enmascara lo que pasa el digito de control.
+_SEPARADORES = re.compile(r"[ .\-]")
+_IBAN_SUELTO = re.compile(r"(?i)\b[a-z]{2}[ .\-]?\d{2}(?:[ .\-]?[a-z0-9]){11,30}")
 
 
 def enmascarar_iban(iban: str) -> str:
     """'NL75INGB0002445689' es 'NL..5689': el pais y las cuatro ultimas cifras, lo que basta
     para reconocer una cuenta al telefono y no basta para pagarle."""
-    compacto = "".join(iban.split())
+    compacto = _SEPARADORES.sub("", "".join(iban.split())).upper()
     return f"{compacto[:2]}..{compacto[-4:]}"
 
 
 def ibanes_en(texto: str) -> list[str]:
-    """Los IBAN que lleva un texto, donde sea que esten."""
-    return [m.group(0) for m in _IBAN_EN_TEXTO.finditer(texto)]
+    """Los IBAN que lleva un texto, donde sea que esten y como sea que esten escritos."""
+    sueltos = [iban for m in _IBAN_SUELTO.finditer(texto)
+               if (iban := _iban_al_principio(m.group(0))[1]) is not None]
+    return sueltos + [m.group(0) for m in _IBAN_EN_TEXTO.finditer(texto)]
+
+
+def _iban_al_principio(texto: str) -> tuple[int, str | None]:
+    """El IBAN valido mas largo con que empieza un trozo de forma suelta: hasta donde llega y
+    el IBAN compacto (None si no hay ninguno). La forma suelta se come lo que venga detras
+    ("NL75...89 en 2026"): se prueba de lo mas largo a lo mas corto hasta dar con uno que
+    pase el modulo 97."""
+    from .reglas.bancaria import validar_iban
+
+    for fin in range(len(texto), 0, -1):
+        if not texto[fin - 1].isalnum():
+            continue
+        compacto = _SEPARADORES.sub("", texto[:fin]).upper()
+        if len(compacto) < 15:
+            break
+        if validar_iban(compacto):
+            return fin, compacto
+    return 0, None
+
+
+def _suelto(encontrado: re.Match[str]) -> str:
+    """Un trozo de forma suelta con su IBAN enmascarado, y lo que sigue tal cual."""
+    texto = encontrado.group(0)
+    fin, compacto = _iban_al_principio(texto)
+    return texto if compacto is None else enmascarar_iban(compacto) + texto[fin:]
 
 
 def sin_ibanes(valor: Any) -> Any:
@@ -2386,8 +2593,13 @@ def sin_ibanes(valor: Any) -> Any:
     Es la ultima pasada de lo que sale hacia un sitio propio (el contrato v2 y
     las lecturas de /api/v2 desde otro origen): los IBAN no solo estan en el
     registro de cuentas, tambien en los textos de los avisos y en los motivos.
+    Primero lo que tiene forma suelta y pasa el digito de control (en
+    minusculas, con puntos o guiones, agrupado como sea); despues lo que tiene
+    la forma de siempre aunque no lo pase (un IBAN mal copiado tambien es de
+    alguien).
     """
     if isinstance(valor, str):
+        valor = _IBAN_SUELTO.sub(_suelto, valor)
         return _IBAN_EN_TEXTO.sub(lambda m: enmascarar_iban(m.group(0)), valor)
     if isinstance(valor, dict):
         return {k: sin_ibanes(v) for k, v in valor.items()}

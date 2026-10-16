@@ -103,6 +103,9 @@ CATALOGO_SPEC = {
     "D2b": ("bloqueo", "retencion", True, False, False, "otra"),
     "D3": ("bloqueo", None, False, False, False, "iva_dura"),
     "D4": ("bloqueo", None, False, False, False, "otra"),
+    # Revision final: el desglose de IVA suma la cabecera, y las imputaciones la linea (§7).
+    "D6": ("bloqueo", None, False, False, False, "iva_dura"),
+    "I1": ("retencion", None, False, False, False, "otra"),
     # Paso 11: falta la informacion del IVA (no se anula, §7).
     "E0": ("retencion", None, False, False, False, "iva_blanda"),
     "E1": ("retencion", None, True, False, False, "iva_blanda"),
@@ -132,6 +135,8 @@ CATALOGO_SPEC = {
     "K6": ("bloqueo", None, False, True, False, "otra"),
     "K7": ("aviso", None, True, False, False, "otra"),
     "K8": ("retencion", None, False, False, False, "otra"),
+    # Revision final: pagos confirmados en una factura anulada o fusionada.
+    "K9": ("retencion", None, False, True, False, "otra"),
     # Paso 10: el planning. G1 retiene (bloquea con el planning obligatorio, por
     # resultado) y anularlo pide segunda firma (§7: "needs a 2nd signer").
     "G1": ("retencion", None, True, False, True, "planning"),
@@ -216,7 +221,7 @@ def test_las_familias_pegajosas_son_las_de_la_decision_11() -> None:
     for regla in catalogo.CATALOGO:
         assert regla.pegajosa == (regla.familia in ("bancaria", "unicidad")
                                   or regla.id in ("X1", "E2", "A7", "K2", "K4", "K5", "K6",
-                                                  "R2", "R3", "P4")), \
+                                                  "K9", "R2", "R3", "P4")), \
             regla.id
 
 

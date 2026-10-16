@@ -310,14 +310,24 @@ def test_api_datos_lee_del_almacen(tmp_path, out_v1) -> None:
     from bms_agent.legado import registros_resueltos
     from bms_agent.serve import crear_servidor
 
+    from conftest import persona
+
+    from bms_agent import permisos
+    from bms_agent.serve import CABECERA_TOKEN
+
     db = _crear_almacen(tmp_path, out_v1)
+    # Revision final: /api/datos pide el token personal de alguien con ver_facturas.
+    with preparar(db) as almacen:
+        dora = persona(almacen.conn, "Dora", "consulta")
+        token = permisos.emitir_token(almacen.conn, dora)
     srv = crear_servidor(tmp_path / "facturas", tmp_path / "vacio", 0, ruta_db=db)
     hilo = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     hilo.start()
     try:
         puerto = srv.server_address[1]
         conexion = http.client.HTTPConnection("127.0.0.1", puerto, timeout=5)
-        conexion.request("GET", "/api/datos", headers={"Host": f"127.0.0.1:{puerto}"})
+        conexion.request("GET", "/api/datos", headers={"Host": f"127.0.0.1:{puerto}",
+                                                       CABECERA_TOKEN: token})
         cuerpo = json.loads(conexion.getresponse().read())
         conexion.close()
     finally:

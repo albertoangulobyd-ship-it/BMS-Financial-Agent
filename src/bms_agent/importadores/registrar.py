@@ -570,8 +570,10 @@ def _extractos(ctx: _Contexto) -> list[Rechazo]:
         return []
     propias = set(politica.empresa(conn).cuentas_propias)
     if not propias:
-        return [Rechazo(0, "config/empresa.yaml no tiene cuentas propias: no se sabe si el "
-                           "extracto es de BM Support BV", None, "cuenta_ajena")]
+        return [Rechazo(0, "todavia no se han dado las cuentas propias de BM Support BV, y "
+                           "sin ellas no se sabe si el extracto es suyo: ponlas con `bms-agent "
+                           "empresa fijar --cuenta IBAN` (en Docker, empresa.bat) y vuelve a "
+                           "importarlo", None, "cuenta_ajena")]
     ajenas = [Rechazo(e.fila, f"la cuenta {e.cuenta_propia_iban} no es de BM Support BV "
                               "(config/empresa.yaml): el fichero no entra", dict(e.crudo),
                       "cuenta_ajena")

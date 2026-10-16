@@ -664,7 +664,9 @@ def test_los_datos_se_comprueban_antes_de_hacer_nada(escenario) -> None:
     with pytest.raises(servicios.DatosNoValidos, match="necesita"):
         servicios.ejecutar(conn, "anadir_nota", {"texto": "x"}, usuario_id=admin)
     rev = _rev(conn, "factura", ids["a"])
-    for valor in (2900.5, "2.900,50", "dos mil"):
+    # "2.900,50" (como lo ensena la consola) se acepta desde la revision final; lo que no
+    # dice si son miles o decimales, no.
+    for valor in (2900.5, "2.900", "2,900.50", "dos mil"):
         with pytest.raises(servicios.DatosNoValidos):
             servicios.ejecutar(conn, "fijar_campo", {
                 "tabla": "factura", "fila_id": ids["a"], "campo": "total_cent", "valor": valor,
@@ -850,7 +852,8 @@ def test_la_cli_pasa_valores_que_empiezan_por_guion(tmp_path, out_v1, capsys,
     with pytest.raises(SystemExit) as salida:
         main(["accion", "recalcular", "--token", "--db", str(db)])
     assert salida.value.code == 2
-    assert "--token: expected one argument" in capsys.readouterr().err
+    # Revision final: los errores de argparse en castellano (argumentos.Parser).
+    assert "--token: le falta su valor" in capsys.readouterr().err
 
 
 def test_la_cli_solo_junta_los_valores_de_las_opciones_de_accion() -> None:

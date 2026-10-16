@@ -530,7 +530,7 @@ class TurnoCanonico(Canonico):
     @model_validator(mode="after")
     def _coherente(self) -> "TurnoCanonico":
         if (self.fecha is None) == (self.ano is None or self.semana is None):
-            raise ValueError("un turno lleva su fecha (un dia) o su ano y su semana (la "
+            raise ValueError("un turno lleva su fecha (un dia) o su año y su semana (la "
                              "exportacion semanal), una de las dos")
         if self.horas_total is not None:
             destino = _HORAS_DEL_ESTADO.get(self.estado, "horas_planificadas")
@@ -550,7 +550,7 @@ class TurnoCanonico(Canonico):
             try:
                 date.fromisocalendar(self.ano, self.semana, 1)
             except ValueError:
-                raise ValueError(f"el ano {self.ano} no tiene semana {self.semana}") from None
+                raise ValueError(f"el año {self.ano} no tiene semana {self.semana}") from None
             dias = [getattr(self, d) for d in DIAS_SEMANA]
             totales = [getattr(self, h) for h in _HORAS if getattr(self, h) is not None]
             if not totales:

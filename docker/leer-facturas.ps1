@@ -40,8 +40,8 @@ docker compose run --rm -T lector coste --estimar /buzon/facturas --out /datos/o
 if ($LASTEXITCODE -ne 0) { Fallar "No se ha podido contar. Mira el mensaje de arriba." }
 
 $respuesta = Read-Host "Leer estas facturas cuesta lo que dice arriba. Seguir? (escribe si)"
-if ($respuesta -ne "si") {
-    Escribir "No se ha leido nada ni se ha gastado nada." "Yellow"
+if (-not (Es-Si $respuesta)) {
+    Escribir "No has escrito si: no se ha leido nada ni se ha gastado nada." "Yellow"
     exit 0
 }
 docker compose run --rm -T lector extract /buzon/facturas --out /datos/out

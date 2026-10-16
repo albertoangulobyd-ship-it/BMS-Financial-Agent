@@ -452,7 +452,7 @@ movimiento del banco).
 
 <!-- catalogo:inicio -->
 
-_Generado de `src/bms_agent/reglas/catalogo.py` con `python scripts/generar_catalogo_doc.py`: no se edita a mano. 82 reglas._
+_Generado de `src/bms_agent/reglas/catalogo.py` con `python scripts/generar_catalogo_doc.py`: no se edita a mano. 85 reglas._
 
 | Regla | Qué mira | Compra | Venta | Anulable (compra / venta) | Pegajosa | Segunda firma | Abre excepción | Prioridad | De qué |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -481,9 +481,11 @@ _Generado de `src/bms_agent/reglas/catalogo.py` con `python scripts/generar_cata
 | D2b | **Aritmética de línea**. Cantidad por tarifa es el importe de cada línea (0,01). | Bloqueo | Retención | sí / sí | no | no | sí | otra | factura |
 | D3 | **Cuota de IVA**. La base por el tipo es la cuota, tipo a tipo (0,02). | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
 | D4 | **Total**. La base más la cuota es el total (0,02). | Bloqueo | Bloqueo | no / no | no | no | sí | otra | factura |
+| D6 | **Desglose de IVA y cabecera**. Las filas del desglose de IVA suman la base y la cuota de la cabecera (0,01 por fila más 0,02): el BTW declara el desglose. | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
+| I1 | **Imputaciones de la línea**. Las imputaciones activas de cada línea suman su importe (0,01): si no, los costes de los Objetos cuentan otra línea. | Retención | Retención | no / no | no | no | sí | otra | factura |
 | E0 | **Falta información del IVA**. No se sabe cómo trata el IVA la factura, o con IVA normal le falta el tipo o la cuota (en la cabecera o en una fila del desglose). | Retención | Retención | no / no | no | no | sí | IVA blando | factura |
 | E1 | **Régimen distinto del maestro**. El régimen de IVA de la factura no es el que el maestro tiene registrado del proveedor. | Retención | Retención | sí / sí | no | no | sí | IVA blando | factura |
-| E2 | **Cambio de régimen**. El régimen cambia respecto a la factura anterior del mismo proveedor. | Retención | Retención | sí / sí | sí | no | sí | IVA blando | factura |
+| E2 | **Cambio de régimen o de tipo**. El régimen cambia respecto a la factura anterior del mismo proveedor, o con IVA normal trae un tipo que ninguna factura anterior suya traía. | Retención | Retención | sí / sí | sí | no | sí | IVA blando | factura |
 | E3 | **IVA con KOR**. Con KOR la factura no repercute IVA. | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
 | E4 | **IVA trasladado**. Con IVA trasladado no hay cuota y figura el btw-id del receptor. | Bloqueo | Bloqueo | no / no | no | no | sí | IVA duro | factura |
 | E5 | **Cerca del umbral de la KOR**. Lo que un proveedor con KOR ha facturado este año a BM Support BV llega al porcentaje de la política del umbral de la KOR (un indicio: el umbral es de todo lo que factura). | Aviso | Aviso | sí / sí | no | no | no | IVA blando | proveedor |
@@ -507,6 +509,7 @@ _Generado de `src/bms_agent/reglas/catalogo.py` con `python scripts/generar_cata
 | K6 | **Extractos que no encadenan**. El saldo de apertura de un extracto no es el de cierre del anterior, o falta un número: lo pagado desde ahí no se da por bueno. | Bloqueo | Bloqueo | no / no | sí | no | sí | otra | importacion |
 | K7 | **Movimiento sin casar**. Un movimiento del banco que, pasados los días de la política, no está casado con ninguna factura. | Aviso | Aviso | sí / sí | no | no | no | otra | movimiento |
 | K8 | **Banco y Exact no coinciden**. El banco y Exact dicen importes pagados distintos de la misma factura. | Retención | Retención | no / no | no | no | sí | otra | factura |
+| K9 | **Pagos en una factura que no cuenta**. Una factura anulada o fusionada en otra lleva pagos confirmados: ese dinero no cuenta en ningún total hasta que alguien diga dónde está. | Retención | Retención | no / no | sí | no | sí | otra | factura |
 | G1 | **Sin turnos en el planning**. Una compra sin ningún turno de su proveedor ni de sus personas en el periodo facturado. Retiene; bloquea si el planning es obligatorio (config/reglas.yaml). Anularla pide segunda firma. | Retención | Retención | sí / sí | no | sí | sí | planning | factura |
 | G2 | **Horas distintas de las validadas**. Las horas facturadas contra las validadas del planning, en la celda más fina que llevan los dos lados (persona y día, Objeto y día, Objeto y semana, periodo), con 0,25 h por día de tolerancia. Turnos sin validar, filas semanales que no se pueden partir o días que el planning no cubre: sin datos. | Retención | Retención | sí / sí | no | no | sí | planning | factura |
 | G3 | **Tarifa distinta de la pactada**. La tarifa de una línea de compra contra la pactada (de lo más concreto a lo general: recurso y Objeto, Objeto, recurso, proveedor; el turno tiene que ser el mismo): por encima retiene, y por encima del porcentaje de la política bloquea. Sin pactada ni planning, contra el histórico: la misma contraparte cobra otra tarifa por el mismo trabajo en el mismo Objeto. Dos pactadas igual de concretas con precios distintos: sin datos en la línea y la factura retenida, con su excepción. Con pactadas para la línea pero ninguna de su unidad o su día (los imprime el proveedor): sin datos y la factura retenida, no el histórico. Sin pactada, la tarifa del turno en el planning, si todos los de su celda dicen la misma. | Retención | Retención | sí / sí | no | no | sí | planning | factura |

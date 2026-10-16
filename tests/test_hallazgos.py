@@ -75,7 +75,9 @@ SOLO_OBJECIONES = {"Q2", "Q3", "Q4", "A0", "A2", "A5", "A7", "A8", "E1", "E2", "
                    # Paso 8.
                    "M3", "V7", "F10", "R1", "R2", "R3", "R4", "R5",
                    # Paso 11: lo que cae en un trimestre presentado y las de IVA.
-                   "C4", "E0", "E7"}
+                   "C4", "E0", "E7",
+                   # Revision final: lo pagado de una factura que no cuenta.
+                   "K9"}
 # Las del paso 9 hablan solo de las facturas a las que aplican (las que llevan una PO o
 # una referencia que lo es, las que tienen una tarifa pactada), y de ellas todo resultado,
 # tambien el ok: un sin_datos sin resultado al lado retendria el hallazgo de esa fila.

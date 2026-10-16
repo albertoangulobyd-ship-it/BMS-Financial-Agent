@@ -11,7 +11,9 @@ M2 tampoco esta en la tabla del §7: es "las ediciones de linea que no se
 pueden casar se convierten en hallazgos" del §10 (paso 6), al lado de M1.
 
 El paso 7 trae los pagos (K1-K8) y F7, y X1 tambien sobre los movimientos del
-banco.
+banco. K9 (pagos en una factura anulada o fusionada) no esta en el §7: lo trae
+la revision final, para que el dinero de una factura que no cuenta no
+desaparezca sin que nada lo diga.
 
 El paso 8 trae las ventas y las relaciones: V7 (facturacion doble a un
 cliente, el caso de B2 y B3 en las ventas, que desde ahora solo miran las
@@ -220,6 +222,17 @@ CATALOGO: tuple[Regla, ...] = (
                 titulo="Total", familia="aritmetica", severidad=B,
                 calidad=_C.DISCREPANCIA.value,
                 descripcion="La base más la cuota es el total (0,02)."),
+    _de_factura("D6", iva.d6, iva.LEE_D6,
+                titulo="Desglose de IVA y cabecera", familia="iva", severidad=B,
+                entrada_prioridad=_P.IVA_DURA.value,
+                calidad=_C.DISCREPANCIA.value,
+                descripcion="Las filas del desglose de IVA suman la base y la cuota de la "
+                            "cabecera (0,01 por fila más 0,02): el BTW declara el desglose."),
+    _de_factura("I1", aritmetica.i1, aritmetica.LEE_I1,
+                titulo="Imputaciones de la línea", familia="aritmetica", severidad=R,
+                calidad=_C.DISCREPANCIA.value,
+                descripcion="Las imputaciones activas de cada línea suman su importe (0,01): "
+                            "si no, los costes de los Objetos cuentan otra línea."),
     Regla("E0", "Falta información del IVA", "iva", iva.EVALUAR_E["E0"], iva.LEE_E0,
           severidad=R, entrada_prioridad=_P.IVA_BLANDA.value, calidad=_C.FALTANTE.value,
           descripcion="No se sabe cómo trata el IVA la factura, o con IVA normal le falta el "
@@ -229,10 +242,11 @@ CATALOGO: tuple[Regla, ...] = (
           calidad=_C.DISCREPANCIA.value,
           descripcion="El régimen de IVA de la factura no es el que el maestro tiene "
                       "registrado del proveedor."),
-    Regla("E2", "Cambio de régimen", "iva", iva.EVALUAR_E["E2"],
+    Regla("E2", "Cambio de régimen o de tipo", "iva", iva.EVALUAR_E["E2"],
           iva.LEE_E2, severidad=R, anulable=True, pegajosa=True,
           entrada_prioridad=_P.IVA_BLANDA.value, calidad=_C.ANOMALIA.value,
-          descripcion="El régimen cambia respecto a la factura anterior del mismo proveedor."),
+          descripcion="El régimen cambia respecto a la factura anterior del mismo proveedor, "
+                      "o con IVA normal trae un tipo que ninguna factura anterior suya traía."),
     _de_factura("E3", iva.e3, iva.LEE_E3,
                 titulo="IVA con KOR", familia="iva", severidad=B,
                 entrada_prioridad=_P.IVA_DURA.value, calidad=_C.DISCREPANCIA.value,
@@ -344,6 +358,10 @@ CATALOGO: tuple[Regla, ...] = (
     Regla("K8", "Banco y Exact no coinciden", "pagos", pagos.EVALUAR["K8"], pagos.LEE_K8,
           severidad=R, calidad=_C.DISCREPANCIA.value,
           descripcion="El banco y Exact dicen importes pagados distintos de la misma factura."),
+    Regla("K9", "Pagos en una factura que no cuenta", "pagos", pagos.k9, pagos.LEE_K9,
+          severidad=R, pegajosa=True, calidad=_C.ANOMALIA.value,
+          descripcion="Una factura anulada o fusionada en otra lleva pagos confirmados: ese "
+                      "dinero no cuenta en ningún total hasta que alguien diga dónde está."),
     # Planning
     Regla("G1", "Sin turnos en el planning", "planning", planning.g1, planning.LEE_G1,
           severidad=R, anulable=True, segunda_firma=True, entrada_prioridad=_P.PLANNING.value,

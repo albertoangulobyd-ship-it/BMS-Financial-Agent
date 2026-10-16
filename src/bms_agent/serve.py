@@ -35,7 +35,10 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
    guarda solo su hash): dice quien es, y cada lectura pide ver_facturas y
    cada orden su permiso (servicios.py). Las mismas comprobaciones de Host,
    Origin, cabecera y JSON valen para todo. Ninguna orden crea una factura,
-   paga, aprueba un pago ni presenta el BTW.
+   paga, aprueba un pago ni presenta el BTW. Desde la revision final,
+   /api/datos (el contrato v1, con cada IBAN entero) pide lo mismo que
+   /api/v2: un token personal con ver_facturas, y desde un origen declarado
+   con --origen sale con los IBAN enmascarados.
 
 5. Paso 13, el entorno de Docker (docker/). Dentro de un contenedor,
    127.0.0.1 es el del propio contenedor y no se puede llegar a el desde
@@ -68,7 +71,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import btw, config, consola, consultas, permisos, relaciones, servicios
 from .almacen import preparar, ruta_por_defecto
-from .auditoria import anclar
+from .auditoria import AnclasDeOtraBase, anclar
 from .cache import CONSERVAR
 from .dashboard import construir_datos
 from .documents import iter_pdfs
@@ -98,8 +101,10 @@ LECTURAS_V2 = (
     ("/api/v2/facturas", ("nivel",)),
     ("/api/v2/facturas/N", ()),
     ("/api/v2/facturas/N/historial", ()),
+    ("/api/v2/facturas/N/original", ()),
     ("/api/v2/excepciones", ()),
     ("/api/v2/personas", ()),
+    ("/api/v2/recursos", ()),
     ("/api/v2/proveedores", ()),
     ("/api/v2/proveedores/N", ()),
     ("/api/v2/clientes", ()),
@@ -112,6 +117,7 @@ LECTURAS_V2 = (
     ("/api/v2/btw", ()),
     ("/api/v2/btw/AAAA-TN", ()),
     ("/api/v2/btw/AAAA-TN/hoja", ()),
+    ("/api/v2/btw/AAAA-TN/hoja.csv", ()),
     ("/api/v2/flujo", ("desde", "hasta")),
     ("/api/v2/fuentes", ()),
     ("/api/v2/cuentas", ()),
@@ -366,7 +372,7 @@ class Agente:
                 resultado_pasada=estado.pasada,
             )
             if almacen.ruta_anclas is not None:
-                anclar(almacen.conn, almacen.ruta_anclas)
+                _anclar(almacen.conn, almacen.ruta_anclas)
 
         p = estado.pasada
         estado.estado = "terminado"
@@ -380,6 +386,23 @@ class Agente:
         if ingesta.errores:
             estado.mensaje += f", {len(ingesta.errores)} sin tipar"
             p.errores.extend(f"documento {t.documento_id}: {t.detalle}" for t in ingesta.errores)
+
+
+def _anclar(conn: sqlite3.Connection, ruta: Path) -> None:
+    """Ancla lo hecho; si el fichero de anclas es de otra base, lo dice y sigue (cli._anclar)."""
+    try:
+        anclar(conn, ruta)
+    except AnclasDeOtraBase as exc:
+        print(f"  AVISO: {exc}")
+
+
+def _nombre_de_descarga(nombre: str | None, sha256: str) -> str:
+    """El nombre con que se guarda un original: el suyo, sin nada que rompa la cabecera
+    (comillas, barras, caracteres de control ni nada fuera de ASCII); si no queda nada, su
+    hash."""
+    limpio = "".join(c for c in (nombre or "") if c.isascii() and (c.isalnum() or c in "._- "))
+    limpio = limpio.strip(" .")
+    return limpio[:120] or f"{sha256[:12]}.pdf"
 
 
 def _ahora() -> str:
@@ -517,9 +540,7 @@ class Manejador(BaseHTTPRequestHandler):
         elif ruta.startswith("/api/v2/"):
             self._leer_v2(ruta)
         elif ruta == "/api/datos":
-            # Del almacen, con los valores corregidos; de out/ solo si no hay almacen.
-            lectura = leer_registros(self.carpeta_salida, self.ruta_db or ruta_por_defecto())
-            self._json(200, construir_datos(lectura.registros))
+            self._datos_v1()
         elif ruta == "/api/ejecucion":
             self._json(200, self.agente.estado)
         else:
@@ -635,6 +656,34 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(401, {"error": f"falta un token personal valido en {CABECERA_TOKEN}"})
         return usuario_id
 
+    def _datos_v1(self) -> None:
+        """El contrato v1 (el panel de siempre), con la misma puerta que /api/v2.
+
+        Lleva cada factura con su IBAN entero: sin token cualquier proceso del
+        ordenador (otro usuario de Windows, un programa cualquiera) lo leia
+        entero, y un origen declarado con --origen tambien, aunque /api/v2 se
+        lo enmascara. Ahora pide el token personal de alguien con ver_facturas
+        y, desde un origen declarado, sale con los IBAN enmascarados. Desde la
+        consola (el mismo origen) sigue siendo byte a byte la foto de
+        referencia. Del almacen, con los valores corregidos; de out/ solo si no
+        hay facturas en el almacen.
+        """
+        with self._almacen() as almacen:
+            conn = almacen.conn
+            usuario_id = self._persona(conn, "GET /api/datos")
+            if usuario_id is None:
+                return
+            try:
+                permisos.exigir(conn, usuario_id, "ver_facturas", accion="GET /api/datos")
+            except permisos.PermisoDenegado as exc:
+                self._json(403, {"error": str(exc)})
+                return
+        lectura = leer_registros(self.carpeta_salida, self.ruta_db or ruta_por_defecto())
+        cuerpo = construir_datos(lectura.registros)
+        if self._de_otro_origen():
+            cuerpo = consultas.sin_ibanes(cuerpo)
+        self._json(200, cuerpo)
+
     def _leer_v2(self, ruta: str) -> None:
         """Las lecturas de la consola: piden un token personal con ver_facturas."""
         self._contrato_v2 = True
@@ -655,6 +704,8 @@ class Manejador(BaseHTTPRequestHandler):
                 datos: dict[str, str] = {}
                 if documentada in _PARAMETROS_V2 and documentada != _BUSCAR:
                     datos = parametros_admitidos(consulta, _PARAMETROS_V2[documentada])
+                if self._descarga(almacen, usuario_id, partes):
+                    return
                 if self._leer_paso_12(conn, partes, consulta, datos):
                     return
                 if partes == ["yo"]:
@@ -671,6 +722,8 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"excepciones": consultas.excepciones_abiertas(conn)})
                 elif partes == ["personas"]:
                     self._json(200, {"personas": consultas.personas(conn)})
+                elif partes == ["recursos"]:
+                    self._json(200, {"recursos": consultas.recursos(conn)})
                 elif partes == ["ordenes"]:
                     self._json(200, {"ordenes": consultas.ordenes_compra(conn)})
                 elif len(partes) == 2 and partes[0] == "ordenes" and partes[1].isdigit():
@@ -717,6 +770,59 @@ class Manejador(BaseHTTPRequestHandler):
             except ValueError as exc:
                 # Un filtro o un parametro que no se entiende (FiltroNoValido es uno).
                 self._json(400, {"error": str(exc)})
+
+    def _descarga(self, almacen: Any, usuario_id: int, partes: list[str]) -> bool:
+        """Lo que se descarga como fichero: el original de una factura y la hoja del BTW.
+
+        Los dos llevan sus bytes tal cual (el original es la evidencia; la hoja,
+        lo que se hashea y se anota al presentar), como adjunto y sin CORS:
+        solo la consola, nunca un sitio de otro origen. Abrir un original
+        queda en la auditoria (documento_abierto, documentos.abrir); hojearlo
+        a mano dentro de datos/documentos/ no. True si la ruta era una de ellas.
+        """
+        from .almacen.documentos import DocumentoCorrupto, abrir
+
+        original = (len(partes) == 3 and partes[0] == "facturas" and partes[1].isdigit()
+                    and partes[2] == "original")
+        hoja = len(partes) == 3 and partes[0] == "btw" and partes[2] == "hoja.csv"
+        if not (original or hoja):
+            return False
+        if self._de_otro_origen():
+            self._json(403, {"error": "un fichero solo se descarga desde la consola"},
+                       cors=False)
+            return True
+        conn = almacen.conn
+        if hoja:
+            ano, numero = btw.leer_etiqueta(partes[1])
+            contenido = btw.hoja(conn, ano, numero).en_bytes()
+            nombre, tipo = f"btw-{btw.etiqueta(ano, numero)}.csv", "text/csv; charset=utf-8"
+        else:
+            fila = conn.execute(
+                "SELECT d.id, d.nombre_original, d.tipo_mime, d.sha256 FROM factura AS f "
+                "JOIN documento AS d ON d.id = f.documento_id WHERE f.id = ?",
+                (int(partes[1]),)).fetchone()
+            if fila is None:
+                raise LookupError(f"la factura {partes[1]} no tiene documento (llego de otro "
+                                  "sistema)")
+            try:
+                contenido = abrir(almacen, fila["id"], actor=usuario_id, usuario_id=usuario_id,
+                                  motivo=f"descargado desde la consola (factura {partes[1]})")
+            except DocumentoCorrupto as exc:
+                raise LookupError(str(exc)) from None
+            nombre = _nombre_de_descarga(fila["nombre_original"], fila["sha256"])
+            tipo = fila["tipo_mime"]
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(contenido)))
+        self.send_header("Content-Disposition", f'attachment; filename="{nombre}"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+        if self.demo:
+            self.send_header(CABECERA_ENTORNO, "demo")
+        self.end_headers()
+        self.wfile.write(contenido)
+        return True
 
     def _leer_paso_12(self, conn: Any, partes: list[str], consulta: dict[str, list[str]],
                       datos: dict[str, str]) -> bool:
@@ -804,11 +910,14 @@ class Manejador(BaseHTTPRequestHandler):
                 self._json(codigo, {"error": str(exc), "tipo": type(exc).__name__})
                 return
             if almacen.ruta_anclas is not None:
-                anclar(conn, almacen.ruta_anclas)
+                _anclar(conn, almacen.ruta_anclas)
         self._json(200, {"ok": True, "diferencia": diferencia.a_dict()})
 
     def log_message(self, formato: str, *args: Any) -> None:
-        print(f"  {self.address_string()} {formato % args}")
+        # Como el de la biblioteca: la linea de la peticion la escribe quien pide, y sus
+        # caracteres de control no llegan a la terminal (terminal.py).
+        texto = (formato % args).translate(self._control_char_table)
+        print(f"  {self.address_string()} {texto}")
 
 
 def _sin_floats(texto: str) -> Any:
@@ -911,7 +1020,7 @@ def servir(
         print(f"*** {consola.TEXTO_DEMO} ***")
     print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
     print("  GET  /                pagina local con el boton de ejecutar")
-    print("  GET  /api/datos       datos del panel (del almacen; de out/ si no hay almacen)")
+    print("  GET  /api/datos       datos del panel (con un token personal, como /api/v2)")
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
     print("  GET  /consola         consola interna (se entra con el token personal)")

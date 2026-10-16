@@ -308,6 +308,23 @@ def crear_rol(
     return rol_id
 
 
+def listar_roles(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Los roles con sus permisos y cuantas personas activas los tienen hoy."""
+    ahora = _ahora(conn)
+    salida = []
+    for rol in conn.execute("SELECT id, nombre, descripcion FROM rol ORDER BY nombre"):
+        permisos = [f[0] for f in conn.execute(
+            "SELECT permiso FROM rol_permiso WHERE rol_id = ? ORDER BY permiso", (rol["id"],))]
+        personas = conn.execute(
+            "SELECT count(DISTINCT ur.usuario_id) FROM usuario_rol AS ur JOIN usuario AS u "
+            "ON u.id = ur.usuario_id WHERE ur.rol_id = ? AND u.activo = 1 AND ur.desde <= ? "
+            "AND (ur.hasta IS NULL OR ur.hasta > ?)", (rol["id"], ahora, ahora)).fetchone()[0]
+        salida.append({"id": rol["id"], "nombre": rol["nombre"],
+                       "descripcion": rol["descripcion"], "permisos": permisos,
+                       "personas": personas})
+    return salida
+
+
 def asegurar_roles_base(conn: sqlite3.Connection, *, por: int | None = None) -> list[str]:
     """Crea los roles de ROLES_BASE que falten. Devuelve los creados."""
     creados = []

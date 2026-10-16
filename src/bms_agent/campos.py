@@ -92,6 +92,7 @@ from .dominio import (
 )
 from .permisos import PermisoDenegado, SeparacionDeFunciones, exigir, orden_auditada, separacion
 from .reloj import marca
+from .terminal import sin_control
 
 # --------------------------------------------------------------- tipos
 
@@ -915,7 +916,10 @@ def a_columna(definicion: Campo, valor: Any) -> Any:
     if tipo == TEXTO:
         if not isinstance(valor, str):
             raise TypeError(f"{nombre}: se espera texto, no {valor!r}")
-        return valor
+        # Lo que viene de un documento o de un fichero ajeno no lleva caracteres de control a
+        # las tablas tipadas: de ahi salen la CLI y la consola (terminal.py). La evidencia
+        # (el JSON de la extraccion, el fichero importado) se queda como llego.
+        return sin_control(valor)
     raise AssertionError(f"tipo desconocido {tipo}")
 
 

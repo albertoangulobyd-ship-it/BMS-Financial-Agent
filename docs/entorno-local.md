@@ -126,6 +126,21 @@ En la carpeta `docker` del proyecto:
    `-Rol administracion` (el trabajo de cada día) o `-Rol consulta` (solo mirar). El
    rol se dice siempre, para no dar sin querer más de lo pensado. Si la persona ya
    existe con otro rol, el script no le cambia nada ni le da token: lo dice y para.
+3. **La empresa.** Sin las cuentas propias de BM Support BV no entra ningún
+   extracto del banco (el agente no puede saber si el extracto es de la empresa).
+   En la misma ventana, con tu token de administrador:
+
+   ```powershell
+   .\empresa.bat -Cuentas "NL02ABNA0123456789,NL44RABO0123456789" -BtwId "NL001122334B01" -Kvk "12345678"
+   ```
+
+   con las cuentas de verdad, todas separadas por comas (las que des sustituyen a
+   las de antes). `.\empresa.bat -Ver` enseña lo que hay y lo que falta. Queda en
+   la base, firmado por ti: no hay que tocar ningún fichero de `config`.
+4. **El primer maestro y los trimestres de antes.** Importa los acreedores de
+   Exact (apartado 7) y haz lo que dice [uso-v1.md](uso-v1.md), «El primer día»:
+   atestar las cuentas heredadas (F0) y anotar los trimestres del BTW que ya se
+   presentaron antes de empezar.
 
 ---
 
@@ -195,6 +210,42 @@ Después:
 
 El buzón solo lo leen las cajas: nada de dentro de Docker puede escribir ni borrar en
 él. Lo mueve el script, en tu Windows.
+
+### Las órdenes sueltas (`orden.bat`)
+
+Casi todo el trabajo de cada día se hace en la consola. Lo que [uso-v1.md](uso-v1.md)
+escribe como `bms-agent ...` es la orden de la instalación de quien mantiene el
+programa; aquí la misma orden se escribe con **`orden.bat`** delante, en una ventana
+de PowerShell en la carpeta `docker`:
+
+```powershell
+.\orden.bat iban listar
+.\orden.bat iban verificar --proveedor-id 3 --iban NL91ABNA0417164300 --telefono "010-1234567" --persona-contactada "Jan de Vries" --motivo "Llamada al número del maestro"
+.\orden.bat btw ver 2026-T3
+.\orden.bat historial 12
+.\orden.bat resumen
+```
+
+Te pide tu token (no se ve al escribirlo) y lo pasa por dentro, nunca en la línea de
+la orden, y lo olvida al acabar. La orden corre en la caja **orden**, sin red, y
+siempre sobre tus datos de verdad (la prueba se mira en la consola de `-Demo`). Sale
+con el código de la orden: distinto de 0 si no se hizo, o si se apuntó sin el efecto
+pedido (una verificación de IBAN que no vale sale con 5).
+
+Lo que tiene su propio script no va por `orden.bat`: `iniciar.bat` (no `serve`),
+`importar.bat` y `leer-facturas.bat` (no `importar` ni `extract`), `persona.bat` (no
+`usuario crear` ni `usuario token`), `empresa.bat` (no `empresa fijar`), `copia.bat`
+y `restaurar.bat`. Dentro de Docker no se escribe ningún fichero fuera de sus
+volúmenes, así que `--salida` no sirve: la hoja del BTW y el PDF original de una
+factura se descargan desde la consola.
+
+Si prefieres escribirlo a mano, es lo mismo que hace el script:
+
+```powershell
+$env:BMS_TOKEN = Read-Host "Tu token"
+docker compose run --rm -T -e BMS_TOKEN orden iban listar
+Remove-Item Env:\BMS_TOKEN
+```
 
 ---
 
@@ -300,6 +351,9 @@ después de restaurar en otro ordenador.
 | «es de los DATOS DE PRUEBA» | Has intentado meter un fichero de prueba en tus datos de verdad: no entra, a propósito. |
 | «no es de los DATOS DE PRUEBA» | Has usado `-Demo` con un fichero de verdad: no entra en la prueba. Vuelve a importarlo sin `-Demo`. |
 | «la base está abierta» al restaurar | La consola sigue en marcha: `parar.bat` y vuelve a probar. |
+| El extracto del banco no entra: «todavía no se han dado las cuentas propias» | Apartado 5, paso 3: `.\empresa.bat -Cuentas ...`, y vuelve a `importar.bat`. |
+| «La verificación NO VALE» | El teléfono no era el del maestro, o se cambió hace menos de 14 días: [uso-v1.md](uso-v1.md), «Cómo verificar un IBAN por teléfono». |
+| «No has escrito si» | Las preguntas de `leer-facturas.bat` y `restaurar.bat` solo siguen con `si` (o `sí`, o `s`). |
 | Quieres ver qué ha salido a internet | `.\ver-salida.bat` (o `.\ver-salida.bat -Rechazados`): cada intento desde el primer día, a dónde y si se dejó. Se guarda en su propio volumen y no se borra al parar; `docker compose logs salida` solo llega hasta el último arranque. |
 
 ---
@@ -350,9 +404,14 @@ funcionando sin crédito.
    `-Rechazados` sale todo, y lo permitido solo puede ser `api.anthropic.com`. El
    registro guarda unos 50 MB (10 ficheros de 5 MB): años de uso normal.
 4. **El crédito de la API**, en console.anthropic.com → Billing.
-5. Si quien mantiene el programa te pasa una versión nueva: `parar.bat`, sustituye
-   la carpeta del proyecto (sin tocar `docker\secretos`), y en la carpeta `docker`:
-   `docker compose build`, luego `iniciar.bat`. Tus datos no se tocan.
+5. Si quien mantiene el programa te pasa una versión nueva: `parar.bat`, y antes de
+   sustituir la carpeta del proyecto **guarda aparte `docker\secretos` (la clave de la
+   API) y `buzon`** (lo que todavía no se ha importado o leído, y `buzon\hecho`, lo
+   ya importado): están dentro de la carpeta del proyecto y no van en las copias del
+   apartado 9. Pon la carpeta nueva, vuelve a poner esas dos donde estaban y, en la
+   carpeta `docker`: `docker compose build`, luego `iniciar.bat`. Tus datos (la base,
+   los originales, la empresa, las personas y la política cargada) están en el
+   volumen de Docker y no se tocan.
 
 ---
 
@@ -382,10 +441,18 @@ funcionando sin crédito.
 - **Los códigos de salida de `importar`**: 0 si todo entra, 3 si un lote no entra
   (tampoco si ya se intentó y se rechazó), 4 si entra con filas rechazadas.
   `importar.ps1` decide con ellos qué sale del buzón.
-- **Restaurar**: la restauración escribe un evento `restauracion` con las anclas que
-  deja sin cumplir, y `db verificar` solo perdona esas. Restaurar a mano (copiar el
-  fichero de la base) no lo escribe, y `db verificar` dice entonces que la cadena se
-  ha cortado.
+- **Restaurar**: la restauración apunta en `anclas.log`, fuera de la base, una línea
+  `restauracion` con las anclas que deja sin cumplir y el sha256 de lo sustituido
+  (guardado en `antes-de-restaurar`), y `db verificar` solo perdona esas, y solo
+  mientras lo guardado sigue ahí y es lo que se guardó. Un evento de la base no
+  perdona nada: quien puede escribir la base podría escribirlo. Restaurar a mano
+  (copiar el fichero de la base) no apunta la línea, y `db verificar` dice entonces
+  que la cadena se ha cortado. Cada base nueva apunta también su identidad
+  (`nueva_base`): unas anclas de otra base sin esa línea no se dan por buenas.
+- **Las órdenes sueltas** van por `orden.ps1`, que pasa el token por el entorno
+  (`-e BMS_TOKEN`); la identidad de la empresa, por `empresa.ps1` (`empresa fijar`).
+  Dentro del contenedor, las pistas de la CLI dicen el script y no la orden
+  (`cli._como_se_hace`).
 - **La consola en el contenedor** escucha en `0.0.0.0` (`serve --contenedor`), solo
   dentro de un contenedor, y no lee PDF. Docker no publica el puerto de un contenedor
   que solo está en redes internas: por eso lo publica la salida, en `127.0.0.1`, y lo

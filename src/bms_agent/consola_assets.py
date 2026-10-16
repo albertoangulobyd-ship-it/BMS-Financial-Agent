@@ -45,6 +45,7 @@ PAGINA = """<!doctype html>
   <section id="objetos"></section>
   <section id="ordenes"></section>
   <section id="btw"></section>
+  <section id="caja"></section>
   <section id="ficha"></section>
 </main>
 </body>
@@ -95,7 +96,7 @@ SCRIPT = r"""
   'use strict';
 
   var estado = {token: null, yo: null, acciones: {}, personas: [], objetos: [], ordenes: [],
-                proveedores: [], clientes: [], ficha: null};
+                proveedores: [], clientes: [], recursos: [], ficha: null};
 
   // ---------------------------------------------------------------- DOM
 
@@ -168,16 +169,46 @@ SCRIPT = r"""
     });
   }
 
+  // Un fichero (el original de una factura, la hoja del BTW) se pide con el token en su
+  // cabecera, como todo, y se guarda con el nombre que da el servidor: el token no va
+  // nunca en una URL.
+  function descargar(ruta, nombre) {
+    return fetch(ruta, {headers: {'X-BMS-Token': estado.token || ''}}).then(function (r) {
+      if (!r.ok) {
+        return r.json().then(function (d) { throw new Error(d.error || ('error ' + r.status)); });
+      }
+      return r.blob();
+    }).then(function (contenido) {
+      // El enlace apunta a lo recien descargado (blob:), nunca a algo que venga de un dato.
+      var url = URL.createObjectURL(contenido);
+      var enlace = el('a', {href: url, download: nombre});
+      document.body.appendChild(enlace);
+      enlace.click();
+      document.body.removeChild(enlace);
+      URL.revokeObjectURL(url);
+      decir('Descargado: ' + nombre + '.', false);
+    }).catch(function (error) { decir('No se descarga: ' + error.message, true); });
+  }
+
   function decir(texto, esError) {
     var caja = document.getElementById('mensaje');
     vaciar(caja);
     anadir(caja, el('p', {clase: esError ? 'error' : ''}, texto));
   }
 
+  // Una orden apuntada sin el efecto pedido (Diferencia.no_vale en servicios.py).
+  function noVale(diferencia) {
+    var detalle = diferencia.detalle || {};
+    return detalle.eficaz === false ? (detalle.motivo_ineficaz || 'no cuenta') : null;
+  }
+
   function resumen(diferencia) {
     if (diferencia.repetida) { return 'Esa petición ya se había aplicado: no se repite.'; }
     if (diferencia.evento_id === null) { return 'No cambia nada.'; }
-    var partes = ['Hecho (evento ' + diferencia.evento_id + ').'];
+    var partes = [noVale(diferencia) ?
+      'Apuntada (evento ' + diferencia.evento_id + '), pero la verificación NO VALE: ' +
+        noVale(diferencia) + '. La cuenta sigue sin verificar y no se puede pagar a ella.' :
+      'Hecho (evento ' + diferencia.evento_id + ').'];
     var grupos = diferencia.hallazgos || {};
     Object.keys(grupos).forEach(function (clave) {
       partes.push('Hallazgos ' + clave + ': ' + grupos[clave].map(function (h) {
@@ -201,7 +232,7 @@ SCRIPT = r"""
   function ordenar(nombre, datos, peticion) {
     var cuerpo = {accion: nombre, peticion_id: peticion, datos: datos};
     return api('POST', '/api/v2/acciones', cuerpo).then(function (r) {
-      decir(resumen(r.diferencia), false);
+      decir(resumen(r.diferencia), !!noVale(r.diferencia));
       return recargar();
     }).catch(function (error) { decir('No se hace: ' + error.message, true); });
   }
@@ -223,7 +254,7 @@ SCRIPT = r"""
                                valor: c.valor === undefined || c.valor === null ? '' : c.valor});
       }
       entradas[c.nombre] = entrada;
-      return el('label', {}, (c.etiqueta || c.nombre) + ' ', entrada);
+      return el('label', {title: c.titulo || ''}, (c.etiqueta || c.nombre) + ' ', entrada);
     });
     var form = el('form', {clase: 'linea', al_enviar: function (ev) {
       ev.preventDefault();
@@ -233,6 +264,7 @@ SCRIPT = r"""
         var v = entradas[k].value;
         if (v !== '') { datos[k] = enLista[k] ? [parseInt(v, 10)] : v; }
       });
+      if (opciones && opciones.construir) { datos = opciones.construir(datos); }
       ordenar(nombre, datos, peticion);
     }}, hijos, el('button', {type: 'submit'}, textoBoton));
     if (opciones && opciones.titulo) { return el('div', {}, el('span', {clase: 'suave'}, opciones.titulo), form); }
@@ -310,7 +342,7 @@ SCRIPT = r"""
       // valor puesto a mano se ve quien, cuando y por que.
       var manual = c.fuente === 'manual_entrada' || c.fuente === 'manual_correccion';
       anadir(cuerpo, el('tr', {},
-        el('td', {}, c.campo),
+        el('td', {title: c.campo}, c.etiqueta || c.campo),
         el('td', {}, c.texto === null ? '' : c.texto),
         el('td', {}, original),
         el('td', {}, c.fuente ? insignia(c.fuente_texto || c.fuente,
@@ -405,11 +437,17 @@ SCRIPT = r"""
         tablaCampos(conRev(l.campos, l.rev), !l.retirada));
       var ordenes = [['', '(sin PO)']].concat(estado.ordenes.map(function (o) {
         return [String(o.id), o.numero + ' (' + (o.parte.nombre || o.lado) + ')']; }));
+      var recursos = [['', '(sin persona)']].concat(estado.recursos.map(function (r) {
+        return [String(r.id), r.nombre + (r.activo ? '' : ' (inactivo)')]; }));
+      var activas = l.imputaciones.filter(function (imp) { return !imp.retirada; });
       l.imputaciones.forEach(function (imp) {
         if (imp.retirada) { return; }
         anadir(caja, el('div', {clase: 'caja'}, 'Imputación ' + imp.id + ': ',
-          imp.objeto || '(sin Objeto)', ' · PO ', imp.orden_compra || '(ninguna)',
+          imp.objeto || '(sin Objeto)', ' · ', imp.recurso || '(sin persona)', ' · PO ',
+          imp.orden_compra || '(ninguna)', ' · ', imp.importe || '', imp.horas ?
+            ' · ' + imp.horas + ' h' : '',
           formulario('cambiar_objeto', [{nombre: 'objeto_id', etiqueta: 'Objeto', opciones: objetos},
+            {nombre: 'recurso_id', etiqueta: 'persona', opciones: recursos},
             {nombre: 'motivo', etiqueta: 'motivo'}], {imputacion_id: imp.id, rev: imp.rev},
             'Cambiar imputación'),
           formulario('imputar_po', [{nombre: 'orden_compra_id', etiqueta: 'PO', opciones: ordenes},
@@ -418,10 +456,53 @@ SCRIPT = r"""
       });
       if (!l.retirada) {
         anadir(caja, formulario('excluir_linea', [{nombre: 'motivo', etiqueta: 'motivo'}],
-          {linea_id: l.id, rev: l.rev}, 'Excluir la línea'));
+          {linea_id: l.id, rev: l.rev}, 'Excluir la línea'),
+          formularioReparto(l, objetos, activas));
       }
     });
+    anadir(caja, el('h3', {}, 'Añadir una línea que está en el papel'),
+      formulario('anadir_linea', [{nombre: 'descripcion_doc', etiqueta: 'descripción'},
+        {nombre: 'cantidad_mil', etiqueta: 'cantidad'}, {nombre: 'tarifa_e4', etiqueta: 'tarifa'},
+        {nombre: 'importe_cent', etiqueta: 'importe'}, {nombre: 'motivo', etiqueta: 'motivo'}],
+        {factura_id: f.id, rev: f.rev}, 'Añadir la línea', {construir: function (d) {
+          var valores = {};
+          ['descripcion_doc', 'cantidad_mil', 'tarifa_e4', 'importe_cent'].forEach(function (k) {
+            if (d[k] !== undefined) { valores[k] = d[k]; delete d[k]; }
+          });
+          d.valores = valores;
+          return d;
+        }}));
     return caja;
+  }
+
+  // Repartir una linea entre Objetos: hasta tres partes, que tienen que sumar la linea (I1
+  // lo vigila despues, si la linea se corrige).
+  function formularioReparto(l, objetos, activas) {
+    var campos = [];
+    [1, 2, 3].forEach(function (n) {
+      campos.push({nombre: 'objeto_' + n, etiqueta: 'Objeto ' + n, opciones: objetos});
+      campos.push({nombre: 'importe_' + n, etiqueta: 'importe ' + n});
+      campos.push({nombre: 'horas_' + n, etiqueta: 'horas ' + n});
+    });
+    campos.push({nombre: 'motivo', etiqueta: 'motivo'});
+    return formulario('dividir_linea', campos, {linea_id: l.id, rev: l.rev},
+      activas.length > 1 ? 'Volver a repartir' : 'Repartir entre Objetos', {
+        titulo: 'Repartir la línea ' + l.orden + ' (las partes suman la línea)',
+        construir: function (d) {
+          var partes = [];
+          [1, 2, 3].forEach(function (n) {
+            var importe = d['importe_' + n];
+            if (importe !== undefined) {
+              var parte = {objeto_id: d['objeto_' + n] ? parseInt(d['objeto_' + n], 10) : null,
+                           importe: importe};
+              if (d['horas_' + n] !== undefined) { parte.horas = d['horas_' + n]; }
+              partes.push(parte);
+            }
+            delete d['objeto_' + n]; delete d['importe_' + n]; delete d['horas_' + n];
+          });
+          d.partes = partes;
+          return d;
+        }});
   }
 
   // Paso 8: con que otras facturas esta relacionada. Lo propuesto (por el
@@ -477,6 +558,8 @@ SCRIPT = r"""
       el('ul', {}, (e.motivos || []).map(function (m) { return el('li', {}, m); })),
       f.pide_revision.length ? el('div', {clase: 'caja'}, 'Antes de revisarla: ',
         el('ul', {}, f.pide_revision.map(function (m) { return el('li', {}, m); }))) : null,
+      textoVencimiento(f.vencimiento),
+      pintarOriginal(f),
       el('h3', {}, 'Revisión'),
       formulario('marcar_revisada', [{nombre: 'motivo', etiqueta: 'nota'}],
         {factura_id: f.id, huella: f.huella_contenido}, 'Marcar revisada'),
@@ -490,6 +573,9 @@ SCRIPT = r"""
       el('h3', {}, 'Excepción'), pintarExcepcion(f),
       el('h3', {}, 'Hallazgos'), pintarHallazgos(f),
       el('h3', {}, 'Relaciones'), pintarRelaciones(f),
+      el('h3', {}, 'Pagos'), pintarPagos(f),
+      el('h3', {}, 'Anular o fusionar'), pintarAnular(f),
+      el('h3', {}, 'Referencias (PO, orden, proyecto)'), pintarReferencias(f),
       el('h3', {}, 'Prioridad'),
       formulario('subir_prioridad', [{nombre: 'nivel', etiqueta: 'subir a', opciones: [
         ['atencion', 'Atención'], ['urgente', 'Urgente']]},
@@ -511,6 +597,94 @@ SCRIPT = r"""
           return el('li', {}, h.en + ' ' + h.tipo + (h.usuario ? ' (' + h.usuario + ')' : '') +
             (h.motivo ? ': ' + h.motivo : ''));
         }))));
+  }
+
+  // De donde sale el vencimiento (§13): el impreso, o la fecha mas el plazo; del maestro si
+  // el plazo es el acordado con la parte.
+  function textoVencimiento(v) {
+    if (!v || !v.fecha) { return el('p', {clase: 'suave'}, 'Sin vencimiento: ni impreso ni ' +
+      'plazo con que calcularlo.'); }
+    return el('p', {}, 'Vence el ' + v.fecha + (v.fuente_texto ? ' · ' + v.fuente_texto : '') +
+      (v.plazo_dias !== null && v.plazo_dias !== undefined ? ' (plazo de ' + v.plazo_dias +
+        ' días' + (v.fuente_ref ? ', ' + v.fuente_ref : '') + ')' : ''));
+  }
+
+  function pintarOriginal(f) {
+    var o = f.original;
+    if (!o) { return el('p', {clase: 'suave'}, 'Sin documento: llegó de otro sistema.'); }
+    if (!o.guardado) { return el('p', {clase: 'aviso'}, 'El original de ' + (o.nombre || '') +
+      ' no está en el almacén (Q4).'); }
+    return el('p', {}, 'Original: ' + (o.nombre || o.sha256.slice(0, 12)) + ' ',
+      el('button', {type: 'button', al_pulsar: function () {
+        descargar('/api/v2/facturas/' + encodeURIComponent(String(f.id)) + '/original',
+                  o.nombre || ('factura-' + f.id + '.pdf'));
+      }}, 'Descargar el original'),
+      el('span', {clase: 'suave'}, ' (queda apuntado quién lo abre)'));
+  }
+
+  function pintarPagos(f) {
+    var caja = el('div');
+    (f.pagos || []).forEach(function (a) {
+      var acciones = [];
+      if (a.estado === 'propuesta') {
+        acciones.push(formulario('confirmar_pago', [{nombre: 'motivo', etiqueta: 'nota'}],
+          {aplicacion_id: a.id, rev: a.rev}, 'Confirmar el pago'));
+      }
+      if (a.estado !== 'retirada' && a.fuente !== 'exact') {
+        acciones.push(formulario('retirar_pago', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {aplicacion_id: a.id, rev: a.rev}, 'Retirar'));
+      }
+      anadir(caja, el('div', {clase: 'caja'}, el('strong', {}, a.importe + ' el ' + a.fecha_pago),
+        ' · ' + a.fuente + ' · ' + a.estado + (a.movimiento_id ? ' · movimiento ' +
+          a.movimiento_id : '') + (a.contraparte ? ' · ' + a.contraparte : ''),
+        a.concepto ? el('div', {clase: 'suave'}, a.concepto) : null, acciones));
+    });
+    if (!(f.pagos || []).length) { anadir(caja, el('p', {clase: 'suave'}, 'Ningún pago apuntado.')); }
+    if (!f.anulada && f.fusionada_en_id === null) {
+      anadir(caja, formulario('marcar_pagada', [
+        {nombre: 'importe', etiqueta: 'importe', titulo: 'por defecto, lo que queda'},
+        {nombre: 'fecha_pago', etiqueta: 'pagada el', tipo: 'date'},
+        {nombre: 'movimiento_id', etiqueta: 'movimiento del banco (id)'},
+        {nombre: 'evidencia_documento_id', etiqueta: 'documento que lo prueba (id)'},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {factura_id: f.id, rev: f.rev},
+        'Apuntar un pago ya hecho', {titulo: 'No paga nada: apunta lo que ya se pagó.'}));
+    }
+    return caja;
+  }
+
+  function pintarAnular(f) {
+    if (f.fusionada_en_id !== null) {
+      return el('div', {}, el('p', {}, 'Fusionada en la factura ', enlaceFactura(f.fusionada_en_id)),
+        formulario('deshacer_fusion', [{nombre: 'motivo', etiqueta: 'motivo'}],
+          {factura_id: f.id, rev: f.rev}, 'Deshacer la fusión'));
+    }
+    if (f.anulada) { return el('p', {clase: 'suave'}, 'Anulada: no se paga ni se cuenta.'); }
+    return el('div', {},
+      formulario('anular_factura', [{nombre: 'motivo', etiqueta: 'motivo'}],
+        {factura_id: f.id, rev: f.rev}, 'Anular la factura',
+        {titulo: 'Con un pago apuntado no se anula: se retira el pago o se apunta un abono.'}),
+      formulario('fusionar_factura', [{nombre: 'destino_id', etiqueta: 'es un reenvío de (id)'},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {factura_id: f.id, rev: f.rev},
+        'Fusionar en esa factura'));
+  }
+
+  var CLASES_REFERENCIA = [['po', 'PO'], ['orden', 'orden'], ['proyecto', 'proyecto'],
+    ['ref_cliente', 'referencia del cliente'], ['otra', 'otra']];
+
+  function pintarReferencias(f) {
+    return el('div', {},
+      el('ul', {}, (f.referencias || []).filter(function (r) { return !r.retirada; }).map(
+        function (r) {
+          return el('li', {}, (r.etiqueta ? r.etiqueta + ': ' : '') + r.valor + ' (' + r.clase +
+            ')', formulario('cambiar_po', [{nombre: 'clase', etiqueta: 'es', opciones:
+              CLASES_REFERENCIA}, {nombre: 'motivo', etiqueta: 'motivo'}],
+              {referencia_id: r.id, rev: r.rev}, 'Cambiar'));
+        })),
+      formulario('anadir_referencia', [{nombre: 'valor', etiqueta: 'referencia'},
+        {nombre: 'etiqueta', etiqueta: 'como la llama el papel'},
+        {nombre: 'clase', etiqueta: 'es', opciones: CLASES_REFERENCIA},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {factura_id: f.id, rev: f.rev},
+        'Añadir una referencia'));
   }
 
   // ---------------------------------------------------------------- proveedores y clientes
@@ -561,11 +735,8 @@ SCRIPT = r"""
       el('h3', {}, 'Por Objeto'),
       filas(['Objeto', 'Facturas', 'Importe', 'Horas'], v.por_objeto.map(function (o) {
         return [o.objeto, o.facturas, o.importe, o.horas]; })),
-      v.ibanes ? el('div', {}, el('h3', {}, 'Cuentas'),
-        filas(['IBAN', 'Estado', 'Pagable'], v.ibanes.registro.map(function (c) {
-          return [c.iban, c.estado, c.pagable ? 'sí' : 'no']; })),
-        filas(['IBAN impreso', 'Primera', 'Última', 'Facturas'], v.ibanes.impresos.map(
-          function (i) { return [i.iban, i.primera, i.ultima, i.facturas]; }))) : null,
+      v.ibanes ? pintarCuentas(v) : null,
+      el('h3', {}, 'Corregir los datos'), pintarCorregirMaestro(tabla, v),
       v.trabajo_sin_facturar ? el('div', {}, el('h3', {}, 'Trabajo sin facturar'),
         v.trabajo_sin_facturar.estado !== 'ok' ?
           el('p', {clase: 'suave'}, v.trabajo_sin_facturar.detalle) :
@@ -589,6 +760,60 @@ SCRIPT = r"""
       plazo.retrasos.length ? el('div', {}, el('h3', {}, 'Pagos tarde'),
         filas(['Factura', 'Vencía', 'Pagada', 'Días'], plazo.retrasos.map(function (t) {
           return [t.numero, t.vencimiento, t.pagada_el, t.dias]; }))) : null);
+  }
+
+  // Paso 5 y revision final: el registro de cuentas de un proveedor y lo que se hace con el
+  // desde aqui. Una cuenta se teclea (se lee al telefono), nunca se copia de la factura, y se
+  // llama al telefono del maestro, no al de ningun documento.
+  function pintarCuentas(v) {
+    var registro = v.ibanes.registro;
+    var fijos = {proveedor_id: v.id};
+    return el('div', {}, el('h3', {}, 'Cuentas'),
+      el('p', {}, 'Teléfono de verificación (el del maestro, al que se llama): ' +
+        (v.telefono_verificacion || 'ninguno: sin él no se puede verificar una cuenta')),
+      filas(['IBAN', 'Estado', 'Pagable', 'En Exact'], registro.map(function (c) {
+        return [c.iban, c.estado, c.pagable ? 'sí' : 'no', c.en_exact ? 'sí' : 'no']; })),
+      filas(['IBAN impreso', 'En el registro', 'Primera', 'Última', 'Facturas'],
+        v.ibanes.impresos.map(function (i) {
+          return [i.iban, i.en_el_registro ? 'sí' : 'no (F3: por verificar)', i.primera,
+            i.ultima, i.facturas]; })),
+      el('p', {clase: 'suave'}, 'Verificar no basta para pagar: la cuenta tiene que estar ' +
+        'también en el último maestro de Exact (F2). Cámbiala en Exact, exporta los ' +
+        'acreedores e impórtalos.'),
+      formulario('verificar_iban', [
+        {nombre: 'iban', etiqueta: 'IBAN (tecleado)'},
+        {nombre: 'telefono', etiqueta: 'teléfono llamado'},
+        {nombre: 'persona_contactada', etiqueta: 'quién lo confirmó'},
+        {nombre: 'factura_id', etiqueta: 'factura que la trajo (id)'},
+        {nombre: 'nota', etiqueta: 'nota'}, {nombre: 'motivo', etiqueta: 'motivo'}], fijos,
+        'Verificar por teléfono'),
+      formulario('rechazar_iban', [
+        {nombre: 'iban', etiqueta: 'IBAN (tecleado)'},
+        {nombre: 'factura_id', etiqueta: 'factura que la trajo (id)'},
+        {nombre: 'decision_facturas', etiqueta: 'esa factura', opciones: [['', '(nada)'],
+          ['pagar_a_verificada', 'se paga a la verificada'], ['anular', 'se anula']]},
+        {nombre: 'telefono', etiqueta: 'teléfono llamado'},
+        {nombre: 'motivo', etiqueta: 'motivo'}], fijos, 'Rechazar la cuenta'),
+      formulario('atestar_iban', [
+        {nombre: 'iban', etiqueta: 'IBAN (vacío: todas las heredadas)'},
+        {nombre: 'nota', etiqueta: 'nota'}, {nombre: 'motivo', etiqueta: 'motivo'}], fijos,
+        'Atestar lo heredado (F0)'),
+      formulario('fijar_telefono_verificacion', [
+        {nombre: 'telefono', etiqueta: 'teléfono nuevo', valor: v.telefono_verificacion},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {proveedor_id: v.id, rev: v.rev},
+        'Cambiar el teléfono', {titulo: 'Cambiarlo abre el enfriamiento (F9).'}));
+  }
+
+  function pintarCorregirMaestro(tabla, v) {
+    var corregibles = v.corregibles || [];
+    if (!corregibles.length) { return el('p', {clase: 'suave'}, 'Lo de esta ficha viene de ' +
+      'Exact o de TRNSPRNT: se corrige allí y lo trae la siguiente importación.'); }
+    return formulario('corregir_maestro', [
+      {nombre: 'campo', etiqueta: 'campo', opciones: corregibles.map(function (c) {
+        return [c.campo, c.etiqueta + (c.texto ? ' (' + c.texto + ')' : '')]; })},
+      {nombre: 'valor', etiqueta: 'valor'}, {nombre: 'motivo', etiqueta: 'motivo'}],
+      {tabla: tabla === 'proveedores' ? 'proveedor' : 'cliente', fila_id: v.id, rev: v.rev},
+      'Corregir');
   }
 
   function abrirParte(tabla, id) {
@@ -616,7 +841,31 @@ SCRIPT = r"""
     var cabecera = el('tr', {}, ['Prioridad', 'PO', 'Parte', 'Valor', 'Consumido', 'Queda',
       'Fin', 'Por qué'].map(function (t) { return el('th', {}, t); }));
     anadir(contenedor, el('h2', {}, 'Órdenes de compra'),
-      el('table', {}, el('thead', {}, cabecera), cuerpo));
+      el('table', {}, el('thead', {}, cabecera), cuerpo), formularioPo());
+  }
+
+  // Registrar una PO: de un cliente (lo que BMS puede facturar) o a un proveedor.
+  function formularioPo() {
+    var partes = [['', '(elige)']].concat(estado.clientes.map(function (c) {
+      return ['cliente:' + c.id, 'de ' + c.nombre + ' (cliente)']; })).concat(
+      estado.proveedores.map(function (p) {
+        return ['proveedor:' + p.id, 'a ' + p.nombre + ' (proveedor)']; }));
+    var objetos = [['', '(cualquiera de la parte)']].concat(estado.objetos.map(function (o) {
+      return [String(o.id), o.codigo]; }));
+    return el('div', {}, el('h3', {}, 'Registrar una orden de compra'),
+      formulario('registrar_po', [{nombre: 'numero', etiqueta: 'número'},
+        {nombre: 'parte', etiqueta: 'parte', opciones: partes},
+        {nombre: 'valor', etiqueta: 'valor sin IVA'},
+        {nombre: 'fecha_inicio', etiqueta: 'desde', tipo: 'date'},
+        {nombre: 'fecha_fin', etiqueta: 'hasta', tipo: 'date'},
+        {nombre: 'objetos', etiqueta: 'Objeto', opciones: objetos, lista: true},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {}, 'Registrar', {construir: function (d) {
+          var parte = (d.parte || ':').split(':');
+          delete d.parte;
+          d.lado = parte[0];
+          d.parte_id = parte[1] ? parseInt(parte[1], 10) : null;
+          return d;
+        }}));
   }
 
   function pintarOrden(contenedor, o) {
@@ -663,6 +912,11 @@ SCRIPT = r"""
       formulario('objetos_po', [{nombre: 'anadir', etiqueta: 'Objeto', opciones: objetos,
         lista: true},
         {nombre: 'motivo', etiqueta: 'motivo'}], {orden_compra_id: o.id}, 'Añadir Objeto'),
+      formulario('corregir_po', [{nombre: 'campo', etiqueta: 'corregir', opciones: [
+        ['fecha_emision', 'fecha de emisión'], ['fecha_inicio', 'fecha de inicio'],
+        ['documento_id', 'documento (id)']]}, {nombre: 'valor', etiqueta: 'valor'},
+        {nombre: 'motivo', etiqueta: 'motivo'}], {orden_compra_id: o.id, rev: o.rev},
+        'Corregir la PO'),
       el('h3', {}, 'Avisos'),
       el('ul', {}, o.avisos.hallazgos.map(function (h) {
         return el('li', {}, h.regla + ' (' + h.severidad + ', ' + h.estado + '): ' + h.detalle);
@@ -708,7 +962,10 @@ SCRIPT = r"""
       v.economia ? pintarEconomia(v.economia) : null,
       v.facturas ? el('div', {}, el('h3', {}, 'Facturas de venta'),
         tablaDeObjeto(v.facturas.salientes),
-        el('h3', {}, 'Facturas de compra'), tablaDeObjeto(v.facturas.entrantes)) : null);
+        el('h3', {}, 'Facturas de compra'), tablaDeObjeto(v.facturas.entrantes)) : null,
+      el('h3', {}, 'Otro nombre con que lo imprimen las facturas'),
+      formulario('anadir_alias', [{nombre: 'alias', etiqueta: 'alias'}],
+        {tabla: 'objeto', fila_id: v.id}, 'Añadir el alias'));
   }
 
   // Paso 12: ingresos, costes y margen del Objeto (§5), sin IVA.
@@ -757,7 +1014,8 @@ SCRIPT = r"""
   // ---------------------------------------------------------------- paso 12: panel (§17)
 
   var NOMBRE_VENTANA = {vencido: 'Vencido', semana: 'Esta semana', mes: 'Este mes',
-                        proximos_30: 'Próximos 30 días', total: 'Total'};
+                        proximos_30: 'Próximos 30 días', periodo: 'El periodo pedido',
+                        sin_fecha: 'Sin fecha', total: 'Total'};
 
   function enlaceFactura(id, texto) {
     return el('span', {clase: 'enlace', al_pulsar: function () { abrirFicha(id); }},
@@ -1063,8 +1321,56 @@ SCRIPT = r"""
         {nombre: 'motivo', etiqueta: 'motivo'}],
         {trimestre: t.etiqueta, rev: t.rev, hoja_sha256: t.hoja_marcada_sha256},
         'Anotar la presentación hecha a mano') : null,
-      el('p', {clase: 'suave'}, 'Hoja de trabajo: sha256 ' + t.hoja_sha256 +
-        ' (bms-agent btw hoja ' + t.etiqueta + ').'));
+      el('p', {clase: 'suave'}, 'Hoja de trabajo: sha256 ' + t.hoja_sha256 + ' ',
+        el('button', {type: 'button', al_pulsar: function () {
+          descargar('/api/v2/btw/' + encodeURIComponent(t.etiqueta) + '/hoja.csv',
+                    'btw-' + t.etiqueta + '.csv');
+        }}, 'Descargar la hoja')));
+  }
+
+  // ---------------------------------------------------------------- caja (§7)
+
+  // El flujo de caja con un periodo pedido (§7 "custom period"): lo esperado que vence en el y
+  // lo movido por el banco entre las dos fechas.
+  function pintarCaja(contenedor, c) {
+    vaciar(contenedor);
+    var resultado = el('div');
+    var form = el('form', {clase: 'linea', al_enviar: function (ev) {
+      ev.preventDefault();
+      abrirCaja(entradas.desde.value, entradas.hasta.value);
+    }});
+    var entradas = {desde: el('input', {type: 'date', name: 'desde'}),
+                    hasta: el('input', {type: 'date', name: 'hasta'})};
+    anadir(form, el('label', {}, 'desde ', entradas.desde), el('label', {}, 'hasta ',
+      entradas.hasta), el('button', {type: 'submit'}, 'Ver el periodo'));
+    anadir(contenedor, el('h2', {}, 'Caja'), form, resultado);
+    if (c) { pintarFlujo(resultado, c); }
+  }
+
+  function pintarFlujo(contenedor, c) {
+    vaciar(contenedor);
+    var e = c.esperado;
+    var ventanas = ['vencido', 'semana', 'mes', 'proximos_30', 'periodo', 'sin_fecha', 'total'];
+    anadir(contenedor, el('p', {}, 'A ' + c.hoy + (c.ventanas.periodo ? ' · periodo del ' +
+      c.ventanas.periodo[0] + ' al ' + c.ventanas.periodo[1] : '')),
+      filas(['', 'Entra', 'Sale', 'Neto'], ventanas.filter(function (v) {
+        return e.entrada[v] !== null && e.entrada[v] !== undefined; }).map(function (v) {
+          return [NOMBRE_VENTANA[v] || v, importe(e.entrada[v]), importe(e.salida[v]),
+            importe(e.neto[v])]; })),
+      c.real ? el('p', {clase: 'suave'}, 'Movido por el banco en el periodo: cobrado ' +
+        importe(c.real.cobrado.periodo) + ', pagado ' + importe(c.real.pagado.periodo)) : null,
+      el('p', {clase: 'suave'}, c.estimado.importe_cent === null ? c.estimado.nota :
+        'Estimado del planning (aparte): neto ' + importe(c.estimado.importe_cent) + '. ' +
+        c.estimado.nota));
+  }
+
+  function abrirCaja(desde, hasta) {
+    var partes = [];
+    if (desde) { partes.push('desde=' + encodeURIComponent(desde)); }
+    if (hasta) { partes.push('hasta=' + encodeURIComponent(hasta)); }
+    return api('GET', '/api/v2/flujo' + (partes.length ? '?' + partes.join('&') : '')).then(
+      function (r) { pintarCaja(document.getElementById('caja'), r.flujo_caja); }
+    ).catch(function (error) { decir('No se puede ver la caja: ' + error.message, true); });
   }
 
   // Los importes de las cifras del BTW llegan en centimos: se escriben con coma decimal.
@@ -1145,7 +1451,7 @@ SCRIPT = r"""
 
   var SECCIONES = [['panel', 'Panel'], ['buscar', 'Buscar'], ['lista', 'Facturas'],
     ['partes', 'Proveedores y clientes'], ['objetos', 'Objetos'],
-    ['ordenes', 'Órdenes de compra'], ['btw', 'BTW'], ['ficha', 'Ficha']];
+    ['ordenes', 'Órdenes de compra'], ['btw', 'BTW'], ['caja', 'Caja'], ['ficha', 'Ficha']];
 
   function pintarNavegacion(contenedor) {
     vaciar(contenedor);
@@ -1196,6 +1502,7 @@ SCRIPT = r"""
     api('GET', '/api/v2/btw').then(function (r) {
       pintarBtw(document.getElementById('btw'), r.btw);
     });
+    abrirCaja('', '');
     if (estado.ficha !== null) { return lista.then(function () { return abrirFicha(estado.ficha); }); }
     return lista;
   }
@@ -1221,10 +1528,11 @@ SCRIPT = r"""
       vaciar(quien);
       anadir(quien, yo.nombre + ' (' + yo.permisos.join(', ') + ')');
       return Promise.all([api('GET', '/api/v2/personas'), api('GET', '/api/v2/objetos'),
-                          api('GET', '/api/v2/contrato')]);
+                          api('GET', '/api/v2/contrato'), api('GET', '/api/v2/recursos')]);
     }).then(function (r) {
       estado.personas = r[0].personas;
       estado.objetos = r[1].objetos;
+      estado.recursos = r[3].recursos;
       pintarNavegacion(document.getElementById('navegacion'));
       return recargar().then(function () {
         pintarBuscador(document.getElementById('buscar'), r[2].filtros);
@@ -1244,6 +1552,7 @@ SCRIPT = r"""
                        pintarObjetos: pintarObjetos, pintarBtw: pintarBtw,
                        pintarTrimestre: pintarTrimestre, pintarHistorial: pintarHistorial,
                        pintarNavegacion: pintarNavegacion, importe: importe,
+                       pintarCaja: pintarCaja, pintarFlujo: pintarFlujo,
                        resumen: resumen, estado: estado};
   document.addEventListener('DOMContentLoaded', iniciar);
 })();

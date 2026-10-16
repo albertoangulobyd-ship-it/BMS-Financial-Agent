@@ -1,4 +1,5 @@
-"""Reglas de aritmetica: D1 (desglose presente), D2, D2b y D4.
+"""Reglas de aritmetica: D1 (desglose presente), D2, D2b, D4 e I1 (las imputaciones de
+cada linea suman la linea; revision final).
 
 Son baratas y atrapan mas errores de los que parece, sobre todo en
 facturas hechas a mano. Las tolerancias son las de la politica (un centimo
@@ -15,6 +16,7 @@ from typing import Any
 
 from .base import (
     FALLO,
+    NO_APLICA,
     OK,
     RELACIONADO,
     SIN_DATOS,
@@ -156,6 +158,61 @@ def d4(factura: Factura, politica: Politica) -> list[Resultado]:
 LEE_D4 = frozenset({
     "factura.base_cent", "factura.iva_cent", "factura.total_cent",
     "politica.tolerancia_factura",
+})
+
+# --------------------------------------------------------------- I1
+
+
+def i1(factura: Factura, politica: Politica) -> list[Resultado]:
+    """I1: las imputaciones activas de cada linea suman el importe de la linea.
+
+    Dividir una linea entre Objetos ya lo exige (servicios._dividir_linea),
+    pero una correccion posterior del importe de la linea deja las partes como
+    estaban: los costes del Objeto quedarian contando la linea de antes, y lo
+    que falta caeria sin aviso en "sin imputar". Una imputacion sin dividir
+    sigue a su linea (campos, calculo de copia) y no da nada aqui. Un centimo
+    de tolerancia por linea, como D2b.
+    """
+    de_linea: dict[int, list[Any]] = {}
+    for imputacion in factura.imputaciones:
+        if imputacion.linea_id is not None:
+            de_linea.setdefault(imputacion.linea_id, []).append(imputacion)
+    lineas = [l for l in lineas_en_orden(factura) if l.id in de_linea]
+    if not lineas:
+        return [resultado_de("I1", factura, Comprobacion(
+            NO_APLICA, "Ninguna línea tiene imputaciones."))]
+    fallos, objetivos, evaluadas = [], [], 0
+    valores: dict[str, Any] = {}
+    for l in lineas:
+        partes = [i.importe_cent for i in sorted(de_linea[l.id], key=lambda i: i.id)]
+        valores[str(l.id)] = [l.importe_cent, partes]
+        if l.importe_cent is None or any(p is None for p in partes):
+            continue
+        evaluadas += 1
+        suma = sum(partes)
+        if abs(euros(suma) - euros(l.importe_cent)) > politica.tolerancia_linea:
+            fallos.append(f"la línea {l.orden} es de {euros_texto(euros(l.importe_cent))} y sus "
+                          f"{len(partes)} imputaciones suman {euros_texto(euros(suma))}")
+            objetivos.append(Objetivo("factura_linea", l.id, "importe_cent"))
+            objetivos.extend(Objetivo("factura_imputacion", i.id, "importe_cent", RELACIONADO)
+                             for i in sorted(de_linea[l.id], key=lambda i: i.id))
+    if fallos:
+        return [resultado_de("I1", factura, Comprobacion(
+            FALLO, "Las imputaciones no cubren la línea: " + "; ".join(fallos)
+                   + ". Vuelve a dividirla."), valores={"lineas": valores},
+                             objetivos=tuple(objetivos))]
+    if not evaluadas:
+        return [resultado_de("I1", factura, Comprobacion(
+            SIN_DATOS, "Las líneas imputadas no tienen importe."), valores={"lineas": valores})]
+    return [resultado_de("I1", factura, Comprobacion(
+        OK, f"Las imputaciones de las {evaluadas} líneas suman su importe."),
+                         valores={"lineas": valores})]
+
+
+LEE_I1 = frozenset({
+    "factura.imputaciones", "factura.lineas", "imputacion.linea_id", "imputacion.id",
+    "imputacion.importe_cent", "linea.id", "linea.orden", "linea.importe_cent",
+    "politica.tolerancia_linea",
 })
 
 # --------------------------------------------------------------- D1

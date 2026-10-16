@@ -13,6 +13,16 @@ conecta una web) está en [instalacion-windows.md](instalacion-windows.md) y en
 > IBAN de una factura para pagar. Lee, compara y avisa; las decisiones las
 > firma una persona.
 
+> **Con Docker (el ordenador de la oficina).** Los comandos `bms-agent ...` de
+> esta guía son los de la instalación de quien mantiene el programa. En Docker
+> no hay `bms-agent`: casi todo se hace en la consola, y lo que aquí pone
+> `bms-agent iban listar` se escribe `.\orden.bat iban listar` en la carpeta
+> `docker` (te pide tu token). Lo que tiene su propio script se hace con él:
+> `iniciar.bat` en vez de `bms-agent serve`, `importar.bat` y
+> `leer-facturas.bat` en vez de `importar` y `extract`, `persona.bat` en vez de
+> `usuario`, `empresa.bat` en vez de `empresa`. Lo explica
+> [entorno-local.md](entorno-local.md), «Las órdenes sueltas».
+
 ---
 
 ## Antes de empezar: entrar
@@ -25,15 +35,28 @@ bms-agent usuario crear Ana --rol administracion
 bms-agent usuario token Ana
 ```
 
-Guarda el token en un gestor de contraseñas. Si se pierde, se pide otro: el
-anterior deja de valer.
+(En Docker: `.\persona.bat -Nombre "Ana" -Rol administracion`.) Guarda el
+token en un gestor de contraseñas. Si se pierde, se pide otro: el anterior deja
+de valer.
+
+Los tres roles de partida son `administrador` (todo), `administracion` (el
+trabajo de cada día) y `consulta` (solo mirar). Si alguien necesita otra cosa
+(por ejemplo, quien solo pasa facturas y corrige lo leído, sin tocar pagos ni
+cuentas), se hace un rol a medida con los permisos justos:
+
+```bash
+bms-agent rol permisos                                  # los permisos, y qué deja hacer cada uno
+bms-agent rol crear captura                             # uno ya pensado: ver, rellenar, corregir, Objeto y PO
+bms-agent rol crear revision --permiso ver_facturas --permiso revisar_factura
+bms-agent usuario asignar Eva captura
+```
 
 Un sitio web propio (el panel del dueño, por ejemplo) **no** usa el token de
 nadie de administración: lleva su propia persona con el rol `consulta`, que
 solo puede ver (`bms-agent usuario crear Web --rol consulta`), y su token no se
 escribe dentro del sitio. Lo explica [integracion-web.md](integracion-web.md).
 
-Para trabajar con la consola:
+Para trabajar con la consola: `iniciar.bat` en Docker, o
 
 ```bash
 bms-agent serve
@@ -44,8 +67,77 @@ Escribe tu token en «Token personal». La consola no lo guarda: al cerrar la
 pestaña hay que volver a escribirlo.
 
 Arriba verás la barra con las páginas: **Panel**, **Buscar**, **Facturas**,
-**Proveedores y clientes**, **Objetos**, **Órdenes de compra**, **BTW** y
-**Ficha** (la factura abierta).
+**Proveedores y clientes**, **Objetos**, **Órdenes de compra**, **BTW**,
+**Caja** (el flujo de caja por ventanas) y **Ficha** (la factura abierta).
+
+---
+
+## El primer día
+
+Tres cosas, una sola vez, antes de trabajar con datos de verdad. Las hace quien
+tiene el rol `administrador`.
+
+### La empresa: sus cuentas, su btw-id y su KvK
+
+Sin las cuentas propias de BM Support BV **no entra ningún extracto del banco**:
+el agente no puede saber si el extracto es de la empresa. Se ponen una vez (las
+cuentas se escriben todas, separadas por comas; las que se den sustituyen a las
+de antes):
+
+```powershell
+.\empresa.bat -Cuentas "NL02ABNA0123456789,NL44RABO0123456789" -BtwId "NL001122334B01" -Kvk "12345678"
+.\empresa.bat -Ver
+```
+
+Fuera de Docker es `bms-agent empresa fijar --cuenta NL02ABNA0123456789 --cuenta
+NL44RABO0123456789 --btw-id NL001122334B01 --kvk 12345678` y `bms-agent empresa
+ver`. Queda en la base, firmado por quien lo puso; no hace falta tocar ningún
+fichero de `config`.
+
+### Las cuentas heredadas del primer maestro (F0)
+
+La primera vez que importas los acreedores de Exact, sus cuentas se aceptan
+como referencia para no bloquear nada el primer día, pero salen como
+**heredadas**: nadie ha comprobado que sean de quien dice el maestro. Queda una
+sola tarea abierta, de nivel Atención: «F0 Cuentas heredadas sin atestar».
+
+**Atestar** quiere decir: «he comprobado estas cuentas con lo que ya sabíamos
+(los pagos que se les han hecho estos años, un contrato, una llamada) y son las
+buenas». No es una verificación por teléfono de cada una; es una firma de quien
+conoce a los proveedores. Lo hace quien tenga el permiso `confirmar_iban`,
+mejor alguien que no haya preparado el maestro.
+
+- En la consola: en la página del proveedor, bloque **Cuentas**, botón
+  **Atestar lo heredado (F0)** (con el IBAN vacío, todas las heredadas de ese
+  proveedor).
+- Todas de una vez: `.\orden.bat iban atestar --motivo "Comprobadas con los
+  pagos de 2025"` (fuera de Docker, `bms-agent iban atestar ...`).
+
+Atestar no tapa nada: una cuenta que alguien ya ha tocado, que ha cambiado en
+Exact o con una verificación que no valió no se atesta; se verifica por
+teléfono (más abajo).
+
+### Los trimestres del BTW de antes de empezar
+
+En una base nueva, los trimestres terminados antes de usar el agente salen como
+**por presentar** y con el plazo pasado: el agente no sabe que ya se
+presentaron. Si vas a cargar facturas de esos trimestres, cárgalas antes. Después,
+para cada uno (en la consola, página **BTW**, con los mismos botones del cierre
+de un trimestre; o por comandos):
+
+```bash
+bms-agent btw hoja 2026-T2 --salida hoja-2026-T2.csv     # da su sha256
+bms-agent btw listo --trimestre 2026-T2 --hoja-sha256 ... --motivo "Presentado antes de usar el agente"
+bms-agent btw ver 2026-T2                                 # da su rev
+bms-agent btw anotar --trimestre 2026-T2 --rev 1 --hoja-sha256 ... \
+  --referencia "la del acuse" --importe-declarado 1234,56 \
+  --motivo "Presentado antes de usar el agente; lo declarado sale del acuse"
+```
+
+El importe declarado es el que dice el acuse de la Belastingdienst, no el de la
+hoja: la hoja de un trimestre sin facturas cargadas está casi vacía. Una
+factura con fecha de ese trimestre que llegue después sale con el aviso **C4**,
+igual que en cualquier trimestre presentado.
 
 ---
 
@@ -56,7 +148,9 @@ Unos veinte minutos por la mañana, en este orden.
 ### 1. Traer lo nuevo
 
 Lo que haya llegado desde ayer: las facturas en PDF, el extracto del banco y,
-cuando toque, las exportaciones de Exact y del planning.
+cuando toque, las exportaciones de Exact y del planning. En Docker es dejar
+los ficheros en el buzón y `importar.bat` y `leer-facturas.bat`
+([entorno-local.md](entorno-local.md), apartado 7); fuera de Docker:
 
 ```bash
 bms-agent extract facturas/                      # los PDF nuevos (lo ya leído no se paga dos veces)
@@ -104,6 +198,19 @@ Al abrir una factura ves su ficha:
   por qué.
 - Los botones **Marcar revisada** (pide una nota) y **Devolver** (pide el
   porqué).
+- **Original**: el PDF tal como llegó, con **Descargar el original** (queda
+  apuntado quién lo abre).
+- **Vencimiento**: la fecha y de dónde sale (la impresa, o la de la factura
+  más el plazo, y si ese plazo es el pactado en el maestro).
+- **Líneas**: cada línea con su Objeto, su persona y sus horas; se cambia el
+  Objeto o la persona de una línea, se reparte una línea entre varios Objetos
+  (**Repartir**) y se añade una línea que faltaba.
+- **Pagos**: los apuntados, con **Confirmar el pago** (el que propone el
+  banco), **Retirar** y **Apuntar un pago ya hecho** (no paga nada: apunta lo
+  que ya se pagó). Una factura con un pago no se anula: se retira antes el
+  pago o se apunta un abono.
+- **Anular**, **Fusionar** con su original (una copia) y las **referencias**
+  (la PO, otra referencia que trae el documento).
 
 **Marcar revisada no aprueba ningún pago.** Quiere decir «lo he mirado y está
 bien»; el pago se hace fuera, en el banco, como siempre. Si después alguien
@@ -227,12 +334,17 @@ hace pasar por el proveedor y pide pagar a otra cuenta. Por eso:
 
 1. **No llames al teléfono que pone la factura ni el correo.** Llama al
    teléfono de verificación que el proveedor ya tenía en vuestro maestro
-   (la ficha del proveedor en Exact) antes de que llegara esa factura.
-   `bms-agent iban listar` te dice qué cuentas están sin verificar.
+   (la ficha del proveedor en Exact) antes de que llegara esa factura. Lo
+   tienes en la página del proveedor, bloque **Cuentas**, y en
+   `bms-agent iban listar` (en Docker, `.\orden.bat iban listar`): por
+   proveedor, el teléfono al que se llama, el estado de cada cuenta y la
+   cuenta que trae una factura y todavía no está en el registro (F3).
 2. Pregunta a la persona que conteste qué cuenta tienen. **Que te la dicte
    ella**; no le leas la de la factura.
 3. Si coincide, apúntalo **tecleando** el IBAN (nunca copiado y pegado de la
-   factura), con el teléfono al que llamaste y con quién hablaste:
+   factura), con el teléfono al que llamaste y con quién hablaste. En la
+   consola, en la página del proveedor, **Verificar por teléfono**; o por
+   comandos:
 
    ```bash
    bms-agent iban verificar --proveedor-id 3 --iban NL91ABNA0417164300 \
@@ -247,14 +359,29 @@ hace pasar por el proveedor y pide pagar a otra cuenta. Por eso:
      --factura-id 12 --motivo "El proveedor no ha cambiado de cuenta"
    ```
 
-   y avisa a quien lleve la empresa: puede ser un intento de fraude.
+   y avisa a quien lleve la empresa: puede ser un intento de fraude. (En la
+   consola, **Rechazar la cuenta**.)
+
+5. **Si la verificaste, ponla también en Exact.** Verificar no basta para
+   pagar: se paga solo a una cuenta que está en el último maestro de Exact, y
+   hasta entonces la factura sigue **Bloqueada** con el aviso F2 («no está en
+   el último maestro de Exact»). Cambia la cuenta en la ficha del acreedor en
+   Exact, exporta los acreedores, déjalos en `buzon\exact\proveedores` e
+   `importar.bat`. Con la cuenta verificada y en Exact, F2 se cierra solo.
 
 La verificación **no vale** (y la factura sigue bloqueada, con el aviso F8) si
 el teléfono al que llamaste no es el que tenía el maestro antes de la factura,
 si ese teléfono se cambió hace menos de 14 días, o si fuiste tú quien cambió
-ese teléfono y hay otra persona que puede verificar. No es desconfianza: es lo
-que impide que una sola persona, o un correo falso, cambie a dónde va el
-dinero.
+ese teléfono y hay otra persona que puede verificar. La orden lo dice en vez de
+«Hecho»: «Apuntada, pero la verificación NO VALE: …» con el porqué (la consola
+lo enseña como un error, y por comandos sale con el código 5). No es
+desconfianza: es lo que impide que una sola persona, o un correo falso, cambie
+a dónde va el dinero.
+
+El teléfono de verificación se cambia en la página del proveedor
+(**Cambiar el teléfono**) o con `bms-agent iban telefono`. Cambiarlo abre un
+enfriamiento de 14 días (aviso F9) en el que ese número no sirve para
+verificar.
 
 ---
 
@@ -269,13 +396,17 @@ enero).
    lo de cada rúbrica (1a, 2a, 4a, 4b, 5a, 5b, 5c...) y la lista de facturas
    que piden revisar el IVA. Resuélvelas primero: un IVA mal leído, un
    duplicado o una factura que no está en euros cambian las cifras.
-2. **Genera la hoja de trabajo** y guárdala:
+2. **Genera la hoja de trabajo** y guárdala: en la consola, página **BTW**,
+   botón **Descargar la hoja** (son los bytes exactos de la hoja; en Docker es
+   la única manera de sacarla), o por comandos:
 
    ```bash
    bms-agent btw hoja 2026-T3 --salida hoja-2026-T3.csv
    ```
 
-   Al final imprime su **sha256**, una huella que identifica esa hoja exacta.
+   La página y la orden dan su **sha256**, una huella que identifica esa hoja
+   exacta. (No la saques con `> hoja.csv` en PowerShell: la escribe en otra
+   codificación y cambia la huella.)
 3. **Márcalo listo para revisar** con esa huella (en la consola, botón
    «Marcar lista para revisar»; o por comandos):
 
@@ -312,5 +443,12 @@ enero).
   los del IBAN no se pueden anular nunca. Si crees que la comprobación está
   mal, apúntalo y díselo a quien mantiene el sistema.
 - **Ver quién hizo qué**: la **Historia** de la factura lo tiene todo, y
-  `bms-agent historial 12` lo saca por pantalla.
-- **Resumen rápido sin abrir el navegador**: `bms-agent resumen`.
+  `bms-agent historial 12` (en Docker, `.\orden.bat historial 12`) lo saca por
+  pantalla.
+- **Resumen rápido sin abrir el navegador**: `bms-agent resumen` (en Docker,
+  `.\orden.bat resumen`).
+- **Guardar el PDF original de una factura** fuera de la consola:
+  `bms-agent original 12 --salida factura-12.pdf` (queda apuntado quién lo
+  abrió; no pisa un fichero que ya exista).
+- **El extracto del banco no entra** y dice que no hay cuentas propias: falta
+  «El primer día», la empresa.

@@ -601,6 +601,55 @@ def empresa(conn: sqlite3.Connection) -> Empresa:
     return empresa_de_yaml(fila["contenido"] if fila else None)
 
 
+def empresa_a_yaml(e: Empresa) -> str:
+    """Un empresa.yaml con la identidad dada (lo que escribe `bms-agent empresa fijar`)."""
+    datos = {"nombre": e.nombre, "otros_nombres": list(e.otros_nombres),
+             "btw_id": e.btw_id, "kvk": e.kvk, "cuentas_propias": list(e.cuentas_propias)}
+    return ("# Identidad legal de BM Support BV, puesta con `bms-agent empresa fijar` (o\n"
+            "# empresa.bat en Docker). La usan A8, F10 y la importacion del banco.\n"
+            + yaml.safe_dump(datos, allow_unicode=True, sort_keys=False))
+
+
+def fijar_empresa(conn: sqlite3.Connection, usuario_id: int | None, *,
+                  btw_id: str | None = None, kvk: str | None = None,
+                  cuentas: list[str] | None = None,
+                  otros_nombres: list[str] | None = None) -> tuple[Empresa, bool]:
+    """Pone la identidad de BM Support BV sin editar ningun fichero (revision final).
+
+    En Docker config/ esta dentro de la imagen, de solo lectura: sin esto el
+    dueno no podia poner las cuentas propias, y cada extracto del banco se
+    rechazaba (no se sabe si es de BM Support BV). Parte de lo que vale hoy y
+    cambia lo que se da; las cuentas que se dan sustituyen a las de antes. Lo
+    pone una persona con admin, como `politica cargar`, y queda en la politica
+    con su hash. Devuelve la identidad y si cambio.
+    """
+    from .permisos import exigir
+
+    exigir(conn, usuario_id, "admin", accion="poner la identidad de la empresa")
+    actual = empresa(conn)
+    nueva = Empresa(
+        nombre=actual.nombre,
+        otros_nombres=tuple(otros_nombres) if otros_nombres is not None else actual.otros_nombres,
+        btw_id=btw_id if btw_id is not None else actual.btw_id,
+        kvk=kvk if kvk is not None else actual.kvk,
+        cuentas_propias=tuple(cuentas) if cuentas is not None else actual.cuentas_propias)
+    texto = empresa_a_yaml(nueva)
+    comprobada = empresa_de_yaml(texto)
+    return comprobada, registrar(conn, FICHERO_EMPRESA, texto, usuario_id)
+
+
+def lo_que_falta_de_la_empresa(e: Empresa) -> list[str]:
+    """Lo que la empresa necesita para trabajar con datos de verdad y todavia no tiene."""
+    falta = []
+    if not e.cuentas_propias:
+        falta.append("las cuentas propias (sin ellas no entra ningun extracto del banco)")
+    if not e.btw_id:
+        falta.append("el btw-id (sin el, A8 no compara a quien va una factura)")
+    if not e.kvk:
+        falta.append("el KvK")
+    return falta
+
+
 def cargar(conn: sqlite3.Connection, ruta: str | Path,
            usuario_id: int | None) -> tuple[str, bool]:
     """Valida y apunta un fichero de config/ por su nombre. Devuelve un resumen y si era nuevo.

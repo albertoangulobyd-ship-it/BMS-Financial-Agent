@@ -136,12 +136,14 @@ def test_el_flujo_del_almacen_con_un_pago_parcial(tipado) -> None:
     ana = persona(conn, "Ana", "administrador")
     cuentas_propias(tipado, ana, CUENTA_PROPIA, OTRA_CUENTA_PROPIA)
     antes = flujo_caja.flujo(conn, date(2026, 10, 14))
-    # La USD (X1) no entra en ninguna suma; el abono de Van Dijk es una entrada.
+    # La USD (X1) no entra en ninguna suma. El abono de Van Dijk sin enlazar tampoco: no es
+    # un cobro con fecha (revision final: solo se espera una deuda; R4 dice que falta la
+    # relacion, y si Van Dijk devuelve el dinero lo trae el banco).
     usd = factura_de(conn, "NW-2026-0042")
     partidas, _ = flujo_caja.datos(conn)
     assert usd not in {p.factura_id for p in partidas}
-    abono = next(p for p in partidas if p.factura_id == factura_de(conn, "CN-2026-031"))
-    assert (abono.direccion, abono.importe_cent) == (ENTRADA, 12251)
+    assert factura_de(conn, "CN-2026-031") not in {p.factura_id for p in partidas}
+    assert all(p.direccion == SALIDA for p in partidas)
     # Ana apunta 1000 de la 2026-4471 (vence el 15): quedan 1902,79 esta semana.
     f = factura_de(conn, "2026-4471")
     servicios.ejecutar(conn, "marcar_pagada", {

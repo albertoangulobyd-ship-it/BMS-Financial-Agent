@@ -22,8 +22,8 @@ $origenCompleto = (Resolve-Path $Origen).Path
 $base = if ($Demo) { "/datos/demo.sqlite3" } else { "/datos/bms.sqlite3" }
 
 $respuesta = Read-Host "Se va a poner la copia $origenCompleto en lugar de los datos de ahora (que se guardan antes). Seguir? (escribe si)"
-if ($respuesta -ne "si") {
-    Escribir "No se ha tocado nada." "Yellow"
+if (-not (Es-Si $respuesta)) {
+    Escribir "No has escrito si: no se ha tocado nada." "Yellow"
     exit 0
 }
 Escribir "Parando la consola..." "Cyan"

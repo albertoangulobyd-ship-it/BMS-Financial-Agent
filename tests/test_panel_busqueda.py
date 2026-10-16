@@ -40,6 +40,7 @@ from test_planning import _cambiado, _planning, maestros  # noqa: F401
 
 from bms_agent import consultas, flujo_caja, hallazgos, relaciones
 from bms_agent.importadores.registrar import importar_fichero
+from bms_agent.reglas.pagos import vence
 
 COMPRAS = ("2026-018", "2026-0912", "B-2026-077", "2026-112", "2026-4471")
 
@@ -506,8 +507,10 @@ def test_lo_pendiente_de_cada_parte_es_lo_que_encuentra_la_busqueda(escenario, s
                 f["id"] for f in filas if f["pendiente_cent"] is not None}
     panel = consultas.panel(conn)
     por_direccion = {flujo_caja.ENTRADA: 0, flujo_caja.SALIDA: 0}
+    # Un abono sin enlazar esta pendiente pero no es un cobro ni un pago esperado (revision
+    # final: la caja solo espera deudas, reglas.pagos.vence).
     for f in consultas.buscar(conn, {"pendiente": "si", "limite": "1000"})["facturas"]:
-        if f["pendiente_cent"]:
+        if f["pendiente_cent"] and vence(f["total_cent"], f["pendiente_cent"]):
             por_direccion[flujo_caja.direccion(f["sentido"], f["pendiente_cent"])] += abs(
                 f["pendiente_cent"])
     assert panel["dinero_entra"]["pendiente_cent"] == por_direccion[flujo_caja.ENTRADA]

@@ -1,6 +1,8 @@
-"""Interfaz de linea de comandos de la fase 0.
+"""Interfaz de linea de comandos de la V1.
 
-Ninguna orden escribe en ningun sistema de la empresa:
+Ninguna orden escribe en ningun sistema de la empresa (Exact, el banco, el
+portal del BTW): lo que cambian lo cambian en el almacen, firmado por una
+persona. Uso, ayuda y errores en castellano (argumentos.Parser).
 
     bms-agent schema              muestra el esquema de extraccion
     bms-agent extract facturas/   extrae los PDF de una carpeta a out/ y al almacen
@@ -172,11 +174,19 @@ def _abrir_almacen(valor: str | None):
 
 
 def _anclar(almacen) -> None:
-    """Apunta la cabeza de la auditoria en el anclas.log de la base (ver auditoria.anclar)."""
-    from .auditoria import anclar
+    """Apunta la cabeza de la auditoria en el anclas.log de la base (ver auditoria.anclar).
+
+    Si el fichero es de otra base (AnclasDeOtraBase), la orden ya esta hecha y
+    no se deshace, pero no se ancla y se dice: es lo que deja quien reescribe
+    la cadena entera, y `db verificar` lo da por problema.
+    """
+    from .auditoria import AnclasDeOtraBase, anclar
 
     if almacen.ruta_anclas is not None:
-        anclar(almacen.conn, almacen.ruta_anclas)
+        try:
+            anclar(almacen.conn, almacen.ruta_anclas)
+        except AnclasDeOtraBase as exc:
+            print(f"AVISO: {exc}", file=sys.stderr)
 
 
 def extraer_carpeta(
@@ -512,7 +522,7 @@ def _cmd_export_v2(args: argparse.Namespace) -> int:
     destino.write_text(json.dumps(datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Contrato v2 ({datos['contrato']}): {len(datos['facturas'])} facturas a {destino}")
     if not datos["al_dia"]:
-        print(f"  AVISO: el estado de las facturas es del {datos['estado_del']}; "
+        print(f"  AVISO: {_de_cuando(datos['estado_del'])}; "
               "bms-agent recalcular --diaria lo pone al dia")
     print(f"  {destino.stat().st_size:,} bytes")
     return 0
@@ -598,7 +608,7 @@ def _cmd_coste(args: argparse.Namespace) -> int:
 def _cmd_db(args: argparse.Namespace) -> int:
     from .almacen import abrir, ruta_anclas_de
     from .almacen.migrar import MigracionAlterada, migrar, pendientes
-    from .auditoria import anclar
+    from .auditoria import anclar, declarar_base
 
     ruta = _ruta_db(args.db)
     if args.accion != "init" and not ruta.exists():
@@ -614,6 +624,8 @@ def _cmd_db(args: argparse.Namespace) -> int:
         if args.accion == "migrar" and not pendientes(conn):
             print(f"{ruta}: no hay migraciones pendientes")
         hechas = migrar(conn)
+        if any(m.version == 1 for m in hechas):
+            declarar_base(conn, ruta_anclas_de(ruta))
         anclar(conn, ruta_anclas_de(ruta))
     except MigracionAlterada as exc:
         print(f"No se migra: {exc}", file=sys.stderr)
@@ -638,7 +650,8 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
     from .almacen.documentos import AlmacenDocumentos, verificar
     from .almacen.evidencia import verificar_esquema, verificar_evidencia
     from .almacen.migrar import aplicadas, comprobar, pendientes
-    from .auditoria import leer_anclas, verificar_cadena
+    from .auditoria import leer_fichero, verificar_cadena
+    from .copia import cortes_que_valen
 
     conn = abrir(ruta)
     if not aplicadas(conn):
@@ -661,24 +674,27 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
         if sin_aplicar:
             avisos.append("migraciones pendientes: " + ", ".join(m.nombre for m in sin_aplicar))
 
-        anclas, malas = leer_anclas(anclas_ruta)
-        errores.extend(malas)
-        cadena = verificar_cadena(conn, anclas)
+        fichero = leer_fichero(anclas_ruta)
+        errores.extend(fichero.malas)
+        perdonadas, sin_lo_sustituido = cortes_que_valen(fichero, ruta)
+        errores.extend(sin_lo_sustituido)
+        cadena = verificar_cadena(conn, fichero.anclas, fichero=fichero, perdonadas=perdonadas)
         errores.extend(cadena.problemas)
         if exigir_anclas and cadena.eventos and not cadena.anclas:
             errores.append(
                 f"no hay ninguna ancla de este almacen en {anclas_ruta}: sin ellas no se ve "
                 "un final de la cadena cortado o reescrito (--sin-anclas para verificar sin ellas)"
             )
-        if cadena.anclas_ajenas:
-            avisos.append(f"{cadena.anclas_ajenas} anclas de {anclas_ruta} son de otro almacen")
+        if cadena.anclas_ajenas and cadena.ok:
+            avisos.append(f"{cadena.anclas_ajenas} anclas de {anclas_ruta} son de otro almacen "
+                          "(una base anterior en este sitio, u otra que comparte el fichero)")
         for evento_id in cadena.restauraciones:
             avisos.append(f"la base se restauro desde una copia (evento {evento_id}): lo "
                           "firmado despues de esa copia ya no esta")
         if cadena.anclas_descartadas:
             avisos.append(f"{cadena.anclas_descartadas} anclas son de lo que sustituyo una "
                           "restauracion y no se comprueban (lo sustituido sigue en "
-                          "antes-de-restaurar/)")
+                          "antes-de-restaurar/, comprobado por su hash)")
         errores.extend(verificar_evidencia(conn))
         tipado = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'factura'").fetchone()
@@ -883,8 +899,11 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
                 token = permisos.emitir_token(conn, permisos.usuario_por_nombre(conn, args.nombre))
                 print(f"Token de {args.nombre} (se ensena una sola vez; el anterior ya no vale):")
                 print(f"  {token}")
-                print("Con el se entra en la consola (bms-agent serve) y se firman las ordenes "
-                      "de la CLI (--token o BMS_TOKEN).")
+                print(_como_se_hace(
+                    "Con el se entra en la consola (bms-agent serve) y se firman las ordenes "
+                    "de la CLI (--token o BMS_TOKEN).",
+                    f"Con el se entra en la consola ({CONSOLA_DOCKER}) y se firman las ordenes "
+                    "de los scripts de la carpeta docker (te lo piden al empezar)."))
             elif args.accion == "desactivar":
                 permisos.desactivar_usuario(conn, permisos.usuario_por_nombre(conn, args.nombre))
                 print(f"{args.nombre} queda desactivado y su token ya no vale")
@@ -897,6 +916,116 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
             print(f"No se hace: {exc}", file=sys.stderr)
             return 1
         _anclar(almacen)
+    return 0
+
+
+# Un rol para quien solo pasa a limpio lo que traen los documentos: no verifica cuentas, no
+# marca pagos, no anula nada ni toca el BTW (docs/uso-v1.md, «Roles a medida»).
+ROL_CAPTURA = ("captura", ("ver_facturas", "anadir_informacion", "editar_extraccion",
+                           "cambiar_objeto", "cambiar_po"))
+
+
+def _cmd_rol(args: argparse.Namespace) -> int:
+    """Roles a medida con los permisos del §19, uno a uno (los de partida dan tres juntos).
+
+    Como `usuario`, la CLI local actua como el operador del fichero, y cada
+    rol y cada permiso queda con su evento (permisos.crear_rol). Un rol no
+    se edita: se crea otro y se asigna (usuario asignar / quitar).
+    """
+    from . import permisos
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        try:
+            if args.accion == "crear":
+                elegidos = list(args.permiso)
+                if args.nombre == ROL_CAPTURA[0] and not elegidos:
+                    elegidos = list(ROL_CAPTURA[1])
+                if not elegidos:
+                    raise ValueError("un rol lleva al menos un --permiso (bms-agent rol "
+                                     "permisos los lista)")
+                rol_id = permisos.crear_rol(conn, args.nombre, elegidos,
+                                            descripcion=args.descripcion)
+                print(f"Rol {args.nombre} creado (id {rol_id}): {', '.join(sorted(elegidos))}")
+                print(f"Se da con: bms-agent usuario asignar NOMBRE {args.nombre}")
+            elif args.accion == "permisos":
+                from .dominio import Permiso
+
+                for permiso in Permiso:
+                    print(f"  {permiso.value:<20} {_DESCRIPCION_PERMISO.get(permiso.value, '')}")
+                return 0
+            else:
+                permisos.asegurar_roles_base(conn)
+                for rol in permisos.listar_roles(conn):
+                    print(f"  {rol['nombre']:<16} {rol['personas']} persona(s): "
+                          f"{', '.join(rol['permisos'])}")
+        except (ValueError, LookupError) as exc:
+            print(f"No se hace: {exc}", file=sys.stderr)
+            return 1
+        _anclar(almacen)
+    return 0
+
+
+_DESCRIPCION_PERMISO = {
+    "ver_facturas": "ver facturas y su detalle (todo lo de la consola)",
+    "editar_extraccion": "corregir lo extraido de una factura o de una linea",
+    "anadir_informacion": "rellenar lo que falta y anadir notas",
+    "cambiar_objeto": "imputar una linea a otro Objeto o recurso, y alias",
+    "cambiar_po": "referencias, imputaciones y ordenes de compra",
+    "marcar_pagada": "marcar pagada, confirmar o retirar un pago",
+    "anular_acreditar": "anular, fusionar y enlazar facturas (abonos, sustituciones)",
+    "resolver_aviso": "excepciones, cerrar avisos y subir prioridades",
+    "anular_aviso": "anular un aviso (y dar la segunda firma)",
+    "confirmar_iban": "verificar, rechazar o atestar una cuenta bancaria",
+    "admin": "politica, beneficiarios y correcciones del maestro",
+    "revisar_factura": "marcar una factura revisada o devolverla",
+    "gestionar_btw": "el estado del BTW de cada trimestre",
+    "importar_datos": "importar maestros, extractos, planning y PO",
+}
+
+
+def _cmd_original(args: argparse.Namespace) -> int:
+    """Guarda el original de una factura en un fichero. Cada apertura queda en la auditoria.
+
+    Es lo que hay que mirar para comparar un campo con el papel; hojear a mano
+    datos/documentos/ (en Docker, un volumen) no deja rastro. Con un token,
+    la apertura la firma esa persona; sin el, el operador del fichero.
+    """
+    from .almacen import usuario_sistema
+    from .almacen.documentos import DocumentoCorrupto, abrir
+    from .permisos import usuario_por_token
+
+    ruta = _ruta_db(args.db)
+    if not ruta.exists():
+        print(f"No existe el almacen {ruta}", file=sys.stderr)
+        return 1
+    destino = Path(args.salida)
+    if destino.exists():
+        print(f"{destino} ya existe: no se sobrescribe", file=sys.stderr)
+        return 1
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        fila = conn.execute(
+            "SELECT d.id, d.nombre_original, d.sha256 FROM factura AS f JOIN documento AS d "
+            "ON d.id = f.documento_id WHERE f.id = ?", (args.id,)).fetchone()
+        if fila is None:
+            print(f"La factura {args.id} no tiene documento (no existe o llego de otro sistema)",
+                  file=sys.stderr)
+            return 1
+        token = args.token or os.environ.get(VARIABLE_TOKEN)
+        persona = usuario_por_token(conn, token) if token else None
+        try:
+            contenido = abrir(almacen, fila["id"],
+                              actor=persona or usuario_sistema(conn, "sistema"),
+                              usuario_id=persona, motivo=f"bms-agent original {args.id}")
+        except DocumentoCorrupto as exc:
+            print(f"No se puede abrir el original: {exc}", file=sys.stderr)
+            _anclar(almacen)
+            return 1
+        _anclar(almacen)
+    destino.write_bytes(contenido)
+    print(f"Original de la factura {args.id} ({fila['nombre_original'] or 'sin nombre'}, "
+          f"sha256 {fila['sha256'][:12]}...) en {destino}")
     return 0
 
 
@@ -1035,7 +1164,31 @@ def _cmd_accion(args: argparse.Namespace) -> int:
         _anclar(almacen)
     for linea in diferencia.lineas():
         print(linea)
-    return 0
+    return SALIDA_SIN_EFECTO if diferencia.no_vale is not None else 0
+
+
+# Donde se abre la consola del contenedor (docker-compose.yml publica el 8765 solo aqui).
+CONSOLA_DOCKER = "http://127.0.0.1:8765/consola"
+
+
+def _como_se_hace(fuera: str, en_docker: str) -> str:
+    """La misma indicacion dicha como se hace donde corre la orden.
+
+    Dentro del contenedor la persona no tiene `bms-agent` ni `serve`: tiene
+    los scripts de la carpeta docker (iniciar, importar, orden, persona) y la
+    consola ya abierta. Repetirle una orden que no puede escribir es dejarla
+    sin saber que hacer.
+    """
+    from .serve import en_contenedor
+
+    return en_docker if en_contenedor() else fuera
+
+
+def _de_cuando(estado_del: str | None) -> str:
+    """De que dia es el estado de las facturas, dicho tambien cuando no hay ninguna pasada."""
+    if estado_del is None:
+        return "todavia no se ha hecho ninguna pasada del dia"
+    return f"el estado es del {estado_del}"
 
 
 _SIMBOLO = {"bloqueada": "BLOQ", "urgente": "URG ", "atencion": "ATN ", "normal": "    "}
@@ -1081,7 +1234,7 @@ def _cmd_resumen(args: argparse.Namespace) -> int:
         print(json.dumps(p, ensure_ascii=False, indent=2))
         return 0
     print(f"Panel a {p['hoy']}" + ("" if p["al_dia"] else
-                                   f" (AVISO: el estado es del {p['estado_del']}; "
+                                   f" (AVISO: {_de_cuando(p['estado_del'])}; "
                                    "bms-agent recalcular --diaria)"))
     for f in p["fuentes_caducadas"]:
         print(f"AVISO (Z1): lo ultimo de {f['fuente']} ({f['tipo']}) es del {f['exportado']}")
@@ -1163,7 +1316,7 @@ def _cmd_buscar(args: argparse.Namespace) -> int:
         print(json.dumps(r, ensure_ascii=False, indent=2))
         return 0
     if not r["al_dia"]:
-        print(f"AVISO: el estado es del {r['estado_del']}; bms-agent recalcular --diaria")
+        print(f"AVISO: {_de_cuando(r['estado_del'])}; bms-agent recalcular --diaria")
     for f in r["facturas"]:
         print(f"{_SIMBOLO.get(f['nivel'], f['nivel'])} {f['id']:>5}  "
               f"{(f['numero'] or '(sin numero)'):<18} {(f['contraparte'] or '')[:28]:<28} "
@@ -1390,12 +1543,18 @@ def _cmd_parte(args: argparse.Namespace) -> int:
     for o in vista["por_objeto"]:
         print(f"  Objeto {o['objeto']:<20} {o['importe']:>12}  {o['horas'] or '0'} horas")
     if "ibanes" in vista:
+        print("  telefono de verificacion (el del maestro, al que se llama): "
+              + (vista["telefono_verificacion"] or "ninguno: sin el no se verifica una cuenta"))
         for c in vista["ibanes"]["registro"]:
             print(f"  cuenta {c['iban']} {c['estado']}" + (" (se le puede pagar)"
                                                          if c["pagable"] else ""))
+        for i in vista["ibanes"]["impresos"]:
+            if not i["en_el_registro"]:
+                print(f"  cuenta {i['iban']} impresa en {i['facturas']} factura(s) y fuera del "
+                      "registro: verificala o rechazala (F3)")
     for h in vista["avisos"]["hallazgos"]:
-        print(f"  aviso {h['regla']} {h['estado']} ({h['severidad']}), factura "
-              f"{h['factura_id']}: {h['detalle']}")
+        donde = f", factura {h['factura_id']}" if h["factura_id"] is not None else ""
+        print(f"  aviso {h['regla']} {h['estado']} ({h['severidad']}){donde}: {h['detalle']}")
     for f in vista["historial"][:20]:
         print(f"  {f['fecha_factura'] or '-':<10} {f['numero'] or '(sin numero)':<16} "
               f"{f['total'] or '-':>12} {f['estado_pago'] or '-'}")
@@ -1422,8 +1581,11 @@ def _cmd_ordenes(args: argparse.Namespace) -> int:
               f"{o['restante']:>12}  fin {o['fecha_fin'] or '-'}  {o['nivel']}"
               + ("  (cerrada)" if o["cerrada"] else ""))
     if not filas:
-        print("No hay ninguna orden de compra. Se registran con `bms-agent importar po_csv "
-              "ordenes_compra FICHERO` o con la accion registrar_po.")
+        print("No hay ninguna orden de compra. " + _como_se_hace(
+            "Se registran con `bms-agent importar po_csv ordenes_compra FICHERO` o con la "
+            "accion registrar_po.",
+            "Se registran dejando la hoja en la carpeta buzon\\po y con importar.bat, o en la "
+            "consola (Órdenes de compra, «Registrar una orden de compra»)."))
     return 0
 
 
@@ -1518,7 +1680,7 @@ def _cmd_objeto(args: argparse.Namespace) -> int:
               f"{fila['cliente'] or '-':>8} {fila['sin_facturar'] or '-':>9}")
     eco = v["economia"]
     for nombre, b in (("periodo " + eco["periodo"]["desde"] + " a " + eco["periodo"]["hasta"],
-                       eco["periodo"]), (f"ano {eco['ano']['ano']}", eco["ano"]),
+                       eco["periodo"]), (f"año {eco['ano']['ano']}", eco["ano"]),
                       ("de siempre", eco["siempre"])):
         print(f"  {nombre:<32} ingresos {b['ingresos']:>12}  costes {b['costes']:>12}  "
               f"margen {b['margen']:>12} ({b['margen_pct'] or '-'})")
@@ -1578,6 +1740,50 @@ def _cmd_politica(args: argparse.Namespace) -> int:
     print(f"{fichero}: {'cargado' if nuevo else 'ya era la version vigente'} ({resumen})")
     cambios = diferencia.estados.prioridades if diferencia.estados else []
     print(f"  prioridades que cambian: {len(cambios)}")
+    return 0
+
+
+def _cmd_empresa(args: argparse.Namespace) -> int:
+    """La identidad de BM Support BV: ver lo que vale, o ponerla sin editar ningun fichero.
+
+    En Docker config/empresa.yaml esta dentro de la imagen (solo lectura): esta
+    es la forma de dar las cuentas propias, el btw-id y el KvK. Poner pide el
+    token de alguien con admin, como `politica cargar`.
+    """
+    from .hallazgos import recalcular
+    from .permisos import PermisoDenegado, orden_auditada
+    from .politica import PoliticaNoValida, empresa, fijar_empresa, lo_que_falta_de_la_empresa
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        if args.accion == "ver":
+            e = empresa(conn)
+        else:
+            usuario_id = _persona_con_token(almacen, args, "poner la identidad de la empresa")
+            if usuario_id is None:
+                _anclar(almacen)
+                return 1
+            try:
+                with orden_auditada(conn):
+                    e, cambio = fijar_empresa(conn, usuario_id, btw_id=args.btw_id, kvk=args.kvk,
+                                              cuentas=args.cuenta or None)
+                    if cambio:
+                        recalcular(conn, motivo="manual", usuario_id=usuario_id)
+            except (PoliticaNoValida, PermisoDenegado) as exc:
+                print(f"No se pone: {exc}", file=sys.stderr)
+                _anclar(almacen)
+                return 1
+            _anclar(almacen)
+            print("Hecho." if cambio else "Ya era esa: no cambia nada.")
+    print(f"Empresa: {e.nombre}")
+    print(f"  btw-id   {e.btw_id or '(sin poner)'}")
+    print(f"  KvK      {e.kvk or '(sin poner)'}")
+    print("  cuentas  " + (", ".join(e.cuentas_propias) or "(ninguna)"))
+    falta = lo_que_falta_de_la_empresa(e)
+    if falta:
+        print("Falta: " + "; ".join(falta) + ".")
+        print("Se pone con: bms-agent empresa fijar --cuenta IBAN --btw-id NL...B01 --kvk "
+              "NUMERO (en Docker, empresa.bat)")
     return 0
 
 
@@ -1767,6 +1973,9 @@ def _cmd_reextraer(args: argparse.Namespace) -> int:
 # lanza (importar.ps1) decide con esto si el fichero sale del buzon, sin leer el texto.
 SALIDA_RECHAZADA = 3
 SALIDA_PARCIAL = 4
+# Una orden apuntada que no tiene el efecto pedido (una verificacion de IBAN que
+# no vale, F8): un script no puede darla por hecha.
+SALIDA_SIN_EFECTO = 5
 
 
 def _salida_de_importar(lotes) -> int:
@@ -1876,21 +2085,28 @@ _IBAN = {"verificar": "verificar_iban", "rechazar": "rechazar_iban",
 def _cmd_iban(args: argparse.Namespace) -> int:
     """El registro de cuentas: verlo, verificar, rechazar, atestar y el telefono de verificacion."""
     if args.accion == "listar":
-        from .consultas import cuentas
+        from .consultas import registro_de_cuentas
 
         ruta = _ruta_db(args.db)
         if not ruta.exists():
             print(f"No existe el almacen {ruta}", file=sys.stderr)
             return 1
         with _abrir_almacen(args.db) as almacen:
-            filas = cuentas(almacen.conn)
-        for c in filas:
-            marcas = [m for m, si in (("pagable", c["pagable"]), ("en Exact", c["en_exact"]))
-                      if si]
-            print(f"{c['id']:>5} {c['proveedor'][:30]:<30} {c['iban']:<34} {c['estado']:<11}"
-                  f"{', '.join(marcas)}"
-                  + (f"  cambio sin verificar: {c['cambios']}" if c["cambios"] else "")
-                  + (f"  verificacion que no vale: {c['ineficaz']}" if c["ineficaz"] else ""))
+            filas = registro_de_cuentas(almacen.conn)
+        for p in filas:
+            print(f"{p['proveedor']} (proveedor {p['proveedor_id']}): se llama al "
+                  + (p["telefono_verificacion"] or "telefono que todavia no tiene el maestro"))
+            for c in p["cuentas"]:
+                marcas = [m for m, si in (("pagable", c["pagable"]),
+                                          ("en Exact", c["en_exact"])) if si]
+                print(f"  {c['id']:>5} {c['iban']:<34} {c['estado']:<11}{', '.join(marcas)}"
+                      + (f"  cambio sin verificar: {c['cambios']}" if c["cambios"] else "")
+                      + (f"  verificacion que no vale: {c['ineficaz']}" if c["ineficaz"]
+                         else ""))
+            for v in p["sin_registrar"]:
+                print(f"      {v['iban']:<34} impreso en {v['facturas']} factura(s), la ultima "
+                      f"del {v['ultima'] or 'sin fecha'}, y fuera del registro: verificalo o "
+                      "rechazalo (F3)")
         if not filas:
             print("El registro de cuentas esta vacio: entra con `bms-agent importar exact "
                   "proveedores FICHERO`.")
@@ -2075,6 +2291,10 @@ def _cmd_btw(args: argparse.Namespace) -> int:
             if args.salida:
                 Path(args.salida).write_bytes(hoja.en_bytes())
                 print(f"Hoja de trabajo {btw.etiqueta(*trimestre)} en {args.salida}")
+            elif sys.stdout.isatty():
+                # A una terminal, como texto sin caracteres de control (terminal.py): los
+                # nombres de la hoja vienen de las facturas. Lo que se hashea es el fichero.
+                print(hoja.en_bytes().decode("utf-8-sig"), end="")
             else:
                 # Los mismos bytes que se hashean (con su BOM): una hoja guardada con
                 # `> hoja.csv` da el sha256 que se dice y el que queda en el periodo.
@@ -2117,8 +2337,11 @@ def _imprimir_trimestre_btw(t: dict) -> None:
           f"{euros(c['iva_repercutido_cent'])}, costes sin IVA {euros(c['costes_cent'])}, "
           f"IVA deducible {euros(c['iva_deducible_cent'])}")
     for r in t["revisar"]:
-        print(f"  revisar el IVA: factura {r['numero'] or r['factura_id']} "
-              f"({', '.join(r['reglas'])})")
+        # El id ademas del numero: dos copias de una factura (B2) traen el mismo numero.
+        por_que = ", ".join(r["reglas"]) or ("fuera de las cifras" if r["fuera_de_las_cifras"]
+                                             else "")
+        print(f"  revisar el IVA: factura {r['factura_id']}"
+              + (f" {r['numero']}" if r["numero"] else "") + (f" ({por_que})" if por_que else ""))
     for f in c["sin_clasificar"] + c["fuera"]:
         print(f"  fuera de las cifras: factura {f['numero'] or f['factura_id']}: {f['motivo']}")
     for d in t["diferencias"]:
@@ -2137,7 +2360,7 @@ def _imprimir_resumen_btw(r: dict) -> None:
         print(f"Por presentar: {a['etiqueta']} ({a['estado']}), plazo {a['limite_presentacion']} "
               f"({a['dias_para_limite']} dias), 5c {euros(a['5c'])}")
     y = r["ano_hasta_hoy"]
-    print(f"Ano {y['ano']} hasta hoy: ingresos {euros(y['ingresos_cent'])}, 5a {euros(y['5a'])}, "
+    print(f"Año {y['ano']} hasta hoy: ingresos {euros(y['ingresos_cent'])}, 5a {euros(y['5a'])}, "
           f"5b {euros(y['5b'])}, 5c {euros(y['5c'])}")
     if r["sin_fecha"]:
         print(f"{r['sin_fecha']} facturas sin fecha: no entran en ningun trimestre")
@@ -2155,7 +2378,8 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         return 2
     if not resumen.creada:
         print(f"La base de prueba ya existe en {ruta} y no se ha tocado.")
-        print("  Para empezar de cero: bms-agent demo crear --rehacer")
+        print("  Para empezar de cero: " + _como_se_hace("bms-agent demo crear --rehacer",
+                                                         "iniciar.bat -Demo"))
         return 0
     print(f"Base de DATOS DE PRUEBA creada en {ruta}")
     print("  Todo es ficticio y vive aparte: nada de aqui pasa a la base de verdad.")
@@ -2166,7 +2390,8 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     print("\nTokens para entrar en la consola de prueba (solo valen en esta base):")
     for nombre, token in resumen.tokens.items():
         print(f"  {nombre:<10} {token}")
-    print(f"\nAbrela con:  bms-agent serve --db {ruta}")
+    print("\n" + _como_se_hace(f"Abrela con:  bms-agent serve --db {ruta}",
+                                f"iniciar.bat -Demo la abre en {CONSOLA_DOCKER}"))
     return 0
 
 
@@ -2283,11 +2508,18 @@ def _cmd_salud(args: argparse.Namespace) -> int:
     return 0 if vivo else 1
 
 
+DESCRIPCION = (
+    "El agente financiero de BM Support BV (V1): lee las facturas, las comprueba con reglas "
+    "y ensena lo que hay que decidir. Escribe solo en su almacen (correcciones, el registro de "
+    "cuentas, lo que una persona anota del BTW); no paga, no presenta el BTW ni escribe en "
+    "Exact ni en ningun otro sistema de la empresa.")
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="bms-agent", description="Fase 0: observador. No escribe en ningun sistema."
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+    from .argumentos import Parser
+
+    parser = Parser(prog="bms-agent", description=DESCRIPCION)
+    sub = parser.add_subparsers(dest="orden", required=True)
 
     p_schema = sub.add_parser("schema", help="muestra el esquema de extraccion")
     p_schema.set_defaults(func=_cmd_schema)
@@ -2499,6 +2731,44 @@ def main(argv: list[str] | None = None) -> int:
     for p_accion in sub_usuario.choices.values():
         p_accion.add_argument("--db", help=_AYUDA_DB)
     p_usuario.set_defaults(func=_cmd_usuario)
+
+    p_empresa = sub.add_parser("empresa", help="la identidad de BM Support BV: sus cuentas, su "
+                                                 "btw-id y su KvK")
+    sub_empresa = p_empresa.add_subparsers(dest="accion", required=True)
+    sub_empresa.add_parser("ver", help="lo que vale hoy y lo que falta")
+    p_fijar = sub_empresa.add_parser("fijar", help="ponerla (con el token de alguien con admin)")
+    p_fijar.add_argument("--cuenta", action="append", default=[],
+                         help="un IBAN de BM Support BV; se repite. Las que se dan sustituyen a "
+                              "las de antes")
+    p_fijar.add_argument("--btw-id", dest="btw_id")
+    p_fijar.add_argument("--kvk")
+    p_fijar.add_argument("--token", help=f"token de la persona (o la variable {VARIABLE_TOKEN})")
+    for p_accion in sub_empresa.choices.values():
+        p_accion.add_argument("--db", help=_AYUDA_DB)
+    p_empresa.set_defaults(func=_cmd_empresa)
+
+    p_rol = sub.add_parser("rol", help="roles a medida, permiso a permiso")
+    sub_rol = p_rol.add_subparsers(dest="accion", required=True)
+    p_rol_crear = sub_rol.add_parser(
+        "crear", help="un rol nuevo con los permisos que se digan (rol crear captura, sin "
+                      "permisos, da el de pasar a limpio)")
+    p_rol_crear.add_argument("nombre")
+    p_rol_crear.add_argument("--permiso", action="append", default=[],
+                             help="un permiso del rol; se repite (rol permisos los lista)")
+    p_rol_crear.add_argument("--descripcion")
+    sub_rol.add_parser("listar", help="los roles, sus permisos y cuantas personas los tienen")
+    sub_rol.add_parser("permisos", help="los permisos que existen, con lo que dejan hacer")
+    for p_accion in sub_rol.choices.values():
+        p_accion.add_argument("--db", help=_AYUDA_DB)
+    p_rol.set_defaults(func=_cmd_rol)
+
+    p_original = sub.add_parser("original", help="guarda el original de una factura (queda en "
+                                                 "la auditoria)")
+    p_original.add_argument("id", type=int)
+    p_original.add_argument("--salida", required=True, help="el fichero donde se guarda")
+    p_original.add_argument("--token", help=f"quien lo abre (o la variable {VARIABLE_TOKEN})")
+    p_original.add_argument("--db", help=_AYUDA_DB)
+    p_original.set_defaults(func=_cmd_original)
 
     p_acciones = sub.add_parser("acciones", help="lo que una persona puede hacer, con su permiso")
     p_acciones.set_defaults(func=_cmd_acciones)
@@ -2798,7 +3068,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))
     _aviso_demo(args)
     from .almacen import BaseDePruebaMezclada
+    from .terminal import SalidaSegura
 
+    # Lo que se imprime viene en buena parte de documentos de terceros: sin caracteres de
+    # control, la terminal no obedece a nadie (terminal.py).
+    salida, errores = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = SalidaSegura(salida), SalidaSegura(errores)
     try:
         return args.func(args)
     except BaseDePruebaMezclada as exc:
@@ -2807,6 +3082,32 @@ def main(argv: list[str] | None = None) -> int:
     except config.ClaveNoValida as exc:
         print(f"No se puede usar la clave de la API: {exc}", file=sys.stderr)
         return 2
+    except OSError as exc:
+        if not exc.filename:
+            raise
+        print(_no_se_puede_escribir(exc), file=sys.stderr)
+        return 1
+    finally:
+        sys.stdout, sys.stderr = salida, errores
+
+
+def _no_se_puede_escribir(exc: OSError) -> str:
+    """Un fichero que no se puede escribir (o abrir), en una linea y sin traza.
+
+    Dentro del contenedor de Docker el sistema de ficheros es de solo lectura
+    salvo los volumenes: lo que se escribe con --salida desaparece o falla. La
+    hoja del BTW se descarga desde la consola.
+    """
+    from .serve import en_contenedor
+
+    motivo = {13: "no hay permiso", 2: "no existe (o no existe su carpeta)",
+              30: "el sitio es de solo lectura", 28: "no queda espacio"}.get(
+        exc.errno or 0, exc.strerror or str(exc))
+    texto = f"No se puede usar el fichero {exc.filename}: {motivo}."
+    if en_contenedor():
+        texto += (" Dentro de Docker no se escribe fuera de los volumenes: la hoja del BTW se "
+                  "descarga en la consola (BTW, «Descargar la hoja»).")
+    return texto
 
 
 if __name__ == "__main__":

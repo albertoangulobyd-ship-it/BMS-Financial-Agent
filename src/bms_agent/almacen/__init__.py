@@ -278,7 +278,7 @@ def comprobar_entidad(conn: sqlite3.Connection, entidad: str, fila_id: int) -> N
     if entidad == "trimestre":
         ano, trimestre = divmod(int(fila_id), 10)
         if not (1 <= trimestre <= 4 and 1900 <= ano <= 9999):
-            raise LookupError(f"{fila_id} no es un trimestre: se escribe ano * 10 + trimestre "
+            raise LookupError(f"{fila_id} no es un trimestre: se escribe año * 10 + trimestre "
                               "(20263 es el T3 de 2026)")
         return
     tabla = TABLA_DE_ENTIDAD.get(entidad, entidad)
@@ -351,11 +351,16 @@ def preparar(
     if str(destino) == MEMORIA and raiz_documentos is None:
         raise ValueError("una base en memoria necesita una carpeta de documentos explicita")
     conn = abrir(destino, reloj=reloj)
+    anclas = None if str(destino) == MEMORIA else ruta_anclas_de(destino)
     try:
-        migrar(conn)
+        hechas = migrar(conn)
+        if anclas is not None and any(m.version == 1 for m in hechas):
+            # La base se acaba de crear: se dice en su fichero de anclas (auditoria).
+            from ..auditoria import declarar_base
+
+            declarar_base(conn, anclas)
     except BaseException:
         conn.close()
         raise
     raiz = Path(raiz_documentos) if raiz_documentos is not None else raiz_documentos_de(destino)
-    anclas = None if str(destino) == MEMORIA else ruta_anclas_de(destino)
     return Almacen(conn=conn, documentos=AlmacenDocumentos(raiz), ruta_anclas=anclas)

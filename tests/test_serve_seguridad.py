@@ -140,13 +140,15 @@ def test_un_origen_parecido_no_recibe_cabecera_cors(servidor) -> None:
 
 
 def test_el_origen_propio_y_el_declarado_si_reciben_cors(servidor) -> None:
+    """Con /api/ejecucion: /api/datos pide desde la revision final un token personal (lo
+    prueba test_revision_final), y aqui solo se mira la cabecera CORS."""
     puerto, _ = servidor
     for origen in (f"http://127.0.0.1:{puerto}", f"http://localhost:{puerto}",
                    "http://localhost:5173"):
-        estado, cabeceras, cuerpo = _pedir(puerto, "GET", "/api/datos", {"Origin": origen})
+        estado, cabeceras, cuerpo = _pedir(puerto, "GET", "/api/ejecucion", {"Origin": origen})
         assert estado == 200
         assert cabeceras["access-control-allow-origin"] == origen
-        assert "filas" in json.loads(cuerpo)
+        assert "estado" in json.loads(cuerpo)
 
 
 def test_un_host_ajeno_se_rechaza(servidor) -> None:

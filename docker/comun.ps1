@@ -54,6 +54,13 @@ function Pedir-Token {
     }
 }
 
+function Es-Si([string]$Respuesta) {
+    # "si", "si con tilde" o "s", en mayusculas o no. La tilde se compara por su codigo: un .ps1 sin
+    # BOM se lee como ANSI en Windows PowerShell 5.1, y aqui solo va ASCII.
+    $texto = ("" + $Respuesta).Trim().ToLower().Replace([string][char]0x00ED, "i")
+    return ($texto -eq "si" -or $texto -eq "s")
+}
+
 function Olvidar-Token {
     Remove-Item Env:\BMS_TOKEN -ErrorAction SilentlyContinue
 }
