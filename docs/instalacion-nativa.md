@@ -313,6 +313,7 @@ mira lo que pasa. Tarda unos segundos.
 | lector | Por la salida, sin la credencial | No (407) |
 | todos | Escribir en la raíz (`C:\BMS`, donde está `instalacion.json`), `app`, `lib`, `windows` y su carpeta de `runtime` | No pueden |
 | todos | Escribir en `datos` y `buzon` | Pueden |
+| todos | Cómo ha arrancado su propio Python: con su `python313._pth` y con `-E`, sin ninguna variable `PYTHON…` del entorno | Aislado |
 
 Por la salida, **solo un «no» de la salida cuenta como no**: si no contesta a tiempo,
 esa prueba no se ha podido hacer y sale en rojo (no se da por buena).
@@ -449,6 +450,9 @@ copias siguen funcionando sin crédito.
 | «No se puede conectar» o un error de red al instalar | El instalador necesita `api.nuget.org` (el Python), `pypi.org` y `files.pythonhosted.org` (las dependencias). Si tu red los bloquea, prueba con otra, o pide a quien mantiene el programa la carpeta `paquetes` (apartado 3). |
 | «no lleva una firma valida de Python Software Foundation» | Lo descargado no es el Python oficial (o Windows no ha podido comprobar la firma). No sigas y avisa. |
 | «tiene que haber un solo programa, python.exe» o «le falta …» al instalar | El paquete de Python no es el esperado. No sigas y avisa. |
+| «no esta aislado: el ._pth no se aplica…», «…hace caso de las variables PYTHON*…» o «es Python … y tiene que ser …» al instalar (paso 5) | El Python de ese programa no arranca como debe. No se ha terminado de instalar. No sigas: avisa y manda la ventana tal cual. |
+| «No se ha podido compilar …» al instalar | No se ha terminado de instalar. Vuelve a abrir `instalar.bat`; si se repite, avisa y manda la ventana. |
+| En `comprobar.bat`, «el Python de este papel» en rojo | Ese programa hace caso de algo del entorno que no debería (una variable `PYTHON…`). No trabajes con datos de verdad: avisa y manda la ventana. |
 | Banda roja «AISLAMIENTO SIN COMPROBAR O CON FALLOS» | `comprobar.bat`. Si sale en rojo, manda la ventana a quien mantiene el programa y no trabajes con datos de verdad. |
 | «El aislamiento no esta bien … no se lee nada ni se paga nada» | Lo mismo: `comprobar.bat`. No se ha gastado nada. |
 | «el perfil … del cortafuegos esta apagado» | Seguridad de Windows → Firewall y protección de red → enciéndelo en los tres perfiles. |
@@ -494,20 +498,29 @@ PowerShell 7. Lo que solo existe en Windows (el cortafuegos, DPAPI de verdad, lo
 permisos, Windows PowerShell 5.1, la ventana de permiso de administrador) **se mira la
 primera vez en tu ordenador**, con datos de prueba, antes de meter nada de verdad:
 
-1. `instalar.bat` termina sin rojo y deja los siete accesos en el escritorio.
-2. En **Firewall de Windows Defender con seguridad avanzada** (`wf.msc`), en reglas de
+1. `instalar.bat` termina sin rojo y deja los siete accesos en el escritorio. En el paso
+   5 salen cuatro líneas, una por programa (`consola`, `lector`, `salida`, `orden`), cada
+   una con `Python 3.13.16`, la versión de SQLite y `aislado`: es la prueba de que su
+   `._pth` se aplica (modo aislado, sin `site`) y de que arranca con `-E`.
+2. La firma del Python, en PowerShell:
+   `Get-AuthenticodeSignature C:\BMS\runtime\orden\python.exe, C:\BMS\runtime\orden\python313.dll | Format-List Status, SignerCertificate`.
+   Los dos tienen que dar `Status : Valid`, con el firmante `CN=Python Software
+   Foundation` y la cadena de Microsoft (Microsoft ID Verified CS EOC CA 03, de
+   Microsoft Trusted Signing). El instalador ya lo exige; esto es mirar, la primera vez,
+   que Windows tiene esa cadena (la baja solo) y que no se instaló con otra cosa.
+3. En **Firewall de Windows Defender con seguridad avanzada** (`wf.msc`), en reglas de
    entrada y de salida, aparecen las 12 reglas «BMS Finanzas - …».
-3. `comprobar.bat` sale **todo en verde** (los cuatro programas, el cortafuegos y la
+4. `comprobar.bat` sale **todo en verde** (los cuatro programas, el cortafuegos y la
    clave). **Sin esto, no se usan datos de verdad.**
-4. **Datos de prueba**: la consola se abre en `http://127.0.0.1:8765/consola` con la
+5. **Datos de prueba**: la consola se abre en `http://127.0.0.1:8765/consola` con la
    banda de DATOS DE PRUEBA y sin la banda roja del aislamiento.
-5. Desde otro ordenador o el móvil, en la misma red, `http://<la IP de tu PC>:8765` no
+6. Desde otro ordenador o el móvil, en la misma red, `http://<la IP de tu PC>:8765` no
    abre nada.
-6. `clave.bat`, y después `leer-facturas.bat` con **una** factura de verdad: cuenta,
+7. `clave.bat`, y después `leer-facturas.bat` con **una** factura de verdad: cuenta,
    pregunta, lee. Luego `ver-salida.bat`: solo `api.anthropic.com`, permitido.
-7. `parar.bat`, y en el Administrador de tareas no queda ningún `python.exe` de
+8. `parar.bat`, y en el Administrador de tareas no queda ningún `python.exe` de
    `C:\BMS`.
-8. `copia.bat -Destino` al disco cifrado y `copia.bat -Comprobar` de esa copia.
+9. `copia.bat -Destino` al disco cifrado y `copia.bat -Comprobar` de esa copia.
 
 Si algo de esto no sale como dice, para y avisa a quien mantiene el programa con la
 ventana tal cual.
@@ -528,18 +541,29 @@ ventana tal cual.
   `Destino-En-Runtime`, que los tests comparan); en cada `runtime\<papel>` queda **un solo
   programa, `python.exe`**, y el instalador para si hay otro. Cada papel lleva un
   `python313._pth` junto a la DLL con `Lib`, `DLLs`, `..\..\lib` y `..\..\app\src`
-  (`nativo.RUTAS_PTH`): modo aislado, sin `site` (ni `site-packages` ni la carpeta del
-  usuario) y sin `PYTHONPATH` ni el registro; la carpeta del programa (`.`) no va, porque en
-  este paquete allí no hay nada que importar. La biblioteca viene en `.py`: el instalador la
-  compila una vez (`--invalidation-mode checked-hash`) y prueba que el `._pth` se aplica
-  (`sys.flags.isolated`, `no_site`) y que la versión es la fijada. Las ruedas de
+  (`nativo.RUTAS_PTH`): el `sys.path` es ese y nada más (ni `PYTHONPATH`, ni `PYTHONHOME`,
+  ni el registro), sin `site` (ni `site-packages` ni la carpeta del usuario); la carpeta
+  del programa (`.`) no va, porque en este paquete allí no hay nada que importar. **El
+  `._pth` no aparta las demás variables `PYTHON…`**: Python pone el modo aislado al leer
+  el `._pth`, y para entonces ya ha tomado del entorno `PYTHONPYCACHEPREFIX`,
+  `PYTHONOPTIMIZE`, `PYTHONWARNINGS`, `PYTHONINSPECT`… (el entorno del usuario,
+  `HKCU\Environment`, lo puede cambiar cualquier programa suyo; con `PYTHONPYCACHEPREFIX`
+  en `datos\` se ejecutarían unos `.pyc` dejados allí en vez del código de solo lectura).
+  Por eso cada `python.exe` se arranca siempre con **`-E`** (`$OpcionesPython` en
+  `comun.ps1`, `-E -u -X utf8`, igual que `nativo.OPCIONES_PYTHON`). La biblioteca viene en
+  `.py`: el instalador la compila una vez (`--invalidation-mode checked-hash`, y para si
+  no compila) y, con el programa de cada papel, prueba que arranca aislado
+  (`nativo.exigir_interprete_aislado`: el `._pth` se aplica, lleva `-E`, ni optimización,
+  ni `inspect`, ni otra carpeta de `.pyc`, ni avisos cambiados, y la versión fijada; con
+  `SystemExit`, no con `assert`, que `PYTHONOPTIMIZE` quitaría). `comprobar.bat` lo vuelve
+  a mirar en cada papel. Las ruedas de
   `windows/requirements-windows.txt` (formato de pip, con `--hash`) se buscan en PyPI por
   su sha256, se comprueban y se abren en `lib\` (lo que haría `pip --target`): pip no se
   usa. Con `windows\paquetes\` se toman de ahí. Nada se usa sin su hash.
 - **Fijar los hashes.** Todo está fijado: `python scripts/fijar_windows.py --comprobar`
   (sin red) sale con 0 y lo exigen los tests. Para volver a sacarlo:
   `python scripts/fijar_windows.py --rehacer` (necesita internet), y para otra versión del
-  Python, `--python 3.13.X`. El script baja el paquete de
+  Python que nuget.org tenga, `--python 3.13.X`. El script baja el paquete de
   `api.nuget.org/v3-flatcontainer`, calcula su sha256 y lo **cruza con el SHA-512 que
   nuget.org publica de esa versión** en su catálogo (`packageHash`, al que llega por el
   índice de registro), con el id, la versión, el autor y el tamaño; mira que sea un paquete
@@ -547,7 +571,15 @@ ventana tal cual.
   py3-none-any) de cada dependencia, con las mismas versiones que
   `docker/requirements.txt`. Si algo no cuadra, para. Con `--comprobar --paquetes CARPETA`
   comprueba además lo ya bajado (la carpeta `paquetes`). Las ruedas py3-none-any tienen el
-  hash de Docker (es el mismo fichero).
+  hash de Docker (es el mismo fichero). **El SHA-512 no es una segunda fuente**: el paquete
+  y su catálogo vienen los dos de nuget.org, así que el cruce dice que lo bajado es el
+  fichero que nuget.org lista para esa versión, no de dónde viene; si nuget.org (o la
+  cuenta que publica el paquete) estuviera comprometido, los dos cuadrarían igual. Lo que
+  dice de dónde viene es la **firma Authenticode de la Python Software Foundation** en
+  `python.exe` y en `python313.dll`, que el instalador exige en Windows. Antes de subir un
+  sha256 nuevo (`--rehacer` o `--python`), quien lo sube abre el paquete en un Windows y
+  mira esa firma en `tools\python.exe` y `tools\python313.dll`
+  (`Get-AuthenticodeSignature`: `Valid`, firmante `CN=Python Software Foundation`).
 - **Por qué Python 3.13 de nuget.org** (paso 14b). La 3.11.9, la que había, es la última
   3.11 con binarios para Windows y no tiene las correcciones de seguridad de después (por
   ejemplo, la de `ipaddress` sobre qué direcciones son privadas, que usa la salida, y
@@ -555,12 +587,22 @@ ventana tal cual.
   de las distribuciones oficiales de Python para Windows que lista python.org: el paquete
   lo publica la propia Python Software Foundation, con los mismos binarios firmados. Se
   eligió nuget.org y no el embebible de python.org porque desde donde se preparó esta
-  versión python.org no se podía descargar y nuget.org sí, y porque nuget.org publica el
-  SHA-512 de cada paquete, que deja cruzar el sha256 con una segunda fuente. La suite
-  entera pasa en 3.11 (el desarrollo y la imagen de Docker, que sigue con la 3.11.17) y
-  en 3.13. Mientras la 3.13 tenga correcciones de seguridad, cambiar de 3.13.X es
-  `--python 3.13.X`; pasar a otra versión menor es además `nativo.VERSION_PYTHON`, las
-  variables de `comun.ps1` y los tests, con la suite pasando antes en esa versión.
+  versión python.org no se podía descargar y nuget.org sí (el SHA-512 de su catálogo
+  confirma la descarga, pero no es otra fuente: ver arriba). La suite entera pasa en 3.11
+  (el desarrollo y la imagen de Docker, que sigue con la 3.11.17) y en 3.13.
+- **Cuánto dura la 3.13 y qué viene después.** Python saca binarios para Windows (el
+  instalador, el embebible y los paquetes de nuget.org) solo mientras una versión menor
+  está en su fase de correcciones (unos dos años, PEP 719 para la 3.13: desde octubre de
+  2024 hasta octubre de 2026, más o menos). Después, las versiones de solo seguridad
+  (3.13.17, 3.13.18…) salen **solo en código fuente**: no llegan a nuget.org, y
+  `--python 3.13.X` no encontrará el paquete. Es lo mismo que le pasó a la 3.11.9. Así que
+  `--python 3.13.X` vale para una 3.13 que nuget.org tenga; cuando dejen de salir, lo
+  siguiente es **pasar a la versión menor siguiente** (la 3.14, con binarios hasta octubre
+  de 2027, más o menos): `nativo.VERSION_PYTHON`, las variables de `comun.ps1` (los tests
+  exigen que sean iguales), las ruedas de esa versión (`fijar_windows.py --python 3.14.X`)
+  y la suite pasando antes en esa versión. Conviene hacerlo cuanto antes: con la 3.13.16
+  instalada, las correcciones de seguridad de la 3.13 que vengan después no llegan a esta
+  instalación.
 - **Las reglas** están en `comun.ps1` (`Reglas-Del-Cortafuegos`), todas con el prefijo
   «BMS Finanzas - » y el grupo «BMS Finanzas»; el desinstalador quita exactamente las del
   prefijo. En Windows un bloqueo gana a un permiso: la salida lleva el permiso del TCP

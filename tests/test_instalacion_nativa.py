@@ -97,6 +97,9 @@ def como(monkeypatch, tmp_path):
     def poner(rol: str | None, puerto_salida: int = 3128) -> nativo.Instalacion | None:
         instalacion = _instalacion(raiz, rol, puerto_salida) if rol else None
         monkeypatch.setattr(nativo, "instalacion_actual", lambda: instalacion)
+        # El Python de los tests no arranca con el ._pth ni con -E: hace como si si (lo que
+        # pasa si no, test_comprobar_aislamiento_mira_como_arranco_el_python).
+        monkeypatch.setattr(nativo, "problemas_del_interprete", lambda: [])
         return instalacion
 
     return poner
@@ -681,6 +684,31 @@ def test_la_pasada_entera_comprobada_llega_a_la_api_con_la_clave_cifrada(
     assert main(["coste", "--estimar", str(pdfs_ejemplo), "--out", out]) == 2
     guardado = lector.resultado_aislamiento.read_text(encoding="utf-8")
     assert CREDENCIAL not in guardado and nativo.huella_sesion(CREDENCIAL) in guardado
+
+
+def test_comprobar_aislamiento_mira_como_arranco_el_python(
+        tmp_path, monkeypatch, como, capsys) -> None:
+    """Revision del paso 14b: en la instalacion, la comprobacion de cada papel mira tambien su
+    propio Python (el ._pth y -E). Uno que hace caso de PYTHONPYCACHEPREFIX no sale en verde,
+    aunque el cortafuegos este bien; fuera de la instalacion no se mira."""
+    monkeypatch.setattr(aislamiento, "EXTERNOS", _sondas())
+    monkeypatch.setattr(aislamiento, "se_puede_escribir", lambda c: c.name in ("datos", "buzon"))
+    como("orden")
+    assert main(["comprobar-aislamiento", "--rol", "orden", "--espera", "1"]) == 0
+    assert "el Python de este papel" in capsys.readouterr().out
+    # El Python que corre los tests, tal cual: sin ._pth ni -E.
+    monkeypatch.setattr(nativo, "problemas_del_interprete",
+                        lambda: nativo.problemas_del_arranque(nativo.arranque_actual()))
+    assert main(["comprobar-aislamiento", "--rol", "orden", "--espera", "1"]) == 1
+    salida_texto = capsys.readouterr().out
+    assert "el Python de este papel" in salida_texto and "-E" in salida_texto
+    # La regla: un problema del interprete es grave.
+    vistas = aislamiento.Observaciones(interprete=("no se ha arrancado con -E",))
+    malas = [c for c in aislamiento.evaluar("orden", vistas, ()) if not c.bien]
+    assert [c.nombre for c in malas] == ["el Python de este papel"] and malas[0].grave
+    assert aislamiento.evaluar("orden", aislamiento.Observaciones(), ()) == ()
+    assert all(c.bien for c in aislamiento.evaluar(
+        "orden", aislamiento.Observaciones(interprete=()), ()))
 
 
 def test_cada_papel_se_comprueba_con_su_propio_programa(como, capsys) -> None:
@@ -1405,6 +1433,7 @@ def test_comun_dice_lo_mismo_que_nativo_del_python_de_cada_papel() -> None:
     assert _lista_ps(comun, "CarpetaDelPaquete") == (nativo.CARPETA_DEL_PAQUETE,)
     assert _lista_ps(comun, "FueraDelRuntime") == nativo.FUERA_DEL_RUNTIME
     assert _lista_ps(comun, "NecesariosDelRuntime") == nativo.NECESARIOS_DEL_RUNTIME
+    assert _lista_ps(comun, "OpcionesPython") == nativo.OPCIONES_PYTHON
 
 
 def test_el_pth_es_el_de_la_estructura_del_paquete_de_nuget() -> None:
@@ -1422,8 +1451,21 @@ def test_el_pth_es_el_de_la_estructura_del_paquete_de_nuget() -> None:
     for ruta in nativo.RUTAS_PTH:
         destino = ntpath.normpath(ntpath.join(r"C:\BMS\runtime\lector", ruta))
         assert destino.startswith("C:\\BMS\\"), ruta
-    # Lo que pide el ._pth es lo que el instalador saca del paquete.
-    assert {"Lib/os.py", "DLLs/_socket.pyd"} <= set(nativo.NECESARIOS_DEL_RUNTIME)
+    # Lo que pide el ._pth es lo que el instalador saca del paquete (destino_en_runtime).
+    destinos = {nativo.destino_en_runtime(e) for e in ENTRADAS_DEL_PAQUETE} - {None}
+    assert _rutas_del_pth_que_faltan(destinos) == []
+    assert _rutas_del_pth_que_faltan(destinos - {"Lib/os.py", "Lib/json/__init__.py",
+                                                 "Lib/ctypes/macholib/fetch_macholib.bat"}) \
+        == ["Lib"]
+
+
+def _rutas_del_pth_que_faltan(destinos: set[str]) -> list[str]:
+    """Las rutas del ._pth dentro de runtime\\<papel> (sin "..") en las que no queda nada de lo
+    que se saca del paquete: una carpeta vacia en sys.path quiere decir que el ._pth no es el
+    de este paquete."""
+    return [ruta for ruta in nativo.RUTAS_PTH if not ruta.startswith("..")
+            and not any(d.lower().startswith(ruta.replace("\\", "/").lower() + "/")
+                        for d in destinos)]
 
 
 def test_el_instalador_hace_un_python_por_papel_con_su_pth() -> None:
@@ -1549,15 +1591,33 @@ def test_el_instalador_abre_el_paquete_de_nuget_sin_salirse_y_con_un_solo_progra
 def test_el_instalador_compila_la_biblioteca_y_prueba_que_el_pth_vale() -> None:
     """Paso 14b: la biblioteca del paquete viene en .py: se compila una vez al instalar (luego
     runtime\\ es de solo lectura para tu usuario), y la prueba de arranque exige el modo aislado
-    sin site (que el ._pth se aplica) y la version fijada."""
+    sin site (que el ._pth se aplica) y la version fijada.
+
+    Revision del paso 14b: cada compileall mira su codigo de salida (antes solo se miraba el de
+    la prueba, que es la ultima orden); la prueba se hace con el programa de cada papel, no
+    solo con el de las ordenes; todo con $OpcionesPython (-E); y sin assert, que
+    PYTHONOPTIMIZE quita: la prueba es nativo.exigir_interprete_aislado."""
     instalar = _ps1("instalar")
     paso = instalar[instalar.index('Escribir "5/7'):instalar.index('Escribir "6/7')]
     assert '$bibliotecas = @($Roles | ForEach-Object { Join-Path $Raiz ("runtime\\" + $_ + "\\Lib") })' \
         in paso
-    assert "-m compileall -q --invalidation-mode checked-hash @bibliotecas" in paso
-    assert "sys.flags.isolated == 1 and sys.flags.no_site == 1 and 'site' not in sys.modules" in paso
-    assert "$fijado.python.version" in paso and "sys.version_info[:3]" in paso
-    assert paso.index("compileall") < paso.index("sys.flags.isolated") < paso.index("$LASTEXITCODE")
+    lineas = [linea.strip() for linea in paso.splitlines()]
+    compilan = [i for i, linea in enumerate(lineas) if "-m compileall" in linea]
+    assert len(compilan) == 2
+    assert "--invalidation-mode checked-hash @bibliotecas" in lineas[compilan[0]]
+    for i in compilan:
+        assert lineas[i].startswith("& $orden @OpcionesPython -m compileall"), lineas[i]
+        assert lineas[i + 1].startswith("if ($LASTEXITCODE -ne 0) { Fallar"), lineas[i + 1]
+    bucle = paso[paso.index("foreach ($rol in $Roles) {"):]
+    assert '$programa = Join-Path $Raiz ("runtime\\" + $rol + "\\python.exe")' in bucle
+    assert "& $programa @OpcionesPython -c" in bucle
+    assert "nativo.exigir_interprete_aislado('\" + $fijado.python.version + \"')" in bucle
+    assert bucle.index("exigir_interprete_aislado") < bucle.index(
+        "if ($LASTEXITCODE -ne 0) { Fallar")
+    sin_comentarios = "\n".join(linea for linea in lineas if not linea.startswith("#"))
+    assert not re.search(r"\bassert\b", sin_comentarios)
+    assert "& $orden -X" not in paso and "& $orden -c" not in paso
+    assert max(compilan) < lineas.index("foreach ($rol in $Roles) {")
 
 
 def test_las_reglas_apuntan_al_unico_programa_de_cada_papel() -> None:
@@ -1567,7 +1627,120 @@ def test_las_reglas_apuntan_al_unico_programa_de_cada_papel() -> None:
         assert fila["rol"] in aislamiento.ROLES
     comun = _ps1("comun")
     assert 'Programa  = (Join-Path $Raiz ("runtime\\" + $fila.Rol + "\\python.exe"))' in comun
-    assert [d for d in EN_CADA_PAPEL if d.endswith(".exe")] == ["python.exe"]
+    # Y ese es el programa que el instalador exige como unico en cada papel, y el que arrancan
+    # las ordenes.
+    assert '(Join-Path $Carpeta "python.exe")' in _funcion(_ps1("instalar"), "Comprobar-Runtime")
+    assert '("runtime\\" + $Rol + "\\python.exe")' in _funcion(comun, "Programa")
+
+
+@pytest.mark.parametrize("argumentos, lleva", [
+    (["python.exe", "-E", "-u", "-X", "utf8", "-m", "bms_agent.cli"], True),
+    (["python.exe", "-u", "-X", "utf8", "-E", "-c", "x"], True),
+    (["python.exe", "-I", "-c", "x"], True),
+    (["python.exe", "-uE", "-c", "x"], True),
+    (["python.exe", "-u", "-X", "utf8", "-m", "bms_agent.cli", "-E"], False),
+    (["python.exe", "-X", "E", "-c", "x"], False),
+    (["python.exe", "-XE", "-c", "x"], False),
+    (["python.exe", "-W", "E", "-c", "x"], False),
+    (["python.exe", "-cE"], False),
+    (["python.exe", "programa.py", "-E"], False),
+    (["python.exe", "--check-hash-based-pycs", "always", "-E", "-c", "x"], False),
+    (["python.exe"], False),
+])
+def test_lleva_menos_e_mira_solo_las_opciones_de_python(argumentos, lleva) -> None:
+    """Revision del paso 14b: -E cuenta si es una opcion de Python, no si es un argumento de lo
+    que se ejecuta ni el valor de -X o -W."""
+    assert nativo.lleva_menos_e(argumentos) is lleva
+
+
+def _arranque(**cambios) -> nativo.Arranque:
+    bien = dict(argumentos=("python.exe", *nativo.OPCIONES_PYTHON, "-m", "bms_agent.cli"),
+                isolated=1, no_site=1, optimize=0, inspect=0, pycache_prefix=None,
+                warnoptions=(), con_site=False, version="3.13.16")
+    return nativo.Arranque(**{**bien, **cambios})
+
+
+def test_problemas_del_arranque_ve_el_pth_el_menos_e_y_las_variables() -> None:
+    """Revision del paso 14b: el ._pth no basta (no aparta PYTHONPYCACHEPREFIX, PYTHONOPTIMIZE,
+    PYTHONWARNINGS ni PYTHONINSPECT); hace falta -E, y la prueba lo mira."""
+    assert nativo.problemas_del_arranque(_arranque(), "3.13.16") == []
+    assert nativo.problemas_del_arranque(_arranque()) == []
+    casos = {
+        "el ._pth no se aplica": [dict(isolated=0), dict(no_site=0), dict(con_site=True)],
+        "-E": [dict(argumentos=("python.exe", "-u", "-X", "utf8", "-m", "bms_agent.cli"))],
+        "PYTHONOPTIMIZE": [dict(optimize=1), dict(optimize=2)],
+        "PYTHONINSPECT": [dict(inspect=1)],
+        "PYTHONPYCACHEPREFIX": [dict(pycache_prefix=r"C:\BMS\datos\x")],
+        "PYTHONWARNINGS": [dict(warnoptions=("ignore",))],
+        "tiene que ser 3.13.16": [dict(version="3.11.9")],
+    }
+    for texto, cambios in casos.items():
+        for cambio in cambios:
+            problemas = nativo.problemas_del_arranque(_arranque(**cambio), "3.13.16")
+            assert len(problemas) == 1 and texto in problemas[0], (cambio, problemas)
+
+
+def test_la_prueba_de_arranque_no_depende_de_los_assert(tmp_path) -> None:
+    """Revision del paso 14b: la prueba del paso 5 eran assert, y con PYTHONOPTIMIZE (o -O) un
+    assert no se ejecuta: pasaba sin mirar nada. exigir_interprete_aislado sale con SystemExit
+    tambien con -O."""
+    entorno = {**os.environ, "PYTHONPATH": str(RAIZ / "src")}
+    entorno.pop("PYTHONOPTIMIZE", None)
+    for opciones in ((), ("-O",), ("-OO",)):
+        hecho = subprocess.run(
+            [sys.executable, *opciones, "-c",
+             "from bms_agent import nativo; nativo.exigir_interprete_aislado('0.0.0')"],
+            capture_output=True, text=True, env=entorno, cwd=tmp_path, timeout=60)
+        assert hecho.returncode == 1, (opciones, hecho.stderr)
+        assert "no esta aislado" in hecho.stderr and "tiene que ser 0.0.0" in hecho.stderr
+
+
+def _python_con_pth(carpeta: Path) -> Path | None:
+    """Una copia del Python que corre los tests con un ._pth al lado, como el de cada papel
+    (en Linux, Python busca <programa>._pth junto al programa). None si aqui no se puede."""
+    if os.name != "posix":
+        return None
+    real = Path(os.path.realpath(sys.executable))
+    programa = carpeta / "python"
+    shutil.copy2(real, programa)
+    dinamicos = [r for r in sys.path if r.endswith("lib-dynload")]
+    rutas = [str(Path(os.__file__).parent), *dinamicos, str(RAIZ / "src")]
+    (carpeta / "python._pth").write_text("\n".join(rutas) + "\n", encoding="utf-8")
+    try:
+        hecho = subprocess.run([str(programa), "-c", "import sys; print(sys.flags.isolated)"],
+                               capture_output=True, text=True, timeout=60, env={})
+    except OSError:
+        return None
+    return programa if hecho.returncode == 0 and hecho.stdout.strip() == "1" else None
+
+
+def test_el_pth_no_aparta_las_variables_python_y_menos_e_si(tmp_path) -> None:
+    """Revision del paso 14b, con un Python de verdad y un ._pth de verdad: el ._pth pone el
+    modo aislado despues de leer el entorno, y PYTHONPYCACHEPREFIX, PYTHONOPTIMIZE,
+    PYTHONWARNINGS y PYTHONINSPECT se aplican igual (la prueba de arranque lo ve); con
+    $OpcionesPython (-E), ninguna."""
+    carpeta = tmp_path / "runtime"
+    carpeta.mkdir()
+    programa = _python_con_pth(carpeta)
+    if programa is None:
+        pytest.skip("aqui no se puede copiar el Python con un ._pth")
+    entorno = {"PYTHONPYCACHEPREFIX": str(tmp_path / "plantados"), "PYTHONOPTIMIZE": "1",
+               "PYTHONWARNINGS": "ignore", "PYTHONPATH": str(tmp_path / "otra")}
+    codigo = ("from bms_agent import nativo; "
+              "print('|'.join(nativo.problemas_del_interprete()))")
+
+    def problemas(*opciones: str) -> list[str]:
+        hecho = subprocess.run([str(programa), *opciones, "-B", "-c", codigo],
+                               capture_output=True, text=True, timeout=60, env=entorno,
+                               cwd=tmp_path)
+        assert hecho.returncode == 0, hecho.stderr
+        return [p for p in hecho.stdout.strip().split("|") if p]
+
+    sin_e = problemas("-u", "-X", "utf8")
+    for variable in ("-E", "PYTHONPYCACHEPREFIX", "PYTHONOPTIMIZE", "PYTHONWARNINGS"):
+        assert any(variable in p for p in sin_e), (variable, sin_e)
+    assert not any("._pth" in p for p in sin_e)
+    assert problemas(*nativo.OPCIONES_PYTHON) == []
 
 
 def test_el_instalador_deja_el_codigo_de_solo_lectura() -> None:
@@ -1658,10 +1831,10 @@ def _funcion(texto: str, nombre: str) -> str:
 
 def test_cada_python_corre_sin_bufer() -> None:
     """Revision del paso 14: con la salida por una tuberia (Out-Host) o a un fichero, Python
-    guardaba lo que decia hasta acabar: una lectura de pago dejaba la ventana parada. Con el
-    ._pth no se mira PYTHONUNBUFFERED; -u si vale."""
+    guardaba lo que decia hasta acabar: una lectura de pago dejaba la ventana parada. -u vale
+    (PYTHONUNBUFFERED no: -E hace que no se mire). Revision del paso 14b: y -E, siempre."""
     comun = _ps1("comun")
-    assert '$OpcionesPython = @("-u", "-X", "utf8")' in comun
+    assert '$OpcionesPython = @("-E", "-u", "-X", "utf8")' in comun
     for nombre in ("Orden-De", "Orden-Directa", "Arrancar-En-Segundo-Plano"):
         assert "OpcionesPython" in _funcion(comun, nombre), nombre
     assert '"-X", "utf8", "-m"' not in comun
@@ -1824,6 +1997,37 @@ def test_la_guia_dice_de_donde_viene_python_y_por_que() -> None:
                   "python313._pth", "un solo programa, `python.exe`"):
         assert pieza in mantener, pieza
     assert "python311" not in guia and "embed-amd64" not in guia
+
+
+def test_la_guia_dice_lo_de_menos_e_la_firma_y_cuanto_dura_la_313() -> None:
+    """Revision del paso 14b: la guia dice que el ._pth no aparta las variables PYTHON* y que
+    por eso va -E; que el SHA-512 de nuget.org no es una segunda fuente (lo es la firma
+    Authenticode); que la 3.13 deja de tener binarios para Windows y lo siguiente es otra
+    version menor; lo que se mira la primera vez (la firma y la prueba del paso 5); y que
+    hacer con los fallos nuevos del paso 5."""
+    guia = (RAIZ / "docs" / "instalacion-nativa.md").read_text(encoding="utf-8")
+    mantener = _apartado(guia, "## 17. Para quien mantiene el programa")
+    for pieza in ("**El `._pth` no aparta las demás variables `PYTHON…`**", "PYTHONPYCACHEPREFIX",
+                  "**`-E`**", "nativo.OPCIONES_PYTHON", "**El SHA-512 no es una segunda fuente**",
+                  "**firma Authenticode de la Python Software Foundation**",
+                  "**solo en código fuente**", "la 3.14", "Get-AuthenticodeSignature"):
+        assert pieza in mantener, pieza
+    assert "Mientras la 3.13 tenga correcciones de seguridad" not in guia
+    assert "con una segunda fuente" not in guia
+    primera = _apartado(guia, "## 16. La primera vez en tu ordenador")
+    for pieza in ("Get-AuthenticodeSignature", "Status : Valid", "CN=Python Software Foundation",
+                  "Microsoft Trusted Signing", "`aislado`", "`-E`"):
+        assert pieza in primera, pieza
+    problemas = _apartado(guia, "## 14. Si algo no va")
+    for pieza in ("el ._pth no se aplica", "hace caso de las variables PYTHON*",
+                  "No se ha podido compilar", "«el Python de este papel» en rojo"):
+        assert pieza in problemas, pieza
+    assert "con `-E`, sin ninguna variable `PYTHON…`" in _apartado(
+        guia, "## 10. Lo que prueba la comprobación")
+    gitignore = (RAIZ / ".gitignore").read_text(encoding="utf-8")
+    assert "embebible" not in gitignore and "python.3.13.16.nupkg" in gitignore
+    fijar = (RAIZ / "scripts" / "fijar_windows.py").read_text(encoding="utf-8")
+    assert "3.13.17" not in fijar and "codigo fuente" in fijar
 
 
 # ============================================================ fijar_windows.py
@@ -2017,6 +2221,7 @@ def test_lo_bajado_de_verdad_es_lo_fijado() -> None:
     with zipfile.ZipFile(carpeta / fijado["python"]["fichero"]) as paquete:
         destinos = {d for d in map(nativo.destino_en_runtime, paquete.namelist()) if d}
     assert [d for d in destinos if d.lower().endswith(".exe")] == ["python.exe"]
+    assert _rutas_del_pth_que_faltan(destinos) == []
     assert {nativo.DLL_PYTHON, "Lib/os.py", "DLLs/_socket.pyd"} <= destinos
     assert not any(d.lower().startswith(("lib/site-packages/", "lib/venv/", "include/"))
                    for d in destinos)

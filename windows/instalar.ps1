@@ -17,7 +17,8 @@
 #     De cada uno solo queda un programa, python.exe: ni pythonw.exe ni los lanzadores de pip
 #     y de venv, que serian programas sin reglas;
 #   - cada uno con su python313._pth: solo ve su biblioteca, lib\ y app\src, y no hace caso
-#     de PYTHONPATH ni de nada del registro;
+#     de PYTHONPATH ni de nada del registro; y siempre se arranca con -E, para que tampoco
+#     mire las demas variables PYTHON* (el ._pth no las aparta);
 #   - crea las reglas del cortafuegos (todas empiezan por "BMS Finanzas - "): la consola, el
 #     lector y las ordenes sin red; la salida solo por el puerto 443;
 #   - deja el programa de solo lectura para tu usuario; solo datos\ y buzon\ se pueden cambiar;
@@ -303,10 +304,11 @@ function Abrir-Python([string]$Paquete, [string]$Destino) {
 }
 
 function Escribir-Pth([string]$Carpeta) {
-    # Junto a python313.dll. Con este fichero Python no mira PYTHONPATH, PYTHONHOME ni el
-    # registro, entra en modo aislado y no importa site (ni site-packages ni la carpeta del
-    # usuario): solo ve su biblioteca (Lib y DLLs), las dependencias (..\..\lib) y el codigo de
-    # la app (..\..\app\src). Lo mismo que nativo.contenido_pth.
+    # Junto a python313.dll. Con este fichero el sys.path no sale de PYTHONPATH, PYTHONHOME ni
+    # del registro, y Python no importa site (ni site-packages ni la carpeta del usuario): solo
+    # ve su biblioteca (Lib y DLLs), las dependencias (..\..\lib) y el codigo de la app
+    # (..\..\app\src). Las demas variables PYTHON* las aparta -E ($OpcionesPython), no esto.
+    # Lo mismo que nativo.contenido_pth.
     [System.IO.File]::WriteAllText((Join-Path $Carpeta $FicheroPth),
         (($RutasPth -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)
 }
@@ -474,16 +476,23 @@ function Instalar([string]$Raiz, [string]$Sid) {
     $orden = Join-Path $Raiz "runtime\orden\python.exe"
     # La biblioteca del paquete de NuGet viene sin compilar: se compila aqui, una vez, porque
     # despues tu usuario no puede escribir en runtime\ (y cada arranque la compilaria otra vez).
-    # Con checked-hash, un .pyc solo vale si el .py es el mismo.
+    # Con checked-hash, un .pyc solo vale si el .py es el mismo. Si no compila, se para.
     $bibliotecas = @($Roles | ForEach-Object { Join-Path $Raiz ("runtime\" + $_ + "\Lib") })
-    & $orden -X utf8 -m compileall -q --invalidation-mode checked-hash @bibliotecas | Out-Null
-    & $orden -X utf8 -m compileall -q (Join-Path $app "src") $lib | Out-Null
-    # Que el ._pth vale de verdad: modo aislado, sin site, y la version fijada.
-    & $orden -X utf8 -c ("import sys, sqlite3, anthropic, pydantic, yaml, tzdata, bms_agent.cli; " +
-        "assert sys.flags.isolated == 1 and sys.flags.no_site == 1 and 'site' not in sys.modules, 'el ._pth no se aplica'; " +
-        "assert '%d.%d.%d' % sys.version_info[:3] == '" + $fijado.python.version + "', sys.version; " +
-        "print('   Python', sys.version.split()[0], '- SQLite', sqlite3.sqlite_version)") | Out-Host
-    if ($LASTEXITCODE -ne 0) { Fallar "El programa no arranca con lo instalado. Mira el mensaje de arriba." }
+    & $orden @OpcionesPython -m compileall -q --invalidation-mode checked-hash @bibliotecas | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fallar "No se ha podido compilar la biblioteca de Python (runtime\<papel>\Lib). Mira el mensaje de arriba. No se instala." }
+    & $orden @OpcionesPython -m compileall -q (Join-Path $app "src") $lib | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fallar "No se ha podido compilar el programa (app\src) o sus dependencias (lib). Mira el mensaje de arriba. No se instala." }
+    # Con el programa de cada papel: que arranca, que el ._pth se aplica (modo aislado, sin
+    # site), que lleva -E y no se le ha colado ninguna variable PYTHON*, y la version fijada
+    # (nativo.exigir_interprete_aislado: con SystemExit, no con assert, que PYTHONOPTIMIZE
+    # quitaria).
+    foreach ($rol in $Roles) {
+        $programa = Join-Path $Raiz ("runtime\" + $rol + "\python.exe")
+        & $programa @OpcionesPython -c ("import sys, sqlite3, anthropic, pydantic, yaml, tzdata, bms_agent.cli; " +
+            "from bms_agent import nativo; nativo.exigir_interprete_aislado('" + $fijado.python.version + "'); " +
+            "print('   " + $rol + ": Python', sys.version.split()[0], '- SQLite', sqlite3.sqlite_version, '- aislado')") | Out-Host
+        if ($LASTEXITCODE -ne 0) { Fallar ("El programa de " + $rol + " no arranca con lo instalado o no esta aislado. Mira el mensaje de arriba. No se instala.") }
+    }
 
     Escribir "6/7 Las carpetas de tus datos y del buzon..." "Cyan"
     foreach ($carpeta in @("datos", "datos\secretos", "datos\out", "datos\registro-salida", "buzon",

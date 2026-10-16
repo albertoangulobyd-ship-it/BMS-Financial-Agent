@@ -7,7 +7,8 @@ git:
 
     python scripts/fijar_windows.py                   rellena lo que falte
     python scripts/fijar_windows.py --rehacer         lo vuelve a sacar todo, aunque ya este
-    python scripts/fijar_windows.py --python 3.13.17  otra version del Python (y sus ruedas)
+    python scripts/fijar_windows.py --python 3.13.X   otra version del Python que nuget.org
+                                                      tenga (y sus ruedas)
     python scripts/fijar_windows.py --comprobar       sin red: dice que falta o que no cuadra
                                                       (sale con 1 si algo no esta bien)
     python scripts/fijar_windows.py --comprobar --paquetes CARPETA
@@ -18,9 +19,17 @@ git:
   https://api.nuget.org/v3-flatcontainer/ y se calcula su sha256; ese numero solo dice que
   es lo que nuget.org sirve hoy, asi que se cruza con el SHA-512 que nuget.org publica de
   esa version en su catalogo (packageHash), al que se llega por el indice de registro. Si
-  no son el mismo fichero, se para. Tambien se mira que sea un zip con tools/python.exe,
-  la DLL de esa version y la biblioteca, que es lo que el instalador abre. La firma
-  Authenticode de python.exe y de la DLL la comprueba el instalador en Windows.
+  no son el mismo fichero, se para. El paquete y el catalogo son los dos de nuget.org: el
+  cruce dice que lo bajado es lo que nuget.org lista, no de donde viene. De donde viene lo
+  dice la firma Authenticode de la Python Software Foundation en python.exe y en la DLL, que
+  comprueba el instalador en Windows; quien sube un sha256 nuevo la mira antes en un Windows
+  (docs/instalacion-nativa.md, apartado 17). Tambien se mira que sea un zip con
+  tools/python.exe, la DLL de esa version y la biblioteca, que es lo que el instalador abre.
+
+Una version menor solo tiene binarios para Windows (tambien en nuget.org) mientras esta en
+su fase de correcciones; las de solo seguridad salen en codigo fuente. Cuando --python 3.13.X
+ya no encuentra el paquete, lo siguiente es la version menor siguiente (nativo.VERSION_PYTHON,
+windows/comun.ps1 y la suite pasando en ella).
 - Las ruedas: el sha256 que publica PyPI (https://pypi.org/pypi/NOMBRE/VERSION/json) de la
   rueda que vale para Windows x64 y esa version de CPython (cp3XY-win_amd64, abi3 o
   py3-none-any). Si valen dos, se dice y se para. Las versiones son las de

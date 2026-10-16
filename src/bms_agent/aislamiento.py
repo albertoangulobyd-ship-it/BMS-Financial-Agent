@@ -17,7 +17,10 @@ salida, orden) corre con su propio programa y prueba a salir:
   mal (falla cerrada). Todas las pruebas por el proxy tienen el mismo plazo, el de la API:
   una salida mal puesta que conecta antes de negarse tarda lo que tarda en conectar;
 - en la instalacion, el codigo (la raiz, app, lib, runtime, windows) no se puede escribir
-  y los datos y el buzon si.
+  y los datos y el buzon si;
+- en la instalacion, el propio Python del papel arranco aislado: con su ._pth y con -E,
+  sin ninguna variable PYTHON* (una PYTHONPYCACHEPREFIX haria ejecutar .pyc de una carpeta
+  que se puede escribir en vez del codigo de solo lectura).
 
 El resultado va a datos/aislamiento.json, con la hora y el papel. La consola pinta una
 banda roja si falta o falla alguno (`problemas`), y una pasada de lectura no se hace si
@@ -146,6 +149,9 @@ class Observaciones:
     con_credencial: dict[str, int | None] = field(default_factory=dict)
     sin_credencial: dict[str, int | None] = field(default_factory=dict)
     escritura: dict[str, bool] = field(default_factory=dict)
+    # Lo que no esta bien en como arranco el Python del papel (nativo.problemas_del_interprete);
+    # None si no se ha mirado (fuera de la instalacion).
+    interprete: tuple[str, ...] | None = None
 
 
 # ------------------------------------------------------------ las pruebas, una a una
@@ -262,7 +268,8 @@ def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
     - consola y orden, si se les da el proxy: sin credencial 407;
     - por el proxy, solo un no explicito es un no: "no contesta" no se da por bueno;
     - el codigo no se puede escribir; los datos y el buzon si (si no, es un aviso: no es
-      una fuga, pero nada funcionaria).
+      una fuga, pero nada funcionaria);
+    - si se ha mirado, el Python del papel arranco aislado (sin ningun problema).
     """
     if rol not in ROLES:
         raise ValueError(f"{rol!r} no es un papel ({', '.join(ROLES)})")
@@ -312,6 +319,10 @@ def evaluar(rol: str, vistas: Observaciones, sondas: Iterable[Sonda] = EXTERNOS,
         else:
             salida.append(Comprobacion(f"escribir en {nombre}", "no se puede (codigo)",
                                        "se puede" if puede else "no se puede", not puede))
+    if vistas.interprete is not None:
+        salida.append(Comprobacion(
+            "el Python de este papel", "aislado (su ._pth y -E, sin variables PYTHON*)",
+            "; ".join(vistas.interprete) or "aislado", not vistas.interprete))
     return tuple(salida)
 
 
@@ -322,9 +333,11 @@ def observar(rol: str, *, proxy: tuple[str, int] | None = None, credencial: str 
              espera_api: float = ESPERA_API, carpetas: Mapping[str, Path] | None = None,
              conectar: Conectar = socket.create_connection,
              crear_udp: Callable[..., socket.socket] = socket.socket,
-             escribir: Callable[[Path], bool] | None = None) -> Observaciones:
+             escribir: Callable[[Path], bool] | None = None,
+             interprete: Callable[[], Iterable[str]] | None = None) -> Observaciones:
     """Hace las pruebas a la vez (cada una tiene su plazo corto): lo que tarda es el plazo,
-    no la suma de todos.
+    no la suma de todos. `interprete`, si se da, dice que no esta bien en como arranco el
+    Python (nativo.problemas_del_interprete; aqui no se importa nativo, que importa esto).
 
     Las pruebas directas tienen `espera`; las del proxy, todas `espera_api`: una salida que
     deja pasar de mas conecta con el destino antes de contestar, y con un plazo mas corto
@@ -354,6 +367,8 @@ def observar(rol: str, *, proxy: tuple[str, int] | None = None, credencial: str 
             vistas.sin_credencial = {d: f.result() for d, f in sin.items()}
     for nombre, carpeta in (carpetas or {}).items():
         vistas.escritura[nombre] = escribir(carpeta)
+    if interprete is not None:
+        vistas.interprete = tuple(interprete())
     return vistas
 
 

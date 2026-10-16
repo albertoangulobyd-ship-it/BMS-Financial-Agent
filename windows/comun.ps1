@@ -102,9 +102,14 @@ function Elegir-Base([switch]$Demo) {
     }
 }
 
-# Las opciones de cada Python: -u, sin bufer (lo que dice va saliendo, tambien a un fichero o
-# por una tuberia; con el ._pth no se mira PYTHONUNBUFFERED), y -X utf8.
-$OpcionesPython = @("-u", "-X", "utf8")
+# Las opciones de cada Python (lo mismo que nativo.OPCIONES_PYTHON; los tests exigen que sean
+# iguales). -E: que no mire ninguna variable PYTHON* del entorno. El ._pth solo aparta
+# PYTHONPATH y PYTHONHOME; las demas (PYTHONPYCACHEPREFIX, PYTHONOPTIMIZE, PYTHONWARNINGS,
+# PYTHONINSPECT...) Python ya las ha leido cuando aplica el ._pth, y el entorno de tu usuario
+# lo puede cambiar cualquier programa tuyo: con PYTHONPYCACHEPREFIX en datos\ se ejecutarian
+# unos .pyc dejados alli en vez del codigo de solo lectura. -u, sin bufer (lo que dice va
+# saliendo, tambien a un fichero o por una tuberia), y -X utf8.
+$OpcionesPython = @("-E", "-u", "-X", "utf8")
 
 function Orden-De([string]$Rol, [string[]]$Argumentos) {
     # Una orden de bms-agent con el programa de ese papel, que es el que tiene sus reglas del

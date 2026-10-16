@@ -26,6 +26,7 @@ venv/
 /docker/secretos/*
 !/docker/secretos/LEEME.txt
 
-# Paso 14: un paquete preparado sin internet para el instalador de Windows (ruedas y el
-# Python embebible); se comprueba por su sha256, pero no va en git.
+# Paso 14: un paquete preparado sin internet para el instalador de Windows (el paquete de
+# Python de nuget.org, python.3.13.16.nupkg, y las ruedas); se comprueba por su sha256, pero
+# no va en git.
 /windows/paquetes/

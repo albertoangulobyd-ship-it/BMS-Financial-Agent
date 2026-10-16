@@ -32,6 +32,10 @@ Lo que el codigo sabe de esa instalacion vive aqui:
   lector.
 - `contenido_pth` y `destino_en_runtime`: lo que el instalador escribe en el ._pth de
   cada papel y lo que saca del paquete de NuGet.
+- `OPCIONES_PYTHON` y `problemas_del_arranque`: cada python.exe se arranca con -E, porque
+  el ._pth solo aparta PYTHONPATH y PYTHONHOME (las demas variables PYTHON* ya se han
+  leido cuando se aplica). La prueba de arranque del instalador y la comprobacion de
+  aislamiento miran que el Python de cada papel arranco asi.
 
 - `prohibir_procesos`: en la instalacion, ningun codigo de Python del proceso (tampoco
   el de las dependencias) arranca otro programa. El codigo de la app no lo hace (lo
@@ -81,14 +85,23 @@ VERSION_PYTHON = (3, 13)
 _ETIQUETA = f"{VERSION_PYTHON[0]}{VERSION_PYTHON[1]}"
 DLL_PYTHON = f"python{_ETIQUETA}.dll"
 # El ._pth va junto a python313.dll (Python lo busca alli antes que junto al programa).
-# Con el, Python no mira PYTHONPATH, PYTHONHOME ni el registro, entra en modo aislado, no
-# importa site (sin site no hay site-packages ni la carpeta del usuario) y su sys.path es
+# Con el, el sys.path no sale de PYTHONPATH, PYTHONHOME ni el registro, Python no importa
+# site (sin site no hay site-packages ni la carpeta del usuario) y su sys.path es
 # exactamente esto, relativo a la carpeta del python.exe de cada papel: la biblioteca
 # (Lib, en .py), sus modulos compilados (DLLs, los .pyd), las dependencias y el codigo de
 # la app. Sin "." (la carpeta del programa): en el paquete de NuGet alli no hay nada que
 # importar, y una ruta menos es un sitio menos donde dejar un modulo.
 FICHERO_PTH = f"python{_ETIQUETA}._pth"
 RUTAS_PTH = ("Lib", "DLLs", r"..\..\lib", r"..\..\app\src")
+# Las opciones con las que se arranca cada python.exe ($OpcionesPython en windows/comun.ps1;
+# un test exige que sean iguales). El ._pth pone el modo aislado tarde: cuando Python lo
+# lee, ya ha tomado las demas variables PYTHON* del entorno (PYTHONPYCACHEPREFIX,
+# PYTHONOPTIMIZE, PYTHONWARNINGS, PYTHONINSPECT...), y el entorno de tu usuario lo puede
+# cambiar cualquier programa tuyo. Con PYTHONPYCACHEPREFIX en una carpeta que se puede
+# escribir (datos), Python ejecutaria los .pyc dejados alli en vez del codigo de solo
+# lectura. -E es lo que hace que no mire ninguna; -u, sin bufer (lo que dice va saliendo,
+# tambien a un fichero o por una tuberia); -X utf8, lo que dice en UTF-8.
+OPCIONES_PYTHON = ("-E", "-u", "-X", "utf8")
 
 # Lo que el instalador saca del paquete de NuGet para cada papel: la carpeta tools/ (lo
 # demas es del propio NuGet: el nuspec, su firma, los props de MSBuild) sin lo que no es
@@ -320,6 +333,90 @@ def prohibir_procesos_si_nativa() -> None:
 def contenido_pth() -> str:
     """El python313._pth de cada papel, con fin de linea de Windows."""
     return "\r\n".join(RUTAS_PTH) + "\r\n"
+
+
+@dataclass(frozen=True)
+class Arranque:
+    """Lo que dice un interprete de como arranco: lo que mira `problemas_del_arranque`."""
+
+    argumentos: tuple[str, ...]
+    isolated: int
+    no_site: int
+    optimize: int
+    inspect: int
+    pycache_prefix: str | None
+    warnoptions: tuple[str, ...]
+    con_site: bool
+    version: str
+
+
+def arranque_actual() -> Arranque:
+    return Arranque(tuple(sys.orig_argv), sys.flags.isolated, sys.flags.no_site,
+                    sys.flags.optimize, sys.flags.inspect, sys.pycache_prefix,
+                    tuple(sys.warnoptions), "site" in sys.modules,
+                    "%d.%d.%d" % sys.version_info[:3])
+
+
+def lleva_menos_e(argumentos: tuple[str, ...] | list[str]) -> bool:
+    """Si la linea de ordenes de Python (sys.orig_argv) lleva -E o -I antes de lo que
+    ejecuta. Se mira la linea y no sys.flags.ignore_environment: el ._pth pone esa marca
+    aunque Python ya haya leido el entorno."""
+    i = 1
+    while i < len(argumentos):
+        opcion = argumentos[i]
+        if not opcion.startswith("-") or opcion == "-" or opcion.startswith("--"):
+            return False
+        for posicion, letra in enumerate(opcion[1:], 1):
+            if letra in "EI":
+                return True
+            if letra in "cm":
+                return False
+            if letra in "XW":
+                if posicion == len(opcion) - 1:
+                    i += 1
+                break
+        i += 1
+    return False
+
+
+def problemas_del_arranque(arranque: Arranque, version: str | None = None) -> list[str]:
+    """Lo que no esta bien en como arranco el Python de un papel; vacia si esta bien.
+    Funcion pura: es la regla. Con `version`, ademas, la version tiene que ser esa.
+
+    Que el ._pth se aplique (modo aislado, sin site) y que lleve -E, y lo que se veria si
+    alguna variable PYTHON* se hubiera colado: ni optimizacion (quita los assert), ni
+    inspect, ni otra carpeta de .pyc, ni avisos cambiados."""
+    problemas = []
+    if arranque.isolated != 1 or arranque.no_site != 1 or arranque.con_site:
+        problemas.append("el ._pth no se aplica (sin modo aislado o con site)")
+    if not lleva_menos_e(arranque.argumentos):
+        problemas.append("no se ha arrancado con -E: hace caso de las variables PYTHON*")
+    if arranque.optimize != 0:
+        problemas.append(f"optimize es {arranque.optimize} (PYTHONOPTIMIZE): sin los assert")
+    if arranque.inspect != 0:
+        problemas.append("inspect esta puesto (PYTHONINSPECT)")
+    if arranque.pycache_prefix is not None:
+        problemas.append(f"los .pyc se leen de otra carpeta ({arranque.pycache_prefix}, "
+                         "PYTHONPYCACHEPREFIX)")
+    if arranque.warnoptions:
+        problemas.append(f"avisos cambiados ({', '.join(arranque.warnoptions)}, PYTHONWARNINGS)")
+    if version is not None and arranque.version != version:
+        problemas.append(f"es Python {arranque.version} y tiene que ser {version}")
+    return problemas
+
+
+def problemas_del_interprete() -> list[str]:
+    """Los del interprete que corre (los tests la sustituyen, como instalacion_actual)."""
+    return problemas_del_arranque(arranque_actual())
+
+
+def exigir_interprete_aislado(version: str) -> None:
+    """La prueba de arranque del instalador (paso 5), con el programa de cada papel. Con
+    SystemExit y no con assert: PYTHONOPTIMIZE quitaria los assert, y es justo una de las
+    variables que se quiere ver."""
+    problemas = problemas_del_arranque(arranque_actual(), version)
+    if problemas:
+        raise SystemExit(f"El Python {sys.executable} no esta aislado: " + "; ".join(problemas))
 
 
 class PaqueteNoValido(ValueError):

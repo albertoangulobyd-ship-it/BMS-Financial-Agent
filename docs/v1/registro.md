@@ -6669,9 +6669,11 @@ de jiter, porque ya no falta ninguno, y se abre el paquete de NuGet).
   el almacén de Windows, que la baja sola), que la prueba del paso 5 sale con
   `isolated`/`no_site` y que `comprobar.bat` sale en verde.
 - **Una corrección de la 3.13** es `python scripts/fijar_windows.py --python 3.13.X`, revisar
-  lo que cambia y `--comprobar`. **Otra versión menor** es además `nativo.VERSION_PYTHON`,
-  las variables de `windows/comun.ps1` (los tests exigen que sean iguales) y la suite
-  pasando antes en esa versión.
+  lo que cambia y `--comprobar`, **solo mientras nuget.org tenga esa versión**: las de solo
+  seguridad (desde octubre de 2026, más o menos) salen solo en código fuente (corregido en
+  la revisión, hallazgo 3). **Otra versión menor** (la 3.14, cuando la 3.13 deje de tener
+  binarios) es además `nativo.VERSION_PYTHON`, las variables de `windows/comun.ps1` (los
+  tests exigen que sean iguales) y la suite pasando antes en esa versión.
 - **Una dependencia nueva** va en `docker/requirements.txt` y en
   `windows/requirements-windows.txt`; `fijar_windows.py` saca su hash cp313-win_amd64, y
   `--comprobar` exige las mismas versiones.
@@ -6683,3 +6685,124 @@ de jiter, porque ya no falta ninguno, y se abre el paquete de NuGet).
 - **Lo que se mira en cada papel** (un solo `python.exe` y lo necesario) es
   `NECESARIOS_DEL_RUNTIME` y `FUERA_DEL_RUNTIME` en `nativo.py` y en `comun.ps1`; si un
   paquete nuevo trae otro programa, el instalador para y hay que decidir si va fuera.
+
+### Correcciones de la revisión (paso 14b)
+
+Once hallazgos, con dos repetidos (el 7 es el 1 y el 9 es el 2). Todos se comprobaron
+contra el código y **todos eran reales**; el mayor (el 6) y el de los `assert` (el 1) se
+reprodujeron con un Python de verdad y un `._pth` de verdad. Cada corrección tiene un test
+que falla con el código de antes y pasa con el de ahora (comprobado devolviendo `src/` y
+`windows/` a `1e112ac` con los tests nuevos: fallan veintiséis; y los de la guía, con
+`docs/`, `.gitignore` y `scripts/` de antes). La suite entera: **2371 pasan y 12 se
+saltan** (eran 2354) en `.venv` (3.11), los mismos doce saltados de antes (el test nuevo
+del `._pth` de verdad no se salta aquí); `tests/test_instalacion_nativa.py` con
+`pwsh` (7.4.21, en el scratchpad) y lo bajado (`BMS_PAQUETES_WINDOWS`): **196 pasan, en
+3.11 y en 3.13.16** (con `-W error` en 3.13), así que los `.ps1` cambiados pasan el
+analizador de PowerShell y las pruebas de pwsh.
+
+1. **La prueba del paso 5 eran `assert`** (menor), y `PYTHONOPTIMIZE` (que el `._pth` no
+   aparta: el 6) los quita: con `PYTHONOPTIMIZE=1` un `assert False` sale con 0. Ahora la
+   prueba llama a `nativo.exigir_interprete_aislado(version)`, que sale con `SystemExit` y
+   el mensaje («… no esta aislado: el ._pth no se aplica…»); además va con `-E` y mira que
+   `optimize` sea 0. Tests: `test_la_prueba_de_arranque_no_depende_de_los_assert` (con
+   `-O` y `-OO` sigue saliendo con 1) y, en
+   `test_el_instalador_compila_la_biblioteca_y_prueba_que_el_pth_vale` (cambiado), que en
+   el código del paso 5 no hay ningún `assert`.
+2. **Los `compileall` no miraban su código de salida** (menor). `$LASTEXITCODE` solo se
+   miraba después de la prueba, la última orden. Ahora cada `compileall` va seguido de su
+   `if ($LASTEXITCODE -ne 0) { Fallar … }` («No se ha podido compilar …»), y lo que dice
+   sale por `Out-Host` (con `-q` solo dice los errores). Se miró antes que la biblioteca de
+   verdad compila: los 540 `.py` de `Lib` que se sacan del paquete, con
+   `/usr/bin/python3.13 -m compileall --invalidation-mode checked-hash`, salen con 0, y
+   también las diecisiete ruedas y `src/`. El test (cambiado) exige, línea a línea, que
+   detrás de cada `compileall` venga su comprobación.
+3. **La 3.13 también se queda sin binarios para Windows** (menor, de documentación). Es
+   así: por la PEP 719, la 3.13 sale de su fase de correcciones hacia octubre de 2026, y las
+   versiones de solo seguridad salen solo en código fuente, sin binarios ni paquete de
+   nuget.org (aquí no se pudo mirar el calendario, sin red). La guía (apartado 17), el
+   docstring de `fijar_windows.py` (ya no pone `--python 3.13.17`) y «Lo que deben saber
+   los pasos siguientes» de arriba lo dicen ahora: `--python 3.13.X` vale mientras
+   nuget.org tenga esa versión, y después lo siguiente es la versión menor siguiente (la
+   3.14, con binarios hasta octubre de 2027 más o menos), cuanto antes. **No se cambia el
+   Python fijado**: subir a la 3.14 es bajar su paquete y sus ruedas y pasar la suite en
+   3.14, y aquí no hay red ni 3.14; queda para quien prepare la versión siguiente.
+4. **Dos tests miraban sus propias constantes** (menor). En
+   `test_las_reglas_apuntan_al_unico_programa_de_cada_papel` sobraba la línea de
+   `EN_CADA_PAPEL`; ahora mira que el programa de las reglas es el que `Comprobar-Runtime`
+   exige como único y el que arranca `Programa`. En
+   `test_el_pth_es_el_de_la_estructura_del_paquete_de_nuget`, en vez de comparar
+   `NECESARIOS_DEL_RUNTIME` con literales, `_rutas_del_pth_que_faltan` saca con
+   `nativo.destino_en_runtime` lo que se extrae de `ENTRADAS_DEL_PAQUETE` y exige que en
+   cada ruta del `._pth` dentro del papel (`Lib`, `DLLs`) quede algo (y sin la biblioteca,
+   falta `Lib`); lo mismo con el paquete de verdad en `test_lo_bajado_de_verdad_es_lo_fijado`.
+   Que `Destino-En-Runtime` haga lo mismo que `nativo.destino_en_runtime` lo siguen
+   probando los tests de pwsh, que aquí se corrieron.
+5. **El SHA-512 de nuget.org no es una segunda fuente** (menor, de documentación). La guía
+   lo decía; ya no: el paquete y su catálogo son los dos de nuget.org, y el cruce dice que
+   lo bajado es lo que nuget.org lista, no de dónde viene. Lo que lo dice es la firma
+   Authenticode de la Python Software Foundation, que el instalador exige; y antes de subir
+   un sha256 nuevo, quien lo sube mira esa firma en `tools\python.exe` y
+   `tools\python313.dll` en un Windows (apartado 17 y docstring de `fijar_windows.py`).
+6. **El `._pth` no aparta las variables `PYTHON*`** (mayor). Reproducido aquí: una copia de
+   `/usr/bin/python3.13` (y de la 3.11) con su `._pth` al lado da `isolated` 1 e
+   `ignore_environment` 1, pero `PYTHONPYCACHEPREFIX`, `PYTHONOPTIMIZE`, `PYTHONWARNINGS` y
+   `PYTHONINSPECT` se aplican igual (`sys.pycache_prefix`, `optimize` 1…): Python las lee
+   antes de `getpath.py`, que es quien aplica el `._pth`. Con `-E`, ninguna. En Windows el
+   entorno del usuario (`HKCU\Environment`) lo puede cambiar cualquier programa suyo, y
+   con `PYTHONPYCACHEPREFIX` en `datos\` el siguiente arranque de la salida ejecutaría
+   unos `.pyc` dejados allí en vez del código de solo lectura. Ahora:
+   - **`-E` siempre**: `$OpcionesPython = @("-E", "-u", "-X", "utf8")` en `comun.ps1`, igual
+     que `nativo.OPCIONES_PYTHON` (un test exige que sean iguales); y las órdenes del paso 5
+     del instalador (los dos `compileall` y la prueba) también van con `@OpcionesPython`.
+   - **Se mira al arrancar**: `nativo.problemas_del_arranque(arranque, version)`, pura, con
+     `nativo.Arranque` (de `sys.orig_argv`, `sys.flags`, `sys.pycache_prefix`,
+     `sys.warnoptions`, si `site` está importado y la versión): el `._pth` se aplica (modo
+     aislado, sin `site`), la línea de órdenes lleva `-E` o `-I` antes de lo que ejecuta
+     (`nativo.lleva_menos_e`: se mira la línea, porque `ignore_environment` lo pone el
+     `._pth` aunque el entorno ya se haya leído; ni el valor de `-X`/`-W` ni un argumento
+     del programa cuentan), sin optimización, sin `inspect`, sin otra carpeta de `.pyc` y
+     sin avisos cambiados.
+   - **`comprobar-aislamiento` lo comprueba en cada papel** (en la instalación): una
+     comprobación grave más, «el Python de este papel» (`aislamiento.Observaciones.interprete`,
+     que `observar` rellena con lo que le da la orden: `nativo.problemas_del_interprete`;
+     `aislamiento` no importa `nativo`, que lo importa a él). Una salida o un lector que no
+     arrancó así no sale en verde, y entonces la lectura no se hace.
+   - Los comentarios de `comun.ps1`, `instalar.ps1` y `nativo.py`, y la guía (apartados 10 y
+     17), dicen ya lo que hace cada cosa: el `._pth` fija el `sys.path` (ni `PYTHONPATH`, ni
+     `PYTHONHOME`, ni el registro) y deja `site` sin importar; las demás variables las
+     aparta `-E`.
+
+   Tests: `test_el_pth_no_aparta_las_variables_python_y_menos_e_si` (con un Python de verdad
+   y un `._pth` de verdad, en una carpeta temporal: sin `-E` la prueba ve
+   `PYTHONPYCACHEPREFIX`, `PYTHONOPTIMIZE` y `PYTHONWARNINGS`; con `nativo.OPCIONES_PYTHON`,
+   nada; se salta si aquí no se puede copiar el Python),
+   `test_problemas_del_arranque_ve_el_pth_el_menos_e_y_las_variables`,
+   `test_lleva_menos_e_mira_solo_las_opciones_de_python`,
+   `test_comprobar_aislamiento_mira_como_arranco_el_python`,
+   `test_comun_dice_lo_mismo_que_nativo_del_python_de_cada_papel` (más
+   `OpcionesPython`) y `test_cada_python_corre_sin_bufer` (cambiado: ahora con `-E`).
+7. Es el 1.
+8. **La prueba de arranque solo se hacía con el programa de las órdenes** (menor). Ahora es
+   un bucle por `$Roles`: cada `runtime\<papel>\python.exe`, con `@OpcionesPython`, importa
+   lo de siempre y pasa `nativo.exigir_interprete_aislado`; si uno no, el instalador para
+   («El programa de … no arranca con lo instalado o no esta aislado»). Sale una línea por
+   papel, con `aislado`. Y `comprobar.bat` lo vuelve a mirar en cada papel (el 6). Test:
+   `test_el_instalador_compila_la_biblioteca_y_prueba_que_el_pth_vale` (cambiado).
+9. Es el 2.
+10. **La guía no tenía lo nuevo del paso 14b en los apartados 14 y 16** (menor). El 16
+    tiene ahora lo de la primera vez: las cuatro líneas del paso 5 con `aislado`, y
+    `Get-AuthenticodeSignature` de `python.exe` y `python313.dll` con `Status : Valid`, el
+    firmante `CN=Python Software Foundation` y la cadena de Microsoft Trusted Signing. La
+    tabla del 14 tiene filas para «no esta aislado: el ._pth no se aplica…», «…hace caso
+    de las variables PYTHON*…» o la versión que no es («no sigas, avisa»), para «No se ha
+    podido compilar» y para «el Python de este papel» en rojo en `comprobar.bat`.
+11. **El comentario de `.gitignore` decía «Python embebible»** (menor): ahora dice el
+    paquete de nuget.org (`python.3.13.16.nupkg`) y las ruedas.
+
+Tests nuevos o cambiados de esta revisión, todos en `tests/test_instalacion_nativa.py`: los
+nombrados arriba y `test_la_guia_dice_lo_de_menos_e_la_firma_y_cuanto_dura_la_313` (los
+apartados 10, 14, 16 y 17, `.gitignore` y el docstring de `fijar_windows.py`). El fixture
+`como` hace además como si el Python de los tests arrancara aislado
+(`nativo.problemas_del_interprete` sin problemas), igual que ya hacía como si hubiera
+instalación: el Python de los tests no tiene `._pth` ni `-E`, y lo que pasa con uno así lo
+prueba `test_comprobar_aislamiento_mira_como_arranco_el_python`.

@@ -2549,7 +2549,8 @@ def _cmd_comprobar_aislamiento(args: argparse.Namespace) -> int:
     En la instalacion nativa solo se comprueba el papel del programa que corre: el
     cortafuegos distingue los programas por su ruta, y probar el lector con el programa de
     la consola no diria nada del lector. El proxy del lector y su credencial vienen de
-    HTTPS_PROXY, el mismo que usara la lectura: asi se comprueba lo que se va a usar.
+    HTTPS_PROXY, el mismo que usara la lectura: asi se comprueba lo que se va a usar. En
+    la instalacion se mira ademas el propio Python: su ._pth y -E (nativo.problemas_del_arranque).
     """
     from . import aislamiento, nativo, salida
 
@@ -2583,6 +2584,7 @@ def _cmd_comprobar_aislamiento(args: argparse.Namespace) -> int:
     informe = aislamiento.comprobar(
         args.rol, proxy=proxy, credencial=credencial, sesion=sesion, espera=args.espera,
         carpetas=instalacion.carpetas_a_probar() if instalacion is not None else None,
+        interprete=nativo.problemas_del_interprete if instalacion is not None else None,
         programa=sys.executable)
     aislamiento.guardar(ruta, informe)
     print(aislamiento.formatear(informe))
