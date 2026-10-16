@@ -175,7 +175,7 @@ alcanzables por teclado; la tabla completa como alternativa a todo color.
 
 ## 11. Estado real del proyecto
 
-- Código: unas 46.000 líneas de Python (73.000 con los tests), 1922 tests,
+- Código: unas 46.000 líneas de Python (73.000 con los tests), 1943 tests,
   ninguno llama a la API. La V1 está construida entera (los doce pasos de
   `docs/v1/spec.md`).
 - La extracción funciona sobre facturas reales con acierto medido.

@@ -792,6 +792,14 @@ SCRIPT = r"""
       el('ul', {}, f.periodos_sin_factura.map(function (x) {
         return el('li', {}, 'cliente ' + x.cliente_id + ': del ' + x.desde + ' al ' + x.hasta);
       })),
+      el('p', {}, 'Horas validadas fuera de una venta de su periodo: ' +
+        f.horas_sin_facturar.length),
+      el('ul', {}, f.horas_sin_facturar.map(function (x) {
+        return el('li', {}, el('span', {clase: 'enlace', al_pulsar: function () {
+          abrirFicha(x.factura_id); }}, 'factura ' + x.factura_id),
+          ': ' + x.horas + ' h del ' + x.desde + ' al ' + x.hasta +
+          (x.valor ? ' (' + x.valor + (x.estimado ? ', estimado' : '') + ')' : ''));
+      })),
       el('p', {}, 'Diferencias con el planning: ' + f.diferencias_planning.hallazgos +
         ' (' + f.diferencias_planning.facturas + ' facturas, ' + f.diferencias_planning.valor +
         ')'));
@@ -806,11 +814,17 @@ SCRIPT = r"""
   }
 
   function bloquePo(po) {
+    // Los dos lados no se suman: lo que BMS puede facturar y lo que le pueden facturar.
+    function lado(titulo, c) {
+      return [titulo, String(c.activas), c.valor, c.consumido, c.restante];
+    }
     return bloque('Órdenes de compra',
-      el('p', {}, po.activas + ' activas: valor ' + po.valor + ' · consumido ' + po.consumido +
-        ' · queda ' + po.restante + ' (sin IVA)'),
+      filas(['Activas (sin IVA)', 'PO', 'Valor', 'Consumido', 'Queda'], [
+        lado('De clientes (lo que BMS puede facturar)', po.cliente),
+        lado('De proveedores (lo que pueden facturar a BMS)', po.proveedor)]),
       listaPo('Cerca de su límite', po.cerca_del_limite),
       listaPo('Cerca de caducar', po.cerca_de_caducar),
+      listaPo('Ya caducadas, con aviso', po.caducadas),
       listaPo('Se agotan antes de su fin', po.agotamiento_previsto));
   }
 
@@ -935,12 +949,30 @@ SCRIPT = r"""
     anadir(contenedor, el('h2', {}, 'Buscar facturas'), form, resultado);
   }
 
+  function textoSuma(r) {
+    // Solo suman las que cuentan, y compras y ventas por separado.
+    var s = r.suma;
+    function cifras(c) {
+      return 'suman ' + c.total + ', base ' + c.base + ', pendiente ' + c.pendiente;
+    }
+    var texto = r.total + ' factura(s)' + (r.total > r.facturas.length ?
+      ' (se ven ' + r.facturas.length + ')' : '');
+    if (s.mezcla) {
+      texto += ': compras (' + s.compras.facturas + ') ' + cifras(s.compras) +
+        '; ventas (' + s.ventas.facturas + ') ' + cifras(s.ventas);
+    } else {
+      texto += ': ' + cifras(s);
+    }
+    if (s.no_cuentan) {
+      texto += '. ' + s.no_cuentan + ' no cuentan (anuladas, copias o sustituidas) y no suman';
+    }
+    return texto + '.';
+  }
+
   function pintarBusqueda(contenedor, r) {
     vaciar(contenedor);
     anadir(contenedor,
-      el('p', {}, r.total + ' factura(s): suman ' + r.suma.total + ', base ' + r.suma.base +
-        ', pendiente ' + r.suma.pendiente + (r.total > r.facturas.length ?
-          ' (se ven ' + r.facturas.length + ')' : '')),
+      el('p', {}, textoSuma(r)),
       r.al_dia ? null : el('p', {clase: 'aviso pasada'}, 'El estado es del ' + r.estado_del +
         ': falta la pasada de hoy.'),
       tablaFacturas(r.facturas));
@@ -1056,6 +1088,15 @@ SCRIPT = r"""
         ''], h.extracciones.map(function (e) {
           return [e.id, e.modelo, e.prompt, e.esquema, e.extraido_en, e.vigente ? 'vigente' : '']; }))
         : null,
+      h.relaciones.length ? el('h3', {}, 'Relaciones') : null,
+      h.relaciones.length ? el('ul', {}, h.relaciones.map(function (r) {
+        var otra = el('span', {clase: 'enlace', al_pulsar: function () { abrirFicha(r.otra_id); }},
+          r.otra_numero || ('factura ' + r.otra_id));
+        var cola = ' · ' + r.estado + (r.importe ? ' · ' + r.importe : '') +
+          (r.retirada ? ' (retirada)' : '');
+        return r.papel === 'origen' ? el('li', {}, 'Esta factura ' + r.tipo + ' ', otra, cola)
+          : el('li', {}, otra, ' ' + r.tipo + ' esta factura', cola);
+      })) : null,
       el('h3', {}, 'Cambios'),
       h.eventos.map(function (e) {
         var cambios = e.persona ? e.cambios : [];

@@ -5062,3 +5062,164 @@ no lea dos veces las partidas; `trabajo.importes_por_semana`.
   `trabajo.repartir` como la semana.
 
 **Tests existentes cambiados**: ninguno.
+
+### Correcciones de la revisión
+
+Quince hallazgos de la revisión (dos repetidos: el 9 y el 14, sobre los
+parámetros de `/api/v2`). Todos se reprodujeron y todos eran reales; cada
+corrección tiene un test que falla con el código de antes y pasa con el de
+ahora (comprobado con `src/` de `3d30ebc`). **1943 tests pasan.** La pasada de
+cinco mil facturas no cambia de forma medible (1,16-1,28 s la primera vez y
+0,96-1,09 s las siguientes, como antes; la máquina da picos de 1,5 s con las
+dos versiones); el panel, la búsqueda y el export, tampoco.
+
+1. **La suma de la búsqueda sumaba lo que no cuenta** (mayor). Las anuladas,
+   las copias fusionadas y las sustituidas sumaban en `suma.total` y
+   `suma.base`, y lo pendiente juntaba compras y ventas. Ahora
+   `consultas._suma_busqueda`: solo suman las que cuentan (la regla de
+   `_resumen` y `v_*_totales`), `no_cuentan` dice cuántas no, y compras y
+   ventas van por separado (`compras`, `ventas`); arriba, `total_cent`,
+   `base_cent` y `pendiente_cent` son los del único sentido encontrado, o
+   `null` si hay de los dos (`mezcla`). La consola y la CLI lo dicen así.
+   Tests: `test_panel_busqueda.py::test_la_suma_de_la_busqueda_es_la_de_la_vista_de_la_parte`
+   (la búsqueda de cada proveedor y cliente suma lo que su vista llama
+   facturado; la anulada 2026-112 sale y no suma) y
+   `test_una_copia_fusionada_no_suma_dos_veces`.
+2. **El bloque de PO del panel sumaba los dos lados** (mayor). Ahora lleva
+   `cliente` y `proveedor`, cada uno con `activas`, valor, consumido y lo que
+   queda (desviación 18). Test: `test_el_bloque_de_po_no_suma_los_dos_lados`
+   (una PO de cada lado).
+3. **El periodo de una factura que solo imprime la semana** (mayor).
+   `v_factura_listado` solo miraba las fechas de las líneas: una factura de
+   horas con «semana 37» y sin fechas no tenía periodo y los filtros
+   `periodo_desde` y `periodo_hasta` no la encontraban. Ahora el motor
+   escribe el periodo en `factura_estado` con la misma cuenta que las horas
+   y la economía por semana del Objeto (`estados.periodos`, que usa
+   `turnos.dias_de`: fechas de la imputación o de la línea, la semana
+   impresa con el año de la fecha de la factura, y la cabecera), y la vista
+   lo lee de ahí (migración `0016_periodo_de_prestacion.sql`, desviación
+   19). Tests:
+   `test_el_filtro_de_periodo_encuentra_una_factura_que_solo_imprime_la_semana`
+   (el caso de la revisión: 2026-0912 sin periodo de cabecera) y
+   `test_el_periodo_de_la_cache_es_el_de_turnos` (la semana 52 de una
+   factura del 6 de enero es la de diciembre).
+4. **El filtro `texto` no plegaba lo que no es ASCII** (menor). `lower()` de
+   SQLite deja «Ö» y «É» en mayúscula. Ahora la búsqueda registra
+   `pliegue` (NFKC y `casefold`) en la conexión y la usa a los dos lados.
+   Test: `test_el_texto_se_busca_sin_mayusculas_tambien_fuera_del_ascii`.
+5. **La vista del Objeto rechazaba medio periodo con un error que no era**
+   (menor): solo `hasta` antes del día 1 o solo `desde` después de hoy daban
+   «el periodo empieza después de terminar». Ahora un periodo lleva `desde`
+   y `hasta` o ninguno, como el flujo de caja (desviación 20), y un solo
+   extremo es un `400` que lo dice. Tests:
+   `test_la_vista_del_objeto_no_admite_medio_periodo` y
+   `test_contrato_v2.py::test_la_vista_del_objeto_pide_los_dos_extremos_del_periodo`.
+6. **«Cerca de caducar» enseñaba PO ya caducadas** (menor). P7 sigue
+   pendiente después del fin (SIN_DATOS o el FALLO «caducó»). Ahora las tres
+   listas de avisos son de las PO activas y hay una cuarta, `caducadas`: las
+   que pasaron su fin con un P7 pendiente. Cada PO de las listas lleva su
+   `lado`. Test: `test_las_listas_de_po_del_panel` (llena cerca del límite,
+   cerca de caducar y, veinte días después, caducadas).
+7. **La historia no decía que una factura había sido abonada** (menor). Los
+   eventos de una relación llevan la factura de origen. Ahora
+   `historial_factura` trae también los eventos con cambios en una
+   `factura_relacion` que la tiene de destino, y una lista `relaciones` en
+   los dos sentidos (la consola y la CLI la enseñan). Test:
+   `test_la_historia_de_una_factura_abonada_dice_quien_la_abono`.
+8. **Un entero enorme en un filtro era un 500** (menor), y un valor que no
+   era texto desde Python un `TypeError`. `_entero` rechaza más de 19 cifras
+   o más de 2⁶³−1 con `FiltroNoValido`; `buscar` toma un valor suelto como
+   su texto. Tests: `test_un_entero_demasiado_grande_es_un_filtro_no_valido`,
+   `test_la_busqueda_admite_valores_que_no_son_texto` y
+   `test_contrato_v2.py::test_un_filtro_enorme_es_un_400_y_no_un_500`.
+9. y 14. **Las lecturas de pasos anteriores ignoraban los parámetros**
+   (menor), y guardar los valores vacíos dejó `?nivel=` en una lista vacía.
+   Ahora `_leer_v2` comprueba los parámetros de **toda** ruta de
+   `LECTURAS_V2` antes de contestar (`serve.ruta_documentada`,
+   `parametros_admitidos`): uno desconocido o repetido es un `400`; uno
+   admitido y vacío (`?nivel=`, `?desde=&hasta=`) es como no ponerlo, como se
+   leía antes; un `nivel` que no es un nivel, `400` (`nivel_pedido`; antes,
+   una lista vacía). Tests:
+   `test_cada_lectura_de_v2_rechaza_un_parametro_que_no_admite` (recorre
+   `LECTURAS_V2`) y `test_el_nivel_de_la_lista_de_facturas`.
+10. **Puertas que no probaban lo que decían** (menor). El escenario al azar
+    pone ahora siempre la línea de una compra sin Objeto y su base distinta
+    de la suma de sus líneas, con importes al azar: la propiedad comprueba
+    `sin_objeto.imputado` y `sin_imputar` con costes distintos de cero en
+    cada semilla. `test_filtro_ediciones_manuales` comprueba `suplementada`
+    (un vencimiento puesto a mano donde el documento no traía) y
+    `sin_resolver` contra su oráculo. El test del contrato contra la
+    documentación lee ahora los esqueletos por camino
+    (`_claves_documentadas`: «id» en `facturas[]` no vale por estar en
+    `proveedores[]`), con su propio test; para eso `facturas[]` y
+    `dinero_sale` se documentan con todas sus claves en su bloque.
+11. **La documentación mandaba meter un token personal en el JavaScript del
+    sitio** (mayor) y decía que los IBAN solo iban a la consola sin que nada
+    lo hiciera cumplir. `docs/integracion-web.md`: el sitio usa una persona
+    con el rol `consulta` (solo `ver_facturas`), su token no va en ninguna
+    variable que se empaquete (se escribe al abrir el sitio o lo pone un
+    proxy local), y el ejemplo es así. El servidor lo hace cumplir
+    (desviación 21): una petición con un `Origin` declarado con `--origen`
+    que no es el del propio servidor recibe toda respuesta de `/api/v2` con
+    los IBAN enmascarados y no puede dar órdenes (`403` en
+    `POST /api/v2/acciones`). La consola (mismo origen, que no manda
+    `Origin` en un GET) y un programa sin navegador siguen igual. Test:
+    `test_un_sitio_de_otro_origen_lee_sin_iban_y_no_da_ordenes`. La guía de
+    uso lo dice también.
+12. **El contrato v2 llevaba IBAN enteros dentro de los motivos** (mayor):
+    los textos de F2, F3, F5, F6 y F10 los escriben y llegan a los motivos de
+    facturas, proveedores y excepciones. `exportar_v2` pasa todo por
+    `consultas.sin_ibanes` (cada IBAN de cada texto queda «NL..5689»), y
+    `comprobar_v2` busca un IBAN dentro de cualquier texto. Se corrige el
+    ejemplo de motivo de `docs/uso-v1.md`, que no era el que sale. Test:
+    `test_el_contrato_v2_no_lleva_ningun_iban_ni_dentro_de_un_texto` (maestro
+    y la factura con inyección: F2 y F3 abiertos).
+13. **`docs/modelo-datos.md` no existía** (mayor). Escrito: las convenciones,
+    las clases de tabla, cada tabla por grupo, las vistas (y las que no se
+    hicieron, con su porqué) y de dónde sale cada estado, hasta la 0016.
+    Enlazado desde el README y `docs/diseno-v1.md`.
+15. **V5 no salía en el bloque de facturación** (menor). Ahora va en
+    `horas_sin_facturar`, con la venta, el Objeto, el periodo, las horas y su
+    valor estimado: es la «facturación que falta» del §8, como V8. Test:
+    `test_el_panel_dice_las_horas_validadas_que_no_estan_en_su_venta`.
+
+Desviaciones nuevas:
+
+18. **El bloque de PO del panel va por lados** (sustituye a la 10 en su
+    forma): `cliente` y `proveedor` con lo suyo, y las listas `cerca_del_limite`,
+    `cerca_de_caducar` y `agotamiento_previsto` solo de las PO activas, más
+    `caducadas`. El contrato sigue en 2.0: estas claves se cambian en la
+    revisión del mismo paso, antes de que ningún sitio se construya contra
+    él (la política de versiones empieza a contar desde aquí).
+19. **El periodo de prestación vive en la caché** (`factura_estado`,
+    columnas `periodo_desde` y `periodo_hasta`). No depende de hoy, pero el
+    año de una semana impresa no se puede calcular en la vista (SQLite 3.45
+    no tiene `%V`, y la semana 52 de una factura de enero es la del año
+    anterior). Antes de la primera pasada la vista da lo de 0015.
+20. **Un periodo del Objeto lleva los dos extremos o ninguno.** Rellenar el
+    que falta con el mes en curso daba periodos al revés o que nadie había
+    pedido.
+21. **Desde otro origen, `/api/v2` es de solo lectura y sin IBAN enteros.**
+    La decisión 23 (la consola enseña el IBAN entero) se mantiene para la
+    consola; un sitio propio no lo necesita para nada y un token suyo
+    filtrado no debe servir para verificar una cuenta ni marcar un pago.
+
+**Tests existentes cambiados, y por qué**:
+`test_el_panel_tiene_los_siete_bloques_del_paragrafo_17` (lee el valor de la
+PO en `ordenes_compra.cliente`), `test_el_contrato_v2_es_el_que_dice_la_documentacion`
+(por camino), `_escenario_al_azar` y
+`test_lo_de_cada_objeto_mas_lo_sin_objeto_es_la_base_total` (la compra sin
+Objeto y con la base cambiada, y las comprobaciones de lo sin Objeto) y
+`test_filtro_ediciones_manuales` (suplementada y sin resolver).
+
+Lo que deben saber los pasos siguientes, además de lo de arriba:
+
+- **Una columna nueva de `factura_estado` va también en
+  `estados._COLUMNAS_ESTADO`** y en la tupla que escribe `recalcular`, en el
+  mismo orden.
+- **Todo texto que salga hacia un sitio propio pasa por `sin_ibanes`**: el
+  export ya lo hace entero y `serve._json` lo hace con cualquier respuesta
+  de `/api/v2` a otro origen. Un mensaje de regla nuevo puede llevar el IBAN
+  entero (la consola lo necesita); no hay que enmascararlo en la regla.
+- **Una lectura nueva de `/api/v2`** va en `LECTURAS_V2` con sus
+  parámetros: si no, sus parámetros no se comprueban.

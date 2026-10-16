@@ -296,9 +296,27 @@ nunca con `innerHTML`; en un CSV, neutralizando lo que empieza por `=`, `+`,
 extractos del banco) llega como `null` o con `"estado": "sin_datos"` y un
 `detalle` que dice por qué: el sitio lo enseña así, nunca como 0.
 
-**No lleva ningún IBAN.** Los da la vista de un proveedor
-(`GET /api/v2/proveedores/N`), con token, y solo a la consola interna; el
-portal de consulta los enmascara ([portal-consulta.md](portal-consulta.md)).
+**No lleva ningún IBAN entero.** El export (`export --v2` y
+`GET /api/v2/exportar`) enmascara cada IBAN, también el que va dentro de un
+texto: los avisos de las cuentas (F2, F3, F5, F6, F10) lo escriben y de ahí
+pasa a los `motivos`, que salen como «Bloqueada: El IBAN NL..5689 de la
+factura no es pagable…» (el país y las cuatro últimas cifras: basta para
+reconocer la cuenta al teléfono y no para pagarle). `comprobar_v2` busca un
+IBAN dentro de cada texto y el test lo comprueba con F2 y F3 abiertos.
+
+El servidor lo hace cumplir también en las lecturas, según de dónde venga la
+petición:
+
+| Quién pide | IBAN | Órdenes (`POST /api/v2/acciones`) |
+| --- | --- | --- |
+| La consola (`/consola`, el mismo origen que la API), o un programa sin navegador | Enteros, donde los haya (el registro de cuentas, la vista de un proveedor, los avisos): la consola es donde se verifican | Sí, con su permiso |
+| Un sitio en un origen declarado con `--origen` (`http://localhost:5173`) | Enmascarados en **toda** respuesta de `/api/v2` | **No**: `403`. Verificar un IBAN, marcar un pago o anular un aviso se firma en la consola |
+
+El portal de consulta, cuando exista, no tendrá ni eso: su base no guarda
+ningún IBAN ([portal-consulta.md](portal-consulta.md)).
+
+**El token de un sitio propio es el de una persona de solo lectura, y no va
+dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ### Lo de arriba
 
@@ -334,7 +352,11 @@ portal de consulta los enmascara ([portal-consulta.md](portal-consulta.md)).
     "pendiente_cent", "vencido_cent", "semana_cent", "mes_cent",
     "proximos_30_cent", "sin_fecha_cent"          // y cada uno sin _cent, como texto
   },
-  "dinero_sale": { ...lo mismo, lo que se espera pagar... },
+  "dinero_sale": {                    // lo mismo, lo que se espera pagar
+    "facturas", "vencidas",
+    "pendiente_cent", "vencido_cent", "semana_cent", "mes_cent",
+    "proximos_30_cent", "sin_fecha_cent"
+  },
   "caja": {
     "ventanas": {"vencido"|"semana"|"mes"|"proximos_30"|"total":
                  {"entrada_cent", "salida_cent", "neto_cent"}},
@@ -344,9 +366,20 @@ portal de consulta los enmascara ([portal-consulta.md](portal-consulta.md)).
                                                   // aparte; null sin planning
   },
   "facturacion": {"estado": "ok"|"sin_datos", "detalle",
-                  "sin_facturar", "periodos_sin_factura", "diferencias_planning"},
-  "ordenes_compra": {"activas", "valor_cent", "consumido_cent", "restante_cent",
-                     "cerca_del_limite", "cerca_de_caducar", "agotamiento_previsto"},
+                  "sin_facturar",               // V6: trabajo validado sin facturar
+                  "periodos_sin_factura",       // V8: periodos sin ninguna factura
+                  "horas_sin_facturar",         // V5: horas validadas que no están en la
+                                                // venta que cobra su periodo
+                  "diferencias_planning"},
+  "ordenes_compra": {
+    "activas",                        // cuántas PO activas hay, de los dos lados
+    "cliente": {"activas", "valor_cent", "consumido_cent", "restante_cent"},
+                                      // lo que BMS puede facturar a sus clientes
+    "proveedor": {"activas", "valor_cent", "consumido_cent", "restante_cent"},
+                                      // lo que los proveedores pueden facturar a BMS
+    "cerca_del_limite", "cerca_de_caducar", "agotamiento_previsto",   // de las activas
+    "caducadas"                       // ya pasó su fin y su aviso (P7) sigue pendiente
+  },
   "btw": {"trimestre", "estado", "ingresos_cent", "iva_repercutido_cent",
           "iva_deducible_cent", "saldo_cent", "limite_presentacion", "limite_pago",
           "proximo_plazo", "plazos_pasados", "por_presentar", "revisar"},
@@ -360,6 +393,8 @@ portal de consulta los enmascara ([portal-consulta.md](portal-consulta.md)).
 }
 ```
 
+Los dos lados de las PO no se suman nunca: una PO de cliente y una de
+proveedor no son la misma cifra. Cada PO de las cuatro listas lleva su `lado`.
 Las ventanas son las del flujo de caja: «esta semana» va de hoy al domingo,
 «este mes» de hoy al último día, «próximos 30 días» cuenta hoy; lo vencido va
 aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
@@ -369,13 +404,15 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
 ### Una factura (`facturas[]`, la búsqueda y la lista)
 
 ```
-{
+"facturas": [ {
   "id", "numero", "sentido",          // entrante (compra) | saliente (venta)
   "tipo",                             // factura | nota_credito
   "contraparte",                      // el nombre impreso: TEXTO DE UN DOCUMENTO
   "proveedor_id", "cliente_id",       // del maestro, o null
   "fecha_factura", "vencimiento",     // el vencimiento efectivo
-  "periodo_desde", "periodo_hasta",   // de la cabecera o de sus líneas
+  "periodo_desde", "periodo_hasta",   // de la cabecera o, si no lo imprime, de sus
+                                      // líneas: sus fechas o la semana impresa
+                                      // («semana 37», con el año de la fecha)
   "base_cent", "total_cent", "total",
   "pendiente_cent", "pendiente",      // lo que queda (null si no está en euros: X1)
   "estado_pago",                      // pendiente | vencida | pagada | anulada | acreditada
@@ -387,7 +424,7 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
   "cuenta",                           // false: anulada, fusionada o sustituida
   "objetos",                          // los códigos de sus Objetos
   "etiqueta"                          // «Sin objeciones del sistema»... nunca «aprobada»
-}
+} ]
 ```
 
 ### Proveedores, clientes, Objetos y órdenes de compra
@@ -428,8 +465,10 @@ que revisar y sus plazos; el detalle de cualquier trimestre está en
 
 Todas piden el token personal de quien lee (`X-BMS-Token`) con el permiso
 `ver_facturas`; sin token, `401`; sin permiso, `403`; lo que no existe, `404`;
-un parámetro que no admiten o un valor que no se entiende, `400` (no se ignora
-en silencio).
+un parámetro que no admiten (en **todas**, también las de pasos anteriores),
+uno repetido o un valor que no se entiende, `400` (no se ignora en silencio).
+Un parámetro admitido pero vacío (`?nivel=`, `?desde=&hasta=`) es como no
+ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 
 | Lectura | Qué da | Parámetros |
 | --- | --- | --- |
@@ -437,17 +476,17 @@ en silencio).
 | `GET /api/v2/yo` | Quién es el token y sus permisos | — |
 | `GET /api/v2/panel` | El panel principal | — |
 | `GET /api/v2/buscar` | La búsqueda (abajo) | los filtros, `orden`, `limite`, `pagina` |
-| `GET /api/v2/facturas` | Todas, la más urgente primero | `nivel` |
+| `GET /api/v2/facturas` | Todas, la más urgente primero | `nivel` (`normal`, `atencion`, `urgente`, `bloqueada`; otro, `400`) |
 | `GET /api/v2/facturas/N` | La ficha: cada campo con su valor, su original, su fuente, sus marcas y su calidad | — |
-| `GET /api/v2/facturas/N/historial` | La historia (§12): original, extracciones, cada cambio con quién, cuándo y por qué, revisiones, avisos y su resolución, excepciones | — |
+| `GET /api/v2/facturas/N/historial` | La historia (§12): original, extracciones, sus relaciones en los dos sentidos (la que abona, sustituye o corrige, y la abonada, sustituida o corregida), cada cambio con quién, cuándo y por qué (también el de una relación que la tiene de destino), revisiones, avisos y su resolución, excepciones | — |
 | `GET /api/v2/excepciones` | Las abiertas | — |
 | `GET /api/v2/personas` | Las personas activas | — |
 | `GET /api/v2/proveedores` | Los proveedores | — |
-| `GET /api/v2/proveedores/N` | La vista de un proveedor (§3), con su registro de cuentas | — |
+| `GET /api/v2/proveedores/N` | La vista de un proveedor (§3), con su registro de cuentas (IBAN enmascarados si se pide desde otro origen) | — |
 | `GET /api/v2/clientes` | Los clientes | — |
 | `GET /api/v2/clientes/N` | La vista de un cliente (§4) | — |
 | `GET /api/v2/objetos` | Los Objetos con ingresos, costes y margen, y lo sin Objeto | — |
-| `GET /api/v2/objetos/N` | La vista de un Objeto (§5): PO, horas, economía por mes y por semana, sus facturas | `desde`, `hasta` (el periodo de «ingresos»; por defecto, el mes en curso) |
+| `GET /api/v2/objetos/N` | La vista de un Objeto (§5): PO, horas, economía por mes y por semana, sus facturas | `desde` y `hasta`, los dos juntos (el periodo de «ingresos»; sin ninguno, el mes en curso hasta hoy; uno solo, `400`) |
 | `GET /api/v2/ordenes` | Las órdenes de compra | — |
 | `GET /api/v2/ordenes/N` | La ficha de una PO (§6) | — |
 | `GET /api/v2/relaciones` | Las relaciones propuestas | — |
@@ -456,7 +495,7 @@ en silencio).
 | `GET /api/v2/btw/AAAA-TN/hoja` | Su hoja de trabajo y su sha256 | — |
 | `GET /api/v2/flujo` | El flujo de caja | `desde`, `hasta` (un periodo pedido) |
 | `GET /api/v2/fuentes` | De cuándo es cada fuente | — |
-| `GET /api/v2/cuentas` | El registro de cuentas de los proveedores | — |
+| `GET /api/v2/cuentas` | El registro de cuentas de los proveedores (IBAN enmascarados si se pide desde otro origen) | — |
 | `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
 | `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
 
@@ -465,9 +504,22 @@ en silencio).
 ```
 GET /api/v2/buscar?proveedor_id=3&pendiente=si&orden=vencimiento
 → {"busqueda": {"filtros", "orden", "limite", "pagina", "total",
-                "suma": {"total_cent", "base_cent", "pendiente_cent"},
+                "suma": {"cuentan", "no_cuentan", "mezcla",
+                         "total_cent", "base_cent", "pendiente_cent",
+                         "compras": {"facturas", "total_cent", "base_cent", "pendiente_cent"},
+                         "ventas": {"facturas", "total_cent", "base_cent", "pendiente_cent"}},
                 "estado_del", "al_dia", "facturas": [ ...como facturas[]... ]}}
 ```
+
+`total` cuenta todo lo encontrado, pero **solo suman las facturas que
+cuentan** (ni anuladas, ni copias fusionadas, ni sustituidas o corregidas por
+otra), con la misma regla que la vista de un proveedor o de un cliente: una
+búsqueda por `proveedor_id` suma lo que su vista llama «facturado». Las que
+no cuentan se dicen en `no_cuentan`. Compras y ventas no se suman entre sí: lo
+pendiente de una compra es lo que BMS debe y el de una venta lo que le deben.
+Si lo encontrado es de un solo sentido, `total_cent`, `base_cent` y
+`pendiente_cent` son los suyos; si hay de los dos (`mezcla`), son `null` y las
+cifras están en `compras` y `ventas`.
 
 Los filtros se suman (y); dentro de uno de lista, basta uno de sus valores
 (`estado_pago=pendiente,vencida` o el parámetro repetido). Cada filtro es un
@@ -478,15 +530,15 @@ nunca en la consulta. `limite` va de 1 a 1000 (200 por defecto). `orden`:
 | Filtro | §18 | Qué pide |
 | --- | --- | --- |
 | `numero` | Invoice number | Parte del número, sin espacios, puntos, guiones ni barras |
-| `texto` | — | Parte del número o del nombre impreso de la contraparte |
+| `texto` | — | Parte del número o del nombre impreso de la contraparte, sin distinguir mayúsculas (tampoco en «Öztürk» o «Élan») |
 | `sentido` | — | `entrante` (compras) o `saliente` (ventas) |
-| `proveedor_id` | Provider | Del proveedor del maestro |
+| `proveedor_id` | Provider | Del proveedor del maestro (un id de más de 19 cifras, `400`) |
 | `cliente_id` | Client | Sus ventas y las compras imputadas a un Objeto suyo |
 | `objeto_id` | Object | Con alguna línea imputada al Objeto |
 | `orden_compra_id` | PO | Imputada a la PO, o que la imprime |
 | `po` | PO | Con ese número de PO impreso o imputado |
 | `fecha_desde`, `fecha_hasta` | Period | Fecha de factura (AAAA-MM-DD, incluidas) |
-| `periodo_desde`, `periodo_hasta` | Period | Periodo de prestación que se cruza con esas fechas |
+| `periodo_desde`, `periodo_hasta` | Period | Periodo de prestación que se cruza con esas fechas: el de la cabecera o el de sus líneas, también si solo imprimen la semana |
 | `trimestre` | Period | Fecha de factura en el trimestre del BTW (`2026-T3`) |
 | `vence_desde`, `vence_hasta` | Due date | Vencimiento efectivo |
 | `estado_pago` | Payment status | `pendiente`, `vencida`, `pagada`, `anulada`, `acreditada` |
@@ -507,12 +559,46 @@ qué día es, y `al_dia` si es el de hoy.
 
 ### Ejemplo, desde un sitio en `http://localhost:5173`
 
+Antes de escribir una línea, dos decisiones que no son de estilo:
+
+- **El token es de una persona de solo lectura.** Un sitio propio lee; no
+  verifica IBAN, no marca pagos, no anula avisos. Se crea una persona para el
+  sitio con el rol `consulta`, que solo tiene `ver_facturas`, y se usa su
+  token:
+
+  ```bash
+  bms-agent usuario crear Web --rol consulta
+  bms-agent usuario token Web
+  ```
+
+  Nunca el token de quien trabaja en la consola: el de una persona con el rol
+  `administracion` puede confirmar IBAN, marcar pagadas, anular avisos y
+  revisar facturas, y un token personal dura hasta que alguien lo vuelve a
+  emitir (no muere al parar el servidor, como el de `bms-agent serve`).
+- **El token no va dentro del sitio.** Nada de `VITE_*`, `NEXT_PUBLIC_*` ni
+  ninguna variable que el empaquetador copie al JavaScript: quien pueda cargar
+  el sitio puede leerla. La persona lo escribe al abrir el sitio (y se guarda
+  en `sessionStorage`, que muere con la pestaña), o un proxy local lo añade
+  a cada petición sin que el navegador lo vea.
+
+Aunque se haga mal, el servidor limita el daño: desde otro origen no se ve un
+IBAN entero y `POST /api/v2/acciones` contesta `403` («Cuatro reglas», arriba).
+
 ```js
 const BMS = 'http://127.0.0.1:8765'
-const TOKEN = import.meta.env.VITE_BMS_TOKEN_PERSONAL   // bms-agent usuario token Ana
+
+// Lo escribe la persona al abrir el sitio: no está en el código ni en el paquete.
+function token() {
+  let t = sessionStorage.getItem('bms-token')
+  if (!t) {
+    t = prompt('Token de solo lectura (bms-agent usuario token Web)')
+    sessionStorage.setItem('bms-token', t)
+  }
+  return t
+}
 
 async function leer(ruta) {
-  const r = await fetch(`${BMS}${ruta}`, {headers: {'X-BMS-Token': TOKEN}})
+  const r = await fetch(`${BMS}${ruta}`, {headers: {'X-BMS-Token': token()}})
   if (r.headers.get('X-BMS-Contrato')?.split('.')[0] !== '2') throw new Error('otro contrato')
   if (!r.ok) throw new Error((await r.json()).error)
   return r.json()

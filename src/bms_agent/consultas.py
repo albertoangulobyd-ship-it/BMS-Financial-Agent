@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -1324,8 +1325,12 @@ def _economia_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any,
     trabajo (como las horas).
     """
     hoy = foto.hoy
-    primero = hoy.replace(day=1)
-    desde_ = desde or primero
+    if (desde is None) != (hasta is None):
+        # Un solo extremo no es un periodo: rellenar el otro con el mes en curso
+        # daba un periodo al reves (hasta en septiembre, desde el 1 de octubre)
+        # o uno que nadie pidio. Como flujo_caja.calcular: los dos o ninguno.
+        raise ValueError("un periodo lleva desde y hasta (o ninguno: el mes en curso)")
+    desde_ = desde or hoy.replace(day=1)
     hasta_ = hasta or hoy
     if desde_ > hasta_:
         raise ValueError("el periodo empieza despues de terminar")
@@ -1479,10 +1484,17 @@ def _elegidos(nombre: str, valores: list[str], admitidos: tuple[str, ...]) -> li
     return sorted(set(elegidos), key=admitidos.index)
 
 
+# El mayor entero que guarda SQLite: uno mayor no es un id de nada y, como
+# parametro, sqlite3 lo rechaza con OverflowError (ni un 400 ni un aviso claro).
+_ENTERO_MAXIMO = 2 ** 63 - 1
+
+
 def _entero(nombre: str, valores: list[str]) -> int:
     texto = _uno(nombre, valores)
     if not (texto.isascii() and texto.isdigit()):
         raise FiltroNoValido(f"{nombre}: {texto!r} no es un numero entero")
+    if len(texto) > 19 or int(texto) > _ENTERO_MAXIMO:
+        raise FiltroNoValido(f"{nombre}: {texto!r} es demasiado grande")
     return int(texto)
 
 
@@ -1551,10 +1563,26 @@ def _numero(nombre: str, valores: list[str]) -> tuple[str, tuple]:
     return "instr(coalesce(numero_norm, ''), ?) > 0", (normal,)
 
 
+def pliegue(texto: Any) -> str:
+    """Un texto sin mayusculas para comparar, igual en Python y en SQL.
+
+    El lower() de SQLite solo pliega las letras ASCII: "ÖZTÜRK" quedaba
+    "Öztürk" con la O mayuscula y nadie lo encontraba escribiendolo bien. Por
+    eso la busqueda registra esta funcion en la conexion (`_registrar_pliegue`)
+    y la usa a los dos lados: casefold despues de NFKC, para que "ß" y "ss" o
+    una letra con su acento compuesto o separado sean lo mismo.
+    """
+    return unicodedata.normalize("NFKC", str(texto or "")).casefold()
+
+
+def _registrar_pliegue(conn: sqlite3.Connection) -> None:
+    conn.create_function("pliegue", 1, pliegue, deterministic=True)
+
+
 def _texto(nombre: str, valores: list[str]) -> tuple[str, tuple]:
-    buscado = _uno(nombre, valores).lower()
-    return ("(instr(lower(coalesce(numero, '')), ?) > 0 "
-            "OR instr(lower(coalesce(contraparte, '')), ?) > 0)"), (buscado, buscado)
+    buscado = pliegue(_uno(nombre, valores))
+    return ("(instr(pliegue(numero), ?) > 0 "
+            "OR instr(pliegue(contraparte), ?) > 0)"), (buscado, buscado)
 
 
 def _po(nombre: str, valores: list[str]) -> tuple[str, tuple]:
@@ -1715,12 +1743,14 @@ def buscar(conn: sqlite3.Connection, peticion: dict[str, Any] | None = None) -> 
     la CLI. Los filtros se suman (y); dentro de uno de lista, basta uno de sus
     valores (o). FiltroNoValido si un nombre no existe o un valor no se
     entiende. Devuelve la pagina pedida y, de todas las que cumplen, cuantas
-    son y lo que suman (total, base y lo pendiente).
+    son y lo que suman (`_suma_busqueda`: solo las que cuentan, compras y
+    ventas por separado). Un valor que no es texto (un id entero desde Python)
+    vale como su texto.
     """
     from .almacen import reloj_de
 
     peticion = dict(peticion or {})
-    valores = {k: ([v] if isinstance(v, str) else [str(x) for x in v])
+    valores = {k: ([str(x) for x in v] if isinstance(v, (list, tuple)) else [str(v)])
                for k, v in peticion.items() if v is not None}
     raros = sorted(set(valores) - set(FILTROS) - set(PAGINA_BUSQUEDA))
     if raros:
@@ -1741,21 +1771,52 @@ def buscar(conn: sqlite3.Connection, peticion: dict[str, Any] | None = None) -> 
     pagina = _entero("pagina", valores["pagina"]) if "pagina" in valores else 1
     if not 1 <= limite <= LIMITE_BUSQUEDA or pagina < 1:
         raise FiltroNoValido(f"limite va de 1 a {LIMITE_BUSQUEDA} y pagina empieza en 1")
+    _registrar_pliegue(conn)
     filas = _ordenar(_filas_listado(conn, " AND ".join(partes), tuple(parametros)), orden)
     del_dia = estado_del(conn)
+    return {
+        "filtros": aplicados, "orden": orden, "limite": limite, "pagina": pagina,
+        "total": len(filas), "suma": _suma_busqueda(filas),
+        "estado_del": del_dia, "al_dia": del_dia == reloj_de(conn).hoy().isoformat(),
+        "facturas": filas[(pagina - 1) * limite:pagina * limite],
+    }
+
+
+def _cifras_busqueda(filas: list[dict[str, Any]]) -> dict[str, Any]:
+    """Lo que suman unas facturas de un mismo sentido que cuentan: total, base y lo pendiente
+    (lo que queda de las pendientes y vencidas), con sus textos."""
     total = sum(r["total_cent"] or 0 for r in filas)
     base = sum(r["base_cent"] or 0 for r in filas)
     pendiente = sum(r["pendiente_cent"] or 0 for r in filas
                     if r["estado_pago"] in ("pendiente", "vencida"))
-    return {
-        "filtros": aplicados, "orden": orden, "limite": limite, "pagina": pagina,
-        "total": len(filas),
-        "suma": {"total_cent": total, "total": _euros(total), "base_cent": base,
-                 "base": _euros(base), "pendiente_cent": pendiente,
-                 "pendiente": _euros(pendiente)},
-        "estado_del": del_dia, "al_dia": del_dia == reloj_de(conn).hoy().isoformat(),
-        "facturas": filas[(pagina - 1) * limite:pagina * limite],
-    }
+    return {"facturas": len(filas), "total_cent": total, "total": _euros(total),
+            "base_cent": base, "base": _euros(base), "pendiente_cent": pendiente,
+            "pendiente": _euros(pendiente)}
+
+
+def _suma_busqueda(filas: list[dict[str, Any]]) -> dict[str, Any]:
+    """Lo que suma lo encontrado, con la misma regla que las vistas de las partes.
+
+    Solo suman las facturas que cuentan (ni anuladas, ni copias fusionadas, ni
+    sustituidas: `_cuenta`, `v_*_totales`); las demas se cuentan aparte en
+    `no_cuentan`, para que una busqueda por proveedor de lo mismo que su
+    vista. Compras y ventas van por separado: lo pendiente de una compra es lo
+    que BMS debe y el de una venta lo que le deben, y sumarlos no es ninguna
+    cifra. Arriba, `total_cent`, `base_cent` y `pendiente_cent` son los del
+    unico sentido encontrado; si hay de los dos, null (se leen en `compras` y
+    `ventas`).
+    """
+    cuentan = [r for r in filas if r["cuenta"]]
+    compras = _cifras_busqueda([r for r in cuentan if r["sentido"] == "entrante"])
+    ventas = _cifras_busqueda([r for r in cuentan if r["sentido"] == "saliente"])
+    mezcla = bool(compras["facturas"] and ventas["facturas"])
+    unica = ventas if ventas["facturas"] and not compras["facturas"] else compras
+    salida: dict[str, Any] = {"cuentan": len(cuentan), "no_cuentan": len(filas) - len(cuentan),
+                              "mezcla": mezcla, "compras": compras, "ventas": ventas}
+    for clave in ("total", "base", "pendiente"):
+        salida[f"{clave}_cent"] = None if mezcla else unica[f"{clave}_cent"]
+        salida[clave] = None if mezcla else unica[clave]
+    return salida
 
 
 def filtros() -> list[dict[str, Any]]:
@@ -1886,8 +1947,14 @@ def _bloque_caja(caja: dict[str, Any]) -> dict[str, Any]:
 
 def _bloque_facturacion(conn: sqlite3.Connection,
                         pendientes: list[sqlite3.Row]) -> dict[str, Any]:
-    """§17 "Billing": el trabajo sin facturar (V6), los periodos sin factura (V8) y las
-    diferencias con el planning (G y V). Sin planning, sin datos: nunca cero."""
+    """§17 "Billing": el trabajo sin facturar (V6), la facturacion que falta (V8, periodos
+    sin ninguna factura, y V5, horas validadas que no estan en una factura que cubre su
+    periodo) y las diferencias con el planning (G y V). Sin planning, sin datos: nunca cero.
+
+    V5 va con la facturacion que falta y no con las diferencias: es lo que el
+    §7 llama "Missing billable hours" y el §8 "Missing billing (V5, V8)".
+    `categoria_de` lo pone en "sin_facturar" por lo mismo.
+    """
     if not instantaneas.fotos_planning(conn):
         detalle = ("No se ha importado ningún planning de TRNSPRNT: no se sabe qué trabajo "
                    "falta por facturar, qué periodos no tienen factura ni qué no cuadra con "
@@ -1895,6 +1962,7 @@ def _bloque_facturacion(conn: sqlite3.Connection,
         return {"estado": "sin_datos", "detalle": detalle}
     sin_facturar = [h for h in pendientes if h["regla"] == "V6"]
     periodos = [h for h in pendientes if h["regla"] == "V8"]
+    horas_fuera = [h for h in pendientes if h["regla"] == "V5"]
     planning = [h for h in pendientes if categoria_de(h["regla"]) == "planning"]
     valor = sum(json.loads(h["valores_json"] or "{}").get("valor_cent") or 0
                 for h in sin_facturar)
@@ -1915,6 +1983,7 @@ def _bloque_facturacion(conn: sqlite3.Connection,
                                   **{k: json.loads(h["valores_json"] or "{}").get(k)
                                      for k in ("ciclo", "desde", "hasta")}}
                                  for h in periodos],
+        "horas_sin_facturar": [_horas_sin_facturar(h) for h in horas_fuera],
         "diferencias_planning": {"hallazgos": len(planning),
                                  "aceptados": sum(1 for h in planning
                                                   if h["estado"] == "aceptado"),
@@ -1924,36 +1993,73 @@ def _bloque_facturacion(conn: sqlite3.Connection,
     }
 
 
+def _horas_sin_facturar(h: sqlite3.Row) -> dict[str, Any]:
+    """Un V5 pendiente: la venta, su Objeto, el periodo que cobra y las horas (y su valor
+    estimado) que el planning tiene validadas en ese periodo y ninguna linea cubre."""
+    valores = json.loads(h["valores_json"] or "{}")
+    return {"hallazgo_id": h["id"], "factura_id": h["fila_id"], "estado": h["estado"],
+            "objeto_id": valores.get("objeto"), "desde": valores.get("desde"),
+            "hasta": valores.get("hasta"), "horas_mil": valores.get("horas_mil"),
+            "horas": _horas_texto(valores.get("horas_mil")),
+            "valor_cent": valores.get("valor_cent"), "valor": _euros(valores.get("valor_cent")),
+            "estimado": bool(valores.get("estimado"))}
+
+
 # Lo que dice que una PO esta cerca de su limite, de su fin o de agotarse: sus
 # avisos con la condicion viva (abiertos o aceptados; desaparecido ya no lo es).
+# Solo de las PO activas: una que ya caduco no esta "cerca de caducar" (P7
+# sigue abierto despues de su fin, con SIN_DATOS o con el FALLO "caduco"), y va
+# a `caducadas`.
 _PO_ESTADO = {"cerca_del_limite": ("P5",), "cerca_de_caducar": ("P7",),
               "agotamiento_previsto": ("P8", "P9", "P10")}
 
 
+def _cifras_po(ordenes: list[dict[str, Any]]) -> dict[str, Any]:
+    valor = sum(o["valor_cent"] for o in ordenes)
+    consumido = sum(o["consumido_cent"] for o in ordenes)
+    return {"activas": len(ordenes), "valor_cent": valor, "valor": _euros(valor),
+            "consumido_cent": consumido, "consumido": _euros(consumido),
+            "restante_cent": valor - consumido, "restante": _euros(valor - consumido)}
+
+
 def _bloque_po(conn: sqlite3.Connection, pendientes: list[sqlite3.Row],
                hoy: date) -> dict[str, Any]:
-    """§17 "PO": el valor de las PO activas, lo consumido y lo que queda (sin IVA), y las que
-    estan cerca de su limite, de caducar o de agotarse antes de su fin."""
+    """§17 "PO": de las PO activas de cada lado, el valor, lo consumido y lo que queda (sin
+    IVA); y las que estan cerca de su limite, de caducar o de agotarse antes de su fin, y las
+    que ya caducaron con un P7 pendiente.
+
+    Los dos lados no se suman: una PO de cliente es lo que BMS puede facturar y
+    una de proveedor lo que un proveedor puede facturar a BMS (como la vista
+    del Objeto, `ordenes_resumen`).
+    """
     lista = ordenes_compra(conn)
+    hoy_ = hoy.isoformat()
     activas = [o for o in lista if not o["cerrada"]
-               and (o["fecha_fin"] is None or o["fecha_fin"] >= hoy.isoformat())]
-    valor = sum(o["valor_cent"] for o in activas)
-    consumido = sum(o["consumido_cent"] for o in activas)
+               and (o["fecha_fin"] is None or o["fecha_fin"] >= hoy_)]
+    activas_ids = {o["id"] for o in activas}
     por_id = {o["id"]: o for o in lista}
     salida: dict[str, Any] = {
-        "activas": len(activas), "valor_cent": valor, "valor": _euros(valor),
-        "consumido_cent": consumido, "consumido": _euros(consumido),
-        "restante_cent": valor - consumido, "restante": _euros(valor - consumido),
+        "activas": len(activas),
+        **{lado: _cifras_po([o for o in activas if o["lado"] == lado])
+           for lado in ("cliente", "proveedor")},
     }
+
+    def fila(i: int) -> dict[str, Any]:
+        o = por_id[i]
+        return {"id": i, "numero": o["numero"], "lado": o["lado"], "parte": o["parte"]["nombre"],
+                "consumido_pct": o["consumido_pct"], "restante": o["restante"],
+                "fecha_fin": o["fecha_fin"]}
+
+    def con_aviso(reglas: tuple[str, ...]) -> set[int]:
+        return {h["fila_id"] for h in pendientes if h["regla"] in reglas
+                and h["tabla"] == "orden_compra" and h["estado"] != "desaparecido"
+                and h["fila_id"] in por_id}
+
     for clave, reglas in _PO_ESTADO.items():
-        ids = sorted({h["fila_id"] for h in pendientes if h["regla"] in reglas
-                      and h["tabla"] == "orden_compra" and h["estado"] != "desaparecido"})
-        salida[clave] = [{"id": i, "numero": por_id[i]["numero"],
-                          "parte": por_id[i]["parte"]["nombre"],
-                          "consumido_pct": por_id[i]["consumido_pct"],
-                          "restante": por_id[i]["restante"],
-                          "fecha_fin": por_id[i]["fecha_fin"]}
-                         for i in ids if i in por_id]
+        salida[clave] = [fila(i) for i in sorted(con_aviso(reglas) & activas_ids)]
+    salida["caducadas"] = [fila(i) for i in sorted(con_aviso(("P7",)))
+                           if not por_id[i]["cerrada"] and por_id[i]["fecha_fin"] is not None
+                           and por_id[i]["fecha_fin"] < hoy_]
     return salida
 
 
@@ -2102,7 +2208,11 @@ def historial_factura(conn: sqlite3.Connection, factura_id: int) -> dict[str, An
     - cada hallazgo que la toco, abierto o ya cerrado, con su historia
       (detectado, cambio de evidencia, cerrado, aceptado, reabierto...) y sus
       anulaciones: el historial de resolucion de avisos;
-    - sus excepciones, tambien las resueltas, y sus notas.
+    - sus excepciones, tambien las resueltas, y sus notas;
+    - sus relaciones, en los dos sentidos: la factura que abona, sustituye o
+      corrige y la que la abona, la sustituye o la corrige. Los eventos de una
+      relacion llevan la factura de origen; los de las que tienen esta de
+      destino (que la abonaron, por ejemplo) tambien salen en su historia.
     """
     factura = conn.execute("SELECT * FROM factura WHERE id = ?", (factura_id,)).fetchone()
     if factura is None:
@@ -2122,17 +2232,27 @@ def historial_factura(conn: sqlite3.Connection, factura_id: int) -> dict[str, An
                      "vigente": e["id"] == factura["extraccion_vigente_id"]}
                     for e in conn.execute("SELECT * FROM extraccion WHERE documento_id = ? "
                                           "ORDER BY id", (factura["documento_id"],))]
+    # Una relacion se escribe con la factura de origen (el abono, la que sustituye):
+    # los eventos de las que la tienen de destino tambien son historia suya.
+    relaciones_ = [dict(r) for r in conn.execute(
+        "SELECT r.*, o.numero AS origen_numero, d.numero AS destino_numero "
+        "FROM factura_relacion AS r JOIN factura AS o ON o.id = r.origen_id "
+        "JOIN factura AS d ON d.id = r.destino_id "
+        "WHERE r.origen_id = ? OR r.destino_id = ? ORDER BY r.id", (factura_id, factura_id))]
+    ids_relacion = [r["id"] for r in relaciones_]
+    de_relaciones = (f"OR (c.tabla = 'factura_relacion' AND c.fila_id IN "
+                     f"({_marcas(len(ids_relacion))}))" if ids_relacion else "")
     eventos: dict[int, dict[str, Any]] = {}
     for e in conn.execute(
             "SELECT * FROM evento WHERE factura_id = ? UNION SELECT e.* FROM evento AS e "
-            "JOIN cambio_campo AS c ON c.evento_id = e.id WHERE c.factura_id = ? ORDER BY id",
-            (factura_id, factura_id)):
+            f"JOIN cambio_campo AS c ON c.evento_id = e.id WHERE c.factura_id = ? {de_relaciones} "
+            "ORDER BY id", (factura_id, factura_id, *ids_relacion)):
         eventos[e["id"]] = {"id": e["id"], "en": e["en"], "tipo": e["tipo"],
                             "resultado": e["resultado"], "usuario": nombres.get(e["usuario_id"]),
                             "actor": nombres.get(e["actor"]), "persona": e["usuario_id"] is not None,
                             "motivo": e["motivo"], "cambios": []}
-    for c in conn.execute("SELECT * FROM cambio_campo WHERE factura_id = ? ORDER BY id",
-                          (factura_id,)):
+    for c in conn.execute(f"SELECT * FROM cambio_campo AS c WHERE c.factura_id = ? "
+                          f"{de_relaciones} ORDER BY c.id", (factura_id, *ids_relacion)):
         if c["evento_id"] not in eventos:
             continue
         anterior, anterior_texto = _valor_texto(c["tabla"], c["campo"], c["valor_anterior"])
@@ -2178,8 +2298,17 @@ def historial_factura(conn: sqlite3.Connection, factura_id: int) -> dict[str, An
               "en": n["en"]}
              for n in conn.execute("SELECT * FROM nota WHERE tabla = 'factura' AND fila_id = ? "
                                    "ORDER BY id", (factura_id,))]
+    relaciones_salida = [{
+        "id": r["id"], "tipo": r["tipo"], "estado": r["estado"], "fuente": r["fuente"],
+        "papel": "origen" if r["origen_id"] == factura_id else "destino",
+        "otra_id": r["destino_id"] if r["origen_id"] == factura_id else r["origen_id"],
+        "otra_numero": (r["destino_numero"] if r["origen_id"] == factura_id
+                        else r["origen_numero"]),
+        "importe_cent": r["importe_cent"], "importe": _euros(r["importe_cent"]),
+        "retirada": r["retirada_en"] is not None} for r in relaciones_]
     return {"factura_id": factura_id, "numero": factura["numero"], "documento": documento,
-            "extracciones": extracciones, "eventos": list(eventos.values()),
+            "extracciones": extracciones, "relaciones": relaciones_salida,
+            "eventos": list(eventos.values()),
             "revisiones": revisiones, "hallazgos": hallazgos_, "excepciones": excepciones_,
             "notas": notas}
 
@@ -2192,7 +2321,8 @@ def historial_factura(conn: sqlite3.Connection, factura_id: int) -> dict[str, An
 # ("El contrato v2"), y un test comprueba que lo que sale es lo que dice.
 # Importes en enteros (centimos, milesimas de hora, puntos basicos) con su
 # texto al lado; nunca un numero con decimales. No lleva ningun IBAN: los da
-# la vista de un proveedor (/api/v2/proveedores/N), con token.
+# la vista de un proveedor (/api/v2/proveedores/N), con token y solo a la
+# consola (serve.py los enmascara para cualquier otro origen).
 
 CLAVES_V2 = {
     "": ("contrato", "generado_en", "hoy", "estado_del", "al_dia", "panel", "facturas",
@@ -2205,8 +2335,11 @@ CLAVES_V2 = {
     "panel.dinero_sale": ("facturas", "vencidas", "pendiente_cent", "vencido_cent",
                           "semana_cent", "mes_cent", "proximos_30_cent", "sin_fecha_cent"),
     "panel.caja": ("ventanas", "fechas", "cobrado_mes_cent", "pagado_mes_cent", "estimado"),
-    "panel.ordenes_compra": ("activas", "valor_cent", "consumido_cent", "restante_cent",
-                             "cerca_del_limite", "cerca_de_caducar", "agotamiento_previsto"),
+    "panel.ordenes_compra": ("activas", "cliente", "proveedor", "cerca_del_limite",
+                             "cerca_de_caducar", "caducadas", "agotamiento_previsto"),
+    "panel.ordenes_compra.cliente": ("activas", "valor_cent", "consumido_cent", "restante_cent"),
+    "panel.ordenes_compra.proveedor": ("activas", "valor_cent", "consumido_cent",
+                                       "restante_cent"),
     "panel.btw": ("trimestre", "estado", "ingresos_cent", "iva_repercutido_cent",
                   "iva_deducible_cent", "saldo_cent", "limite_presentacion", "limite_pago",
                   "proximo_plazo", "por_presentar"),
@@ -2228,8 +2361,47 @@ CLAVES_V2 = {
 }
 
 
+# Un IBAN dentro de un texto: seguido (NL75INGB0002445689) o en grupos de cuatro
+# (NL75 INGB 0002 4456 89). Los mensajes de las reglas F2, F3, F5, F6 y F10 lo
+# escriben entero, y de ahi llega a los motivos de la prioridad y a los avisos.
+_IBAN_EN_TEXTO = re.compile(
+    r"\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,3})?)\b")
+
+
+def enmascarar_iban(iban: str) -> str:
+    """'NL75INGB0002445689' es 'NL..5689': el pais y las cuatro ultimas cifras, lo que basta
+    para reconocer una cuenta al telefono y no basta para pagarle."""
+    compacto = "".join(iban.split())
+    return f"{compacto[:2]}..{compacto[-4:]}"
+
+
+def ibanes_en(texto: str) -> list[str]:
+    """Los IBAN que lleva un texto, donde sea que esten."""
+    return [m.group(0) for m in _IBAN_EN_TEXTO.finditer(texto)]
+
+
+def sin_ibanes(valor: Any) -> Any:
+    """Una copia de `valor` (dict, lista o texto) con cada IBAN de cada texto enmascarado.
+
+    Es la ultima pasada de lo que sale hacia un sitio propio (el contrato v2 y
+    las lecturas de /api/v2 desde otro origen): los IBAN no solo estan en el
+    registro de cuentas, tambien en los textos de los avisos y en los motivos.
+    """
+    if isinstance(valor, str):
+        return _IBAN_EN_TEXTO.sub(lambda m: enmascarar_iban(m.group(0)), valor)
+    if isinstance(valor, dict):
+        return {k: sin_ibanes(v) for k, v in valor.items()}
+    if isinstance(valor, (list, tuple)):
+        return [sin_ibanes(v) for v in valor]
+    return valor
+
+
 def exportar_v2(conn: sqlite3.Connection) -> dict[str, Any]:
-    """El contrato v2 entero, con el `hoy` del reloj del almacen (docs/integracion-web.md)."""
+    """El contrato v2 entero, con el `hoy` del reloj del almacen (docs/integracion-web.md).
+
+    Sin ningun IBAN: los que llevan los textos (motivos, avisos) salen
+    enmascarados (`sin_ibanes`), y `comprobar_v2` lo mira.
+    """
     from . import btw
     from .almacen import reloj_de
     from .reloj import marca
@@ -2237,7 +2409,7 @@ def exportar_v2(conn: sqlite3.Connection) -> dict[str, Any]:
     reloj = reloj_de(conn)
     hoy = reloj.hoy()
     del_dia = estado_del(conn)
-    return {
+    return sin_ibanes({
         "contrato": CONTRATO_V2, "generado_en": marca(reloj.ahora()), "hoy": hoy.isoformat(),
         "estado_del": del_dia, "al_dia": del_dia == hoy.isoformat(),
         "panel": panel(conn),
@@ -2247,12 +2419,13 @@ def exportar_v2(conn: sqlite3.Connection) -> dict[str, Any]:
         "btw": btw.resumen(conn, hoy), "flujo_caja": flujo_caja.flujo(conn, hoy),
         "excepciones": excepciones_abiertas(conn), "fuentes": fuentes(conn),
         "filtros": filtros(),
-    }
+    })
 
 
 def comprobar_v2(datos: dict[str, Any]) -> list[str]:
-    """Lo que no cumple el contrato v2 de un export: claves que faltan, un numero con decimales
-    o una version que no es la de este codigo. Vacio si lo cumple."""
+    """Lo que no cumple el contrato v2 de un export: claves que faltan, un numero con decimales,
+    un IBAN en cualquier texto (entero o dentro de una frase) o una version que no es la de
+    este codigo. Vacio si lo cumple."""
     errores = []
     if datos.get("contrato") != CONTRATO_V2:
         errores.append(f"contrato {datos.get('contrato')!r}, se esperaba {CONTRATO_V2!r}")
@@ -2280,6 +2453,8 @@ def comprobar_v2(datos: dict[str, Any]) -> list[str]:
     def sin_decimales(valor: Any, camino: str) -> None:
         if isinstance(valor, float):
             errores.append(f"{camino}: un numero con decimales ({valor})")
+        elif isinstance(valor, str) and ibanes_en(valor):
+            errores.append(f"{camino}: lleva un IBAN ({enmascarar_iban(ibanes_en(valor)[0])})")
         elif isinstance(valor, dict):
             for k, v in valor.items():
                 sin_decimales(v, f"{camino}.{k}")

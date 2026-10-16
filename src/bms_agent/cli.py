@@ -1043,12 +1043,16 @@ def _cmd_resumen(args: argparse.Namespace) -> int:
     else:
         print(f"{'Facturacion':<16} sin facturar {fact['sin_facturar']['valor']} "
               f"({fact['sin_facturar']['periodos']} periodos) · periodos sin factura "
-              f"{len(fact['periodos_sin_factura'])} · diferencias con el planning "
+              f"{len(fact['periodos_sin_factura'])} · horas fuera de su venta "
+              f"{len(fact['horas_sin_facturar'])} · diferencias con el planning "
               f"{fact['diferencias_planning']['hallazgos']}")
     po = p["ordenes_compra"]
-    print(f"{'PO':<16} {po['activas']} activas: valor {po['valor']} · consumido "
-          f"{po['consumido']} · queda {po['restante']} · cerca del limite "
-          f"{len(po['cerca_del_limite'])} · cerca de caducar {len(po['cerca_de_caducar'])}"
+    for lado, titulo in (("cliente", "PO de clientes"), ("proveedor", "PO de proveedor")):
+        c = po[lado]
+        print(f"{titulo:<16} {c['activas']} activas: valor {c['valor']} · consumido "
+              f"{c['consumido']} · queda {c['restante']}")
+    print(f"{'':<16} cerca del limite {len(po['cerca_del_limite'])} · cerca de caducar "
+          f"{len(po['cerca_de_caducar'])} · caducadas {len(po['caducadas'])}"
           f" · se agotan antes {len(po['agotamiento_previsto'])}")
     b = p["btw"]
     plazo = b["proximo_plazo"]
@@ -1108,9 +1112,19 @@ def _cmd_buscar(args: argparse.Namespace) -> int:
               f"{(f['numero'] or '(sin numero)'):<18} {(f['contraparte'] or '')[:28]:<28} "
               f"{f['fecha_factura'] or '':<10} {f['total'] or '':>12}  "
               f"{f['estado_pago'] or '':<10} {f['estado_revision'] or ''}")
-    print(f"{r['total']} factura(s); suman {r['suma']['total']} y quedan pendientes "
-          f"{r['suma']['pendiente']}" + (f" (pagina {r['pagina']}, de {r['limite']} en "
-                                         f"{r['limite']})" if r["total"] > r["limite"] else ""))
+    suma = r["suma"]
+    if suma["mezcla"]:
+        cifras = "; ".join(
+            f"{titulo} ({suma[clave]['facturas']}) suman {suma[clave]['total']} y quedan "
+            f"pendientes {suma[clave]['pendiente']}"
+            for clave, titulo in (("compras", "compras"), ("ventas", "ventas")))
+    else:
+        cifras = f"suman {suma['total']} y quedan pendientes {suma['pendiente']}"
+    print(f"{r['total']} factura(s); {cifras}"
+          + (f"; {suma['no_cuentan']} no cuentan (anuladas, copias o sustituidas)"
+             if suma["no_cuentan"] else "")
+          + (f" (pagina {r['pagina']}, de {r['limite']} en {r['limite']})"
+             if r["total"] > r["limite"] else ""))
     return 0
 
 
@@ -1163,6 +1177,11 @@ def _cmd_historial(args: argparse.Namespace) -> int:
     print(f"Factura {h['numero'] or '(sin numero)'}"
           + (f" · original {d['nombre']} ({d['sha256'][:12]}, "
              + ("guardado" if d["conservado"] else "NO guardado: Q4") + ")" if d else ""))
+    for r in h["relaciones"]:
+        otra = r["otra_numero"] or f"factura {r['otra_id']}"
+        print(f"  relacion: " + (f"esta factura {r['tipo']} {otra}" if r["papel"] == "origen"
+                                 else f"{otra} {r['tipo']} esta factura")
+              + f" ({r['estado']}" + (", retirada" if r["retirada"] else "") + ")")
     for e in h["eventos"]:
         quien = e["usuario"] or e["actor"]
         print(f"  {e['en']}  {e['tipo']} ({quien})" + (f": {e['motivo']}" if e["motivo"] else ""))

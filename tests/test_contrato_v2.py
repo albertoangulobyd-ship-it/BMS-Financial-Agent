@@ -121,18 +121,66 @@ def test_export_v2_cumple_el_contrato_documentado(desde_out, tmp_path, capsys) -
                  "--file", str(tmp_path / "x.json")]) == 1
 
 
+_FICHA = re.compile(r'"([^"\n]*)"\s*(:)?|[{}\[\]]')
+
+
+def _claves_documentadas(seccion: str) -> dict[str, set[str]]:
+    """Las claves que documenta cada esqueleto de la seccion, por su camino.
+
+    Los esqueletos son JSON a medias (`"panel": {"contrato", "hoy", ...}`, con
+    comentarios `//` y `...`): se quitan los comentarios y se recorren las
+    llaves y los corchetes. Una clave seguida de `{` abre su camino
+    (`panel.caja`); seguida de `[`, el de su lista (`facturas[]`). Asi una clave
+    tiene que estar documentada en su sitio, no en cualquier parte: "id" en
+    `facturas[]` no vale por estar en `proveedores[]`.
+    """
+    claves: dict[str, set[str]] = {}
+    for lenguaje, bloque in re.findall(r"```(\w*)\n(.*?)```", seccion, re.S):
+        if lenguaje:
+            continue
+        sin_comentarios = "\n".join(linea.split("//", 1)[0] for linea in bloque.splitlines())
+        pila: list[str | None] = []
+        pendiente = None
+        for m in _FICHA.finditer(sin_comentarios):
+            simbolo = m.group(0)
+            if simbolo in "{[":
+                pila.append(None if pendiente is None
+                            else pendiente + ("[]" if simbolo == "[" else ""))
+                pendiente = None
+            elif simbolo in "}]":
+                if pila:
+                    pila.pop()
+                pendiente = None
+            else:
+                camino = ".".join(p for p in pila if p)
+                claves.setdefault(camino, set()).add(m.group(1))
+                pendiente = m.group(1) if m.group(2) else None
+    return claves
+
+
 def test_el_contrato_v2_es_el_que_dice_la_documentacion() -> None:
-    """docs/integracion-web.md describe la version y cada clave que el codigo exige."""
+    """docs/integracion-web.md describe la version y cada clave que el codigo exige, en el
+    bloque de su camino (no basta con que el nombre salga en algun sitio de la seccion)."""
     texto = (RAIZ / "docs" / "integracion-web.md").read_text(encoding="utf-8")
     seccion = texto.split("## El contrato v2", 1)[1].split("\n## ", 1)[0]
     assert f'"contrato": "{consultas.CONTRATO_V2}"' in seccion
+    documentadas = _claves_documentadas(seccion)
     for camino, claves in consultas.CLAVES_V2.items():
-        for clave in claves:
-            assert re.search(rf'"{re.escape(clave)}"', seccion), (camino, clave)
+        faltan = set(claves) - documentadas.get(camino, set())
+        assert not faltan, (camino, sorted(faltan))
     for filtro in consultas.FILTROS:
         assert f"`{filtro}`" in seccion, filtro
     for ruta, _parametros in __import__("bms_agent.serve", fromlist=["x"]).LECTURAS_V2:
         assert f"`GET {ruta}`" in texto, ruta
+
+
+def test_el_parser_de_la_documentacion_mira_cada_camino() -> None:
+    """Una clave documentada en otro bloque no cuenta para el suyo."""
+    seccion = ('```\n"panel": {"hoy", "caja": {"ventanas"}},\n"facturas": [ {"id"} ]\n```\n'
+               '```js\nconst x = {"nada": 1}\n```')
+    assert _claves_documentadas(seccion) == {"": {"panel", "facturas"},
+                                             "panel": {"hoy", "caja"},
+                                             "panel.caja": {"ventanas"}, "facturas[]": {"id"}}
 
 
 def test_comprobar_v2_ve_lo_que_falta_y_los_decimales() -> None:
@@ -341,3 +389,160 @@ def test_la_consola_nueva_pinta_el_html_de_los_documentos_como_texto(con_html, t
     assert "anulada_acreditada" in r["buscador"] and "Panel" in r["navegacion"]
     assert "2026-T3" in r["btw"] and "Rúbrica" in r["trimestre"]
     assert r["importe"] == ["-1.234,56", "0,05", ""]
+
+
+# ============================================================ revision del paso 12
+
+_IBAN_ENTERO = re.compile(r"\b[A-Z]{2}\d{2}[A-Z]{4}\d{10}\b|\b[A-Z]{2}\d{2}(?: [A-Z0-9]{4}){3}")
+
+
+def _con_ibanes(almacen, tmp_path) -> None:
+    """El maestro de Exact y la factura con inyeccion: F2 y F3 abiertos, con el IBAN entero en
+    sus textos y en los motivos de la prioridad."""
+    from test_cuentas import EXACT_PROVEEDORES, _fixture
+
+    from bms_agent.importadores.registrar import importar_fichero
+
+    conn = almacen.conn
+    ana = persona(conn, "Ana", "administracion")
+    importar_fichero(almacen, "exact", "proveedores", EXACT_PROVEEDORES, lanzado_por=ana)
+    _cargar(almacen, tmp_path / "out", _fixture("03-con-inyeccion"))
+    hallazgos.recalcular(conn)
+
+
+def test_el_contrato_v2_no_lleva_ningun_iban_ni_dentro_de_un_texto(almacen, tmp_path) -> None:
+    """Los mensajes de F2, F3, F5, F6 y F10 escriben el IBAN entero, y de ahi pasa a los
+    motivos de facturas, proveedores y excepciones: el export los enmascara (NL..5689) y
+    comprobar_v2 busca un IBAN dentro de cualquier texto, no solo un texto que sea un IBAN."""
+    conn = almacen.conn
+    _con_ibanes(almacen, tmp_path)
+    abiertos = {r for (r,) in conn.execute("SELECT regla FROM hallazgo WHERE estado = 'abierto'")}
+    assert {"F2", "F3"} <= abiertos
+    motivos = [m for f in consultas.listado(conn) for m in f["motivos"]]
+    assert any(_IBAN_ENTERO.search(m) for m in motivos)          # dentro de la casa, entero
+    datos = consultas.exportar_v2(conn)
+    texto = json.dumps(datos, ensure_ascii=False)
+    assert not _IBAN_ENTERO.search(texto), _IBAN_ENTERO.search(texto)
+    assert consultas.comprobar_v2(datos) == []
+    assert any("NL.." in m for f in datos["facturas"] for m in f["motivos"])
+    # comprobar_v2 lo ve aunque vaya en medio de una frase.
+    falso = {**datos, "facturas": [{**datos["facturas"][0],
+                                    "motivos": ["Bloqueada: La cuenta NL91ABNA0417164300 es "
+                                                "nueva (F3)"]}]}
+    assert any("lleva un IBAN (NL..4300)" in e for e in consultas.comprobar_v2(falso))
+
+
+@pytest.fixture
+def con_otro_origen(tmp_path):
+    """Un almacen en disco con IBAN en el registro y en los avisos, y un servidor que admite
+    el origen de un sitio propio (http://localhost:5173)."""
+    db = tmp_path / "datos" / "bms.sqlite3"
+    with preparar(db) as almacen:
+        _con_ibanes(almacen, tmp_path)
+        ana = almacen.conn.execute("SELECT id FROM usuario WHERE nombre = 'Ana'").fetchone()[0]
+        token = permisos.emitir_token(almacen.conn, ana)
+        proveedor = almacen.conn.execute(
+            "SELECT proveedor_id FROM cuenta_bancaria WHERE proveedor_id IS NOT NULL LIMIT 1"
+        ).fetchone()
+    srv = crear_servidor(tmp_path / "facturas", tmp_path / "vacio", 0, token="token-servidor",
+                         agente=AgenteFalso(), ruta_db=db,
+                         origenes_extra=["http://localhost:5173"])
+    hilo = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05},
+                            daemon=True)
+    hilo.start()
+    try:
+        yield srv.server_address[1], token, db, proveedor[0] if proveedor else None
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+SITIO = "http://localhost:5173"
+
+
+def test_un_sitio_de_otro_origen_lee_sin_iban_y_no_da_ordenes(con_otro_origen) -> None:
+    """La consola (mismo origen, o sin navegador) ve el IBAN entero (decision 23). Un sitio
+    declarado con --origen lee el contrato con cada IBAN enmascarado, tambien el registro de
+    cuentas, y no puede dar ordenes con el token de quien sea."""
+    puerto, token, _db, proveedor = con_otro_origen
+    assert proveedor is not None
+    propio = {CABECERA_TOKEN: token}
+    ajeno = {CABECERA_TOKEN: token, "Origin": SITIO}
+    for ruta in ("/api/v2/cuentas", f"/api/v2/proveedores/{proveedor}", "/api/v2/facturas",
+                 "/api/v2/buscar", "/api/v2/excepciones", "/api/v2/exportar"):
+        estado, cabeceras, cuerpo = _pedir(puerto, "GET", ruta, ajeno)
+        assert estado == 200 and cabeceras["access-control-allow-origin"] == SITIO, ruta
+        assert not _IBAN_ENTERO.search(cuerpo.decode("utf-8")), ruta
+    estado, _c, cuerpo = _pedir(puerto, "GET", "/api/v2/cuentas", propio)
+    assert estado == 200 and _IBAN_ENTERO.search(cuerpo.decode("utf-8"))
+    estado, _c, cuerpo = _pedir(puerto, "GET", "/api/v2/cuentas", {
+        **propio, "Origin": f"http://127.0.0.1:{puerto}"})
+    assert estado == 200 and _IBAN_ENTERO.search(cuerpo.decode("utf-8"))
+    # Ordenes: desde el sitio, no; desde la consola, si.
+    nota = json.dumps({"accion": "anadir_nota", "datos": {"fila_id": 1, "texto": "Llamado"}})
+    for cabeceras, codigo in ((ajeno, 403), ({**propio, "Origin": f"http://127.0.0.1:{puerto}"},
+                                             200), (propio, 200)):
+        estado, _c, cuerpo = _pedir(puerto, "POST", "/api/v2/acciones", {
+            **cabeceras, "Content-Type": "application/json"}, nota.encode("utf-8"))
+        assert estado == codigo, (cabeceras, cuerpo)
+    assert "consola" in json.loads(_pedir(puerto, "POST", "/api/v2/acciones", {
+        **ajeno, "Content-Type": "application/json"}, nota.encode("utf-8"))[2])["error"]
+
+
+def _ejemplo(ruta: str) -> str:
+    return (ruta.replace("/N/", "/1/").replace("/N", "/1")
+            .replace("AAAA-TN", "2026-T3"))
+
+
+def test_cada_lectura_de_v2_rechaza_un_parametro_que_no_admite(desde_out) -> None:
+    """Todas las lecturas de LECTURAS_V2, no solo las del paso 12: un parametro desconocido es
+    un 400 (antes, /api/v2/facturas?cosa=1 daba todas y /api/v2/btw?x=1 un 200)."""
+    from bms_agent.serve import LECTURAS_V2
+
+    puerto, token, _db = desde_out
+    for ruta, _parametros in LECTURAS_V2:
+        estado, _c, cuerpo = _leer(puerto, f"{_ejemplo(ruta)}?cosa=1", token)
+        assert estado == 400, (ruta, estado, cuerpo)
+        assert "cosa" in cuerpo["error"], ruta
+    for ruta in ("/api/v2/facturas?nivel=normal&nivel=urgente", "/api/v2/flujo?desde=2026-10-01"
+                 "&desde=2026-10-02&hasta=2026-10-31"):
+        assert _leer(puerto, ruta, token)[0] == 400, ruta
+
+
+def test_el_nivel_de_la_lista_de_facturas(desde_out) -> None:
+    """`nivel=` vacio es como no ponerlo (todas, como antes de guardar los vacios); un nivel
+    que no existe es un 400, no una lista vacia."""
+    puerto, token, _db = desde_out
+    todas = _leer(puerto, "/api/v2/facturas", token)[2]["facturas"]
+    assert len(todas) == 7
+    assert _leer(puerto, "/api/v2/facturas?nivel=", token)[2]["facturas"] == todas
+    estado, _c, flujo = _leer(puerto, "/api/v2/flujo?desde=&hasta=", token)
+    assert estado == 200 and flujo["flujo_caja"]["hoy"]
+    estado, _c, cuerpo = _leer(puerto, "/api/v2/facturas?nivel=xyz", token)
+    assert estado == 400 and "xyz" in cuerpo["error"]
+    nivel = todas[0]["nivel"]
+    assert {f["id"] for f in _leer(puerto, f"/api/v2/facturas?nivel={nivel}", token)[2][
+        "facturas"]} == {f["id"] for f in todas if f["nivel"] == nivel}
+
+
+def test_un_filtro_enorme_es_un_400_y_no_un_500(desde_out) -> None:
+    puerto, token, _db = desde_out
+    estado, _c, cuerpo = _leer(puerto, "/api/v2/buscar?proveedor_id=99999999999999999999", token)
+    assert estado == 400 and "demasiado grande" in cuerpo["error"]
+
+
+def test_la_vista_del_objeto_pide_los_dos_extremos_del_periodo(desde_out) -> None:
+    from bms_agent import campos
+    from bms_agent.almacen import usuario_sistema
+
+    puerto, token, db = desde_out
+    with preparar(db) as almacen:
+        maestro = campos.Automatico("maestro", usuario_sistema(almacen.conn, "importador"))
+        objeto = campos.crear(almacen.conn, "objeto", {"codigo": "Rijnhaven",
+                                                       "nombre": "Rijnhaven"}, maestro)
+    for consulta in ("hasta=2026-09-30", "desde=2026-11-01"):
+        estado, _c, cuerpo = _leer(puerto, f"/api/v2/objetos/{objeto}?{consulta}", token)
+        assert estado == 400 and "desde y hasta" in cuerpo["error"], consulta
+    estado, _c, v = _leer(puerto, f"/api/v2/objetos/{objeto}?desde=2026-09-01"
+                                  "&hasta=2026-09-30", token)
+    assert estado == 200 and v["objeto"]["economia"]["periodo"]["hasta"] == "2026-09-30"

@@ -63,7 +63,9 @@ comprueba que estas exclusiones siguen siendo ciertas.
 
 Todo vive en una base de datos SQLite local (`datos/bms.sqlite3`), con SQL
 que se puede llevar a Postgres más adelante. Los originales se guardan aparte,
-cada uno con el nombre de su huella (sha256), en modo de solo lectura.
+cada uno con el nombre de su huella (sha256), en modo de solo lectura. La
+lista completa de tablas y vistas, tal como quedaron construidas, está en
+[modelo-datos.md](modelo-datos.md).
 
 **Cómo se guardan los importes.** Como números enteros, nunca con decimales
 flotantes: céntimos de euro, milésimas de hora, diezmilésimas de euro para las

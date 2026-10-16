@@ -82,7 +82,7 @@ _COLUMNAS_ESTADO = (
     "estado_pago", "pendiente_cent", "vencimiento", "dias_vencida", "estado_revision", "calidad",
     "editada", "suplementada", "corregida", "sin_resolver", "dudosos", "pendientes", "sin_datos",
     "excepcion_id", "nivel", "puntos", "suelo", "motivos_json", "huella_contenido",
-    "huella_entradas", "politica_sha256",
+    "huella_entradas", "politica_sha256", "periodo_desde", "periodo_hasta",
 )
 _COLUMNAS_PRIORIDAD = ("nivel", "puntos", "suelo", "motivos_json", "vencimiento", "importe_cent",
                        "huella_entradas", "politica_sha256")
@@ -120,6 +120,61 @@ def _motivos(motivos: Sequence[str]) -> str:
 
 def _fecha(texto: str | None) -> date | None:
     return None if texto is None else date.fromisoformat(texto)
+
+
+@dataclass(frozen=True)
+class _Dias:
+    """Lo que turnos.dias_de lee de una imputacion, su linea y su factura."""
+
+    fecha_inicio: date | None = None
+    fecha_fin: date | None = None
+    fecha_trabajo: date | None = None
+    semana_doc: int | None = None
+    fecha_factura: date | None = None
+    periodo_inicio: date | None = None
+    periodo_fin: date | None = None
+
+
+def periodos(conn: sqlite3.Connection) -> dict[int, tuple[str | None, str | None]]:
+    """El periodo de prestacion de cada factura: (desde, hasta), en texto ISO.
+
+    El de la cabecera y, en lo que no imprime, el de sus imputaciones activas,
+    con la misma cuenta que las horas y la economia por semana del Objeto
+    (turnos.dias_de): las fechas de la imputacion, las de su linea, la semana
+    impresa con el ano que le da la fecha de la factura y, al final, la
+    cabecera. Una linea sin imputacion activa cuenta por sus fechas y su
+    semana. Sin nada de eso, (None, None): la busqueda por periodo no la
+    encuentra, porque no se sabe de cuando es.
+    """
+    from .reglas.turnos import dias_de
+
+    cabeceras = {f[0]: (_fecha(f[1]), _fecha(f[2]), _fecha(f[3])) for f in _filas(
+        conn, "SELECT id, fecha_factura, periodo_inicio, periodo_fin FROM factura")}
+    dias: dict[int, list[tuple[date, date]]] = defaultdict(list)
+    for factura_id, i_inicio, i_fin, trabajo, l_inicio, l_fin, semana in _filas(
+            conn,
+            "SELECT i.factura_id, i.fecha_inicio, i.fecha_fin, l.fecha_trabajo, l.fecha_inicio, "
+            "l.fecha_fin, l.semana_doc FROM factura_imputacion AS i LEFT JOIN factura_linea AS l "
+            "ON l.id = i.linea_id AND l.retirada_en IS NULL WHERE i.retirada_en IS NULL "
+            "UNION ALL SELECT l.factura_id, NULL, NULL, l.fecha_trabajo, l.fecha_inicio, "
+            "l.fecha_fin, l.semana_doc FROM factura_linea AS l WHERE l.retirada_en IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM factura_imputacion AS i WHERE i.linea_id = l.id "
+            "AND i.retirada_en IS NULL)"):
+        fecha, inicio, fin = cabeceras.get(factura_id, (None, None, None))
+        linea = _Dias(fecha_inicio=_fecha(l_inicio), fecha_fin=_fecha(l_fin),
+                      fecha_trabajo=_fecha(trabajo), semana_doc=semana)
+        tramo = dias_de(_Dias(fecha_inicio=_fecha(i_inicio), fecha_fin=_fecha(i_fin)), linea,
+                        _Dias(fecha_factura=fecha, periodo_inicio=inicio, periodo_fin=fin))
+        if tramo is not None:
+            dias[factura_id].append(tramo)
+    salida = {}
+    for factura_id, (_fecha_factura, inicio, fin) in cabeceras.items():
+        tramos = dias.get(factura_id, [])
+        desde = inicio or (min(d for d, _h in tramos) if tramos else None)
+        hasta = fin or (max(h for _d, h in tramos) if tramos else None)
+        salida[factura_id] = (desde.isoformat() if desde else None,
+                              hasta.isoformat() if hasta else None)
+    return salida
 
 
 def estado_pago(anulada: bool, fusionada: bool, vencimiento: date | None,
@@ -369,6 +424,8 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
     presentados = frozenset(_filas(conn, "SELECT ano, trimestre FROM periodo_btw "
                                          "WHERE estado = 'presentado'"))
 
+    periodos_ = periodos(conn)
+
     resultados: dict[int, prioridad.Resultado] = {}
     filas_estado: dict[int, tuple] = {}
     for f in facturas:
@@ -409,7 +466,8 @@ def recalcular(conn: sqlite3.Connection, *, hoy: date, ejecucion_id: int,
             len(lista), int(sin_datos.get(f.id, 0)),
             excepcion[0] if excepcion else None, resultado.nivel, resultado.puntos,
             resultado.suelo, _motivos(resultado.motivos), huella,
-            prioridad.huella_entradas(entradas, hoy, pesos), politica_sha)
+            prioridad.huella_entradas(entradas, hoy, pesos), politica_sha,
+            *periodos_.get(f.id, (None, None)))
     _escribir_estados(conn, filas_estado, ejecucion_id, cambios)
     _escribir_prioridades(conn, _agregados(conn, facturas, resultados, por_id, subidas, hoy,
                                            pesos), ejecucion_id, cambios)

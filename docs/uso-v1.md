@@ -28,6 +28,11 @@ bms-agent usuario token Ana
 Guarda el token en un gestor de contraseñas. Si se pierde, se pide otro: el
 anterior deja de valer.
 
+Un sitio web propio (el panel del dueño, por ejemplo) **no** usa el token de
+nadie de administración: lleva su propia persona con el rol `consulta`, que
+solo puede ver (`bms-agent usuario crear Web --rol consulta`), y su token no se
+escribe dentro del sitio. Lo explica [integracion-web.md](integracion-web.md).
+
 Para trabajar con la consola:
 
 ```bash
@@ -73,8 +78,8 @@ La página **Panel** tiene siete bloques:
 | **Entra (cobros)** | Lo que nos deben los clientes: lo pendiente, lo vencido y lo que vence esta semana, este mes y en los próximos 30 días. |
 | **Sale (pagos)** | Lo mismo de lo que debemos a los proveedores. |
 | **Caja** | Lo que se espera que entre y salga en cada una de esas ventanas, el neto, y lo que el banco movió de verdad este mes. Lo estimado desde el planning va aparte y se dice. |
-| **Facturación** | Trabajo del planning que nadie ha facturado, periodos sin factura y diferencias con el planning. |
-| **Órdenes de compra** | Las PO a punto de agotarse, las que caducan y las que no tienen Objeto o no casan con el planning. |
+| **Facturación** | Trabajo del planning que nadie ha facturado, periodos sin factura, horas validadas que no están en la venta que cobra su periodo, y diferencias con el planning. |
+| **Órdenes de compra** | Lo que vale, lo consumido y lo que queda de las PO activas, por separado las de clientes (lo que BMS puede facturar) y las de proveedores (lo que nos pueden facturar); las que están cerca de su límite, de caducar o de agotarse, y las que ya caducaron con el aviso pendiente. |
 | **BTW** | El trimestre en curso, el próximo plazo y los trimestres terminados que aún no se han presentado. |
 | **Requiere atención** | Lo pendiente por tipo: IBAN, duplicados, IVA, planning, sin facturar, PO, vencidas, faltan datos, lecturas dudosas y otros. |
 
@@ -111,7 +116,10 @@ la lista.
 periodo, vencimiento, estado de pago, de revisión, prioridad, calidad del dato
 o ediciones a mano, y por pendientes, vencidas, pagadas o anuladas y abonadas.
 Los filtros se suman: «proveedor Van Dijk» y «vencida» da las vencidas de Van
-Dijk. Abajo sale la suma de lo encontrado.
+Dijk. Abajo sale la suma de lo encontrado: solo suma lo que cuenta (una
+factura anulada, una copia fusionada o una sustituida sale en la lista, pero
+no suma, igual que en la vista del proveedor), y compras y ventas por
+separado.
 
 Lo mismo por línea de comandos:
 
@@ -142,8 +150,13 @@ niveles:
 | **Atención** | Hay algo por mirar, pero no corre prisa: una retención, una excepción abierta, una lectura dudosa, un cambio a mano que nadie ha verificado. | Esta semana. |
 | **Normal** | Las comprobaciones no ven nada. No quiere decir que una persona la haya mirado. | En la revisión semanal. |
 
-Al lado del nivel sale el **motivo**, por ejemplo: «Bloqueada: IBAN NL..4300
-no verificado para Van Dijk BV (F3) · vence en 2 días +20». Lo primero es lo
+Al lado del nivel sale el **motivo**, por ejemplo: «Bloqueada: El IBAN
+NL75INGB0002445689 de la factura no es pagable: no está en el registro de
+cuentas de este proveedor. Se paga siempre a una cuenta del maestro, nunca al
+IBAN del documento (F2); La cuenta NL75INGB0002445689 es nueva para este
+proveedor: verificar por teléfono… (F3) · vence hoy +20». En la consola el
+IBAN sale entero, porque ahí se verifica; en el contrato v2 y en lo que lee un
+sitio propio sale enmascarado («NL..5689»). Lo primero es lo
 que fija el nivel mínimo; lo que sigue son puntos (plazo, importe, días
 vencida) que lo pueden subir.
 

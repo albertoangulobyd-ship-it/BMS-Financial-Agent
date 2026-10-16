@@ -25,6 +25,7 @@ sistema funcione.
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/uso-v1.md](docs/uso-v1.md) | **Para el día a día.** La rutina diaria, qué quiere decir cada prioridad, cómo corregir un dato, cómo verificar un IBAN por teléfono y cómo cerrar un trimestre del BTW. |
 | [docs/diseno-v1.md](docs/diseno-v1.md) | Resumen en castellano de la V1: modelo de datos, comprobaciones, prioridad y orden de construcción. |
+| [docs/modelo-datos.md](docs/modelo-datos.md) | El almacén de la V1: cada tabla y su clase (controlada, solo escritura, evidencia, caché), las vistas y de dónde sale cada estado. |
 | [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral; al final, la tabla de las reglas del motor, generada del código. |
 | [docs/integracion-web.md](docs/integracion-web.md) | Cómo conecta un sitio propio con el agente: el contrato de datos v1 (`/api/datos`) y el v2 (`/api/v2`, `export --v2`), servidor local y dónde puede vivir un botón de ejecutar. |
 | [docs/portal-consulta.md](docs/portal-consulta.md) | Arquitectura del portal web de consulta: modelo de lectura separado, API de solo lectura y frontend estático sin datos. |
@@ -94,6 +95,6 @@ de ningún sistema de la empresa. Ver [docs/fase-0.md](docs/fase-0.md).
 La V1 se construye por pasos según [docs/v1/spec.md](docs/v1/spec.md), con el
 resumen en castellano en [docs/diseno-v1.md](docs/diseno-v1.md). Lo hecho en
 cada paso, y dónde se apartó de la especificación, está en
-[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1922 tests sin
+[docs/v1/registro.md](docs/v1/registro.md). `pytest` pasa 1943 tests sin
 llamar a la API. Con el paso 12 la V1 está construida entera; el uso del día
 a día está en [docs/uso-v1.md](docs/uso-v1.md).

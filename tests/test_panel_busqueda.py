@@ -265,6 +265,21 @@ def test_filtro_ediciones_manuales(escenario) -> None:
     _comprobar(conn, {"edicion": "corregida"}, {i for i, c in corregida.items() if c})
     assert factura_de(conn, "2026-0912") in _ids(conn, {"edicion": "corregida"})
     _comprobar(conn, {"edicion": "editada"}, {i for i, c in editada.items() if c})
+    # Suplementada: un campo que el documento no traia, puesto a mano (manual_entrada).
+    f = factura_de(conn, "2026-018")
+    assert conn.execute("SELECT fecha_vencimiento FROM factura WHERE id = ?",
+                        (f,)).fetchone()[0] is None
+    _orden(conn, "fijar_campo", {"tabla": "factura", "fila_id": f, "campo": "fecha_vencimiento",
+                                 "valor": "2026-11-30", "motivo": "Lo dice el contrato",
+                                 "rev": _rev(conn, f)})
+    suplementada = _estado(conn, "suplementada")
+    assert suplementada[f]
+    _comprobar(conn, {"edicion": "suplementada"}, {i for i, c in suplementada.items() if c})
+    sin_resolver = _estado(conn, "sin_resolver")
+    assert sin_resolver[factura_de(conn, "2026-0912")]
+    _comprobar(conn, {"edicion": "sin_resolver"}, {i for i, c in sin_resolver.items() if c})
+    _comprobar(conn, {"edicion": "suplementada,corregida"},
+               {i for i in suplementada if suplementada[i] or corregida[i]})
 
 
 def test_filtro_pendiente(escenario) -> None:
@@ -452,6 +467,19 @@ def _escenario_al_azar(almacen, semilla: int) -> None:
         ).fetchone()
         _orden(conn, "cambiar_objeto", {"imputacion_id": imputacion[0],
                                         "rev": imputacion[1], "motivo": MOTIVO})
+    # Siempre, con importes al azar: una compra que siempre cuenta (2026-018, pagada) con
+    # su linea sin Objeto y una base que ya no es la suma de sus lineas. Asi lo imputado sin
+    # Objeto y lo que la base no reparte (desviacion 6) tienen costes en cada semilla.
+    f = factura_de(conn, "2026-018")
+    imputacion = conn.execute("SELECT id, rev FROM factura_imputacion WHERE factura_id = ? "
+                              "AND retirada_en IS NULL", (f,)).fetchone()
+    _orden(conn, "cambiar_objeto", {"imputacion_id": imputacion[0], "rev": imputacion[1],
+                                    "motivo": MOTIVO})
+    base = conn.execute("SELECT base_cent FROM factura WHERE id = ?", (f,)).fetchone()[0]
+    nueva = base + azar.choice([-1, 1]) * azar.randint(100, 50000)
+    _orden(conn, "fijar_campo", {"tabla": "factura", "fila_id": f, "campo": "base_cent",
+                                 "valor": f"{nueva / 100:.2f}", "motivo": MOTIVO,
+                                 "rev": _rev(conn, f)})
 
 
 @pytest.mark.parametrize("semilla", range(5))
@@ -532,6 +560,12 @@ def test_lo_de_cada_objeto_mas_lo_sin_objeto_es_la_base_total(escenario, semilla
         ingresos += siempre["ingresos_cent"]
         costes += siempre["costes_cent"]
     sin_objeto = resumen["sin_objeto"]["total"]
+    # Lo sin Objeto tiene de las dos cosas, y de costes en cada semilla.
+    imputado, sin_imputar = resumen["sin_objeto"]["imputado"], resumen["sin_objeto"]["sin_imputar"]
+    assert imputado["costes_cent"] != 0 and sin_imputar["costes_cent"] != 0
+    assert sin_objeto["costes_cent"] == imputado["costes_cent"] + sin_imputar["costes_cent"]
+    assert sin_objeto["ingresos_cent"] == imputado["ingresos_cent"] + sin_imputar[
+        "ingresos_cent"]
     assert ingresos + sin_objeto["ingresos_cent"] == _base_total(conn, "saliente") == resumen[
         "totales"]["ingresos_cent"]
     assert costes + sin_objeto["costes_cent"] == _base_total(conn, "entrante") == resumen[
@@ -578,9 +612,10 @@ def test_el_panel_tiene_los_siete_bloques_del_paragrafo_17(escenario) -> None:
     assert p["caja"]["estimado"]["importe_cent"] is None
     # La PO activa con lo consumido de su vista.
     [po] = consultas.ordenes_compra(conn)
-    assert p["ordenes_compra"]["activas"] == 1
-    assert (p["ordenes_compra"]["valor_cent"], p["ordenes_compra"]["consumido_cent"]) == (
-        po["valor_cent"], po["consumido_cent"])
+    assert p["ordenes_compra"]["activas"] == p["ordenes_compra"]["cliente"]["activas"] == 1
+    assert (p["ordenes_compra"]["cliente"]["valor_cent"],
+            p["ordenes_compra"]["cliente"]["consumido_cent"]) == (po["valor_cent"],
+                                                                  po["consumido_cent"])
     # El BTW: el trimestre en curso y el proximo plazo que no ha pasado (el del tercero).
     assert p["btw"]["trimestre"] == "2026-T4"
     assert p["btw"]["proximo_plazo"]["trimestre"] == "2026-T3"
@@ -727,3 +762,235 @@ def test_la_tabla_de_validacion_facturas_es_la_del_catalogo() -> None:
     for regla in catalogo.CATALOGO:
         assert f"| {regla.id} | **" in texto
     assert modulo.main(["--comprobar"]) == 0
+
+
+# ============================================================ revision del paso 12
+
+def test_la_suma_de_la_busqueda_es_la_de_la_vista_de_la_parte(escenario) -> None:
+    """Solo suman las facturas que cuentan: la anulada 2026-112 sale en la busqueda de su
+    proveedor, pero no suma (como en su vista), y se dice que no cuenta. Compras y ventas no
+    se suman entre si."""
+    conn = escenario.conn
+    for resumen in consultas.proveedores(conn):
+        vista = consultas.proveedor(conn, resumen["id"])["siempre_facturado"]
+        suma = consultas.buscar(conn, {"proveedor_id": str(resumen["id"])})["suma"]
+        assert (suma["total_cent"], suma["base_cent"], suma["cuentan"]) == (
+            vista["total_cent"], vista["base_cent"], vista["facturas"]), resumen["id"]
+    for resumen in consultas.clientes(conn):
+        vista = consultas.cliente(conn, resumen["id"])["siempre_facturado"]
+        suma = consultas.buscar(conn, {"cliente_id": str(resumen["id"]),
+                                       "sentido": "saliente"})["suma"]
+        assert (suma["total_cent"], suma["base_cent"]) == (vista["total_cent"],
+                                                           vista["base_cent"])
+    anulada = factura_de(conn, "2026-112")
+    proveedor = conn.execute("SELECT proveedor_id FROM factura WHERE id = ?",
+                             (anulada,)).fetchone()[0]
+    r = consultas.buscar(conn, {"proveedor_id": str(proveedor)})
+    assert [f["id"] for f in r["facturas"]] == [anulada]
+    assert r["suma"]["total_cent"] == 0 and (r["suma"]["cuentan"], r["suma"]["no_cuentan"]) == (
+        0, 1)
+    # Sin sentido, lo de las compras y lo de las ventas va por separado y arriba no hay suma.
+    todo = consultas.buscar(conn, {"limite": "1000"})["suma"]
+    assert todo["mezcla"] and todo["total_cent"] is None and todo["pendiente_cent"] is None
+    compras_ = consultas.buscar(conn, {"sentido": "entrante"})["suma"]
+    assert not compras_["mezcla"] and todo["compras"] == compras_["compras"]
+    assert compras_["pendiente_cent"] == compras_["compras"]["pendiente_cent"]
+    assert todo["ventas"]["pendiente_cent"] == consultas.buscar(
+        conn, {"sentido": "saliente"})["suma"]["pendiente_cent"]
+
+
+def test_una_copia_fusionada_no_suma_dos_veces(escenario) -> None:
+    conn = escenario.conn
+    van_dijk = conn.execute("SELECT proveedor_id FROM factura WHERE numero = '2026-4471'"
+                            ).fetchone()[0]
+    antes = consultas.buscar(conn, {"proveedor_id": str(van_dijk)})["suma"]
+    copia = _sustituta(escenario, citar=False)
+    _orden(conn, "fusionar_factura", {"factura_id": copia,
+                                      "destino_id": factura_de(conn, "2026-4471"),
+                                      "rev": _rev(conn, copia), "motivo": MOTIVO})
+    despues = consultas.buscar(conn, {"proveedor_id": str(van_dijk)})
+    assert copia in {f["id"] for f in despues["facturas"]}
+    assert despues["suma"]["total_cent"] == antes["total_cent"]
+    assert despues["suma"]["no_cuentan"] == antes["no_cuentan"] + 1
+    assert despues["suma"]["total_cent"] == consultas.proveedor(conn, van_dijk)[
+        "siempre_facturado"]["total_cent"]
+
+
+def test_el_texto_se_busca_sin_mayusculas_tambien_fuera_del_ascii(escenario) -> None:
+    """lower() de SQLite solo pliega ASCII: "ÖZTÜRK" no se encontraba ni escrito igual."""
+    conn = escenario.conn
+    f = factura_de(conn, "2026-018")
+    _orden(conn, "fijar_campo", {"tabla": "factura", "fila_id": f, "campo": "emisor_nombre_doc",
+                                 "valor": "ÖZTÜRK Élan Bouw", "motivo": "Como en el maestro",
+                                 "rev": _rev(conn, f)})
+    for buscado in ("Öztürk", "öztürk", "ÖZTÜRK", "élan", "ÉLAN BOUW", "rk élan"):
+        assert _ids(conn, {"texto": buscado}) == {f}, buscado
+    assert _ids(conn, {"texto": "oztürk"}) == set()
+
+
+@pytest.mark.parametrize("peticion", [
+    {"proveedor_id": "99999999999999999999"}, {"objeto_id": "9223372036854775808"},
+    {"limite": "1" + "0" * 30},
+])
+def test_un_entero_demasiado_grande_es_un_filtro_no_valido(escenario, peticion) -> None:
+    with pytest.raises(consultas.FiltroNoValido, match="demasiado grande"):
+        consultas.buscar(escenario.conn, peticion)
+
+
+def test_la_busqueda_admite_valores_que_no_son_texto(escenario) -> None:
+    conn = escenario.conn
+    van_dijk = conn.execute("SELECT proveedor_id FROM factura WHERE numero = '2026-4471'"
+                            ).fetchone()[0]
+    assert _ids(conn, {"proveedor_id": van_dijk}) == _ids(conn, {"proveedor_id": str(van_dijk)})
+    assert consultas.buscar(conn, {"limite": 5})["limite"] == 5
+
+
+def test_el_filtro_de_periodo_encuentra_una_factura_que_solo_imprime_la_semana(escenario) -> None:
+    """Sin periodo en la cabecera, la factura de horas "semana 37" (sin fechas por linea) es de
+    la semana 37: la misma cuenta que la economia por semana del Objeto (turnos.dias_de)."""
+    conn = escenario.conn
+    f = factura_de(conn, "2026-0912")
+    assert conn.execute("SELECT count(*) FROM factura_linea WHERE factura_id = ? AND "
+                        "semana_doc = 37 AND fecha_inicio IS NULL AND fecha_trabajo IS NULL",
+                        (f,)).fetchone()[0] == 1
+    for campo in ("periodo_inicio", "periodo_fin"):
+        _orden(conn, "fijar_campo", {"tabla": "factura", "fila_id": f, "campo": campo,
+                                     "valor": None, "motivo": "No lo imprime",
+                                     "rev": _rev(conn, f)})
+    assert conn.execute("SELECT periodo_inicio, periodo_fin FROM factura WHERE id = ?",
+                        (f,)).fetchone()[:] == (None, None)
+    [fila] = [x for x in _todas(conn) if x["id"] == f]
+    assert (fila["periodo_desde"], fila["periodo_hasta"]) == ("2026-09-07", "2026-09-13")
+    assert f in _ids(conn, {"periodo_desde": "2026-09-07", "periodo_hasta": "2026-09-13"})
+    assert f not in _ids(conn, {"periodo_desde": "2026-09-14"})
+    schiedam = consultas.objeto(conn, _objeto(conn, "Schiedam"))["economia"]["por_semana"]
+    assert any(s["semana"] == "2026-W37" and s["costes_cent"] for s in schiedam)
+
+
+def test_el_periodo_de_la_cache_es_el_de_turnos(escenario) -> None:
+    """estados.periodos usa la misma cuenta que las horas: la semana impresa toma el ano de la
+    fecha de la factura (la semana 52 de una factura de enero es la del ano anterior)."""
+    from bms_agent import estados
+
+    conn = escenario.conn
+    f = factura_de(conn, "2026-0912")
+    linea = conn.execute("SELECT id, rev FROM factura_linea WHERE factura_id = ?",
+                         (f,)).fetchone()
+    for tabla, fila_id, campo, valor in (
+            ("factura", f, "periodo_inicio", None), ("factura", f, "periodo_fin", None),
+            ("factura", f, "fecha_factura", "2027-01-06"),
+            ("factura_linea", linea["id"], "semana_doc", "52")):
+        rev = conn.execute(f"SELECT rev FROM {tabla} WHERE id = ?", (fila_id,)).fetchone()[0]
+        _orden(conn, "fijar_campo", {"tabla": tabla, "fila_id": fila_id, "campo": campo,
+                                     "valor": valor, "motivo": "Lo que imprime",
+                                     "rev": rev})
+    assert estados.periodos(conn)[f] == ("2026-12-21", "2026-12-27")
+    assert f in _ids(conn, {"periodo_hasta": "2026-12-21", "periodo_desde": "2026-12-27"})
+
+
+def test_la_vista_del_objeto_no_admite_medio_periodo(escenario) -> None:
+    """Un solo extremo no es un periodo (antes se rellenaba con el mes en curso y daba un
+    periodo al reves): los dos o ninguno, como el flujo de caja."""
+    conn = escenario.conn
+    rijnhaven = _objeto(conn, "Rijnhaven")
+    for extremos in ({"hasta": date(2026, 9, 30)}, {"desde": date(2026, 11, 1)},
+                     {"desde": date(2026, 9, 1)}):
+        with pytest.raises(ValueError, match="desde y hasta"):
+            consultas.objeto(conn, rijnhaven, **extremos)
+    periodo = consultas.objeto(conn, rijnhaven, desde=date(2026, 9, 1),
+                               hasta=date(2026, 9, 30))["economia"]["periodo"]
+    assert (periodo["desde"], periodo["hasta"]) == ("2026-09-01", "2026-09-30")
+
+
+def _po_de_proveedor(conn, numero: str, valor: str, fin: str | None = None) -> int:
+    proveedor = conn.execute("SELECT proveedor_id FROM factura WHERE numero = '2026-018'"
+                             ).fetchone()[0]
+    datos = {"numero": numero, "lado": "proveedor", "parte_id": proveedor, "valor": valor,
+             "motivo": MOTIVO}
+    if fin:
+        datos["fecha_fin"] = fin
+    _orden(conn, "registrar_po", datos)
+    return conn.execute("SELECT id FROM orden_compra WHERE numero = ?", (numero,)).fetchone()[0]
+
+
+def test_el_bloque_de_po_no_suma_los_dos_lados(escenario) -> None:
+    """Una PO de cliente (lo que BMS puede facturar) y una de proveedor (lo que le pueden
+    facturar) van cada una en su lado, como en la vista del Objeto."""
+    conn = escenario.conn
+    _po_de_proveedor(conn, "BMS-PO-9", "5000")
+    p = consultas.panel(conn)["ordenes_compra"]
+    lista = consultas.ordenes_compra(conn)
+    for lado in ("cliente", "proveedor"):
+        suyas = [o for o in lista if o["lado"] == lado]
+        assert p[lado]["activas"] == len(suyas) == 1
+        assert p[lado]["valor_cent"] == sum(o["valor_cent"] for o in suyas)
+        assert p[lado]["consumido_cent"] == sum(o["consumido_cent"] for o in suyas)
+        assert p[lado]["restante_cent"] == p[lado]["valor_cent"] - p[lado]["consumido_cent"]
+    assert (p["cliente"]["valor_cent"], p["proveedor"]["valor_cent"]) == (1000000, 500000)
+    assert p["activas"] == 2 and "valor_cent" not in p
+    assert consultas.comprobar_v2({**consultas.exportar_v2(conn)}) == []
+
+
+def test_las_listas_de_po_del_panel(escenario, reloj) -> None:
+    """Cerca del limite (P5), cerca de caducar (P7 de una PO activa) y caducadas (P7 que sigue
+    pendiente despues del fin): una PO que ya caduco no esta "cerca de caducar"."""
+    conn = escenario.conn
+    haven = conn.execute("SELECT id FROM orden_compra WHERE numero = 'PO-4500123'"
+                         ).fetchone()[0]
+    _orden(conn, "modificar_po", {"orden_compra_id": haven, "valor": "4500", "motivo": MOTIVO})
+    nueve = _po_de_proveedor(conn, "BMS-PO-9", "5000", fin="2026-10-30")
+    p = consultas.panel(conn)["ordenes_compra"]
+    assert [o["id"] for o in p["cerca_del_limite"]] == [haven]
+    assert [(o["id"], o["lado"]) for o in p["cerca_de_caducar"]] == [(nueve, "proveedor")]
+    assert p["caducadas"] == []
+    reloj.avanzar(days=20)
+    hallazgos.recalcular(conn, motivo="diaria")
+    assert conn.execute("SELECT estado FROM hallazgo WHERE regla = 'P7' AND fila_id = ?",
+                        (nueve,)).fetchone()[0] == "abierto"
+    p = consultas.panel(conn)["ordenes_compra"]
+    assert p["proveedor"]["activas"] == 0 and p["cerca_de_caducar"] == []
+    assert [(o["id"], o["fecha_fin"]) for o in p["caducadas"]] == [(nueve, "2026-10-30")]
+
+
+def test_la_historia_de_una_factura_abonada_dice_quien_la_abono(escenario) -> None:
+    """La relacion se escribe con el abono (origen): la factura abonada tambien la tiene en su
+    historia, con su evento y la relacion en los dos sentidos."""
+    conn = escenario.conn
+    abono, venta = factura_de(conn, "C2026-0005"), factura_de(conn, "V2026-0101")
+    h = consultas.historial_factura(conn, venta)
+    assert "relacion_confirmada" in [e["tipo"] for e in h["eventos"]]
+    [relacion] = [r for r in h["relaciones"] if r["estado"] == "confirmada"]
+    assert (relacion["papel"], relacion["tipo"], relacion["otra_id"],
+            relacion["otra_numero"]) == ("destino", "acredita", abono, "C2026-0005")
+    del_abono = consultas.historial_factura(conn, abono)
+    assert [r["papel"] for r in del_abono["relaciones"] if r["estado"] == "confirmada"] == [
+        "origen"]
+    confirmada = [e for e in h["eventos"] if e["tipo"] == "relacion_confirmada"][0]
+    assert any(c["tabla"] == "factura_relacion" for c in confirmada["cambios"])
+    # Una factura sin relaciones no gana eventos ajenos.
+    ajena = consultas.historial_factura(conn, factura_de(conn, "2026-018"))
+    assert ajena["relaciones"] == [] and "relacion_confirmada" not in [
+        e["tipo"] for e in ajena["eventos"]]
+
+
+def test_el_panel_dice_las_horas_validadas_que_no_estan_en_su_venta(maestros, tmp_path) -> None:
+    """V5 (§7 "Missing billable hours", §8 "Missing billing"): una venta de la semana 42 cuya
+    unica linea es del dia 14 deja fuera los dos turnos del dia 12."""
+    from test_planning import _importar_venta, _venta
+
+    conn = maestros.conn
+    _planning(maestros)
+    ruta = _venta(tmp_path, horas="8")
+    texto = ruta.read_bytes().decode("utf-8")
+    # La cabecera cobra la semana; la linea, solo el dia 14.
+    antes, despues = texto.rsplit("12-10-2026;18-10-2026", 1)
+    ruta.write_bytes((antes + "14-10-2026;14-10-2026" + despues).encode("utf-8"))
+    _importar_venta(maestros, ruta)
+    [v5] = conn.execute("SELECT id, fila_id FROM hallazgo WHERE regla = 'V5' "
+                        "AND estado = 'abierto'").fetchall()
+    [horas] = consultas.panel(conn)["facturacion"]["horas_sin_facturar"]
+    assert (horas["hallazgo_id"], horas["factura_id"]) == (v5["id"], v5["fila_id"])
+    assert (horas["objeto_id"], horas["desde"], horas["hasta"], horas["horas_mil"]) == (
+        _objeto(conn, "Rijnhaven"), "2026-10-12", "2026-10-18", 15000)
+    assert horas["valor_cent"] and horas["estimado"]
+    assert consultas.categoria_de("V5") == "sin_facturar"

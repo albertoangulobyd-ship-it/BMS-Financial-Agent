@@ -69,8 +69,9 @@ CABECERA_TOKEN = "X-BMS-Token"
 CABECERA_CONTRATO = "X-BMS-Contrato"
 
 # Paso 12: las lecturas de /api/v2, con los parametros que admite cada una. Un
-# parametro que no esta en la lista es un 400: el filtro mal escrito no se
-# ignora en silencio. La busqueda los comprueba ella misma (consultas.FILTROS).
+# parametro que no esta en la lista es un 400 en todas: el filtro mal escrito
+# no se ignora en silencio (_leer_v2 lo comprueba antes de contestar). La
+# busqueda los comprueba ella misma (consultas.FILTROS).
 LECTURAS_V2 = (
     ("/api/v2/contrato", ()),
     ("/api/v2/yo", ()),
@@ -99,6 +100,53 @@ LECTURAS_V2 = (
     ("/api/v2/acciones", ()),
     ("/api/v2/exportar", ()),
 )
+_BUSCAR = "/api/v2/buscar"
+_PARAMETROS_V2 = {ruta: parametros for ruta, parametros in LECTURAS_V2}
+
+
+def ruta_documentada(partes: list[str]) -> str:
+    """La ruta de LECTURAS_V2 de una peticion: los ids son N y el trimestre AAAA-TN."""
+    plantilla = ["N" if p.isdigit() else p for p in partes]
+    if len(plantilla) >= 2 and plantilla[0] == "btw":
+        plantilla[1] = "AAAA-TN"
+    return "/api/v2/" + "/".join(plantilla)
+
+
+def parametros_admitidos(consulta: dict[str, list[str]],
+                         admitidos: tuple[str, ...]) -> dict[str, str]:
+    """Los parametros de una lectura, uno por nombre. ValueError (un 400) si trae uno que la
+    ruta no admite o uno repetido: ignorarlo daria una respuesta que no es la pedida.
+
+    Uno admitido pero vacio (`?nivel=`, lo que deja un formulario sin rellenar)
+    es como no ponerlo: asi se leia antes de guardar los valores vacios.
+    """
+    raros = sorted(set(consulta) - set(admitidos))
+    if raros:
+        raise ValueError(f"parametro desconocido: {', '.join(raros)}"
+                         + (f" (admite {', '.join(admitidos)})" if admitidos
+                            else " (no admite ninguno)"))
+    salida = {}
+    for nombre, valores in consulta.items():
+        if len(valores) != 1:
+            raise ValueError(f"{nombre}: lleva un valor")
+        if valores[0].strip():
+            salida[nombre] = valores[0]
+    return salida
+
+
+def nivel_pedido(datos: dict[str, str]) -> str | None:
+    """El `nivel` de /api/v2/facturas, o None (todas); uno que no es un nivel, ValueError (antes
+    daba una lista vacia, como si no hubiera ninguna factura de ese nivel)."""
+    from .dominio import Prioridad
+
+    nivel = datos.get("nivel", "").strip()
+    if not nivel:
+        return None
+    if nivel not in Prioridad.valores():
+        raise ValueError(f"nivel: {nivel!r} no es ninguno de {', '.join(Prioridad.valores())}")
+    return nivel
+
+
 # El POST de ejecutar no necesita cuerpo; esto solo impide que alguien
 # tenga el hilo ocupado leyendo megas. Una orden de la consola lleva sus datos
 # (una nota, un reparto de una linea) y cabe en 64 KiB.
@@ -366,7 +414,23 @@ class Manejador(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(datos)
 
+    def _de_otro_origen(self) -> bool:
+        """Si la peticion viene de un origen declarado con --origen y no de la propia pagina.
+
+        La consola se sirve desde el mismo origen que la API, y un navegador no
+        manda Origin en un GET a su propio origen. Un sitio propio en otro
+        puerto si lo manda: ese sitio lee el contrato, pero no ve un IBAN entero
+        ni da ordenes (verificar un IBAN o marcar un pago se firma en la
+        consola). Sin Origin (curl, un script) no hay navegador de por medio y
+        cuenta como la consola.
+        """
+        origen = normalizar_origen(self.headers.get("Origin"))
+        return origen is not None and origen not in {
+            f"http://{host}:{self.puerto}" for host in HOSTS_LOCALES}
+
     def _json(self, codigo: int, cuerpo: dict[str, Any], cors: bool = True) -> None:
+        if getattr(self, "_contrato_v2", False) and self._de_otro_origen():
+            cuerpo = consultas.sin_ibanes(cuerpo)
         datos = json.dumps(cuerpo, ensure_ascii=False).encode("utf-8")
         self._enviar(codigo, datos, "application/json; charset=utf-8", cors=cors)
 
@@ -533,7 +597,11 @@ class Manejador(BaseHTTPRequestHandler):
                 return
             partes = ruta.split("/")[3:]
             try:
-                if self._leer_paso_12(conn, partes, consulta):
+                documentada = ruta_documentada(partes)
+                datos: dict[str, str] = {}
+                if documentada in _PARAMETROS_V2 and documentada != _BUSCAR:
+                    datos = parametros_admitidos(consulta, _PARAMETROS_V2[documentada])
+                if self._leer_paso_12(conn, partes, consulta, datos):
                     return
                 if partes == ["yo"]:
                     fila = conn.execute("SELECT nombre FROM usuario WHERE id = ?",
@@ -541,8 +609,8 @@ class Manejador(BaseHTTPRequestHandler):
                     self._json(200, {"id": usuario_id, "nombre": fila["nombre"],
                                      "permisos": sorted(permisos.permisos_de(conn, usuario_id))})
                 elif partes == ["facturas"]:
-                    nivel = (consulta.get("nivel") or [None])[0]
-                    self._json(200, {"facturas": consultas.listado(conn, nivel=nivel)})
+                    self._json(200, {"facturas": consultas.listado(
+                        conn, nivel=nivel_pedido(datos))})
                 elif len(partes) == 2 and partes[0] == "facturas" and partes[1].isdigit():
                     self._json(200, {"factura": consultas.detalle(conn, int(partes[1]))})
                 elif partes == ["excepciones"]:
@@ -596,25 +664,15 @@ class Manejador(BaseHTTPRequestHandler):
                 # Un filtro o un parametro que no se entiende (FiltroNoValido es uno).
                 self._json(400, {"error": str(exc)})
 
-    def _leer_paso_12(self, conn: Any, partes: list[str], consulta: dict[str, list[str]]) -> bool:
+    def _leer_paso_12(self, conn: Any, partes: list[str], consulta: dict[str, list[str]],
+                      datos: dict[str, str]) -> bool:
         """Las lecturas del paso 12: el panel, la busqueda, la historia de una factura, los
         Objetos con su economia, el flujo de caja, el contrato y el export entero. True si la
-        ruta era una de ellas (y ya se contesto)."""
+        ruta era una de ellas (y ya se contesto). `datos` son sus parametros, ya comprobados
+        contra LECTURAS_V2."""
         from datetime import date as _date
 
-        def solo(*admitidos: str) -> dict[str, str]:
-            raros = sorted(set(consulta) - set(admitidos))
-            if raros:
-                raise ValueError(f"parametro desconocido: {', '.join(raros)}"
-                                 + (f" (admite {', '.join(admitidos)})" if admitidos else ""))
-            salida = {}
-            for nombre, valores in consulta.items():
-                if len(valores) != 1:
-                    raise ValueError(f"{nombre}: lleva un valor")
-                salida[nombre] = valores[0]
-            return salida
-
-        def fecha(datos: dict[str, str], nombre: str) -> _date | None:
+        def fecha(nombre: str) -> _date | None:
             if nombre not in datos:
                 return None
             try:
@@ -623,46 +681,47 @@ class Manejador(BaseHTTPRequestHandler):
                 raise ValueError(f"{nombre}: {datos[nombre]!r} no es una fecha AAAA-MM-DD") from None
 
         if partes == ["contrato"]:
-            solo()
             self._json(200, {"contrato": consultas.CONTRATO_V2,
                              "lecturas": [{"ruta": r, "parametros": list(p)}
                                           for r, p in LECTURAS_V2],
                              "filtros": consultas.filtros(),
                              "ordenes": "POST /api/v2/acciones (GET /api/v2/acciones las lista)"})
         elif partes == ["panel"]:
-            solo()
             self._json(200, {"panel": consultas.panel(conn)})
         elif partes == ["buscar"]:
             self._json(200, {"busqueda": consultas.buscar(conn, consulta)})
         elif len(partes) == 3 and partes[0] == "facturas" and partes[1].isdigit() \
                 and partes[2] == "historial":
-            solo()
             self._json(200, {"historial": consultas.historial_factura(conn, int(partes[1]))})
         elif partes == ["objetos"]:
-            solo()
             self._json(200, consultas.objetos_resumen(conn))
         elif len(partes) == 2 and partes[0] == "objetos" and partes[1].isdigit():
-            datos = solo("desde", "hasta")
             self._json(200, {"objeto": consultas.objeto(
-                conn, int(partes[1]), desde=fecha(datos, "desde"), hasta=fecha(datos, "hasta"))})
+                conn, int(partes[1]), desde=fecha("desde"), hasta=fecha("hasta"))})
         elif partes == ["flujo"]:
             from . import flujo_caja
             from .almacen import reloj_de
 
-            datos = solo("desde", "hasta")
             self._json(200, {"flujo_caja": flujo_caja.flujo(
-                conn, reloj_de(conn).hoy(), desde=fecha(datos, "desde"),
-                hasta=fecha(datos, "hasta"))})
+                conn, reloj_de(conn).hoy(), desde=fecha("desde"), hasta=fecha("hasta"))})
         elif partes == ["exportar"]:
-            solo()
             self._json(200, consultas.exportar_v2(conn))
         else:
             return False
         return True
 
     def _accion_v2(self) -> None:
-        """Una orden de una persona: su token, su permiso y todo en una transaccion."""
+        """Una orden de una persona: su token, su permiso y todo en una transaccion.
+
+        Solo desde la consola (o sin navegador): un sitio de otro origen lee, pero
+        no verifica un IBAN, no marca un pago ni anula un aviso con el token de
+        quien lo tenga (_de_otro_origen).
+        """
         self._contrato_v2 = True
+        if self._de_otro_origen():
+            self._json(403, {"error": "las ordenes se dan desde la consola, no desde otro "
+                                      "origen"})
+            return
         cuerpo = self._cuerpo_json(MAX_CUERPO_V2)
         if cuerpo is None:
             return
