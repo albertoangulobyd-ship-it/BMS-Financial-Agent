@@ -6023,3 +6023,251 @@ Lo que la V1 todavía no puede hacer, y por qué:
 - **`Fuente.MAESTRO` solo se ve en el vencimiento.** Lo que el maestro completa
   en otros campos no se apunta como «Del maestro» (hallazgo 16): se apuntaría
   cuando se sepa qué copia de verdad cada importación.
+
+---
+
+## Paso 14
+
+La instalación nativa de Windows, **sin Docker**, con el mismo aislamiento que el
+entorno del paso 13. **No está en el §11 de la especificación: lo pidió el dueño**
+(«lo quiero análogo sin depender de Docker»), con el diseño que se cerró con el
+orquestador: un intérprete de Python por papel para que el cortafuegos de Windows los
+distinga por su ruta, reglas del cortafuegos por programa, la clave de la API con
+DPAPI, el código de solo lectura, la salida encendida solo durante una lectura y una
+comprobación de aislamiento que falla cerrada. La variante de Docker (`docker/`,
+docs/entorno-local.md) sigue igual: sus tests no cambian y su salida no pide la
+credencial nueva. **2303 tests pasan** (eran 2182) y nueve se saltan: los cinco de los contenedores de Docker, que piden `BMS_PROBAR_DOCKER=1`, y los cuatro que ejecutan PowerShell, que piden `pwsh` o `BMS_PROBAR_PWSH=1` (aquí se corrieron así, con la imagen de PowerShell 7 por Docker y sin red, y pasan). Ninguno llama a la API ni sale de la máquina: los
+destinos «de internet» de la comprobación son sockets locales.
+
+No hay tabla ni migración nueva. Lo que se apunta (el resultado de la comprobación) va a
+un fichero, `datos/aislamiento.json`, no a la base: lo escriben los cuatro programas, y
+la salida no tiene por qué abrir la base.
+
+### Qué se construyó
+
+**`aislamiento.py` y `bms-agent comprobar-aislamiento --rol consola|lector|salida|orden`.**
+La comprobación no se fía de la configuración: cada papel lo intenta con su propio
+programa.
+
+- `EXTERNOS`, la lista fija: `1.1.1.1:443`, `8.8.8.8:53` por TCP y por UDP (una consulta
+  DNS de example.com, `consulta_dns`), `1.1.1.1:80` y `api.anthropic.com:443`. Por el
+  proxy, el lector pide `api.anthropic.com:443` y los prohibidos
+  (`PROHIBIDOS_POR_EL_PROXY`: `example.com:443`, `api.anthropic.com:80`, `1.1.1.1:443`,
+  `api.anthropic.com.evil.example:443`), con y sin la credencial.
+- Las pruebas (`probar_tcp`, `probar_dns_udp`, `pedir_tunel`, `se_puede_escribir`) corren a
+  la vez, con plazos cortos (2 s; 12 s para la API por el proxy). `observar` junta lo visto
+  y `evaluar` lo juzga, función pura: la consola, el lector y las órdenes no llegan a nada;
+  la salida solo al 443 (no llegar es un aviso, no una fuga); el lector llega al proxy, por
+  él la API dice 200, lo demás 403 y sin credencial 407 (cualquier 200 de más es grave); la
+  consola y las órdenes, con `--proxy`, no pasan sin la credencial; el código (`app`, `lib`,
+  `runtime/<papel>`) no se puede escribir y `datos` y `buzon` sí (si no, aviso). Un lector
+  sin proxy no se da por bueno, y un informe sin pruebas tampoco.
+- `guardar` junta los papeles en `datos/aislamiento.json` (escrito aparte y cambiado de
+  nombre, con reintentos por Windows) con la fecha, el programa y la `sesion` (el sha256 de
+  la credencial de la pasada, nunca la credencial). `problemas_de` es lo que pinta la banda
+  (sin comprobar, FALLA con lo que falla, más de 90 días, fecha que no vale);
+  `motivo_para_no_leer_de` es la puerta de una lectura (el lector y la salida, bien, de esta
+  sesión y de hace menos de 60 minutos).
+- En la instalación, cada papel solo se comprueba con su propio programa (si no, sale con
+  2): probar el lector con el Python de la consola no diría nada del lector.
+
+**`nativo.py`**: lo que el código sabe de la instalación.
+
+- `detectar`: el intérprete está en `<raíz>/runtime/<papel>/python.exe` y la raíz tiene
+  `instalacion.json` (versión 1, los puertos). Uno que no se entiende es un error
+  (`InstalacionNoValida`), no un «no hay». Fuera (el desarrollo, Docker, los tests) no hay
+  instalación y nada cambia.
+- `exigir_lectura` (y `exigir_lectura_si_nativa`): la puerta de toda llamada a la API, en
+  `cli._cliente_api` (extract, `coste --estimar`, que usa `count_tokens`, y reextraer) y en
+  `serve.Agente._cliente`. Solo el programa del lector, por el `HTTPS_PROXY` de la pasada
+  (`http://bms:CREDENCIAL@127.0.0.1:<puerto de la salida>`, `leer_proxy`) y con la
+  comprobación de la salida y del lector de esa credencial. Si no, `LecturaNoAislada` y la
+  CLI sale con 2 sin crear el cliente. No hay opción para saltársela.
+- `clave_del_lector`, `huella_sesion`, `RUTAS_PTH` / `contenido_pth` (lo que lleva cada
+  `python311._pth`) y las carpetas que se prueban (`carpetas_a_probar`).
+
+**`secretos.py`**: la clave con DPAPI por ctypes (`CryptProtectData` /
+`CryptUnprotectData` de crypt32 y `LocalFree`), ámbito del usuario, `CRYPTPROTECT_UI_FORBIDDEN`
+y una entropía propia; el fichero lleva una cabecera (`BMS-DPAPI-1`) delante del blob y se
+escribe aparte y se cambia de nombre. `guardar_clave`, `leer_clave` y `borrar_clave`; los
+errores nunca llevan la clave. Fuera de Windows `DPAPI()` lanza `SinDPAPI` (un
+`ClaveNoValida`): no se guarda de otra manera. `config.clave_api`, en la instalación, solo
+acepta la de DPAPI y solo en el lector: ni `BMS_CLAVE_API_FICHERO` (un fichero de texto) ni
+`ANTHROPIC_API_KEY`. `config.parece_una_clave` sale de la comprobación que ya había.
+
+**`salida.py`**: una credencial opcional por pasada (`Proxy(clave=...)`,
+`servir(clave=...)`, `bms-agent salida --clave-del-entorno`, que la lee de
+`BMS_PROXY_CLAVE`, mínimo 16 caracteres). Sin ella, 407 con
+`Proxy-Authenticate: Basic realm="bms"`, apuntado sin la cabecera. `credencial_valida` es
+pura y compara en tiempo constante. La línea de arranque del registro dice si hay
+credencial. Sin la opción (Docker), todo como antes.
+
+**La CLI**: `comprobar-aislamiento` (`--rol`, `--proxy`, `--espera`, `--resultado`),
+`clave guardar|comprobar|borrar` (`--fichero`; pide la clave con `getpass` y crea antes el
+protector, para no hacerla escribir fuera de Windows) y `serve` en la instalación: solo con
+el programa de la consola, `lectura=False` y la banda. `main` dice en una línea
+`LecturaNoAislada` e `InstalacionNoValida`.
+
+**La consola** (`serve.py`, `consola.py`): con `aislamiento` (lo que falla), una banda roja
+«AISLAMIENTO SIN COMPROBAR O CON FALLOS: …» detrás de `<body>` (detrás de la de DATOS DE
+PRUEBA si la hay), «SIN AISLAMIENTO» en el título y en la página local `/`. El texto viene
+de un fichero que se puede escribir: va escapado. Se lee en cada página.
+
+**`windows/`**: `comun.ps1` (lo compartido: buscar la instalación, el programa de cada
+papel, `Orden-De` con `python -X utf8` y la consola en UTF-8, los procesos de un papel por
+la ruta de su programa, la salida en segundo plano con su credencial por el entorno, la
+tabla de reglas `Reglas-Del-Cortafuegos`, `Quitar-Reglas` por el prefijo, las carpetas del
+buzón, el token oculto y `Es-Si`), y cada script con su `.bat`: `instalar`, `desinstalar`,
+`iniciar` (`-Demo`), `parar`, `leer-facturas`, `importar` (`-Demo`), `copia`, `restaurar`,
+`comprobar`, `clave`, `persona`, `empresa`, `orden` y `ver-salida`. `fijado.json` (el
+Python embebible: versión, URL, sha256 y firmante), `requirements-windows.txt` y
+`LEEME.txt`. Todo ASCII, sin Docker, para Windows PowerShell 5.1 y PowerShell 7.
+
+- `instalar.ps1`: con tu usuario, se relanza elevado (la ventana de permiso) pasando tu SID;
+  la parte de administrador comprueba el sha256 fijado y la firma Authenticode del
+  embebible (Python Software Foundation), lo copia en `runtime\<papel>` con su `._pth` y sin
+  `pythonw.exe`, busca cada rueda en PyPI **por su sha256**, la comprueba y la abre en
+  `lib\`, copia `src\bms_agent`, `config` (sin `tarifas.yaml`, como Docker) y los scripts,
+  compila, prueba que arranca, escribe `instalacion.json`, crea las doce reglas y pone los
+  permisos con icacls (dueño, los administradores; la raíz sin herencia, leer y ejecutar
+  para tu usuario; `datos` y `buzon`, modificar, solo tu usuario). Lo apunta en
+  `instalacion.log` y, si falla, espera a que lo leas. Con tu usuario otra vez: los siete
+  accesos del escritorio, la clave (si quieres) y `comprobar.ps1`.
+- `leer-facturas.ps1`: credencial al azar, salida en 127.0.0.1, comprobación de la salida y
+  del lector, y solo si salen bien contar, preguntar y leer; la salida se para en un
+  `finally` y el `Fallar` va después. `iniciar.ps1`: la pasada del día, la comprobación de la
+  consola y de las órdenes, la consola sin ventana y el navegador. `desinstalar.ps1`: quita
+  exactamente las reglas del prefijo, el programa y los accesos; los datos solo con `SI` en
+  mayúsculas.
+
+**`scripts/fijar_windows.py`** (para quien mantiene el programa, con internet): rellena los
+hashes PENDIENTES desde PyPI (la única rueda que vale para cp311 y win_amd64) y el del
+embebible, y `--comprobar` dice lo que falta.
+
+**Documentación**: `docs/instalacion-nativa.md` (para el dueño: qué es, lo que necesita,
+instalar, la clave, la primera vez, arrancar y parar, el buzón, prueba y verdad, copias, lo
+que prueba la comprobación, la tabla con Docker y el hueco dicho claro, el usuario aparte,
+lo que cuesta, si algo no va, el mantenimiento, la lista de la primera vez y una parte para
+quien mantiene el programa); enlaces en el README, docs/entorno-local.md y
+docs/instalacion-windows.md. `.gitignore`: `/windows/paquetes/`.
+
+### La puerta, test por test
+
+Todo en `tests/test_instalacion_nativa.py`.
+
+| Puerta | Tests |
+| --- | --- |
+| DPAPI con un protector falso | `test_la_clave_se_guarda_cifrada_y_se_lee_sin_ensenarla` (ni la clave ni `sk-ant-` en el fichero, la entropía), `test_una_clave_mala_no_se_guarda_ni_se_ensena`, `test_otro_usuario_u_otro_ordenador_no_la_descifra`, `test_lo_que_no_es_una_clave_guardada_se_rechaza`, `test_fuera_de_windows_no_hay_dpapi_y_se_dice`, `test_solo_el_lector_descifra_la_clave`, `test_en_la_instalacion_la_clave_nunca_esta_en_claro` (ni la variable del SDK ni un fichero de texto), `test_la_cli_guarda_comprueba_y_borra_sin_ensenar_la_clave`, `test_la_cli_fuera_de_windows_no_pide_la_clave` |
+| La comprobación con sockets locales | Un puerto bloqueado (`test_una_consola_aislada_sale_bien_y_lo_apunta`, también un nombre que no resuelve), un destino que contesta (`test_un_papel_que_llega_a_internet_falla`, los tres papeles), un DNS que contesta por UDP, la salida de verdad con la API de mentira (`test_el_lector_solo_llega_al_proxy_y_por_el_solo_a_la_api`), un proxy que deja pasar otro destino (`test_un_proxy_que_deja_pasar_otro_destino_falla_cerrado`), uno sin credencial (`test_un_proxy_que_no_pide_la_credencial_falla_cerrado`), sin proxy o apagado (`test_un_lector_sin_proxy_no_se_da_por_bueno`), la consola sin credencial; puras: la salida solo por el 443, lo que contesta la API (200, 502, nada, 403, 407), la escritura del código y de los datos, la lista fija |
+| Falla cerrada | `test_la_banda_dice_lo_que_falta_lo_que_falla_y_lo_viejo` (también un «correcto» que sus pruebas contradicen), `test_una_lectura_solo_con_la_comprobacion_de_esta_pasada`, `test_la_puerta_solo_deja_al_lector_de_una_pasada_comprobada` (otro papel, sin proxy, otro puerto, otra máquina, https, otro usuario, otra credencial; nunca la credencial en el mensaje), `test_sin_la_comprobacion_ninguna_orden_que_paga_crea_el_cliente` (`coste --estimar` y `extract`: sale con 2 y el cliente no se crea), `test_la_pasada_entera_comprobada_llega_a_la_api_con_la_clave_cifrada` (la salida de verdad con su credencial, `comprobar-aislamiento` de la salida y del lector por la CLI, y entonces el cliente se crea con la clave de DPAPI; con la credencial de otra pasada, no), `test_cada_papel_se_comprueba_con_su_propio_programa`, `test_un_instalacion_json_roto_no_se_toma_por_ninguno` |
+| La banda de la consola | `test_la_consola_pinta_la_banda_roja_si_el_aislamiento_falla_o_falta` (escapada), `test_sin_problemas_o_fuera_de_la_instalacion_no_hay_banda`, `test_con_datos_de_prueba_la_banda_de_prueba_va_primero`, `test_la_consola_de_la_instalacion_no_lee_pdf_y_lleva_la_banda` |
+| La credencial de la salida | `test_credencial_valida_es_pura`, `test_sin_la_credencial_el_proxy_contesta_407_y_lo_apunta_sin_ella`, `test_el_cliente_http_del_sdk_manda_la_credencial_de_https_proxy` (httpx2 de verdad), `test_la_salida_con_credencial_la_exige_en_el_entorno` |
+| Nadie lanza procesos (AST) | `test_ningun_modulo_lanza_procesos` (sin lista de excepciones: ningún módulo lo necesita; ctypes solo en `secretos.py`, y solo crypt32 y kernel32 con sus tres funciones), y el vigilante probado con veinte formas de lanzar y con lo que no lanza |
+| Los scripts, sin Windows | Cada uno con su `.bat`, ASCII, sin clave; ninguno usa Docker, ejecuta texto ni baja nada fuera de `Descargar-Verificado`, que comprueba el hash antes de usar lo bajado; el instalador no sigue sin los hashes fijados; las dependencias son las de Docker con sus hashes; las doce reglas con su prefijo, programa, sentido y acción (y los puertos de la salida cubren todo menos el 443); el desinstalador las quita por el prefijo y deja los datos sin `SI`; un Python por papel con su `._pth`; los permisos; el orden de `leer-facturas` (comprobar antes de pagar, parar la salida siempre, sin parámetros para saltárselo); `iniciar`, `comprobar`, `importar` (las mismas carpetas que Docker); el token y la clave nunca en la línea de órdenes; nada de PowerShell 7 |
+| Con PowerShell de verdad | Con `BMS_PROBAR_PWSH=1` y la imagen de PowerShell 7 por Docker (sin red), **aquí pasan los cuatro**: cada `.ps1` pasa el analizador; `Leer-Requisitos` lee los hashes como pip y para con los PENDIENTES; `Escribir-Pth` escribe los bytes de `nativo.contenido_pth()`; `Descargar-Verificado` acepta el hash bueno, borra y para con el malo y no baja por http; la tabla de reglas, las comillas de `Start-Process`, `Es-Si`, la credencial y las carpetas del buzón |
+| La variante de Docker | `test_la_variante_de_docker_no_cambia` y todos los de los pasos 13 y de la revisión final, sin cambios |
+| La suite entera | 2303 pasan y 9 se saltan (5 de Docker y 4 de PowerShell); con `BMS_PROBAR_PWSH=1` los 125 de `test_instalacion_nativa.py` pasan |
+
+### Lo que solo se puede comprobar en el ordenador del dueño
+
+Aquí no hay Windows. Queda por mirar allí, la primera vez y con datos de prueba (la lista
+para el dueño está en docs/instalacion-nativa.md, apartado 16): que Windows Defender
+Firewall aplica las reglas por programa y no filtra 127.0.0.1 (la consola contesta al
+navegador y el lector llega a la salida); `New-NetFirewallRule`, icacls y la ventana de
+permiso en Windows PowerShell 5.1; DPAPI de verdad (y que `getpass` deja pegar con el
+botón derecho); la firma Authenticode del embebible; `Start-Process` sin ventana con sus
+redirecciones; los accesos del escritorio; y una lectura de verdad con la clave.
+**`comprobar.bat` tiene que salir todo en verde antes de usar datos de verdad.**
+
+### Desviaciones, y por qué
+
+1. **Sin pip.** El Python embebible no trae pip, y ponerlo sería bajar y ejecutar otra cosa
+   sin fijar (get-pip.py) o fijar una rueda de pip cuyo hash no se podía sacar aquí. Una
+   rueda es un zip: el instalador baja la que tiene el sha256 fijado, la comprueba y la abre
+   en `lib\`, que es lo que haría `pip --target` con estas ruedas (ninguna trae `.data`; si
+   una lo trajera, para). El fichero sigue en el formato de pip, y con pip se instalaría
+   igual.
+2. **Los hashes que faltan.** Sin red no se pudieron sacar los sha256 de las ruedas de
+   Windows (`jiter`, `pydantic_core`, `PyYAML`, cp311 win_amd64), de `tzdata` ni del
+   embebible. Van como PENDIENTE y **el instalador no sigue sin ellos** (ni sin el del
+   embebible): nada se salta la comprobación. Los fija `scripts/fijar_windows.py` con
+   internet. Las trece ruedas py3-none-any llevan el hash de `docker/requirements.txt`, que
+   es el mismo fichero en cualquier plataforma (comprobado con las ruedas que se bajaron en
+   el paso 13 para las dos plataformas: mismo sha256).
+3. **Python 3.11.9.** Es la misma versión menor que el desarrollo y Docker, y la última 3.11
+   con binarios para Windows (desde la 3.11.10 solo hay código fuente). No tiene las
+   correcciones de seguridad que sí tiene la 3.11.17 de la imagen de Docker; se dice en la
+   guía. Pasar a 3.13 o 3.14 es un paso propio: la suite tiene que correr antes en esa
+   versión.
+4. **Una credencial por pasada en el proxy** (no estaba en el diseño). Windows no filtra
+   127.0.0.1, así que durante una lectura cualquier programa del ordenador, también la
+   consola, llegaría al proxy y podría mandar datos a la API de Anthropic con una clave
+   ajena: lo que en Docker impide la red separada (paso 13, desviación 2). Con la
+   credencial, la salida contesta 407 a quien no la trae. Un proceso del mismo usuario
+   podría leerla del entorno del lector; se dice.
+5. **La comprobación atada a la pasada, y la puerta en el lector.** El script no basta: el
+   propio lector mira, antes de crear el cliente, que la comprobación del lector y de la
+   salida sea de la credencial de su `HTTPS_PROXY` y de hace menos de una hora. La banda de
+   la consola, en cambio, da por vieja una comprobación de más de 90 días.
+6. **Las reglas de la salida.** En Windows un bloqueo gana siempre a un permiso, así que
+   «bloquear todo y permitir el 443» lo bloquearía todo: van el permiso del TCP 443 y los
+   bloqueos del TCP 1-442 y 444-65535, del UDP, del ICMPv4 y del ICMPv6 (un usuario sin
+   privilegios no abre otros protocolos).
+7. **Más de lo pedido**: la comprobación prueba también la escritura (el código, y la
+   carpeta del propio intérprete, donde un DLL dejado se cargaría al arrancar); el
+   instalador quita `pythonw.exe` (otro programa sin reglas), comprueba la firma
+   Authenticode además del hash y desbloquea lo copiado; `iniciar` no arranca si el puerto
+   8765 lo tiene otro programa (la consola de Docker), porque el navegador acabaría en esa.
+8. **`datos` y `buzon` con «modificar»**, como en el diseño. Quitarles el permiso de
+   ejecutar no cerraría el hueco de las reglas por programa: la carpeta temporal del
+   usuario sí deja ejecutar.
+9. **Cinco scripts más** que la lista (`clave`, `persona`, `empresa`, `orden` y
+   `ver-salida`), los mismos que tiene Docker: sin ellos no hay primer token, ni empresa,
+   ni órdenes sueltas, ni forma de mirar lo que ha salido.
+10. **La elevación la hace `instalar.ps1`, no el `.bat`**: el script se relanza elevado con
+    tu SID, y los accesos del escritorio y la clave se hacen después con tu usuario. Si la
+    ventana de permiso la firma otra cuenta de administrador, los permisos y la clave siguen
+    siendo de tu usuario y no de esa cuenta.
+11. **La clave con DPAPI la descifra cualquier programa del mismo usuario**; el código solo
+    lo hace en el lector. Para separarla de verdad está el usuario de Windows aparte
+    (documentado, opcional). La entropía es una constante del código: no protege de quien
+    lee el código, sí de quien descifra a ciegas los blobs del usuario.
+12. **El mensaje de la consola que no lee PDF** dice ahora `leer-facturas.bat` «en Docker y
+    en la instalación nativa» (decía `leer-facturas.ps1` y solo Docker). Ningún test lo
+    miraba.
+13. **El DNS no se prueba.** En Windows lo resuelve un servicio del sistema, no el
+    programa: un nombre se resuelve siempre y la prueba solo daría ruido. Se dice en la guía
+    como parte del hueco.
+14. **AppContainer no se hizo**: necesita un lanzador propio (CreateProcess con atributos de
+    capacidad), que además es justo lo que el test prohíbe en el código. La guía lo nombra,
+    con la variante de Docker, como lo más fuerte.
+
+**Tests existentes cambiados, y por qué** (los dos en `test_alcance_v1.py`):
+`test_no_hay_credenciales_ni_claves_de_banco` admite `BMS_PROXY_CLAVE` (la credencial de una
+pasada para el proxy) y `HTTPS_PROXY` (el proxy del lector, que la puerta comprueba);
+ninguna es de un banco ni la clave de la API. `test_ningun_modulo_habla_con_la_red_salvo_la_extraccion`
+deja a `bms_agent.aislamiento` importar `socket` (y comprueba sus destinos fijos): la
+comprobación abre conexiones a propósito, para ver que no llegan.
+
+### Lo que deben saber los pasos siguientes
+
+- **Antes de dar la instalación al dueño**: `python scripts/fijar_windows.py` con internet,
+  comprobar la firma de Sigstore del embebible (docs/instalacion-nativa.md, apartado 17) y
+  subir `windows/fijado.json` y `windows/requirements-windows.txt`. Hasta entonces el
+  instalador para al principio y lo dice.
+- **Un módulo que lance un proceso** hace fallar `test_ningun_modulo_lanza_procesos`. Si de
+  verdad hiciera falta, va en `PUEDEN_LANZAR` con su porqué, y es un hueco más de la
+  instalación nativa que la guía tiene que decir.
+- **Una llamada nueva a la API** pasa por `cli._cliente_api` (o llama a
+  `nativo.exigir_lectura_si_nativa`): si no, en la instalación nativa se saltaría la puerta.
+- **Una variable de entorno nueva** va en la lista de `test_alcance_v1.py` (ahora con
+  `BMS_PROXY_CLAVE` y `HTTPS_PROXY`).
+- **Una dependencia nueva** va en `docker/requirements.txt` y en
+  `windows/requirements-windows.txt` (con el hash de su rueda de Windows); el test exige
+  las mismas versiones.
+- **Un tipo nuevo de importación** es una carpeta en `docker/importar.ps1` y en
+  `Carpetas-Del-Buzon` de `windows/comun.ps1`: el test exige que sean iguales.
+- **Cambiar de versión de Python** es `fijado.json`, `nativo.RUTAS_PTH` (`python3XY.zip`),
+  `Escribir-Pth` (`python3XY._pth`) y los tests, con la suite pasando antes en esa versión.
+- **Un destino nuevo para la salida** es un `--permitir` en `Arrancar-Salida`
+  (`windows/comun.ps1`) y en `docker-compose.yml`, y los tests estáticos de los dos.

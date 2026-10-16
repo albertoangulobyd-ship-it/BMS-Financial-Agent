@@ -31,12 +31,24 @@ puerto de un contenedor que solo esta en una red interna, asi que el puerto
 de la consola (127.0.0.1:8765 en el ordenador del dueno) lo publica este
 contenedor y lo reenvia tal cual a la consola. Es un reenvio fijo, a un solo
 destino: no es un proxy y no decide nada.
+
+Paso 14, la instalacion nativa de Windows (docs/instalacion-nativa.md): el mismo proxy,
+en 127.0.0.1 y solo mientras dura una pasada de lectura. Alli no hay redes separadas: el
+cortafuegos de Windows no filtra 127.0.0.1, y cualquier programa del ordenador (tambien
+la consola) llegaria al proxy. Por eso, con una credencial (`clave`, que leer-facturas
+saca al azar para cada pasada y solo dan a la salida y al lector), el proxy contesta 407
+a quien no la trae (Proxy-Authorization: Basic). En Docker no se usa: alli la red ya
+deja al lector solo.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hmac
 import ipaddress
 import logging
+import os
 import re
 import selectors
 import socket
@@ -59,6 +71,12 @@ MAX_TUNELES = 32
 # Conexiones que aun no han mandado su cabecera. Cada una ocupa un hilo hasta
 # ESPERA_CABECERA: sin tope, mil conexiones que no dicen nada serian mil hilos.
 MAX_ESPERANDO = 64
+
+# Paso 14: la credencial de una pasada en la instalacion nativa. La variable lleva la
+# credencial (la salida la lee al arrancar); el usuario es siempre este.
+VARIABLE_CLAVE = "BMS_PROXY_CLAVE"
+USUARIO_PROXY = "bms"
+CLAVE_MINIMA = 16
 
 registro = logging.getLogger("bms_agent.salida")
 
@@ -193,6 +211,31 @@ def decidir(cabecera: bytes, permitidos: frozenset[Destino]) -> Decision:
     return Decision(200, "en la lista blanca", pedido, destino)
 
 
+def credencial_valida(cabecera: bytes, clave: str, usuario: str = USUARIO_PROXY) -> bool:
+    """Si la peticion trae Proxy-Authorization: Basic con usuario:clave. Funcion pura.
+
+    Se compara en tiempo constante, y la cabecera no se apunta nunca (lleva la credencial).
+    """
+    for linea in cabecera.split(b"\r\n")[1:]:
+        nombre, separador, valor = linea.partition(b":")
+        if not separador or nombre.strip().lower() != b"proxy-authorization":
+            continue
+        esquema, _espacio, credencial = valor.strip().partition(b" ")
+        if esquema.lower() != b"basic":
+            return False
+        try:
+            texto = base64.b64decode(credencial.strip(), validate=True)
+        except (binascii.Error, ValueError):
+            return False
+        return hmac.compare_digest(texto, f"{usuario}:{clave}".encode("utf-8"))
+    return False
+
+
+def clave_del_entorno() -> str | None:
+    """La credencial de la pasada (instalacion nativa), de BMS_PROXY_CLAVE; None si no hay."""
+    return os.environ.get(VARIABLE_CLAVE) or None
+
+
 def direcciones_no_publicas(direcciones: Iterable[str]) -> list[str]:
     """Las direcciones de la lista que no son de internet (privadas, locales, reservadas)."""
     malas = []
@@ -253,12 +296,15 @@ def _leer_cabecera(conexion: socket.socket, espera: float = ESPERA_CABECERA
 
 def _contestar(conexion: socket.socket, codigo: int, motivo: str) -> None:
     textos = {200: "Connection Established", 400: "Bad Request", 403: "Forbidden",
-              405: "Method Not Allowed", 431: "Request Header Fields Too Large",
+              405: "Method Not Allowed", 407: "Proxy Authentication Required",
+              431: "Request Header Fields Too Large",
               502: "Bad Gateway", 503: "Service Unavailable"}
     cuerpo = b"" if codigo == 200 else (motivo + "\n").encode("utf-8")
     cabecera = f"HTTP/1.1 {codigo} {textos.get(codigo, 'Error')}\r\n"
     if codigo == 405:
         cabecera += "Allow: CONNECT\r\n"
+    if codigo == 407:
+        cabecera += 'Proxy-Authenticate: Basic realm="bms"\r\n'
     if codigo != 200:
         cabecera += ("Content-Type: text/plain; charset=utf-8\r\n"
                      f"Content-Length: {len(cuerpo)}\r\nConnection: close\r\n")
@@ -349,6 +395,12 @@ class _ManejadorProxy(socketserver.BaseRequestHandler):
             self.server.apuntar(cliente, pedido, "rechazada", codigo, motivo)
             _contestar(conexion, codigo, motivo)
             return
+        if self.server.clave is not None and not credencial_valida(cabecera, self.server.clave):
+            pedido = cabecera.split(b"\r\n", 1)[0].decode("ascii", "replace")[:200]
+            motivo = "sin la credencial de esta pasada"
+            self.server.apuntar(cliente, pedido, "rechazada", 407, motivo)
+            _contestar(conexion, 407, motivo)
+            return
         decision = decidir(cabecera, self.server.permitidos)
         if not decision.permitida:
             self.server.apuntar(cliente, decision.pedido, "rechazada", decision.codigo,
@@ -419,15 +471,18 @@ class _ManejadorProxy(socketserver.BaseRequestHandler):
 class Proxy(_Servidor):
     """El proxy de salida. `resolver` y `conectar` se inyectan en los tests (sockets locales),
     y `solo_publicas=False` solo lo usan ellos: en real, un destino tiene que resolver a una
-    direccion de internet."""
+    direccion de internet. Con `clave` (instalacion nativa) solo pasa quien la trae."""
 
     def __init__(self, direccion: tuple[str, int], permitidos: frozenset[Destino], *,
                  resolver: Resolver = resolver_dns,
                  conectar: Callable[..., socket.socket] = socket.create_connection,
                  solo_publicas: bool = True, inactividad: float = INACTIVIDAD,
                  espera_cabecera: float = ESPERA_CABECERA, max_tuneles: int = MAX_TUNELES,
-                 max_esperando: int = MAX_ESPERANDO) -> None:
+                 max_esperando: int = MAX_ESPERANDO, clave: str | None = None) -> None:
+        if clave is not None and len(clave) < CLAVE_MINIMA:
+            raise ValueError(f"la credencial del proxy es demasiado corta (minimo {CLAVE_MINIMA})")
         super().__init__(direccion, _ManejadorProxy, max_tuneles=max_tuneles)
+        self.clave = clave
         self.esperando = threading.BoundedSemaphore(max_esperando)
         self.espera_cabecera = espera_cabecera
         self.permitidos = permitidos
@@ -564,16 +619,16 @@ def comprobar(texto: str, espera: float = 3.0) -> bool:
 
 
 def servir(escucha: str, permitidos: Iterable[str] = PERMITIDOS_POR_DEFECTO,
-           reenvios: Iterable[str] = ()) -> None:
+           reenvios: Iterable[str] = (), clave: str | None = None) -> None:
     """Arranca el proxy y los reenvios y se queda atendiendo hasta que lo paran."""
     lista = lista_blanca(permitidos)
-    proxy = Proxy(direccion_de_escucha(*leer_escucha(escucha)), lista)
+    proxy = Proxy(direccion_de_escucha(*leer_escucha(escucha)), lista, clave=clave)
     servidores: list[_Servidor] = [proxy]
     for texto in reenvios:
         (host, puerto), destino = leer_reenvio(texto)
         servidores.append(Reenvio(direccion_de_escucha(host, puerto), destino))
-    registro.info("salida escucha=%s:%d permitidos=%s", *proxy.server_address[:2],
-                  ",".join(sorted(map(str, lista))))
+    registro.info("salida escucha=%s:%d permitidos=%s credencial=%s", *proxy.server_address[:2],
+                  ",".join(sorted(map(str, lista))), "si" if clave else "no")
     for servidor in servidores[1:]:
         registro.info("entrada escucha=%s:%d hacia=%s", *servidor.server_address[:2],
                       servidor.destino)

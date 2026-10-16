@@ -1,0 +1,17 @@
+bms-agent sin Docker: la instalacion nativa de Windows (paso 14)
+
+La guia entera, para quien no programa: docs/instalacion-nativa.md
+
+Lo de cada dia, con doble clic (el instalador deja accesos en el escritorio):
+  instalar.bat        una sola vez; pide permiso de administrador
+  iniciar.bat         abre la consola (iniciar.bat -Demo: con DATOS DE PRUEBA)
+  parar.bat           la cierra
+  importar.bat        importa lo que hay en el buzon (C:\BMS\buzon)
+  leer-facturas.bat   lee los PDF con la API (cuesta dinero: cuenta y pregunta antes)
+  comprobar.bat       comprueba que todo esta aislado; tiene que salir en verde
+  clave.bat           guarda la clave de la API, cifrada
+  copia.bat, restaurar.bat, persona.bat, empresa.bat, orden.bat, ver-salida.bat
+  desinstalar.bat     quita el programa; tus datos se quedan salvo que escribas SI
+
+No hace falta Docker. Lo que separa cada parte es el cortafuegos de Windows, con reglas
+para cada programa (todas empiezan por "BMS Finanzas - ").

@@ -76,6 +76,11 @@ def _texto_de_la_clave(contenido: bytes) -> str:
     return contenido.decode("utf-8-sig")
 
 
+def parece_una_clave(clave: str) -> bool:
+    """Si el texto tiene la forma de una clave de la API: sk-ant- y nada de espacios."""
+    return bool(clave) and clave.startswith("sk-ant-") and not any(c.isspace() for c in clave)
+
+
 def clave_api() -> str | None:
     """La clave de la API para el cliente de Anthropic, o None para que la busque el (en
     ANTHROPIC_API_KEY, como hasta ahora).
@@ -83,8 +88,21 @@ def clave_api() -> str | None:
     Si BMS_CLAVE_API_FICHERO dice un fichero, la clave es su contenido sin
     espacios. Un fichero que falta o no tiene una clave se dice aqui, antes de
     ninguna llamada, y el mensaje nunca lleva la clave ni un trozo de ella.
+
+    En la instalacion nativa de Windows (paso 14) la clave esta cifrada con DPAPI y
+    solo la descifra el lector (nativo.clave_del_lector); alli no se acepta un
+    fichero de texto ni se deja al SDK buscarla en una variable: no habria clave en
+    claro en ningun sitio, y con una variable la habria.
     """
+    from . import nativo
+
+    instalacion = nativo.instalacion_actual()
     ruta = os.environ.get(VARIABLE_FICHERO_CLAVE)
+    if instalacion is not None:
+        if ruta:
+            raise ClaveNoValida("en la instalacion nativa la clave va cifrada (clave.bat), no en "
+                                f"un fichero: quita la variable {VARIABLE_FICHERO_CLAVE}")
+        return nativo.clave_del_lector(instalacion)
     if not ruta:
         return None
     try:
@@ -99,7 +117,7 @@ def clave_api() -> str | None:
                             ) from None
     if not clave:
         raise ClaveNoValida(f"el fichero de la clave {ruta} esta vacio")
-    if not clave.startswith("sk-ant-") or any(c.isspace() for c in clave):
+    if not parece_una_clave(clave):
         raise ClaveNoValida(f"lo que hay en {ruta} no parece una clave de la API de Anthropic "
                             "(empieza por sk-ant- y va en una sola linea)")
     return clave

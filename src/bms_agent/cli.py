@@ -45,6 +45,10 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
     bms-agent salida              el proxy de salida del entorno de Docker (solo a la API de
                                   Anthropic)
     bms-agent salud HOST:PUERTO   la comprobacion de salud de un contenedor
+    bms-agent comprobar-aislamiento --rol R   la instalacion nativa de Windows (paso 14):
+                                  prueba a salir a internet con el programa de ese papel
+                                  y lo apunta en datos/aislamiento.json
+    bms-agent clave guardar|comprobar|borrar  la clave de la API cifrada con DPAPI (Windows)
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -159,7 +163,14 @@ def _carpeta_de_la_otra_via(out_dir: Path, ruta: str) -> Path:
 
 def _cliente_api(anthropic):
     """El cliente de la API. En el entorno de Docker, con la clave del secreto (un fichero que
-    solo ve el lector, config.clave_api); fuera, la busca el en ANTHROPIC_API_KEY."""
+    solo ve el lector, config.clave_api); fuera, la busca el en ANTHROPIC_API_KEY.
+
+    En la instalacion nativa (paso 14), antes de nada la puerta: solo el lector, por el proxy
+    de la pasada y con su comprobacion de aislamiento bien (nativo.exigir_lectura). Toda
+    orden que habla con la API pasa por aqui: extract, coste --estimar y reextraer."""
+    from . import nativo
+
+    nativo.exigir_lectura_si_nativa()
     return anthropic.Anthropic(api_key=config.clave_api())
 
 
@@ -469,12 +480,26 @@ def _cmd_simulador(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
+    from . import aislamiento, nativo
     from .serve import servir
 
+    # En la instalacion nativa la consola es su programa (runtime/consola), no lee PDF (no
+    # tiene red: lo hace el lector) y pinta la banda roja si el aislamiento falla o falta.
+    instalacion = nativo.instalacion_actual()
+    lectura = problemas = None
+    if instalacion is not None:
+        if instalacion.rol != "consola":
+            print(f"La consola no se abre con el programa de {instalacion.rol}: se abre con el "
+                  "suyo, con iniciar.bat.", file=sys.stderr)
+            return 2
+        lectura = False
+
+        def problemas() -> list[str]:
+            return aislamiento.problemas(instalacion.resultado_aislamiento)
     try:
         servir(carpeta_pdf=args.facturas, carpeta_salida=args.out, puerto=args.puerto,
                origenes_extra=args.origen, ruta_db=_ruta_db(args.db),
-               contenedor=args.contenedor)
+               contenedor=args.contenedor, lectura=lectura, aislamiento=problemas)
     except ValueError as exc:
         print(f"No se arranca el servidor: {exc}", file=sys.stderr)
         return 2
@@ -2470,6 +2495,13 @@ def _cmd_salida(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"No se arranca la salida: {exc}", file=sys.stderr)
         return 2
+    clave = None
+    if args.clave_del_entorno:
+        clave = salida.clave_del_entorno()
+        if clave is None or len(clave) < salida.CLAVE_MINIMA:
+            print(f"No se arranca la salida: falta la credencial de la pasada en "
+                  f"{salida.VARIABLE_CLAVE} (la pone leer-facturas.bat)", file=sys.stderr)
+            return 2
     if args.registro:
         try:
             salida.registrar_en_fichero(args.registro)
@@ -2477,7 +2509,7 @@ def _cmd_salida(args: argparse.Namespace) -> int:
             print(f"No se arranca la salida: no se puede escribir el registro {args.registro}: "
                   f"{exc.strerror or exc}", file=sys.stderr)
             return 2
-    salida.servir(args.escuchar, permitidos, args.reenviar)
+    salida.servir(args.escuchar, permitidos, args.reenviar, clave=clave)
     return 0
 
 
@@ -2506,6 +2538,100 @@ def _cmd_salud(args: argparse.Namespace) -> int:
         return 2
     print(f"{args.destino}: {'acepta conexiones' if vivo else 'no contesta'}")
     return 0 if vivo else 1
+
+
+def _cmd_comprobar_aislamiento(args: argparse.Namespace) -> int:
+    """La comprobacion de aislamiento de un papel (aislamiento.py). Sale con 0 si esta bien.
+
+    En la instalacion nativa solo se comprueba el papel del programa que corre: el
+    cortafuegos distingue los programas por su ruta, y probar el lector con el programa de
+    la consola no diria nada del lector. El proxy del lector y su credencial vienen de
+    HTTPS_PROXY, el mismo que usara la lectura: asi se comprueba lo que se va a usar.
+    """
+    from . import aislamiento, nativo, salida
+
+    instalacion = nativo.instalacion_actual()
+    if instalacion is not None and instalacion.rol != args.rol:
+        print(f"Este programa es el de {instalacion.rol}: el aislamiento de {args.rol} se "
+              f"comprueba con el suyo ({instalacion.ejecutable(args.rol)}), porque el "
+              "cortafuegos distingue los programas por su ruta. Usa comprobar.bat.",
+              file=sys.stderr)
+        return 2
+    proxy = credencial = sesion = None
+    try:
+        if args.proxy:
+            proxy = salida.leer_escucha(args.proxy)
+        if args.rol == "lector":
+            proxy, credencial = nativo.proxy_del_entorno(
+                instalacion.puerto_salida if instalacion is not None else None)
+            sesion = nativo.huella_sesion(credencial)
+    except ValueError as exc:
+        print(f"No se comprueba: {exc}", file=sys.stderr)
+        return 2
+    if args.rol == "salida":
+        clave = salida.clave_del_entorno()
+        sesion = nativo.huella_sesion(clave) if clave else None
+    if args.resultado:
+        ruta = Path(args.resultado)
+    elif instalacion is not None:
+        ruta = instalacion.resultado_aislamiento
+    else:
+        ruta = _ruta_db(None).parent / aislamiento.FICHERO
+    informe = aislamiento.comprobar(
+        args.rol, proxy=proxy, credencial=credencial, sesion=sesion, espera=args.espera,
+        carpetas=instalacion.carpetas_a_probar() if instalacion is not None else None,
+        programa=sys.executable)
+    aislamiento.guardar(ruta, informe)
+    print(aislamiento.formatear(informe))
+    print(f"Apuntado en {ruta}")
+    return 0 if informe.correcto else 1
+
+
+def _ruta_de_la_clave(args: argparse.Namespace) -> Path | None:
+    from . import nativo
+
+    if args.fichero:
+        return Path(args.fichero)
+    instalacion = nativo.instalacion_actual()
+    if instalacion is None:
+        print("Sin --fichero, la clave cifrada solo tiene sitio en la instalacion nativa de "
+              "Windows (docs/instalacion-nativa.md).", file=sys.stderr)
+        return None
+    return instalacion.fichero_clave
+
+
+def _cmd_clave(args: argparse.Namespace) -> int:
+    """La clave de la API cifrada con DPAPI (secretos.py). Nunca se ensena: ni al guardarla,
+    ni al comprobarla, ni en un error."""
+    import getpass
+
+    from . import nativo, secretos
+
+    ruta = _ruta_de_la_clave(args)
+    if ruta is None:
+        return 2
+    if args.accion == "borrar":
+        borrada = secretos.borrar_clave(ruta)
+        print("Clave borrada." if borrada else "No habia ninguna clave guardada.")
+        return 0
+    if args.accion == "comprobar":
+        instalacion = nativo.instalacion_actual()
+        if instalacion is not None:
+            nativo.clave_del_lector(instalacion)
+        else:
+            secretos.leer_clave(ruta)
+        print("Hay una clave guardada y este usuario de Windows la puede descifrar.")
+        return 0
+    # El protector antes de pedir nada: fuera de Windows se dice sin hacer escribir la clave.
+    protector = secretos.protector_del_sistema()
+    clave = getpass.getpass("Pega la clave de la API (empieza por sk-ant-; no se ve al "
+                            "escribirla) y pulsa Intro: ")
+    secretos.guardar_clave(clave, ruta, protector)
+    del clave
+    print(f"Clave guardada, cifrada con DPAPI, en {ruta}.")
+    print("  Solo este usuario de Windows, en este ordenador, la puede descifrar; y de los "
+          "programas de bms-agent, solo el lector.")
+    return 0
 
 
 DESCRIPCION = (
@@ -3044,6 +3170,10 @@ def main(argv: list[str] | None = None) -> int:
     p_salida.add_argument("--reenviar", action="append", default=[], metavar="ESCUCHA=DESTINO",
                           help="reenvia un puerto tal cual, por ejemplo "
                                "0.0.0.0:8765=consola:8765 (la entrada a la consola)")
+    p_salida.add_argument("--clave-del-entorno", action="store_true",
+                          help="instalacion nativa: solo deja pasar a quien trae la credencial "
+                               "de la pasada (variable BMS_PROXY_CLAVE; contesta 407 a los "
+                               "demas)")
     p_salida.add_argument("--registro", metavar="FICHERO",
                           help="apunta cada intento tambien en este fichero, anadiendo al final "
                                "(en Docker, el volumen de la salida: el registro de Docker se "
@@ -3064,10 +3194,40 @@ def main(argv: list[str] | None = None) -> int:
     p_salud.add_argument("destino", metavar="HOST:PUERTO")
     p_salud.set_defaults(func=_cmd_salud)
 
+    from .aislamiento import ESPERA, ROLES
+
+    p_aislamiento = sub.add_parser(
+        "comprobar-aislamiento",
+        help="la instalacion nativa de Windows: prueba a salir a internet con el programa de un "
+             "papel y apunta el resultado (sale con 0 si esta bien aislado)")
+    p_aislamiento.add_argument("--rol", required=True, choices=ROLES,
+                               help="el papel del programa que corre")
+    p_aislamiento.add_argument("--proxy", metavar="HOST:PUERTO",
+                               help="el proxy de la salida, para comprobar que este papel no "
+                                    "pasa por el sin la credencial (el lector lo toma de "
+                                    "HTTPS_PROXY, con su credencial)")
+    p_aislamiento.add_argument("--espera", type=float, default=ESPERA,
+                               help=f"segundos por prueba (por defecto {ESPERA:g})")
+    p_aislamiento.add_argument("--resultado", metavar="FICHERO",
+                               help="donde apuntarlo (por defecto, datos/aislamiento.json)")
+    p_aislamiento.set_defaults(func=_cmd_comprobar_aislamiento)
+
+    p_clave = sub.add_parser("clave", help="la clave de la API cifrada con DPAPI (instalacion "
+                                           "nativa de Windows); nunca se ensena")
+    sub_clave = p_clave.add_subparsers(dest="accion", required=True)
+    for accion, ayuda in (("guardar", "la pide (sin que se vea) y la guarda cifrada"),
+                          ("comprobar", "dice si hay una clave y se puede descifrar"),
+                          ("borrar", "borra la clave guardada")):
+        p_accion = sub_clave.add_parser(accion, help=ayuda)
+        p_accion.add_argument("--fichero", help="donde esta (por defecto, el de la instalacion: "
+                                                "datos/secretos/clave-api.dpapi)")
+    p_clave.set_defaults(func=_cmd_clave)
+
     argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))
     _aviso_demo(args)
     from .almacen import BaseDePruebaMezclada
+    from .nativo import InstalacionNoValida, LecturaNoAislada
     from .terminal import SalidaSegura
 
     # Lo que se imprime viene en buena parte de documentos de terceros: sin caracteres de
@@ -3081,6 +3241,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except config.ClaveNoValida as exc:
         print(f"No se puede usar la clave de la API: {exc}", file=sys.stderr)
+        return 2
+    except (LecturaNoAislada, InstalacionNoValida) as exc:
+        print(f"No se hace: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         if not exc.filename:

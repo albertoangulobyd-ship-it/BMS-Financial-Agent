@@ -25,3 +25,7 @@ venv/
 /buzon/
 /docker/secretos/*
 !/docker/secretos/LEEME.txt
+
+# Paso 14: un paquete preparado sin internet para el instalador de Windows (ruedas y el
+# Python embebible); se comprueba por su sha256, pero no va en git.
+/windows/paquetes/

@@ -217,8 +217,13 @@ def test_no_hay_credenciales_ni_claves_de_banco() -> None:
     # Las que hay, todas resueltas: una nueva tiene que pasar por aqui.
     # Paso 13: BMS_CLAVE_API_FICHERO dice donde esta el fichero de la clave de la API (el
     # secreto de Docker del lector); no es una credencial de banco ni la clave misma.
+    # Paso 14 (la instalacion nativa de Windows): BMS_PROXY_CLAVE es la credencial de una
+    # pasada para el proxy de salida (sale al azar en cada lectura y solo la ven la salida y el
+    # lector), y HTTPS_PROXY el proxy por el que sale el lector, que la puerta de la lectura
+    # comprueba (nativo.exigir_lectura). Ninguna es de un banco ni la clave de la API.
     assert variables == {"BMS_DB", "BMS_TOKEN", "BMS_EXTRACT_MODEL", "BMS_EXTRACT_MAX_TOKENS",
-                         "BMS_EXTRACT_EFFORT", "BMS_CLAVE_API_FICHERO"}
+                         "BMS_EXTRACT_EFFORT", "BMS_CLAVE_API_FICHERO", "BMS_PROXY_CLAVE",
+                         "HTTPS_PROXY"}
     assert not [v for v in variables if _tokens(v) & BANCO]
 
     def claves(datos, camino=()):
@@ -239,17 +244,21 @@ def test_no_hay_credenciales_ni_claves_de_banco() -> None:
 
 # Paso 13: el proxy de salida del entorno de Docker es la red, a proposito: abre
 # conexiones, pero solo a su lista blanca (por defecto, la API de Anthropic).
-# Es el unico modulo que puede importar socket, y solo eso.
-PUEDEN_ABRIR_SOCKETS = {"bms_agent.salida": {"socket"}}
+# Paso 14: la comprobacion de aislamiento de la instalacion nativa abre conexiones para
+# demostrar que no llegan: a una lista fija de destinos (aislamiento.EXTERNOS) y al proxy
+# local, sin mandar nada mas que un CONNECT y una consulta DNS. Son los unicos modulos que
+# pueden importar socket, y solo eso.
+PUEDEN_ABRIR_SOCKETS = {"bms_agent.salida": {"socket"}, "bms_agent.aislamiento": {"socket"}}
 
 
 def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
     """Sin cliente de red no hay banco al que conectarse. El de Anthropic solo en la CLI y el
     servidor, y solo para extraer (lo importan dentro de la funcion que extrae). El proxy de
     salida (paso 13) abre sockets, y su lista blanca es la API de Anthropic y nada mas."""
-    from bms_agent import salida
+    from bms_agent import aislamiento, salida
 
     assert salida.PERMITIDOS_POR_DEFECTO == ("api.anthropic.com:443",)
+    assert {s.host for s in aislamiento.EXTERNOS} == {"1.1.1.1", "8.8.8.8", "api.anthropic.com"}
     malos = []
     for nombre, ruta in MODULOS.items():
         for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8"))):

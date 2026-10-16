@@ -1,0 +1,9 @@
+{
+  "python": {
+    "version": "3.11.9",
+    "fichero": "python-3.11.9-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
+    "sha256": "",
+    "firmante": "Python Software Foundation"
+  }
+}

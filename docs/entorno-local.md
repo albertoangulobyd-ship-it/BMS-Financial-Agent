@@ -8,6 +8,10 @@ ficheros `.bat` y, como mucho, escribiendo una línea.
 Si buscas el día a día de la consola (prioridades, corregir un dato, verificar un
 IBAN), está en [uso-v1.md](uso-v1.md). Esta guía es sobre dónde y cómo corre.
 
+> **¿Sin Docker?** La instalación nativa de Windows hace lo mismo con el cortafuegos de
+> Windows, sin instalar Docker Desktop: [instalacion-nativa.md](instalacion-nativa.md).
+> Allí está también qué aísla cada variante (apartado 11).
+
 ---
 
 ## 1. Qué es, en dos minutos

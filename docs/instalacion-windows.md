@@ -4,8 +4,9 @@ Guía para ejecutar el observador de la fase 0 desde cero, sin dar por
 supuesto nada. Unos veinte minutos la primera vez.
 
 > Para **usar** la V1 en tu ordenador, sin instalar Python, mejor el entorno
-> local con Docker: [entorno-local.md](entorno-local.md). Esta guía sigue
-> valiendo para desarrollar y para la clave de la API (parte 1).
+> local con Docker: [entorno-local.md](entorno-local.md), o la instalación
+> nativa sin Docker: [instalacion-nativa.md](instalacion-nativa.md). Esta guía
+> sigue valiendo para desarrollar y para la clave de la API (parte 1).
 
 ---
 

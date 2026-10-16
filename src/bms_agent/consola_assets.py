@@ -89,6 +89,8 @@ nav{display:flex;flex-wrap:wrap;gap:.3rem;margin:.4rem 0}
 .evento.persona{border-left-color:var(--aten)}
 .datos-de-prueba{position:sticky;top:0;z-index:10;background:var(--bloq);color:#fff;
 font-weight:700;padding:.45rem .8rem;margin:0 -1rem;text-align:center}
+.aislamiento-falla{background:var(--bloq);color:#fff;font-weight:700;padding:.6rem .8rem;
+margin:0 -1rem;text-align:center;border-bottom:3px solid #fff}
 """
 
 SCRIPT = r"""

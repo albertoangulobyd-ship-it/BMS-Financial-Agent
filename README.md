@@ -22,6 +22,7 @@ sistema funcione.
 | [docs/arquitectura.md](docs/arquitectura.md) | Zonas de confianza, reglas duras, reparto de responsabilidades, modelo de datos, plan por fases, SEPA, IVA y AVG. |
 | [docs/sistemas.md](docs/sistemas.md) | TRNSPRNT y Exact Online: qué se sabe de cada uno, de dónde sale cada dato y qué obliga a cambiar en el diseño. |
 | [docs/entorno-local.md](docs/entorno-local.md) | **Para tenerlo en tu ordenador con Windows, sin instalar Python.** Docker Desktop, arrancar y parar, dónde dejar los ficheros, datos de prueba, la clave de la API, copias al disco cifrado y lo que cuesta tenerlo funcionando. |
+| [docs/instalacion-nativa.md](docs/instalacion-nativa.md) | **Lo mismo sin Docker**: instalación nativa en Windows con el cortafuegos de Windows por programa, la clave cifrada con DPAPI, la comprobación del aislamiento (`comprobar.bat`), lo que aísla cada variante y lo que cuesta (0 € de software). |
 | [docs/instalacion-windows.md](docs/instalacion-windows.md) | Clave de API, instalación con Python y primera prueba en Windows, paso a paso (para desarrollar; para usarlo, mejor el entorno local). |
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/uso-v1.md](docs/uso-v1.md) | **Para el día a día.** La rutina diaria, qué quiere decir cada prioridad, cómo corregir un dato, cómo verificar un IBAN por teléfono y cómo cerrar un trimestre del BTW. |
@@ -87,13 +88,17 @@ bms-agent serve                # servidor local en 127.0.0.1; la consola en /con
 bms-agent report               # ficha detallada de cada factura
 bms-agent demo crear           # DATOS DE PRUEBA en datos/demo.sqlite3, aparte de la base de verdad
 bms-agent copia E:/copias      # copia de seguridad comprobada; `restaurar CARPETA`, la vuelta
+bms-agent comprobar-aislamiento --rol consola   # instalación nativa: prueba a salir a internet
+bms-agent clave guardar        # instalación nativa: la clave de la API cifrada con DPAPI
 ```
 
 En el ordenador del dueño todo esto corre en Docker, aislado: la consola y la
 base sin internet, el lector de PDF saliendo solo a la API de Anthropic por un
 proxy con lista blanca (`bms-agent salida`) y unos scripts de Windows
 (`docker/iniciar.bat`, `importar.bat`, `leer-facturas.bat`, `copia.bat`...).
-Ver [docs/entorno-local.md](docs/entorno-local.md).
+Ver [docs/entorno-local.md](docs/entorno-local.md). Sin Docker, la instalación nativa
+(`windows/instalar.bat`) da el mismo aislamiento con un Python para cada papel y el
+cortafuegos de Windows: [docs/instalacion-nativa.md](docs/instalacion-nativa.md).
 
 ## Estado
 
@@ -108,4 +113,6 @@ cada paso, y dónde se apartó de la especificación, está en
 llamar a la API. Con el paso 12 la V1 está construida entera; el uso del día
 a día está en [docs/uso-v1.md](docs/uso-v1.md). El paso 13 (a petición del
 dueño) la deja corriendo en un entorno local aislado con Docker y una base de
-datos de prueba: [docs/entorno-local.md](docs/entorno-local.md).
+datos de prueba: [docs/entorno-local.md](docs/entorno-local.md). El paso 14 (también a
+petición del dueño) hace lo mismo sin Docker:
+[docs/instalacion-nativa.md](docs/instalacion-nativa.md).

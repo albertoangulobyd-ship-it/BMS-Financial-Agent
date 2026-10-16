@@ -52,6 +52,14 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
 
    Con la base de prueba (demo.sqlite3, paso 13), cada pagina lleva una banda
    fija de DATOS DE PRUEBA y cada respuesta la cabecera X-BMS-Entorno: demo.
+
+6. Paso 14, la instalacion nativa de Windows (docs/instalacion-nativa.md). La
+   consola corre con su propio programa, sin red (el cortafuegos de Windows), y
+   sigue escuchando solo en 127.0.0.1. Tampoco lee PDF (los lee el lector, con
+   leer-facturas). Y pinta arriba una banda roja si la ultima comprobacion de
+   aislamiento de algun papel fallo, falta o es vieja (`aislamiento`, que se lee
+   en cada pagina): trabajar con datos de verdad sin saber que estan aislados no
+   se hace a ciegas.
 """
 
 from __future__ import annotations
@@ -62,6 +70,7 @@ import json
 import secrets
 import sqlite3
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -322,8 +331,8 @@ class Agente:
     def lanzar(self) -> tuple[bool, str]:
         """Arranca una pasada si no hay otra en curso (y si este servidor lee PDF)."""
         if not self.lectura:
-            return False, ("Aqui no se leen PDF: en el entorno de Docker los lee el lector, "
-                           "que se arranca a proposito (leer-facturas.ps1).")
+            return False, ("Aqui no se leen PDF: los lee el lector, que se arranca a proposito "
+                           "(leer-facturas.bat, en Docker y en la instalacion nativa).")
         if not self._cerrojo.acquire(blocking=False):
             return False, "Ya hay una ejecucion en curso."
         hilo = threading.Thread(target=self._correr, daemon=True)
@@ -343,6 +352,9 @@ class Agente:
     def _cliente(self) -> Any:
         import anthropic
 
+        from . import nativo
+
+        nativo.exigir_lectura_si_nativa()
         return anthropic.Anthropic(api_key=config.clave_api())
 
     def _ejecutar(self) -> None:
@@ -458,6 +470,7 @@ class Manejador(BaseHTTPRequestHandler):
     token: str
     puerto: int
     origenes: frozenset[str]
+    aislamiento: Callable[[], list[str]] | None = None
     demo: bool = False
 
     def _cors(self) -> None:
@@ -554,6 +567,11 @@ class Manejador(BaseHTTPRequestHandler):
         """
         banda = (f'<p style="background:#a4161a;color:#fff;padding:.4rem .8rem;'
                  f'font-weight:700">{consola.TEXTO_DEMO}</p>\n' if self.demo else "")
+        problemas = self._problemas_aislamiento()
+        if problemas:
+            banda += (f'<p style="background:#a4161a;color:#fff;padding:.4rem .8rem;'
+                      f'font-weight:700">{html.escape(consola.texto_aislamiento(problemas))}'
+                      '</p>\n')
         datos = PAGINA_LOCAL.format(token=html.escape(self.token), banda=banda).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -623,8 +641,13 @@ class Manejador(BaseHTTPRequestHandler):
 
     # ---- consola y /api/v2
 
+    def _problemas_aislamiento(self) -> list[str]:
+        """Lo que falla o falta del aislamiento (instalacion nativa); vacio fuera de ella."""
+        return list(self.aislamiento()) if self.aislamiento is not None else []
+
     def _consola(self, ruta: str) -> None:
-        tipo, datos = consola.fichero(ruta, demo=self.demo)
+        tipo, datos = consola.fichero(ruta, demo=self.demo,
+                                      aislamiento=self._problemas_aislamiento())
         self.send_response(200)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(datos)))
@@ -966,13 +989,15 @@ def crear_servidor(
     ruta_db: str | Path | None = None,
     interfaz: str = LOCAL,
     lectura: bool = True,
+    aislamiento: Callable[[], list[str]] | None = None,
 ) -> ThreadingHTTPServer:
     """Crea el servidor ya escuchando en 127.0.0.1, sin atender todavia.
 
     Con puerto 0 el sistema elige uno libre; el Host y los origenes se
     calculan con el puerto real. Los tests lo usan asi, con un agente falso.
     `interfaz` 0.0.0.0 solo dentro de un contenedor (interfaz_permitida), y
-    `lectura` False deja el boton de lanzar una pasada sin efecto.
+    `lectura` False deja el boton de lanzar una pasada sin efecto. `aislamiento`
+    (instalacion nativa) da lo que falla del aislamiento, para la banda roja.
     """
     from .demo import es_demo
 
@@ -996,6 +1021,7 @@ def crear_servidor(
         "puerto": puerto_real,
         "origenes": permitidos,
         "demo": es_demo(Path(ruta_db) if ruta_db else ruta_por_defecto()),
+        "aislamiento": staticmethod(aislamiento) if aislamiento is not None else None,
     })
     return servidor
 
@@ -1007,17 +1033,23 @@ def servir(
     origenes_extra: list[str] | tuple[str, ...] = (),
     ruta_db: str | Path | None = None,
     contenedor: bool = False,
+    lectura: bool | None = None,
+    aislamiento: Callable[[], list[str]] | None = None,
 ) -> None:
     """Arranca el servidor local. Solo 127.0.0.1, a proposito; dentro de un contenedor
-    (`contenedor`), en 0.0.0.0 y sin leer PDF."""
+    (`contenedor`), en 0.0.0.0 y sin leer PDF. En la instalacion nativa, sin leer PDF
+    (`lectura` False) y con la banda del aislamiento."""
     servidor = crear_servidor(
         carpeta_pdf, carpeta_salida, puerto, origenes_extra=origenes_extra, ruta_db=ruta_db,
-        interfaz=TODAS if contenedor else LOCAL, lectura=not contenedor,
+        interfaz=TODAS if contenedor else LOCAL,
+        lectura=(not contenedor) if lectura is None else lectura, aislamiento=aislamiento,
     )
     manejador = servidor.RequestHandlerClass
     puerto_real = servidor.server_address[1]
     if manejador.demo:
         print(f"*** {consola.TEXTO_DEMO} ***")
+    if aislamiento is not None and aislamiento():
+        print(f"*** {consola.texto_aislamiento(aislamiento())} ***")
     print(f"Servidor de desarrollo en http://127.0.0.1:{puerto_real}")
     print("  GET  /                pagina local con el boton de ejecutar")
     print("  GET  /api/datos       datos del panel (con un token personal, como /api/v2)")
