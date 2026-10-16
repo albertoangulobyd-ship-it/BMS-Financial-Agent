@@ -13,6 +13,12 @@ apunta el ultimo id y su hash fuera de la base (anclas.log, al lado de la
 base; despues, tambien en el informe diario), y la verificacion comprueba
 que la cadena sigue conteniendo cada evento anclado tal cual.
 
+El unico corte legitimo es restaurar una copia (copia.restaurar): la base
+vuelve a lo que era y lo de despues se va. Ese corte no se esconde: la
+restauracion escribe un evento `restauracion` en la base restaurada con las
+anclas que deja sin cumplir, y solo esas dejan de ser un problema. El
+fichero de anclas no se reescribe nunca, ni al restaurar.
+
 Un evento solo se escribe dentro de una transaccion: se confirma o se
 deshace con el cambio que describe, nunca por separado.
 """
@@ -31,6 +37,8 @@ from .reloj import marca
 
 HASH_INICIAL = "0" * 64
 RESULTADOS = ("ok", "denegado", "error")
+# El evento que deja una restauracion (copia.restaurar): lleva las anclas que corta.
+TIPO_RESTAURACION = "restauracion"
 
 _COLUMNAS_EVENTO = (
     "id", "en", "usuario_id", "actor", "tipo", "resultado", "tabla", "fila_id",
@@ -164,6 +172,9 @@ class ResultadoCadena:
     anclas: int = 0
     # Anclas de otra base que comparte el fichero: no se comprueban.
     anclas_ajenas: int = 0
+    # Anclas de lo que una restauracion sustituyo: las nombra su evento.
+    anclas_descartadas: int = 0
+    restauraciones: list[int] = field(default_factory=list)
     ultima_ancla: int | None = None
     problemas: list[str] = field(default_factory=list)
 
@@ -187,11 +198,16 @@ def verificar_cadena(
     No para en el primer fallo: cada evento se compara con su propio hash y
     con el anterior, asi el informe senala la fila tocada y no solo "a
     partir de aqui". No se fia de los disparadores: puede que ya no existan.
+
+    Un ancla que la cadena ya no cumple solo se perdona si la nombra un
+    evento de restauracion de la propia cadena (que tambien pasa por su
+    hash): restaurar es el unico corte que se admite, y queda dicho.
     """
     resultado = ResultadoCadena()
     propia = identidad(conn)
     cambios = _cambios_por_evento(conn)
     hashes: dict[int, str] = {}
+    descartadas: set[tuple[int, str]] = set()
     esperado_id, anterior = 1, HASH_INICIAL
 
     for fila in conn.execute("SELECT * FROM evento ORDER BY id"):
@@ -210,6 +226,9 @@ def verificar_cadena(
                 f"el evento {evento_id} o sus cambio_campo se han modificado (el hash no coincide)"
             )
         hashes[evento_id] = fila["hash"]
+        if fila["tipo"] == TIPO_RESTAURACION:
+            resultado.restauraciones.append(evento_id)
+            descartadas.update(_anclas_descartadas(fila["datos_json"]))
         esperado_id, anterior = evento_id + 1, fila["hash"]
         resultado.cabeza = Ancla(evento_id, fila["hash"])
 
@@ -220,9 +239,12 @@ def verificar_cadena(
         if ancla.almacen is not None and ancla.almacen != propia:
             resultado.anclas_ajenas += 1
             continue
+        guardado = hashes.get(ancla.id)
+        if guardado != ancla.hash and (ancla.id, ancla.hash) in descartadas:
+            resultado.anclas_descartadas += 1
+            continue
         resultado.anclas += 1
         resultado.ultima_ancla = max(resultado.ultima_ancla or 0, ancla.id)
-        guardado = hashes.get(ancla.id)
         if guardado is None:
             resultado.problemas.append(
                 f"la cadena ya no llega al evento anclado {ancla.id}: se ha cortado"
@@ -232,6 +254,30 @@ def verificar_cadena(
                 f"el evento anclado {ancla.id} ya no es el que se anclo: se ha reescrito"
             )
     return resultado
+
+
+def _anclas_descartadas(datos_json: str | None) -> set[tuple[int, str]]:
+    import json
+
+    try:
+        datos = json.loads(datos_json or "{}")
+        return {(int(i), str(h)) for i, h in datos.get("anclas_descartadas") or []}
+    except (ValueError, TypeError):
+        return set()
+
+
+def anclas_sin_cumplir(conn: sqlite3.Connection, anclas: Iterable[Ancla]) -> list[Ancla]:
+    """Las anclas de esta base que su cadena ya no cumple (el evento no esta, u otro hash), en
+    el orden del fichero y sin repetir. Es lo que corta una restauracion."""
+    propia = identidad(conn)
+    hashes = {f["id"]: f["hash"] for f in conn.execute("SELECT id, hash FROM evento")}
+    salida: list[Ancla] = []
+    for ancla in anclas:
+        if ancla.almacen is not None and ancla.almacen != propia:
+            continue
+        if hashes.get(ancla.id) != ancla.hash and ancla not in salida:
+            salida.append(ancla)
+    return salida
 
 
 def cabeza(conn: sqlite3.Connection) -> Ancla | None:

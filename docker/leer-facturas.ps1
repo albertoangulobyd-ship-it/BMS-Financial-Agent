@@ -7,10 +7,17 @@
 # y el unico que sale a internet, y solo a api.anthropic.com, por el proxy de la salida.
 #
 #   .\leer-facturas.ps1          a tus datos de verdad
-#   .\leer-facturas.ps1 -Demo    a los DATOS DE PRUEBA (los PDF de prueba no se mandan)
+#
+# Con -Demo no se lee nada: los DATOS DE PRUEBA ya traen sus facturas leidas, un PDF de prueba
+# no se manda nunca a la API, y el buzon es el mismo para las dos bases (lo que haya en
+# buzon\facturas es de verdad y no se paga para dejarlo en la base de prueba).
 param([switch]$Demo)
 
 . "$PSScriptRoot\comun.ps1"
+
+if ($Demo) {
+    Fallar "Con -Demo no se lee nada ni se paga nada: los datos de prueba ya traen sus facturas leidas. Para tus facturas: .\leer-facturas.bat (sin -Demo)."
+}
 
 $buzon = Join-Path (Split-Path $PSScriptRoot -Parent) "buzon"
 $facturas = Join-Path $buzon "facturas"
@@ -18,7 +25,7 @@ $clave = Join-Path $PSScriptRoot "secretos\anthropic_api_key.txt"
 
 Comprobar-Docker
 Asegurar-Imagen
-Elegir-Base -Demo:$Demo
+Elegir-Base
 New-Item -ItemType Directory -Force -Path $facturas | Out-Null
 if (-not (Test-Path $clave)) {
     Fallar "Falta la clave de la API en $clave. Como ponerla: docs/entorno-local.md, 'La clave de la API'."

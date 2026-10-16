@@ -871,7 +871,7 @@ def test_lo_pendiente_de_cada_parte_es_la_suma_de_sus_facturas_abiertas(compras,
 def test_las_vistas_y_las_relaciones_por_la_cli(tmp_path, capsys) -> None:
     from bms_agent import permisos
     from bms_agent.almacen import preparar
-    from bms_agent.cli import main
+    from bms_agent.cli import SALIDA_PARCIAL, SALIDA_RECHAZADA, main
 
     db = tmp_path / "datos" / "bms.sqlite3"
     with preparar(db) as almacen:
@@ -881,7 +881,7 @@ def test_las_vistas_y_las_relaciones_por_la_cli(tmp_path, capsys) -> None:
                                   ("maestro_csv", "objetos", OBJETOS),
                                   ("exact", "facturas_venta", VENTAS)):
         assert main(["importar", fuente, tipo, str(fichero), "--token", token,
-                     "--db", str(db)]) in (0, 1)
+                     "--db", str(db)]) in (0, 1, SALIDA_RECHAZADA, SALIDA_PARCIAL)
     salida = capsys.readouterr().out
     assert "4 fila(s) del fichero dan 3 factura(s)" in salida
     assert main(["relaciones", "--db", str(db)]) == 0

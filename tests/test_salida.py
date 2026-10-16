@@ -11,7 +11,10 @@ Puertas que viven aqui:
   DNS que rebota hacia 127.0.0.1 o la red de casa) se rechaza;
 - HTTP en claro se rechaza;
 - cada intento queda en el registro;
-- el reenvio de la consola lleva los bytes a su unico destino.
+- el reenvio de la consola lleva los bytes a su unico destino;
+- los limites: el plazo para la cabecera entera, el tope de conexiones que
+  esperan su cabecera, el 503 con todos los tuneles ocupados y el cierre de un
+  tunel callado.
 
 Ningun test sale a internet: el "api.anthropic.com" de los tests resuelve, con
 un resolvedor falso, a un servidor de eco en 127.0.0.1.
@@ -20,9 +23,11 @@ un resolvedor falso, a un servidor de eco en 127.0.0.1.
 from __future__ import annotations
 
 import logging
+import select
 import socket
 import socketserver
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
@@ -182,12 +187,12 @@ class _Resolvedor:
 
 
 @contextmanager
-def _proxy(eco, *, respuestas=None, solo_publicas=False, permitidos=None):
+def _proxy(eco, *, respuestas=None, solo_publicas=False, permitidos=None, **limites):
     resolvedor = _Resolvedor(respuestas if respuestas is not None
                              else {"api.anthropic.com": ["127.0.0.1"]})
     lista = salida.lista_blanca(permitidos or [f"api.anthropic.com:{eco.server_address[1]}"])
     servidor = salida.Proxy(("127.0.0.1", 0), lista, resolver=resolvedor,
-                            solo_publicas=solo_publicas, inactividad=5)
+                            solo_publicas=solo_publicas, **{"inactividad": 5, **limites})
     with _en_marcha(servidor):
         yield servidor, resolvedor
 
@@ -413,3 +418,105 @@ def test_salud(eco, capsys) -> None:
     puerto = libre.getsockname()[1]
     libre.close()
     assert main(["salud", f"127.0.0.1:{puerto}"]) == 1
+
+
+# ============================================================ los limites
+
+def _cerrada(conexion: socket.socket, espera: float) -> bool:
+    """Si el otro lado cierra (o contesta y cierra) antes de `espera` segundos."""
+    conexion.settimeout(espera)
+    try:
+        while conexion.recv(4096):
+            pass
+        return True
+    except socket.timeout:
+        return False
+    except OSError:
+        return True
+
+
+def test_la_cabecera_entera_tiene_su_plazo_aunque_llegue_a_gotas(eco, caplog) -> None:
+    """Un byte cada poco no alarga el plazo: es para la cabecera entera, no por trozo."""
+    caplog.set_level(logging.INFO, logger="bms_agent.salida")
+    with _proxy(eco, espera_cabecera=1.0) as (proxy, resolvedor):
+        cliente = socket.create_connection(proxy.server_address, timeout=5)
+        inicio = time.monotonic()
+        respuesta = b""
+        try:
+            for byte in b"CONNECT example.com:443 HTTP/1.1\r\n\r\n":
+                cliente.sendall(bytes([byte]))
+                listos, _, _ = select.select([cliente], [], [], 0.25)
+                if listos:
+                    respuesta = cliente.recv(4096)
+                    break
+        except OSError:
+            pass
+        tardo = time.monotonic() - inicio
+        cliente.close()
+    assert respuesta.startswith(b"HTTP/1.1 400 ") and tardo < 3, (respuesta, tardo)
+    assert resolvedor.preguntas == []
+    assert any("demasiado lenta" in r.getMessage() for r in caplog.records)
+
+
+def test_con_todos_los_tuneles_ocupados_se_contesta_503(eco) -> None:
+    with _proxy(eco, max_tuneles=1) as (proxy, _r):
+        primero, respuesta = _pedir(proxy, _connect("api.anthropic.com", eco.server_address[1]))
+        assert respuesta.startswith(b"HTTP/1.1 200 ")
+        segundo, respuesta = _pedir(proxy, _connect("api.anthropic.com", eco.server_address[1]))
+        assert respuesta.startswith(b"HTTP/1.1 503 ")
+        segundo.close()
+        primero.close()
+
+
+def test_un_tunel_callado_se_cierra(eco) -> None:
+    with _proxy(eco, inactividad=0.5) as (proxy, _r):
+        cliente, respuesta = _pedir(proxy, _connect("api.anthropic.com", eco.server_address[1]))
+        assert respuesta.startswith(b"HTTP/1.1 200 ")
+        assert _cerrada(cliente, 5)
+        cliente.close()
+
+
+def test_las_conexiones_que_no_dicen_nada_tienen_tope(eco, caplog) -> None:
+    """Mientras esperan su cabecera ocupan un hilo cada una: pasado el tope, se cierran sin
+    esperar."""
+    caplog.set_level(logging.INFO, logger="bms_agent.salida")
+    with _proxy(eco, max_esperando=1, espera_cabecera=5) as (proxy, _r):
+        callada = socket.create_connection(proxy.server_address, timeout=5)
+        callada.sendall(b"CONN")
+        time.sleep(0.3)
+        otra = socket.create_connection(proxy.server_address, timeout=5)
+        assert _cerrada(otra, 2)
+        otra.close()
+        callada.close()
+    assert any("esperando su cabecera" in r.getMessage() for r in caplog.records)
+
+
+def test_el_registro_en_fichero_sigue_despues_de_parar_y_arrancar(eco, tmp_path,
+                                                                  capsys) -> None:
+    """El registro de Docker se va con el contenedor: el del fichero no. Cada arranque anade
+    al final, y `salida-registro` lo ensena de lo mas viejo a lo mas nuevo."""
+    from bms_agent.cli import main
+
+    fichero = tmp_path / "registro" / "salida.log"
+    for destino in ("example.com", "evil.example"):
+        manejador = salida.registrar_en_fichero(fichero)
+        try:
+            with _proxy(eco) as (proxy, _r):
+                cliente, respuesta = _pedir(proxy, _connect(destino, 443))
+                cliente.close()
+            assert respuesta.startswith(b"HTTP/1.1 403 ")
+        finally:
+            salida.registro.removeHandler(manejador)
+            manejador.close()
+    lineas = salida.leer_registro(fichero, solo_rechazados=True)
+    assert len(lineas) == 2 and "example.com" in lineas[0] and "evil.example" in lineas[1]
+    assert main(["salida-registro", "--fichero", str(fichero), "--rechazados"]) == 0
+    assert capsys.readouterr().out.splitlines() == lineas
+
+
+def test_el_registro_rotado_se_lee_en_orden(tmp_path) -> None:
+    fichero = tmp_path / "salida.log"
+    (tmp_path / "salida.log.2").write_text("uno\n", encoding="utf-8")
+    (tmp_path / "salida.log.1").write_text("dos\n", encoding="utf-8")
+    fichero.write_text("tres\n", encoding="utf-8")
+    assert salida.leer_registro(fichero) == ["uno", "dos", "tres"]

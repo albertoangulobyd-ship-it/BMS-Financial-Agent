@@ -63,6 +63,19 @@ class ClaveNoValida(ValueError):
     """El fichero de la clave no existe, esta vacio o no parece una clave de la API."""
 
 
+def _texto_de_la_clave(contenido: bytes) -> str:
+    """El texto del fichero de la clave, como lo guarde Windows.
+
+    El Bloc de notas guarda en UTF-8 con BOM en versiones viejas de Windows 10,
+    y en UTF-16 con "Unicode"; Windows PowerShell 5.1 escribe UTF-16 con `>` o
+    Out-File. El BOM dice cual es; sin BOM, UTF-8. str.strip() no quita el BOM
+    (U+FEFF), por eso no basta con leer en UTF-8.
+    """
+    if contenido.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return contenido.decode("utf-16")
+    return contenido.decode("utf-8-sig")
+
+
 def clave_api() -> str | None:
     """La clave de la API para el cliente de Anthropic, o None para que la busque el (en
     ANTHROPIC_API_KEY, como hasta ahora).
@@ -75,10 +88,15 @@ def clave_api() -> str | None:
     if not ruta:
         return None
     try:
-        clave = open(ruta, encoding="utf-8").read().strip()
+        with open(ruta, "rb") as fichero:
+            clave = _texto_de_la_clave(fichero.read()).strip()
     except OSError as exc:
         raise ClaveNoValida(f"no se puede leer el fichero de la clave {ruta}: "
                             f"{exc.strerror or exc}") from None
+    except UnicodeDecodeError:
+        raise ClaveNoValida(f"el fichero de la clave {ruta} no es texto: guardalo como texto "
+                            "UTF-8 (en el Bloc de notas, Guardar como, Codificacion UTF-8)"
+                            ) from None
     if not clave:
         raise ClaveNoValida(f"el fichero de la clave {ruta} esta vacio")
     if not clave.startswith("sk-ant-") or any(c.isspace() for c in clave):

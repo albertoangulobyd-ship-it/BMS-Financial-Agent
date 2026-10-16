@@ -529,3 +529,80 @@ def test_el_extractor_no_paga_un_pdf_de_prueba_sin_base(tmp_path, base_demo) -> 
     resultado = extraer_pasada(_ClienteQueNoSeLlama(), [pdf], tmp_path / "out")
     assert resultado.extraidas == 0 and resultado.fallidas == 1
     assert "DATOS DE PRUEBA" in resultado.errores[0]
+
+
+@pytest.fixture
+def demo_propia(base_demo, tmp_path):
+    """Una copia de la base de prueba que el test puede tocar (con sus originales)."""
+    ruta, resumen = base_demo
+    copia = tmp_path / "datos" / "demo.sqlite3"
+    copia.parent.mkdir()
+    origen = sqlite3.connect(ruta)
+    destino = sqlite3.connect(copia)
+    try:
+        origen.backup(destino)
+    finally:
+        destino.close()
+        origen.close()
+    shutil.copytree(raiz_documentos_de(ruta), raiz_documentos_de(copia))
+    return copia, resumen
+
+
+class _ClienteQueCuenta:
+    def __init__(self) -> None:
+        self.llamadas = 0
+
+    def __getattr__(self, nombre):
+        self.llamadas += 1
+        raise AssertionError("no se tenia que llamar a la API")
+
+
+def test_un_pdf_de_prueba_no_se_paga_tampoco_en_la_base_de_prueba(demo_propia,
+                                                                  tmp_path) -> None:
+    """-Demo con un PDF de `demo crear` en el buzon: su extraccion ya esta en la base de
+    prueba, y uno de prueba no va nunca a la API (tampoco si en la base no esta)."""
+    from bms_agent.extract import extraer_pasada
+
+    ruta, _resumen = demo_propia
+    with sqlite3.connect(ruta) as conn:
+        filas = conn.execute("SELECT ruta_cas FROM documento WHERE tipo_mime = "
+                             "'application/pdf' ORDER BY id LIMIT 2").fetchall()
+    pdfs = []
+    for numero, (relativa,) in enumerate(filas):
+        pdfs.append(tmp_path / f"prueba-{numero}.pdf")
+        shutil.copy(raiz_documentos_de(ruta) / relativa, pdfs[-1])
+    # Uno que la base no conoce: el mismo PDF con un byte de mas al final.
+    otro = tmp_path / "prueba-otra.pdf"
+    otro.write_bytes(pdfs[0].read_bytes() + b"\n")
+    cliente = _ClienteQueCuenta()
+    with preparar(ruta, reloj=_reloj(FECHA)) as almacen:
+        r = extraer_pasada(cliente, [*pdfs, otro], tmp_path / "out", almacen=almacen)
+    assert cliente.llamadas == 0
+    assert (r.reutilizadas, r.extraidas, r.fallidas) == (2, 0, 1)
+    assert "no se manda nunca a la API" in r.errores[0]
+
+
+def test_la_base_de_prueba_no_admite_nada_de_verdad(demo_propia, tmp_path, pdfs_ejemplo,
+                                                     capsys) -> None:
+    """El buzon es el mismo para las dos bases: con -Demo, un PDF o un fichero de verdad no se
+    paga, no entra en la base de prueba y no sale del buzon como si hubiera entrado."""
+    from bms_agent.extract import extraer_pasada
+
+    ruta, resumen = demo_propia
+    antes = _foto(ruta)
+    cliente = _ClienteQueCuenta()
+    with preparar(ruta, reloj=_reloj(FECHA)) as almacen:
+        r = extraer_pasada(cliente, sorted(pdfs_ejemplo.glob("*.pdf")), tmp_path / "out",
+                           almacen=almacen)
+    assert cliente.llamadas == 0 and r.extraidas == 0 and r.fallidas == 3
+    assert all("no es de los DATOS DE PRUEBA" in e for e in r.errores)
+    token = resumen.tokens["Ana Demo"]
+    for fuente, tipo, fichero in (
+            ("exact", "proveedores", "exact-proveedores-v1.csv"),
+            ("banco", "extracto", "banco-extracto-ing-v1.csv")):
+        codigo = main(["importar", fuente, tipo,
+                       str(RAIZ / "tests" / "fixtures" / "importacion" / fichero),
+                       "--db", str(ruta), "--token", token])
+        assert codigo == 1, (fuente, tipo)
+        assert "no es de los DATOS DE PRUEBA" in capsys.readouterr().err
+    assert _foto(ruta) == antes

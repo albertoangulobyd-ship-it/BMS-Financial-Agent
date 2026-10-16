@@ -4,7 +4,8 @@
 #   .\restaurar.ps1 -Origen E:\BMS-copias\bms-copia-bms-20261016-090256
 #
 # Para la consola, comprueba la copia y la restaura. Lo que hubiera antes no se pierde:
-# queda guardado entero en el volumen, en antes-de-restaurar.
+# queda guardado entero en el volumen, en antes-de-restaurar. La vuelta atras queda en la
+# auditoria (un evento de restauracion) y db verificar la ensena.
 param(
     [Parameter(Mandatory = $true)][string]$Origen,
     [switch]$Demo
@@ -27,7 +28,9 @@ if ($respuesta -ne "si") {
 }
 Escribir "Parando la consola..." "Cyan"
 docker compose down | Out-Host
-docker compose run --rm -T -v "${origenCompleto}:/copia:ro" orden restaurar /copia --db $base | Out-Host
+# Montada con su nombre (bms-copia-...): el evento de la restauracion dice de que copia viene.
+$nombre = Split-Path $origenCompleto -Leaf
+docker compose run --rm -T -v "${origenCompleto}:/copias/${nombre}:ro" orden restaurar "/copias/$nombre" --db $base | Out-Host
 if ($LASTEXITCODE -ne 0) { Fallar "No se ha restaurado. Tus datos siguen como estaban. Mira el mensaje de arriba." }
 docker compose run --rm -T orden db verificar --db $base | Out-Host
 if ($LASTEXITCODE -ne 0) { Fallar "La copia esta puesta pero no cuadra. No sigas trabajando y avisa a quien mantiene el programa." }

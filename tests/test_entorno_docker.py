@@ -8,7 +8,8 @@ que la configuracion promete:
 - desde el contenedor de la consola no se llega a internet, ni al proxy;
 - desde el lector no se llega a internet directamente, solo al proxy;
 - el proxy deja ir a api.anthropic.com:443 y a nada mas, y apunta cada intento;
-- el cliente HTTP del SDK sale por el proxy (HTTPS_PROXY).
+- el cliente HTTP del SDK sale por el proxy (HTTPS_PROXY);
+- el registro de la salida sigue despues de `docker compose down` (su volumen).
 
 No llama a la API: el tunel hasta api.anthropic.com se abre y se cierra sin mandar nada.
 Necesita la imagen bms-agent:local ya construida (docs/entorno-local.md). En una maquina
@@ -170,3 +171,13 @@ def test_el_proxy_solo_deja_ir_a_la_api_y_lo_apunta(entorno) -> None:
         assert f"CONNECT {destino}" in registro
     assert "decision=permitida codigo=200" in registro
     assert registro.count("decision=rechazada") >= 6
+
+
+def test_el_registro_de_la_salida_sobrevive_a_parar_y_arrancar(entorno) -> None:
+    """iniciar, parar y restaurar hacen `docker compose down`, que se lleva el registro de
+    Docker: el de la salida vive en su volumen y sigue ahi (va el ultimo: para el entorno)."""
+    _compose(entorno, "down")
+    _compose(entorno, "up", "-d", "consola", "salida")
+    proceso = _compose(entorno, "run", "--rm", "-T", "orden", "salida-registro", "--rechazados")
+    assert "example.com:443" in proceso.stdout
+    assert "api.anthropic.com.evil.example:443" in proceso.stdout

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from ..auditoria import registrar
 from ..reloj import marca
-from . import Almacen, exigir_sin_datos_de_prueba, reloj_de, transaccion
+from . import Almacen, exigir_de_su_base, reloj_de, transaccion
 from .evidencia import foto
 from .unidades import es_sha256, sha256_bytes
 
@@ -192,7 +192,7 @@ def registrar_documento(
         raise ValueError("el contenido no es el del hash que se registra")
 
     conn = almacen.conn
-    exigir_sin_datos_de_prueba(conn, contenido, f"el documento {nombre_original or sha256[:12]}")
+    exigir_de_su_base(conn, contenido, f"el documento {nombre_original or sha256[:12]}")
     extension = extension_de(tipo_mime, nombre_original)
     with transaccion(conn):
         existente = conn.execute(

@@ -672,6 +672,13 @@ def _verificar_db(ruta: Path, anclas_ruta: Path, *, exigir_anclas: bool = True) 
             )
         if cadena.anclas_ajenas:
             avisos.append(f"{cadena.anclas_ajenas} anclas de {anclas_ruta} son de otro almacen")
+        for evento_id in cadena.restauraciones:
+            avisos.append(f"la base se restauro desde una copia (evento {evento_id}): lo "
+                          "firmado despues de esa copia ya no esta")
+        if cadena.anclas_descartadas:
+            avisos.append(f"{cadena.anclas_descartadas} anclas son de lo que sustituyo una "
+                          "restauracion y no se comprueban (lo sustituido sigue en "
+                          "antes-de-restaurar/)")
         errores.extend(verificar_evidencia(conn))
         tipado = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'factura'").fetchone()
@@ -860,6 +867,11 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
                     permisos.asegurar_roles_base(conn)
                     permisos.asignar_rol(conn, usuario_id, rol)
                     print(f"  con el rol {rol}")
+            elif args.accion == "asegurar":
+                codigo = _asegurar_persona(conn, args.nombre, args.rol)
+                if codigo:
+                    _anclar(almacen)
+                    return codigo
             elif args.accion == "asignar":
                 permisos.asegurar_roles_base(conn)
                 permisos.asignar_rol(conn, permisos.usuario_por_nombre(conn, args.nombre), args.rol)
@@ -889,6 +901,36 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
 
 
 VARIABLE_TOKEN = "BMS_TOKEN"
+# `usuario asegurar` con una persona que ya existe con otros roles: no se toca (persona.ps1).
+SALIDA_OTRO_ROL = 3
+
+
+def _asegurar_persona(conn, nombre: str, rol: str) -> int:
+    """Que exista la persona NOMBRE (el nombre exacto) con el rol ROL y solo ese.
+
+    Si no existe, se crea con ese rol. Si existe con ese rol, no se hace nada.
+    Si existe con otros roles, no se cambia nada y sale SALIDA_OTRO_ROL: quien
+    pidio dar acceso de consulta a alguien que ya es administrador no debe
+    acabar entregando, sin saberlo, un token de administrador (persona.ps1
+    pide el token solo si esto sale con 0).
+    """
+    from . import permisos
+
+    existente = next((u for u in permisos.listar_usuarios(conn)
+                      if u["nombre"] == nombre and not u["es_sistema"]), None)
+    if existente is None:
+        usuario_id = permisos.crear_usuario(conn, nombre)
+        permisos.asegurar_roles_base(conn)
+        permisos.asignar_rol(conn, usuario_id, rol)
+        print(f"Persona {nombre} creada (id {usuario_id}) con el rol {rol}")
+        return 0
+    if existente["roles"] == [rol]:
+        print(f"{nombre} ya existe con el rol {rol}")
+        return 0
+    actuales = ", ".join(existente["roles"]) or "sin roles"
+    print(f"{nombre} ya existe con {actuales}, no con {rol}: no se cambia nada ni se da "
+          f"token. Para cambiarle el rol: usuario asignar / usuario quitar", file=sys.stderr)
+    return SALIDA_OTRO_ROL
 
 
 def _persona_de_token(conn, token: str | None, accion: str) -> int | None:
@@ -1721,8 +1763,29 @@ def _cmd_reextraer(args: argparse.Namespace) -> int:
     return codigo
 
 
+# Salida de `importar` cuando el fichero se ha leido pero no ha entrado entero: quien lo
+# lanza (importar.ps1) decide con esto si el fichero sale del buzon, sin leer el texto.
+SALIDA_RECHAZADA = 3
+SALIDA_PARCIAL = 4
+
+
+def _salida_de_importar(lotes) -> int:
+    """0 si todo entro; SALIDA_RECHAZADA si algun lote no entro (tambien uno ya intentado y
+    rechazado: ese mismo fichero no entrara nunca); SALIDA_PARCIAL si entro con filas
+    rechazadas."""
+    estados = {lote.estado for lote in lotes}
+    if "rechazada" in estados:
+        return SALIDA_RECHAZADA
+    return SALIDA_PARCIAL if "parcial" in estados else 0
+
+
 def _cmd_importar(args: argparse.Namespace) -> int:
-    """Importa un fichero de un maestro con su mapeo (spec §9). Cero llamadas a la API."""
+    """Importa un fichero de un maestro con su mapeo (spec §9). Cero llamadas a la API.
+
+    Sale con 0 si todo entra, SALIDA_RECHAZADA si un lote no entra y
+    SALIDA_PARCIAL si entra con filas rechazadas: un script no puede dar por
+    importado un fichero que no entro.
+    """
     from datetime import date, datetime, timezone
 
     from .importadores.registrar import importar_fichero
@@ -1781,7 +1844,9 @@ def _cmd_importar(args: argparse.Namespace) -> int:
     for lote in r.lotes:
         if lote.repetida:
             print(f"  {lote.tipo}: ya importado (importacion {lote.importacion_id}, "
-                  f"{lote.estado}): no se hace nada")
+                  f"{lote.estado}): no se hace nada"
+                  + ("; este mismo fichero no entrara: hay que sacar uno nuevo"
+                     if lote.estado == "rechazada" else ""))
             continue
         print(f"  {lote.tipo}: {lote.estado}; {lote.filas_leidas} filas, {lote.aceptadas} "
               f"aceptadas, {len(lote.rechazos)} rechazadas; {len(lote.nuevos)} filas nuevas, "
@@ -1801,7 +1866,7 @@ def _cmd_importar(args: argparse.Namespace) -> int:
             print(f"    fila {rechazo.fila} ({rechazo.codigo}): {rechazo.motivo}")
     if r.recalculo is not None:
         _imprimir_recalculo(r.recalculo)
-    return 0
+    return _salida_de_importar(r.lotes)
 
 
 _IBAN = {"verificar": "verificar_iban", "rechazar": "rechazar_iban",
@@ -2157,6 +2222,9 @@ def _cmd_restaurar(args: argparse.Namespace) -> int:
     if hecho.antes is not None:
         print(f"  lo que habia antes queda guardado en {hecho.antes}")
     print(f"  {hecho.documentos_anadidos} originales anadidos")
+    if hecho.evento_id is not None:
+        print(f"  queda en la auditoria (evento {hecho.evento_id}), con "
+              f"{hecho.anclas_descartadas} anclas de lo sustituido que ya no se cumplen")
     print("Comprueba con: bms-agent db verificar")
     return 0
 
@@ -2167,7 +2235,7 @@ def _cmd_salida(args: argparse.Namespace) -> int:
     from . import salida
 
     logging.basicConfig(level=logging.INFO, stream=sys.stderr,
-                        format="%(asctime)s %(message)s")
+                        format=salida.FORMATO_REGISTRO)
     permitidos = args.permitir or list(salida.PERMITIDOS_POR_DEFECTO)
     try:
         salida.lista_blanca(permitidos)
@@ -2177,7 +2245,29 @@ def _cmd_salida(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"No se arranca la salida: {exc}", file=sys.stderr)
         return 2
+    if args.registro:
+        try:
+            salida.registrar_en_fichero(args.registro)
+        except OSError as exc:
+            print(f"No se arranca la salida: no se puede escribir el registro {args.registro}: "
+                  f"{exc.strerror or exc}", file=sys.stderr)
+            return 2
     salida.servir(args.escuchar, permitidos, args.reenviar)
+    return 0
+
+
+def _cmd_salida_registro(args: argparse.Namespace) -> int:
+    from . import salida
+
+    lineas = salida.leer_registro(args.fichero, solo_rechazados=args.rechazados)
+    if not Path(args.fichero).is_file():
+        print(f"No hay registro en {args.fichero}: la salida aun no ha arrancado con --registro",
+              file=sys.stderr)
+        return 1
+    for linea in lineas:
+        print(linea)
+    if args.rechazados:
+        print(f"{len(lineas)} intentos rechazados", file=sys.stderr)
     return 0
 
 
@@ -2391,6 +2481,12 @@ def main(argv: list[str] | None = None) -> int:
     p_crear.add_argument("--email")
     p_crear.add_argument("--rol", action="append", default=[],
                          help="administrador, administracion o consulta; se puede repetir")
+    p_asegurar = sub_usuario.add_parser(
+        "asegurar", help="que exista la persona con ese rol y solo ese (la crea si falta; si ya "
+                         "tiene otros roles no toca nada y sale con 3)")
+    p_asegurar.add_argument("nombre")
+    p_asegurar.add_argument("--rol", required=True,
+                            choices=("administrador", "administracion", "consulta"))
     for accion, ayuda in (("asignar", "da un rol a una persona"),
                           ("quitar", "cierra un rol de una persona")):
         p_rol = sub_usuario.add_parser(accion, help=ayuda)
@@ -2678,7 +2774,20 @@ def main(argv: list[str] | None = None) -> int:
     p_salida.add_argument("--reenviar", action="append", default=[], metavar="ESCUCHA=DESTINO",
                           help="reenvia un puerto tal cual, por ejemplo "
                                "0.0.0.0:8765=consola:8765 (la entrada a la consola)")
+    p_salida.add_argument("--registro", metavar="FICHERO",
+                          help="apunta cada intento tambien en este fichero, anadiendo al final "
+                               "(en Docker, el volumen de la salida: el registro de Docker se "
+                               "pierde con el contenedor)")
     p_salida.set_defaults(func=_cmd_salida)
+
+    p_registro = sub.add_parser(
+        "salida-registro", help="lo que ha intentado salir a internet, del registro de la salida "
+                                "(lo mas viejo primero)")
+    p_registro.add_argument("--fichero", default="/registro/salida.log",
+                            help="el registro (por defecto, el del entorno de Docker)")
+    p_registro.add_argument("--rechazados", action="store_true",
+                            help="solo lo que no se dejo salir")
+    p_registro.set_defaults(func=_cmd_salida_registro)
 
     p_salud = sub.add_parser("salud", help="comprobacion de salud de un contenedor: algo acepta "
                                            "conexiones en HOST:PUERTO")

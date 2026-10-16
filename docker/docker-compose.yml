@@ -11,8 +11,9 @@
 #            Es el unico que ve la clave de la API, como secreto de Docker.
 #   salida   el unico contenedor con un pie fuera: el proxy CONNECT que solo deja ir a
 #            api.anthropic.com:443 (bms-agent salida) y la entrada a la consola.
-#   orden    las ordenes sueltas (importar, crear la base de prueba, copias). Sin red
-#            ninguna (network_mode none). Perfil "ordenes": solo con "run".
+#   orden    las ordenes sueltas (importar, crear la base de prueba, copias, ver lo que
+#            ha salido). Sin red ninguna (network_mode none). Perfil "ordenes": solo con
+#            "run".
 #
 # Docker no publica el puerto de un contenedor que solo esta en redes internas: por eso
 # lo publica la salida (en 127.0.0.1, nunca en la red de la casa) y la consola sigue sin
@@ -61,6 +62,12 @@ services:
       - api.anthropic.com:443
       - --reenviar
       - entrada:8765=consola:8765
+      - --registro
+      - /registro/salida.log
+    # El registro de lo que sale, en su propio volumen: el de Docker se borra con el
+    # contenedor (docker compose down). La salida no ve los datos.
+    volumes:
+      - registro_salida:/registro
     networks:
       red_lector:
         aliases: [proxy]
@@ -115,6 +122,7 @@ services:
     volumes:
       - datos:/datos
       - ../buzon:/buzon:ro
+      - registro_salida:/registro:ro
     network_mode: none
     healthcheck:
       disable: true
@@ -129,6 +137,7 @@ networks:
 
 volumes:
   datos: {}
+  registro_salida: {}
 
 secrets:
   anthropic_api_key:

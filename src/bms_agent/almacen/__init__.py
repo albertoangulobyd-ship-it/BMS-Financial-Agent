@@ -152,6 +152,27 @@ def exigir_sin_datos_de_prueba(conn: sqlite3.Connection, contenido: bytes | str 
             f"{NOMBRE_DEMO}.")
 
 
+class DatosDeVerdadEnLaPrueba(DatosDePrueba):
+    """Lo contrario: algo sin la marca de la prueba (un fichero de verdad) iba a entrar en la
+    base de prueba. Es un DatosDePrueba mas para quien lo captura."""
+
+
+def exigir_de_su_base(conn: sqlite3.Connection, contenido: bytes | str | None, que: str) -> None:
+    """Lo de la prueba solo en la base de prueba, y en la base de prueba solo lo de la prueba.
+
+    La segunda mitad es por el buzon, que comparten las dos bases en el
+    entorno de Docker: un extracto o un maestro de verdad importado con -Demo
+    acabaria bajo la banda "todo es ficticio", fuera de la base de verdad, y
+    se borraria al rehacer la prueba. Todo lo que fabrica `demo crear` lleva
+    la marca, asi que a la base de prueba no le falta nada.
+    """
+    exigir_sin_datos_de_prueba(conn, contenido, que)
+    if es_base_demo(conn) and not contiene_datos_de_prueba(contenido):
+        raise DatosDeVerdadEnLaPrueba(
+            f"{que} no es de los DATOS DE PRUEBA (no lleva su marca) y esta es la base de "
+            "prueba: no entra. Lo de verdad va a la base de verdad (sin -Demo).")
+
+
 def comprobar_version(version: tuple[int, ...] = sqlite3.sqlite_version_info) -> None:
     if tuple(version) < VERSION_MINIMA:
         minima = ".".join(map(str, VERSION_MINIMA))

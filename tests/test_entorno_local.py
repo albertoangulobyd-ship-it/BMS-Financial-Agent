@@ -19,6 +19,7 @@ Puertas que viven aqui (la de los contenedores de verdad esta en test_entorno_do
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import importlib.metadata
 import json
@@ -105,7 +106,8 @@ def test_la_salida_solo_deja_ir_a_la_api_y_escucha_en_la_red_del_lector(compose)
     assert orden[0] == "salida"
     valor = {orden[i]: orden[i + 1] for i in range(1, len(orden), 2)}
     assert valor == {"--escuchar": "proxy:3128", "--permitir": "api.anthropic.com:443",
-                     "--reenviar": "entrada:8765=consola:8765"}
+                     "--reenviar": "entrada:8765=consola:8765",
+                     "--registro": "/registro/salida.log"}
     assert orden.count("--permitir") == 1
     salida.lista_blanca([valor["--permitir"]])
     # "proxy" es su nombre solo en la red del lector; "entrada", solo en la de fuera (por ahi
@@ -148,11 +150,14 @@ def test_la_clave_es_un_secreto_que_solo_ve_el_lector(compose) -> None:
 
 def test_los_datos_van_en_un_volumen_y_el_buzon_se_lee_sin_escribir(compose) -> None:
     servicios = compose["services"]
-    assert compose["volumes"] == {"datos": {}}
+    assert compose["volumes"] == {"datos": {}, "registro_salida": {}}
     assert servicios["consola"]["volumes"] == ["datos:/datos"]
-    assert servicios["salida"].get("volumes") is None
-    for nombre in ("lector", "orden"):
-        assert servicios[nombre]["volumes"] == ["datos:/datos", "../buzon:/buzon:ro"]
+    # La salida (el unico contenedor con internet) no ve los datos: solo su registro, que
+    # vive en su volumen para que no se pierda con el contenedor (docker compose down).
+    assert servicios["salida"]["volumes"] == ["registro_salida:/registro"]
+    assert servicios["lector"]["volumes"] == ["datos:/datos", "../buzon:/buzon:ro"]
+    assert servicios["orden"]["volumes"] == ["datos:/datos", "../buzon:/buzon:ro",
+                                             "registro_salida:/registro:ro"]
     for nombre in ("consola", "lector", "orden"):
         assert servicios[nombre]["environment"]["BMS_DB"] == "/datos/${BMS_BASE:-bms}.sqlite3"
 
@@ -252,7 +257,8 @@ def test_dockerignore_y_gitignore_dejan_fuera_los_datos_y_la_clave() -> None:
 
 # ============================================================ los scripts de Windows
 
-SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar", "persona")
+SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar", "persona",
+           "ver-salida")
 
 
 @pytest.mark.parametrize("nombre", SCRIPTS)
@@ -296,12 +302,81 @@ def test_leer_facturas_cuenta_antes_y_pide_que_si() -> None:
 
 
 def test_importar_conoce_cada_carpeta_del_buzon() -> None:
+    """Una carpeta del buzon por cada tipo que se puede importar (cada mapeo de
+    config/importacion): sin las del maestro, la base de verdad no tendria Objetos, tarifas
+    ni ciclos, y las reglas del planning, las tarifas y las PO no tendrian con que mirar."""
     texto = (DOCKER / "importar.ps1").read_text(encoding="utf-8")
-    pares = set(re.findall(r'"([a-z\\]+)"\s*=\s*@\("([a-z_]+)", "([a-z_]+)"\)', texto))
-    assert {(f, t) for _c, f, t in pares} == {
-        ("exact", "proveedores"), ("exact", "clientes"), ("exact", "facturas_venta"),
-        ("exact", "pagos_exact"), ("banco", "extracto"), ("trnsprnt", "planning"),
-        ("po_csv", "ordenes_compra")}
+    pares = re.findall(r'"([a-z\\]+)"\s*=\s*@\("([a-z_]+)", "([a-z_]+)"\)', texto)
+    tipos = [(f, t) for _c, f, t in pares]
+    importables = set()
+    for mapeo in (RAIZ / "config" / "importacion").glob("*.yaml"):
+        datos = yaml.safe_load(mapeo.read_text(encoding="utf-8"))
+        importables.add((datos["fuente"], datos["tipo"]))
+    assert set(tipos) == importables and len(tipos) == len(importables)
+    assert len({c for c, _f, _t in pares}) == len(pares)
+    # En el orden en que unos usan lo que traen otros.
+    antes = [("exact", "proveedores"), ("exact", "clientes"), ("maestro_csv", "objetos"),
+             ("maestro_csv", "recursos")]
+    despues = [("maestro_csv", "tarifas"), ("maestro_csv", "ciclos"), ("trnsprnt", "planning"),
+               ("po_csv", "ordenes_compra"), ("exact", "facturas_venta"),
+               ("exact", "pagos_exact")]
+    assert max(tipos.index(t) for t in antes) < min(tipos.index(t) for t in despues)
+    assert tipos.index(("po_csv", "ordenes_compra")) < tipos.index(("po_csv", "modificaciones_po"))
+    assert tipos.index(("exact", "facturas_venta")) < tipos.index(("exact", "pagos_exact"))
+
+
+def test_importar_solo_saca_del_buzon_lo_que_ha_entrado() -> None:
+    """La decision va por el codigo de salida de `importar` (cli.SALIDA_RECHAZADA y
+    SALIDA_PARCIAL), no por que no haya habido un error."""
+    from bms_agent.cli import SALIDA_PARCIAL, SALIDA_RECHAZADA
+
+    texto = (DOCKER / "importar.ps1").read_text(encoding="utf-8")
+    assert f"$rechazada = {SALIDA_RECHAZADA}" in texto and f"$parcial = {SALIDA_PARCIAL}" in texto
+    mover = texto.index("Move-Item")
+    assert texto.index('if ($codigo -eq 0 -or $codigo -eq $parcial)') < mover
+    assert mover < texto.index("elseif ($codigo -eq $rechazada)")
+
+
+def test_la_pasada_del_dia_la_hacen_iniciar_e_importar() -> None:
+    for nombre in ("iniciar", "importar"):
+        texto = (DOCKER / f"{nombre}.ps1").read_text(encoding="utf-8")
+        assert "orden recalcular --diaria" in texto, nombre
+    iniciar = (DOCKER / "iniciar.ps1").read_text(encoding="utf-8")
+    assert iniciar.index("recalcular --diaria") < iniciar.index("up -d consola salida")
+
+
+def test_leer_facturas_no_lee_nada_con_demo() -> None:
+    texto = (DOCKER / "leer-facturas.ps1").read_text(encoding="utf-8")
+    assert texto.index("if ($Demo)") < texto.index("lector coste --estimar")
+    assert "Elegir-Base -Demo" not in texto
+
+
+def test_persona_pide_el_rol_y_no_cambia_el_de_quien_ya_existe() -> None:
+    texto = (DOCKER / "persona.ps1").read_text(encoding="utf-8")
+    assert re.search(r'\[Parameter\(Mandatory = \$true\)\]\[ValidateSet\([^)]*\)\]\[string\]\$Rol\s*\)',
+                     texto)
+    assert "Select-String" not in texto and "usuario listar" not in texto
+    asegurar = texto.index('"usuario", "asegurar", $Nombre, "--rol", $Rol')
+    assert asegurar < texto.index("if ($codigo -eq 3)") < texto.index('"usuario", "token"')
+
+
+def test_usuario_asegurar_no_da_otro_rol_a_quien_ya_existe(tmp_path, capsys) -> None:
+    from bms_agent.cli import SALIDA_OTRO_ROL
+
+    db = str(tmp_path / "datos" / "bms.sqlite3")
+    assert main(["usuario", "asegurar", "Bram", "--rol", "administrador", "--db", db]) == 0
+    assert main(["usuario", "asegurar", "Bram", "--rol", "administrador", "--db", db]) == 0
+    # Pedir solo consulta para quien ya es administrador: no se cambia nada.
+    assert main(["usuario", "asegurar", "Bram", "--rol", "consulta", "--db", db]) == \
+        SALIDA_OTRO_ROL
+    assert "ya existe con administrador" in capsys.readouterr().err
+    # El nombre es el exacto: "Bra" no es "Bram", y es otra persona.
+    assert main(["usuario", "asegurar", "Bra", "--rol", "consulta", "--db", db]) == 0
+    capsys.readouterr()
+    assert main(["usuario", "listar", "--db", db]) == 0
+    listado = capsys.readouterr().out
+    assert re.search(r"Bram\s+persona\s+administrador\n", listado)
+    assert re.search(r"Bra\s+persona\s+consulta\n", listado)
 
 
 # ============================================================ la consola en un contenedor
@@ -322,6 +397,8 @@ def test_fuera_de_un_contenedor_solo_se_escucha_en_127_0_0_1(tmp_path) -> None:
 def test_en_un_contenedor_escucha_en_todas_y_no_lee_pdf(tmp_path, monkeypatch) -> None:
     from bms_agent import serve
 
+    # Fuera de un contenedor, aunque la suite corra dentro de uno (/.dockerenv).
+    monkeypatch.setattr(serve, "en_contenedor", lambda *a: False)
     with pytest.raises(ValueError):
         crear_servidor(tmp_path / "f", tmp_path / "o", 0, interfaz="0.0.0.0",
                        ruta_db=tmp_path / "bms.sqlite3")
@@ -354,7 +431,12 @@ def test_en_un_contenedor_escucha_en_todas_y_no_lee_pdf(tmp_path, monkeypatch) -
         srv.server_close()
 
 
-def test_la_cli_no_abre_la_consola_a_la_red_fuera_de_un_contenedor(capsys) -> None:
+def test_la_cli_no_abre_la_consola_a_la_red_fuera_de_un_contenedor(capsys,
+                                                                    monkeypatch) -> None:
+    from bms_agent import serve
+
+    # Si la suite corre dentro de un contenedor, la orden arrancaria de verdad y no volveria.
+    monkeypatch.setattr(serve, "en_contenedor", lambda *a: False)
     assert main(["serve", "--contenedor", "--puerto", "0"]) == 2
     assert "contenedor" in capsys.readouterr().err
 
@@ -366,19 +448,29 @@ def test_sin_fichero_la_clave_la_busca_el_sdk(monkeypatch) -> None:
     assert config.clave_api() is None
 
 
-def test_la_clave_se_lee_de_su_fichero(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("codificacion", ["utf-8", "utf-8-sig", "utf-16", "utf-16-be"])
+def test_la_clave_se_lee_de_su_fichero(tmp_path, monkeypatch, codificacion) -> None:
+    """Como la guarde Windows: UTF-8 con o sin BOM (el Bloc de notas), UTF-16 (el Bloc de
+    notas con "Unicode", o `>` en Windows PowerShell 5.1), con CRLF."""
     fichero = tmp_path / "anthropic_api_key.txt"
-    fichero.write_text("  sk-ant-api03-de-prueba \n", encoding="utf-8")
+    texto = "  sk-ant-api03-de-prueba \r\n"
+    contenido = (b"\xfe\xff" + texto.encode("utf-16-be") if codificacion == "utf-16-be"
+                 else texto.encode(codificacion))
+    fichero.write_bytes(contenido)
     monkeypatch.setenv(config.VARIABLE_FICHERO_CLAVE, str(fichero))
     assert config.clave_api() == "sk-ant-api03-de-prueba"
 
 
 @pytest.mark.parametrize("contenido", [None, "", "   \n", "no-es-una-clave",
-                                       "sk-ant-dos\nlineas", "sk-ant- con espacios"])
+                                       "sk-ant-dos\nlineas", "sk-ant- con espacios",
+                                       b"sk-ant-api03-\xff\xfeno-es-texto"])
 def test_un_fichero_de_clave_malo_se_dice_sin_ensenarla(tmp_path, monkeypatch, capsys,
                                                          pdfs_ejemplo, contenido) -> None:
     fichero = tmp_path / "anthropic_api_key.txt"
-    if contenido is not None:
+    if isinstance(contenido, bytes):
+        fichero.write_bytes(contenido)
+        contenido = "sk-ant-api03-"
+    elif contenido is not None:
         fichero.write_text(contenido, encoding="utf-8")
     monkeypatch.setenv(config.VARIABLE_FICHERO_CLAVE, str(fichero))
     with pytest.raises(config.ClaveNoValida) as error:
@@ -472,12 +564,18 @@ def test_la_copia_de_la_base_de_prueba_lleva_sus_originales(tmp_path) -> None:
     assert demo.es_demo(hecha.carpeta / "demo.sqlite3")
 
 
+def _eventos(ruta) -> int:
+    # sqlite3.connect como "with" no cierra la conexion: una abierta haria que restaurar
+    # viera la base en uso.
+    with contextlib.closing(sqlite3.connect(ruta)) as conn:
+        return conn.execute("SELECT count(*) FROM evento").fetchone()[0]
+
+
 def test_restaurar_vuelve_a_la_copia_y_guarda_lo_de_antes(con_datos, tmp_path, capsys) -> None:
     disco = tmp_path / "disco"
     disco.mkdir()
     hecha = copia.copiar(con_datos, disco)
-    with sqlite3.connect(con_datos) as conn:
-        eventos_copia = conn.execute("SELECT count(*) FROM evento").fetchone()[0]
+    eventos_copia = _eventos(con_datos)
     # Despues de la copia se sigue trabajando: la base tiene mas que la copia.
     with preparar(con_datos) as almacen:
         from bms_agent import permisos
@@ -486,17 +584,15 @@ def test_restaurar_vuelve_a_la_copia_y_guarda_lo_de_antes(con_datos, tmp_path, c
         permisos.asegurar_roles_base(almacen.conn)
         permisos.crear_usuario(almacen.conn, "Persona despues de la copia")
         anclar(almacen.conn, almacen.ruta_anclas)
-    with sqlite3.connect(con_datos) as conn:
-        eventos_despues = conn.execute("SELECT count(*) FROM evento").fetchone()[0]
+    eventos_despues = _eventos(con_datos)
     assert eventos_despues > eventos_copia
     assert main(["restaurar", str(hecha.carpeta), "--db", str(con_datos)]) == 0
-    with sqlite3.connect(con_datos) as conn:
-        assert conn.execute("SELECT count(*) FROM evento").fetchone()[0] == eventos_copia
+    # Lo de la copia, y el evento que dice que se restauro.
+    assert _eventos(con_datos) == eventos_copia + 1
     assert main(["db", "verificar", "--db", str(con_datos)]) == 0
     # Lo que habia antes de restaurar esta guardado entero, y se puede volver a ello.
     [antes] = list((con_datos.parent / "antes-de-restaurar").iterdir())
-    with sqlite3.connect(antes / "bms.sqlite3") as conn:
-        assert conn.execute("SELECT count(*) FROM evento").fetchone()[0] == eventos_despues
+    assert _eventos(antes / "bms.sqlite3") == eventos_despues
     assert copia.comprobar(antes, "bms.sqlite3") == []
     capsys.readouterr()
 
@@ -536,3 +632,168 @@ def test_comprobar_una_copia_no_la_toca(con_datos, tmp_path, capsys) -> None:
         hecha.carpeta.chmod(0o755)
     assert {p.name: p.read_bytes() for p in hecha.carpeta.iterdir() if p.is_file()} == antes
     assert "cada fichero tiene su hash" in capsys.readouterr().out
+
+
+def test_una_copia_con_la_consola_anclando_a_la_vez_pasa_db_verificar(con_datos, tmp_path,
+                                                                     monkeypatch) -> None:
+    """Entre copiar la base y copiar las anclas, la consola en marcha escribe y ancla: la
+    copia tiene que seguir pasando `db verificar`."""
+    from bms_agent import permisos
+    from bms_agent.auditoria import anclar
+
+    real = shutil.copy2
+
+    def copiar_con_la_consola_escribiendo(fuente, destino, *a, **k):
+        if str(fuente).endswith("anclas.log"):
+            with preparar(con_datos) as almacen:
+                permisos.crear_usuario(almacen.conn, "Persona mientras se copia")
+                anclar(almacen.conn, almacen.ruta_anclas)
+        return real(fuente, destino, *a, **k)
+
+    monkeypatch.setattr(copia.shutil, "copy2", copiar_con_la_consola_escribiendo)
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    hecha = copia.copiar(con_datos, disco)
+    assert hecha.problemas == []
+    assert main(["db", "verificar", "--db", str(hecha.carpeta / "bms.sqlite3")]) == 0
+
+
+def test_una_copia_que_db_verificar_rechazaria_no_pasa_por_comprobada(con_datos,
+                                                                     tmp_path) -> None:
+    """Un ancla mas alla de la cadena de la copia: la copia no se da por buena."""
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    hecha = copia.copiar(con_datos, disco)
+    anclas = hecha.carpeta / "anclas.log"
+    ultima = anclas.read_text(encoding="utf-8").splitlines()[-1].split("\t")
+    ultima[1] = str(int(ultima[1]) + 5)
+    anclas.write_text(anclas.read_text(encoding="utf-8") + "\t".join(ultima) + "\n",
+                      encoding="utf-8")
+    manifiesto = (hecha.carpeta / copia.MANIFIESTO).read_text(encoding="utf-8")
+    viejo = copia.leer_manifiesto(hecha.carpeta)["anclas.log"]
+    (hecha.carpeta / copia.MANIFIESTO).write_text(
+        manifiesto.replace(viejo, copia._sha256(anclas)), encoding="utf-8")
+    problemas = copia.comprobar(hecha.carpeta, "bms.sqlite3")
+    assert any("se ha cortado" in p for p in problemas)
+    with pytest.raises(copia.CopiaFallida):
+        copia.restaurar(hecha.carpeta, con_datos)
+
+
+def test_restaurar_no_sigue_con_la_base_abierta_aunque_este_en_wal(con_datos,
+                                                                   tmp_path) -> None:
+    """La consola tiene la base abierta y quieta (en WAL): restaurar no la pisa."""
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    hecha = copia.copiar(con_datos, disco)
+    viva = preparar(con_datos)
+    try:
+        assert viva.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        viva.conn.execute("SELECT count(*) FROM evento").fetchone()
+        with pytest.raises(copia.CopiaFallida, match="abierta"):
+            copia.restaurar(hecha.carpeta, con_datos)
+    finally:
+        viva.cerrar()
+    assert not (con_datos.parent / copia.ANTES_DE_RESTAURAR).exists()
+    copia.restaurar(hecha.carpeta, con_datos)
+
+
+def test_restaurar_en_una_instalacion_nueva_crea_la_carpeta(con_datos, tmp_path,
+                                                            capsys) -> None:
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    hecha = copia.copiar(con_datos, disco)
+    nueva = tmp_path / "ordenador-nuevo" / "datos" / "bms.sqlite3"
+    hecho = copia.restaurar(hecha.carpeta, nueva)
+    assert hecho.antes is None and nueva.is_file()
+    assert (nueva.parent / "documentos").is_dir() and (nueva.parent / "anclas.log").is_file()
+    assert main(["db", "verificar", "--db", str(nueva)]) == 0
+    capsys.readouterr()
+
+
+def _usuarios(ruta) -> set[str]:
+    with contextlib.closing(sqlite3.connect(ruta)) as conn:
+        return {f[0] for f in conn.execute("SELECT nombre FROM usuario WHERE es_sistema = 0")}
+
+
+def test_restaurar_no_reescribe_las_anclas_y_deja_el_corte_dicho(con_datos, tmp_path,
+                                                                 capsys) -> None:
+    """Una vuelta atras borra lo firmado despues de la copia: no puede quedar como si nada.
+    El fichero de anclas solo crece, la base restaurada dice que se restauro (y que se
+    corto), y `db verificar` lo ensena; sin ese evento, el corte es un problema."""
+    from bms_agent import permisos
+    from bms_agent.auditoria import TIPO_RESTAURACION, anclar
+
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    with preparar(con_datos) as almacen:
+        permisos.asegurar_roles_base(almacen.conn)
+        permisos.crear_usuario(almacen.conn, "Ana")
+        anclar(almacen.conn, almacen.ruta_anclas)
+    hecha = copia.copiar(con_datos, disco)
+    with preparar(con_datos) as almacen:
+        permisos.crear_usuario(almacen.conn, "Bram")
+        anclar(almacen.conn, almacen.ruta_anclas)
+        permisos.crear_usuario(almacen.conn, "Carla")
+        anclar(almacen.conn, almacen.ruta_anclas)
+        cabeza_sustituida = almacen.conn.execute(
+            "SELECT id, hash FROM evento ORDER BY id DESC LIMIT 1").fetchone()
+    anclas = con_datos.parent / "anclas.log"
+    antes = anclas.read_text(encoding="utf-8")
+
+    assert main(["restaurar", str(hecha.carpeta), "--db", str(con_datos)]) == 0
+    assert "queda en la auditoria" in capsys.readouterr().out
+    assert _usuarios(con_datos) == {"Ana"}
+    despues = anclas.read_text(encoding="utf-8")
+    assert despues.startswith(antes) and len(despues) > len(antes)
+
+    with contextlib.closing(sqlite3.connect(con_datos)) as conn:
+        [(tipo, datos_json)] = conn.execute(
+            "SELECT tipo, datos_json FROM evento ORDER BY id DESC LIMIT 1").fetchall()
+    datos = json.loads(datos_json)
+    assert tipo == TIPO_RESTAURACION
+    assert datos["sustituida"] == [cabeza_sustituida[0], cabeza_sustituida[1]]
+    assert datos["copia"] == str(hecha.carpeta) and datos["antes"]
+    assert len(datos["anclas_descartadas"]) == 2
+    assert main(["db", "verificar", "--db", str(con_datos)]) == 0
+    salida_verificar = capsys.readouterr().out
+    assert "se restauro desde una copia" in salida_verificar
+    assert "2 anclas son de lo que sustituyo una restauracion" in salida_verificar
+
+    # Sin el evento de restauracion (una vuelta atras a mano), el corte se ve.
+    a_mano = tmp_path / "a-mano" / "bms.sqlite3"
+    a_mano.parent.mkdir()
+    shutil.copy(hecha.carpeta / "bms.sqlite3", a_mano)
+    (a_mano.parent / "anclas.log").write_text(antes, encoding="utf-8")
+    assert main(["db", "verificar", "--db", str(a_mano)]) == 1
+    assert "se ha cortado" in capsys.readouterr().out
+
+
+def test_restaurar_dos_veces_sigue_cuadrando(con_datos, tmp_path, capsys) -> None:
+    """Dos vueltas atras seguidas (en el mismo segundo): cada una guarda lo de antes en su
+    carpeta, y la cadena cuadra con las anclas de las tres historias."""
+    from datetime import datetime, timezone
+
+    from bms_agent import permisos
+    from bms_agent.auditoria import anclar
+    from bms_agent.reloj import RelojFijo
+
+    disco = tmp_path / "disco"
+    disco.mkdir()
+    primera = copia.copiar(con_datos, disco)
+    with preparar(con_datos) as almacen:
+        permisos.crear_usuario(almacen.conn, "Bram")
+        anclar(almacen.conn, almacen.ruta_anclas)
+    copia.restaurar(primera.carpeta, con_datos)
+    with preparar(con_datos) as almacen:
+        permisos.crear_usuario(almacen.conn, "Carla")
+        anclar(almacen.conn, almacen.ruta_anclas)
+    segunda = copia.copiar(con_datos, disco, reloj=RelojFijo(
+        datetime(2030, 1, 1, tzinfo=timezone.utc)))
+    with preparar(con_datos) as almacen:
+        permisos.crear_usuario(almacen.conn, "Dirk")
+        anclar(almacen.conn, almacen.ruta_anclas)
+    copia.restaurar(segunda.carpeta, con_datos)
+    assert len(list((con_datos.parent / copia.ANTES_DE_RESTAURAR).iterdir())) == 2
+    assert _usuarios(con_datos) == {"Carla"}
+    assert main(["db", "verificar", "--db", str(con_datos)]) == 0
+    capsys.readouterr()

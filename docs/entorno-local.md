@@ -19,8 +19,8 @@ cerradas que solo ven lo que se les deja ver. bms-agent corre en cuatro cajas:
 | --- | --- | --- |
 | **consola** | La consola que abres en el navegador. | Tus datos. **Ninguna salida a internet.** |
 | **lector** | Lee los PDF de facturas con la API de Anthropic. Solo arranca cuando tú lo pides. | Tus datos, el buzón y la clave de la API. Solo puede hablar con la caja **salida**. |
-| **salida** | La única puerta a internet. Deja pasar al lector hacia `api.anthropic.com` y a nada más, y apunta cada intento. | Internet, pero solo para el lector y solo hacia la API. |
-| **orden** | Las órdenes sueltas: importar, crear los datos de prueba, hacer copias. | Tus datos y el buzón. **Sin red de ningún tipo.** |
+| **salida** | La única puerta a internet. Deja pasar al lector hacia `api.anthropic.com` y a nada más, y apunta cada intento en su propio registro, que no se borra al parar. | Internet, pero solo para el lector y solo hacia la API. No ve tus datos. |
+| **orden** | Las órdenes sueltas: importar, crear los datos de prueba, hacer copias, ver lo que ha salido. | Tus datos, el buzón y el registro de la salida. **Sin red de ningún tipo.** |
 
 ```mermaid
 flowchart LR
@@ -97,7 +97,8 @@ General → Start Docker Desktop when you sign in**.
 3. Abre la carpeta del proyecto, entra en `docker\secretos` y crea con el Bloc de
    notas un fichero llamado **`anthropic_api_key.txt`** con la clave en una sola
    línea, sin nada más. Cuidado: el Bloc de notas a veces añade `.txt` otra vez; el
-   nombre tiene que quedar exactamente `anthropic_api_key.txt`.
+   nombre tiene que quedar exactamente `anthropic_api_key.txt`. Da igual la
+   codificación con la que lo guarde (UTF-8, con o sin BOM, o «Unicode»).
 
 Esa carpeta no se sube nunca a git ni entra en la imagen de Docker. Si la clave se
 filtra, bórrala en console.anthropic.com, crea otra y cambia el fichero.
@@ -116,13 +117,15 @@ En la carpeta `docker` del proyecto:
    de la carpeta → **Abrir en Terminal**) y escribe:
 
    ```powershell
-   .\persona.bat -Nombre "Tu nombre"
+   .\persona.bat -Nombre "Tu nombre" -Rol administrador
    ```
 
    Sale un token que empieza por `bms_`. **Guárdalo en tu gestor de claves**: se ve
    una sola vez. Es lo que escribes al entrar en la consola y lo que te piden los
-   scripts que cambian algo. Para otra persona, lo mismo con su nombre y, si solo
-   tiene que mirar, `-Rol consulta`.
+   scripts que cambian algo. Para otra persona, lo mismo con su nombre y su rol:
+   `-Rol administracion` (el trabajo de cada día) o `-Rol consulta` (solo mirar). El
+   rol se dice siempre, para no dar sin querer más de lo pensado. Si la persona ya
+   existe con otro rol, el script no le cambia nada ni le da token: lo dice y para.
 
 ---
 
@@ -137,6 +140,13 @@ En la carpeta `docker` del proyecto:
 Parar no borra nada: los datos se quedan guardados en Docker y la próxima vez están
 igual. Si apagas el ordenador sin parar, tampoco pasa nada.
 
+Al arrancar, `iniciar.bat` hace también **la pasada del día** (`recalcular
+--diaria`): lo que depende de la fecha (facturas que vencen, plazos, órdenes de
+compra que caducan) se pone al día aunque ese día no importes nada. `importar.bat`
+la hace también al acabar. Si dejas la consola abierta varios días seguidos sin
+importar, vuelve a abrir `iniciar.bat` cada mañana; si la consola avisa de que
+«falta la pasada de hoy», es eso.
+
 ---
 
 ## 7. Dónde dejar los ficheros
@@ -149,18 +159,35 @@ que importas). Cada tipo de fichero va en su sitio:
 | `buzon\facturas` | Los PDF de facturas de proveedores | El correo de administración |
 | `buzon\exact\proveedores` | El listado de crediteuren (CSV) | Exact |
 | `buzon\exact\clientes` | El listado de debiteuren (CSV) | Exact |
+| `buzon\maestro\objetos` | Los Objetos (CSV) | Hecho a mano |
+| `buzon\maestro\recursos` | Las personas del planning (CSV) | Hecho a mano |
+| `buzon\maestro\contactos` | Los contactos de proveedores y clientes (CSV) | Hecho a mano |
+| `buzon\maestro\alias` | Los otros nombres de un proveedor, un cliente o un Objeto (CSV) | Hecho a mano |
+| `buzon\maestro\tarifas` | Las tarifas pactadas, de compra y de venta (CSV) | Hecho a mano |
+| `buzon\maestro\ciclos` | Los ciclos de facturación (CSV) | Hecho a mano |
+| `buzon\trnsprnt` | El planning (CSV) | TRNSPRNT |
+| `buzon\po` | La hoja de órdenes de compra (CSV o YAML) | Hecha a mano |
+| `buzon\po\modificaciones` | Los cambios de una orden de compra (CSV) | Hecho a mano |
 | `buzon\exact\ventas` | Las facturas de venta, con sus líneas (CSV) | Exact |
 | `buzon\exact\pagos` | Openstaande posten / betalingen (CSV) | Exact |
 | `buzon\banco` | Los extractos (CAMT.053 `.xml`, MT940 o CSV) | La banca por internet |
-| `buzon\trnsprnt` | El planning (CSV) | TRNSPRNT |
-| `buzon\po` | La hoja de órdenes de compra (CSV o YAML) | Hecha a mano |
+
+Se importan en el orden de la tabla, porque unos usan lo que traen otros: las
+tarifas y los ciclos, los Objetos y las personas; las ventas, los clientes y las
+órdenes de compra; los pagos, las facturas. Sin las carpetas del maestro, la consola
+no puede comparar las horas del planning, las tarifas pactadas ni las órdenes de
+compra (los datos de prueba sí las traen). Las columnas de cada CSV están en
+`config/importacion/` (un fichero por tipo).
 
 Después:
 
 - **Doble clic en `importar.bat`** para todo lo que no son PDF. No cuesta nada:
   no llama a ninguna API y la caja que importa no tiene red. Te pide tu token. Lo
-  que entra bien se mueve a `buzon\hecho\<fecha>\`; lo que no, se queda donde estaba
-  y el script dice por qué.
+  que entra entero se mueve a `buzon\hecho\<fecha>\`. Lo que entra con alguna fila
+  rechazada también se mueve, y el script lo dice en amarillo con cada fila y su
+  motivo: corrígelo en el sistema de origen y vuelve a exportarlo. Lo que no entra
+  se queda donde estaba y el script dice por qué; el mismo fichero no entrará nunca
+  (se reconoce por su contenido): hay que sacar uno nuevo.
 - **Doble clic en `leer-facturas.bat`** para los PDF. **Esto sí cuesta dinero**
   (unos céntimos por factura), así que primero cuenta, gratis, lo que va a mandar,
   te enseña el coste y solo sigue si escribes `si`. Un PDF que ya se leyó no se
@@ -200,6 +227,11 @@ agotarse.
   banco que no existe («DEMO»), todos los ficheros de prueba llevan una marca, y la
   base de verdad rechaza cualquier cosa que la lleve, venga por donde venga. Y una
   copia de la base de prueba con otro nombre no se abre.
+- **Y lo de verdad no se pierde en la prueba.** El buzón es el mismo para las dos
+  bases. Por eso la base de prueba rechaza todo lo que no lleve la marca:
+  `importar.bat -Demo` con un fichero de verdad lo deja en el buzón, sin tocarlo, y
+  `leer-facturas.bat -Demo` no lee nada ni paga nada (los datos de prueba ya traen sus
+  facturas leídas). Lo de verdad se importa y se lee sin `-Demo`.
 
 ---
 
@@ -224,7 +256,8 @@ VeraCrypt (gratis) hace lo mismo.
    .\copia.bat -Destino E:\BMS-copias
    ```
 
-   (cambia `E:` por la letra de tu disco). Se puede hacer con la consola abierta.
+   (cambia `E:` por la letra de tu disco). Se puede hacer con la consola abierta:
+   la copia comprueba también que su auditoría cuadra, como haría `db verificar`.
 3. Sale «Copia hecha y comprobada»: la base copiada se abre y cada fichero tiene el
    hash del manifiesto. Cada copia va en su carpeta con fecha y hora, y nunca pisa
    otra.
@@ -238,9 +271,20 @@ PowerShell, en la carpeta `docker`:
 ```
 
 Pregunta antes de hacer nada, para la consola, comprueba la copia, la pone en su
-sitio y la verifica. Lo que hubiera antes **no se pierde**: queda guardado entero
-dentro de Docker, en `antes-de-restaurar`. Una copia de los datos de prueba no se
-puede restaurar sobre los de verdad, ni al revés. Al acabar, `iniciar.bat`.
+sitio y la verifica. No sigue si la base está abierta (la consola en marcha). Lo
+que hubiera antes **no se pierde**: queda guardado entero dentro de Docker, en
+`antes-de-restaurar`. Una copia de los datos de prueba no se puede restaurar sobre
+los de verdad, ni al revés. Al acabar, `iniciar.bat`.
+
+Volver a una copia es volver atrás: lo que se firmó después de ella deja de estar.
+Eso no se esconde. La auditoría apunta la restauración (de qué copia, qué había
+antes y dónde quedó guardado), y la verificación de los datos lo enseña cada vez:
+«la base se restauró desde una copia». Las anclas de la auditoría (que sirven para
+ver si alguien ha cortado el final) nunca se borran al restaurar.
+
+La copia no lleva la carpeta `out` de las extracciones: lo que hace falta de ella
+está en la base. Un PDF que ya estaba leído en la base no se vuelve a pagar, tampoco
+después de restaurar en otro ordenador.
 
 ---
 
@@ -254,7 +298,9 @@ puede restaurar sobre los de verdad, ni al revés. Al acabar, `iniciar.bat`.
 | «No parece una clave» | El fichero tiene que tener solo la clave, en una línea, empezando por `sk-ant-`. |
 | Un fichero no se importa | El script dice por qué justo encima. Lo habitual: el CSV no es el del tipo de esa carpeta, o falta un proveedor en el maestro. |
 | «es de los DATOS DE PRUEBA» | Has intentado meter un fichero de prueba en tus datos de verdad: no entra, a propósito. |
-| Quieres ver qué ha salido a internet | `docker compose logs salida`: cada intento, a dónde y si se dejó. |
+| «no es de los DATOS DE PRUEBA» | Has usado `-Demo` con un fichero de verdad: no entra en la prueba. Vuelve a importarlo sin `-Demo`. |
+| «la base está abierta» al restaurar | La consola sigue en marcha: `parar.bat` y vuelve a probar. |
+| Quieres ver qué ha salido a internet | `.\ver-salida.bat` (o `.\ver-salida.bat -Rechazados`): cada intento desde el primer día, a dónde y si se dejó. Se guarda en su propio volumen y no se borra al parar; `docker compose logs salida` solo llega hasta el último arranque. |
 
 ---
 
@@ -272,7 +318,7 @@ se cobra.
 | Mini PC dedicado (opcional) | **250-450 €** una vez, y unos **2 €/mes** de luz | Solo si prefieres no usar tu ordenador de trabajo. |
 | SSD externo cifrado | **70-100 €** una vez | Para las copias (apartado 9). |
 | API de Claude, modelo claude-opus-5-5 | 4 USD por millón de tokens de entrada y 20 USD por millón de salida | Unos **0,04-0,09 USD por factura**; la mitad por la vía de lotes (más lenta: hasta 24 horas). |
-| Reenviar un PDF ya leído | **0** | La caché va por el contenido del fichero. |
+| Reenviar un PDF ya leído | **0** | La caché va por el contenido del fichero, y un PDF cuya lectura ya está en la base no se vuelve a mandar (también después de restaurar una copia). |
 | Importar de Exact, el banco o TRNSPRNT | **0** | No usa la API. |
 | Mantenimiento | **1-2 horas al mes** | Actualizar Docker Desktop, la copia semanal y mirar que todo cuadra. |
 
@@ -299,9 +345,10 @@ funcionando sin crédito.
    la última está bien, sin tocarla:
    `.\copia.bat -Comprobar E:\BMS-copias\bms-copia-bms-AAAAMMDD-HHMMSS`. Y que los
    datos de ahora cuadran: `docker compose run --rm orden db verificar`.
-3. **Mira la salida**: `docker compose logs salida`. Solo tiene que haber
-   `api.anthropic.com`; cualquier otra cosa rechazada es un aviso para quien mantiene
-   el programa.
+3. **Mira la salida**: `.\ver-salida.bat -Rechazados`. Lo normal es que no salga
+   nada; cualquier intento rechazado es un aviso para quien mantiene el programa. Sin
+   `-Rechazados` sale todo, y lo permitido solo puede ser `api.anthropic.com`. El
+   registro guarda unos 50 MB (10 ficheros de 5 MB): años de uso normal.
 4. **El crédito de la API**, en console.anthropic.com → Billing.
 5. Si quien mantiene el programa te pasa una versión nueva: `parar.bat`, sustituye
    la carpeta del proyecto (sin tocar `docker\secretos`), y en la carpeta `docker`:
@@ -329,7 +376,16 @@ funcionando sin crédito.
   redes y el proxy, y lo borra al acabar. No llama a la API.
 - **La salida**: `bms-agent salida --permitir host:puerto` (se puede repetir; sin
   IP ni comodines). Cambiar la lista blanca es cambiar `docker-compose.yml`, y el test
-  estático lo vigila.
+  estático lo vigila. Su registro va a `/registro/salida.log`, en el volumen
+  `registro_salida` (`--registro`), y se lee con `bms-agent salida-registro` desde el
+  servicio `orden`, que lo monta de solo lectura.
+- **Los códigos de salida de `importar`**: 0 si todo entra, 3 si un lote no entra
+  (tampoco si ya se intentó y se rechazó), 4 si entra con filas rechazadas.
+  `importar.ps1` decide con ellos qué sale del buzón.
+- **Restaurar**: la restauración escribe un evento `restauracion` con las anclas que
+  deja sin cumplir, y `db verificar` solo perdona esas. Restaurar a mano (copiar el
+  fichero de la base) no lo escribe, y `db verificar` dice entonces que la cadena se
+  ha cortado.
 - **La consola en el contenedor** escucha en `0.0.0.0` (`serve --contenedor`), solo
   dentro de un contenedor, y no lee PDF. Docker no publica el puerto de un contenedor
   que solo está en redes internas: por eso lo publica la salida, en `127.0.0.1`, y lo

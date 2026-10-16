@@ -380,14 +380,28 @@ _CARPETA_CANDIDATAS = "reextraccion"
 Informar = Callable[[str, str, str], None]
 
 
-def _es_de_prueba_fuera_de_su_base(doc: Any, almacen: Any) -> bool:
-    """Si el PDF lleva la marca de los datos de prueba y la pasada no es sobre la base de prueba
-    (o no tiene base: lo de out/ podria acabar en la de verdad con importar-out)."""
-    from .almacen import contiene_datos_de_prueba, es_base_demo
+def _es_la_base_de_prueba(almacen: Any) -> bool:
+    """Un almacen que no se puede leer cuenta como el de verdad: el PDF de prueba sigue sin
+    mandarse, y en el no se escribira nada (ver _al_almacen)."""
+    from .almacen import es_base_demo
 
-    if not contiene_datos_de_prueba(base64.b64decode(doc.data_b64)):
+    try:
+        return almacen is not None and es_base_demo(almacen.conn)
+    except sqlite3.Error:
         return False
-    return almacen is None or not es_base_demo(almacen.conn)
+
+
+def _fuera_de_su_base(de_prueba: bool, base_demo: bool) -> str | None:
+    """Por que un PDF no se manda ni se guarda: uno de la prueba fuera de la base de prueba (o
+    sin base: lo de out/ podria acabar en la de verdad con importar-out), o uno de verdad en
+    la pasada sobre la base de prueba (el buzon es el mismo para las dos, y lo real no se
+    paga para dejarlo bajo la banda de "todo es ficticio")."""
+    if de_prueba and not base_demo:
+        return "es de los DATOS DE PRUEBA: solo entra en la base de prueba"
+    if base_demo and not de_prueba:
+        return ("no es de los DATOS DE PRUEBA y esta es la base de prueba: no se paga ni se "
+                "guarda aqui (leelo sin -Demo)")
+    return None
 
 
 def extraer_pasada(
@@ -430,12 +444,17 @@ def extraer_pasada(
     via por la que entro la primera vez (registrar_documento). Se reutiliza
     esa extraccion y se avisa de que la via no cambia. Con forzar, no.
     """
+    from .almacen import contiene_datos_de_prueba
+
     model = model or config.model_id()
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
     indice = {} if forzar else indexar(out_dir)
     resultado = resultado if resultado is not None else ResultadoPasada()
     actual = (model, config.PROMPT_VERSION, config.SCHEMA_VERSION)
-    de_otra_version = _vigentes_de_otra_version(almacen, actual) if almacen is not None else {}
+    en_almacen = _vigentes_en_almacen(almacen) if almacen is not None else {}
+    base_demo = _es_la_base_de_prueba(almacen)
+    de_otra_version = {sha: extraccion_id for sha, (extraccion_id, versiones)
+                       in en_almacen.items() if versiones != actual}
     # Las candidatas exportadas (reextraer, o un --estricta de antes) no son
     # vigentes, pero estan pagadas: una de estas mismas versiones no se paga
     # otra vez.
@@ -455,9 +474,9 @@ def extraer_pasada(
             resultado.errores.append(f"{ruta_pdf.name}: {exc}")
             avisar("omitido", ruta_pdf.name, str(exc))
             continue
-        if _es_de_prueba_fuera_de_su_base(doc, almacen):
-            # Un PDF de `demo crear` no se paga ni entra en otra base que la de prueba.
-            detalle = "es de los DATOS DE PRUEBA: solo entra en la base de prueba"
+        de_prueba = contiene_datos_de_prueba(base64.b64decode(doc.data_b64))
+        detalle = _fuera_de_su_base(de_prueba, base_demo)
+        if detalle is not None:
             resultado.fallidas += 1
             resultado.errores.append(f"{ruta_pdf.name}: {detalle}")
             avisar("omitido", ruta_pdf.name, detalle)
@@ -482,6 +501,22 @@ def extraer_pasada(
             if almacen is not None:
                 _al_almacen(almacen, doc, ruta_pdf, Path(guardada.path), "out_v1", resultado,
                             avisar, via_entrada=ruta)
+            continue
+
+        # Sin out/ (una base restaurada en otro ordenador, out/ borrado) lo leido sigue en el
+        # almacen: no se vuelve a pagar. Con ESTRICTA, solo si es de estas versiones.
+        vigente = None if forzar else en_almacen.get(doc.sha256)
+        if vigente is not None and (politica == CONSERVAR or vigente[1] == actual):
+            resultado.reutilizadas += 1
+            avisar("cache", ruta_pdf.name, f"ya esta en el almacen (extraccion {vigente[0]}, "
+                                           f"{vigente[1][0]}): no se vuelve a pagar")
+            continue
+        if de_prueba:
+            # `demo crear` escribe la extraccion de sus PDF: uno de ellos nunca necesita la API.
+            detalle = "es de los DATOS DE PRUEBA: un PDF de prueba no se manda nunca a la API"
+            resultado.fallidas += 1
+            resultado.errores.append(f"{ruta_pdf.name}: {detalle}")
+            avisar("omitido", ruta_pdf.name, detalle)
             continue
 
         try:
@@ -517,13 +552,15 @@ def extraer_pasada(
     return resultado
 
 
-def _vigentes_de_otra_version(almacen: Almacen, actual: tuple[str, str, str]) -> dict[str, int]:
-    """sha256 -> su extraccion vigente, de los documentos cuya vigente es de otras versiones.
+def _vigentes_en_almacen(almacen: Almacen) -> dict[str, tuple[int, tuple[str, str, str]]]:
+    """sha256 -> (su extraccion vigente, (modelo, prompt, esquema)), de cada documento del
+    almacen que ya tiene una.
 
-    Se mira una vez, antes de pagar nada: releer uno de estos deja una
-    candidata, no una vigente. Un almacen que no se puede leer no para la
-    pasada (como en _al_almacen): tampoco se podra escribir en el, y lo
-    pagado queda en out/.
+    Se mira una vez, antes de pagar nada. Sirve para dos cosas: un PDF cuya
+    vigente ya esta no se vuelve a pagar aunque falte out/, y releer uno cuya
+    vigente es de otras versiones deja una candidata, no una vigente. Un
+    almacen que no se puede leer no para la pasada (como en _al_almacen):
+    tampoco se podra escribir en el, y lo pagado queda en out/.
     """
     from .ingesta import vigentes_por_documento
 
@@ -538,8 +575,8 @@ def _vigentes_de_otra_version(almacen: Almacen, actual: tuple[str, str, str]) ->
             "SELECT d.sha256, e.modelo, e.prompt_version, e.schema_version FROM extraccion AS e "
             "JOIN documento AS d ON d.id = e.documento_id WHERE e.id = ?",
             (extraccion_id,)).fetchone()
-        if (fila["modelo"], fila["prompt_version"], fila["schema_version"]) != actual:
-            salida[fila["sha256"]] = extraccion_id
+        salida[fila["sha256"]] = (extraccion_id, (fila["modelo"], fila["prompt_version"],
+                                                  fila["schema_version"]))
     return salida
 
 

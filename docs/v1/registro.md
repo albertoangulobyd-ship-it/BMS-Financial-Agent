@@ -5527,3 +5527,172 @@ una credencial de banco ni la clave).
   clave `entorno` (contrato 2.1).
 - **Cuando lleguen los formatos reales** de TRNSPRNT o de Exact y cambien los
   mapeos, los CSV de la prueba (que siguen los mapeos v1) cambian con ellos.
+
+### Correcciones de la revisión
+
+Dieciocho hallazgos de la revisión, con tres repetidos (el 10 es el 2, el 17 es
+el 4 con el 11, y el 18 es el 6). Todos se reprodujeron y todos eran reales, salvo
+una parte del 9 (pedir un token para restaurar), que se explica abajo. Cada
+corrección de código tiene un test que falla con el código de antes y pasa con el
+de ahora (comprobado volviendo los ficheros de `src/` a `22be25f`); los de los
+scripts de Windows se vigilan con los tests estáticos y los ocho `.ps1` (ahora
+nueve) pasan el analizador de PowerShell 7. **2120 tests pasan** y cinco se
+saltan sin `BMS_PROBAR_DOCKER=1`; con él (y la imagen reconstruida aquí), los cinco
+de los contenedores también pasan, el nuevo del registro de la salida incluido.
+
+1. **La copia con la consola anclando a la vez no pasaba `db verificar`**
+   (mayor). `copiar()` copiaba la base y después las anclas: un ancla escrita
+   entre las dos quedaba más allá de la cadena copiada. Ahora las anclas se
+   copian antes que la base (un ancla más vieja que la base siempre se cumple) y
+   los originales después (cada documento de la base copiada ya tiene el suyo).
+   Además `comprobar()` mira la cadena de la copia contra sus anclas, lo mismo
+   que `db verificar`: una copia que este rechazaría no cuenta como comprobada, y
+   `restaurar` no la pone. Tests:
+   `test_una_copia_con_la_consola_anclando_a_la_vez_pasa_db_verificar` (escribe y
+   ancla justo cuando se copian las anclas) y
+   `test_una_copia_que_db_verificar_rechazaria_no_pasa_por_comprobada`.
+2. **`restaurar` no veía la consola en marcha** (mayor; el 10 es el mismo).
+   En WAL, una conexión abierta y quieta no bloquea `BEGIN EXCLUSIVE`. Ahora
+   `copia._en_exclusiva` sale de WAL (`journal_mode=DELETE`, que falla con
+   «database is locked» si hay otra conexión, aunque no haga nada) y se queda la
+   base con `locking_mode=EXCLUSIVE` y una escritura hasta acabar: la copia de
+   antes y la restauración van por esa conexión y nadie entra entre medias.
+   Test: `test_restaurar_no_sigue_con_la_base_abierta_aunque_este_en_wal`
+   (`preparar(ruta)` abierto, como la consola). El test que ya había,
+   `test_restaurar_vuelve_a_la_copia_y_guarda_lo_de_antes`, dejaba abiertas sus
+   conexiones (`with sqlite3.connect(...)` no cierra) y ahora lo veía: se cierran
+   con `contextlib.closing`.
+3. **`importar.ps1` sacaba del buzón un fichero que no había entrado** (mayor).
+   `bms-agent importar` salía con 0 aunque el lote quedara `rechazada`. Ahora
+   sale con `SALIDA_RECHAZADA` (3) si un lote no entra, también si es el mismo
+   fichero que ya se intentó y se rechazó (no entrará nunca: se dice que hay que
+   sacar uno nuevo), y con `SALIDA_PARCIAL` (4) si entra con filas rechazadas.
+   `importar.ps1` mueve a `hecho` lo que sale con 0 o 4 (con 4, avisa en
+   amarillo) y deja en el buzón lo demás. Tests:
+   `test_importadores.py::test_un_lote_rechazado_entero_no_sale_con_cero` y
+   `test_importar_solo_saca_del_buzon_lo_que_ha_entrado`. **Cambian dos tests**:
+   `test_importar_y_ver_el_registro_por_la_cli` esperaba 0 de un fichero que lleva
+   una fila mala a propósito (ahora 4), y
+   `test_ventas.py::test_las_vistas_y_las_relaciones_por_la_cli` admite 3 y 4.
+4. **Con `-Demo`, un PDF de prueba se mandaba a la API** (menor; el 17 es el
+   mismo con el 11). Ahora un PDF con la marca no se manda nunca: en la base de
+   prueba su extracción ya está (y se reutiliza, ver el 15); si no está, se omite
+   y se dice. Test:
+   `test_demo.py::test_un_pdf_de_prueba_no_se_paga_tampoco_en_la_base_de_prueba`
+   (dos de `demo crear` y uno que la base no conoce, con un cliente que falla si
+   se le llama).
+5. **El plazo de la cabecera era por `recv`, no para la cabecera entera**
+   (menor). `_leer_cabecera` lleva ahora un límite (`time.monotonic()` más
+   `ESPERA_CABECERA`) y antes de cada `recv` pone de timeout lo que queda. Las
+   conexiones que aún no han mandado su cabecera tienen su tope
+   (`MAX_ESPERANDO`, 64): pasado, se cierran sin esperar y se apunta (503). Los
+   límites se inyectan en `Proxy` (`espera_cabecera`, `max_tuneles`,
+   `max_esperando`, `inactividad`). Tests nuevos en `test_salida.py`: el plazo con
+   un byte cada 0,25 s (`test_la_cabecera_entera_tiene_su_plazo_aunque_llegue_a_gotas`:
+   400 en menos de 3 s, sin resolver nada), el 503 con todos los túneles
+   ocupados, el cierre de un túnel callado y el tope de las que esperan.
+6. **La clave guardada con BOM o en UTF-16** (menor; el 18 es el mismo). Ahora
+   `config.clave_api` lee bytes: con BOM de UTF-16, UTF-16; si no, `utf-8-sig`.
+   Lo que no es texto es un `ClaveNoValida` («guárdalo como texto UTF-8»), no una
+   traza. Tests: `test_la_clave_se_lee_de_su_fichero` con UTF-8, UTF-8 con BOM,
+   UTF-16 LE y BE y CRLF, y un caso más en
+   `test_un_fichero_de_clave_malo_se_dice_sin_ensenarla`.
+7. **Dos tests dependían de no correr en un contenedor** (menor). Ahora fijan
+   `serve.en_contenedor` a falso. Comprobado simulando el contenedor (la marca
+   por defecto de `en_contenedor` apuntando a un fichero que existe): con los
+   tests de antes la suite se queda colgada (`timeout` la mata), con los de ahora
+   pasan.
+8. **Restaurar en una carpeta que no existe daba una traza** (menor). Ahora
+   `restaurar` crea la carpeta de la base. Test:
+   `test_restaurar_en_una_instalacion_nueva_crea_la_carpeta` (la base, los
+   originales y las anclas, y `db verificar` cuadra).
+9. **`restaurar` pisaba las anclas y no dejaba rastro** (mayor). Ahora el
+   fichero de anclas no se reescribe nunca: se le añaden al final las líneas de
+   la copia que no tenga (`_juntar_anclas`). La base restaurada recibe un evento
+   `restauracion` (`auditoria.TIPO_RESTAURACION`) con la carpeta de la copia, la
+   cabeza de la copia, la cabeza sustituida (id y hash), dónde quedó lo de antes y
+   las anclas que la restauración deja sin cumplir (`auditoria.anclas_sin_cumplir`),
+   y se ancla en seguida. `verificar_cadena` solo perdona un ancla que nombre un
+   evento de restauración de la propia cadena (que también pasa por su hash), y
+   `db verificar` lo dice: «la base se restauro desde una copia (evento N)» y
+   cuántas anclas son de lo sustituido. Una vuelta atrás a mano (copiar el
+   fichero) sigue dando «se ha cortado». `restaurar.ps1` monta la copia con su
+   nombre (`/copias/bms-copia-...`) para que el evento lo diga. La copia de antes
+   de restaurar se numera (`-2`, `-3`) si ya hay una de ese segundo. Tests:
+   `test_restaurar_no_reescribe_las_anclas_y_deja_el_corte_dicho` (el caso de la
+   revisión: Ana, copia, Bram, Carla; después, el fichero de anclas empieza por
+   lo que tenía, el evento tiene la cabeza sustituida y las dos anclas, `db
+   verificar` da 0 y lo dice; sin el evento, 1) y
+   `test_restaurar_dos_veces_sigue_cuadrando` (dos vueltas atrás en el mismo
+   segundo, con tres historias en las anclas). **No se pide token** (desviación
+   17): la CLI local actúa como el operador del fichero, como en `usuario`, y
+   quien tiene la base puede sacar un token de administrador con `usuario token`
+   sin ninguno; pedirlo aquí no protegería nada. El evento lo firma el usuario de
+   sistema, y lo que la revisión echaba en falta (que la vuelta atrás quede dicha
+   y no pase por un «Todo cuadra.» limpio) es lo que ahora hace.
+10. Es el 2.
+11. **La base de prueba admitía datos de verdad** (menor). Ahora es el espejo de
+    `exigir_sin_datos_de_prueba`: `almacen.exigir_de_su_base` lanza
+    `DatosDeVerdadEnLaPrueba` (un `DatosDePrueba` más para quien lo captura) si a la
+    base de prueba va algo sin la marca. Lo usan `registrar_documento`,
+    `registrar_extraccion`, `importar_fichero` e `importar_extracto`; la
+    política no (no son datos). El extractor, sobre la base de prueba, no manda
+    ni guarda un PDF sin la marca. `leer-facturas.ps1 -Demo` ya no lee nada y lo
+    dice; `importar.ps1 -Demo` con un fichero de verdad lo deja en el buzón (sale
+    con 1). Test: `test_demo.py::test_la_base_de_prueba_no_admite_nada_de_verdad`
+    (los PDF de ejemplo, un maestro de Exact y un extracto: nada se paga, nada
+    entra y la base de prueba queda igual) y
+    `test_leer_facturas_no_lee_nada_con_demo`.
+12. **`persona.ps1` daba un token del rol que ya tenía la persona** (menor). La
+    lógica pasa a Python: `bms-agent usuario asegurar NOMBRE --rol ROL` crea a la
+    persona (por su nombre exacto) si falta, no hace nada si ya tiene ese rol y
+    solo ese, y si tiene otros no toca nada y sale con `SALIDA_OTRO_ROL` (3).
+    `persona.ps1` solo pide el token si sale con 0, y `-Rol` es obligatorio (sin
+    rol por defecto). Tests: `test_usuario_asegurar_no_da_otro_rol_a_quien_ya_existe`
+    («Bra» no es «Bram») y `test_persona_pide_el_rol_y_no_cambia_el_de_quien_ya_existe`.
+13. **El buzón no tenía carpetas para el maestro ni las modificaciones de PO**
+    (mayor). `importar.ps1` tiene ahora una carpeta por cada tipo importable
+    (`maestro\objetos`, `recursos`, `contactos`, `alias`, `tarifas`, `ciclos` y
+    `po\modificaciones`), en el orden en que unos usan lo que traen otros. El test
+    estático saca la lista de los mapeos de `config/importacion/` y comprueba el
+    orden. `docs/entorno-local.md` §7 las explica. `sembrar` sigue fuera de la
+    imagen (`config/tarifas.yaml` no entra, a propósito): en el entorno de Docker
+    las tarifas van por `maestro\tarifas`, como en la base de prueba.
+14. **El registro de la salida se perdía con cada `down`** (mayor). Ahora
+    `bms-agent salida --registro FICHERO` apunta también en un fichero
+    (`RotatingFileHandler`, se añade al final, 10 de 5 MB), que en Docker vive en
+    su volumen `registro_salida` (`/registro`, creado en la imagen para el usuario
+    10001). La salida no ve los datos; `orden` monta el registro de solo lectura y
+    `bms-agent salida-registro [--rechazados]` lo lee de lo más viejo a lo más
+    nuevo, con los rotados. Script nuevo: `ver-salida.ps1` y su `.bat`. Tests:
+    `test_el_registro_en_fichero_sigue_despues_de_parar_y_arrancar` y
+    `test_el_registro_rotado_se_lee_en_orden`; los estáticos del compose, y en
+    `test_entorno_docker.py` uno nuevo que hace `down` y `up` y lee el registro.
+15. **Sin `out/`, lo ya leído se volvía a pagar** (menor). Se eligió la otra
+    salida que proponía la revisión: el extractor mira las extracciones vigentes
+    del almacen (`extract._vigentes_en_almacen`, que sustituye a
+    `_vigentes_de_otra_version`) antes de pagar. Con `CONSERVAR` no se manda
+    ninguno que ya tenga vigente; con `ESTRICTA`, ninguno cuya vigente sea de
+    estas versiones; con `--force`, se lee. Así la copia sigue sin `out/` (lo que
+    hace falta está en la base) y lo dice su docstring y la guía. Test:
+    `test_almacen_extraccion.py::test_lo_que_ya_esta_en_el_almacen_no_se_paga_aunque_falte_out`.
+    Lo que se pierde con `out/` es el historial de `coste` (lo gastado), que lee
+    de ahí; queda dicho.
+16. **La pasada del día no la hacía nadie en Docker** (menor). `iniciar.ps1` la
+    hace antes de arrancar la consola y `importar.ps1` al acabar
+    (`orden recalcular --diaria`); el aviso de la consola dice que en Docker la
+    hacen esos dos, y la guía (§6) lo explica. Test:
+    `test_la_pasada_del_dia_la_hacen_iniciar_e_importar`.
+17. Es el 4 con el 11.
+18. Es el 6.
+
+**Desviación 17.** `restaurar` no pide token (hallazgo 9): el operador del
+fichero ya puede sacar uno con `usuario token`, y el evento de restauración lo
+firma el usuario de sistema, como las órdenes de `usuario`.
+
+**Para los pasos siguientes**: un evento nuevo que corte la cadena no existe; si
+hiciera falta otro, iría como `restauracion` (con las anclas que corta) o
+`db verificar` lo dará por cortado. Una vía nueva de entrada de datos llama a
+`exigir_de_su_base` (no solo a `exigir_sin_datos_de_prueba`). Un tipo nuevo de
+importación es un mapeo en `config/importacion/` y una carpeta en
+`importar.ps1`: el test estático lo exige.

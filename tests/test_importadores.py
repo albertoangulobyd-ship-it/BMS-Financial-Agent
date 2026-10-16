@@ -405,7 +405,7 @@ def test_recursos_alias_y_ciclos_entran_fila_a_fila(almacen, ana, mapeo_id, tabl
 # ------------------------------------------------------------ por la CLI
 
 def test_importar_y_ver_el_registro_por_la_cli(tmp_path, capsys) -> None:
-    from bms_agent.cli import main
+    from bms_agent.cli import SALIDA_PARCIAL, main
 
     db = tmp_path / "datos" / "bms.sqlite3"
     assert main(["db", "init", "--db", str(db)]) == 0
@@ -415,14 +415,15 @@ def test_importar_y_ver_el_registro_por_la_cli(tmp_path, capsys) -> None:
     token = capsys.readouterr().out.splitlines()[1].strip()
     base = ["importar", "exact", "proveedores", str(EXACT_PROVEEDORES), "--db", str(db),
             "--exportado", "2026-10-13"]
-    assert main([*base, "--simular", "--token", token]) == 0
+    # El fichero lleva una fila mala a proposito: entra, pero no entero (SALIDA_PARCIAL).
+    assert main([*base, "--simular", "--token", token]) == SALIDA_PARCIAL
     assert "simulado: no se ha escrito nada" in capsys.readouterr().out
     assert main(base) == 1                                      # sin token, nada
     assert "token" in capsys.readouterr().err
-    assert main([*base, "--token", token]) == 0
+    assert main([*base, "--token", token]) == SALIDA_PARCIAL
     salida = capsys.readouterr().out
     assert "cuentas: 5 en el fichero, 5 nuevas" in salida and "heredadas" in salida
-    assert main([*base, "--token", token]) == 0
+    assert main([*base, "--token", token]) == SALIDA_PARCIAL
     assert "ya importado" in capsys.readouterr().out
     assert main(["iban", "listar", "--db", str(db)]) == 0
     listado = capsys.readouterr().out
@@ -561,3 +562,24 @@ def test_adoptar_una_fila_con_un_valor_por_defecto_deja_su_historia_entera(almac
     assert conn.execute("SELECT exact_id FROM proveedor WHERE btw_id = 'NL001234567B01'"
                         ).fetchone()[0] == "20001"
     assert campos.verificar_controladas(conn) == []
+
+
+def test_un_lote_rechazado_entero_no_sale_con_cero(tmp_path, capsys) -> None:
+    """importar.ps1 saca del buzon lo que sale con 0: un lote que no entra no puede salir asi
+    (paso 13), ni cuando se vuelve a intentar el mismo fichero."""
+    from bms_agent.cli import SALIDA_RECHAZADA, main
+
+    db = tmp_path / "datos" / "bms.sqlite3"
+    assert main(["db", "init", "--db", str(db)]) == 0
+    assert main(["usuario", "crear", "Ana", "--rol", "administracion", "--db", str(db)]) == 0
+    capsys.readouterr()
+    assert main(["usuario", "token", "Ana", "--db", str(db)]) == 0
+    token = capsys.readouterr().out.splitlines()[1].strip()
+    # Facturas de venta de clientes que esta base no tiene: no entra ninguna fila.
+    base = ["importar", "exact", "facturas_venta",
+            str(FIXTURES / "exact-facturas_venta-v1.csv"), "--db", str(db),
+            "--exportado", "2026-10-13", "--token", token]
+    assert main(base) == SALIDA_RECHAZADA
+    assert "rechazada" in capsys.readouterr().out
+    assert main(base) == SALIDA_RECHAZADA
+    assert "no entrara" in capsys.readouterr().out

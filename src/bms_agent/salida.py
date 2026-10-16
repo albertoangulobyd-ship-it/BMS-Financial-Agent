@@ -45,6 +45,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 PUERTO_PROXY = 3128
 PERMITIDOS_POR_DEFECTO = ("api.anthropic.com:443",)
@@ -55,8 +56,18 @@ ESPERA_CONEXION = 10.0
 # byte: el tunel no se corta por estar callado menos de esto.
 INACTIVIDAD = 900.0
 MAX_TUNELES = 32
+# Conexiones que aun no han mandado su cabecera. Cada una ocupa un hilo hasta
+# ESPERA_CABECERA: sin tope, mil conexiones que no dicen nada serian mil hilos.
+MAX_ESPERANDO = 64
 
 registro = logging.getLogger("bms_agent.salida")
+
+# El registro en un fichero del volumen de la salida: el de Docker se va con el
+# contenedor (docker compose down en iniciar, parar y restaurar), y lo que ha
+# salido a internet se mira una vez al mes. 10 ficheros de 5 MB.
+REGISTRO_BYTES = 5 * 1024 * 1024
+REGISTRO_COPIAS = 10
+FORMATO_REGISTRO = "%(asctime)s %(message)s"
 
 _ETIQUETA = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -208,15 +219,26 @@ def resolver_dns(host: str, puerto: int) -> list[str]:
     return vistas
 
 
-def _leer_cabecera(conexion: socket.socket) -> tuple[bytes, bytes, str | None]:
+def _leer_cabecera(conexion: socket.socket, espera: float = ESPERA_CABECERA
+                   ) -> tuple[bytes, bytes, str | None]:
     """La cabecera de la peticion, lo que vino detras (el principio del TLS, si el cliente no
     espero al 200) y, si no se pudo leer entera, por que: "vacia" (se cerro sin pedir
-    nada), "incompleta" (se corto o tardo demasiado) o "larga" (mas de MAX_CABECERA)."""
+    nada), "incompleta" (se corto o tardo demasiado) o "larga" (mas de MAX_CABECERA).
+
+    `espera` es para la cabecera entera, no para cada trozo: con un timeout por
+    recv, un cliente que manda un byte cada pocos segundos tendria el hilo
+    ocupado sin fin. Antes de cada recv el timeout es lo que queda del plazo.
+    """
     datos = bytearray()
+    limite = time.monotonic() + espera
     while b"\r\n\r\n" not in datos:
         if len(datos) > MAX_CABECERA:
             return bytes(datos[:200]), b"", "larga"
+        queda = limite - time.monotonic()
+        if queda <= 0:
+            return bytes(datos[:200]), b"", "incompleta" if datos else "vacia"
         try:
+            conexion.settimeout(queda)
             trozo = conexion.recv(4096)
         except OSError:
             trozo = b""
@@ -294,9 +316,10 @@ class _Servidor(socketserver.ThreadingTCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, direccion: tuple[str, int], manejador: type) -> None:
+    def __init__(self, direccion: tuple[str, int], manejador: type, *,
+                 max_tuneles: int = MAX_TUNELES) -> None:
         super().__init__(direccion, manejador)
-        self.plazas = threading.BoundedSemaphore(MAX_TUNELES)
+        self.plazas = threading.BoundedSemaphore(max_tuneles)
 
 
 class _ManejadorProxy(socketserver.BaseRequestHandler):
@@ -305,8 +328,14 @@ class _ManejadorProxy(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         conexion: socket.socket = self.request
         cliente = f"{self.client_address[0]}:{self.client_address[1]}"
-        conexion.settimeout(ESPERA_CABECERA)
-        cabecera, resto, problema = _leer_cabecera(conexion)
+        if not self.server.esperando.acquire(blocking=False):
+            self.server.apuntar(cliente, "", "rechazada", 503,
+                                "demasiadas conexiones esperando su cabecera")
+            return
+        try:
+            cabecera, resto, problema = _leer_cabecera(conexion, self.server.espera_cabecera)
+        finally:
+            self.server.esperando.release()
         if problema == "vacia":
             # Una conexion que no pide nada (la comprobacion de salud de Docker) no
             # es un intento de salir: no llena el registro.
@@ -395,8 +424,12 @@ class Proxy(_Servidor):
     def __init__(self, direccion: tuple[str, int], permitidos: frozenset[Destino], *,
                  resolver: Resolver = resolver_dns,
                  conectar: Callable[..., socket.socket] = socket.create_connection,
-                 solo_publicas: bool = True, inactividad: float = INACTIVIDAD) -> None:
-        super().__init__(direccion, _ManejadorProxy)
+                 solo_publicas: bool = True, inactividad: float = INACTIVIDAD,
+                 espera_cabecera: float = ESPERA_CABECERA, max_tuneles: int = MAX_TUNELES,
+                 max_esperando: int = MAX_ESPERANDO) -> None:
+        super().__init__(direccion, _ManejadorProxy, max_tuneles=max_tuneles)
+        self.esperando = threading.BoundedSemaphore(max_esperando)
+        self.espera_cabecera = espera_cabecera
         self.permitidos = permitidos
         self.resolver = resolver
         self.conectar = conectar
@@ -445,6 +478,39 @@ class Reenvio(_Servidor):
         super().__init__(direccion, _ManejadorReenvio)
         self.destino = destino
         self.inactividad = inactividad
+
+
+def registrar_en_fichero(ruta: str | Path, *, max_bytes: int = REGISTRO_BYTES,
+                        copias: int = REGISTRO_COPIAS) -> logging.Handler:
+    """Apunta el registro de la salida tambien en `ruta`, anadiendo al final: lo de antes de
+    parar y arrancar sigue ahi. Al llegar a max_bytes pasa a ruta.1 (y asi hasta `copias`)."""
+    from logging.handlers import RotatingFileHandler
+
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    manejador = RotatingFileHandler(ruta, maxBytes=max_bytes, backupCount=copias,
+                                    encoding="utf-8")
+    manejador.setFormatter(logging.Formatter(FORMATO_REGISTRO))
+    manejador.setLevel(logging.INFO)
+    registro.addHandler(manejador)
+    if registro.getEffectiveLevel() > logging.INFO:
+        registro.setLevel(logging.INFO)
+    return manejador
+
+
+def leer_registro(ruta: str | Path, *, solo_rechazados: bool = False) -> list[str]:
+    """Las lineas del registro de la salida, de la mas vieja a la mas nueva (ruta.N ... ruta.1,
+    ruta). `solo_rechazados`: solo lo que no se dejo salir, que es lo que hay que mirar."""
+    ruta = Path(ruta)
+    rotados = sorted((p for p in ruta.parent.glob(f"{ruta.name}.*")
+                      if p.suffix[1:].isdigit()), key=lambda p: -int(p.suffix[1:]))
+    lineas: list[str] = []
+    for fichero in [*rotados, ruta]:
+        if fichero.is_file():
+            lineas.extend(fichero.read_text(encoding="utf-8", errors="replace").splitlines())
+    if solo_rechazados:
+        lineas = [linea for linea in lineas if "decision=rechazada" in linea]
+    return lineas
 
 
 def leer_escucha(texto: str) -> tuple[str, int]:

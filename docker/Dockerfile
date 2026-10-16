@@ -9,7 +9,8 @@
 # - las dependencias, con su version y su sha256 (requirements.txt, --require-hashes);
 # - corre como un usuario sin privilegios (uid 10001), nunca como root;
 # - el sistema de ficheros de la imagen es de solo lectura en compose (read_only): lo
-#   unico que se escribe es /datos (el volumen) y /tmp (en memoria);
+#   unico que se escribe es /datos (el volumen), /registro (el registro de la salida, en
+#   su volumen) y /tmp (en memoria);
 # - la clave de la API no entra nunca en la imagen: es un secreto de Docker que solo
 #   ve el lector, en tiempo de ejecucion.
 FROM python:3.11.17-slim-trixie@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
@@ -40,8 +41,8 @@ RUN python -m compileall -q /app/src \
     && groupadd --gid 10001 bms \
     && useradd --uid 10001 --gid bms --no-create-home --home-dir /tmp \
         --shell /usr/sbin/nologin bms \
-    && mkdir -p /datos /buzon \
-    && chown bms:bms /datos
+    && mkdir -p /datos /buzon /registro \
+    && chown bms:bms /datos /registro
 
 USER 10001:10001
 

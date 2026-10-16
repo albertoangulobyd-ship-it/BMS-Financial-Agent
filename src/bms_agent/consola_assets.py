@@ -879,7 +879,8 @@ SCRIPT = r"""
     var caja = p.caja;
     anadir(contenedor, el('h2', {}, 'Panel a ' + p.hoy),
       p.al_dia ? null : el('p', {clase: 'aviso pasada'}, 'El estado de las facturas es del ' +
-        p.estado_del + ': falta la pasada de hoy (bms-agent recalcular --diaria).'),
+        p.estado_del + ': falta la pasada de hoy (bms-agent recalcular --diaria; en el ' +
+        'entorno de Docker la hacen iniciar.bat e importar.bat).'),
       el('div', {clase: 'bloques'},
         bloqueDinero('Entra (cobros)', p.dinero_entra),
         bloqueDinero('Sale (pagos)', p.dinero_sale),

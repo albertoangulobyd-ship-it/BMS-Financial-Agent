@@ -24,6 +24,16 @@ if ($Demo) {
     Escribir "Apunta uno de los dos tokens de arriba: es el que se escribe al entrar en la consola." "Yellow"
 }
 
+# La pasada del dia (recalcular --diaria): lo que depende de la fecha (vencidas, plazos, PO
+# que caducan) se pone al dia aunque hoy no se importe nada. Una base que aun no existe (la
+# primera vez) no tiene nada que recalcular.
+docker compose run --rm -T orden recalcular --diaria *> $null
+if ($LASTEXITCODE -eq 0) {
+    Escribir "Pasada del dia hecha." "Cyan"
+} else {
+    Escribir "No se ha hecho la pasada del dia (la primera vez es normal: aun no hay datos)." "Yellow"
+}
+
 docker compose up -d consola salida
 if ($LASTEXITCODE -ne 0) { Fallar "La consola no ha arrancado. Mira el mensaje de arriba." }
 

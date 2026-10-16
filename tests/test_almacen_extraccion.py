@@ -12,6 +12,7 @@ from test_extraccion_pasada import PDF, ClienteFalso
 
 from bms_agent.almacen import abrir, preparar, ruta_anclas_de
 from bms_agent.auditoria import leer_anclas, verificar_cadena
+from bms_agent.cache import CONSERVAR, ESTRICTA
 from bms_agent.extract import extraer_pasada
 from bms_agent.importadores.extracciones import importar_out
 from bms_agent.legado import registros_legado
@@ -137,3 +138,26 @@ def test_un_fichero_con_crlf_entra_una_sola_vez(almacen, carpeta) -> None:
     assert (importado.importadas, importado.ya_estaban) == (0, 1)
     assert len(_extracciones(almacen.conn)) == 1
     assert len(registros_legado(almacen.conn, todas=True)) == 1
+
+
+def test_lo_que_ya_esta_en_el_almacen_no_se_paga_aunque_falte_out(almacen, carpeta,
+                                                                  tmp_path) -> None:
+    """Una base restaurada en otro ordenador no trae out/ (la copia no lo lleva): lo que ya
+    tiene su extraccion vigente en el almacen no vuelve a la API, con ninguna de las dos
+    politicas; con --force si."""
+    rutas, out = carpeta
+    extraer_pasada(ClienteFalso(), rutas, out, model="claude-opus-5", almacen=almacen)
+    vacio = tmp_path / "out-nuevo"
+    for politica in (CONSERVAR, ESTRICTA):
+        cliente = ClienteFalso()
+        r = extraer_pasada(cliente, rutas, vacio, model="claude-opus-5", almacen=almacen,
+                           politica=politica)
+        assert cliente.llamadas == 0 and (r.reutilizadas, r.extraidas) == (1, 0), politica
+    # Con ESTRICTA y otro modelo, si se lee (y queda como candidata).
+    cliente = ClienteFalso()
+    extraer_pasada(cliente, rutas, vacio, model="claude-opus-5-5", almacen=almacen,
+                   politica=ESTRICTA)
+    assert cliente.llamadas == 1
+    cliente = ClienteFalso()
+    extraer_pasada(cliente, rutas, vacio, model="claude-opus-5", almacen=almacen, forzar=True)
+    assert cliente.llamadas == 1
