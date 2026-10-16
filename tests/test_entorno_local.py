@@ -517,8 +517,8 @@ def test_la_copia_sale_entera_comprobada_y_se_abre(con_datos, tmp_path) -> None:
     manifiesto = copia.leer_manifiesto(hecha.carpeta)
     assert set(manifiesto) == nombres - {copia.MANIFIESTO}
     # La copia es una base que se abre y dice lo mismo que la original.
-    with sqlite3.connect(con_datos) as original, \
-            sqlite3.connect(hecha.carpeta / "bms.sqlite3") as copiada:
+    with contextlib.closing(sqlite3.connect(con_datos)) as original, \
+            contextlib.closing(sqlite3.connect(hecha.carpeta / "bms.sqlite3")) as copiada:
         for tabla in ("documento", "extraccion", "evento"):
             assert original.execute(f"SELECT count(*) FROM {tabla}").fetchone() == \
                 copiada.execute(f"SELECT count(*) FROM {tabla}").fetchone()

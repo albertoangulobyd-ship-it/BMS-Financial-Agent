@@ -17,6 +17,15 @@ $Prefijo = "BMS Finanzas - "
 $Grupo = "BMS Finanzas"
 $RaizPorDefecto = "C:\BMS"
 $Roles = @("consola", "lector", "salida", "orden")
+# El Python de cada papel: el paquete "python" de nuget.org (windows\fijado.json). Lo mismo que
+# bms_agent\nativo.py (DLL_PYTHON, FICHERO_PTH, RUTAS_PTH, CARPETA_DEL_PAQUETE,
+# FUERA_DEL_RUNTIME, NECESARIOS_DEL_RUNTIME); los tests exigen que sean iguales.
+$DllPython = "python313.dll"
+$FicheroPth = "python313._pth"
+$RutasPth = @("Lib", "DLLs", "..\..\lib", "..\..\app\src")
+$CarpetaDelPaquete = "tools/"
+$FueraDelRuntime = @("pythonw.exe", "include/", "libs/", "Lib/site-packages/", "Lib/ensurepip/", "Lib/venv/")
+$NecesariosDelRuntime = @("python.exe", "python313.dll", "Lib/os.py", "DLLs/_socket.pyd", "DLLs/_sqlite3.pyd", "DLLs/_ssl.pyd")
 $Api = "api.anthropic.com:443"
 $ApiNombre = "api.anthropic.com"
 # Lo que vive como mucho la salida, si nadie la para: una lectura (la de un lote grande tarda)

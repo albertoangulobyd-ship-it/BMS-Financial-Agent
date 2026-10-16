@@ -1,18 +1,19 @@
-# Las dependencias de la instalacion nativa de Windows (paso 14, docs/instalacion-nativa.md),
-# cada una con su version y el sha256 de su rueda para Windows x64 y Python 3.11. Son las
-# mismas versiones que docker/requirements.txt (y que el entorno de desarrollo), mas tzdata,
-# que Windows no trae y reloj.hoy() necesita.
+# Las dependencias de la instalacion nativa de Windows (pasos 14 y 14b,
+# docs/instalacion-nativa.md), cada una con su version y el sha256 de su rueda para Windows x64
+# y Python 3.13 (el del paquete de nuget.org, windows/fijado.json). Son las mismas versiones
+# que docker/requirements.txt (y que el entorno de desarrollo), mas tzdata, que Windows no
+# trae y reloj.hoy() necesita.
 #
 # El formato es el de pip (pip install --require-hashes --only-binary=:all: --platform
-# win_amd64 --python-version 3.11 --target lib -r requirements-windows.txt lo instalaria
-# igual). El instalador (instalar.ps1) no usa pip, que el Python embebible no trae: baja de
-# PyPI la rueda cuyo sha256 es el de aqui, la comprueba y la abre en lib\. Una dependencia sin
-# hash para todo: no se instala nada sin comprobar.
+# win_amd64 --python-version 3.13 --target lib -r requirements-windows.txt lo instalaria
+# igual). El instalador (instalar.ps1) no usa pip: baja de PyPI la rueda cuyo sha256 es el de
+# aqui, la comprueba y la abre en lib\. Una dependencia sin hash para todo: no se instala
+# nada sin comprobar.
 #
 # Las ruedas py3-none-any son el mismo fichero en cualquier plataforma: su hash es el de
-# docker/requirements.txt. Las PENDIENTES no se pudieron sacar sin internet al hacer el paso 14:
-# las fija scripts/fijar_windows.py (docs/instalacion-nativa.md, "Para quien mantiene el
-# programa").
+# docker/requirements.txt. Las de jiter, pydantic_core y PyYAML son las cp313-win_amd64. Todos
+# son los que publica PyPI, y los saca scripts/fijar_windows.py (docs/instalacion-nativa.md,
+# "Para quien mantiene el programa"); su --comprobar dice si falta alguno.
 
 anthropic==1.13.0 \
     --hash=sha256:157bd74dbf6a595cf9e5fcac557c791fd297924dc48261f57470c2ed6f4e6671
@@ -30,11 +31,14 @@ httpx2==2.13.1 \
     --hash=sha256:6dff50fabc270ee5fd25d845d0b078ed20564579744d6d962850975996d2f9a4
 idna==3.20 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
-jiter==0.17.0  # PENDIENTE: el sha256 de la rueda cp311 win_amd64
+jiter==0.17.0 \
+    --hash=sha256:a3cebb1fe4a1abb00465f3f8a17e09112603e8b7c59e5c3adbcd9f7815a64acd
 pydantic==2.14.1 \
     --hash=sha256:9195d967ec791692a04438115466764fb8b9a27b31f14a760437694f40d6b454
-pydantic_core==2.50.1  # PENDIENTE: el sha256 de la rueda cp311 win_amd64
-PyYAML==6.0.3  # PENDIENTE: el sha256 de la rueda cp311 win_amd64
+pydantic_core==2.50.1 \
+    --hash=sha256:7816e98acc08119dc0f340ab167048ecc54126316330c1f0caf7c6756c88e28f
+PyYAML==6.0.3 \
+    --hash=sha256:79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c
 sniffio==1.3.1 \
     --hash=sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2
 truststore==0.10.5 \
@@ -43,4 +47,5 @@ typing-inspection==0.4.4 \
     --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
 typing_extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
-tzdata==2025.2  # PENDIENTE: el sha256 de la rueda py2.py3-none-any
+tzdata==2025.2 \
+    --hash=sha256:1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8

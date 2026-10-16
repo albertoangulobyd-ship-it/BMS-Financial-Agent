@@ -1,9 +1,12 @@
 {
   "python": {
-    "version": "3.11.9",
-    "fichero": "python-3.11.9-embed-amd64.zip",
-    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
-    "sha256": "",
+    "version": "3.13.16",
+    "origen": "nuget.org: python, Python Software Foundation",
+    "fichero": "python.3.13.16.nupkg",
+    "url": "https://api.nuget.org/v3-flatcontainer/python/3.13.16/python.3.13.16.nupkg",
+    "sha256": "95fad176338f1d6a799e45946488063f4aa61764e6cff2f132ddeffbf7a04c34",
+    "sha512": "TGEhuRTpWtRifDR4r/GEhmg/cGMqtwB4kOCkt1QhXnCmdDE3Dict3iLJI1xrsNSRbXGyCwLEhe6qa5Rd2s376w==",
+    "catalogo": "https://api.nuget.org/v3/catalog0/data/2026.09.30.20.50.40/python.3.13.16.json",
     "firmante": "Python Software Foundation"
   }
 }

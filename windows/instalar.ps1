@@ -4,16 +4,19 @@
 #   .\instalar.ps1 -Raiz D:\BMS      en otra carpeta
 #
 # Una sola vez, y con permiso de administrador: Windows lo pide en una ventana. Hace falta
-# internet solo durante la instalacion (unos 30 MB de descargas).
+# internet solo durante la instalacion (unos 20 MB de descargas).
 #
 # Lo que hace, y por que:
-#   - baja el Python embebible de python.org y cada dependencia de PyPI, y no usa nada cuyo
-#     sha256 no sea exactamente el fijado (fijado.json, requirements-windows.txt); el Python
-#     ademas tiene que llevar la firma de la Python Software Foundation;
+#   - baja el Python 3.13 de Windows (el paquete "python" de nuget.org, que publica la Python
+#     Software Foundation) y cada dependencia de PyPI, y no usa nada cuyo sha256 no sea
+#     exactamente el fijado (fijado.json, requirements-windows.txt); python.exe y su DLL
+#     ademas tienen que llevar la firma de la Python Software Foundation;
 #   - pone un Python para cada papel (runtime\consola, lector, salida y orden): el cortafuegos
 #     de Windows distingue los programas por su ruta. Un entorno virtual no valdria: su
-#     python.exe arranca el de la base como otro proceso, y el cortafuegos veria siempre ese;
-#   - cada uno con su python311._pth: solo ve su biblioteca, lib\ y app\src, y no hace caso
+#     python.exe arranca el de la base como otro proceso, y el cortafuegos veria siempre ese.
+#     De cada uno solo queda un programa, python.exe: ni pythonw.exe ni los lanzadores de pip
+#     y de venv, que serian programas sin reglas;
+#   - cada uno con su python313._pth: solo ve su biblioteca, lib\ y app\src, y no hace caso
 #     de PYTHONPATH ni de nada del registro;
 #   - crea las reglas del cortafuegos (todas empiezan por "BMS Finanzas - "): la consola, el
 #     lector y las ordenes sin red; la salida solo por el puerto 443;
@@ -69,10 +72,10 @@ function Validar-Raiz([string]$Texto) {
 function Leer-Fijado {
     $fijado = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "fijado.json") | ConvertFrom-Json
     if ($fijado.python.sha256 -notmatch '^[0-9a-f]{64}$') {
-        Fallar "Falta el sha256 fijado del Python embebible (windows\fijado.json): sin el no se descarga nada. Quien mantiene el programa lo fija con scripts\fijar_windows.py (docs/instalacion-nativa.md, 'Para quien mantiene el programa')."
+        Fallar "Falta el sha256 fijado del Python (windows\fijado.json): sin el no se descarga nada. Quien mantiene el programa lo fija con scripts\fijar_windows.py (docs/instalacion-nativa.md, 'Para quien mantiene el programa')."
     }
-    if ($fijado.python.url -notmatch '^https://www\.python\.org/ftp/python/') {
-        Fallar "El Python embebible solo se baja de https://www.python.org/ftp/python/."
+    if ($fijado.python.url -notmatch '^https://api\.nuget\.org/v3-flatcontainer/python/') {
+        Fallar "El Python solo se baja de nuget.org (https://api.nuget.org/v3-flatcontainer/python/)."
     }
     return $fijado
 }
@@ -211,20 +214,101 @@ function Rueda-De($Requisito) {
 }
 
 function Comprobar-Firma([string]$Fichero, [string]$Firmante) {
-    # Ademas del hash: el Python de python.org va firmado por la Python Software Foundation.
+    # Ademas del hash: python.exe y su DLL van firmados (Authenticode, con sello de tiempo) por
+    # la Python Software Foundation. Se compara el nombre entero del firmante (su CN), no un
+    # trozo del texto del certificado.
     $firma = Get-AuthenticodeSignature -FilePath $Fichero
-    if ($firma.Status -ne "Valid" -or $firma.SignerCertificate.Subject -notmatch [regex]::Escape($Firmante)) {
+    $nombre = ""
+    if ($null -ne $firma.SignerCertificate) {
+        $nombre = $firma.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+    }
+    if ($firma.Status -ne "Valid" -or $nombre -cne $Firmante) {
         Fallar ("$Fichero no lleva una firma valida de " + $Firmante + ": no se instala.")
     }
 }
 
+function Destino-En-Runtime([string]$Entrada) {
+    # Donde va una entrada del paquete de NuGet dentro de runtime\<papel> (con "/"), o $null si
+    # no va: lo mismo que nativo.destino_en_runtime (los tests comparan los dos con el mismo
+    # paquete). Solo tools/, sin lo de $FueraDelRuntime, sin distinguir mayusculas. Una ruta con
+    # "..", "\", ":" o absoluta no es de un paquete bueno: se para sin abrir nada.
+    $partes = $Entrada.Split("/")
+    $mala = $Entrada.StartsWith("/") -or $Entrada.Contains("\") -or $Entrada.Contains(":")
+    for ($i = 0; $i -lt $partes.Count; $i++) {
+        if ($partes[$i] -eq ".." -or $partes[$i] -eq "." -or ($partes[$i] -eq "" -and $i -lt $partes.Count - 1)) {
+            $mala = $true
+        }
+    }
+    if ($mala) { Fallar ("El paquete de Python trae una ruta que no vale (" + $Entrada + "): no se instala.") }
+    $minusculas = $Entrada.ToLowerInvariant()
+    if (-not $minusculas.StartsWith($CarpetaDelPaquete, [System.StringComparison]::Ordinal) -or $Entrada.EndsWith("/")) {
+        return $null
+    }
+    $resto = $Entrada.Substring($CarpetaDelPaquete.Length)
+    if ($resto -eq "") { return $null }
+    $restoMinusculas = $resto.ToLowerInvariant()
+    foreach ($fuera in $FueraDelRuntime) {
+        $f = $fuera.ToLowerInvariant()
+        if ($f.EndsWith("/")) {
+            if ($restoMinusculas.StartsWith($f, [System.StringComparison]::Ordinal)) { return $null }
+        } elseif ($restoMinusculas -eq $f) {
+            return $null
+        }
+    }
+    return $resto
+}
+
+function Comprobar-Runtime([string]$Carpeta) {
+    # En la carpeta de un Python, un solo programa: python.exe (otro .exe seria un programa sin
+    # reglas del cortafuegos). Y lo necesario para arrancar: si falta, el paquete no es el
+    # esperado.
+    $Carpeta = [System.IO.Path]::GetFullPath($Carpeta)
+    $programas = @(Get-ChildItem -Recurse -File -Force -LiteralPath $Carpeta |
+        Where-Object { @(".exe", ".com", ".scr") -contains $_.Extension.ToLowerInvariant() })
+    if ($programas.Count -ne 1 -or $programas[0].FullName -ne (Join-Path $Carpeta "python.exe")) {
+        Fallar ("En " + $Carpeta + " tiene que haber un solo programa, python.exe, y hay: " + (($programas | ForEach-Object { $_.FullName }) -join ", ") + ". No se instala.")
+    }
+    foreach ($necesario in $NecesariosDelRuntime) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Carpeta $necesario))) {
+            Fallar ("Al Python de " + $Carpeta + " le falta " + $necesario + ": el paquete no es el esperado. No se instala.")
+        }
+    }
+}
+
+function Abrir-Python([string]$Paquete, [string]$Destino) {
+    # El paquete de NuGet es un zip. Se abre con .NET, entrada a entrada, y no con
+    # Expand-Archive: solo lo que dice Destino-En-Runtime, nada fuera de $Destino, sin depender
+    # de la extension (.nupkg) ni de como trate los corchetes de [Content_Types].xml (en
+    # PowerShell, comodines).
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $carpeta = [System.IO.Path]::GetFullPath($Destino)
+    Remove-Item -Recurse -Force -LiteralPath $carpeta -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($Paquete)
+    try {
+        foreach ($entrada in $zip.Entries) {
+            $relativa = Destino-En-Runtime $entrada.FullName
+            if ($null -eq $relativa) { continue }
+            $ruta = [System.IO.Path]::GetFullPath((Join-Path $carpeta $relativa))
+            if (-not $ruta.StartsWith($carpeta + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Fallar ("El paquete de Python trae una ruta que no vale (" + $entrada.FullName + "): no se instala.")
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $ruta -Parent) | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entrada, $ruta, $true)
+        }
+    } finally {
+        $zip.Dispose()
+    }
+    Comprobar-Runtime $carpeta
+}
+
 function Escribir-Pth([string]$Carpeta) {
-    # Con este fichero Python no mira PYTHONPATH, PYTHONHOME ni el registro, entra en modo
-    # aislado y no importa site: solo ve su biblioteca, las dependencias (..\..\lib) y el
-    # codigo de la app (..\..\app\src).
-    $lineas = @("python311.zip", ".", "..\..\lib", "..\..\app\src")
-    [System.IO.File]::WriteAllText((Join-Path $Carpeta "python311._pth"),
-        (($lineas -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)
+    # Junto a python313.dll. Con este fichero Python no mira PYTHONPATH, PYTHONHOME ni el
+    # registro, entra en modo aislado y no importa site (ni site-packages ni la carpeta del
+    # usuario): solo ve su biblioteca (Lib y DLLs), las dependencias (..\..\lib) y el codigo de
+    # la app (..\..\app\src). Lo mismo que nativo.contenido_pth.
+    [System.IO.File]::WriteAllText((Join-Path $Carpeta $FicheroPth),
+        (($RutasPth -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)
 }
 
 function Icacls([string[]]$Argumentos) {
@@ -322,12 +406,12 @@ function Instalar([string]$Raiz, [string]$Sid) {
     Remove-Item -Recurse -Force -LiteralPath $descargas -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $descargas | Out-Null
 
-    Escribir ("1/7 Python " + $fijado.python.version + ", el embebible de python.org (comprobado por su sha256 y su firma)...") "Cyan"
-    $zip = Join-Path $descargas $fijado.python.fichero
-    Descargar-Verificado $fijado.python.url $fijado.python.sha256 $zip
+    Escribir ("1/7 Python " + $fijado.python.version + ", el de la Python Software Foundation en nuget.org (comprobado por su sha256 y su firma)...") "Cyan"
+    $paquete = Join-Path $descargas $fijado.python.fichero
+    Descargar-Verificado $fijado.python.url $fijado.python.sha256 $paquete
     $base = Join-Path $descargas "python"
-    Expand-Archive -LiteralPath $zip -DestinationPath $base -Force
-    foreach ($nombre in @("python.exe", "python311.dll")) {
+    Abrir-Python $paquete $base
+    foreach ($nombre in @("python.exe", $DllPython)) {
         Comprobar-Firma (Join-Path $base $nombre) $fijado.python.firmante
     }
 
@@ -337,9 +421,9 @@ function Instalar([string]$Raiz, [string]$Sid) {
         Remove-Item -Recurse -Force -LiteralPath $destino -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path $destino | Out-Null
         Copy-Item -Path (Join-Path $base "*") -Destination $destino -Recurse -Force
-        # pythonw.exe seria otro programa sin reglas en la misma carpeta: fuera.
-        Remove-Item -Force -LiteralPath (Join-Path $destino "pythonw.exe") -ErrorAction SilentlyContinue
         Escribir-Pth $destino
+        # Un solo programa por papel: python.exe, el de sus reglas.
+        Comprobar-Runtime $destino
     }
 
     Escribir "3/7 Las dependencias (cada rueda comprobada por su sha256)..." "Cyan"
@@ -388,8 +472,17 @@ function Instalar([string]$Raiz, [string]$Sid) {
 
     Escribir "5/7 Preparando y probando el programa..." "Cyan"
     $orden = Join-Path $Raiz "runtime\orden\python.exe"
+    # La biblioteca del paquete de NuGet viene sin compilar: se compila aqui, una vez, porque
+    # despues tu usuario no puede escribir en runtime\ (y cada arranque la compilaria otra vez).
+    # Con checked-hash, un .pyc solo vale si el .py es el mismo.
+    $bibliotecas = @($Roles | ForEach-Object { Join-Path $Raiz ("runtime\" + $_ + "\Lib") })
+    & $orden -X utf8 -m compileall -q --invalidation-mode checked-hash @bibliotecas | Out-Null
     & $orden -X utf8 -m compileall -q (Join-Path $app "src") $lib | Out-Null
-    & $orden -X utf8 -c "import sys, sqlite3, anthropic, pydantic, yaml, tzdata, bms_agent.cli; print('   Python', sys.version.split()[0], '- SQLite', sqlite3.sqlite_version)" | Out-Host
+    # Que el ._pth vale de verdad: modo aislado, sin site, y la version fijada.
+    & $orden -X utf8 -c ("import sys, sqlite3, anthropic, pydantic, yaml, tzdata, bms_agent.cli; " +
+        "assert sys.flags.isolated == 1 and sys.flags.no_site == 1 and 'site' not in sys.modules, 'el ._pth no se aplica'; " +
+        "assert '%d.%d.%d' % sys.version_info[:3] == '" + $fijado.python.version + "', sys.version; " +
+        "print('   Python', sys.version.split()[0], '- SQLite', sqlite3.sqlite_version)") | Out-Host
     if ($LASTEXITCODE -ne 0) { Fallar "El programa no arranca con lo instalado. Mira el mensaje de arriba." }
 
     Escribir "6/7 Las carpetas de tus datos y del buzon..." "Cyan"

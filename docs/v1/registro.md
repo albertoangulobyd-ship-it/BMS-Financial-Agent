@@ -6425,3 +6425,261 @@ que esta vez los `.ps1` cambiados **no** han pasado el analizador; se mira con
     protege es la copia semanal.
 17. **Un gancho de auditoría contra los procesos** (no estaba en el diseño): ver el
     hallazgo 7. Es una capa más, no un muro: código nativo con `ctypes` lo salta.
+
+## Paso 14b
+
+El Python de la instalación nativa, **fijado y con las correcciones de seguridad**. El paso
+14 pasó su puerta, pero el instalador no podía correr: `windows/fijado.json` tenía vacío el
+sha256 de `python-3.11.9-embed-amd64.zip` y `windows/requirements-windows.txt` llevaba como
+PENDIENTE los de `jiter`, `pydantic_core`, `PyYAML` y `tzdata`; el instalador, con razón, no
+baja nada sin fijar, y la primera instalación del dueño se paraba en el primer paso.
+Además, la 3.11.9 es la última 3.11 con binarios para Windows y no tiene las correcciones
+de seguridad de después. **Lo decidió el orquestador**: el Python de la instalación nativa
+pasa a ser el paquete «python» de nuget.org (lo publica la Python Software Foundation, y
+python.org lista los paquetes de nuget.org entre sus distribuciones oficiales para
+Windows), versión **3.13.16**, la última 3.13 de nuget.org. Docker se queda con su imagen
+3.11 (`docker/` no cambia). Desde aquí python.org no se puede descargar (la pasarela
+contesta 403), y nuget.org y PyPI sí: todo lo fijado se bajó y se miró de verdad.
+
+**La suite entera pasa en las dos versiones**: en 3.11 (`.venv`, 3.11.17) **2354 pasan y 12
+se saltan**, y en 3.13 (un entorno nuevo con `/usr/bin/python3.13`, 3.13.16, en el
+scratchpad) **2354 pasan y 12 se saltan**, sin ningún aviso (eran 2328 y 9 al acabar el paso
+14). Los doce son los cinco de los contenedores de Docker (`BMS_PROBAR_DOCKER=1`), los seis
+de PowerShell (`pwsh`) y el de lo bajado de verdad (`BMS_PAQUETES_WINDOWS`). Con `pwsh` en
+el PATH y lo bajado, los 179 de `tests/test_instalacion_nativa.py` pasan, en 3.11 y en 3.13. No hizo
+falta cambiar nada del código de `src/` para 3.13; en los tests, siete conexiones de
+sqlite3 que no se cerraban (3.13 avisa de ellas) ahora se cierran.
+
+No hay tabla ni migración nueva.
+
+### Qué se construyó
+
+**`windows/fijado.json`**: el paquete de nuget.org entero. `version` 3.13.16, `origen`
+«nuget.org: python, Python Software Foundation», `fichero` `python.3.13.16.nupkg`, `url`
+`https://api.nuget.org/v3-flatcontainer/python/3.13.16/python.3.13.16.nupkg`, `sha256`
+`95fad176338f1d6a799e45946488063f4aa61764e6cff2f132ddeffbf7a04c34` (calculado aquí de lo
+bajado), `sha512` `TGEhuRTp…2s376w==` (el `packageHash` que publica nuget.org, en base64),
+`catalogo` (la entrada del catálogo de nuget.org de esa versión, a la que se llega por el
+índice de registro `registration5-gz-semver2`) y `firmante`.
+
+**`windows/requirements-windows.txt`**: las diecisiete dependencias, todas con el sha256
+que publica PyPI (`https://pypi.org/pypi/NOMBRE/VERSION/json`) de su rueda para
+cp313-win_amd64 o py3-none-any, **las mismas versiones que `docker/requirements.txt`**
+(ninguna hubo que subirla: todas tienen rueda cp313 win_amd64). Las tres binarias son
+`jiter-0.17.0-cp313-cp313-win_amd64.whl`, `pydantic_core-2.50.1-cp313-cp313-win_amd64.whl` y
+`pyyaml-6.0.3-cp313-cp313-win_amd64.whl`; `tzdata` es `tzdata-2025.2-py2.py3-none-any.whl`;
+las trece py3-none-any tienen el hash de Docker. Ninguna PENDIENTE.
+
+**`scripts/fijar_windows.py`**, reescrito: lo rellena todo desde NuGet y PyPI.
+
+- `python scripts/fijar_windows.py` rellena lo que falte; `--rehacer` lo vuelve a sacar
+  todo; `--python 3.13.X` cambia de versión (y vuelve a sacar las ruedas).
+- El Python: el índice de registro de nuget.org → la entrada de la versión → su catálogo
+  (`packageHash`, `packageHashAlgorithm`, `packageSize`, `authors`); baja el paquete de
+  `v3-flatcontainer`, calcula el sha256 y el SHA-512 y **los cruza**
+  (`cruzar_con_el_catalogo`: mismo id, versión, autor la Python Software Foundation, SHA-512
+  y tamaño). Mira además que el paquete sea uno que el instalador sabe abrir
+  (`revisar_paquete`: el nuspec, y que con lo que se saca para cada papel quede un solo
+  programa, la DLL de esa versión y lo necesario). Si algo no cuadra, para.
+- Las ruedas: `elegir_rueda(meta, nombre, menor)`, la única que vale para Windows x64 y
+  CPython 3.13 (`vale_para_windows`: cp313 o abi3 hasta cp313 con win_amd64, o py3/py313
+  con none-any; ni cp313t, ni py2 sola, ni las retiradas). `escribir_requisitos` rehace las
+  líneas de las dependencias pedidas (quita sus hashes viejos o el PENDIENTE).
+- **`--comprobar`, sin red**: cada dependencia con su sha256, las mismas que Docker (más
+  tzdata) con las mismas versiones, y el Python entero (origen, URL y fichero de nuget.org,
+  sha256, el SHA-512 en base64 de 64 bytes, la entrada del catálogo, el firmante, y la
+  versión menor de `nativo.VERSION_PYTHON`). Sale con 0 («Todo fijado.») o con 1 y la
+  lista. Con `--paquetes CARPETA` comprueba además lo ya bajado (los hashes del paquete y
+  que cada dependencia tenga su rueda). Los tests lo usan.
+
+**`nativo.py`**: `VERSION_PYTHON = (3, 13)`, `DLL_PYTHON = "python313.dll"`,
+`FICHERO_PTH = "python313._pth"`, `RUTAS_PTH = ("Lib", "DLLs", r"..\..\lib", r"..\..\app\src")`,
+`CARPETA_DEL_PAQUETE = "tools/"`, `FUERA_DEL_RUNTIME` (`pythonw.exe`, `include/`, `libs/`,
+`Lib/site-packages/`, `Lib/ensurepip/`, `Lib/venv/`), `NECESARIOS_DEL_RUNTIME` y
+`destino_en_runtime(entrada)`, pura: dónde va una entrada del paquete dentro de
+`runtime\<papel>` o `None`, sin distinguir mayúsculas, y `PaqueteNoValido` con una ruta con
+`..`, `.`, `\`, `:`, vacía o absoluta. `detectar` reconoce un intérprete de la instalación
+por cualquier `python3*._pth` (`_tiene_pth`), no solo el de esta versión.
+
+**`windows/comun.ps1`**: las mismas constantes (`$DllPython`, `$FicheroPth`, `$RutasPth`,
+`$CarpetaDelPaquete`, `$FueraDelRuntime`, `$NecesariosDelRuntime`); un test exige que sean
+iguales a las de `nativo.py`.
+
+**`windows/instalar.ps1`**:
+
+- `Leer-Fijado` solo acepta una URL de `https://api.nuget.org/v3-flatcontainer/python/`.
+- `Abrir-Python`: el paquete se abre con .NET (`ZipFile.OpenRead`), entrada a entrada, con
+  `Destino-En-Runtime` (lo mismo que `nativo.destino_en_runtime`), sin salirse de la carpeta
+  (la ruta completa tiene que empezar por la carpeta) y con `ExtractToFile`. No con
+  `Expand-Archive`: en Windows PowerShell 5.1 solo abre `.zip`, abre todo (también lo que
+  no va) y no hay que fiarse de cómo trata los corchetes de `[Content_Types].xml`, que en
+  PowerShell son comodines.
+- `Comprobar-Runtime`: en la carpeta, un solo programa (`.exe`, `.com`, `.scr`), y es
+  `python.exe`; y está lo necesario (`python313.dll`, `Lib\os.py`, `_socket`, `_sqlite3`,
+  `_ssl`). Se mira al abrir el paquete y otra vez en cada `runtime\<papel>` después de
+  copiar y de escribir el `._pth`.
+- `Comprobar-Firma` en `python.exe` y `python313.dll`, y ahora compara el nombre entero del
+  firmante (el CN, `GetNameInfo(SimpleName)`, con `-cne`), no un trozo del texto del
+  certificado.
+- `Escribir-Pth` escribe `$RutasPth` en `$FicheroPth` (lo mismo que `nativo.contenido_pth`).
+- El paso 5 compila la biblioteca de los cuatro papeles (`compileall
+  --invalidation-mode checked-hash`) y la prueba de arranque exige `sys.flags.isolated == 1`,
+  `sys.flags.no_site == 1`, sin `site` en `sys.modules` y la versión de `fijado.json`.
+
+**La suite en 3.13.** Un entorno nuevo en el scratchpad con `/usr/bin/python3.13` (3.13.16,
+SQLite 3.45.1), las mismas versiones fijadas (las ruedas cp313 de Linux de `jiter`,
+`pydantic_core` y `PyYAML`) y pytest 9.1.1, el paquete instalado con `pip install --no-deps
+-e .`, y la suite entera. Pasó a la primera. Lo único que dijo 3.13 fueron siete
+`ResourceWarning: unclosed database`: desde 3.13, `sqlite3` avisa de cada conexión que se
+recoge sin cerrar. Con un plugin de pytest de diagnóstico (en el scratchpad, no en el
+repositorio) que apunta dónde se abre cada conexión que se recoge sin cerrar, las siete
+eran de tests (`with sqlite3.connect(...) as conn:`, que no cierra la conexión: solo
+confirma la transacción), en `test_demo.py`, `test_entorno_local.py` y
+`test_revision_final.py`, y ninguna del código. Se cierran con `closing`; la suite en 3.13
+ya no avisa de nada. Los tiempos son los de 3.11 (unos 400 s la suite entera); ningún
+límite de tiempo se tocó.
+
+**Documentación**: `docs/instalacion-nativa.md` (apartado 3: de dónde viene el Python y por
+qué; 11: el `ver` de `platform`; 14: la tabla ya no manda pedir hashes, y dice qué hacer si
+lo bajado no es lo fijado, si la red no deja bajar, o si el paquete no es el esperado; 17:
+lo que se instala, cómo se fija y se cruza, y por qué 3.13 de nuget.org).
+
+### Lo que se miró aquí, bajando de verdad
+
+- **El paquete**: 14.817.881 bytes; su SHA-512 en base64 es exactamente el `packageHash` del
+  catálogo de nuget.org (`packageHashAlgorithm` SHA512, el mismo `packageSize`), y su
+  nuspec dice `id` python, `version` 3.13.16 y `authors` Python Software Foundation (con el
+  commit `cbc944f` de CPython). Es un zip de 1338 entradas: lo de NuGet (`python.nuspec`,
+  `.signature.p7s`, `build/native/python.props`, `[Content_Types].xml`…) y `tools/`, con
+  `python.exe`, `pythonw.exe`, `python3.dll`, `python313.dll`, `vcruntime140.dll`,
+  `vcruntime140_1.dll`, `LICENSE.txt`, `DLLs/` (los `.pyd`, `sqlite3.dll` con SQLite 3.50.4,
+  OpenSSL 3.5.9, `python.cat`), `Lib/` en `.py` (ningún `.pyc`, con `site-packages/pip`
+  26.2.1 y sus lanzadores `t64.exe`, `w64.exe`…, `ensurepip` y `venv` con
+  `venvlauncher.exe`), `include/` y `libs/`. En la raíz de `tools/` no hay nada que
+  importar. Para cada papel quedan 571 ficheros (29 MB) y **un solo programa, `python.exe`**.
+- **La firma**: `python.exe` y `python313.dll` llevan una firma Authenticode (PKCS#7) cuyo
+  firmante es `CN=Python Software Foundation, O=Python Software Foundation, L=Beaverton,
+  S=Oregon, C=US`, emitido por «Microsoft ID Verified CS EOC CA 03» (raíz «Microsoft
+  Identity Verification Root Certificate Authority 2020»); el certificado vale tres días
+  (del 29 de septiembre al 2 de octubre de 2026) y la firma lleva sello de tiempo RFC 3161,
+  así que sigue valiendo después. El resumen SHA-256 firmado es igual al resumen
+  Authenticode calculado aquí de cada fichero. La validación entera (la cadena y la firma
+  criptográfica) no se pudo hacer aquí (`openssl cms` no entiende el contenido de
+  Authenticode); la hace `Get-AuthenticodeSignature` en Windows, como antes.
+- **El `._pth`, con el `getpath.py` de CPython 3.13.16** (`Modules/getpath.py` y el
+  `MockNTNamespace` de `Lib/test/test_getpath.py`, bajados de GitHub al scratchpad): para
+  `C:\BMS\runtime\lector\python.exe` con `python313.dll` y nuestro `python313._pth` al lado,
+  y con `PYTHONPATH` y `PYTHONHOME` puestos, sale `sys.path` = `Lib`, `DLLs`,
+  `C:\BMS\lib`, `C:\BMS\app\src`; `isolated` 1, `use_environment` 0, `site_import` 0,
+  `safe_path` 1, `prefix` la carpeta del papel, sin avisos.
+- **Las ruedas**: las diecisiete bajadas de files.pythonhosted.org tienen el sha256 fijado,
+  ninguna trae `.data`, y `pip download --require-hashes --only-binary=:all: --platform
+  win_amd64 --python-version 3.13 --implementation cp --abi cp313 -r
+  windows/requirements-windows.txt` las acepta. Las dependencias de cada una, con los
+  marcadores de Windows y 3.13, están todas en el fichero.
+- **PowerShell de verdad**: PowerShell 7.4.21 (el `.deb` de packages.microsoft.com,
+  desempaquetado en el scratchpad, sin instalar nada): pasan los seis tests de pwsh, también
+  el que abre el paquete de verdad con `Abrir-Python` y lo compara con
+  `nativo.destino_en_runtime`.
+- `scripts/fijar_windows.py --rehacer`, con red, sacó exactamente lo que se había calculado
+  a mano; `--comprobar` sale con 0, también con `--paquetes` y lo bajado.
+
+### La puerta, test por test
+
+Todo en `tests/test_instalacion_nativa.py`.
+
+| Puerta | Tests |
+| --- | --- |
+| `fijado.json` y `requirements-windows.txt` completos; `--comprobar` sale con 0 | `test_fijar_comprobar_sale_con_0_con_lo_que_hay_en_el_repositorio` (por `main` y como programa), `test_fijar_comprobar_dice_que_falta_y_que_no_cuadra` (sin un hash, otra versión que Docker, una de más o de menos, cada campo del Python, lo bajado que no es lo fijado) |
+| El sha256 de NuGet | `test_el_python_fijado_es_el_paquete_de_nuget_entero` (origen, URL, fichero, sha256 y SHA-512 medidos, catálogo, firmante, versión menor de `nativo`), `test_fijar_cruza_el_paquete_con_el_sha512_de_nuget` (el cruce y el índice de registro), `test_fijar_revisa_lo_que_el_instalador_abrira`; con lo bajado (`BMS_PAQUETES_WINDOWS`), `test_lo_bajado_de_verdad_es_lo_fijado` |
+| Cada requisito con su hash | `test_cada_linea_de_requisitos_lleva_su_hash` (nada PENDIENTE, el formato de pip, los cuatro hashes medidos), `test_las_dependencias_de_windows_son_las_de_docker_con_su_hash` (cambiado), `test_fijar_elige_la_rueda_de_windows`, `test_fijar_saca_el_hash_de_pypi_y_rehace_las_lineas` |
+| La estructura de NuGet y el `python313._pth` | `test_el_pth_es_el_de_la_estructura_del_paquete_de_nuget`, `test_comun_dice_lo_mismo_que_nativo_del_python_de_cada_papel`, `test_de_cada_paquete_solo_sale_el_interprete_con_un_programa`, `test_una_ruta_que_se_sale_de_la_carpeta_para_la_instalacion`, `test_el_instalador_abre_el_paquete_de_nuget_sin_salirse_y_con_un_solo_programa`, `test_el_instalador_hace_un_python_por_papel_con_su_pth` (cambiado), `test_el_instalador_compila_la_biblioteca_y_prueba_que_el_pth_vale`, `test_las_reglas_apuntan_al_unico_programa_de_cada_papel`, `test_un_interprete_de_la_instalacion_sin_instalacion_json_no_apaga_las_puertas` (cambiado); con pwsh, `test_pwsh_el_paquete_de_nuget_se_abre_como_dice_nativo` y `test_pwsh_el_paquete_de_verdad_deja_un_solo_programa` |
+| La suite en 3.11 y en 3.13 | 2354 pasan y 12 se saltan en `.venv` (3.11); 2354 y 12 en 3.13.16; con `pwsh` y lo bajado, los 179 de este fichero en las dos |
+| La guía | `test_la_guia_dice_de_donde_viene_python_y_por_que` (nuget.org, 3.13, la Python Software Foundation y las correcciones de seguridad en el apartado 3; la tabla del 14 sin «pide» ni hashes que faltan; el 17 con el cruce, `--comprobar`, `--rehacer` y el `._pth`) |
+
+### Desviaciones, y por qué
+
+1. **nuget.org y no el embebible de python.org.** Lo decidió el orquestador: desde aquí
+   python.org no se puede bajar, y sin bajarlo no hay hash que fijar. El paquete de
+   nuget.org es una distribución oficial y trae los mismos binarios firmados por la Python
+   Software Foundation. Lo que se pierde: la firma de Sigstore que publica python.org (la
+   guía la pedía como paso a mano antes de subir el hash). Lo que la sustituye: el SHA-512
+   del catálogo de nuget.org (otra API, pero el mismo nuget.org, así que no es una fuente
+   independiente del todo) y, sobre todo, la firma Authenticode de la Python Software
+   Foundation en `python.exe` y en `python313.dll`, que el instalador comprueba en Windows.
+2. **El `._pth` sin `.`.** El ejemplo del orquestador lo llevaba; en este paquete la
+   carpeta del programa no tiene nada que importar (lo de la raíz de `tools/` son el
+   programa, las DLL y la licencia), y una ruta menos en `sys.path` es un sitio menos donde
+   dejar un módulo. El orden es `Lib`, `DLLs` (la biblioteca y después sus módulos
+   compilados, como el embebible); no hay nombres repetidos entre las dos.
+3. **Fuera, más que `pythonw.exe`.** También pip (sus lanzadores `.exe` son programas sin
+   reglas), `ensurepip`, `venv` (`venvlauncher.exe`) e `include`/`libs`. Es lo que el propio
+   paquete deja fuera al copiar su runtime (`build/native/python.props`), salvo
+   `vcruntime140*.dll`, que se queda porque Windows no siempre lo trae, y `LICENSE.txt` y
+   `DLLs\python.cat`, que no hacen daño. En vez de borrar `pythonw.exe` después, no se saca,
+   y el instalador para si en una carpeta de un papel hay otro programa que `python.exe`.
+4. **Abrir el paquete con .NET**, no con `Expand-Archive` (ver arriba), con la comprobación
+   de que nada sale de la carpeta. Las ruedas siguen con `Expand-Archive`, como en el paso 14.
+5. **La firma, más estricta**: antes bastaba con que el texto del certificado contuviera
+   «Python Software Foundation»; ahora el CN tiene que ser exactamente ese.
+6. **La biblioteca se compila al instalar** (no estaba): el embebible traía los `.pyc` en
+   su zip y este paquete no trae ninguno. Sin compilar, cada arranque compilaría la
+   biblioteca otra vez, porque tu usuario no puede escribir en `runtime\`. `checked-hash`
+   porque un `.pyc` así solo vale si su `.py` es el mismo, sin depender de las fechas de la
+   copia.
+7. **La prueba de arranque mira el `._pth`** (no estaba): si Windows no lo aplicara, el
+   instalador para en vez de dejar un Python que lee `PYTHONPATH` y el registro.
+8. **`detectar` acepta el `._pth` de cualquier versión** (`python3*._pth`): cambiar de
+   versión no puede apagar las puertas en una instalación vieja sin `instalacion.json`.
+9. **`fijado.json` con más campos** (`origen`, `sha512`, `catalogo`), y `fijar_windows.py`
+   con `--rehacer`, `--python` y `--paquetes`; `--comprobar` exige además lo de Docker y la
+   versión de `nativo`, que antes solo miraba un test.
+10. **Los tests con lo bajado o con PowerShell** se saltan si no está: `BMS_PAQUETES_WINDOWS`
+    (o `windows/paquetes`) con el paquete y las ruedas, y `pwsh` en el PATH. Aquí se
+    corrieron los dos y pasan; la suite de arriba es sin ellos.
+11. **Las cifras de la guía**: unos 20 MB de descargas (decía 30) y el disco sigue en unos
+    300 MB.
+
+**Tests existentes cambiados, y por qué** (en `tests/test_demo.py`,
+`tests/test_entorno_local.py` y `tests/test_revision_final.py`, siete `with
+sqlite3.connect(...)` pasan a `closing(...)`: no cambia lo que miran, solo cierran la
+conexión, de la que 3.13 avisa; los demás, en `tests/test_instalacion_nativa.py`):
+`test_el_instalador_no_sigue_sin_los_hashes_fijados` (la URL es la de nuget.org, y ya no
+admite un sha256 vacío: lo que mira del fichero pasa a
+`test_el_python_fijado_es_el_paquete_de_nuget_entero`; ya no exige la versión menor del
+Python que corre los tests, sino la de `nativo.VERSION_PYTHON`, porque la suite corre en 3.11
+y en 3.13); `test_las_dependencias_de_windows_son_las_de_docker_con_su_hash` (nada
+PENDIENTE, una sola rueda por dependencia); `test_el_instalador_hace_un_python_por_papel_con_su_pth`
+(el `._pth` sale de `comun.ps1`, y en vez de borrar `pythonw.exe` se comprueba que hay un
+solo programa); `test_ningun_script_usa_docker_ni_ejecuta_texto_ni_baja_sin_hash` (el
+paquete se abre con `Abrir-Python`, después de comprobarlo y antes de la firma);
+`test_un_interprete_de_la_instalacion_sin_instalacion_json_no_apaga_las_puertas`
+(`python313._pth`, y el `._pth` de otra versión también cuenta); los de `fijar_windows.py`
+(`vale_para_windows` y `elegir_rueda` reciben la versión menor, `escribir_requisitos` una
+lista de hashes, y `pendientes` pasa a `problemas`); y los de pwsh (el `._pth` es
+`python313._pth`, «no sigue sin los hashes» se prueba con una copia a la que le faltan los
+de jiter, porque ya no falta ninguno, y se abre el paquete de NuGet).
+
+### Lo que deben saber los pasos siguientes
+
+- **Antes de dárselo al dueño ya no falta nada que fijar.** En su primer Windows hay que
+  mirar lo de siempre (docs/instalacion-nativa.md, apartado 16) y, en particular, que
+  `Get-AuthenticodeSignature` da `Valid` con el firmante «Python Software Foundation» en
+  `python.exe` y `python313.dll` (la cadena de Microsoft Trusted Signing tiene que estar en
+  el almacén de Windows, que la baja sola), que la prueba del paso 5 sale con
+  `isolated`/`no_site` y que `comprobar.bat` sale en verde.
+- **Una corrección de la 3.13** es `python scripts/fijar_windows.py --python 3.13.X`, revisar
+  lo que cambia y `--comprobar`. **Otra versión menor** es además `nativo.VERSION_PYTHON`,
+  las variables de `windows/comun.ps1` (los tests exigen que sean iguales) y la suite
+  pasando antes en esa versión.
+- **Una dependencia nueva** va en `docker/requirements.txt` y en
+  `windows/requirements-windows.txt`; `fijar_windows.py` saca su hash cp313-win_amd64, y
+  `--comprobar` exige las mismas versiones.
+- **El desarrollo y Docker siguen en 3.11**; la suite tiene que seguir pasando en 3.11 y en
+  3.13. En 3.13, `sqlite3` avisa (`ResourceWarning`) de las conexiones que no se cierran;
+  ahora no queda ninguna. Una conexión nueva, en el código o en un test, se cierra
+  (`closing`, o `Almacen` con su `with`): en Windows una base abierta no se deja mover ni
+  borrar, y `restaurar` lo necesita.
+- **Lo que se mira en cada papel** (un solo `python.exe` y lo necesario) es
+  `NECESARIOS_DEL_RUNTIME` y `FUERA_DEL_RUNTIME` en `nativo.py` y en `comun.ps1`; si un
+  paquete nuevo trae otro programa, el instalador para y hay que decidir si va fuera.

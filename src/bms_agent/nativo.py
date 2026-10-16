@@ -2,11 +2,17 @@
 
 La misma separacion que el entorno de Docker, hecha con lo que trae Windows. Cada
 papel (consola, lector, salida, orden) tiene su propio interprete de Python, una copia
-real del Python embebible en runtime/<papel>/python.exe, y el cortafuegos de Windows
+real del Python de Windows en runtime/<papel>/python.exe, y el cortafuegos de Windows
 tiene reglas para cada uno por su ruta: la consola, el lector y las ordenes sin red
 (ni de salida ni de entrada), la salida solo al puerto 443. No vale un entorno virtual:
 su python.exe es un lanzador que arranca el Python de la base como otro proceso, y el
 cortafuegos veria siempre ese.
+
+Ese Python es el paquete "python" de nuget.org, el que publica la Python Software
+Foundation (python.org lo da como una de sus distribuciones oficiales para Windows), en
+la version 3.13 (paso 14b): la 3.11 ya no tiene binarios para Windows con sus
+correcciones de seguridad. El paquete es un zip; de el, el instalador saca tools/ menos
+lo que no es el interprete (destino_en_runtime) y le pone su ._pth.
 
 Lo que el codigo sabe de esa instalacion vive aqui:
 
@@ -14,7 +20,7 @@ Lo que el codigo sabe de esa instalacion vive aqui:
   carpeta es su papel). Lo dice instalacion.json, en la raiz, que solo escribe el
   instalador y que el usuario no puede tocar (la raiz es de solo lectura para el, y la
   comprobacion de aislamiento lo prueba). Un interprete con la forma de la instalacion
-  (runtime/<papel>/ con su python311._pth) sin instalacion.json es un error, no un "no
+  (runtime/<papel>/ con su python3XY._pth) sin instalacion.json es un error, no un "no
   hay": si no, borrar ese fichero apagaria todas las puertas. Fuera de ella (el
   desarrollo, Docker, los tests) no hay instalacion y nada de esto cambia.
 - `exigir_lectura`: la puerta de cualquier llamada a la API (extract, coste --estimar,
@@ -24,16 +30,17 @@ Lo que el codigo sabe de esa instalacion vive aqui:
   nada: falla cerrada, y no hay opcion para saltarsela.
 - `clave_del_lector`: la clave de la API, cifrada con DPAPI (secretos.py), solo para el
   lector.
-- `contenido_pth`: lo que el instalador escribe en python311._pth de cada papel.
+- `contenido_pth` y `destino_en_runtime`: lo que el instalador escribe en el ._pth de
+  cada papel y lo que saca del paquete de NuGet.
 
 - `prohibir_procesos`: en la instalacion, ningun codigo de Python del proceso (tampoco
   el de las dependencias) arranca otro programa. El codigo de la app no lo hace (lo
   vigila test_instalacion_nativa por el AST), pero las dependencias si podrian sin que
   nadie lo viera: el SDK de la API, al montar su cabecera X-Stainless-OS, llama a
-  platform.system(), y en Windows con Python 3.11 eso ejecuta `ver` con cmd.exe. Un gancho
-  de auditoria (sys.addaudithook, que no se puede quitar) dice que no a cada forma de
-  lanzar un proceso; platform lo toma como "no hay ver" y saca la version de
-  sys.getwindowsversion.
+  platform.system(), y en Windows eso pregunta a WMI y, si WMI no contesta, ejecuta `ver`
+  con cmd.exe (con Python 3.11, siempre `ver`). Un gancho de auditoria (sys.addaudithook,
+  que no se puede quitar) dice que no a cada forma de lanzar un proceso; platform lo toma
+  como "no hay ver" y saca la version de sys.getwindowsversion.
 
 Lo que no puede hacer y se dice en la guia: el cortafuegos distingue programas, y un
 proceso comprometido podria arrancar otro programa que no tenga reglas. Contra eso, el
@@ -69,11 +76,34 @@ VARIABLE_PROXY = "HTTPS_PROXY"
 CODIGO = ("app", "lib", "runtime", "windows")
 ESCRIBIBLES = ("datos", "buzon")
 
-# Las rutas de python311._pth, relativas a la carpeta del python.exe de cada papel. Con
-# un ._pth, Python no mira PYTHONPATH, PYTHONHOME ni el registro, entra en modo aislado
-# y no importa site: solo ve su biblioteca, las dependencias y el codigo de la app.
-RUTAS_PTH = ("python311.zip", ".", r"..\..\lib", r"..\..\app\src")
-FICHERO_PTH = "python311._pth"
+# El Python de cada papel (windows/fijado.json dice cual se baja, y su sha256).
+VERSION_PYTHON = (3, 13)
+_ETIQUETA = f"{VERSION_PYTHON[0]}{VERSION_PYTHON[1]}"
+DLL_PYTHON = f"python{_ETIQUETA}.dll"
+# El ._pth va junto a python313.dll (Python lo busca alli antes que junto al programa).
+# Con el, Python no mira PYTHONPATH, PYTHONHOME ni el registro, entra en modo aislado, no
+# importa site (sin site no hay site-packages ni la carpeta del usuario) y su sys.path es
+# exactamente esto, relativo a la carpeta del python.exe de cada papel: la biblioteca
+# (Lib, en .py), sus modulos compilados (DLLs, los .pyd), las dependencias y el codigo de
+# la app. Sin "." (la carpeta del programa): en el paquete de NuGet alli no hay nada que
+# importar, y una ruta menos es un sitio menos donde dejar un modulo.
+FICHERO_PTH = f"python{_ETIQUETA}._pth"
+RUTAS_PTH = ("Lib", "DLLs", r"..\..\lib", r"..\..\app\src")
+
+# Lo que el instalador saca del paquete de NuGet para cada papel: la carpeta tools/ (lo
+# demas es del propio NuGet: el nuspec, su firma, los props de MSBuild) sin lo que no es
+# el interprete. Fuera pythonw.exe (otro programa sin reglas en la misma carpeta), pip con
+# sus lanzadores .exe (Lib/site-packages), ensurepip, venv (con venvlauncher.exe, otro
+# programa) y lo que solo sirve para compilar extensiones (include, libs). Es lo mismo que
+# deja fuera el propio paquete al copiar el runtime (build/native/python.props), salvo
+# vcruntime140*.dll, que se queda: Windows no siempre lo trae. Queda un solo programa,
+# python.exe; el instalador lo comprueba.
+CARPETA_DEL_PAQUETE = "tools/"
+FUERA_DEL_RUNTIME = ("pythonw.exe", "include/", "libs/", "Lib/site-packages/", "Lib/ensurepip/",
+                     "Lib/venv/")
+# Lo que tiene que haber en cada runtime/<papel> despues de abrir el paquete.
+NECESARIOS_DEL_RUNTIME = ("python.exe", DLL_PYTHON, "Lib/os.py", "DLLs/_socket.pyd",
+                          "DLLs/_sqlite3.pyd", "DLLs/_ssl.pyd")
 
 # Los sucesos de auditoria con los que Python arranca otro proceso (la lista de la
 # documentacion de sys.audit). Son nombres de sucesos, no llamadas: aqui no se lanza nada.
@@ -137,8 +167,9 @@ def detectar(ejecutable: str | Path | None = None) -> Instalacion | None:
     El interprete esta en <raiz>/runtime/<papel>/python.exe y la raiz tiene
     instalacion.json. Un instalacion.json que no se entiende es un error, no un "no hay":
     fuera de la instalacion las puertas de este modulo no se aplican. Por lo mismo, un
-    interprete de la instalacion (en runtime/<papel>, con su python311._pth al lado) sin
-    instalacion.json tambien es un error: que falte el fichero no apaga las puertas.
+    interprete de la instalacion (en runtime/<papel>, con un python3XY._pth al lado: el de
+    esta version o el de otra) sin instalacion.json tambien es un error: que falte el
+    fichero no apaga las puertas.
     """
     programa = Path(ejecutable if ejecutable is not None else sys.executable)
     carpeta = programa.parent
@@ -148,7 +179,7 @@ def detectar(ejecutable: str | Path | None = None) -> Instalacion | None:
     raiz = carpeta.parent.parent
     fichero = raiz / FICHERO_INSTALACION
     if not fichero.is_file():
-        if (carpeta / FICHERO_PTH).is_file():
+        if _tiene_pth(carpeta):
             raise InstalacionNoValida(f"falta {fichero}: este programa es el de {rol} de la "
                                       "instalacion nativa; vuelve a instalar con instalar.bat")
         return None
@@ -166,6 +197,15 @@ def detectar(ejecutable: str | Path | None = None) -> Instalacion | None:
     if not (1024 <= consola <= 65535 and 1024 <= salida <= 65535) or consola == salida:
         raise InstalacionNoValida(f"{fichero}: los puertos no valen")
     return Instalacion(raiz, rol, consola, salida)
+
+
+def _tiene_pth(carpeta: Path) -> bool:
+    """Si la carpeta tiene el ._pth de un Python de la instalacion, de esta version o de otra
+    (una instalacion de antes de cambiar de version tampoco apaga las puertas)."""
+    try:
+        return any(p.is_file() for p in carpeta.glob("python3*._pth"))
+    except OSError:
+        return False
 
 
 def instalacion_actual() -> Instalacion | None:
@@ -278,5 +318,36 @@ def prohibir_procesos_si_nativa() -> None:
 
 
 def contenido_pth() -> str:
-    """El python311._pth de cada papel, con fin de linea de Windows."""
+    """El python313._pth de cada papel, con fin de linea de Windows."""
     return "\r\n".join(RUTAS_PTH) + "\r\n"
+
+
+class PaqueteNoValido(ValueError):
+    """El paquete de Python trae algo que no se puede abrir sin salirse de la carpeta."""
+
+
+def destino_en_runtime(entrada: str) -> str | None:
+    """Donde va, dentro de runtime/<papel>, una entrada del paquete de NuGet (con "/"), o
+    None si no va. Lo mismo que hace Destino-En-Runtime en windows/instalar.ps1: los tests
+    comparan los dos con el mismo paquete.
+
+    Solo lo de tools/, sin FUERA_DEL_RUNTIME; la comparacion no distingue mayusculas, como
+    Windows. Una entrada con "..", con "\\", con ":" o con una ruta absoluta no es de un
+    paquete bueno (el sha256 fijado ya lo impide; esto es por si acaso): PaqueteNoValido,
+    y no se abre nada.
+    """
+    partes = entrada.split("/")
+    if (entrada.startswith("/") or "\\" in entrada or ":" in entrada
+            or any(p in ("..", ".") for p in partes) or "" in partes[:-1]):
+        raise PaqueteNoValido(f"el paquete de Python trae una ruta que no vale: {entrada!r}")
+    if not entrada.lower().startswith(CARPETA_DEL_PAQUETE) or entrada.endswith("/"):
+        return None
+    resto = entrada[len(CARPETA_DEL_PAQUETE):]
+    if not resto:
+        return None
+    for fuera in FUERA_DEL_RUNTIME:
+        if fuera.endswith("/") and resto.lower().startswith(fuera.lower()):
+            return None
+        if not fuera.endswith("/") and resto.lower() == fuera.lower():
+            return None
+    return resto

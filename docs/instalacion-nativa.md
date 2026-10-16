@@ -91,12 +91,20 @@ La diferencia con Docker, sin rodeos, está en el apartado 11.
 2. Entra en la carpeta **`windows`** y haz doble clic en **`instalar.bat`**.
 3. Windows pregunta si dejas que haga cambios: **Sí**. Se abre otra ventana que
    instala, en unos minutos:
-   - el Python oficial de python.org, comprobado (si lo descargado no es exactamente lo
-     esperado, o no lleva la firma de la Python Software Foundation, no instala nada);
+   - el Python oficial para Windows, la versión 3.13, tal como lo publica la Python
+     Software Foundation en nuget.org, comprobado (si lo descargado no es exactamente lo
+     esperado, o `python.exe` y su DLL no llevan la firma de la Python Software
+     Foundation, no instala nada);
    - un Python para cada programa (consola, lector, salida, orden);
    - las dependencias, cada una comprobada igual;
    - las reglas del cortafuegos (todas se llaman **«BMS Finanzas - …»**);
    - los permisos: el programa, de solo lectura para tu usuario; tus datos, solo tuyos.
+
+   **Por qué ese Python.** Es la versión 3.13, que recibe las correcciones de seguridad
+   de Python (la 3.11 ya no las tiene para Windows), y viene de nuget.org, una de las
+   distribuciones oficiales de Python para Windows: la publica la propia Python Software
+   Foundation. De ese paquete solo se queda el intérprete: en cada programa hay **un solo
+   `python.exe`**, sin otros programas al lado que el cortafuegos no conocería.
 4. Al acabar, en la primera ventana: crea los accesos del escritorio (**BMS Finanzas -
    Abrir la consola**, **- Datos de prueba**, **- Parar**, **- Importar el buzon**,
    **- Leer facturas**, **- Comprobar aislamiento** y **- Buzon**), te pregunta si
@@ -368,7 +376,8 @@ Lo que se hace contra eso, por capas:
 - **El código de bms-agent no arranca ningún programa**: un test lo vigila en cada
   módulo (ni `subprocess`, ni `os.system`, ni `ShellExecute`…). Ese test no ve las
   dependencias, y alguna sí lo haría: el SDK de la API, al preparar su primera petición,
-  pregunta la versión de Windows, y Python 3.11 lo hace ejecutando `ver` con `cmd.exe`.
+  pregunta la versión de Windows, y Python, si Windows no le contesta por WMI, lo hace
+  ejecutando `ver` con `cmd.exe`.
   Por eso, en esta instalación, cada programa de bms-agent arranca prohibiendo a todo su
   código de Python (también al de las dependencias) lanzar otro programa: un gancho de
   auditoría de Python, que no se puede quitar. Un atacante que ejecutara código nativo
@@ -436,8 +445,10 @@ copias siguen funcionando sin crédito.
 
 | Lo que ves | Qué hacer |
 | --- | --- |
-| «Falta el sha256 fijado del Python embebible» o «Faltan los sha256 de …» al instalar | La versión que tienes no trae fijado lo que se descarga, y el instalador no baja nada sin comprobar. Pide a quien mantiene el programa una versión con eso hecho (apartado 17). |
-| «no lleva una firma valida de Python Software Foundation» | Lo descargado no es el Python oficial. No sigas y avisa. |
+| «Lo traido para … no es lo fijado» al instalar | Lo descargado no es exactamente lo esperado: una descarga cortada, o un proxy o un antivirus que la cambia. No se ha instalado nada con ello. Vuelve a abrir `instalar.bat`; si se repite, prueba con otra red, y si sigue, no insistas y avisa. |
+| «No se puede conectar» o un error de red al instalar | El instalador necesita `api.nuget.org` (el Python), `pypi.org` y `files.pythonhosted.org` (las dependencias). Si tu red los bloquea, prueba con otra, o pide a quien mantiene el programa la carpeta `paquetes` (apartado 3). |
+| «no lleva una firma valida de Python Software Foundation» | Lo descargado no es el Python oficial (o Windows no ha podido comprobar la firma). No sigas y avisa. |
+| «tiene que haber un solo programa, python.exe» o «le falta …» al instalar | El paquete de Python no es el esperado. No sigas y avisa. |
 | Banda roja «AISLAMIENTO SIN COMPROBAR O CON FALLOS» | `comprobar.bat`. Si sale en rojo, manda la ventana a quien mantiene el programa y no trabajes con datos de verdad. |
 | «El aislamiento no esta bien … no se lee nada ni se paga nada» | Lo mismo: `comprobar.bat`. No se ha gastado nada. |
 | «el perfil … del cortafuegos esta apagado» | Seguridad de Windows → Firewall y protección de red → enciéndelo en los tres perfiles. |
@@ -506,31 +517,50 @@ ventana tal cual.
 ## 17. Para quien mantiene el programa
 
 - **Lo que se instala.** `instalar.ps1` (Windows PowerShell 5.1 y PowerShell 7) baja el
-  Python embebible de python.org (`windows/fijado.json`: versión, URL, sha256 y
-  firmante), lo comprueba por sha256 y por su firma Authenticode, y lo copia en
-  `runtime\<papel>` con un `python311._pth` (`python311.zip`, `.`, `..\..\lib`,
-  `..\..\app\src`; `nativo.RUTAS_PTH`) y sin `pythonw.exe`. Las ruedas de
+  Python de Windows de nuget.org: el paquete «python» que publica la Python Software
+  Foundation (`windows/fijado.json`: versión, origen, URL, sha256, el SHA-512 de nuget.org,
+  la entrada de su catálogo y el firmante). Lo comprueba por sha256 y por la firma
+  Authenticode de `python.exe` y de `python313.dll` (el nombre entero del firmante, Python
+  Software Foundation; la firma lleva sello de tiempo). El paquete es un zip; se abre con
+  .NET entrada a entrada (no con `Expand-Archive`), solo la carpeta `tools\` y sin
+  `pythonw.exe`, pip (`Lib\site-packages`, con sus lanzadores `.exe`), `ensurepip`, `venv`
+  (con `venvlauncher.exe`), `include` ni `libs` (`nativo.destino_en_runtime` y
+  `Destino-En-Runtime`, que los tests comparan); en cada `runtime\<papel>` queda **un solo
+  programa, `python.exe`**, y el instalador para si hay otro. Cada papel lleva un
+  `python313._pth` junto a la DLL con `Lib`, `DLLs`, `..\..\lib` y `..\..\app\src`
+  (`nativo.RUTAS_PTH`): modo aislado, sin `site` (ni `site-packages` ni la carpeta del
+  usuario) y sin `PYTHONPATH` ni el registro; la carpeta del programa (`.`) no va, porque en
+  este paquete allí no hay nada que importar. La biblioteca viene en `.py`: el instalador la
+  compila una vez (`--invalidation-mode checked-hash`) y prueba que el `._pth` se aplica
+  (`sys.flags.isolated`, `no_site`) y que la versión es la fijada. Las ruedas de
   `windows/requirements-windows.txt` (formato de pip, con `--hash`) se buscan en PyPI por
-  su sha256, se comprueban y se abren en `lib\` (lo que haría `pip --target`): el
-  embebible no trae pip. Con `windows\paquetes\` se toman de ahí. Nada se usa sin su
-  hash.
-- **Fijar los hashes.** Las ruedas py3-none-any tienen el hash de
-  `docker/requirements.txt` (el mismo fichero). Las de Windows (`jiter`, `pydantic_core`,
-  `PyYAML`), `tzdata` y el Python embebible se fijan con
-  `python scripts/fijar_windows.py` (necesita internet; `--comprobar` dice qué falta).
-  Antes de subir el sha256 del embebible, comprueba su firma de Sigstore:
-  `python -m sigstore verify identity --bundle python-3.11.9-embed-amd64.zip.sigstore
-  --cert-identity pablogsal@python.org --cert-oidc-issuer https://accounts.google.com
-  python-3.11.9-embed-amd64.zip` (el .sigstore está junto al zip en python.org, y quién
-  firma cada versión, en python.org/downloads/metadata/sigstore). Mientras falte alguno,
-  el instalador para y lo dice.
-- **Por qué Python 3.11.9.** Es la misma versión menor que el desarrollo y la imagen de
-  Docker, y la última 3.11 con binarios para Windows: desde la 3.11.10 solo hay código
-  fuente. La imagen de Docker lleva la 3.11.17, con las correcciones de seguridad de
-  después; la nativa no las tiene (por ejemplo, la de `ipaddress` sobre qué direcciones
-  son privadas, que la salida usa para no dejar ir a la red de casa, aunque solo resuelve
-  `api.anthropic.com`; y varias de `tarfile`, `zipfile` y `email`, que bms-agent no usa). El paso siguiente es pasar el
-  desarrollo a 3.13 o 3.14 y fijar ese embebible.
+  su sha256, se comprueban y se abren en `lib\` (lo que haría `pip --target`): pip no se
+  usa. Con `windows\paquetes\` se toman de ahí. Nada se usa sin su hash.
+- **Fijar los hashes.** Todo está fijado: `python scripts/fijar_windows.py --comprobar`
+  (sin red) sale con 0 y lo exigen los tests. Para volver a sacarlo:
+  `python scripts/fijar_windows.py --rehacer` (necesita internet), y para otra versión del
+  Python, `--python 3.13.X`. El script baja el paquete de
+  `api.nuget.org/v3-flatcontainer`, calcula su sha256 y lo **cruza con el SHA-512 que
+  nuget.org publica de esa versión** en su catálogo (`packageHash`, al que llega por el
+  índice de registro), con el id, la versión, el autor y el tamaño; mira que sea un paquete
+  que el instalador sabe abrir; y saca de PyPI el sha256 de la rueda cp313-win_amd64 (o
+  py3-none-any) de cada dependencia, con las mismas versiones que
+  `docker/requirements.txt`. Si algo no cuadra, para. Con `--comprobar --paquetes CARPETA`
+  comprueba además lo ya bajado (la carpeta `paquetes`). Las ruedas py3-none-any tienen el
+  hash de Docker (es el mismo fichero).
+- **Por qué Python 3.13 de nuget.org** (paso 14b). La 3.11.9, la que había, es la última
+  3.11 con binarios para Windows y no tiene las correcciones de seguridad de después (por
+  ejemplo, la de `ipaddress` sobre qué direcciones son privadas, que usa la salida, y
+  varias de `tarfile`, `zipfile` y `email`). La 3.13.16 sí las tiene, y nuget.org es una
+  de las distribuciones oficiales de Python para Windows que lista python.org: el paquete
+  lo publica la propia Python Software Foundation, con los mismos binarios firmados. Se
+  eligió nuget.org y no el embebible de python.org porque desde donde se preparó esta
+  versión python.org no se podía descargar y nuget.org sí, y porque nuget.org publica el
+  SHA-512 de cada paquete, que deja cruzar el sha256 con una segunda fuente. La suite
+  entera pasa en 3.11 (el desarrollo y la imagen de Docker, que sigue con la 3.11.17) y
+  en 3.13. Mientras la 3.13 tenga correcciones de seguridad, cambiar de 3.13.X es
+  `--python 3.13.X`; pasar a otra versión menor es además `nativo.VERSION_PYTHON`, las
+  variables de `comun.ps1` y los tests, con la suite pasando antes en esa versión.
 - **Las reglas** están en `comun.ps1` (`Reglas-Del-Cortafuegos`), todas con el prefijo
   «BMS Finanzas - » y el grupo «BMS Finanzas»; el desinstalador quita exactamente las del
   prefijo. En Windows un bloqueo gana a un permiso: la salida lleva el permiso del TCP
@@ -552,9 +582,12 @@ ventana tal cual.
   `subprocess.Popen`, `os.system`, `os.startfile`, `os.exec*`, `os.spawn*` y
   `_winapi.CreateProcess`): vale también para las dependencias, que el test no ve.
 - **La instalación se reconoce** también sin `instalacion.json`: un intérprete en
-  `runtime\<papel>` con su `python311._pth` y sin ese fichero es un error
-  (`InstalacionNoValida`), no «fuera de la instalación».
+  `runtime\<papel>` con su `python313._pth` (o el `._pth` de otra versión) y sin ese
+  fichero es un error (`InstalacionNoValida`), no «fuera de la instalación».
 - **Los tests**: `pytest tests/test_instalacion_nativa.py`. Con `pwsh` en el PATH, o con
   `BMS_PROBAR_PWSH=1` y Docker (la imagen `mcr.microsoft.com/powershell`, sin red),
   además cada `.ps1` pasa el analizador de PowerShell y se ejecutan de verdad la
-  lectura de los hashes, el `._pth`, la descarga comprobada y la tabla de reglas.
+  lectura de los hashes, el `._pth`, la descarga comprobada, la apertura del paquete de
+  NuGet y la tabla de reglas. Con `BMS_PAQUETES_WINDOWS=CARPETA` (lo bajado: el paquete de
+  nuget.org y las ruedas), también se comprueban sus hashes y se abre el paquete de
+  verdad.

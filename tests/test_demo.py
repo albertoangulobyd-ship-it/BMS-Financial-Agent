@@ -24,6 +24,7 @@ import re
 import shutil
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -370,7 +371,7 @@ def test_crear_no_toca_la_base_de_verdad(tmp_path, monkeypatch, capsys) -> None:
     real, _token = _base_de_verdad(tmp_path)
     monkeypatch.setenv("BMS_DB", str(real))
     antes = _foto(real)
-    with sqlite3.connect(real) as conn:
+    with closing(sqlite3.connect(real)) as conn:
         volcado = "\n".join(conn.iterdump())
     assert main(["demo", "crear"]) == 0
     salida = capsys.readouterr().out
@@ -379,7 +380,7 @@ def test_crear_no_toca_la_base_de_verdad(tmp_path, monkeypatch, capsys) -> None:
     assert demo.es_demo(real.parent / "demo.sqlite3")
     assert (real.parent / "demo-documentos").is_dir() and (real.parent / "demo-anclas.log").exists()
     assert _foto(real) == antes and antes["marcadas"] == []
-    with sqlite3.connect(real) as conn:
+    with closing(sqlite3.connect(real)) as conn:
         assert "\n".join(conn.iterdump()) == volcado
 
 
@@ -521,7 +522,7 @@ def test_el_extractor_no_paga_un_pdf_de_prueba_sin_base(tmp_path, base_demo) -> 
     from bms_agent.extract import extraer_pasada
 
     ruta, _resumen = base_demo
-    with sqlite3.connect(ruta) as conn:
+    with closing(sqlite3.connect(ruta)) as conn:
         [relativa] = conn.execute("SELECT ruta_cas FROM documento WHERE tipo_mime = "
                                   "'application/pdf' LIMIT 1").fetchone()
     pdf = tmp_path / "prueba.pdf"
@@ -564,7 +565,7 @@ def test_un_pdf_de_prueba_no_se_paga_tampoco_en_la_base_de_prueba(demo_propia,
     from bms_agent.extract import extraer_pasada
 
     ruta, _resumen = demo_propia
-    with sqlite3.connect(ruta) as conn:
+    with closing(sqlite3.connect(ruta)) as conn:
         filas = conn.execute("SELECT ruta_cas FROM documento WHERE tipo_mime = "
                              "'application/pdf' ORDER BY id LIMIT 2").fetchall()
     pdfs = []

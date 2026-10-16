@@ -682,7 +682,8 @@ def test_un_pdf_con_secuencias_de_escape_no_manda_en_la_terminal(tmp_path, capsy
         assert crudo not in salida.out + salida.err
     assert "Van Dijk BV" in salida.out
     import sqlite3
-    with sqlite3.connect(db) as conn:
+    from contextlib import closing
+    with closing(sqlite3.connect(db)) as conn:
         nombre, numero = conn.execute("SELECT emisor_nombre_doc, numero FROM factura").fetchone()
         assert "\x1b" not in nombre + numero and "�" in numero
         # La evidencia (lo que dijo el modelo) se queda como llego.

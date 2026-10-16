@@ -25,6 +25,7 @@ import base64
 import hashlib
 import json
 import logging
+import ntpath
 import os
 import re
 import shlex
@@ -725,7 +726,14 @@ def test_un_interprete_de_la_instalacion_sin_instalacion_json_no_apaga_las_puert
     (lector / nativo.FICHERO_PTH).write_text(nativo.contenido_pth(), encoding="ascii")
     with pytest.raises(nativo.InstalacionNoValida, match="falta .*instalacion.json"):
         nativo.detectar(lector / "python.exe")
-    assert nativo.FICHERO_PTH == "python311._pth" and nativo.RUTAS_PTH[0] == "python311.zip"
+    assert nativo.FICHERO_PTH == "python313._pth" and nativo.RUTAS_PTH[0] == "Lib"
+    # Paso 14b: el ._pth de otra version (el de una instalacion de antes de cambiar de Python)
+    # tampoco apaga las puertas.
+    (lector / nativo.FICHERO_PTH).unlink()
+    assert nativo.detectar(lector / "python.exe") is None
+    (lector / "python311._pth").write_text("python311.zip\r\n.\r\n", encoding="ascii")
+    with pytest.raises(nativo.InstalacionNoValida, match="falta .*instalacion.json"):
+        nativo.detectar(lector / "python.exe")
     # La CLI de ese programa no sigue: ni paga, ni abre la consola como si fuera la de siempre.
     monkeypatch.setattr(sys, "executable", str(lector / "python.exe"))
     for orden in (["coste", "--estimar", str(pdfs_ejemplo)], ["serve", "--puerto", "0"]):
@@ -1017,7 +1025,8 @@ if sys.argv[2] == "si":
             assert "no arranca otros programas" in str(exc)
         else:
             raise SystemExit("ha lanzado un proceso")
-# Lo que hace platform en Windows con Python 3.11 (y por el, el SDK de la API): `ver`.
+# Lo que hace platform en Windows (y por el, el SDK de la API) si WMI no contesta, y con
+# Python 3.11 siempre: `ver`.
 sys.platform = "win32"
 print(platform._syscmd_ver("s", "r", "v"))
 '''
@@ -1130,28 +1139,50 @@ def test_ningun_script_usa_docker_ni_ejecuta_texto_ni_baja_sin_hash() -> None:
     assert "Invoke-WebRequest" in funcion and "-OutFile $Destino" in funcion
     assert funcion.index("-OutFile") < funcion.index("Get-FileHash -Algorithm SHA256")
     assert "if ($real -ne $Sha256.ToLower())" in funcion and "Remove-Item" in funcion
-    # Lo que se baja se usa despues de comprobarlo: el zip, y cada rueda.
+    # Lo que se baja se usa despues de comprobarlo: el paquete del Python, y cada rueda.
     assert instalar.index("Descargar-Verificado $fijado.python.url") < instalar.index(
-        "Expand-Archive -LiteralPath $zip")
+        "Abrir-Python $paquete $base") < instalar.index("Comprobar-Firma (Join-Path $base")
     assert instalar.index("Descargar-Verificado $rueda.Url") < instalar.index(
         "Expand-Archive -LiteralPath $comoZip")
     # Lo de PyPI solo dice donde esta el fichero: lo que decide es el hash fijado.
     assert "$Requisito.Hashes -contains $fichero.digests.sha256" in instalar
     assert "Comprobar-Firma (Join-Path $base $nombre) $fijado.python.firmante" in instalar
+    assert 'foreach ($nombre in @("python.exe", $DllPython)) {' in instalar
 
 
 def test_el_instalador_no_sigue_sin_los_hashes_fijados() -> None:
     instalar = _ps1("instalar")
     assert "$fijado.python.sha256 -notmatch '^[0-9a-f]{64}$'" in instalar
     assert '$sinHash = @($requisitos | Where-Object { $_.Hashes.Count -eq 0 }' in instalar
+    # Paso 14b: el Python solo se baja de nuget.org.
+    assert ("$fijado.python.url -notmatch '^https://api\\.nuget\\.org/v3-flatcontainer/python/'"
+            in instalar)
+    assert "python.org/ftp" not in instalar
+
+
+def test_el_python_fijado_es_el_paquete_de_nuget_entero() -> None:
+    """Paso 14b: fijado.json lleva el paquete "python" de nuget.org (de la Python Software
+    Foundation), con el sha256 calculado de lo bajado y el SHA-512 que publica nuget.org de
+    esa version (los dos cruzados por scripts/fijar_windows.py), y la version menor que
+    espera el codigo (el nombre de la DLL y del ._pth)."""
     fijado = json.loads((WINDOWS / "fijado.json").read_text(encoding="utf-8"))["python"]
-    assert fijado["url"] == ("https://www.python.org/ftp/python/" + fijado["version"]
-                             + "/" + fijado["fichero"])
-    assert re.fullmatch(r"python-3\.11\.\d+-embed-amd64\.zip", fijado["fichero"])
-    # La misma version menor que el desarrollo (y que la imagen de Docker).
-    assert fijado["version"].rsplit(".", 1)[0] == f"{sys.version_info[0]}.{sys.version_info[1]}"
-    assert fijado["sha256"] == "" or re.fullmatch(r"[0-9a-f]{64}", fijado["sha256"])
+    version = fijado["version"]
+    assert re.fullmatch(r"3\.13\.\d+", version)
+    assert tuple(map(int, version.split(".")[:2])) == nativo.VERSION_PYTHON == (3, 13)
+    assert fijado["origen"] == "nuget.org: python, Python Software Foundation"
+    assert fijado["fichero"] == f"python.{version}.nupkg"
+    assert fijado["url"] == (f"https://api.nuget.org/v3-flatcontainer/python/{version}/"
+                             f"python.{version}.nupkg")
+    assert re.fullmatch(r"[0-9a-f]{64}", fijado["sha256"])
+    assert len(base64.b64decode(fijado["sha512"], validate=True)) == 64
+    assert fijado["catalogo"].startswith("https://api.nuget.org/v3/catalog0/data/")
+    assert fijado["catalogo"].endswith(f"/python.{version}.json")
     assert fijado["firmante"] == "Python Software Foundation"
+    # Lo que se midio al fijarlo (paso 14b): el paquete 3.13.16, y su SHA-512 es el de nuget.org.
+    assert (version, fijado["sha256"], fijado["sha512"]) == (
+        "3.13.16", "95fad176338f1d6a799e45946488063f4aa61764e6cff2f132ddeffbf7a04c34",
+        "TGEhuRTpWtRifDR4r/GEhmg/cGMqtwB4kOCkt1QhXnCmdDE3Dict3iLJI1xrsNSRbXGyCwLEhe6qa5Rd2s376w==")
+    assert nativo.DLL_PYTHON == "python313.dll" and nativo.FICHERO_PTH == "python313._pth"
 
 
 def test_las_dependencias_de_windows_son_las_de_docker_con_su_hash() -> None:
@@ -1171,15 +1202,35 @@ def test_las_dependencias_de_windows_son_las_de_docker_con_su_hash() -> None:
     binarias = {"jiter", "pydantic-core", "pyyaml"}
     for nombre in set(docker) - binarias:
         assert windows[nombre].hashes and set(windows[nombre].hashes) <= set(docker[nombre].hashes)
-    # Lo que no se pudo fijar sin internet queda dicho como PENDIENTE (y el instalador no
-    # sigue con ello): solo las ruedas de Windows y tzdata.
-    pendientes = {n for n, r in windows.items() if not r.hashes}
-    assert pendientes <= binarias | {"tzdata"}
-    texto = (WINDOWS / "requirements-windows.txt").read_text(encoding="utf-8")
-    for nombre in pendientes:
-        assert re.search(rf"(?im)^{re.escape(windows[nombre].nombre)}==\S+\s+# PENDIENTE", texto)
-    for nombre in binarias & set(windows):
+    # Paso 14b: ninguna sin hash, cada una con el de una sola rueda (la cp313-win_amd64 en las
+    # binarias, que no es ninguna de las de Linux de Docker).
+    assert all(len(r.hashes) == 1 for r in windows.values()), windows
+    for nombre in binarias:
         assert not set(windows[nombre].hashes) & set(docker[nombre].hashes), nombre
+
+
+def test_cada_linea_de_requisitos_lleva_su_hash() -> None:
+    """Paso 14b: nada PENDIENTE. Cada dependencia lleva su --hash=sha256 en las lineas que la
+    siguen, como lo lee pip con --require-hashes, y el sha256 de cada rueda es el que publica
+    PyPI para esa version (lo saca y lo comprueba fijar_windows.py)."""
+    texto = (WINDOWS / "requirements-windows.txt").read_text(encoding="utf-8")
+    assert "PENDIENTE" not in texto.upper()
+    lineas = [l for l in texto.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    nombres = [l for l in lineas if not l[:1].isspace()]
+    assert len(nombres) == 17
+    for i, linea in enumerate(lineas):
+        if linea[:1].isspace():
+            assert re.fullmatch(r"    --hash=sha256:[0-9a-f]{64}( \\)?", linea), linea
+        else:
+            assert re.fullmatch(r"[A-Za-z0-9_.-]+==[0-9.]+ \\", linea), linea
+            assert lineas[i + 1].startswith("    --hash=sha256:"), linea
+    assert {"jiter==0.17.0": "a3cebb1fe4a1abb00465f3f8a17e09112603e8b7c59e5c3adbcd9f7815a64acd",
+            "pydantic_core==2.50.1":
+                "7816e98acc08119dc0f340ab167048ecc54126316330c1f0caf7c6756c88e28f",
+            "PyYAML==6.0.3": "79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c",
+            "tzdata==2025.2": "1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8",
+            }.items() <= {l.split()[0]: lineas[i + 1].split(":")[1].split()[0]
+                          for i, l in enumerate(lineas) if not l[:1].isspace()}.items()
 
 
 # Las reglas que tiene que haber, por papel: (sentido, accion, protocolo, puertos).
@@ -1335,26 +1386,188 @@ def test_el_desinstalador_se_eleva_en_su_sitio_y_sale_de_la_carpeta() -> None:
     assert len(orden) == 1 and orden[0].startswith('cd /d "%SystemRoot%" & powershell')
 
 
+def _lista_ps(texto: str, variable: str) -> tuple[str, ...]:
+    """Los elementos de `$Variable = @("a", "b")` (o de `$Variable = "a"`) en un script."""
+    encontrado = re.search(rf"(?m)^\${variable} = (@\(([^)]*)\)|\"([^\"]*)\")$", texto)
+    assert encontrado, variable
+    if encontrado.group(3) is not None:
+        return (encontrado.group(3),)
+    return tuple(re.findall(r'"([^"]*)"', encontrado.group(2)))
+
+
+def test_comun_dice_lo_mismo_que_nativo_del_python_de_cada_papel() -> None:
+    """Paso 14b: los nombres y las listas del Python de NuGet estan en nativo.py (lo que usan
+    el codigo y los tests) y en comun.ps1 (lo que usa el instalador): tienen que ser iguales."""
+    comun = _ps1("comun")
+    assert _lista_ps(comun, "DllPython") == (nativo.DLL_PYTHON,)
+    assert _lista_ps(comun, "FicheroPth") == (nativo.FICHERO_PTH,)
+    assert _lista_ps(comun, "RutasPth") == nativo.RUTAS_PTH
+    assert _lista_ps(comun, "CarpetaDelPaquete") == (nativo.CARPETA_DEL_PAQUETE,)
+    assert _lista_ps(comun, "FueraDelRuntime") == nativo.FUERA_DEL_RUNTIME
+    assert _lista_ps(comun, "NecesariosDelRuntime") == nativo.NECESARIOS_DEL_RUNTIME
+
+
+def test_el_pth_es_el_de_la_estructura_del_paquete_de_nuget() -> None:
+    """Paso 14b: en el paquete de NuGet la biblioteca va en Lib (en .py) y los modulos
+    compilados en DLLs; en la carpeta del programa no hay nada que importar. El ._pth va junto
+    a la DLL (python313._pth), deja site sin importar (ninguna linea "import site": sin
+    site-packages ni la carpeta del usuario) y solo lleva rutas dentro de la instalacion."""
+    assert nativo.RUTAS_PTH == ("Lib", "DLLs", r"..\..\lib", r"..\..\app\src")
+    assert nativo.contenido_pth() == "Lib\r\nDLLs\r\n..\\..\\lib\r\n..\\..\\app\\src\r\n"
+    assert nativo.FICHERO_PTH == nativo.DLL_PYTHON.replace(".dll", "._pth")
+    assert not any(r.startswith("import") or "site" in r.lower() for r in nativo.RUTAS_PTH)
+    assert "." not in nativo.RUTAS_PTH and not any(":" in r or r.startswith("\\")
+                                                    for r in nativo.RUTAS_PTH)
+    # Cada ruta es de la carpeta del Python de un papel (runtime\<papel>) o de la raiz.
+    for ruta in nativo.RUTAS_PTH:
+        destino = ntpath.normpath(ntpath.join(r"C:\BMS\runtime\lector", ruta))
+        assert destino.startswith("C:\\BMS\\"), ruta
+    # Lo que pide el ._pth es lo que el instalador saca del paquete.
+    assert {"Lib/os.py", "DLLs/_socket.pyd"} <= set(nativo.NECESARIOS_DEL_RUNTIME)
+
+
 def test_el_instalador_hace_un_python_por_papel_con_su_pth() -> None:
     instalar = _ps1("instalar")
-    pth = instalar[instalar.index("function Escribir-Pth"):]
-    pth = pth[:pth.index("\n}\n")]
-    lineas = re.search(r"\$lineas = @\(([^)]*)\)", pth).group(1)
-    assert tuple(re.findall(r'"([^"]+)"', lineas)) == nativo.RUTAS_PTH
-    assert "python311._pth" in pth and "[System.Text.Encoding]::ASCII" in pth
-    assert '"`r`n"' in pth
-    assert nativo.contenido_pth() == "python311.zip\r\n.\r\n..\\..\\lib\r\n..\\..\\app\\src\r\n"
+    pth = _funcion(instalar, "Escribir-Pth")
+    assert "Join-Path $Carpeta $FicheroPth" in pth and "$RutasPth -join" in pth
+    assert "[System.Text.Encoding]::ASCII" in pth and '"`r`n"' in pth
     assert '$Roles = @("consola", "lector", "salida", "orden")' in _ps1("comun")
     assert tuple(aislamiento.ROLES) == ("consola", "lector", "salida", "orden")
     bucle = instalar[instalar.index("foreach ($rol in $Roles) {\n        $destino"):]
     bucle = bucle[:bucle.index("\n    }\n")]
     assert 'Join-Path $Raiz ("runtime\\" + $rol)' in bucle and "Escribir-Pth $destino" in bucle
-    # pythonw.exe seria otro programa sin reglas.
-    assert '"pythonw.exe"' in bucle and "Remove-Item" in bucle
+    # Paso 14b: cada papel con un solo programa, python.exe (pythonw.exe o un lanzador serian
+    # programas sin reglas): lo comprueba despues de copiar.
+    assert bucle.index("Copy-Item") < bucle.index("Escribir-Pth $destino") < bucle.index(
+        "Comprobar-Runtime $destino")
     # El instalacion.json que lee nativo.detectar.
     assert re.search(r"version\s+= 1\b", instalar) and "puerto_consola = 8765" in instalar
     assert "puerto_salida  = 3128" in instalar and '"instalacion.json"' in instalar
     assert nativo.PUERTO_CONSOLA == 8765 and nativo.PUERTO_SALIDA == 3128
+
+
+
+# Lo que trae el paquete "python" de nuget.org, en pequeno: la misma forma (lo de NuGet fuera
+# de tools/, y en tools/ el interprete con lo que no va en cada papel), visto en el paquete de
+# verdad (python.3.13.16.nupkg) al hacer el paso 14b.
+ENTRADAS_DEL_PAQUETE = (
+    "_rels/.rels", "python.nuspec", "build/native/python.props", "images/python.png",
+    "[Content_Types].xml", "package/services/metadata/core-properties/nuget.psmdcp",
+    ".signature.p7s",
+    "tools/python.exe", "tools/pythonw.exe", "tools/python3.dll", "tools/python313.dll",
+    "tools/vcruntime140.dll", "tools/vcruntime140_1.dll", "tools/LICENSE.txt",
+    "tools/DLLs/_socket.pyd", "tools/DLLs/_sqlite3.pyd", "tools/DLLs/_ssl.pyd",
+    "tools/DLLs/libssl-3.dll", "tools/DLLs/python.cat",
+    "tools/Lib/os.py", "tools/Lib/json/__init__.py", "tools/Lib/ctypes/macholib/fetch_macholib.bat",
+    "tools/Lib/site-packages/README.txt", "tools/Lib/site-packages/pip/__init__.py",
+    "tools/Lib/site-packages/pip/_vendor/distlib/t64.exe",
+    "tools/Lib/site-packages/pip/_vendor/distlib/w64.exe",
+    "tools/Lib/ensurepip/__init__.py", "tools/Lib/ensurepip/_bundled/pip-26.2.1-py3-none-any.whl",
+    "tools/Lib/venv/__init__.py", "tools/Lib/venv/scripts/nt/venvlauncher.exe",
+    "tools/Lib/venv/scripts/nt/venvwlauncher.exe",
+    "tools/include/Python.h", "tools/libs/python313.lib",
+)
+EN_CADA_PAPEL = {
+    "python.exe", "python3.dll", "python313.dll", "vcruntime140.dll", "vcruntime140_1.dll",
+    "LICENSE.txt", "DLLs/_socket.pyd", "DLLs/_sqlite3.pyd", "DLLs/_ssl.pyd", "DLLs/libssl-3.dll",
+    "DLLs/python.cat", "Lib/os.py", "Lib/json/__init__.py", "Lib/ctypes/macholib/fetch_macholib.bat",
+}
+
+
+def _nupkg(ruta: Path, entradas=ENTRADAS_DEL_PAQUETE, version: str = "3.13.16") -> bytes:
+    """Un paquete de NuGet de mentira con esas entradas (el nuspec, como el de verdad)."""
+    import zipfile
+
+    with zipfile.ZipFile(ruta, "w") as paquete:
+        for nombre in entradas:
+            if nombre == "python.nuspec":
+                contenido = ("\ufeff<?xml version=\"1.0\"?><package><metadata><id>python</id>"
+                             f"<version>{version}</version><authors>Python Software Foundation"
+                             "</authors></metadata></package>").encode("utf-8")
+            else:
+                contenido = f"contenido de {nombre}".encode("utf-8")
+            paquete.writestr(nombre, contenido)
+    return ruta.read_bytes()
+
+
+def test_de_cada_paquete_solo_sale_el_interprete_con_un_programa() -> None:
+    """Paso 14b: de lo que trae el paquete de NuGet, en cada papel va tools/ menos pythonw.exe,
+    pip (con sus lanzadores .exe), ensurepip, venv (con venvlauncher.exe) y lo de compilar
+    (include, libs). Queda un solo programa: python.exe."""
+    destinos = {nativo.destino_en_runtime(e) for e in ENTRADAS_DEL_PAQUETE} - {None}
+    assert destinos == EN_CADA_PAPEL
+    assert [d for d in destinos if d.lower().endswith(".exe")] == ["python.exe"]
+    assert set(nativo.NECESARIOS_DEL_RUNTIME) <= destinos
+    # Sin distinguir mayusculas, como Windows: Lib/Site-Packages es la misma carpeta.
+    for entrada in ("tools/PythonW.exe", "tools/Lib/Site-Packages/x.py", "tools/LIBS/x.lib",
+                    "TOOLS/Lib/VENV/scripts/nt/venvlauncher.exe", "tools/", "tools/Lib/",
+                    "tools", "otra/python.exe", "python.exe"):
+        assert nativo.destino_en_runtime(entrada) is None, entrada
+    assert nativo.destino_en_runtime("TOOLS/Lib/os.py") == "Lib/os.py"
+
+
+@pytest.mark.parametrize("entrada", [
+    "tools/../python.exe", "../tools/python.exe", "/tools/python.exe", "tools/Lib/../../x.py",
+    "tools\\Lib\\os.py", "C:/tools/python.exe", "tools/Lib//os.py", "tools/./python.exe",
+])
+def test_una_ruta_que_se_sale_de_la_carpeta_para_la_instalacion(entrada) -> None:
+    with pytest.raises(nativo.PaqueteNoValido, match="no vale"):
+        nativo.destino_en_runtime(entrada)
+
+
+def test_el_instalador_abre_el_paquete_de_nuget_sin_salirse_y_con_un_solo_programa() -> None:
+    """Paso 14b: el paquete se abre con .NET entrada a entrada (Expand-Archive de Windows
+    PowerShell 5.1 solo abre .zip, y lo abre todo),
+    solo lo que dice Destino-En-Runtime, nada fuera de la carpeta, y despues se exige un solo
+    programa y lo necesario; la firma se mira en python.exe y en python313.dll."""
+    instalar = _ps1("instalar")
+    abrir = _funcion(instalar, "Abrir-Python")
+    assert "[System.IO.Compression.ZipFile]::OpenRead($Paquete)" in abrir
+    assert "Destino-En-Runtime $entrada.FullName" in abrir
+    assert "if ($null -eq $relativa) { continue }" in abrir
+    assert "$ruta.StartsWith($carpeta + [System.IO.Path]::DirectorySeparatorChar" in abrir
+    assert abrir.index("StartsWith($carpeta") < abrir.index("ExtractToFile($entrada, $ruta, $true)")
+    assert "$zip.Dispose()" in abrir and abrir.rstrip().endswith("Comprobar-Runtime $carpeta")
+    destino = _funcion(instalar, "Destino-En-Runtime")
+    for pieza in ('$Entrada.Contains("\\")', '$Entrada.Contains(":")', '$partes[$i] -eq ".."',
+                  "$CarpetaDelPaquete", "foreach ($fuera in $FueraDelRuntime)",
+                  "ToLowerInvariant()", "Fallar"):
+        assert pieza in destino, pieza
+    runtime = _funcion(instalar, "Comprobar-Runtime")
+    assert '@(".exe", ".com", ".scr") -contains $_.Extension.ToLowerInvariant()' in runtime
+    assert '$programas.Count -ne 1 -or $programas[0].FullName -ne (Join-Path $Carpeta "python.exe")' \
+        in runtime
+    assert "foreach ($necesario in $NecesariosDelRuntime)" in runtime
+    firma = _funcion(instalar, "Comprobar-Firma")
+    assert '$firma.Status -ne "Valid" -or $nombre -cne $Firmante' in firma
+    assert "X509NameType]::SimpleName" in firma
+    # Lo de antes (el embebible) ya no esta.
+    assert "Expand-Archive -LiteralPath $zip" not in instalar and "python311" not in instalar
+    assert "Expand-Archive" not in _codigo(abrir)
+
+
+def test_el_instalador_compila_la_biblioteca_y_prueba_que_el_pth_vale() -> None:
+    """Paso 14b: la biblioteca del paquete viene en .py: se compila una vez al instalar (luego
+    runtime\\ es de solo lectura para tu usuario), y la prueba de arranque exige el modo aislado
+    sin site (que el ._pth se aplica) y la version fijada."""
+    instalar = _ps1("instalar")
+    paso = instalar[instalar.index('Escribir "5/7'):instalar.index('Escribir "6/7')]
+    assert '$bibliotecas = @($Roles | ForEach-Object { Join-Path $Raiz ("runtime\\" + $_ + "\\Lib") })' \
+        in paso
+    assert "-m compileall -q --invalidation-mode checked-hash @bibliotecas" in paso
+    assert "sys.flags.isolated == 1 and sys.flags.no_site == 1 and 'site' not in sys.modules" in paso
+    assert "$fijado.python.version" in paso and "sys.version_info[:3]" in paso
+    assert paso.index("compileall") < paso.index("sys.flags.isolated") < paso.index("$LASTEXITCODE")
+
+
+def test_las_reglas_apuntan_al_unico_programa_de_cada_papel() -> None:
+    """Paso 14b: las reglas son de runtime\\<papel>\\python.exe, que es el unico programa que
+    queda en cada papel."""
+    for fila in _tabla_de_reglas():
+        assert fila["rol"] in aislamiento.ROLES
+    comun = _ps1("comun")
+    assert 'Programa  = (Join-Path $Raiz ("runtime\\" + $fila.Rol + "\\python.exe"))' in comun
+    assert [d for d in EN_CADA_PAPEL if d.endswith(".exe")] == ["python.exe"]
 
 
 def test_el_instalador_deja_el_codigo_de_solo_lectura() -> None:
@@ -1585,6 +1798,34 @@ def test_la_variante_de_docker_no_cambia() -> None:
         assert "comprobar-aislamiento" not in script.read_text(encoding="utf-8")
 
 
+def _apartado(guia: str, titulo: str) -> str:
+    """Un apartado de la guia, con los espacios y los saltos de linea juntados en uno."""
+    texto = guia[guia.index(titulo):]
+    siguiente = re.search(r"\n## \d+\.", texto[len(titulo):])
+    return " ".join((texto[:len(titulo) + siguiente.start()] if siguiente else texto).split())
+
+
+def test_la_guia_dice_de_donde_viene_python_y_por_que() -> None:
+    """Paso 14b: la guia del dueno dice que el Python es el 3.13 de nuget.org (de la Python
+    Software Foundation) y por que (las correcciones de seguridad que la 3.11 ya no tiene en
+    Windows), y su tabla de "si algo no va" ya no le manda pedir los hashes que faltan: no
+    falta ninguno."""
+    guia = (RAIZ / "docs" / "instalacion-nativa.md").read_text(encoding="utf-8")
+    instalar = _apartado(guia, "## 3. Instalar")
+    assert "nuget.org" in instalar and "3.13" in instalar
+    assert "Python Software Foundation" in instalar and "correcciones de seguridad" in instalar
+    assert "un solo `python.exe`" in instalar
+    problemas = _apartado(guia, "## 14. Si algo no va")
+    assert "sha256 fijado" not in problemas and "Faltan los sha256" not in problemas
+    assert not re.search(r"(?i)pide[^|\n]*(versi[oó]n|hash)", problemas)
+    assert "no es lo fijado" in problemas and "api.nuget.org" in problemas
+    mantener = _apartado(guia, "## 17. Para quien mantiene el programa")
+    for pieza in ("Por qué Python 3.13 de nuget.org", "SHA-512", "--comprobar", "--rehacer",
+                  "python313._pth", "un solo programa, `python.exe`"):
+        assert pieza in mantener, pieza
+    assert "python311" not in guia and "embed-amd64" not in guia
+
+
 # ============================================================ fijar_windows.py
 
 def _fijar():
@@ -1597,40 +1838,188 @@ def _fijar():
 
 
 @pytest.mark.parametrize("fichero, vale", [
-    ("PyYAML-6.0.3-cp311-cp311-win_amd64.whl", True),
-    ("pydantic_core-2.50.1-cp311-cp311-win_amd64.whl", True),
+    ("pyyaml-6.0.3-cp313-cp313-win_amd64.whl", True),
+    ("pydantic_core-2.50.1-cp313-cp313-win_amd64.whl", True),
     ("tzdata-2025.2-py2.py3-none-any.whl", True),
     ("anthropic-1.13.0-py3-none-any.whl", True),
     ("x-1.0-cp39-abi3-win_amd64.whl", True),
-    ("PyYAML-6.0.3-cp311-cp311-win32.whl", False),
-    ("PyYAML-6.0.3-cp311-cp311-win_arm64.whl", False),
-    ("PyYAML-6.0.3-cp312-cp312-win_amd64.whl", False),
-    ("PyYAML-6.0.3-cp311-cp311-manylinux_2_17_x86_64.whl", False),
-    ("x-1.0-cp312-abi3-win_amd64.whl", False),
+    ("x-1.0-cp313-abi3-win_amd64.whl", True),
+    ("x-1.0-py313-none-any.whl", True),
+    ("PyYAML-6.0.3-cp311-cp311-win_amd64.whl", False),
+    ("pyyaml-6.0.3-cp313-cp313-win32.whl", False),
+    ("pyyaml-6.0.3-cp313-cp313-win_arm64.whl", False),
+    ("pyyaml-6.0.3-cp314-cp314-win_amd64.whl", False),
+    ("pydantic_core-2.50.1-cp313-cp313t-win_amd64.whl", False),
+    ("pyyaml-6.0.3-cp313-cp313-manylinux_2_17_x86_64.whl", False),
+    ("x-1.0-cp314-abi3-win_amd64.whl", False),
+    ("x-1.0-py2-none-any.whl", False),
     ("PyYAML-6.0.3.tar.gz", False),
 ])
 def test_fijar_elige_la_rueda_de_windows(fichero, vale) -> None:
-    assert _fijar().vale_para_windows(fichero) is vale
+    assert _fijar().vale_para_windows(fichero, 13) is vale
 
 
-def test_fijar_rellena_solo_lo_pendiente_con_el_hash_de_pypi() -> None:
+def test_fijar_saca_el_hash_de_pypi_y_rehace_las_lineas() -> None:
     fijar = _fijar()
     meta = {"urls": [
-        {"filename": "jiter-0.17.0-cp311-cp311-win32.whl", "digests": {"sha256": "1" * 64}},
-        {"filename": "jiter-0.17.0-cp311-cp311-win_amd64.whl", "digests": {"sha256": "2" * 64}},
+        {"filename": "jiter-0.17.0-cp313-cp313-win32.whl", "digests": {"sha256": "1" * 64}},
+        {"filename": "jiter-0.17.0-cp313-cp313-win_amd64.whl", "digests": {"sha256": "2" * 64}},
+        {"filename": "jiter-0.17.0-cp311-cp311-win_amd64.whl", "digests": {"sha256": "4" * 64}},
         {"filename": "jiter-0.17.0.tar.gz", "digests": {"sha256": "3" * 64}}]}
-    assert fijar.elegir_rueda(meta, "jiter") == ("jiter-0.17.0-cp311-cp311-win_amd64.whl", "2" * 64)
+    assert fijar.elegir_rueda(meta, "jiter", 13) == ("jiter-0.17.0-cp313-cp313-win_amd64.whl",
+                                                     "2" * 64)
+    assert fijar.elegir_rueda(meta, "jiter", 11)[1] == "4" * 64
     with pytest.raises(ValueError, match="ninguna rueda"):
-        fijar.elegir_rueda({"urls": meta["urls"][::2]}, "jiter")
+        fijar.elegir_rueda({"urls": meta["urls"][::3]}, "jiter", 13)
+    retirada = {"urls": [dict(meta["urls"][1], yanked=True)]}
+    with pytest.raises(ValueError, match="ninguna rueda"):
+        fijar.elegir_rueda(retirada, "jiter", 13)
+    dos = {"urls": [meta["urls"][1], {"filename": "jiter-0.17.0-cp39-abi3-win_amd64.whl",
+                                      "digests": {"sha256": "5" * 64}}]}
+    with pytest.raises(ValueError, match="valen varias"):
+        fijar.elegir_rueda(dos, "jiter", 13)
+    # Rehacer las lineas: la vieja (con sus hashes o con un PENDIENTE) fuera; lo demas, igual.
+    texto = ("# cabecera\njiter==0.17.0  # PENDIENTE: lo que sea\nPyYAML==6.0.3 \\\n"
+             f"    --hash=sha256:{'a' * 64} \\\n    --hash=sha256:{'b' * 64}\nh11==0.16.0 \\\n"
+             f"    --hash=sha256:{'c' * 64}\n")
+    nuevo = fijar.escribir_requisitos(texto, {"jiter": ["d" * 64], "PyYAML": ["e" * 64]})
+    assert nuevo == ("# cabecera\njiter==0.17.0 \\\n"
+                     f"    --hash=sha256:{'d' * 64}\nPyYAML==6.0.3 \\\n    --hash=sha256:{'e' * 64}\n"
+                     f"h11==0.16.0 \\\n    --hash=sha256:{'c' * 64}\n")
+    assert [(r.nombre, r.hashes) for r in fijar.leer_requisitos(nuevo)] == [
+        ("jiter", ["d" * 64]), ("PyYAML", ["e" * 64]), ("h11", ["c" * 64])]
+    with pytest.raises(ValueError, match="sin un sha256"):
+        fijar.escribir_requisitos(texto, {"jiter": []})
+
+
+def test_fijar_cruza_el_paquete_con_el_sha512_de_nuget() -> None:
+    """Paso 14b: el sha256 de lo bajado solo dice que es lo que nuget.org sirve hoy; se cruza
+    con el SHA-512 que nuget.org publica de esa version en su catalogo (packageHash, en
+    base64), con el id, la version, el autor y el tamano. Si algo no cuadra, se para."""
+    fijar = _fijar()
+    contenido = b"un paquete de nuget"
+    sha512 = base64.b64encode(hashlib.sha512(contenido).digest()).decode()
+    catalogo = {"id": "python", "version": "3.13.16", "authors": "Python Software Foundation",
+                "packageHash": sha512, "packageHashAlgorithm": "SHA512",
+                "packageSize": len(contenido)}
+    assert fijar.sha512_nuget(contenido) == sha512
+    assert fijar.cruzar_con_el_catalogo(contenido, catalogo, "3.13.16") == []
+    malos = {
+        "packageHash": base64.b64encode(hashlib.sha512(b"otro").digest()).decode(),
+        "packageHashAlgorithm": "SHA256", "packageSize": 7, "version": "3.13.15",
+        "id": "pythonx86", "authors": "Alguien",
+    }
+    for clave, valor in malos.items():
+        assert fijar.cruzar_con_el_catalogo(contenido, dict(catalogo, **{clave: valor}),
+                                            "3.13.16"), clave
+    # La entrada del catalogo se encuentra por el indice de registro, con las paginas dentro
+    # o aparte (como lo sirve nuget.org para el paquete python).
+    hoja = {"catalogEntry": {"@id": "https://api.nuget.org/v3/catalog0/data/x/python.3.13.16.json",
+                             "version": "3.13.16"}}
+    otra = {"catalogEntry": {"@id": "...", "version": "3.13.15"}}
+    indice = {"items": [{"@id": "p1", "items": [otra]}, {"@id": "p2"}]}
+    assert fijar.entrada_del_registro(indice, {"p2": {"items": [hoja]}}, "3.13.16") == hoja
+    with pytest.raises(ValueError, match="no tiene la version"):
+        fijar.entrada_del_registro(indice, {"p2": {"items": []}}, "3.13.16")
+    assert fijar.url_del_paquete("3.13.16") == (
+        "https://api.nuget.org/v3-flatcontainer/python/3.13.16/python.3.13.16.nupkg")
+
+
+def test_fijar_revisa_lo_que_el_instalador_abrira(tmp_path) -> None:
+    """Paso 14b: el paquete tiene que ser un zip con el nuspec de python de la Python Software
+    Foundation y, con lo que se saca para cada papel, un solo programa (python.exe), la DLL de
+    esa version y lo necesario. Uno con otro programa, sin la DLL o con una ruta que se sale,
+    no vale."""
+    fijar = _fijar()
+    assert fijar.revisar_paquete(_nupkg(tmp_path / "bueno.nupkg"), "3.13.16") == []
+    assert fijar.revisar_paquete(_nupkg(tmp_path / "v.nupkg"), "3.13.17") == [
+        "el nuspec no dice version = 3.13.17"]
+    otro = _nupkg(tmp_path / "otro.nupkg", ENTRADAS_DEL_PAQUETE + ("tools/Scripts/pip.exe",))
+    assert any("solo python.exe" in m for m in fijar.revisar_paquete(otro, "3.13.16"))
+    sin_dll = _nupkg(tmp_path / "sin.nupkg",
+                     tuple(e for e in ENTRADAS_DEL_PAQUETE if e != "tools/python313.dll"))
+    assert "al paquete le falta tools/python313.dll" in fijar.revisar_paquete(sin_dll, "3.13.16")
+    fuera = _nupkg(tmp_path / "fuera.nupkg", ENTRADAS_DEL_PAQUETE + ("tools/../evil.py",))
+    assert any("no vale" in m for m in fijar.revisar_paquete(fuera, "3.13.16"))
+    assert fijar.revisar_paquete(b"no es un zip", "3.13.16")[0].startswith("no es un paquete")
+
+
+def test_fijar_comprobar_dice_que_falta_y_que_no_cuadra(tmp_path) -> None:
+    fijar = _fijar()
     texto = (WINDOWS / "requirements-windows.txt").read_text(encoding="utf-8")
-    pendientes = [r.nombre for r in fijar.leer_requisitos(texto) if not r.hashes]
-    nuevo = fijar.escribir_requisitos(texto, {n: "a" * 64 for n in pendientes})
-    requisitos = fijar.leer_requisitos(nuevo)
-    assert all(r.hashes for r in requisitos)
-    antes = {r.nombre: r.hashes for r in fijar.leer_requisitos(texto) if r.hashes}
-    assert {r.nombre: r.hashes for r in requisitos if r.nombre in antes} == antes
-    assert fijar.pendientes(requisitos, {"python": {"sha256": "b" * 64}}) == []
-    assert fijar.pendientes(requisitos, {"python": {"sha256": ""}}) == ["python-embebible"]
+    docker = fijar.leer_requisitos((RAIZ / "docker" / "requirements.txt").read_text("utf-8"))
+    fijado = json.loads((WINDOWS / "fijado.json").read_text(encoding="utf-8"))
+    requisitos = fijar.leer_requisitos(texto)
+    assert fijar.problemas(requisitos, docker, fijado) == []
+    # Sin un hash, otra version que Docker, una de mas o de menos.
+    sin = fijar.leer_requisitos(texto.replace(
+        "jiter==0.17.0 \\\n    --hash=sha256:", "jiter==0.17.0\n    # --hash=sha256:"))
+    assert "jiter: sin sha256" in fijar.problemas(sin, docker, fijado)
+    otra = fijar.leer_requisitos(texto.replace("idna==3.20", "idna==3.21"))
+    assert "idna: 3.21 en Windows y 3.20 en Docker" in fijar.problemas(otra, docker, fijado)
+    assert any("no en requirements-windows" in m
+               for m in fijar.problemas(requisitos[1:], docker, fijado))
+    de_mas = requisitos + [fijar.Requisito("otra", "1.0", ["f" * 64])]
+    assert any("otra: esta en requirements-windows" in m
+               for m in fijar.problemas(de_mas, docker, fijado))
+    # El Python: cada campo que falta o no es de nuget.org.
+    for clave, valor in {"sha256": "", "sha512": "corto", "url": "https://www.python.org/x.zip",
+                         "origen": "python.org", "fichero": "python-3.13.16-embed-amd64.zip",
+                         "catalogo": "", "firmante": "Otro", "version": "3.14.1"}.items():
+        roto = {"python": dict(fijado["python"], **{clave: valor})}
+        assert fijar.problemas(requisitos, docker, roto), clave
+    assert fijar.problemas(requisitos, docker, {"python": {"version": "x"}}) == [
+        "python: 'x' no es una version de Python 3 (3.X.Y)"]
+    # Con los ficheros ya bajados: los que no son los fijados se dicen.
+    paquetes = tmp_path / "paquetes"
+    paquetes.mkdir()
+    (paquetes / fijado["python"]["fichero"]).write_bytes(b"otro paquete")
+    malos = fijar.problemas_de_los_paquetes(paquetes, requisitos, fijado)
+    assert "python.3.13.16.nupkg: su sha256 no es el fijado" in malos
+    assert "python.3.13.16.nupkg: su SHA-512 no es el de nuget.org" in malos
+    assert "anthropic: no hay ninguna rueda con su sha256 en " + str(paquetes) in malos
+
+
+def test_fijar_comprobar_sale_con_0_con_lo_que_hay_en_el_repositorio(capsys) -> None:
+    """La puerta del paso 14b: windows/fijado.json y windows/requirements-windows.txt estan
+    completos. Por main y como lo corre quien mantiene el programa (sin red)."""
+    assert _fijar().main(["--comprobar"]) == 0
+    assert capsys.readouterr().out.strip() == "Todo fijado."
+    proceso = subprocess.run([sys.executable, str(RAIZ / "scripts" / "fijar_windows.py"),
+                              "--comprobar"], capture_output=True, text=True, timeout=60)
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    assert proceso.stdout.strip() == "Todo fijado."
+
+
+def _paquetes_bajados() -> Path | None:
+    """La carpeta con lo bajado de verdad (el paquete de nuget.org y las ruedas), si la hay:
+    BMS_PAQUETES_WINDOWS o windows/paquetes (la que usa el instalador sin internet)."""
+    for carpeta in (os.environ.get("BMS_PAQUETES_WINDOWS"), WINDOWS / "paquetes"):
+        if carpeta and Path(carpeta).is_dir():
+            return Path(carpeta)
+    return None
+
+
+def test_lo_bajado_de_verdad_es_lo_fijado() -> None:
+    """Con el paquete de nuget.org y las ruedas bajados (no van en git): su sha256 y su SHA-512
+    son los fijados, y el paquete de verdad es uno que el instalador sabe abrir, con un solo
+    programa por papel."""
+    carpeta = _paquetes_bajados()
+    if carpeta is None:
+        pytest.skip("sin lo bajado (BMS_PAQUETES_WINDOWS o windows/paquetes)")
+    fijar = _fijar()
+    fijado = json.loads((WINDOWS / "fijado.json").read_text(encoding="utf-8"))
+    requisitos = fijar.leer_requisitos(
+        (WINDOWS / "requirements-windows.txt").read_text(encoding="utf-8"))
+    assert fijar.problemas_de_los_paquetes(carpeta, requisitos, fijado) == []
+    import zipfile
+
+    with zipfile.ZipFile(carpeta / fijado["python"]["fichero"]) as paquete:
+        destinos = {d for d in map(nativo.destino_en_runtime, paquete.namelist()) if d}
+    assert [d for d in destinos if d.lower().endswith(".exe")] == ["python.exe"]
+    assert {nativo.DLL_PYTHON, "Lib/os.py", "DLLs/_socket.pyd"} <= destinos
+    assert not any(d.lower().startswith(("lib/site-packages/", "lib/venv/", "include/"))
+                   for d in destinos)
 
 
 # ============================================================ con PowerShell de verdad
@@ -1662,16 +2051,18 @@ $todo["errores"] = $errores
 function Fallar([string]$Texto) { throw $Texto }
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Base "windows/instalar.ps1"), [ref]$null, [ref]$null)
 foreach ($f in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
-    if ($f.Name -in @("Leer-Requisitos", "Escribir-Pth", "Descargar-Verificado")) {
+    if ($f.Name -in @("Leer-Requisitos", "Escribir-Pth", "Descargar-Verificado", "Destino-En-Runtime", "Comprobar-Runtime", "Abrir-Python")) {
         . ([scriptblock]::Create($f.Extent.Text.Replace('$PSScriptRoot', '$Scripts')))
     }
 }
 $Scripts = Join-Path $Base "windows"
 try { Leer-Requisitos | Out-Null; $todo["pendientes"] = "" } catch { $todo["pendientes"] = $_.Exception.Message }
-$Scripts = Join-Path $Base "completo"
+$Scripts = Join-Path $Base "incompleto"
+try { Leer-Requisitos | Out-Null; $todo["incompleto"] = "" } catch { $todo["incompleto"] = $_.Exception.Message }
+$Scripts = Join-Path $Base "windows"
 $todo["requisitos"] = @(Leer-Requisitos | ForEach-Object { [ordered]@{ nombre = $_.Nombre; version = $_.Version; hashes = @($_.Hashes) } })
 Escribir-Pth (Join-Path $Base "pth")
-$todo["pth"] = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $Base "pth/python311._pth")))
+$todo["pth"] = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes((Join-Path $Base "pth/python313._pth")))
 $Scripts = Join-Path $Base "completo"
 $destino = Join-Path $Base "bajado.bin"
 Descargar-Verificado "https://nunca.invalid/x" $BuenHash $destino
@@ -1681,6 +2072,25 @@ Copy-Item (Join-Path $Base "completo/paquetes/bajado.bin") (Join-Path $Base "com
 try { Descargar-Verificado "https://nunca.invalid/x" ("0" * 64) $destino2; $todo["malo"] = "siguio" } catch { $todo["malo"] = $_.Exception.Message }
 $todo["malo_borrado"] = -not (Test-Path $destino2)
 try { Descargar-Verificado "http://inseguro.invalid/x" ("0" * 64) (Join-Path $Base "nada.bin"); $todo["http"] = "siguio" } catch { $todo["http"] = $_.Exception.Message }
+# El paquete de NuGet: lo que sale para cada papel, y lo que no se abre.
+function Ficheros-De([string]$Carpeta) {
+    $raiz = [System.IO.Path]::GetFullPath($Carpeta)
+    return @(Get-ChildItem -Recurse -File -Force -LiteralPath $raiz | ForEach-Object { $_.FullName.Substring($raiz.Length + 1).Replace("\", "/") } | Sort-Object)
+}
+# Una lista y no un diccionario: los de PowerShell no distinguen mayusculas.
+$destinos = @()
+foreach ($entrada in (Get-Content -LiteralPath (Join-Path $Base "nupkg/entradas.txt"))) {
+    try { $d = Destino-En-Runtime $entrada } catch { $d = "FALLA: " + $_.Exception.Message }
+    $destinos += [ordered]@{ entrada = $entrada; destino = $d }
+}
+$todo["destinos"] = $destinos
+foreach ($nombre in @("bueno", "otro", "fuera", "sin_dll", "real")) {
+    $paquete = Join-Path $Base ("nupkg/" + $nombre + ".nupkg")
+    if (-not (Test-Path -LiteralPath $paquete)) { continue }
+    $carpeta = Join-Path $Base ("abierto/" + $nombre)
+    try { Abrir-Python $paquete $carpeta; $todo["abierto_" + $nombre] = @(Ficheros-De $carpeta) } catch { $todo["abierto_" + $nombre] = "FALLA: " + $_.Exception.Message }
+    $todo["fuera_de_" + $nombre] = (Test-Path -LiteralPath (Join-Path $Base "abierto/evil.py"))
+}
 $todo["reglas"] = @(Reglas-Del-Cortafuegos $Base | ForEach-Object { [ordered]@{ nombre = $_.Nombre; programa = $_.Programa; direccion = $_.Direccion; accion = $_.Accion; protocolo = $_.Protocolo; puertos = @($_.Puertos) } })
 $todo["comillas"] = Linea-De-Argumentos @("-m", "C:\Mis datos\BMS", 'di "hola"', "")
 $todo["si"] = @(@("si", "S", " si ", ("s" + [char]0x00ED), "no", "") | ForEach-Object { Es-Si $_ })
@@ -1688,6 +2098,19 @@ $todo["credencial"] = Nueva-Credencial
 $todo["buzon"] = @((Carpetas-Del-Buzon).Keys)
 $todo | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Base "resultado.json") -Encoding ascii
 """
+
+# Lo que Destino-En-Runtime tiene que decir igual que nativo.destino_en_runtime.
+ENTRADAS_A_COMPARAR = ENTRADAS_DEL_PAQUETE + (
+    "tools/PythonW.exe", "tools/Lib/Site-Packages/x.py", "TOOLS/Lib/os.py", "tools/", "tools",
+    "tools/../python.exe", "/tools/python.exe", "tools/Lib//os.py", "tools/./python.exe",
+    "C:/tools/python.exe", "tools\\Lib\\os.py")
+
+
+def _destino_o_falla(entrada: str) -> str | None:
+    try:
+        return nativo.destino_en_runtime(entrada)
+    except nativo.PaqueteNoValido:
+        return "FALLA"
 
 
 @pytest.fixture(scope="module")
@@ -1697,55 +2120,101 @@ def con_pwsh(tmp_path_factory):
     if orden is None:
         pytest.skip("sin pwsh (o BMS_PROBAR_PWSH=1 con Docker y la imagen de PowerShell)")
     comando, base = orden
-    shutil.copytree(WINDOWS, carpeta / "windows")
+    shutil.copytree(WINDOWS, carpeta / "windows", ignore=shutil.ignore_patterns("paquetes"))
     completo = carpeta / "completo"
     (completo / "paquetes").mkdir(parents=True)
     texto = (WINDOWS / "requirements-windows.txt").read_text(encoding="utf-8")
     fijar = _fijar()
-    falta = [r.nombre for r in fijar.leer_requisitos(texto) if not r.hashes]
-    (completo / "requirements-windows.txt").write_text(
-        fijar.escribir_requisitos(texto, {n: "d" * 64 for n in falta}), encoding="utf-8")
+    # Uno al que le faltan los hashes de jiter: el instalador no sigue.
+    (carpeta / "incompleto").mkdir()
+    (carpeta / "incompleto" / "requirements-windows.txt").write_text(
+        re.sub(r"(?m)^(jiter==\S+) \\\n    --hash=sha256:[0-9a-f]{64}\n", r"\1\n", texto),
+        encoding="utf-8")
     contenido = b"un fichero bajado"
     (completo / "paquetes" / "bajado.bin").write_bytes(contenido)
     (carpeta / "pth").mkdir()
+    nupkg = carpeta / "nupkg"
+    nupkg.mkdir()
+    (nupkg / "entradas.txt").write_text("\n".join(ENTRADAS_A_COMPARAR) + "\n", encoding="ascii")
+    _nupkg(nupkg / "bueno.nupkg")
+    _nupkg(nupkg / "otro.nupkg", ENTRADAS_DEL_PAQUETE + ("tools/Scripts/pip.exe",))
+    _nupkg(nupkg / "fuera.nupkg", ENTRADAS_DEL_PAQUETE + ("tools/../../evil.py",))
+    _nupkg(nupkg / "sin_dll.nupkg",
+           tuple(e for e in ENTRADAS_DEL_PAQUETE if e != "tools/python313.dll"))
+    real = None
+    bajados = _paquetes_bajados()
+    if bajados is not None:
+        fichero = json.loads((WINDOWS / "fijado.json").read_text(encoding="utf-8"))["python"]["fichero"]
+        if (bajados / fichero).is_file():
+            real = bajados / fichero
+            shutil.copyfile(real, nupkg / "real.nupkg")
     guion = (f'$Base = "{base}"\n$BuenHash = "{hashlib.sha256(contenido).hexdigest()}"\n'
              + PRUEBA_PWSH)
     (carpeta / "prueba.ps1").write_text(guion, encoding="ascii")
     proceso = subprocess.run([*comando, "-NoProfile", "-File", f"{base}/prueba.ps1"],
-                             capture_output=True, text=True, timeout=300)
+                             capture_output=True, text=True, timeout=600)
     assert proceso.returncode == 0, proceso.stdout + proceso.stderr
-    return json.loads((carpeta / "resultado.json").read_text(encoding="ascii")), fijar, texto
+    return (json.loads((carpeta / "resultado.json").read_text(encoding="ascii")), fijar, texto,
+            real)
 
 
 def test_pwsh_cada_script_pasa_el_analizador(con_pwsh) -> None:
-    resultado, _f, _t = con_pwsh
+    resultado = con_pwsh[0]
     assert set(resultado["errores"]) == {f"{n}.ps1" for n in SCRIPTS} | {"comun.ps1"}
     assert {n: e for n, e in resultado["errores"].items() if e} == {}
 
 
 def test_pwsh_el_instalador_lee_los_hashes_como_pip_y_no_sigue_sin_ellos(con_pwsh) -> None:
-    resultado, fijar, texto = con_pwsh
-    pendientes = [r.nombre for r in fijar.leer_requisitos(texto) if not r.hashes]
-    if pendientes:
-        assert resultado["pendientes"].startswith("Faltan los sha256 de " + ", ".join(pendientes))
-    else:
-        assert resultado["pendientes"] == ""
-    completo = fijar.leer_requisitos(fijar.escribir_requisitos(
-        texto, {n: "d" * 64 for n in pendientes}))
+    resultado, fijar, texto, _real = con_pwsh
+    # Paso 14b: con lo del repositorio sigue (nada pendiente); sin los de jiter, no.
+    assert resultado["pendientes"] == ""
+    assert resultado["incompleto"].startswith("Faltan los sha256 de jiter en ")
     assert [(r["nombre"], r["version"], r["hashes"]) for r in resultado["requisitos"]] == [
-        (r.nombre, r.version, r.hashes) for r in completo]
+        (r.nombre, r.version, r.hashes) for r in fijar.leer_requisitos(texto)]
 
 
 def test_pwsh_el_pth_y_las_descargas_comprobadas(con_pwsh) -> None:
-    resultado, _f, _t = con_pwsh
+    resultado = con_pwsh[0]
     assert base64.b64decode(resultado["pth"]) == nativo.contenido_pth().encode("ascii")
     assert resultado["bueno"] is True
     assert "no es lo fijado" in resultado["malo"] and resultado["malo_borrado"] is True
     assert "Solo se descarga por https" in resultado["http"]
 
 
+def test_pwsh_el_paquete_de_nuget_se_abre_como_dice_nativo(con_pwsh) -> None:
+    """Paso 14b: Destino-En-Runtime dice lo mismo que nativo.destino_en_runtime, entrada a
+    entrada; Abrir-Python deja en la carpeta exactamente eso, para con otro programa, sin la
+    DLL o con una ruta que se sale (sin dejar nada fuera)."""
+    resultado = con_pwsh[0]
+    de_powershell = [(f["entrada"], "FALLA" if str(f["destino"]).startswith("FALLA")
+                      else f["destino"]) for f in resultado["destinos"]]
+    assert de_powershell == [(e, _destino_o_falla(e)) for e in ENTRADAS_A_COMPARAR]
+    assert set(resultado["abierto_bueno"]) == EN_CADA_PAPEL
+    assert "un solo programa, python.exe" in resultado["abierto_otro"]
+    assert "Scripts/pip.exe" in resultado["abierto_otro"].replace("\\", "/")
+    assert "no vale" in resultado["abierto_fuera"] and resultado["fuera_de_fuera"] is False
+    assert "le falta python313.dll" in resultado["abierto_sin_dll"]
+
+
+def test_pwsh_el_paquete_de_verdad_deja_un_solo_programa(con_pwsh) -> None:
+    """Con el paquete de nuget.org bajado (BMS_PAQUETES_WINDOWS o windows/paquetes): lo que
+    abre el instalador es lo que dice nativo, con un solo programa y lo necesario."""
+    resultado, _f, _t, real = con_pwsh
+    if real is None:
+        pytest.skip("sin el paquete de nuget.org bajado (BMS_PAQUETES_WINDOWS o windows/paquetes)")
+    import zipfile
+
+    with zipfile.ZipFile(real) as paquete:
+        esperado = {d for d in map(nativo.destino_en_runtime, paquete.namelist()) if d}
+    abierto = resultado["abierto_real"]
+    assert isinstance(abierto, list), abierto
+    assert set(abierto) == esperado
+    assert [f for f in abierto if f.lower().endswith(".exe")] == ["python.exe"]
+    assert set(nativo.NECESARIOS_DEL_RUNTIME) <= set(abierto)
+
+
 def test_pwsh_las_reglas_y_lo_demas_de_comun(con_pwsh) -> None:
-    resultado, _f, _t = con_pwsh
+    resultado = con_pwsh[0]
     reglas = resultado["reglas"]
     assert all(r["nombre"].startswith("BMS Finanzas - ") for r in reglas)
     por_rol = {}
