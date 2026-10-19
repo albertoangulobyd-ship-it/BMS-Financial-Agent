@@ -161,7 +161,7 @@ def test_lo_que_no_esta_en_la_lista_blanca_es_un_404(tmp_path, ruta) -> None:
         return
     assert estado == 404, ruta
     assert cabeceras["content-type"].startswith("application/json")
-    assert json.loads(datos) == {"error": "no existe"}
+    assert json.loads(datos) == {"error": "no existe", "codigo": "no_existe"}
 
 
 def test_la_lista_blanca_son_los_ficheros_que_hay_y_nada_mas(tmp_path) -> None:
@@ -317,11 +317,11 @@ def test_lo_construido_es_lo_que_apunta_fuente_json() -> None:
     hay = {f.relative_to(WEB).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
            for f in WEB.rglob("*") if f.is_file() and f.name != "fuente.json"}
     assert hay == fuente["salida"]
-    # Los catalogos de textos que importe la app, cuando esten, entran en la huella.
-    textos = RAIZ / "src" / "bms_agent" / "textos"
+    # Los catalogos de textos que importa la app entran en la huella, y el sustituto
+    # provisional de la base ya no esta.
     for catalogo in ("nl.json", "en.json"):
-        if (textos / catalogo).exists() and "domain/placeholder" not in json.dumps(fuente["entradas"]):
-            assert f"src/bms_agent/textos/{catalogo}" in fuente["entradas"]
+        assert f"src/bms_agent/textos/{catalogo}" in fuente["entradas"]
+    assert "domain/placeholder" not in json.dumps(fuente["entradas"])
 
 
 def test_la_huella_cubre_las_fuentes_y_los_crlf_no_la_cambian(tmp_path) -> None:
@@ -396,6 +396,47 @@ def test_el_frontend_no_lleva_ninguna_direccion_de_fuera() -> None:
     for fichero in [*_fuentes_del_frontend(), FRONTEND / "index.html", FRONTEND / "src" / "index.css"]:
         texto = fichero.read_text(encoding="utf-8")
         assert not re.search(r"https?://(?!127\.0\.0\.1|localhost)", texto), fichero
+
+
+# ------------------------------------------------------------ las ordenes de la app
+
+def _ordenes_usadas() -> set[str]:
+    """Cada orden que manda una pantalla (action='...' en un ActionButton o ActionDialog)."""
+    usadas = set()
+    for fichero in _fuentes_del_frontend():
+        usadas |= set(re.findall(r"\baction='([a-z_]+)'", fichero.read_text(encoding="utf-8")))
+    return usadas
+
+
+def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> None:
+    from bms_agent import servicios
+
+    usadas = _ordenes_usadas()
+    assert {"anular_hallazgo", "marcar_revisada", "verificar_iban", "resolver_excepcion"} <= usadas
+    assert usadas <= set(servicios.ACCIONES), usadas - set(servicios.ACCIONES)
+    # Pagar, aprobar un pago, presentar el btw o crear una factura no existen en
+    # servicios.py, y la app no los nombra (marcar_pagada apunta lo pagado fuera: tampoco
+    # es una orden de estas pantallas).
+    for prohibida in ("pagar", "aprobar", "presentar", "crear_factura", "marcar_pagada",
+                      "btw_anotar_presentacion"):
+        assert not any(prohibida in u for u in usadas), prohibida
+
+
+def test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios() -> None:
+    """La app ensena un boton solo con su permiso (lib/actions.ts): la tabla dice lo mismo
+    que servicios.ACCIONES, y cada orden que manda una pantalla esta en ella."""
+    from bms_agent import servicios
+
+    texto = (FRONTEND / "src" / "lib" / "actions.ts").read_text(encoding="utf-8")
+    bloque = texto[texto.index("ACTION_PERMISSION = {"):texto.index("} as const")]
+    pares = dict(re.findall(r"(\w+): '(\w+)'", bloque))
+    assert len(pares) >= 15
+    for accion, permiso in pares.items():
+        assert servicios.ACCIONES[accion].permiso == permiso, accion
+    # Las de campos dependen del campo (permiso None): se deciden en el servidor.
+    for accion in ("fijar_campo", "verificar_campo", "revertir_campo"):
+        assert servicios.ACCIONES[accion].permiso is None
+    assert _ordenes_usadas() <= set(pares) | {"fijar_campo", "verificar_campo", "revertir_campo"}
 
 
 # ------------------------------------------------------------ los lanzadores abren /app

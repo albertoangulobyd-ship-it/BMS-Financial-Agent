@@ -18,7 +18,7 @@ export function countsFromPanel(panel: Panel): BadgeCounts {
   };
 }
 
-export function useBadgeCounts(session: Session | null): [BadgeCounts, () => void] {
+export function useBadgeCounts(session: Session | null, version = 0): [BadgeCounts, () => void] {
   const [counts, setCounts] = useState<BadgeCounts>({});
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -31,7 +31,7 @@ export function useBadgeCounts(session: Session | null): [BadgeCounts, () => voi
     return () => {
       alive = false;
     };
-  }, [session, attempt]);
+  }, [session, attempt, version]);
   const refresh = useCallback(() => setAttempt((n) => n + 1), []);
   return [counts, refresh];
 }

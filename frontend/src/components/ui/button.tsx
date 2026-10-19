@@ -22,6 +22,9 @@ const buttonVariants = cva(
       size: {
         default: "h-10 px-4 py-2",
         sm: "h-9 rounded-md px-3",
+        // Paso 15: para las acciones dentro de una tabla (Wijzigen, Verifieren): bajas, sin
+        // relleno lateral, que no hagan la fila mas alta.
+        xs: "h-7 rounded-sm px-0 text-[13px]",
         lg: "h-11 rounded-md px-8",
         icon: "h-10 w-10",
       },

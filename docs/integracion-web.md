@@ -304,7 +304,9 @@ no conoce.
   `id`, `regla`, `severidad`, `estado`, `resultado` y `valores`;
 - la **ficha** de una factura lleva `reglas_sin_datos`: las reglas que no
   pudieron mirarla (`regla`, `clave`, `resultado` `"sin_datos"`, `detalle` y
-  `valores`).
+  `valores`);
+- cada **respuesta de error** lleva, junto a su frase en español (`error`), un
+  `codigo` estable (abajo, «Los errores»).
 
 Con eso la app de la oficina (`/app`) escribe en neerlandés o en inglés el
 detalle de cada hallazgo y el «por qué» de cada fila, con las plantillas de
@@ -544,6 +546,56 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/cuentas` | El registro de cuentas de los proveedores (IBAN enmascarados si se pide desde otro origen) | — |
 | `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
 | `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
+
+### Los errores (`error` y `codigo`)
+
+Toda respuesta de error de `/api/v2` (y de la puerta que comparten todas las
+rutas: el `Host`, el `Origin`, el cuerpo de un `POST`) es un objeto JSON con
+dos claves, más `tipo` en las órdenes:
+
+```
+{"error": "la factura 12 cambio desde que se cargo: vuelve a mirarla",   // español, para la CLI y la auditoría
+ "codigo": "conflicto",                                                  // estable: de él sale el texto del sitio
+ "tipo": "Conflicto"}                                                    // solo en POST /api/v2/acciones
+```
+
+`error` puede cambiar de redacción en cualquier versión; **`codigo` no**: un
+sitio decide qué decir (y en qué idioma) por el `codigo`. La app de la oficina
+escribe el texto neerlandés o inglés de cada uno desde los catálogos
+(`src/bms_agent/textos/nl.json` y `en.json`, apartado `errores`) y enseña la
+frase en español solo dentro de un desplegable «Technische details». Un
+código nuevo se añade (2.x → 2.(x+1)); uno que existe no cambia de
+significado. La lista la da `servicios.CODIGOS_ERROR`, y el test
+(`tests/test_codigos_error.py`) comprueba que cada uno tiene su texto en los
+dos idiomas y que cada error que escribe `serve.py` lleva el suyo.
+
+| `codigo` | HTTP | Cuándo |
+| --- | --- | --- |
+| `no_autenticado` | 401 | Sin token personal, o uno que no vale (y el `403` de `/api/ejecutar` sin el token del servidor) |
+| `sin_permiso` | 403 | La persona no tiene el permiso de la lectura o de la orden |
+| `segunda_persona` | 403 | La regla de las dos personas: lo hace o lo firma otra persona (quien cambió algo no lo revisa ni lo verifica él mismo, una anulación que pide segunda firma, nadie firma la suya) |
+| `otro_origen` | 403 | Una orden o una descarga desde un sitio declarado con `--origen`: solo desde `/app` o `/consola` |
+| `origen_no_permitido` | 403 | Un `Origin` que no está en la lista |
+| `host_no_permitido` | 421 | Un `Host` que no es `127.0.0.1:<puerto>` ni `localhost:<puerto>` |
+| `no_existe` | 404 | La ruta, la factura, la fila o la persona no existen |
+| `conflicto` | 409 | La fila cambió desde que se leyó (su `rev`, o la huella de la factura o del hallazgo): hay que volver a cargarla |
+| `peticion_repetida` | 409 | El mismo `peticion_id` llega con otra orden o de otra persona |
+| `no_anulable` | 409 | La regla de ese hallazgo no se puede anular: se corrige el dato o se resuelve el caso |
+| `no_revisable` | 409 | La factura tiene algo pendiente que pide revisión |
+| `bloqueo_abierto` | 409 | Un hallazgo que bloquea sigue abierto: la excepción no se resuelve |
+| `estado_no_valido` | 409 | La orden no tiene sentido en el estado en que está (el hallazgo, la excepción, el trimestre, el pago, la prioridad) o la base no la admite |
+| `campo_no_editable` | 409 | El campo lo pone el sistema |
+| `campo_de_otro_sistema` | 409 | El campo es de Exact o de TRNSPRNT: se corrige allí |
+| `falta_motivo` | 400 | La orden pide un motivo (anular un hallazgo, de al menos 10 caracteres) |
+| `iban_no_valido` | 400 | El IBAN no pasa el dígito de control |
+| `orden_desconocida` | 400 | No hay ninguna orden con ese nombre |
+| `invalido` | 400 | Un parámetro, un filtro o un dato que no se entiende, o un cuerpo que no es `{accion, peticion_id, datos}` |
+| `tipo_no_admitido` | 415 | El cuerpo no es `application/json` |
+| `demasiado_grande` | 413 | El cuerpo pasa del límite |
+
+Un fallo de verdad del servidor (un `500`) no es un error de la orden y no
+lleva código: la orden no se aplica (va entera o nada) y la app dice «Er ging
+iets mis».
 
 ### La búsqueda (`GET /api/v2/buscar`)
 

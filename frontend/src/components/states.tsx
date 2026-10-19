@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react';
 import { CircleAlert, Inbox, LoaderCircle, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useT, type Messages } from '@/i18n';
+import { useT, type Lang, type Messages } from '@/i18n';
+import { errorText } from '@/i18n/domain';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -38,9 +39,13 @@ export function EmptyState({
   );
 }
 
-/** El texto de un error de la API en el idioma de la app (el del servidor no se ensena). */
-export function errorMessage(error: unknown, t: Messages): string {
+/** El texto de un error de la API en el idioma de la app: el de su codigo estable
+ *  (catalogo de textos, "errores") y, si no trae uno conocido, el de su clase. La frase del
+ *  servidor (en castellano) no va aqui: va en TechnicalDetail. */
+export function errorMessage(error: unknown, t: Messages, lang: Lang): string {
   if (!(error instanceof ApiError)) return t.errors.unexpected;
+  const known = errorText(lang, error.code);
+  if (known) return known;
   switch (error.kind) {
     case 'unauthorized':
       return t.errors.unauthorized;
@@ -63,8 +68,24 @@ export function errorMessage(error: unknown, t: Messages): string {
   }
 }
 
-export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+/** La frase del servidor, en castellano, para quien da soporte: plegada y en pequeno. */
+export function TechnicalDetail({ error }: { error: unknown }) {
   const { t } = useT();
+  if (!(error instanceof ApiError) || (!error.detail && !error.code)) return null;
+  return (
+    <details className='text-xs text-muted-foreground'>
+      <summary className='cursor-pointer select-none rounded-sm'>{t.errors.technical}</summary>
+      <p className='mt-1 font-mono break-words'>
+        {error.status ? `${error.status} ` : ''}
+        {error.code ? `${error.code}: ` : ''}
+        {error.detail ?? ''}
+      </p>
+    </details>
+  );
+}
+
+export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { t, lang } = useT();
   const stale = error instanceof ApiError && error.kind === 'stale';
   return (
     <div role='alert' className='flex flex-col items-start gap-3 rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-5 py-4'>
@@ -72,7 +93,8 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
         <CircleAlert className='h-4 w-4' aria-hidden='true' />
         <span>{t.errors.title}</span>
       </div>
-      <p className='text-[#4a2205]'>{errorMessage(error, t)}</p>
+      <p className='text-[#4a2205]'>{errorMessage(error, t, lang)}</p>
+      <TechnicalDetail error={error} />
       {onRetry && (
         <Button variant='outline' size='sm' onClick={onRetry}>
           {stale ? t.common.reload : t.common.retry}

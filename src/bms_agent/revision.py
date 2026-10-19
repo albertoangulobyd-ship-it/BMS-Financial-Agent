@@ -69,6 +69,8 @@ ETIQUETA_LIMPIA = "Sin objeciones del sistema"
 class NoRevisable(ValueError):
     """La factura tiene algo pendiente que pide revision: se arregla antes de darla por revisada."""
 
+    codigo = "no_revisable"
+
 
 def _filas(conn: sqlite3.Connection, sql: str, parametros: Sequence[Any] = ()) -> list[tuple]:
     cursor = conn.cursor()

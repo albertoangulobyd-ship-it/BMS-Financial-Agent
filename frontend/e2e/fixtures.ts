@@ -70,14 +70,16 @@ export const test = base.extend<{ watch: Watch; baseUrl: string }>({
 
 export { expect };
 
-export function token(who: 'ana' | 'bram' = 'ana'): string {
-  const value = who === 'ana' ? process.env.BMS_E2E_TOKEN_ANA : process.env.BMS_E2E_TOKEN_BRAM;
+export type Who = 'ana' | 'bram' | 'cas';
+
+export function token(who: Who = 'ana'): string {
+  const value = { ana: process.env.BMS_E2E_TOKEN_ANA, bram: process.env.BMS_E2E_TOKEN_BRAM, cas: process.env.BMS_E2E_TOKEN_CAS }[who];
   if (!value) throw new Error('faltan los tokens de prueba (e2e/global-setup.ts)');
   return value;
 }
 
 /** Entra con el token de una persona de prueba y espera al marco con las pestanas. */
-export async function login(page: Page, who: 'ana' | 'bram' = 'ana'): Promise<void> {
+export async function login(page: Page, who: Who = 'ana'): Promise<void> {
   await page.locator('#token').fill(token(who));
   await page.locator('form button[type="submit"]').click();
   await expect(page.getByRole('tablist')).toBeVisible();

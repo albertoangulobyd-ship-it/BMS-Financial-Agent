@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { fmt, useT } from '@/i18n';
 import { formatDateLong, todayIso } from '@/lib/format';
+import { RefreshProvider, useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
 import { loadTabs, personKey, saveTabs } from '@/lib/storage';
 import { NAV, RECORDS, DEFAULT_SCREEN, isRecordId, isValidRoute } from '@/screens/registry';
@@ -31,10 +32,21 @@ function Logo() {
 }
 
 export function AppShell() {
+  // Una orden hecha en cualquier pantalla sube la version: las cuentas de la navegacion,
+  // las listas y la ficha se vuelven a leer.
+  return (
+    <RefreshProvider>
+      <Shell />
+    </RefreshProvider>
+  );
+}
+
+function Shell() {
   const { t } = useT();
   const { session } = useSession();
   const can = useCan();
-  const [counts] = useBadgeCounts(session);
+  const { version } = useRefresh();
+  const [counts] = useBadgeCounts(session, version);
 
   const navItems: NavItem[] = useMemo(
     () =>

@@ -78,6 +78,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   process.env.BMS_E2E_URL = base;
   process.env.BMS_E2E_TOKEN_ANA = demo.tokens['Ana Demo'];
   process.env.BMS_E2E_TOKEN_BRAM = demo.tokens['Bram Demo'];
+  // Solo lectura (rol consulta): la anade scripts/crear_demo_e2e.py.
+  process.env.BMS_E2E_TOKEN_CAS = demo.tokens['Cas Consulta'];
 
   return async () => {
     server.kill();

@@ -74,6 +74,8 @@ PROPUESTA = EstadoAplicacion.PROPUESTA.value
 class PagoNoValido(ValueError):
     """Una orden de pago que no tiene sentido: otra moneda, un importe cero, otro sentido."""
 
+    codigo = "estado_no_valido"
+
 
 # ------------------------------------------------------------ casar (puro)
 

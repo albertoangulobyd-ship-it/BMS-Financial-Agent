@@ -10,6 +10,10 @@ JSON, una sola linea, para que un programa los lea sin interpretar texto.
 
 Solo escribe en un fichero demo.sqlite3 que no exista o que ya sea de prueba (demo.crear
 lo exige), y con --rehacer lo vuelve a hacer.
+
+Ademas de las dos personas de la base de prueba (Ana, administradora, y Bram, de
+administracion), anade una tercera, "Cas Consulta", con el rol consulta (solo mira): las
+pruebas comprueban con ella que quien solo puede leer no ve ningun boton de una orden.
 """
 
 from __future__ import annotations
@@ -18,6 +22,21 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+
+CONSULTA = "Cas Consulta"
+
+
+def _persona_de_consulta(ruta: Path) -> str:
+    """Una persona de solo lectura en la base de prueba recien hecha, y su token."""
+    from bms_agent import permisos
+    from bms_agent.almacen import preparar
+
+    with preparar(ruta) as almacen:
+        conn = almacen.conn
+        usuario = permisos.crear_usuario(conn, CONSULTA)
+        permisos.asignar_rol(conn, usuario, "consulta")
+        return permisos.emitir_token(conn, usuario)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": f"{ruta} ya existe: --rehacer para hacerla de nuevo"}),
               file=sys.stderr)
         return 2
-    print(json.dumps({"db": str(ruta), "tokens": resumen.tokens, "cifras": resumen.cifras},
+    tokens = {**resumen.tokens, CONSULTA: _persona_de_consulta(ruta)}
+    print(json.dumps({"db": str(ruta), "tokens": tokens, "cifras": resumen.cifras},
                      ensure_ascii=False))
     return 0
 

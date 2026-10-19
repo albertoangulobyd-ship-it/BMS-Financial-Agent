@@ -15,9 +15,11 @@ claro») y «Quiero que sea minimalista el panel y que sea fácil de entender».
 > sistema» nunca es «aprobado». Un IBAN se verifica como siempre, por teléfono al
 > número que ya se tenía, y lo firma una persona ([arquitectura.md](arquitectura.md)).
 
-Este documento es la primera versión, la de la **base** del paso 15: el marco, la
-entrada, la navegación, los idiomas y el servicio. Las pantallas se van llenando en las
-partes siguientes del paso (al final, «Lo que falta»).
+Este documento cubre la **base** del paso 15 (el marco, la entrada, la navegación, los
+idiomas y el servicio) y **las pantallas del trabajo diario**: Overzicht, Werklijst,
+Inkomend, Uitgaand, la ficha de una factura, Uitzonderingen e IBAN-controles, con
+datos y órdenes de verdad (§4.1). Las demás pantallas se llenan en las partes
+siguientes del paso (al final, «Lo que falta»).
 
 ---
 
@@ -87,11 +89,11 @@ una frase debajo de su título.
 | Grupo | Pantalla | Qué contesta |
 | --- | --- | --- |
 | Dagelijks · Daily | Overzicht · Overview | Qué necesita atención hoy y cómo está el dinero |
-| | Werklijst · Work queue | Todas las facturas, lo más urgente arriba |
+| | Werklijst · Work queue | Las facturas que necesitan a una persona, lo más urgente arriba |
 | | Uitzonderingen · Exceptions | Lo que alguien tiene que resolver, y quién está en ello |
 | | IBAN-controles · IBAN checks | Las cuentas que faltan por verificar por teléfono |
-| Facturen · Invoices | Inkomend · In (inkoop) | Las facturas de proveedores y zzp'ers |
-| | Uitgaand · Out (verkoop) | Las facturas de BMS a sus clientes |
+| Facturen · Invoices | Inkomend · In (inkoop) | Todas las facturas de proveedores y zzp'ers, y cómo están |
+| | Uitgaand · Out (verkoop) | Todas las facturas de BMS a sus clientes, y cómo están |
 | Relaties · Parties | Leveranciers · Providers | Proveedores: lo pendiente y lo que destaca |
 | | Klanten · Clients | Clientes: lo que deben y lo que falta facturar |
 | | Objecten · Objects | Por cada sitio de un cliente: ingresos, costes y margen |
@@ -116,14 +118,13 @@ ficha ya estaba abierta, se va a su pestaña. Las pestañas abiertas y si la bar
 lateral va plegada se guardan **por persona y por entorno**: al volver a entrar están
 como se dejaron, y las de la base de prueba nunca abren una ficha de la de verdad.
 
-En esta primera versión, Werklijst es una lista mínima (prioridad, número, relación,
-importe, vencimiento y pago) y la ficha de factura dice qué es y de quién; las demás
-pantallas enseñan su título y su frase. Instellingen ya está entera.
+Las pantallas del trabajo diario y la ficha de factura están hechas (§4.1) e
+Instellingen está entera; las demás enseñan su título y su frase.
 
 Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
 
-- El Overzicht lleva como mucho cuatro tarjetas (Aandacht nodig, Geld in, Geld uit,
-  Btw dit kwartaal) y una lista «Volgende» de cinco, y nada más.
+- El Overzicht lleva como mucho cuatro tarjetas (Aandacht nodig, Geld binnen, Geld
+  uit, Btw dit kwartaal) y una lista «Als eerste» de cinco, y nada más.
 - Una lista lleva como mucho seis columnas, las cifras a la derecha y alineadas, y una
   columna «Waarom» en palabras normales.
 - Una ficha empieza por qué es, qué está mal y qué hacer (una lista corta con los
@@ -136,6 +137,44 @@ Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
 - Las palabras del oficio (Object, PO, BTW, uitzondering) llevan un (?) que las explica.
 - Una pantalla vacía dice algo útil («Niets heeft je aandacht nodig»); una que carga o
   falla lo dice también, con un botón para reintentar.
+
+### 4.1 El trabajo diario
+
+Todo sale de `/api/v2` y cada orden es una de `servicios.ACCIONES` por
+`POST /api/v2/acciones`. Un botón solo sale si la persona tiene el permiso de esa
+orden (`frontend/src/lib/actions.ts`, que un test compara con `servicios.ACCIONES`);
+quien solo puede mirar (rol `consulta`) no ve ninguno. Cada orden abre un diálogo que
+dice en palabras normales qué va a pasar (la frase de confirmación del catálogo en lo
+que mueve dinero, BTW o el banco: «… Dit keurt geen betaling goed. Doorgaan?») y pide
+lo que hace falta (un motivo, una fecha). Después de una orden se vuelven a leer la
+ficha, las listas y las insignias del menú, sin que la pantalla salte a «Laden…».
+
+| Pantalla | Qué hay | Órdenes |
+| --- | --- | --- |
+| **Overzicht** | Cuatro tarjetas (Aandacht nodig: cuántas facturas esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas; Geld binnen y Geld uit: lo pendiente y lo vencido; Btw dit kwartaal: el saldo y el próximo plazo) y «Als eerste»: las cinco primeras de la werklijst con su prioridad, número, relación, importe y por qué. Cada tarjeta abre la pantalla que la explica | — |
+| **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura en una pestaña |
+| **Inkomend / Uitgaand** | Todas las de un sentido, con dos filtros (Betaling, Controle) y el buscador; seis columnas: Prioriteit, Factuur, Bedrag, Vervaldatum, Stand (pago y revisión, en texto) y Waarom | Una fila abre la factura |
+| **Ficha de factura** | Arriba, qué es: el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el pago, la revisión y lo que dice el sistema («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»). Después **Wat aandacht nodig heeft**: cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; descargar el original |
+| **Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va (la factura con su relación, el cliente, la PO o la importación), en qué estado está, quién la lleva y desde cuándo. Una fila abre un panel con lo que hay que saber y qué hacer | Zelf oppakken, toewijzen, wachten op anderen (a quién y hasta cuándo), oplossen (cómo acabó y qué se hizo); desde el panel, la factura |
+| **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd»), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
+
+La **regla de las dos personas** la hace cumplir el servidor, y la app enseña su
+mensaje tal cual en el diálogo («Dit moet een andere persoon doen of bevestigen…»,
+código `segunda_persona`). En la base de prueba se ve dos veces: Ana puso los
+teléfonos de los proveedores, así que no puede verificar con ellos una cuenta (lo hace
+Bram), y aceptar el número de factura repetido (B2, que bloquea) pide que otra persona
+dé antes la segunda firma.
+
+**Concurrencia.** Cada orden lleva la `rev` de la fila (o la huella de la factura o
+del hallazgo) que la persona vio. Si otra persona la cambió antes, el servidor contesta
+`409` con el código `conflicto`; el diálogo dice «Iemand anders heeft dit net
+gewijzigd. Laad opnieuw…» y ofrece **Opnieuw laden**, que vuelve a leer y no pisa nada.
+
+**Lo que no hay, a propósito.** Ningún botón crea una factura, paga, aprueba un pago o
+presenta el BTW: esas órdenes no existen (un test comprueba que la app solo manda
+órdenes de `servicios.ACCIONES` y ninguna de esas). El IBAN del documento se enseña en
+los campos («er wordt niet naar betaald») pero no se cambia ni se verifica desde ahí:
+los datos bancarios van por IBAN-controles.
 
 ## 5. Neerlandés e inglés
 
@@ -157,9 +196,18 @@ interfaz.
   `src/bms_agent/textos/nl.json` y `en.json`, que la app importa al construirse, para
   que la CLI, la auditoría y la app digan lo mismo. Lo que la API manda en castellano
   (`titulo`, `detalle`, `etiqueta`, `fuente_texto`, `nota`, `motivos`) no se enseña:
-  queda para la CLI y la auditoría. *Provisional:* mientras esos catálogos no están en
-  esta rama, `frontend/src/i18n/domain.ts` usa un sustituto mínimo
-  (`frontend/src/i18n/domain/`), marcado como tal.
+  queda para la CLI y la auditoría. Solo `frontend/src/i18n/domain.ts` los importa, y
+  los dos ficheros entran en la huella de `web/fuente.json`.
+- **El detalle de cada hallazgo se escribe desde sus `valores`** con las plantillas
+  del catálogo (el lenguaje está en `src/bms_agent/textos/LEEME.md`).
+  `frontend/src/i18n/templates.ts` es ese lenguaje en TypeScript, y
+  `templates.test.ts` comprueba que da exactamente lo mismo que la referencia en Python
+  en cada caso de `src/bms_agent/textos/casos.json` (los bordes del lenguaje y un
+  hallazgo de cada variante de cada regla), en neerlandés y en inglés.
+- **Los errores** se dicen por su `codigo` estable (`conflicto`, `falta_motivo`,
+  `segunda_persona`…, [integracion-web.md](integracion-web.md)), con el texto del
+  catálogo (`errores`); la frase del servidor en castellano solo se ve dentro del
+  desplegable «Technische details», para quien da soporte.
 - Lo que escribe una persona (notas, motivos) y lo que viene de un documento
   (descripciones de línea, referencias, nombres) se enseña tal cual, como texto.
 
@@ -194,6 +242,8 @@ Lo mismo que la consola, y algo más:
 - **Las órdenes** van solo por `POST /api/v2/acciones`, con la `rev` de la fila
   cuando la orden la pide y un `peticion_id` nuevo (repetirla no la aplica dos veces).
   Un `409` de concurrencia dice «Iemand anders heeft dit net gewijzigd. Laad opnieuw…».
+  La app solo manda órdenes que existen en `servicios.ACCIONES`, cada botón con su
+  permiso, y quien decide es siempre el servidor.
   Las descargas (el PDF original, la hoja del BTW) se piden con `fetch` y el token, y se
   guardan con un `Blob`: el token nunca va en una dirección.
 
@@ -220,12 +270,12 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 
 | Carpeta | Qué |
 | --- | --- |
-| `src/components/ui/` | Los componentes de shadcn (button, sheet, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y el componente de navegación del dueño (`sidebar-with-chrome-like-tabs.tsx`; arriba del fichero, lo que se le cambió y por qué) |
-| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `PriorityPill`, `StatusText`, `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState`, `Loading`, `HelpTip`, `Section` |
-| `src/screens/` | Las pantallas, `registry.ts` (cuáles hay, su grupo, su icono y su permiso) y `render.tsx` (qué pinta cada ruta) |
+| `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y el componente de navegación del dueño (`sidebar-with-chrome-like-tabs.tsx`; arriba del fichero, lo que se le cambió y por qué) |
+| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `PriorityPill`, `StatusText`, `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`; `ActionDialog` / `ActionButton` (toda orden pasa por ahí) y `ExceptionStatus` / `ExceptionActions` |
+| `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso) y `render.tsx` (qué pinta cada ruta) |
 | `src/shell/` | El marco: la navegación con sus insignias, el idioma, la persona, la marca de datos de prueba |
-| `src/lib/` | El cliente de la API (`api.ts`), la sesión (`session.tsx`), los formatos (`format.ts`) y lo que se guarda (`storage.ts`) |
-| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`) y el acceso a los del dominio (`domain.ts`) |
+| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
+| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`), el acceso a los del dominio (`domain.ts`) y el lenguaje de sus plantillas (`templates.ts`) |
 | `e2e/` | Las pruebas en el navegador |
 
 **Por qué los componentes de shadcn están en `src/components/ui`.** Es la ruta que usan
@@ -252,8 +302,16 @@ volver a construir. `@playwright/test` y `playwright-core` van fijados en 1.56.1
 versión del Chromium que hay instalado para las pruebas.
 
 **Las pruebas en el navegador** (`npm run e2e`) crean una base de prueba nueva en una
-carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON), arrancan
-`bms-agent serve` sobre ella en un puerto libre y entran con un token de prueba. En
+carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
+Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
+que añade el script), arrancan `bms-agent serve` sobre ella en un puerto libre y entran
+con un token de prueba. `e2e/shell.spec.ts` prueba el marco y `e2e/daily.spec.ts` las
+pantallas del trabajo diario con órdenes de verdad: los motivos de las bloqueadas en
+los dos idiomas, aceptar un hallazgo (con la segunda firma de otra persona) y resolver
+una excepción con las cuentas del menú cambiando, marcar como gecontroleerd, una `rev`
+vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos
+personas, y que quien solo mira no ve ningún botón. Van en orden y cambian la base, así
+que comprueban cambios, no cifras sueltas. En
 cada prueba: toda petición tiene que ir a `127.0.0.1` (otra se corta y la prueba falla),
 ninguna violación de la CSP, ningún error en la consola, y axe sin problemas serios ni
 críticos (WCAG 2.1 AA). Dejan una captura de cada pantalla en neerlandés y en inglés,
@@ -263,8 +321,10 @@ en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de
 
 ## 8. Lo que falta
 
-Las partes siguientes del paso 15 llenan las pantallas sobre esta base: el Overzicht,
-la Werklijst completa (con «Waarom»), la ficha de factura (qué está mal, qué hacer, los
-detalles plegados, el original), las excepciones, las verificaciones de IBAN (con el
-flujo de siempre), las relaciones, el dinero, el BTW, importar y leer, con los
-catálogos de textos de Python en vez del sustituto.
+Las partes siguientes del paso 15 llenan el resto sobre esta base: Leveranciers,
+Klanten, Objecten e Inkooporders (con sus fichas), Kasstroom, Btw, Importeren y
+Facturen lezen. En la ficha de factura quedan para la consola las órdenes menos de
+cada día (imputar una línea a otro Objeto o a una PO, dividir o añadir líneas,
+anular o fusionar una factura, enlazar dos a mano, marcar un pago, subir la prioridad).
+Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
+natural.

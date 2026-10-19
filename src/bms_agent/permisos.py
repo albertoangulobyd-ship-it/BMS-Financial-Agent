@@ -67,6 +67,10 @@ DENEGADO = "denegado"
 class PermisoDenegado(PermissionError):
     """Una persona (o un usuario de sistema) sin el permiso que pide la orden."""
 
+    # El codigo estable del error en /api/v2 (servicios.codigo_de_error): la app dice
+    # el texto en neerlandes o en ingles a partir de el, no de la frase en espanol.
+    codigo = "sin_permiso"
+
     def __init__(
         self, usuario_id: int | None, permiso: str, motivo: str, accion: str | None = None,
     ) -> None:
@@ -85,6 +89,8 @@ class SeparacionDeFunciones(PermisoDenegado):
     'denegado' (un intento de aprobarse a uno mismo tiene que verse), y quien
     captura PermisoDenegado la captura tambien.
     """
+
+    codigo = "segunda_persona"
 
 
 def _ahora(conn: sqlite3.Connection) -> str:

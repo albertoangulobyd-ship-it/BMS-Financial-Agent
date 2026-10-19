@@ -533,11 +533,13 @@ class Manejador(BaseHTTPRequestHandler):
         que la hizo no puede leer ni la respuesta de error.
         """
         if not host_permitido(self.headers.get("Host"), self.puerto):
-            self._json(421, {"error": "host no permitido"}, cors=False)
+            self._json(421, {"error": "host no permitido", "codigo": "host_no_permitido"},
+                       cors=False)
             return True
         origen = self.headers.get("Origin")
         if origen is not None and not origen_permitido(origen, self.origenes):
-            self._json(403, {"error": "origen no permitido"}, cors=False)
+            self._json(403, {"error": "origen no permitido", "codigo": "origen_no_permitido"},
+                       cors=False)
             return True
         return False
 
@@ -569,7 +571,7 @@ class Manejador(BaseHTTPRequestHandler):
         elif ruta == "/api/ejecucion":
             self._json(200, self.agente.estado)
         else:
-            self._json(404, {"error": "no existe"})
+            self._json(404, {"error": "no existe", "codigo": "no_existe"})
 
     def _pagina(self) -> None:
         """La pagina local, con el token dentro. Solo la lee el mismo origen.
@@ -608,15 +610,16 @@ class Manejador(BaseHTTPRequestHandler):
         Contesta el error y devuelve None si no lo es.
         """
         if self.headers.get_content_type() != "application/json":
-            self._json(415, {"error": "el cuerpo tiene que ser application/json"})
+            self._json(415, {"error": "el cuerpo tiene que ser application/json",
+                             "codigo": "tipo_no_admitido"})
             return None
         try:
             largo = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            self._json(400, {"error": "Content-Length no valido"})
+            self._json(400, {"error": "Content-Length no valido", "codigo": "invalido"})
             return None
         if largo < 0 or largo > maximo:
-            self._json(413, {"error": "cuerpo demasiado grande"})
+            self._json(413, {"error": "cuerpo demasiado grande", "codigo": "demasiado_grande"})
             return None
         crudo = self.rfile.read(largo) if largo else b""
         try:
@@ -625,7 +628,8 @@ class Manejador(BaseHTTPRequestHandler):
             cuerpo = None
         if not isinstance(cuerpo, dict):
             self._json(400, {"error": "el cuerpo tiene que ser un objeto JSON (sin numeros con "
-                                      "decimales: los importes van como texto)"})
+                                      "decimales: los importes van como texto)",
+                             "codigo": "invalido"})
             return None
         return cuerpo
 
@@ -638,12 +642,13 @@ class Manejador(BaseHTTPRequestHandler):
             self._accion_v2()
             return
         if ruta != "/api/ejecutar":
-            self._json(404, {"error": "no existe"})
+            self._json(404, {"error": "no existe", "codigo": "no_existe"})
             return
         if not hmac.compare_digest(
             self.headers.get(CABECERA_TOKEN, "").encode("utf-8"), self.token.encode("utf-8")
         ):
-            self._json(403, {"error": f"falta la cabecera {CABECERA_TOKEN} o no es valida"})
+            self._json(403, {"error": f"falta la cabecera {CABECERA_TOKEN} o no es valida",
+                             "codigo": "no_autenticado"})
             return
         if self._cuerpo_json(MAX_CUERPO) is None:
             return
@@ -700,7 +705,7 @@ class Manejador(BaseHTTPRequestHandler):
         """Un fichero de la lista blanca, por su nombre exacto; cualquier otra cosa, 404."""
         fichero = self.app_web.ficheros.get(ruta)
         if fichero is None:
-            self._json(404, {"error": "no existe"}, cors=False)
+            self._json(404, {"error": "no existe", "codigo": "no_existe"}, cors=False)
             return
         self._enviar_con(200, fichero.tipo, fichero.datos, app_local.cabeceras_fichero())
 
@@ -722,7 +727,8 @@ class Manejador(BaseHTTPRequestHandler):
             if token:
                 permisos.registrar_denegacion(conn, permisos.PermisoDenegado(
                     None, "ver_facturas", "token personal no valido", accion))
-            self._json(401, {"error": f"falta un token personal valido en {CABECERA_TOKEN}"})
+            self._json(401, {"error": f"falta un token personal valido en {CABECERA_TOKEN}",
+                             "codigo": "no_autenticado"})
         return usuario_id
 
     def _datos_v1(self) -> None:
@@ -745,7 +751,7 @@ class Manejador(BaseHTTPRequestHandler):
             try:
                 permisos.exigir(conn, usuario_id, "ver_facturas", accion="GET /api/datos")
             except permisos.PermisoDenegado as exc:
-                self._json(403, {"error": str(exc)})
+                self._json(403, {"error": str(exc), "codigo": servicios.codigo_de_error(exc)})
                 return
         lectura = leer_registros(self.carpeta_salida, self.ruta_db or ruta_por_defecto())
         cuerpo = construir_datos(lectura.registros)
@@ -765,7 +771,7 @@ class Manejador(BaseHTTPRequestHandler):
             try:
                 permisos.exigir(conn, usuario_id, "ver_facturas", accion=f"GET {ruta}")
             except permisos.PermisoDenegado as exc:
-                self._json(403, {"error": str(exc)})
+                self._json(403, {"error": str(exc), "codigo": servicios.codigo_de_error(exc)})
                 return
             partes = ruta.split("/")[3:]
             try:
@@ -817,7 +823,7 @@ class Manejador(BaseHTTPRequestHandler):
                     try:
                         ano, numero = btw.leer_etiqueta(partes[1])
                     except ValueError as exc:
-                        self._json(404, {"error": str(exc)})
+                        self._json(404, {"error": str(exc), "codigo": "no_existe"})
                         return
                     if partes[2:] == ["hoja"]:
                         hoja = btw.hoja(conn, ano, numero)
@@ -833,12 +839,12 @@ class Manejador(BaseHTTPRequestHandler):
                              for p in a.parametros]}
                         for a in servicios.ACCIONES.values()]})
                 else:
-                    self._json(404, {"error": "no existe"})
+                    self._json(404, {"error": "no existe", "codigo": "no_existe"})
             except LookupError as exc:
-                self._json(404, {"error": str(exc)})
+                self._json(404, {"error": str(exc), "codigo": "no_existe"})
             except ValueError as exc:
                 # Un filtro o un parametro que no se entiende (FiltroNoValido es uno).
-                self._json(400, {"error": str(exc)})
+                self._json(400, {"error": str(exc), "codigo": "invalido"})
 
     def _descarga(self, almacen: Any, usuario_id: int, partes: list[str]) -> bool:
         """Lo que se descarga como fichero: el original de una factura y la hoja del BTW.
@@ -857,7 +863,8 @@ class Manejador(BaseHTTPRequestHandler):
         if not (original or hoja):
             return False
         if self._de_otro_origen():
-            self._json(403, {"error": "un fichero solo se descarga desde la consola"},
+            self._json(403, {"error": "un fichero solo se descarga desde la consola",
+                             "codigo": "otro_origen"},
                        cors=False)
             return True
         conn = almacen.conn
@@ -949,7 +956,7 @@ class Manejador(BaseHTTPRequestHandler):
         self._contrato_v2 = True
         if self._de_otro_origen():
             self._json(403, {"error": "las ordenes se dan desde la consola, no desde otro "
-                                      "origen"})
+                                      "origen", "codigo": "otro_origen"})
             return
         cuerpo = self._cuerpo_json(MAX_CUERPO_V2)
         if cuerpo is None:
@@ -961,7 +968,8 @@ class Manejador(BaseHTTPRequestHandler):
             # La segunda firma ya no viaja aqui con el token de otra persona: es una
             # orden suya (firmar_anulacion), desde su propia sesion.
             self._json(400, {"error": "una orden es {accion, peticion_id, datos}"
-                             + (f"; no lleva {', '.join(sobran)}" if sobran else "")})
+                             + (f"; no lleva {', '.join(sobran)}" if sobran else ""),
+                             "codigo": "invalido"})
             return
         with self._almacen() as almacen:
             conn = almacen.conn
@@ -976,7 +984,8 @@ class Manejador(BaseHTTPRequestHandler):
                 codigo = _codigo_de(exc)
                 if codigo is None:
                     raise
-                self._json(codigo, {"error": str(exc), "tipo": type(exc).__name__})
+                self._json(codigo, {"error": str(exc), "tipo": type(exc).__name__,
+                                    "codigo": servicios.codigo_de_error(exc)})
                 return
             if almacen.ruta_anclas is not None:
                 _anclar(conn, almacen.ruta_anclas)

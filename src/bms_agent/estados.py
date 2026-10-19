@@ -778,6 +778,8 @@ def _escribir_prioridades(conn: sqlite3.Connection, filas: dict[tuple[str, int],
 class NoSube(ValueError):
     """Lo pedido no sube nada: la prioridad ya esta por encima, o no es un nivel que se pida."""
 
+    codigo = "estado_no_valido"
+
 
 _ENTIDADES_A_MANO = ("factura", "excepcion", "proveedor", "cliente", "objeto", "orden_compra",
                      "trimestre")

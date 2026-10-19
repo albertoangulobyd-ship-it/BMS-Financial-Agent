@@ -4,6 +4,7 @@
 // el el token.
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createApiClient, paths, type ApiClient, type Environment, type Me } from './api';
+import { forgetTabMemory } from './tab-memory';
 
 export interface Session {
   api: ApiClient;
@@ -38,6 +39,8 @@ export function SessionProvider({
   const currentApi = useRef<ApiClient | null>(null);
 
   const logout = useCallback((reason: LoginNotice = 'loggedOut') => {
+    // Lo que las pestanas recordaban (filtros, busquedas) no pasa a la siguiente persona.
+    forgetTabMemory();
     currentApi.current?.dispose();
     currentApi.current = null;
     setSession(null);

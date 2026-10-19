@@ -3226,6 +3226,29 @@
       "descripcion": "Alle controles opnieuw uitvoeren (elke actie doet dat al vanzelf)."
     }
   },
+  "errores": {
+    "no_autenticado": "Je sessie is beëindigd of je code is niet geldig. Log opnieuw in.",
+    "sin_permiso": "Je hebt geen toestemming hiervoor. Vraag de beheerder om toegang.",
+    "segunda_persona": "Dit moet een andere persoon doen of bevestigen: je hebt hier zelf iets aan veranderd, of er is een tweede handtekening nodig. Vraag een collega.",
+    "otro_origen": "Dit kan alleen vanuit de app of de console van dit programma, niet vanuit een andere website.",
+    "origen_no_permitido": "Dit verzoek komt van een website die niet is toegestaan.",
+    "host_no_permitido": "Dit verzoek kwam niet via het adres van dit programma (127.0.0.1).",
+    "no_existe": "Dit bestaat niet (meer). Laad de lijst opnieuw.",
+    "conflicto": "Iemand anders heeft dit net gewijzigd. Laad opnieuw om de nieuwste versie te zien en probeer het dan nog eens.",
+    "peticion_repetida": "Dit verzoek is al eens voor iets anders gebruikt. Laad opnieuw en probeer het nog eens.",
+    "no_anulable": "Deze controle kun je niet accepteren. Corrigeer het gegeven of los de zaak op.",
+    "no_revisable": "De factuur kan nog niet als gecontroleerd worden gemarkeerd: eerst moet worden opgelost wat erboven staat.",
+    "bloqueo_abierto": "Er staat nog een blokkerende melding open. Los die eerst op of laat de melding accepteren.",
+    "estado_no_valido": "Dit kan nu niet, door de huidige stand van zaken. Laad opnieuw om te zien wat er is veranderd.",
+    "campo_no_editable": "Dit gegeven zet het systeem zelf; je kunt het hier niet wijzigen.",
+    "campo_de_otro_sistema": "Dit gegeven komt uit Exact of TRNSPRNT. Wijzig het daar; de volgende import neemt het over.",
+    "falta_motivo": "Geef een reden op. Bij het accepteren van een bezwaar is dat minstens 10 tekens.",
+    "iban_no_valido": "Dit IBAN klopt niet: het controlegetal past niet. Controleer de tekens.",
+    "orden_desconocida": "Deze handeling bestaat niet in dit programma.",
+    "invalido": "De gegevens zijn niet geaccepteerd. Controleer wat je hebt ingevuld.",
+    "tipo_no_admitido": "Het verzoek had niet de juiste vorm.",
+    "demasiado_grande": "Het verzoek is te groot. Maak de tekst korter."
+  },
   "roles": {
     "administrador": {
       "etiqueta": "Beheerder",

@@ -10,6 +10,7 @@ import { defineConfig } from 'vite';
 // El servidor de verdad (bms-agent serve) al que el servidor de desarrollo pasa /api.
 const servidor = process.env.BMS_SERVE_URL ?? 'http://127.0.0.1:8765';
 const salida = fileURLToPath(new URL('../src/bms_agent/web', import.meta.url));
+const textos = fileURLToPath(new URL('../src/bms_agent/textos', import.meta.url));
 
 export default defineConfig({
   base: '/app/',
@@ -43,6 +44,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
+    // Los catalogos de textos viven en src/bms_agent/textos (fuera de frontend/): el
+    // servidor de desarrollo solo sirve esta carpeta y la de los textos.
+    fs: { strict: true, allow: ['.', textos] },
     proxy: {
       '/api': {
         target: servidor,

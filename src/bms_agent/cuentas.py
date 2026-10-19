@@ -52,6 +52,8 @@ FUENTES_MAESTRO = ("exact", "trnsprnt")
 class IbanNoValido(ValueError):
     """El IBAN no pasa el digito de control: no se registra."""
 
+    codigo = "iban_no_valido"
+
 
 @dataclass
 class ResultadoMaestro:

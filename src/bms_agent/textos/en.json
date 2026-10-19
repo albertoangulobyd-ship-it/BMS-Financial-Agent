@@ -3226,6 +3226,29 @@
       "descripcion": "Run all checks again (every action already does this)."
     }
   },
+  "errores": {
+    "no_autenticado": "Your session has ended or your code is not valid. Log in again.",
+    "sin_permiso": "You do not have permission for this. Ask the administrator for access.",
+    "segunda_persona": "Another person has to do or confirm this: you changed something here yourself, or a second signature is needed. Ask a colleague.",
+    "otro_origen": "This can only be done from this program's app or console, not from another website.",
+    "origen_no_permitido": "This request comes from a website that is not allowed.",
+    "host_no_permitido": "This request did not come through this program's address (127.0.0.1).",
+    "no_existe": "This does not exist (any more). Reload the list.",
+    "conflicto": "Someone else has just changed this. Reload to see the latest version and then try again.",
+    "peticion_repetida": "This request was already used for something else. Reload and try again.",
+    "no_anulable": "This check cannot be accepted. Correct the data or resolve the case.",
+    "no_revisable": "The invoice cannot be marked as reviewed yet: first resolve what is listed above.",
+    "bloqueo_abierto": "A blocking finding is still open. Resolve it first or have it accepted.",
+    "estado_no_valido": "This is not possible right now, because of how things stand. Reload to see what has changed.",
+    "campo_no_editable": "The system sets this value itself; you cannot change it here.",
+    "campo_de_otro_sistema": "This value comes from Exact or TRNSPRNT. Change it there; the next import brings it in.",
+    "falta_motivo": "Give a reason. To accept an objection it must be at least 10 characters.",
+    "iban_no_valido": "This IBAN is not valid: the check digits do not match. Check the characters.",
+    "orden_desconocida": "This action does not exist in this program.",
+    "invalido": "The data was not accepted. Check what you filled in.",
+    "tipo_no_admitido": "The request was not in the right form.",
+    "demasiado_grande": "The request is too large. Make the text shorter."
+  },
   "roles": {
     "administrador": {
       "etiqueta": "Administrator",

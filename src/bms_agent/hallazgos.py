@@ -93,9 +93,13 @@ _TAMANO_LOTE = 500
 class NoAnulable(ValueError):
     """La regla del hallazgo no se puede anular: se corrige el dato o se resuelve el caso."""
 
+    codigo = "no_anulable"
+
 
 class EstadoNoValido(ValueError):
     """La orden no tiene sentido en el estado en que esta el hallazgo."""
+
+    codigo = "estado_no_valido"
 
 
 @dataclass(frozen=True)

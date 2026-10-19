@@ -50,6 +50,25 @@ describe('el cliente de la API', () => {
     await expect(state.action('marcar_revisada', {})).rejects.toMatchObject({ kind: 'conflict', type: 'NoRevisable' });
   });
 
+  it('guarda el codigo estable del error y la frase del servidor aparte', async () => {
+    const api = createApiClient({
+      token: 't',
+      fetchImpl: (async () =>
+        respond(409, { error: 'la factura 3 cambio', tipo: 'Conflicto', codigo: 'conflicto' })) as unknown as typeof fetch,
+    });
+    await expect(api.action('marcar_revisada', {})).rejects.toMatchObject({
+      kind: 'stale',
+      code: 'conflicto',
+      detail: 'la factura 3 cambio',
+    });
+    // Un codigo que no es una palabra no se usa para buscar ningun texto.
+    const odd = createApiClient({
+      token: 't',
+      fetchImpl: (async () => respond(400, { error: 'x', codigo: '<b>raro</b>' })) as unknown as typeof fetch,
+    });
+    await expect(odd.action('x', {})).rejects.toMatchObject({ kind: 'bad_request', code: undefined });
+  });
+
   it('una orden va a /api/v2/acciones con accion, peticion_id y datos', async () => {
     const fetchImpl = vi.fn(async () => respond(200, { ok: true, diferencia: {} }));
     const api = createApiClient({ token: 't', fetchImpl: fetchImpl as unknown as typeof fetch });

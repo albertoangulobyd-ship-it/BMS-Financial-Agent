@@ -7152,3 +7152,168 @@ importa al compilarse.
   los casos y se vuelve a compilar la app.
 - Si algún día hace falta el «por qué» exacto de la prioridad, el gemelo de los motivos
   (desviación 1).
+
+### Paso 15 · pantallas del trabajo diario
+
+Las pantallas con las que administración trabaja cada día, con datos y órdenes de verdad
+sobre `/api/v2`: **Overzicht**, **Werklijst**, **Inkomend** y **Uitgaand**, la **ficha de
+una factura**, **Uitzonderingen** e **IBAN-controles**. Antes, en esta misma parte, los
+textos NL/EN de T entraron en la rama (cherry-pick de `paso15-textos`; los dos choques,
+`pyproject.toml` y este registro, se resolvieron dejando las dos cosas: la app construida
+en `"bms_agent"` y los catálogos en su propio paquete `"bms_agent.textos"`), y el sustituto
+provisional de la base dejó su sitio a los catálogos de verdad.
+
+**Qué se construyó**
+
+- **Los textos de dominio, de los catálogos de Python.** `frontend/src/i18n/domain.ts`
+  importa `src/bms_agent/textos/nl.json` y `en.json` (los dos entran en la huella de
+  `web/fuente.json`; `frontend/src/i18n/domain/` ya no existe) y da a las pantallas
+  funciones (`ruleText`, `findingDetail`, `stateLabel`, `fieldLabel`, `actionText`,
+  `errorText`, `verdict`...), nunca la forma del JSON. `frontend/src/i18n/templates.ts` es
+  el lenguaje de las plantillas de `textos/LEEME.md` en TypeScript (formatos, transformaciones,
+  rutas con puntos, variantes con condiciones y partes, lo que falta), con BigInt y sin
+  floats; `templates.test.ts` pinta cada caso de `textos/casos.json` (64 de lenguaje y 301
+  detalles, cada variante de cada regla) en los dos idiomas y tiene que dar exactamente el
+  texto y lo que falta de la referencia en Python: 738 comprobaciones, todas iguales a la
+  primera.
+- **Códigos de error estables.** Cada respuesta de error de `/api/v2` (y de la puerta común:
+  Host, Origin, el cuerpo de un POST) lleva, junto a `error` en español, un `codigo`
+  (`no_autenticado`, `sin_permiso`, `segunda_persona`, `otro_origen`, `origen_no_permitido`,
+  `host_no_permitido`, `no_existe`, `conflicto`, `peticion_repetida`, `no_anulable`,
+  `no_revisable`, `bloqueo_abierto`, `estado_no_valido`, `campo_no_editable`,
+  `campo_de_otro_sistema`, `falta_motivo`, `iban_no_valido`, `orden_desconocida`, `invalido`,
+  `tipo_no_admitido`, `demasiado_grande`). Los de las órdenes los lleva cada excepción donde
+  nace (un atributo `codigo` en `PermisoDenegado`, `SeparacionDeFunciones`, `Conflicto`,
+  `FaltaMotivo`, `NoAnulable`, `NoRevisable`...); `servicios.codigo_de_error` elige el más
+  concreto y `servicios.CODIGOS_ERROR` los lista. Sus textos NL/EN están en los catálogos
+  (`errores`), y la app los enseña; la frase del servidor solo dentro de «Technische
+  details». Documentado en [integracion-web.md](../integracion-web.md) («Los errores»); el
+  contrato sigue en 2.1, que ya subió T en este paso (es una clave nueva).
+- **Las pantallas** (lo que hay en cada una, en [app-local.md](../app-local.md) §4.1): el
+  Overzicht con cuatro tarjetas y «Als eerste»; la Werklijst (lo que pide a una persona,
+  fichas por prioridad, buscador, cinco columnas con «Waarom»); Inkomend y Uitgaand (dos
+  filtros, buscador, seis columnas); la ficha de factura (qué es, qué está mal y qué hacer,
+  y los detalles plegados: campos con su fuente y su calidad, líneas, referencias,
+  relaciones, planning, notas, controles sin datos, historia en palabras normales y el
+  original); Uitzonderingen con un panel lateral; IBAN-controles con el flujo de siempre.
+- **Las órdenes**, todas por `POST /api/v2/acciones` con la `rev` o la huella que se vio:
+  `anular_hallazgo`, `firmar_anulacion`, `cerrar_hallazgo`, `marcar_revisada`,
+  `devolver_factura`, `anadir_nota`, `crear_excepcion`, `asignar_excepcion`,
+  `esperar_externo`, `resolver_excepcion`, `fijar_campo` (con «Nu → Nieuw» antes de
+  guardar), `verificar_campo`, `revertir_campo`, `confirmar_relacion`, `rechazar_relacion`,
+  `verificar_iban`, `rechazar_iban` y `atestar_iban`, y la descarga del original. Cada una
+  pasa por un único diálogo (`ActionDialog`) que dice qué va a pasar, pide lo necesario,
+  comprueba lo obvio antes de mandar (un motivo de al menos 10 caracteres para aceptar) y
+  enseña el error por su código. Un botón solo sale con su permiso (`lib/actions.ts`).
+  Tras una orden se vuelven a leer la ficha, las listas y las insignias del menú.
+
+**La puerta, test por test**
+
+| Lo pedido | Dónde se comprueba |
+| --- | --- |
+| El renderizador TS da lo mismo que el de Python en cada caso, en NL y EN | `frontend/src/i18n/templates.test.ts` |
+| Cada código de error tiene su texto en los dos idiomas; cada excepción con código usa uno de la lista; cada error JSON de `serve.py` lleva su código; los códigos de verdad (401, 403, 404, 409 de rev, 400 sin motivo, 413, 415, 421, otro origen) | `tests/test_codigos_error.py` |
+| La app solo manda órdenes de `servicios.ACCIONES`, ninguna paga, aprueba ni presenta, y su tabla de permisos es la de `servicios.ACCIONES` | `tests/test_app_local.py::test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba`, `::test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios` |
+| Los catálogos entran en la huella y el sustituto ya no está | `tests/test_app_local.py::test_lo_construido_es_lo_que_apunta_fuente_json` |
+| Las bloqueadas dicen por qué en neerlandés y en inglés, sin castellano | `e2e/daily.spec.ts` «de geblokkeerde facturen zeggen waarom» |
+| Aceptar con motivo funciona y las cuentas cambian; la regla de las dos personas se ve | «accepteren vraagt een tweede persoon…» (B2: Ana es rechazada con `segunda_persona`, Bram da la segunda firma, Ana acepta y las bloqueadas bajan), «een melding accepteren en de uitzondering oplossen» (las excepciones bajan en uno) |
+| Marcar como gecontroleerd | «een schone factuur markeren als gecontroleerd» |
+| Una `rev` vieja da el aviso de conflicto y no pisa nada | «een verouderde rev geeft de melding…» (Bram cambia la factura por la API mientras Ana edita) |
+| Quien solo mira (rol `consulta`) no ve ningún botón de una orden | «wie alleen mag kijken…» (ficha, panel de excepción, IBAN; Importeren no sale en el menú) |
+| IBAN: se llama al número de los maestros, el IBAN se teclea (campo vacío), la regla de las dos personas | «IBAN-controles: bellen…» (Ana puso los teléfonos y es rechazada; Bram verifica) |
+| Uitzonderingen, Inkomend / Uitgaand, los detalles, el original | «uitzonderingen…», «inkomend en uitgaand…», «de details van een factuur…» (confirmar una relación, descargar el PDF) |
+| Ninguna petición fuera de 127.0.0.1, ninguna violación de la CSP ni error en la consola, axe sin problemas serios ni críticos | los vigilantes de `e2e/fixtures.ts` en cada prueba, y `expectAccessible` en cada pantalla y diálogo |
+
+Resultado: Python 3.11, **2484 pasan y 12 se saltan** (2418 de la base, 36 de los textos de
+T y 30 de esta parte); los tests tocados, también con Python 3.13 y `-W error` (208
+pasan); `npm run typecheck` limpio; vitest, 779 (738 de las plantillas); Playwright, 20
+(11 de `daily.spec.ts`), todas sin peticiones fuera de 127.0.0.1, sin violaciones de la
+CSP, sin errores en la consola y sin problemas serios de axe.
+
+Capturas de cada pantalla y de los diálogos en NL y EN a 1440×900 en `CAPTURAS_DIR`
+(`daily-*.png`); se miraron todas, y también a 1024 px. Lo que se corrigió al mirarlas:
+las tarjetas del Overzicht y los datos de la ficha dejaban un hueco gris a 1024 px (ahora
+cuatro y cinco por fila a 1440 y de dos en dos más estrecho); la columna «Waarom» quedaba
+en dos palabras por línea a 1024 px (anchos de columna más flexibles y un mínimo para la
+frase); los botones de «Wijzigen» y «Verifiëren» en cada fila de los campos eran ruido
+(ahora un enlace discreto, y verificar solo donde hay una duda); el error de un diálogo
+largo quedaba fuera de la vista (se lleva a ella); el texto de un importe desconocido
+(«— inclusief btw»); el estado «Wacht op derden» repetido con «Wacht op de leverancier»;
+«0 dagen open» («vandaag geopend»); y la palabra: en neerlandés la app dice
+«gecontroleerd» y «melding», como los catálogos, no «nagekeken» ni «bezwaar» (dos textos
+del catálogo se alinearon también).
+
+**Desviaciones, y por qué**
+
+1. **La Werklijst es «lo que pide a una persona», no solo la prioridad.** Una factura
+   normal con un hallazgo pendiente (una relación por confirmar, R5), una excepción abierta
+   o campos por verificar también espera a alguien; quedarse solo con la prioridad la
+   escondía. La tarjeta «Aandacht nodig» cuenta lo mismo (15 en la base de prueba, con 4
+   bloqueadas, 6 urgentes y 13 excepciones abiertas debajo).
+2. **El código de error vive en la excepción.** En vez de una tabla en `serve.py`, cada
+   excepción dice el suyo donde nace (`codigo = "conflicto"`), y `servicios` elige el más
+   concreto mirando la clase y sus padres: una excepción nueva de una orden trae su código
+   o cae en el de su familia (`no_existe`, `estado_no_valido`, `invalido`). También lo
+   llevan los errores fuera de `/api/v2` (el 404 de `/app/assets/...`): por eso cambió a
+   propósito `test_lo_que_no_esta_en_la_lista_blanca_es_un_404`, que comparaba el cuerpo
+   entero.
+3. **Una excepción se abre en un panel lateral, no en una pestaña.** No es una ficha del
+   registro de pantallas (no tiene una lectura propia) y sus órdenes son tres; el panel
+   lleva a la factura cuando la hay. En la ficha de factura están las mismas órdenes.
+4. **Lo que se ofrece en un hallazgo.** Aceptar solo donde la regla lo admite; dar la
+   segunda firma, cuando la pide, como botón secundario; verificar o corregir el campo al
+   que apunta solo cuando el problema es su lectura (`dudoso` o `faltante`: Q1, Q2). En los
+   demás (un número repetido, un periodo solapado) cambiar el campo no es lo que hay que
+   hacer, y el botón confundía.
+5. **El IBAN del documento no se cambia ni se verifica desde los campos.** Se enseña («er
+   wordt niet naar betaald»); los datos bancarios van por IBAN-controles. Al verificar, el
+   número llamado se rellena con el **de los maestros** (no con nada del documento); el
+   IBAN va vacío y se teclea, y la app dice si coincide con el encontrado. Rechazar manda el
+   IBAN encontrado como el de la cuenta que se rechaza, que no es darlo por bueno.
+6. **Lo menos diario se queda en la consola**: imputar una línea a otro Objeto o a una PO,
+   dividir, añadir o excluir líneas, anular o fusionar una factura, enlazar dos a mano,
+   marcar un pago, subir la prioridad. La consola sigue (`/consola`) y la ficha de la app
+   dice todo lo que pasa.
+7. **La historia la escribe la app** desde las partes estructuradas de
+   `GET /api/v2/facturas/N/historial` (documento, lecturas, eventos de cada hallazgo,
+   revisiones, excepciones, notas, cambios de campo de una persona y aperturas del
+   original). Los tipos de evento de auditoría del sistema son identificadores en español y
+   no se enseñan.
+8. **Cambios en piezas de la base:** `useLoad` deja lo que se veía mientras vuelve a leer
+   (la pantalla no salta a «Laden…» ni pierde la posición tras una orden); `SummaryGrid`
+   va en 4/2/1 columnas en vez de `auto-fit`; `Button` tiene un tamaño `xs` para las
+   acciones dentro de una tabla; `SummaryCard` admite un (?) junto al título; se añadió a
+   mano el `dialog` de shadcn. Una lista recuerda su filtro y su búsqueda por pestaña
+   mientras la app está abierta (`lib/tab-memory.ts`, solo en memoria, se olvida al salir).
+9. **Tests de A cambiados a propósito** (`e2e/shell.spec.ts`): la ficha ya no tiene una
+   sección «Details» (ahora «Velden»); el botón de una fila lleva el número y la relación
+   (se lee el número); y la prueba de la sesión que caduca espera a que el Overzicht, que
+   ahora también lee las facturas, termine antes de simular el 401.
+10. **Tests de Python cambiados a propósito** (`tests/test_app_local.py`):
+    `test_el_paquete_lleva_la_app_y_los_textos` mira los catálogos en
+    `"bms_agent.textos"` (es un paquete propio, con `__init__.py`) y no en `"bms_agent"`;
+    `test_lo_construido_es_lo_que_apunta_fuente_json` exige ya, sin condiciones, que los dos
+    catálogos estén en la huella y que el sustituto no esté.
+11. **Una tercera persona de prueba.** `scripts/crear_demo_e2e.py` añade «Cas Consulta» con
+    el rol `consulta` a la base recién hecha (no a `bms-agent demo crear`), para probar que
+    quien solo mira no ve botones.
+
+**Lo que deben saber las partes siguientes**
+
+- Una pantalla nueva con órdenes: `ActionButton` / `ActionDialog`
+  (`components/action-dialog.tsx`) con `action` (el nombre de `servicios.ACCIONES`), los
+  `fields` que pide y `data` (lo fijo: ids y `rev`); el título, la descripción y la frase de
+  confirmación salen del catálogo; el permiso, de `lib/actions.ts` (si se usa una orden
+  nueva, se añade allí: el test lo compara con `servicios.ACCIONES`). Tras una orden,
+  `useRefresh().version` cambia: quien lea algo la pone en las dependencias de `useLoad`.
+- El «por qué» de una fila es `whyOf(row, lang, t)` (`lib/why.ts`) con su `WhyCell`; un
+  estado es `StatusText` con un tono de `components/tones.ts`; un campo se escribe con
+  `formatFieldValue` (`lib/field-format.ts`).
+- Si cambia un texto de `nl.json` o `en.json`: regenerar los casos
+  (`scripts/generar_casos_textos.py`), `npm test` y `npm run build`.
+
+**Lo que falta**
+
+Leveranciers, Klanten, Objecten e Inkooporders (con sus fichas), Kasstroom, Btw,
+Importeren y Facturen lezen. Que alguien de la oficina lea los textos neerlandeses en la
+app. En el ordenador del dueño, mirar que Edge abre la ventana `--app`.

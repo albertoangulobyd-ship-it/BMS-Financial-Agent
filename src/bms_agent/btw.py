@@ -133,6 +133,8 @@ _PENDIENTES = ("abierto", "desaparecido")
 class EstadoNoValido(ValueError):
     """La orden no tiene sentido en el estado en que esta el trimestre."""
 
+    codigo = "estado_no_valido"
+
 
 # ------------------------------------------------------------ el calendario
 

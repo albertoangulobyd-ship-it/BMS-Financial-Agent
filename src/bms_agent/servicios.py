@@ -91,13 +91,55 @@ OBJETO = "objeto"
 class AccionDesconocida(ValueError):
     """La orden pedida no existe."""
 
+    codigo = "orden_desconocida"
+
 
 class DatosNoValidos(ValueError):
     """Los datos de la orden no tienen la forma que espera."""
 
+    codigo = "invalido"
+
 
 class PeticionRepetida(ValueError):
     """El mismo peticion_id llega con otra orden, u otra persona: no es un reintento."""
+
+    codigo = "peticion_repetida"
+
+
+# ------------------------------------------------------------ los codigos de error
+
+# Paso 15: cada error de /api/v2 lleva, junto a su frase en espanol ("error", para la CLI y
+# la auditoria), un codigo estable ("codigo") del que la app escribe el texto en
+# neerlandes o en ingles (textos/nl.json y en.json, "errores"). Los de las ordenes los
+# lleva cada excepcion donde nace (su atributo `codigo`); los de la puerta del servidor
+# (sin token, otro origen, cuerpo demasiado grande...) los pone serve.py. Un codigo no
+# cambia de significado: si hace falta otro, se anade.
+CODIGOS_ERROR = (
+    "no_autenticado", "sin_permiso", "segunda_persona", "otro_origen", "origen_no_permitido",
+    "host_no_permitido", "no_existe", "conflicto", "peticion_repetida", "no_anulable",
+    "no_revisable", "bloqueo_abierto", "estado_no_valido", "campo_no_editable",
+    "campo_de_otro_sistema", "falta_motivo", "iban_no_valido", "orden_desconocida", "invalido",
+    "tipo_no_admitido", "demasiado_grande",
+)
+
+
+def codigo_de_error(error: BaseException) -> str:
+    """El codigo estable de un error de una orden o de una lectura.
+
+    El de la propia excepcion si lo lleva (el mas concreto, porque se mira la
+    clase y sus padres en orden); si no, el de su familia: lo que no existe,
+    lo que choca con el estado de la base (una clave o un disparador) y un
+    dato mal puesto.
+    """
+    for clase in type(error).__mro__:
+        codigo = clase.__dict__.get("codigo")
+        if isinstance(codigo, str):
+            return codigo
+    if isinstance(error, sqlite3.IntegrityError):
+        return "estado_no_valido"
+    if isinstance(error, LookupError):
+        return "no_existe"
+    return "invalido"
 
 
 @dataclass(frozen=True)

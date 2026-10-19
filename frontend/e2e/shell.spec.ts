@@ -82,7 +82,8 @@ test('una fila abre su ficha en una pestana, y otra vez la misma pestana', async
   const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
   await menu.getByRole('button', { name: /^Werklijst/ }).click();
   const first = page.getByRole('table').getByRole('row').nth(1).getByRole('button');
-  const number = (await first.textContent())!.trim();
+  // El boton de la fila lleva el numero (en mono) y la relacion debajo.
+  const number = (await first.locator('.font-mono').textContent())!.trim();
   await first.click();
   await expect(page.getByRole('heading', { level: 1, name: `Factuur ${number}` })).toBeVisible();
   const tabs = page.getByRole('tab');
@@ -98,7 +99,7 @@ test('una fila abre su ficha en una pestana, y otra vez la misma pestana', async
   await expect(page.getByRole('tab', { selected: true })).toContainText(number);
 
   // Los detalles van plegados; se abren con el teclado.
-  const details = page.getByRole('button', { name: 'Details' });
+  const details = page.getByRole('button', { name: /^Velden/ });
   await expect(details).toHaveAttribute('aria-expanded', 'false');
   await details.focus();
   await page.keyboard.press('Enter');
@@ -193,6 +194,9 @@ test('una sesion que caduca vuelve a la entrada con el aviso', async ({ page, ba
   watch.expectHttpErrors(401);
   await page.goto(`${baseUrl}/app`);
   await login(page);
+  // El Overzicht tambien lee las facturas: que termine antes de que el servidor "retire"
+  // el token, para que el 401 llegue al abrir la Werklijst.
+  await expect(page.getByRole('heading', { level: 2, name: 'Als eerste' })).toBeVisible();
   // El servidor dice 401 (como si el token se hubiera retirado): la app sale sola.
   await page.route('**/api/v2/facturas', (route) =>
     route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"x"}' })

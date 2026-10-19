@@ -1,10 +1,14 @@
 // El cliente de /api/v2. Todo pasa por aqui: la cabecera X-BMS-Token con el token de la
 // persona (que vive solo en memoria, en este objeto), JSON, y los errores convertidos en
-// tipos que la app sabe decir en neerlandes o ingles (el texto de error del servidor va en
-// castellano y no se ensena: se queda en `detail` para depurar).
+// tipos que la app sabe decir en neerlandes o ingles. Cada error de la API lleva un
+// `codigo` estable (no_autenticado, conflicto, falta_motivo...: docs/integracion-web.md)
+// del que sale el texto (i18n/domain.ts, errorText); la frase del servidor va en
+// castellano y solo se ensena dentro de "Technische details".
 //
 // Las rutas se construyen aqui con constantes y ids numericos comprobados: ninguna URL
 // sale de un dato de la API, y todas van al mismo origen.
+
+import type { Reason } from './api-types';
 
 export const TOKEN_HEADER = 'X-BMS-Token';
 export const CONTRACT_HEADER = 'X-BMS-Contrato';
@@ -30,16 +34,19 @@ export class ApiError extends Error {
   readonly status: number;
   /** El tipo de error del servidor (`tipo` en las ordenes), p. ej. "Conflicto". */
   readonly type: string | undefined;
-  /** El mensaje del servidor, en castellano: solo para depurar, nunca para pintar. */
+  /** El mensaje del servidor, en castellano: solo en el desplegable de detalles tecnicos. */
   readonly detail: string | undefined;
+  /** El codigo estable del error (`codigo`), del que sale el texto en NL o EN. */
+  readonly code: string | undefined;
 
-  constructor(kind: ApiErrorKind, status: number, type?: string, detail?: string) {
+  constructor(kind: ApiErrorKind, status: number, type?: string, detail?: string, code?: string) {
     super(`${kind} (${status})`);
     this.name = 'ApiError';
     this.kind = kind;
     this.status = status;
     this.type = type;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -72,6 +79,7 @@ export const paths = {
   accounts: '/api/v2/cuentas',
   actions: '/api/v2/acciones',
   people: '/api/v2/personas',
+  relations: '/api/v2/relaciones',
   sources: '/api/v2/fuentes',
 } as const;
 
@@ -234,6 +242,16 @@ export interface InvoiceRow {
   estado_revision: string | null;
   nivel: string;
   cuenta: boolean;
+  base_cent?: number | null;
+  dias_vencida?: number | null;
+  sin_resolver?: number;
+  dudosos?: number;
+  pendientes?: number;
+  aceptados?: number;
+  sin_datos?: number;
+  excepcion?: { id: number; estado: string } | null;
+  /** Contrato 2.1: sus hallazgos pendientes, lo mas urgente primero (el "por que"). */
+  razones?: Reason[];
 }
 
 export interface ActionResult {
@@ -270,23 +288,27 @@ export interface ApiClientOptions {
   fetchImpl?: typeof fetch;
 }
 
-function kindFor(status: number, type: string | undefined): ApiErrorKind {
+function kindFor(status: number, type: string | undefined, code?: string): ApiErrorKind {
   if (status === 401) return 'unauthorized';
   if (status === 403) return 'forbidden';
   if (status === 404) return 'not_found';
-  if (status === 409) return type === 'Conflicto' ? 'stale' : 'conflict';
+  if (status === 409) return code === 'conflicto' || type === 'Conflicto' ? 'stale' : 'conflict';
   if (status === 400 || status === 413 || status === 415) return 'bad_request';
   return 'unavailable';
 }
 
-async function readError(response: Response): Promise<{ type?: string; detail?: string }> {
+// Un codigo es una palabra en minusculas: otra cosa no se usa para buscar su texto.
+const CODE = /^[a-z_]{1,40}$/;
+
+async function readError(response: Response): Promise<{ type?: string; detail?: string; code?: string }> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === 'object') {
       const record = body as Record<string, unknown>;
       return {
         type: typeof record.tipo === 'string' ? record.tipo : undefined,
-        detail: typeof record.error === 'string' ? record.error : undefined,
+        detail: typeof record.error === 'string' ? record.error.slice(0, 2000) : undefined,
+        code: typeof record.codigo === 'string' && CODE.test(record.codigo) ? record.codigo : undefined,
       };
     }
   } catch {
@@ -329,9 +351,9 @@ export function createApiClient({ token, onUnauthorized, fetchImpl }: ApiClientO
     }
     environment = response.headers.get(ENVIRONMENT_HEADER) === 'demo' ? 'demo' : 'real';
     if (!response.ok) {
-      const { type, detail } = await readError(response);
+      const { type, detail, code } = await readError(response);
       if (response.status === 401) onUnauthorized?.();
-      throw new ApiError(kindFor(response.status, type), response.status, type, detail);
+      throw new ApiError(kindFor(response.status, type, code), response.status, type, detail, code);
     }
     const contract = response.headers.get(CONTRACT_HEADER);
     if (contract && contract.split('.')[0] !== CONTRACT_MAJOR) {

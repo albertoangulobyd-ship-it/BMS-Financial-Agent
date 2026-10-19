@@ -119,17 +119,25 @@ SALIENTE = frozenset({Sentido.SALIENTE.value})
 class CampoNoEditable(ValueError):
     """El campo lo pone el sistema (estructura, calculo, via de entrada)."""
 
+    codigo = "campo_no_editable"
+
 
 class CampoDeOtroSistema(ValueError):
     """El dueno del campo es Exact o TRNSPRNT: la correccion va en ese sistema."""
+
+    codigo = "campo_de_otro_sistema"
 
 
 class FaltaMotivo(ValueError):
     """Cambiar un valor que ya existe exige un motivo."""
 
+    codigo = "falta_motivo"
+
 
 class Conflicto(RuntimeError):
     """La fila cambio desde que quien edita la leyo (rev distinta)."""
+
+    codigo = "conflicto"
 
 
 class FusionNoValida(ValueError):

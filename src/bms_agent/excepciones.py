@@ -91,9 +91,13 @@ _TRANSICIONES: dict[str, frozenset[str]] = {
 class EstadoNoValido(ValueError):
     """La orden no tiene sentido en el estado en que esta la excepcion."""
 
+    codigo = "estado_no_valido"
+
 
 class BloqueoAbierto(ValueError):
     """Un hallazgo que bloquea sigue abierto sin anular: la excepcion no se resuelve."""
+
+    codigo = "bloqueo_abierto"
 
 
 @dataclass
