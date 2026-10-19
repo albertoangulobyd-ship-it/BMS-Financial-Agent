@@ -1,0 +1,3361 @@
+{
+  "idioma": "en",
+  "comun": {
+    "si": "yes",
+    "no": "no"
+  },
+  "veredicto": {
+    "limpia": "No system objections",
+    "limpia_sin_datos": "No objections in what was checked; checks without data: {sin_datos}",
+    "objeciones": "System objections: {n}",
+    "aceptadas": "Accepted by a person: {n}",
+    "campos": "Fields to verify: {n}"
+  },
+  "reglas": {
+    "Q1": {
+      "titulo": "Required details missing",
+      "significa": "The document is missing something an invoice must have, such as the number, the other party, the date, the period, the amounts or the VAT.",
+      "que_hacer": "Check the original and fill in the missing details.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "Missing on the document: {faltan|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "Required details are missing on the document."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "no_solicitado"
+            ],
+            "texto": "This was not asked for when the document was read: {no_solicitado|codigo}. It cannot be checked."
+          },
+          {
+            "cuando": [],
+            "texto": "Not all required details were asked for when the document was read."
+          }
+        ]
+      }
+    },
+    "Q2": {
+      "titulo": "Read with doubt",
+      "significa": "An important field was read with doubt and nobody has checked it yet.",
+      "que_hacer": "Compare the field with the original, then verify or correct it.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "campos"
+            ],
+            "texto": "Read with doubt and not yet verified: {campos|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "A field was read with doubt and is not yet verified."
+          }
+        ]
+      }
+    },
+    "Q3": {
+      "titulo": "Suspicious text in the document",
+      "significa": "The notes on the document contain text aimed at whoever processes it, such as a new IBAN or a request to change details. This can be an attempt at fraud.",
+      "que_hacer": "Do not act on the text. Read the original and raise it if something is wrong; bank details always come from the master data.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "marcas"
+            ],
+            "texto": "The notes contain: {marcas|codigo}. This is not acted on, only reviewed."
+          },
+          {
+            "cuando": [],
+            "texto": "The notes contain text aimed at whoever processes the document."
+          }
+        ]
+      }
+    },
+    "Q4": {
+      "titulo": "Original not stored",
+      "significa": "The original document is not in the archive; only the data read from it is there.",
+      "que_hacer": "Ask for the original again and import it.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "The original document was not stored: only what was read from it is left."
+          }
+        ]
+      }
+    },
+    "X1": {
+      "titulo": "Currency other than euro",
+      "significa": "The invoice, bank transaction or import row is not in euros. It is left out of all totals.",
+      "que_hacer": "Check the currency and get a version in euros, or handle it outside the system.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "filas"
+            ],
+            "texto": "Import rows with amounts not in euros: {filas|cuenta}. They were not imported."
+          },
+          {
+            "cuando": [
+              "moneda"
+            ],
+            "texto": "Amounts in {moneda}: not in euros, so left out of all totals."
+          },
+          {
+            "cuando": [],
+            "texto": "Not in euros, so left out of all totals."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No amount can be read, so the currency is unknown."
+          }
+        ]
+      }
+    },
+    "M2": {
+      "titulo": "Manual change no longer matched",
+      "significa": "An invoice line that a person had changed or excluded is not in the new reading of the document. The line is kept as it was.",
+      "que_hacer": "Decide whether the line stays: exclude it if it no longer exists, or accept the finding with a reason.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "excluida=true"
+            ],
+            "texto": "Invoice line {orden} had been excluded and the new reading no longer contains it."
+          },
+          {
+            "cuando": [
+              "orden"
+            ],
+            "texto": "Invoice line {orden} was changed by a person and the new reading no longer contains it. It is kept as it was."
+          },
+          {
+            "cuando": [],
+            "texto": "A changed invoice line is not in the new reading."
+          }
+        ]
+      }
+    },
+    "M3": {
+      "titulo": "Exact and the document differ",
+      "significa": "A sales invoice from Exact (or TRNSPRNT) and its PDF do not say the same, or they share a number and could not be joined. The booked invoice is the one that counts.",
+      "que_hacer": "Look at the difference and correct the invoice in Exact, or join the PDF to the right invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "distintos.parte"
+            ],
+            "texto": "The PDF has the number of a booked invoice, but the client is different or unknown, so they were not joined. Until then the sale counts twice."
+          },
+          {
+            "cuando": [
+              "distintos.union"
+            ],
+            "texto": "The PDF has the number of a booked invoice and was not joined to it ({distintos.union|codigo}). Until then the sale counts twice."
+          },
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "distintos.fecha_factura"
+                ],
+                "texto": "Date: booked {distintos.fecha_factura.0|fecha}, PDF {distintos.fecha_factura.1|fecha}."
+              },
+              {
+                "cuando": [
+                  "distintos.base_cent"
+                ],
+                "texto": "Amount excl. VAT: booked {distintos.base_cent.0|dinero}, PDF {distintos.base_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.iva_cent"
+                ],
+                "texto": "VAT: booked {distintos.iva_cent.0|dinero}, PDF {distintos.iva_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.total_cent"
+                ],
+                "texto": "Total: booked {distintos.total_cent.0|dinero}, PDF {distintos.total_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.tipo"
+                ],
+                "texto": "Type: booked {distintos.tipo.0|codigo}, PDF {distintos.tipo.1|codigo}."
+              },
+              {
+                "cuando": [
+                  "distintos.periodo_inicio"
+                ],
+                "texto": "Period start: booked {distintos.periodo_inicio.0|fecha}, PDF {distintos.periodo_inicio.1|fecha}."
+              },
+              {
+                "cuando": [
+                  "distintos.periodo_fin"
+                ],
+                "texto": "Period end: booked {distintos.periodo_fin.0|fecha}, PDF {distintos.periodo_fin.1|fecha}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "The PDF and the booked invoice are not joined or do not say the same. Until this is sorted out, the sale may count twice."
+          }
+        ]
+      }
+    },
+    "Z1": {
+      "titulo": "Source out of date",
+      "significa": "The latest data from a source (bank, Exact or TRNSPRNT) is older than allowed. Checks that depend on it cannot run.",
+      "que_hacer": "Import a new export or bank statement.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fuente=banco"
+            ],
+            "texto": "The latest data from the bank is from {exportado|fecha}: {edad} working days old, the limit is {limite}."
+          },
+          {
+            "cuando": [
+              "fuente=exact"
+            ],
+            "texto": "The latest data from Exact is from {exportado|fecha}: {edad} days old, the limit is {limite}."
+          },
+          {
+            "cuando": [
+              "fuente=trnsprnt"
+            ],
+            "texto": "The latest data from TRNSPRNT is from {exportado|fecha}: {edad} days old, the limit is {limite}."
+          },
+          {
+            "cuando": [],
+            "texto": "The latest data from a source is too old."
+          }
+        ]
+      }
+    },
+    "Z2": {
+      "titulo": "Import rows rejected",
+      "significa": "The latest import from a source rejected rows (or was rejected completely), or names a party, Object or person that is not in the master data. Nothing is created automatically.",
+      "que_hacer": "Fix the file or the master data and import it again.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "estado=rechazada"
+            ],
+            "texto": "The latest import was rejected completely: nothing was imported."
+          },
+          {
+            "cuando": [
+              "sin_resolver"
+            ],
+            "texto": "Rejected rows: {rechazadas}. References not in the master data: {sin_resolver|cuenta}."
+          },
+          {
+            "cuando": [
+              "rechazadas"
+            ],
+            "texto": "Rejected rows in the latest import: {rechazadas}."
+          },
+          {
+            "cuando": [],
+            "texto": "The latest import rejected rows."
+          }
+        ]
+      }
+    },
+    "A0": {
+      "titulo": "Unknown party",
+      "significa": "No provider or client in the master data matches this invoice exactly (VAT ID, KvK number or confirmed alias), or more than one does.",
+      "que_hacer": "Choose the right provider or client, or add it to the master data first.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "candidatos"
+            ],
+            "texto": "Several parties in the master data ({candidatos}) share this VAT ID or KvK number; it is not clear which one it is."
+          },
+          {
+            "cuando": [
+              "nombre"
+            ],
+            "texto": "Nobody in the master data matches exactly. On the invoice: {nombre}, VAT ID {btw}, KvK number {kvk}."
+          },
+          {
+            "cuando": [],
+            "texto": "Nobody in the master data matches this invoice exactly."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The master data has not been imported yet, so it is unknown whether this party is known."
+          }
+        ]
+      }
+    },
+    "A2": {
+      "titulo": "Differs from master data",
+      "significa": "The name, KvK number or VAT ID on the invoice differs from the master data of this party.",
+      "que_hacer": "Check that it really is the same party. If it is another trading name, confirm it as an alias.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "VAT ID on the invoice: {btw.0}; in the master data: {btw.1}."
+              },
+              {
+                "cuando": [
+                  "kvk"
+                ],
+                "texto": "KvK number on the invoice: {kvk.0}; in the master data: {kvk.1}."
+              },
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "Name on the invoice: {nombre.0}; known names: {nombre.1}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "What is printed on the invoice does not match the master data."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The master data from Exact is out of date, so it was not compared."
+          }
+        ]
+      }
+    },
+    "A5": {
+      "titulo": "VAT ID",
+      "significa": "A purchase invoice without the provider's VAT ID that does not mention the KOR is blocked. A Dutch VAT ID with the wrong format is held.",
+      "que_hacer": "Ask the provider for an invoice with a valid VAT ID, or record that the KOR applies.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "btw"
+            ],
+            "texto": "The VAT ID {btw} does not have the Dutch format (NL, nine digits, B, two digits)."
+          },
+          {
+            "cuando": [],
+            "texto": "The invoice has no VAT ID of the provider and does not mention the KOR."
+          }
+        ]
+      }
+    },
+    "A7": {
+      "titulo": "Details changed",
+      "significa": "What a provider prints differs from their previous invoice. A different VAT ID or KvK number holds the invoice; a different name or address is a warning.",
+      "que_hacer": "Check with the provider (using the contact details on file) that the change is genuine.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "VAT ID changed from {btw.0} to {btw.1}."
+              },
+              {
+                "cuando": [
+                  "kvk"
+                ],
+                "texto": "KvK number changed from {kvk.0} to {kvk.1}."
+              },
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "Name changed from {nombre.0} to {nombre.1}."
+              },
+              {
+                "cuando": [
+                  "direccion"
+                ],
+                "texto": "Address changed from {direccion.0} to {direccion.1}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "The details differ from the previous invoice."
+          }
+        ]
+      }
+    },
+    "A8": {
+      "titulo": "Addressed to",
+      "significa": "The invoice is not addressed to BM Support BV, or an invoice that came in as a sale was not issued by BM Support BV.",
+      "que_hacer": "Check that the invoice is for BM Support BV and in the right folder.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "receptor"
+            ],
+            "texto": "Came in as a sales invoice, without an issuer and addressed to BM Support BV: probably a purchase invoice in the wrong folder."
+          },
+          {
+            "cuando": [
+              "emisor"
+            ],
+            "texto": "Came in as a sales invoice but issued by {emisor}, not by BM Support BV: it is in the wrong folder."
+          },
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "Addressed to {nombre}, not to BM Support BV."
+              },
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "Recipient VAT ID: {btw}, not that of BM Support BV."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "The invoice is not addressed to BM Support BV."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The document does not say who issued it or who it is addressed to (or this was not asked for when it was read)."
+          }
+        ]
+      }
+    },
+    "B2": {
+      "titulo": "Invoice number used twice",
+      "significa": "The same party has more than one invoice with the same number, and they have not been merged or linked.",
+      "que_hacer": "Compare the invoices. If it is a repeated sending, merge them; if it is a credit note or correction, link them.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "facturas"
+            ],
+            "texto": "The same number ({numero_norm}) is on {facturas|cuenta} invoices from the same party."
+          },
+          {
+            "cuando": [],
+            "texto": "This number appears more than once for the same party."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The document does not say who it is from, so duplicates cannot be checked."
+          }
+        ]
+      }
+    },
+    "B3": {
+      "titulo": "Possible duplicate (same amount)",
+      "significa": "Same party, same total, at most 14 days apart, compatible periods and a different number.",
+      "que_hacer": "Compare both invoices. If they are the same invoice, merge them; if both are genuine, accept the finding with a reason.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "totales_cent"
+            ],
+            "texto": "Same total ({totales_cent.1|dinero}) as another invoice from the same party; days apart: {dias}."
+          },
+          {
+            "cuando": [],
+            "texto": "Same total as another invoice from the same party."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Party, total or date is missing, so duplicates by amount cannot be checked."
+          }
+        ]
+      }
+    },
+    "B4": {
+      "titulo": "Period invoiced twice",
+      "significa": "The invoice periods of the same party overlap (per Object when the lines name one), without a confirmed link or credit note.",
+      "que_hacer": "Check whether the same period was invoiced twice, and link or credit if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "periodos"
+            ],
+            "texto": "The period {periodos.1.0|fecha} – {periodos.1.1|fecha} overlaps {periodos.0.0|fecha} – {periodos.0.1|fecha} of another invoice; days of overlap: {dias}."
+          },
+          {
+            "cuando": [],
+            "texto": "The period overlaps another invoice from the same party."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Party or full period is missing, so overlap cannot be checked."
+          }
+        ]
+      }
+    },
+    "B5": {
+      "titulo": "Hours invoiced twice",
+      "significa": "A shift in the planning is matched with more purchase hours than it has, from two or more invoices that do not explain each other.",
+      "que_hacer": "Compare the invoices and ask the provider for a credit note for the double hours.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "turno"
+            ],
+            "texto": "Shift {turno} has {horas_mil|horas} h, but {facturas|cuenta} invoices together charge {conciliadas_mil|horas} h for it."
+          },
+          {
+            "cuando": [],
+            "texto": "The same hours from the planning are invoiced twice."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V7": {
+      "titulo": "Billed twice",
+      "significa": "A client was billed twice: the same number, the same amount shortly after each other, or the same hours of a shift on two invoices.",
+      "que_hacer": "Compare the sales invoices and send a credit note if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "caso=numero"
+            ],
+            "texto": "Invoice number {numero_norm} was sent to this client {facturas|cuenta} times."
+          },
+          {
+            "cuando": [
+              "caso=importe"
+            ],
+            "texto": "Same total ({totales_cent.1|dinero}) as another sales invoice to this client; days apart: {dias}."
+          },
+          {
+            "cuando": [
+              "caso=turno"
+            ],
+            "texto": "Shift {turno} has {horas_mil|horas} h, but {facturas|cuenta} sales invoices together charge {conciliadas_mil|horas} h for it."
+          },
+          {
+            "cuando": [],
+            "texto": "This client may have been billed twice."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The document does not say who was billed, so double billing cannot be checked."
+          }
+        ]
+      }
+    },
+    "C4": {
+      "titulo": "VAT quarter already filed",
+      "significa": "The invoice falls in a VAT quarter that was already filed and is not what was declared for it: it arrived later, changed afterwards or no longer counts there.",
+      "que_hacer": "Put the invoice on the list for the accountant; the correction goes into a later return.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "motivo=tarde"
+            ],
+            "texto": "Arrived after the VAT return for {trimestre|trimestre} was filed: its VAT is not in that return."
+          },
+          {
+            "cuando": [
+              "motivo=cambio"
+            ],
+            "texto": "Changed after the VAT return for {trimestre|trimestre} was filed: it no longer matches what was declared."
+          },
+          {
+            "cuando": [
+              "motivo=fuera"
+            ],
+            "texto": "Declared in {trimestre|trimestre}, but no longer counts there (cancelled, replaced, another currency or a date in another quarter)."
+          },
+          {
+            "cuando": [],
+            "texto": "Does not match the VAT return that was already filed."
+          }
+        ]
+      }
+    },
+    "D1": {
+      "titulo": "Breakdown",
+      "significa": "The breakdown is not complete: lines with quantity, rate and amount, the amount excl. VAT, the total and, when VAT is charged, the VAT rate and VAT amount.",
+      "que_hacer": "Fill in the missing parts from the original, or ask the provider for a complete invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "Parts of the breakdown are missing; count: {faltan|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "The breakdown is not complete."
+          }
+        ]
+      }
+    },
+    "D2": {
+      "titulo": "Sum of lines",
+      "significa": "The lines together must give the amount excl. VAT (1 cent per line plus 2 cents margin).",
+      "que_hacer": "Compare the lines with the original and correct the amount that was read wrongly.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "lineas_cent"
+            ],
+            "texto": "The lines add up to {lineas_cent|suma|dinero}; the amount excl. VAT is {base_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "The lines do not add up to the amount excl. VAT."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "!base_cent"
+            ],
+            "texto": "There is no readable amount excl. VAT."
+          },
+          {
+            "cuando": [],
+            "texto": "There are no lines, or a line has no readable amount."
+          }
+        ]
+      }
+    },
+    "D2b": {
+      "titulo": "Line calculation",
+      "significa": "Quantity times rate must give the amount of each line (1 cent margin).",
+      "que_hacer": "Check quantity, rate and amount of the marked lines against the original.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "On at least one line, quantity times rate does not give the line amount."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No line has quantity, rate and amount together."
+          }
+        ]
+      }
+    },
+    "D3": {
+      "titulo": "VAT amount",
+      "significa": "The amount excl. VAT times the VAT rate must give the VAT amount, per rate (2 cents margin).",
+      "que_hacer": "Check the VAT rate and VAT amount against the original.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tramos"
+            ],
+            "texto": "In the VAT breakdown, the VAT amount of a rate does not match its amount excl. VAT."
+          },
+          {
+            "cuando": [
+              "base_cent",
+              "tipo_iva_pb"
+            ],
+            "texto": "{tipo_iva_pb|pct} VAT on {base_cent|dinero} does not give the {iva_cent|dinero} on the invoice."
+          },
+          {
+            "cuando": [],
+            "texto": "The VAT amount does not match the rate."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Amount excl. VAT, VAT rate or VAT amount is missing."
+          }
+        ]
+      }
+    },
+    "D4": {
+      "titulo": "Total",
+      "significa": "The amount excl. VAT plus the VAT must give the total (2 cents margin).",
+      "que_hacer": "Check the three amounts against the original and correct what was read wrongly.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "iva_cent",
+              "total_cent"
+            ],
+            "texto": "{base_cent|dinero} excl. VAT plus {iva_cent|dinero} VAT is not the total of {total_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Amount excl. VAT plus VAT is not the total."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Amount excl. VAT, VAT or total is missing."
+          }
+        ]
+      }
+    },
+    "D6": {
+      "titulo": "VAT breakdown and header",
+      "significa": "The rows of the VAT breakdown must add up to the amount excl. VAT and the VAT in the header. The VAT return uses the breakdown.",
+      "que_hacer": "Compare the VAT breakdown with the original and correct the row or the header.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "iva_cent"
+            ],
+            "texto": "The VAT breakdown does not add up to the header ({base_cent|dinero} excl. VAT, {iva_cent|dinero} VAT)."
+          },
+          {
+            "cuando": [],
+            "texto": "The VAT breakdown does not add up to the header."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Amount excl. VAT or VAT is missing in the header or in a breakdown row."
+          }
+        ]
+      }
+    },
+    "I1": {
+      "titulo": "Split of a line",
+      "significa": "When an invoice line is split over several Objects, the parts must add up to the line amount. Otherwise the costs per Object count a different line.",
+      "que_hacer": "Split the line again so the parts add up to the line amount.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "The split of a line over Objects does not add up to the line amount."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The split lines have no amount."
+          }
+        ]
+      }
+    },
+    "E0": {
+      "titulo": "VAT details missing",
+      "significa": "It is unknown how the invoice treats VAT, or with standard VAT the rate or VAT amount is missing.",
+      "que_hacer": "Read the VAT treatment and amounts on the original and fill them in.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "Standard VAT, but this is missing: {faltan|codigo}."
+          },
+          {
+            "cuando": [
+              "tramos"
+            ],
+            "texto": "Standard VAT, but a VAT breakdown row lacks rate, amount or VAT."
+          },
+          {
+            "cuando": [],
+            "texto": "It is unknown how this invoice treats VAT."
+          }
+        ]
+      }
+    },
+    "E1": {
+      "titulo": "VAT treatment differs from master data",
+      "significa": "The VAT treatment on the invoice is not the one recorded for the provider in the master data.",
+      "que_hacer": "Check which treatment is right and correct the invoice or the master data.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "factura",
+              "maestro"
+            ],
+            "texto": "On the invoice: {factura|codigo}; in the master data: {maestro|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "The VAT treatment differs from the master data."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The master data from Exact is out of date, so it was not compared."
+          }
+        ]
+      }
+    },
+    "E2": {
+      "titulo": "VAT treatment or rate changed",
+      "significa": "The VAT treatment differs from the provider's previous invoice, or it has a VAT rate that none of their earlier invoices had.",
+      "que_hacer": "Check with the provider that the change is correct.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "antes"
+            ],
+            "texto": "VAT treatment changed from {antes|codigo} to {ahora|codigo} compared with the previous invoice."
+          },
+          {
+            "cuando": [
+              "tipos_nuevos"
+            ],
+            "texto": "New VAT rate {tipos_nuevos|pct}; earlier invoices had {tipos_antes|pct}."
+          },
+          {
+            "cuando": [],
+            "texto": "The VAT treatment or rate has changed."
+          }
+        ]
+      }
+    },
+    "E3": {
+      "titulo": "VAT under the KOR",
+      "significa": "Under the KOR (small business scheme) the provider does not charge VAT.",
+      "que_hacer": "Ask the provider for a corrected invoice without VAT.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iva_cent"
+            ],
+            "texto": "With the KOR there should be no VAT, but the invoice charges {iva_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "total_cent",
+              "base_cent"
+            ],
+            "texto": "With the KOR there should be no VAT, but the total ({total_cent|dinero}) is higher than the amount excl. VAT ({base_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "With the KOR there should be no VAT."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The VAT amount is not visible and cannot be derived from the total."
+          }
+        ]
+      }
+    },
+    "E4": {
+      "titulo": "VAT reverse-charged",
+      "significa": "With reverse-charged VAT the invoice charges no VAT and shows the recipient's VAT ID.",
+      "que_hacer": "Ask the provider for a corrected invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tratamiento_iva",
+              "iva_cent"
+            ],
+            "texto": "With reverse-charged VAT there should be no VAT, but the invoice charges {iva_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "With reverse-charged VAT there should be no VAT, but the total ({total_cent|dinero}) is higher than the amount excl. VAT ({base_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "With reverse-charged VAT the recipient's VAT ID must be on the invoice, and it is missing."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "The VAT amount is not visible and cannot be derived from the total."
+          },
+          {
+            "cuando": [],
+            "texto": "The recipient's VAT ID was not asked for when the document was read."
+          }
+        ]
+      }
+    },
+    "E5": {
+      "titulo": "Close to the KOR threshold",
+      "significa": "What a KOR provider has invoiced to BM Support BV this year is close to the KOR threshold. It is a hint: the threshold covers everything they invoice.",
+      "que_hacer": "Ask the provider whether the KOR still applies to them.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pasado=true"
+            ],
+            "texto": "In {ano} this KOR provider has invoiced more to BM Support BV than the KOR threshold of {umbral_cent|dinero}. They probably have to start charging VAT."
+          },
+          {
+            "cuando": [
+              "aviso_pct"
+            ],
+            "texto": "In {ano} this KOR provider has already invoiced {aviso_pct}% or more of the KOR threshold ({umbral_cent|dinero}) to BM Support BV."
+          },
+          {
+            "cuando": [],
+            "texto": "This KOR provider is close to the KOR threshold."
+          }
+        ]
+      }
+    },
+    "E7": {
+      "titulo": "Unusual VAT rate or treatment",
+      "significa": "A VAT rate that is not on the list (0, 9 and 21%), or a sale with reverse-charged or 0% VAT to a client not marked for that in the master data.",
+      "que_hacer": "Check the rate or treatment, and the client's setting in the master data.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipos"
+            ],
+            "texto": "Unusual VAT rate: {tipos|pct}."
+          },
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "Sale with {tratamiento_iva|codigo} to a client not marked for that in the master data."
+          },
+          {
+            "cuando": [],
+            "texto": "Unusual VAT rate or treatment."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "Sale with {tratamiento_iva|codigo} to an unknown client: it is unknown whether that is allowed."
+          },
+          {
+            "cuando": [],
+            "texto": "The client is unknown, so the VAT treatment cannot be checked."
+          }
+        ]
+      }
+    },
+    "F0": {
+      "titulo": "Inherited accounts not confirmed",
+      "significa": "The bank accounts from the first master data are the starting point, but nobody has confirmed them.",
+      "que_hacer": "Have someone with the right permission confirm the accounts.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cuentas"
+            ],
+            "texto": "Inherited accounts not yet confirmed: {cuentas|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "There are inherited accounts that are not yet confirmed."
+          }
+        ]
+      }
+    },
+    "F1": {
+      "titulo": "IBAN",
+      "significa": "The IBAN on the invoice must pass the check-digit test (modulo 97).",
+      "que_hacer": "Check the IBAN on the original. Payments never go to the IBAN on an invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "{iban|iban} fails the check: it is not a valid IBAN."
+          },
+          {
+            "cuando": [],
+            "texto": "The IBAN on the invoice is not valid."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The invoice shows no IBAN."
+          }
+        ]
+      }
+    },
+    "F2": {
+      "titulo": "IBAN not payable",
+      "significa": "The IBAN on the invoice is not a payable account of this provider. A payable account is verified, confirmed or inherited, is in the latest Exact master data and has no open change.",
+      "que_hacer": "Payments only go to an account from the master data. If the IBAN is new, have it verified by phone first.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "!estado",
+              "!pagables"
+            ],
+            "texto": "Without a known provider no account is payable; {iban|iban} cannot be checked."
+          },
+          {
+            "cuando": [
+              "!estado"
+            ],
+            "texto": "{iban|iban} is not in this provider's account register."
+          },
+          {
+            "cuando": [
+              "estado=rechazada"
+            ],
+            "texto": "{iban|iban} was rejected by a person."
+          },
+          {
+            "cuando": [
+              "estado=heredada"
+            ],
+            "texto": "{iban|iban} is inherited but not yet confirmed or verified."
+          },
+          {
+            "cuando": [
+              "estado=registrada"
+            ],
+            "texto": "{iban|iban} is registered but not yet verified."
+          },
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "{iban|iban} has an open change in the master data or is not in the latest Exact master data."
+          },
+          {
+            "cuando": [],
+            "texto": "The IBAN on the invoice is not payable."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "There are no accounts from Exact yet, or the Exact master data is out of date: it is unknown which account is payable."
+          }
+        ]
+      }
+    },
+    "F3": {
+      "titulo": "New or changed IBAN",
+      "significa": "The IBAN on the invoice is new for this provider, or was rejected. A phone check is needed.",
+      "que_hacer": "Call the provider on the phone number that was in the master data before this invoice, never a number from the invoice, and record the call.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "registrada=true"
+            ],
+            "texto": "{iban|iban} is on file but was rejected or never accepted by a phone check."
+          },
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "{iban|iban} is new for this provider."
+          },
+          {
+            "cuando": [],
+            "texto": "The IBAN on the invoice is new for this provider."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The master data from Exact is out of date, so it was not compared."
+          }
+        ]
+      }
+    },
+    "F4": {
+      "titulo": "Third-party IBAN or factoring",
+      "significa": "The IBAN is registered to someone else, or the invoice mentions factoring, assignment or a G-account. The invoice is blocked and escalated.",
+      "que_hacer": "Escalate this to the person responsible; do not pay until it is sorted out.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "factoring=true"
+                ],
+                "texto": "The invoice mentions factoring, assignment or a G-account: the payment would go to a third party."
+              },
+              {
+                "cuando": [
+                  "ajenas"
+                ],
+                "texto": "{iban|iban} is registered to another party."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "The payment would go to a third party."
+          }
+        ]
+      }
+    },
+    "F5": {
+      "titulo": "Account changed in master data",
+      "significa": "An account was added, changed or removed in later master data and has not been verified by phone.",
+      "que_hacer": "Call the provider on the number from before the change and record the check.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban",
+              "cambios"
+            ],
+            "texto": "Account {iban|iban} changed in the master data ({cambios.0.0|codigo}) and has not been verified by phone."
+          },
+          {
+            "cuando": [
+              "cuentas"
+            ],
+            "texto": "This provider has an unverified account change: {cuentas|iban}."
+          },
+          {
+            "cuando": [],
+            "texto": "There is an unverified account change in the master data."
+          }
+        ]
+      }
+    },
+    "F6": {
+      "titulo": "Exact and TRNSPRNT differ",
+      "significa": "Exact and TRNSPRNT list different accounts for the same provider.",
+      "que_hacer": "Find out which account is right and correct the system that is wrong.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "exact",
+              "trnsprnt"
+            ],
+            "texto": "Exact: {exact|iban}. TRNSPRNT: {trnsprnt|iban}."
+          },
+          {
+            "cuando": [],
+            "texto": "Exact and TRNSPRNT list different accounts."
+          }
+        ]
+      }
+    },
+    "F7": {
+      "titulo": "Payment to a non-payable account",
+      "significa": "A bank payment to a provider went to an account that is not payable for them, and that is not a known payee or one of the company's own accounts.",
+      "que_hacer": "Find out at once where the money went and escalate it to the person responsible.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "A payment to {iban|iban} is a payment to this provider, but that account is not payable for them."
+          },
+          {
+            "cuando": [],
+            "texto": "A payment went to a non-payable account."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Without up-to-date master data from Exact it is unknown which accounts are payable."
+          }
+        ]
+      }
+    },
+    "F8": {
+      "titulo": "Verification does not count",
+      "significa": "The phone check does not count: the call was not made to the master-data number from before the document, the number changed during the waiting period, or the person who verified lacked the permission.",
+      "que_hacer": "Have the account verified again by someone with the permission, using the right number.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "The phone check of {iban|iban} does not count."
+          },
+          {
+            "cuando": [],
+            "texto": "A phone check does not count."
+          }
+        ]
+      }
+    },
+    "F9": {
+      "titulo": "Verification phone changed",
+      "significa": "The verification phone number of a provider has just changed: a waiting period applies.",
+      "que_hacer": "Check that the change of number is genuine; only verify after the waiting period.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "dia",
+              "hasta"
+            ],
+            "texto": "The verification number changed on {dia|fecha}: until {hasta|fecha} no phone check of this provider counts."
+          },
+          {
+            "cuando": [],
+            "texto": "The verification number has just changed."
+          }
+        ]
+      }
+    },
+    "F10": {
+      "titulo": "Foreign IBAN on a sales invoice",
+      "significa": "A sales invoice shows an IBAN that is not a BM Support BV account: the client would pay into another account.",
+      "que_hacer": "Correct the invoice before the client pays.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "The sales invoice shows {iban|iban}, not a BM Support BV account."
+          },
+          {
+            "cuando": [],
+            "texto": "The sales invoice shows someone else's IBAN."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The company's own accounts are not set up yet, so it is unknown whether this IBAN belongs to BM Support BV."
+          }
+        ]
+      }
+    },
+    "K1": {
+      "titulo": "Overdue",
+      "significa": "Not paid after the due date: a purchase invoice from the next day, a sales invoice after the days in the policy.",
+      "que_hacer": "Make sure the purchase invoice gets paid or find out why not; for a sales invoice, chase the client for payment.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "vencimiento"
+            ],
+            "texto": "Overdue since {vencimiento|fecha}; still open: {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Not paid after the due date."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Overdue, but no up-to-date bank statement or Exact export covers the period since the due date: it is unknown whether it was paid."
+          }
+        ]
+      }
+    },
+    "K2": {
+      "titulo": "Paid differs from balance",
+      "significa": "What is confirmed as paid does not bring the balance to zero: a part payment or an overpayment.",
+      "que_hacer": "Find the rest of the payment, or ask for the overpayment back.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "acreditado_cent"
+            ],
+            "texto": "Total {total_cent|dinero}, paid {pagado_cent|dinero} ({fuente|codigo}), credited {acreditado_cent|dinero}, still open {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "total_cent"
+            ],
+            "texto": "Total {total_cent|dinero}, paid {pagado_cent|dinero} ({fuente|codigo}), still open {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "The amount paid does not bring the balance to zero."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "There are payments, but no total in euros to compare them with."
+          }
+        ]
+      }
+    },
+    "K3": {
+      "titulo": "Marked paid by hand, not seen at bank",
+      "significa": "Marked as paid by hand, and after the days in the policy no bank statement shows the payment.",
+      "que_hacer": "Check that the payment was really made, and withdraw the mark otherwise.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fecha_pago"
+            ],
+            "texto": "Marked as paid by hand on {fecha_pago|fecha}, but the bank does not show that payment."
+          },
+          {
+            "cuando": [],
+            "texto": "Marked as paid by hand, but the bank does not show that payment."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Marked as paid by hand, but no up-to-date bank statement covers the days after the payment."
+          }
+        ]
+      }
+    },
+    "K4": {
+      "titulo": "Paid twice",
+      "significa": "Two payments to the same account, for the same amount and with the same reference within a few days, or an invoice overpaid with two payments.",
+      "que_hacer": "Ask the recipient to refund the double payment.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "referencia"
+            ],
+            "texto": "{movimientos|cuenta} payments of {importe_cent|abs|dinero} to {ibans|iban} with reference {referencia}, shortly after each other: possibly paid twice."
+          },
+          {
+            "cuando": [
+              "pagado_cent"
+            ],
+            "texto": "Paid twice: the payments together are {pagado_cent|dinero} for a total of {total_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "It may have been paid twice."
+          }
+        ]
+      }
+    },
+    "K5": {
+      "titulo": "Paid while blocked",
+      "significa": "It was paid on a day when the invoice had a blocking finding that was still open.",
+      "que_hacer": "Find out why it was paid anyway and whether the money has to come back.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fecha_pago"
+            ],
+            "texto": "Paid on {fecha_pago|fecha} while the invoice was blocked."
+          },
+          {
+            "cuando": [],
+            "texto": "Paid while the invoice was blocked."
+          }
+        ]
+      }
+    },
+    "K6": {
+      "titulo": "Bank statements do not connect",
+      "significa": "A statement's opening balance is not the previous closing balance, or a number is missing. What was paid since then does not count yet.",
+      "que_hacer": "Import the missing statement.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cuenta"
+            ],
+            "texto": "The statements of account {cuenta|iban} do not connect: a statement or a balance is missing."
+          },
+          {
+            "cuando": [
+              "extractos"
+            ],
+            "texto": "Paid with transactions from statements after a break: the payment does not count yet."
+          },
+          {
+            "cuando": [],
+            "texto": "The bank statements do not connect."
+          }
+        ]
+      }
+    },
+    "K7": {
+      "titulo": "Bank transaction not matched",
+      "significa": "A bank transaction is still not matched with any invoice after the days in the policy.",
+      "que_hacer": "Match the transaction with the right invoice, or record what it is.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "importe_cent"
+            ],
+            "texto": "Transaction of {importe_cent|dinero} on {fecha|fecha}; not matched: {sin_casar_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "A bank transaction is not matched with any invoice."
+          }
+        ]
+      }
+    },
+    "K8": {
+      "titulo": "Bank and Exact differ",
+      "significa": "The bank and Exact show different amounts paid for the same invoice.",
+      "que_hacer": "Find out which is right and correct the entry in Exact.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "banco_cent"
+            ],
+            "texto": "The bank shows {banco_cent|dinero} paid, Exact {exact_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "The bank and Exact show different amounts paid."
+          }
+        ]
+      }
+    },
+    "K9": {
+      "titulo": "Payments on an invoice that does not count",
+      "significa": "A cancelled or merged invoice has confirmed payments: that money counts in no total until someone says where it belongs.",
+      "que_hacer": "Withdraw the payment and record it on the invoice it pays, or bring the invoice back.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pagado_cent"
+            ],
+            "texto": "This invoice no longer counts, but has {pagado_cent|dinero} in confirmed payments ({fuente|codigo})."
+          },
+          {
+            "cuando": [],
+            "texto": "This invoice no longer counts, but has confirmed payments."
+          }
+        ]
+      }
+    },
+    "G1": {
+      "titulo": "No shifts in the planning",
+      "significa": "A purchase invoice without any shift of the provider or their people in the invoiced period.",
+      "que_hacer": "Ask where the work was done and check the planning. Accepting needs a second signature.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "causa=sin_planning"
+            ],
+            "texto": "No planning has been imported. The planning is required, so this purchase cannot pass without it."
+          },
+          {
+            "cuando": [
+              "causa=caducado"
+            ],
+            "texto": "The planning is out of date. The planning is required, so this purchase cannot pass without a current one."
+          },
+          {
+            "cuando": [
+              "causa"
+            ],
+            "texto": "The planning does not cover {desde|fecha} – {hasta|fecha}. The planning is required, so this purchase cannot pass without it."
+          },
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "No shift of the provider or their people in the planning from {desde|fecha} to {hasta|fecha}."
+          },
+          {
+            "cuando": [],
+            "texto": "No shift of the provider in the planning in the invoiced period."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "G2": {
+      "titulo": "Hours differ from validated",
+      "significa": "The invoiced hours against the validated hours in the planning, compared as finely as possible (person and day, Object and day, week or period), with a quarter of an hour margin per day.",
+      "que_hacer": "Compare the hours with the planning and ask the provider for a correction if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tope_mil"
+            ],
+            "texto": "Invoiced {facturadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}); the planning has at most {tope_mil|horas} h, with shifts not yet validated: {sin_validar}."
+          },
+          {
+            "cuando": [
+              "facturadas_mil"
+            ],
+            "texto": "Invoiced {facturadas_mil|horas} h, validated in the planning {validadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}). Difference {diferencia_mil|horas} h, more than the margin of {tolerancia_mil|horas} h."
+          },
+          {
+            "cuando": [],
+            "texto": "The invoiced hours differ from the validated hours in the planning."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "G3": {
+      "titulo": "Rate differs from agreed",
+      "significa": "The rate of a purchase line against the agreed rate, or otherwise the shift rate in the planning or earlier rates for the same work. Above it holds; far above it blocks.",
+      "que_hacer": "Compare the rate with the agreement and ask the provider for a credit note if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Line rate {tarifa_e4|tarifa}; agreed ({nivel|codigo}): {pactada_e4|tarifa}. Difference on this line: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "turno_e4"
+            ],
+            "texto": "Line rate {tarifa_e4|tarifa}; shift rate in the planning: {turno_e4|tarifa} (no agreed rate)."
+          },
+          {
+            "cuando": [
+              "anterior_e4"
+            ],
+            "texto": "Different rate for the same work ({trabajo}, per {unidad|codigo}): first {anterior_e4|tarifa}, later {posteriores_e4|tarifa}."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Invoice lines that cannot be compared with the agreed rates (other shift, unit or day, or agreements with different prices); count: {imputaciones|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "The rate differs from what was agreed."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "dia"
+            ],
+            "texto": "The line (unit {unidad|codigo}, {dia|fecha}) matches none of its agreed rates, so it is not compared with earlier rates."
+          },
+          {
+            "cuando": [
+              "nivel"
+            ],
+            "texto": "There are equally specific agreements ({nivel|codigo}) with different prices: it is unclear which applies."
+          },
+          {
+            "cuando": [],
+            "texto": "Could not be checked: no line has a rate, or there is no agreed or earlier rate to compare with."
+          }
+        ]
+      }
+    },
+    "G4": {
+      "titulo": "Object differs from planning",
+      "significa": "The Object of a purchase line against the planning: the person or provider has shifts on another Object on those days. A line without an Object gets the planning's suggestion.",
+      "que_hacer": "Check the Object and change it if needed, or confirm the suggestion.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "propuesta"
+            ],
+            "texto": "The line names no Object; the planning suggests one ({desde|fecha} – {hasta|fecha}). Confirm it or choose another."
+          },
+          {
+            "cuando": [
+              "candidatos"
+            ],
+            "texto": "The line names no Object and the planning gives no single suggestion."
+          },
+          {
+            "cuando": [
+              "planning"
+            ],
+            "texto": "In the planning, the person or provider has shifts on another Object from {desde|fecha} to {hasta|fecha}."
+          },
+          {
+            "cuando": [],
+            "texto": "The Object differs from the planning."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "G5": {
+      "titulo": "Period differs from planning",
+      "significa": "The period and ISO week of a purchase invoice against the planning: the printed week does not match the dates, or the work falls on days without shifts and is not yet invoiced in another week.",
+      "que_hacer": "Check the dates and week with the provider and have them corrected if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "semana_doc"
+            ],
+            "texto": "The line says week {semana_doc}, but its dates fall in another week ({fecha|fecha})."
+          },
+          {
+            "cuando": [
+              "semanas"
+            ],
+            "texto": "Invoiced {facturadas_mil|horas} h on {desde|fecha} – {hasta|fecha} without shifts in the planning; the Object has uninvoiced work in {semanas}."
+          },
+          {
+            "cuando": [],
+            "texto": "The period differs from the planning."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "G6": {
+      "titulo": "Surcharge at another rate",
+      "significa": "An invoice line with a surcharge (night, weekend, holiday) must be charged at its own agreed rate, and the hours per surcharge must fit the shifts with that surcharge.",
+      "que_hacer": "Check the surcharge and rate against the agreement and the planning.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Line rate {tarifa_e4|tarifa}; agreed surcharge rate ({nivel|codigo}): {pactada_e4|tarifa}. Difference on this line: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "planificadas_mil"
+            ],
+            "texto": "Charged as {turno}: {facturadas_mil|horas} h ({desde|fecha} – {hasta|fecha}); the planning has {planificadas_mil|horas} h of shifts with that surcharge."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Lines with a surcharge but no agreed rate of their own; count: {imputaciones|cuenta}. Someone must confirm the surcharge."
+          },
+          {
+            "cuando": [],
+            "texto": "The surcharge is charged at another rate."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "dia"
+            ],
+            "texto": "The line (shift {turno}, unit {unidad|codigo}, {dia|fecha}) matches none of its agreed rates."
+          },
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "G7": {
+      "titulo": "Planning changed after matching",
+      "significa": "A newer version of the planning changes the hours already matched with a purchase invoice (other hours, removed or cancelled shifts, new shifts).",
+      "que_hacer": "Compare the invoice with the new planning; a correction or credit note may be needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "The planning changed after this invoice was matched with it. A correction or credit note may be needed."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V1": {
+      "titulo": "Billed hours differ from validated",
+      "significa": "The hours on a sales invoice against the validated billable hours in the planning, compared as finely as possible.",
+      "que_hacer": "Compare the invoice with the planning and send a correction or credit note if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tope_mil"
+            ],
+            "texto": "Billed {facturadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}); the planning has at most {tope_mil|horas} h, with shifts not yet validated: {sin_validar}."
+          },
+          {
+            "cuando": [
+              "facturadas_mil"
+            ],
+            "texto": "Billed {facturadas_mil|horas} h, validated in the planning {validadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}). Difference {diferencia_mil|horas} h, more than the margin of {tolerancia_mil|horas} h."
+          },
+          {
+            "cuando": [],
+            "texto": "The billed hours differ from the planning."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V2": {
+      "titulo": "Object of the sale",
+      "significa": "The Object of each sales line must exist, belong to the billed client and be active. A line without an Object is held, with the planning's suggestion if there is one.",
+      "que_hacer": "Choose or correct the Object of the line.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "propuesta"
+            ],
+            "texto": "The line names no Object; the planning suggests one ({desde|fecha} – {hasta|fecha}). Confirm it or choose another."
+          },
+          {
+            "cuando": [
+              "cliente_objeto"
+            ],
+            "texto": "The Object of the line belongs to another client."
+          },
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "The Object was not active from {desde|fecha} to {hasta|fecha} (active from {activo_desde|fecha} to {activo_hasta|fecha})."
+          },
+          {
+            "cuando": [
+              "!objeto"
+            ],
+            "texto": "The line names no Object."
+          },
+          {
+            "cuando": [],
+            "texto": "The Object of the line is not right."
+          }
+        ]
+      }
+    },
+    "V3": {
+      "titulo": "Sales period differs from planning",
+      "significa": "The period and week of what was billed, against the planning.",
+      "que_hacer": "Check the dates and week and correct the invoice if needed.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "semana_doc"
+            ],
+            "texto": "The line says week {semana_doc}, but its dates fall in another week ({fecha|fecha})."
+          },
+          {
+            "cuando": [
+              "semanas"
+            ],
+            "texto": "Billed {facturadas_mil|horas} h on {desde|fecha} – {hasta|fecha} without shifts in the planning; the Object has unbilled work in {semanas}."
+          },
+          {
+            "cuando": [],
+            "texto": "The period differs from the planning."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V4": {
+      "titulo": "Sales rate differs from agreed",
+      "significa": "The rate of a sales line is not the agreed sales rate (neither higher nor lower). Without an agreement, the shift rate in the planning applies.",
+      "que_hacer": "Correct the invoice or the rate agreement.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Line rate {tarifa_e4|tarifa}; agreed sales rate ({nivel|codigo}): {pactada_e4|tarifa}. Difference on this line: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "turno_e4"
+            ],
+            "texto": "Line rate {tarifa_e4|tarifa}; shift rate in the planning: {turno_e4|tarifa} (no agreed rate)."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Agreements with different prices for the same lines ({imputaciones|cuenta}): fix the rate table."
+          },
+          {
+            "cuando": [],
+            "texto": "The sales rate differs from the agreement."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "nivel"
+            ],
+            "texto": "There are equally specific agreements ({nivel|codigo}) with different prices: it is unclear which applies."
+          },
+          {
+            "cuando": [],
+            "texto": "No agreed sales rate for the line and no shift rate in the planning."
+          }
+        ]
+      }
+    },
+    "V5": {
+      "titulo": "Validated hours not billed",
+      "significa": "Within the Object and period of a sales invoice there are validated billable shifts that no line covers.",
+      "que_hacer": "Add them to the invoice or send an additional invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "valor_cent",
+              "estimado=true"
+            ],
+            "texto": "From {desde|fecha} to {hasta|fecha} the planning has {horas_mil|horas} validated billable hours for this Object that no line covers, estimated at {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "valor_cent"
+            ],
+            "texto": "From {desde|fecha} to {hasta|fecha} the planning has {horas_mil|horas} validated billable hours for this Object that no line covers, worth {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "horas_mil"
+            ],
+            "texto": "From {desde|fecha} to {hasta|fecha} the planning has {horas_mil|horas} validated billable hours for this Object that no line covers."
+          },
+          {
+            "cuando": [],
+            "texto": "There are validated hours this invoice does not cover."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V6": {
+      "titulo": "Unbilled work",
+      "significa": "Validated billable shifts that no sales invoice covers, after the end of their billing period plus the grace days.",
+      "que_hacer": "Create the sales invoice for this work in Exact.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "valor_cent",
+              "estimado=true"
+            ],
+            "texto": "Not billed: {horas_mil|horas} h from {desde|fecha} to {hasta|fecha}, past the period and its grace days (until {gracia_hasta|fecha}). Estimated value: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "valor_cent"
+            ],
+            "texto": "Not billed: {horas_mil|horas} h from {desde|fecha} to {hasta|fecha}, past the period and its grace days (until {gracia_hasta|fecha}). Value: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "horas_mil"
+            ],
+            "texto": "Not billed: {horas_mil|horas} h from {desde|fecha} to {hasta|fecha}, past the period and its grace days (until {gracia_hasta|fecha})."
+          },
+          {
+            "cuando": [],
+            "texto": "There is validated work that has not been billed."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V8": {
+      "titulo": "Billing period without invoice",
+      "significa": "A period in the billing cycle of a client or Object, with work in the planning, has passed (with its grace days) and has no invoice.",
+      "que_hacer": "Create the sales invoice for this period in Exact.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "The billing cycle expects an invoice for {desde|fecha} – {hasta|fecha} and there is none. Shifts in the planning: {turnos}."
+          },
+          {
+            "cuando": [],
+            "texto": "A billing period has no invoice."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "V9": {
+      "titulo": "Planning changed after billing",
+      "significa": "A newer version of the planning changes what was already billed: a correction or credit note is needed.",
+      "que_hacer": "Compare the invoice with the new planning and send a correction or credit note.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "The planning changed after this invoice was sent. A correction or credit note is needed."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for."
+          }
+        ]
+      }
+    },
+    "P1": {
+      "titulo": "PO not valid",
+      "significa": "The PO the invoice is charged to is closed, or the work falls outside its validity.",
+      "que_hacer": "Choose a valid PO or ask the client for an extension.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cerrada=true"
+            ],
+            "texto": "PO number {numero} is closed."
+          },
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Work outside the validity of PO number {numero} ({inicio|fecha} – {fin|fecha})."
+          },
+          {
+            "cuando": [],
+            "texto": "The PO is not valid for this work."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "It is unknown which days the work charged to PO number {numero} is from."
+          },
+          {
+            "cuando": [],
+            "texto": "It is unknown which days the work charged to the PO is from."
+          }
+        ]
+      }
+    },
+    "P2": {
+      "titulo": "PO missing",
+      "significa": "A sales invoice without a PO, while the Object (or otherwise the client) requires one. A credit note takes the PO of the invoice it credits.",
+      "que_hacer": "Ask the client for the PO number and add it to the invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "The client or Object requires a PO and this invoice has none."
+          }
+        ]
+      }
+    },
+    "P3": {
+      "titulo": "PO unknown or someone else's",
+      "significa": "The PO on the invoice is not registered, belongs to another party or does not cover the Object of the line; or the invoice names several POs and a line has none.",
+      "que_hacer": "Register the PO or choose the right PO for the line.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "desconocidas"
+                ],
+                "texto": "Not registered: {desconocidas}."
+              },
+              {
+                "cuando": [
+                  "de_otra_parte"
+                ],
+                "texto": "Belongs to another party: {de_otra_parte}."
+              },
+              {
+                "cuando": [
+                  "de_otro_objeto"
+                ],
+                "texto": "A PO does not cover the Object of the line."
+              },
+              {
+                "cuando": [
+                  "varias"
+                ],
+                "texto": "The invoice names several POs and a line has none: choose one."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "The PO on the invoice is unknown or someone else's."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No PO has been registered yet to compare the number with."
+          }
+        ]
+      }
+    },
+    "P4": {
+      "titulo": "Invoice above what is left",
+      "significa": "The invoice charges more to the PO than was left before it (excl. VAT).",
+      "que_hacer": "Ask the client for a higher PO, or charge part of the invoice to another PO.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "exceso_cent"
+            ],
+            "texto": "This invoice charges {importe_cent|dinero} to PO number {numero} and goes {exceso_cent|dinero} over what was left."
+          },
+          {
+            "cuando": [],
+            "texto": "This invoice charges more to the PO than was left."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Without an invoice date it is unknown what was left on PO number {numero} before this invoice."
+          },
+          {
+            "cuando": [],
+            "texto": "Without an invoice date it is unknown what was left on the PO."
+          }
+        ]
+      }
+    },
+    "P5": {
+      "titulo": "PO nearly used up",
+      "significa": "The PO is used up to the percentage in the policy (80%) or more.",
+      "que_hacer": "Ask the client in time for a new PO or an increase.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "consumido_pb"
+            ],
+            "texto": "This PO is {consumido_pb|pct} used ({consumido_cent|dinero} of {valor_cent|dinero}); left: {restante_cent|dinero}. Warning from {umbral_pct}%."
+          },
+          {
+            "cuando": [],
+            "texto": "This PO is nearly used up."
+          }
+        ]
+      }
+    },
+    "P6": {
+      "titulo": "PO used up, still invoiced",
+      "significa": "The PO was already fully used before this invoice, and the invoice charges more to it.",
+      "que_hacer": "Ask the client for a new PO or an increase before invoicing further.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "PO number {numero} was already used up; this invoice charges another {importe_cent|dinero} to it."
+          },
+          {
+            "cuando": [],
+            "texto": "The PO was already used up and this invoice charges more to it."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Without an invoice date it is unknown what was left on PO number {numero} before this invoice."
+          },
+          {
+            "cuando": [],
+            "texto": "Without an invoice date it is unknown what was left on the PO."
+          }
+        ]
+      }
+    },
+    "P7": {
+      "titulo": "PO about to expire",
+      "significa": "The PO expires within the days in the policy (30) and still has value left. Once expired, it is held if the planning has work after its end.",
+      "que_hacer": "Ask the client for an extension or a new PO.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "turnos_despues"
+            ],
+            "texto": "PO expired on {fin|fecha} with {restante_cent|dinero} unused, and the planning has {turnos_despues} shifts after that date that no other PO covers."
+          },
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "PO expires on {fin|fecha}; still unused: {restante_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "The PO is about to expire."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "PO expired on {fin|fecha} with {restante_cent|dinero} unused; without a planning it is unknown whether there is work after that date."
+          },
+          {
+            "cuando": [],
+            "texto": "Without a planning it is unknown whether there is work after the PO ends."
+          }
+        ]
+      }
+    },
+    "P8": {
+      "titulo": "Planned work above what is left",
+      "significa": "The planned work (after today), at the agreed rate or the shift rate, is more than what is left on the PO.",
+      "que_hacer": "Ask the client in time for an increase or a new PO.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "restante_cent"
+            ],
+            "texto": "The planned work is worth more than the {restante_cent|dinero} left on this PO."
+          },
+          {
+            "cuando": [],
+            "texto": "The planned work does not fit in what is left on the PO."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The planned work comes from the planning, which has not been imported or does not cover these days."
+          }
+        ]
+      }
+    },
+    "P9": {
+      "titulo": "PO runs out early",
+      "significa": "At the rate of the last 8 weeks, the PO runs out more than 14 days before its end date.",
+      "que_hacer": "Ask the client in time for an increase.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "At the current rate this PO runs out more than {margen_dias} days before its end date ({fin|fecha}). Left: {restante_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "This PO will run out early."
+          }
+        ]
+      }
+    },
+    "P10": {
+      "titulo": "Expected above the PO",
+      "significa": "Invoiced plus unbilled plus planned work is more than the PO value; invoices that charge to it from then on are held.",
+      "que_hacer": "Ask the client for an increase or a new PO.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "esperado_cent"
+            ],
+            "texto": "Invoiced, unbilled and planned work together ({esperado_cent|dinero}) is more than the PO value ({valor_po_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "The expected work is more than the PO value."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The unbilled and planned work comes from the planning, which has not been imported or does not cover these days."
+          }
+        ]
+      }
+    },
+    "R1": {
+      "titulo": "Referenced invoice missing",
+      "significa": "A credit note or correction refers to an invoice of the same party that is not in the system (or is in it twice).",
+      "que_hacer": "Import the referenced invoice, or link the right invoice.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "encontradas"
+            ],
+            "texto": "The document refers to invoice {numero_norm}, but that number is in the system more than once."
+          },
+          {
+            "cuando": [
+              "numero_norm"
+            ],
+            "texto": "The document refers to invoice {numero_norm} of the same party, which is not in the system."
+          },
+          {
+            "cuando": [],
+            "texto": "The referenced invoice is not in the system."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "The document refers to another invoice, but the number cannot be read or the party is unknown."
+          }
+        ]
+      }
+    },
+    "R2": {
+      "titulo": "Credits above the original",
+      "significa": "The confirmed credit notes take more off an invoice than it is worth, or a credit note is applied for more than it is worth.",
+      "que_hacer": "Check the links and the amount of each credit note.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "acreditado_cent"
+            ],
+            "texto": "The credit notes take {acreditado_cent|dinero} off an invoice of {total_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "aplicado_cent"
+            ],
+            "texto": "This credit note of {total_cent|abs|dinero} is applied for {aplicado_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "More has been credited than the invoice is worth."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "There are credit notes, but no total in euros to compare them with."
+          }
+        ]
+      }
+    },
+    "R3": {
+      "titulo": "Original and replacement at once",
+      "significa": "The original invoice and the one that replaces (or corrects) it are both open, or both paid: the same work is then paid twice.",
+      "que_hacer": "Cancel or credit the original invoice, or ask for the double payment back.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipo=sustituye"
+            ],
+            "texto": "This invoice replaces an earlier one, and both are open or both are paid."
+          },
+          {
+            "cuando": [
+              "tipo=corrige"
+            ],
+            "texto": "This invoice corrects an earlier one, and both are open or both are paid."
+          },
+          {
+            "cuando": [],
+            "texto": "The original and the replacement are both open or both paid."
+          }
+        ]
+      }
+    },
+    "R4": {
+      "titulo": "Credit note not linked",
+      "significa": "A credit note without a confirmed link saying which invoice it credits.",
+      "que_hacer": "Link the credit note to the invoice it credits.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "total_cent"
+            ],
+            "texto": "Credit note of {total_cent|abs|dinero} without a confirmed link: it does not reduce any open amount yet."
+          },
+          {
+            "cuando": [],
+            "texto": "Credit note without a confirmed link."
+          }
+        ]
+      }
+    },
+    "R5": {
+      "titulo": "Link to confirm",
+      "significa": "The reading or Exact suggests a link between two invoices. Until someone confirms it, nothing changes in balances, VAT or duplicates.",
+      "que_hacer": "Confirm or reject the suggested link.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipo"
+            ],
+            "texto": "Suggestion: this invoice {tipo|codigo} another invoice. Confirm or reject it."
+          },
+          {
+            "cuando": [],
+            "texto": "There is a suggested link to confirm."
+          }
+        ]
+      }
+    },
+    "U1": {
+      "titulo": "Unusual amount",
+      "significa": "The amount excl. VAT differs from what is usual for this party (median of the earlier invoices).",
+      "que_hacer": "Check that the amount is right; if it is, accept the finding with a reason.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent"
+            ],
+            "texto": "Amount excl. VAT {base_cent|dinero}; usual is {mediana_cent|dinero} (median of earlier invoices: {anteriores})."
+          },
+          {
+            "cuando": [],
+            "texto": "The amount is unusual for this party."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "anteriores"
+            ],
+            "texto": "Earlier invoices from this party: {anteriores}. At least 3 are needed to tell whether an amount is unusual."
+          },
+          {
+            "cuando": [],
+            "texto": "Too few earlier invoices to tell whether the amount is unusual."
+          }
+        ]
+      }
+    }
+  },
+  "categorias": {
+    "iban": {
+      "etiqueta": "Changed or unverified IBAN",
+      "significa": "Bank details that are new, changed or not confirmed. Payments only go to accounts from the master data."
+    },
+    "duplicados": {
+      "etiqueta": "Potential duplicates",
+      "significa": "Invoices or payments that seem to be there twice."
+    },
+    "iva": {
+      "etiqueta": "VAT",
+      "significa": "VAT amounts, rates or treatments that are wrong or missing."
+    },
+    "planning": {
+      "etiqueta": "Planning discrepancies",
+      "significa": "Hours, Objects, periods or rates that do not match the planning."
+    },
+    "sin_facturar": {
+      "etiqueta": "Unbilled work and missing periods",
+      "significa": "Work from the planning that has not been billed to the client yet."
+    },
+    "ordenes_compra": {
+      "etiqueta": "Purchase orders (PO)",
+      "significa": "POs that are nearly used up, expiring or do not fit the invoice."
+    },
+    "vencidas": {
+      "etiqueta": "Overdue unpaid",
+      "significa": "Invoices still open after their due date."
+    },
+    "faltan_datos": {
+      "etiqueta": "Missing data",
+      "significa": "Details needed to check or book the invoice."
+    },
+    "lecturas_dudosas": {
+      "etiqueta": "Uncertain readings",
+      "significa": "Fields read with doubt and not yet verified."
+    },
+    "otros": {
+      "etiqueta": "Other discrepancies and anomalies",
+      "significa": "Everything that does not fit one of the other groups."
+    }
+  },
+  "campos": {
+    "factura": {
+      "sentido": "Direction",
+      "tipo": "Type",
+      "origen": "Origin",
+      "documento_id": "Document",
+      "extraccion_vigente_id": "Current reading",
+      "fuente_externa": "External system",
+      "id_externo": "External ID",
+      "numero": "Invoice number",
+      "numero_norm": "Invoice number (normalised)",
+      "proveedor_id": "Provider (master data)",
+      "cliente_id": "Client (master data)",
+      "contacto_id": "Contact",
+      "emisor_nombre_doc": "Issuer (on document)",
+      "emisor_direccion_doc": "Issuer address",
+      "emisor_kvk_doc": "Issuer KvK number",
+      "emisor_btw_doc": "Issuer VAT ID",
+      "receptor_nombre_doc": "Addressee (on document)",
+      "receptor_btw_doc": "Addressee VAT ID",
+      "contacto_nombre_doc": "Contact (on document)",
+      "fecha_factura": "Invoice date",
+      "fecha_recepcion": "Received on",
+      "fecha_envio": "Sent on",
+      "periodo_inicio": "Period from",
+      "periodo_fin": "Period to",
+      "fecha_vencimiento": "Due date (on document)",
+      "plazo_pago_dias": "Payment term (days)",
+      "condiciones_pago_doc": "Payment terms (on document)",
+      "base_cent": "Amount excl. VAT",
+      "iva_cent": "VAT",
+      "total_cent": "Total",
+      "tipo_iva_pb": "VAT rate",
+      "tratamiento_iva": "VAT treatment",
+      "kor_mencionada": "Mentions the KOR",
+      "autoliquidacion_mencionada": "Mentions reverse charge",
+      "referencia_pago": "Payment reference",
+      "iban_doc": "IBAN on document (never paid to)",
+      "moneda_doc": "Currency",
+      "notas_doc": "Notes on document",
+      "anulada": "Cancelled",
+      "fusionada_en_id": "Merged into"
+    },
+    "factura_linea": {
+      "factura_id": "Invoice",
+      "orden": "Line number",
+      "huella_linea": "Line fingerprint",
+      "descripcion_doc": "Description",
+      "objeto_doc": "Object (on document)",
+      "recurso_doc": "Person (on document)",
+      "unidad_doc": "Unit (on document)",
+      "semana_doc": "Week (on document)",
+      "tipo_turno_doc": "Shift type (on document)",
+      "fecha_inicio": "From",
+      "fecha_fin": "To",
+      "fecha_trabajo": "Work day",
+      "semana_iso": "Week",
+      "unidad": "Unit",
+      "cantidad_mil": "Quantity",
+      "tarifa_e4": "Rate",
+      "importe_cent": "Amount",
+      "tipo_iva_pb": "VAT rate",
+      "tipo_servicio": "Type of work",
+      "retirada_en": "Excluded on"
+    },
+    "factura_imputacion": {
+      "factura_id": "Invoice",
+      "linea_id": "Invoice line",
+      "objeto_id": "Object",
+      "recurso_id": "Person",
+      "orden_compra_id": "PO",
+      "descripcion": "Description",
+      "fecha_inicio": "From",
+      "fecha_fin": "To",
+      "semana_iso": "Week",
+      "horas_mil": "Hours",
+      "tarifa_e4": "Rate",
+      "importe_cent": "Amount",
+      "tipo_servicio": "Type of work",
+      "tipo_turno": "Shift type",
+      "facturable": "Billable",
+      "retirada_en": "Withdrawn on"
+    },
+    "proveedor": {
+      "nombre": "Name",
+      "tipo": "Type",
+      "kvk": "KvK number",
+      "btw_id": "VAT ID",
+      "regimen_iva": "VAT treatment",
+      "plazo_pago_dias": "Payment term (days)",
+      "direccion": "Address",
+      "email_facturacion": "Invoice email",
+      "telefono_verificacion": "Verification phone",
+      "activo": "Active",
+      "exact_id": "Exact ID",
+      "trnsprnt_id": "TRNSPRNT ID"
+    },
+    "cliente": {
+      "nombre": "Name",
+      "kvk": "KvK number",
+      "btw_id": "VAT ID",
+      "plazo_pago_dias": "Payment term (days)",
+      "requiere_po": "Requires a PO",
+      "tratamiento_iva_defecto": "Default VAT treatment",
+      "verlegd_elegible": "Reverse charge allowed",
+      "activo": "Active",
+      "exact_id": "Exact ID",
+      "trnsprnt_id": "TRNSPRNT ID"
+    },
+    "contacto": {
+      "proveedor_id": "Provider",
+      "cliente_id": "Client",
+      "nombre": "Name",
+      "email": "Email",
+      "telefono": "Phone",
+      "funcion": "Role",
+      "activo": "Active"
+    },
+    "objeto": {
+      "codigo": "Code",
+      "nombre": "Name",
+      "cliente_id": "Client",
+      "requiere_po": "Requires a PO",
+      "activo_desde": "Active from",
+      "activo_hasta": "Active to",
+      "trnsprnt_id": "TRNSPRNT ID"
+    },
+    "recurso": {
+      "nombre": "Name",
+      "tipo": "Type",
+      "proveedor_id": "Provider",
+      "trnsprnt_id": "TRNSPRNT ID",
+      "activo": "Active"
+    },
+    "orden_compra": {
+      "numero": "PO number",
+      "numero_norm": "PO number (normalised)",
+      "lado": "Side",
+      "cliente_id": "Client",
+      "proveedor_id": "Provider",
+      "fecha_emision": "Issued on",
+      "fecha_inicio": "Valid from",
+      "fecha_fin": "Valid to",
+      "valor_original_cent": "Original value",
+      "documento_id": "Document",
+      "cerrada": "Closed",
+      "fuente": "Source"
+    }
+  },
+  "fuentes": {
+    "extraccion": {
+      "etiqueta": "Read from the document",
+      "significa": "Read automatically from the PDF; not yet confirmed by a person."
+    },
+    "importacion": {
+      "etiqueta": "Imported from another system",
+      "significa": "From an export of Exact, TRNSPRNT or the bank."
+    },
+    "planning": {
+      "etiqueta": "From the planning",
+      "significa": "From the TRNSPRNT planning."
+    },
+    "maestro": {
+      "etiqueta": "From the master data",
+      "significa": "From the provider's or client's master data."
+    },
+    "manual_entrada": {
+      "etiqueta": "Entered by hand",
+      "significa": "A person filled in a missing value."
+    },
+    "manual_correccion": {
+      "etiqueta": "Corrected by hand",
+      "significa": "A person changed the value, with a reason."
+    },
+    "calculado": {
+      "etiqueta": "Calculated by the system",
+      "significa": "Derived from other data, for example the due date from the invoice date and the payment term."
+    }
+  },
+  "calidad": {
+    "faltante": {
+      "etiqueta": "Missing",
+      "significa": "The field is required and has no value."
+    },
+    "dudoso": {
+      "etiqueta": "Uncertain",
+      "significa": "Read with doubt and not yet verified."
+    },
+    "discrepancia": {
+      "etiqueta": "Discrepancy",
+      "significa": "Does not match another source, such as the master data or the planning."
+    },
+    "anomalia": {
+      "etiqueta": "Anomaly",
+      "significa": "Differs from what is usual or from earlier invoices."
+    },
+    "verificado": {
+      "etiqueta": "Verified",
+      "significa": "A person has checked the value."
+    }
+  },
+  "estados": {
+    "sentido": {
+      "entrante": "Purchase",
+      "saliente": "Sale"
+    },
+    "tipo_factura": {
+      "factura": "Invoice",
+      "nota_credito": "Credit note"
+    },
+    "origen_factura": {
+      "extraccion": "Read PDF",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "manual": "Manual"
+    },
+    "tratamiento_iva": {
+      "estandar": "Standard VAT",
+      "autoliquidacion": "Reverse charge",
+      "kor": "KOR (no VAT)",
+      "exento": "Exempt",
+      "tipo_cero": "0% VAT",
+      "desconocido": "Unknown"
+    },
+    "pago": {
+      "pendiente": "Outstanding",
+      "vencida": "Overdue",
+      "pagada": "Paid",
+      "anulada": "Cancelled",
+      "acreditada": "Credited"
+    },
+    "revision": {
+      "sin_revisar": "Unreviewed",
+      "necesita_revision": "Needs review",
+      "revisada": "Reviewed"
+    },
+    "resultado_revision": {
+      "revisada": "Reviewed",
+      "devuelta": "Returned"
+    },
+    "excepcion": {
+      "abierta": "Open",
+      "asignada": "Assigned",
+      "esperando_externo": "Waiting on others",
+      "resuelta": "Resolved"
+    },
+    "esperando_a": {
+      "proveedor": "the provider",
+      "cliente": "the client",
+      "contable": "the accountant",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "banco": "the bank",
+      "otro": "someone else"
+    },
+    "resolucion": {
+      "corregido": "Corrected",
+      "aceptado": "Accepted",
+      "anulado": "Cancelled",
+      "no_procede": "Not applicable",
+      "condicion_desaparecida": "Problem gone"
+    },
+    "hallazgo": {
+      "abierto": "Open",
+      "aceptado": "Accepted",
+      "desaparecido": "No longer seen, not closed",
+      "cerrado": "Closed",
+      "resuelto": "Resolved"
+    },
+    "evento_hallazgo": {
+      "detectado": "Found",
+      "cambio_evidencia": "Evidence changed",
+      "desaparecido": "No longer seen",
+      "cerrado_automatico": "Closed automatically",
+      "resuelto": "Resolved by a person",
+      "aceptado": "Accepted by a person",
+      "reabierto": "Reopened"
+    },
+    "resultado_regla": {
+      "ok": "OK",
+      "fallo": "Objection",
+      "sin_datos": "No data",
+      "no_aplica": "Not applicable"
+    },
+    "relacion": {
+      "propuesta": "Suggested",
+      "confirmada": "Confirmed",
+      "rechazada": "Rejected"
+    },
+    "tipo_relacion": {
+      "acredita": "Credits",
+      "anula": "Cancels",
+      "corrige": "Corrects",
+      "sustituye": "Replaces",
+      "relacionada": "Related to"
+    },
+    "fuente_relacion": {
+      "extraccion": "Read PDF",
+      "exact": "Exact",
+      "manual": "Manual"
+    },
+    "relacion_citada": {
+      "credits": "Credits",
+      "corrects": "Corrects",
+      "replaces": "Replaces",
+      "cancels": "Cancels",
+      "refers_to": "Refers to",
+      "unknown": "Unknown"
+    },
+    "clase_referencia": {
+      "po": "PO",
+      "orden": "Order",
+      "proyecto": "Project",
+      "ref_cliente": "Client reference",
+      "otra": "Other reference"
+    },
+    "btw": {
+      "abierto": "Open",
+      "listo_revision": "Ready for review",
+      "presentado": "Filed (recorded by a person)"
+    },
+    "aplicacion": {
+      "propuesta": "Suggested",
+      "confirmada": "Confirmed",
+      "retirada": "Withdrawn"
+    },
+    "fuente_aplicacion": {
+      "banco": "Bank",
+      "exact": "Exact",
+      "manual": "Manual"
+    },
+    "metodo_aplicacion": {
+      "automatica": "Automatic",
+      "propuesta": "Suggested",
+      "manual": "Manual"
+    },
+    "cuenta": {
+      "heredada": "Inherited, not confirmed",
+      "registrada": "Registered, not verified",
+      "verificada": "Verified by phone",
+      "atestada": "Confirmed",
+      "rechazada": "Rejected"
+    },
+    "cambio_cuenta": {
+      "anadida_al_maestro": "Added in the master data",
+      "retirada_del_maestro": "Removed from the master data",
+      "vuelve_al_maestro": "Back in the master data"
+    },
+    "metodo_verificacion": {
+      "llamada": "Phone call",
+      "videollamada": "Video call",
+      "visita": "Visit"
+    },
+    "decision_facturas": {
+      "pagar_a_verificada": "Pay to the verified account",
+      "anular": "Cancel the invoice"
+    },
+    "lado_po": {
+      "cliente": "From a client",
+      "proveedor": "To a provider"
+    },
+    "po": {
+      "activa": "Active",
+      "cerrada": "Closed",
+      "caducada": "Expired"
+    },
+    "fuente_po": {
+      "manual": "Manual",
+      "po_csv": "PO file",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT"
+    },
+    "turno": {
+      "planificado": "Planned",
+      "realizado": "Worked",
+      "validado": "Validated",
+      "cancelado": "Cancelled"
+    },
+    "importacion": {
+      "en_curso": "In progress",
+      "aceptada": "Imported",
+      "parcial": "Partly imported",
+      "rechazada": "Rejected"
+    },
+    "fuente_importacion": {
+      "extracciones": "Read invoices",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "banco": "Bank",
+      "maestro_csv": "Master data file",
+      "po_csv": "PO file"
+    },
+    "tipo_importacion": {
+      "proveedores": "Providers",
+      "clientes": "Clients",
+      "contactos": "Contacts",
+      "objetos": "Objects",
+      "recursos": "People",
+      "alias": "Aliases",
+      "cuentas": "Bank accounts",
+      "tarifas": "Rates",
+      "ordenes_compra": "Purchase orders",
+      "modificaciones_po": "PO changes",
+      "ciclos": "Billing cycles",
+      "facturas_venta": "Sales invoices",
+      "facturas_compra": "Purchase invoices",
+      "pagos_exact": "Payments from Exact",
+      "extracto": "Bank statement",
+      "planning": "Planning"
+    },
+    "ambito": {
+      "factura": "Invoice",
+      "proveedor": "Provider",
+      "cliente": "Client",
+      "orden_compra": "PO",
+      "trimestre": "VAT quarter",
+      "movimiento": "Bank transaction",
+      "importacion": "Import"
+    },
+    "entidad": {
+      "factura": "Invoice",
+      "excepcion": "Exception",
+      "proveedor": "Provider",
+      "cliente": "Client",
+      "objeto": "Object",
+      "orden_compra": "PO",
+      "trimestre": "VAT quarter"
+    },
+    "tipo_proveedor": {
+      "zzp": "Self-employed (zzp)",
+      "empresa": "Company"
+    },
+    "tipo_recurso": {
+      "empleado": "Employee",
+      "zzp": "Self-employed (zzp)",
+      "personal_proveedor": "Provider's staff"
+    },
+    "frecuencia": {
+      "semanal": "Weekly",
+      "cuatrisemanal": "Every four weeks",
+      "mensual": "Monthly"
+    }
+  },
+  "prioridad": {
+    "normal": {
+      "etiqueta": "Normal",
+      "significa": "Nothing urgent; handle in the usual order."
+    },
+    "atencion": {
+      "etiqueta": "Attention",
+      "significa": "Something needs a look, but it is not in a hurry yet."
+    },
+    "urgente": {
+      "etiqueta": "Urgent",
+      "significa": "Look at it today: a deadline is close or money is at stake."
+    },
+    "bloqueada": {
+      "etiqueta": "Blocked",
+      "significa": "There is an objection that must be solved first; the reason is shown."
+    }
+  },
+  "severidades": {
+    "bloqueo": {
+      "etiqueta": "Blocks",
+      "significa": "The invoice cannot go further until this is solved."
+    },
+    "retencion": {
+      "etiqueta": "Holds",
+      "significa": "The invoice waits until someone has looked at this."
+    },
+    "aviso": {
+      "etiqueta": "Warns",
+      "significa": "A warning; the invoice still goes on."
+    }
+  },
+  "acciones": {
+    "fijar_campo": {
+      "etiqueta": "Fill in or correct a value",
+      "descripcion": "Fill in a missing value or correct one that was read wrongly.",
+      "confirmar": "This value will be changed and recorded with your name and reason. Continue?"
+    },
+    "verificar_campo": {
+      "etiqueta": "Verify value",
+      "descripcion": "Confirm that the current value matches the original."
+    },
+    "revertir_campo": {
+      "etiqueta": "Undo change",
+      "descripcion": "Undo a manual change and go back to the automatic value.",
+      "confirmar": "The manual value will be reset to the automatic one. Continue?"
+    },
+    "anadir_nota": {
+      "etiqueta": "Add note",
+      "descripcion": "Add an internal note to an invoice or exception."
+    },
+    "cambiar_objeto": {
+      "etiqueta": "Change Object",
+      "descripcion": "Assign an invoice line to another Object (and person).",
+      "confirmar": "The cost or revenue of this line moves to another Object. Continue?"
+    },
+    "anadir_alias": {
+      "etiqueta": "Add alias",
+      "descripcion": "Record another name an Object or person uses on documents."
+    },
+    "cambiar_po": {
+      "etiqueta": "Change reference type",
+      "descripcion": "Say whether a reference on the invoice is a PO number (or something else)."
+    },
+    "anadir_referencia": {
+      "etiqueta": "Add reference",
+      "descripcion": "Add a reference (PO, order, project, client's) that was not read."
+    },
+    "registrar_po": {
+      "etiqueta": "Register PO",
+      "descripcion": "Register a purchase order from a client or to a provider, with value, dates and Objects.",
+      "confirmar": "This PO will be registered and invoices will be checked against it. Continue?"
+    },
+    "modificar_po": {
+      "etiqueta": "Change PO",
+      "descripcion": "Record a change of value or end date of a PO (from a date).",
+      "confirmar": "The value or end date of this PO will be changed. Continue?"
+    },
+    "cerrar_po": {
+      "etiqueta": "Close or reopen PO",
+      "descripcion": "Close a PO (new charges to it are held) or reopen it.",
+      "confirmar": "The status of this PO will be changed. Continue?"
+    },
+    "objetos_po": {
+      "etiqueta": "Objects of a PO",
+      "descripcion": "Add Objects to or remove them from a PO."
+    },
+    "corregir_po": {
+      "etiqueta": "Correct PO details",
+      "descripcion": "Correct the issue date, start date or document of a PO."
+    },
+    "imputar_po": {
+      "etiqueta": "Charge line to PO",
+      "descripcion": "Charge an invoice line to a PO (or remove the PO).",
+      "confirmar": "This line will count in the use of this PO from now on. Continue?"
+    },
+    "excluir_linea": {
+      "etiqueta": "Exclude line",
+      "descripcion": "Exclude an invoice line; it is kept, not deleted.",
+      "confirmar": "This line will no longer count in the invoice amounts. Continue?"
+    },
+    "anadir_linea": {
+      "etiqueta": "Add line",
+      "descripcion": "Add a line that is on the paper but was not read.",
+      "confirmar": "This line will be added to the invoice. Continue?"
+    },
+    "dividir_linea": {
+      "etiqueta": "Split line",
+      "descripcion": "Split a line over several Objects; the parts add up to the line amount.",
+      "confirmar": "The line will be split over the chosen Objects. Continue?"
+    },
+    "corregir_maestro": {
+      "etiqueta": "Correct master data",
+      "descripcion": "Correct a provider, client or contact that does not come from Exact or TRNSPRNT.",
+      "confirmar": "The master data will be changed. Continue?"
+    },
+    "anular_factura": {
+      "etiqueta": "Cancel invoice",
+      "descripcion": "Cancel an invoice: it is not paid and does not count (no credit note is made).",
+      "confirmar": "This invoice will no longer count in totals, payments and VAT. Continue?"
+    },
+    "fusionar_factura": {
+      "etiqueta": "Merge duplicate",
+      "descripcion": "Merge a resent invoice into the original.",
+      "confirmar": "This invoice will be merged into the chosen one and no longer count separately. Continue?"
+    },
+    "deshacer_fusion": {
+      "etiqueta": "Undo merge",
+      "descripcion": "Undo a merge; the invoice counts on its own again.",
+      "confirmar": "This invoice will count on its own again. Continue?"
+    },
+    "enlazar_facturas": {
+      "etiqueta": "Link invoices",
+      "descripcion": "Link two invoices: a credit note, a correction, a replacement or just related.",
+      "confirmar": "The link is confirmed at once and changes balances, VAT and duplicates. Continue?"
+    },
+    "confirmar_relacion": {
+      "etiqueta": "Confirm link",
+      "descripcion": "Confirm a suggested link (optionally with another type or amount).",
+      "confirmar": "Once confirmed, balances, VAT and duplicates change. Continue?"
+    },
+    "rechazar_relacion": {
+      "etiqueta": "Reject link",
+      "descripcion": "Reject a suggested link; it will not be suggested again.",
+      "confirmar": "This link will be rejected. Continue?"
+    },
+    "retirar_relacion": {
+      "etiqueta": "Withdraw link",
+      "descripcion": "Withdraw a link (also a confirmed one); it is kept, not deleted.",
+      "confirmar": "This link will no longer change balances or VAT. Continue?"
+    },
+    "marcar_revisada": {
+      "etiqueta": "Mark as reviewed",
+      "descripcion": "Mark an invoice as reviewed. This does not approve any payment.",
+      "confirmar": "The invoice will be marked as reviewed with your name. This does not approve any payment. Continue?"
+    },
+    "devolver_factura": {
+      "etiqueta": "Return",
+      "descripcion": "Return an invoice with a note saying why."
+    },
+    "crear_excepcion": {
+      "etiqueta": "Open exception",
+      "descripcion": "Open an exception on an invoice by hand."
+    },
+    "asignar_excepcion": {
+      "etiqueta": "Assign exception",
+      "descripcion": "Make a person responsible for an exception."
+    },
+    "esperar_externo": {
+      "etiqueta": "Wait on others",
+      "descripcion": "Put an exception on hold for someone outside, with a follow-up date."
+    },
+    "resolver_excepcion": {
+      "etiqueta": "Resolve exception",
+      "descripcion": "Close an exception, with the resolution and a note."
+    },
+    "cerrar_hallazgo": {
+      "etiqueta": "Close finding",
+      "descripcion": "Close a finding whose problem has gone away."
+    },
+    "anular_hallazgo": {
+      "etiqueta": "Accept finding",
+      "descripcion": "Accept a finding (only where the check allows it), with a reason of at least 10 characters.",
+      "confirmar": "The finding will be accepted with your name and reason and stays in the history. Continue?"
+    },
+    "firmar_anulacion": {
+      "etiqueta": "Give second signature",
+      "descripcion": "Give the second signature for a colleague accepting a finding (valid for a short time and once).",
+      "confirmar": "You sign as the second person for accepting this finding. Continue?"
+    },
+    "subir_prioridad": {
+      "etiqueta": "Raise priority",
+      "descripcion": "Raise the priority of something (only up, never to blocked)."
+    },
+    "verificar_iban": {
+      "etiqueta": "Verify IBAN by phone",
+      "descripcion": "Record a provider's account after a phone call to the number already in the master data. Type the IBAN; never copy it from the invoice.",
+      "confirmar": "You confirm that you called the provider on the number from the master data and that they confirmed this IBAN. Continue?"
+    },
+    "rechazar_iban": {
+      "etiqueta": "Reject IBAN",
+      "descripcion": "Reject a provider's account and say what happens to the invoice.",
+      "confirmar": "This account will be rejected for this provider. Continue?"
+    },
+    "atestar_iban": {
+      "etiqueta": "Confirm inherited account",
+      "descripcion": "Confirm an account from the first master data (or all that are still open).",
+      "confirmar": "You confirm that these accounts from the master data are right. Continue?"
+    },
+    "fijar_telefono_verificacion": {
+      "etiqueta": "Set verification phone",
+      "descripcion": "Set a provider's verification phone number. Changing it starts a waiting period.",
+      "confirmar": "After a change, no phone verification of this provider counts for a while. Continue?"
+    },
+    "anadir_beneficiario": {
+      "etiqueta": "Add payee",
+      "descripcion": "Record a payee that is not a provider (tax office, salaries, rent).",
+      "confirmar": "Payments to this account will no longer be treated as suspicious. Continue?"
+    },
+    "retirar_beneficiario": {
+      "etiqueta": "Withdraw payee",
+      "descripcion": "Withdraw a known payee (kept, not deleted).",
+      "confirmar": "Payments to this account will be checked again. Continue?"
+    },
+    "marcar_pagada": {
+      "etiqueta": "Record payment",
+      "descripcion": "Record that an invoice was paid outside the system, or link a bank transaction. This pays nothing.",
+      "confirmar": "You record that this invoice has already been paid. The system pays nothing. Continue?"
+    },
+    "confirmar_pago": {
+      "etiqueta": "Confirm payment",
+      "descripcion": "Confirm a payment the system suggested from a bank transaction.",
+      "confirmar": "This payment will count in the invoice balance. Continue?"
+    },
+    "retirar_pago": {
+      "etiqueta": "Withdraw payment",
+      "descripcion": "Withdraw a suggested, linked or manual payment that is wrong (it is kept).",
+      "confirmar": "This payment will no longer count in the balance. Continue?"
+    },
+    "btw_lista_para_revision": {
+      "etiqueta": "Mark quarter ready for review",
+      "descripcion": "Mark a finished quarter ready for review, with the worksheet you looked at. Nothing is filed.",
+      "confirmar": "The worksheet of this quarter will be recorded for review. Nothing is filed. Continue?"
+    },
+    "btw_reabrir": {
+      "etiqueta": "Reopen quarter",
+      "descripcion": "Reopen a quarter that was ready for review (the worksheet no longer counts).",
+      "confirmar": "The recorded worksheet will no longer count. Continue?"
+    },
+    "btw_anotar_presentacion": {
+      "etiqueta": "Record filed return",
+      "descripcion": "Record that the quarter was filed in the tax office portal, with the reference. The system files nothing itself.",
+      "confirmar": "You record that this return has already been filed with the tax office. This cannot be undone. Continue?"
+    },
+    "recalcular": {
+      "etiqueta": "Run checks again",
+      "descripcion": "Run all checks again (every action already does this)."
+    }
+  },
+  "roles": {
+    "administrador": {
+      "etiqueta": "Administrator",
+      "descripcion": "Everything, including users, roles and settings."
+    },
+    "administracion": {
+      "etiqueta": "Administration",
+      "descripcion": "Daily work: correcting, assigning, reviewing, payments, findings, VAT and imports."
+    },
+    "consulta": {
+      "etiqueta": "Read only",
+      "descripcion": "View invoices and their details."
+    }
+  },
+  "permisos": {
+    "ver_facturas": {
+      "etiqueta": "View invoices",
+      "descripcion": "View everything: invoices, parties, POs, VAT and cash flow."
+    },
+    "editar_extraccion": {
+      "etiqueta": "Correct read data",
+      "descripcion": "Correct values read from a document."
+    },
+    "anadir_informacion": {
+      "etiqueta": "Add information",
+      "descripcion": "Fill in missing values and add notes."
+    },
+    "cambiar_objeto": {
+      "etiqueta": "Change Object",
+      "descripcion": "Assign invoice lines to Objects and people."
+    },
+    "cambiar_po": {
+      "etiqueta": "Manage POs",
+      "descripcion": "Register and change POs and charge lines to them."
+    },
+    "marcar_pagada": {
+      "etiqueta": "Record payments",
+      "descripcion": "Record, confirm or withdraw payments. This pays nothing."
+    },
+    "anular_acreditar": {
+      "etiqueta": "Cancel and link",
+      "descripcion": "Cancel, merge and link invoices."
+    },
+    "resolver_aviso": {
+      "etiqueta": "Handle findings",
+      "descripcion": "Open, assign and resolve exceptions, and close findings."
+    },
+    "anular_aviso": {
+      "etiqueta": "Accept findings",
+      "descripcion": "Accept findings with a reason, and give a second signature."
+    },
+    "confirmar_iban": {
+      "etiqueta": "Verify bank details",
+      "descripcion": "Verify, reject or confirm IBANs by phone."
+    },
+    "admin": {
+      "etiqueta": "Administration",
+      "descripcion": "Manage users, roles, master data and settings."
+    },
+    "revisar_factura": {
+      "etiqueta": "Review invoices",
+      "descripcion": "Mark invoices as reviewed or return them."
+    },
+    "gestionar_btw": {
+      "etiqueta": "Manage VAT",
+      "descripcion": "Prepare quarters and record a filed return. The system files nothing itself."
+    },
+    "importar_datos": {
+      "etiqueta": "Import data",
+      "descripcion": "Import exports from Exact, TRNSPRNT and the bank."
+    }
+  },
+  "codigos": {
+    "numero": "invoice number",
+    "contraparte": "other party",
+    "fecha": "invoice date",
+    "periodo": "period",
+    "base": "amount excl. VAT",
+    "iva": "VAT or VAT treatment",
+    "total": "total",
+    "proveedor_id": "provider",
+    "cliente_id": "client",
+    "emisor_nombre_doc": "issuer name",
+    "fecha_factura": "invoice date",
+    "periodo_inicio": "period start",
+    "periodo_fin": "period end",
+    "iva_cent": "VAT amount",
+    "total_cent": "total",
+    "iban_doc": "IBAN",
+    "tipo_iva_pb": "VAT rate",
+    "un IBAN": "an IBAN",
+    "cuenta bancaria": "bank details",
+    "un cambio de datos": "a change of details",
+    "instrucciones al sistema": "instructions to the system",
+    "llamar o confirmar": "a request to call or confirm",
+    "pagos": "the PDF already has recorded payments",
+    "relacion": "the PDF already has a confirmed link",
+    "emisor": "the PDF does not say BM Support BV issued it",
+    "factura": "invoice",
+    "nota_credito": "credit note",
+    "estandar": "standard VAT",
+    "autoliquidacion": "reverse-charged VAT",
+    "kor": "the KOR (no VAT)",
+    "exento": "exemption",
+    "tipo_cero": "0% VAT",
+    "desconocido": "unknown VAT treatment",
+    "anadida_al_maestro": "added",
+    "retirada_del_maestro": "removed",
+    "vuelve_al_maestro": "back again",
+    "banco": "according to the bank",
+    "exact": "according to Exact",
+    "manual": "recorded by hand",
+    "recurso_dia": "per person per day",
+    "objeto_dia": "per Object per day",
+    "recurso_semana": "per person per week",
+    "objeto_semana": "per Object per week",
+    "recurso_periodo": "per person over the period",
+    "objeto_periodo": "per Object over the period",
+    "recurso y Objeto": "per person and Object",
+    "Objeto": "per Object",
+    "recurso": "per person",
+    "parte": "per provider or client",
+    "general": "general",
+    "hora": "hour",
+    "dia": "day",
+    "stuk": "piece",
+    "acredita": "credits",
+    "anula": "cancels",
+    "corrige": "corrects",
+    "sustituye": "replaces",
+    "relacionada": "is related to"
+  }
+}

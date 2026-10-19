@@ -155,6 +155,82 @@ def _nombres(conn: sqlite3.Connection) -> dict[int, str]:
     return {f[0]: f[1] for f in conn.execute("SELECT id, nombre FROM usuario")}
 
 
+# ------------------------------------------------------------ los hallazgos para la app (paso 15)
+#
+# Cada hallazgo que sale de aqui lleva, ademas de su titulo y su detalle en
+# espanol (los de la CLI y la auditoria), lo que su regla comparo (`valores`, de
+# hallazgo.valores_json, los mismos que van en su huella) y su `resultado`. Con
+# eso la app de la oficina escribe el detalle en neerlandes o en ingles
+# (bms_agent.textos) sin traducir ninguna frase. Un hallazgo es siempre un fallo
+# de su regla: lo que no se pudo mirar (sin_datos) no abre ninguno, y la ficha de
+# una factura lo da aparte (`reglas_sin_datos`).
+
+FALLO = "fallo"
+SIN_DATOS = "sin_datos"
+# Lo mas urgente primero: lo abierto antes que lo que ya no se ve y que lo aceptado,
+# y dentro, lo que bloquea antes que lo que retiene y que lo que avisa.
+_ORDEN_ESTADO = {"abierto": 0, "desaparecido": 1, "aceptado": 2}
+_ORDEN_SEVERIDAD = {"bloqueo": 0, "retencion": 1, "aviso": 2}
+
+
+def valores_de(fila: Any) -> dict[str, Any]:
+    """Los valores de un hallazgo o de una evaluacion (vacio si no lleva)."""
+    texto = fila["valores_json"]
+    return json.loads(texto) if texto else {}
+
+
+def razon(h: Any) -> dict[str, Any]:
+    """Un hallazgo como lo pinta la app en una lista: su regla, su gravedad y sus valores."""
+    return {"id": h["id"], "regla": h["regla"], "severidad": h["severidad"],
+            "estado": h["estado"], "resultado": FALLO, "valores": valores_de(h)}
+
+
+def _clave_razon(r: dict[str, Any]) -> tuple[int, int, int]:
+    return (_ORDEN_ESTADO.get(r["estado"], 3), _ORDEN_SEVERIDAD.get(r["severidad"], 3), r["id"])
+
+
+def _razones_por_factura(conn: sqlite3.Connection) -> dict[int, list[dict[str, Any]]]:
+    """Los hallazgos pendientes de cada factura (los suyos y los que la senalan), lo mas
+    urgente primero.
+
+    Es el "por que" de cada fila de las listas: los `motivos` de la prioridad son
+    frases en espanol, y la app no los ensena. Sacarles un gemelo estructurado
+    pediria tocar las dos caches de prioridad (factura_estado y prioridad) y sus
+    vistas; de los hallazgos de la fila, con sus valores, la app escribe lo mismo
+    en neerlandes o en ingles.
+    """
+    objetivos: dict[int, set[int]] = defaultdict(set)
+    for hallazgo_id, fila_id in conn.execute(
+            "SELECT hallazgo_id, fila_id FROM hallazgo_objetivo WHERE tabla = 'factura'"):
+        objetivos[hallazgo_id].add(fila_id)
+    marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
+    salida: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for h in conn.execute(f"SELECT id, regla, severidad, estado, factura_id, valores_json "
+                          f"FROM hallazgo WHERE estado IN ({marcas}) ORDER BY id",
+                          sorted(ESTADOS_PENDIENTES)):
+        facturas = objetivos.get(h["id"], set()) | (
+            {h["factura_id"]} if h["factura_id"] is not None else set())
+        for factura_id in facturas:
+            salida[factura_id].append(razon(h))
+    for lista in salida.values():
+        lista.sort(key=_clave_razon)
+    return salida
+
+
+def _sin_datos_de(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
+    """Las reglas que no pudieron mirar una factura (evaluacion sin_datos), en el orden del
+    catalogo: lo que "Sin objeciones en lo comprobado; N reglas sin datos" no dice."""
+    from .reglas.catalogo import CATALOGO
+
+    orden = {r.id: i for i, r in enumerate(CATALOGO)}
+    filas = conn.execute("SELECT regla, clave, detalle, valores_json FROM evaluacion "
+                         "WHERE tabla = 'factura' AND fila_id = ? AND resultado = ?",
+                         (factura_id, SIN_DATOS)).fetchall()
+    filas.sort(key=lambda e: (orden.get(e["regla"], len(orden)), e["clave"]))
+    return [{"regla": e["regla"], "clave": e["clave"], "resultado": SIN_DATOS,
+             "detalle": e["detalle"], "valores": valores_de(e)} for e in filas]
+
+
 # ------------------------------------------------------------ la lista
 
 def _pendientes_por_factura(conn: sqlite3.Connection) -> dict[int, tuple[int, int]]:
@@ -190,6 +266,7 @@ def _filas_listado(conn: sqlite3.Connection, donde: str = "",
         "SELECT id, fila_id, estado FROM excepcion WHERE tabla = 'factura' "
         "AND estado <> 'resuelta'")}
     objetos_ = _objetos_por_factura(conn)
+    razones = _razones_por_factura(conn)
     total = campos.campo("factura", "total_cent")
     filas = []
     for f in conn.execute(f"SELECT * FROM v_factura_listado{' WHERE ' + donde if donde else ''}",
@@ -220,6 +297,9 @@ def _filas_listado(conn: sqlite3.Connection, donde: str = "",
             "etiqueta": revision.etiqueta_sistema(n_pendientes, aceptados, f["sin_datos"] or 0,
                                                   (f["sin_resolver"] or 0) + (f["dudosos"] or 0)),
             "excepcion": {"id": excepcion[0], "estado": excepcion[1]} if excepcion else None,
+            # Contrato 2.1: sus hallazgos pendientes, lo mas urgente primero, para el
+            # "por que" de la app en neerlandes o en ingles.
+            "razones": razones.get(f["id"], []),
         })
     filas.sort(key=_clave_prioridad)
     return filas
@@ -248,13 +328,17 @@ def excepciones_abiertas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     salida = []
     for e in excepciones.sin_resolver(conn):
         p = prioridades.get(e["id"])
+        suyos = excepciones.hallazgos_de(conn, e["id"])
         salida.append({
             **_excepcion(e, nombres),
             "nivel": p["nivel"] if p else prioridad.NORMAL, "puntos": p["puntos"] if p else 0,
             "motivos": json.loads(p["motivos_json"]) if p else [],
             "vencimiento": p["vencimiento"] if p else None,
             "importe_cent": p["importe_cent"] if p else None,
-            "hallazgos": [h["id"] for h in excepciones.hallazgos_de(conn, e["id"])],
+            "hallazgos": [h["id"] for h in suyos],
+            # Contrato 2.1: los mismos hallazgos con su regla y sus valores (el titulo de
+            # la excepcion es una frase en espanol).
+            "razones": sorted((razon(h) for h in suyos), key=_clave_razon),
         })
     salida.sort(key=lambda r: prioridad.clave_orden(
         r["nivel"], r["puntos"], date.fromisoformat(r["vencimiento"]) if r["vencimiento"] else None,
@@ -434,6 +518,7 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
             # importe): la consola le ofrece entonces firmar_anulacion.
             "segunda_firma": hallazgos.requiere_segunda_firma(conn, h),
             "primera_vez_en": h["primera_vez_en"], "objetivos": objetivos.get(h["id"], []),
+            "resultado": FALLO, "valores": valores_de(h),
         })
     excepcion = excepciones.abierta_de(conn, "factura", factura_id)
     estado = conn.execute("SELECT * FROM factura_estado WHERE factura_id = ?",
@@ -467,6 +552,8 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
         "campos": _campos_de(conn, "factura", factura, sentido, de_hallazgos, sin_resolver,
                              nombres, motivos=motivos),
         "lineas": lineas, "referencias": referencias, "hallazgos": lista_hallazgos,
+        # Contrato 2.1: lo que las reglas no pudieron mirar, con sus valores.
+        "reglas_sin_datos": _sin_datos_de(conn, factura_id),
         "excepcion": ({**_excepcion(excepcion, nombres),
                        "hallazgos": [h["id"] for h in excepciones.hallazgos_de(
                            conn, excepcion["id"])]} if excepcion else None),
@@ -901,7 +988,8 @@ def _avisos(conn: sqlite3.Connection, tabla: str, parte_id: int,
                 or h["id"] in apuntan):
             hallazgos_.append({"id": h["id"], "regla": h["regla"], "titulo": h["titulo"],
                                "detalle": h["detalle"], "severidad": h["severidad"],
-                               "estado": h["estado"], "factura_id": h["factura_id"]})
+                               "estado": h["estado"], "factura_id": h["factura_id"],
+                               "resultado": FALLO, "valores": valores_de(h)})
     excepciones_ = [{"id": e["id"], "estado": e["estado"], "titulo": e["titulo"]}
                     for e in conn.execute(
                         "SELECT id, estado, titulo FROM excepcion WHERE estado <> 'resuelta' "
@@ -1064,6 +1152,7 @@ def _sin_facturar(conn: sqlite3.Connection, cliente_id: int) -> dict[str, Any]:
             (cliente_id, *sorted(ESTADOS_PENDIENTES))):
         valores = json.loads(h["valores_json"] or "{}")
         periodos.append({"hallazgo_id": h["id"], "estado": h["estado"],
+                         "regla": "V6", "resultado": FALLO, "valores": valores,
                          "detalle": h["detalle"], "objeto_id": valores.get("objeto"),
                          "desde": valores.get("desde"), "hasta": valores.get("hasta"),
                          "horas_mil": valores.get("horas_mil"),
@@ -1227,7 +1316,7 @@ def _avisos_po(conn: sqlite3.Connection, po_id: int) -> dict[str, Any]:
     marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
     hallazgos_ = [{"id": h["id"], "regla": h["regla"], "titulo": h["titulo"],
                    "detalle": h["detalle"], "severidad": h["severidad"], "estado": h["estado"],
-                   "factura_id": h["factura_id"]}
+                   "factura_id": h["factura_id"], "resultado": FALLO, "valores": valores_de(h)}
                   for h in conn.execute(
                       f"SELECT * FROM hallazgo WHERE estado IN ({marcas}) AND ((tabla = "
                       "'orden_compra' AND fila_id = ?) OR id IN (SELECT hallazgo_id FROM "
@@ -1422,8 +1511,11 @@ def _horas_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any) -> dict[s
 
 # La version del contrato v2. Sube el menor (2.1) cuando se anade una clave y el
 # mayor (3.0) cuando una cambia de forma o desaparece: un sitio propio puede
-# ignorar lo que no conoce, pero no adivinar lo que se le quito.
-CONTRATO_V2 = "2.0"
+# ignorar lo que no conoce, pero no adivinar lo que se le quito. El 2.1 (paso 15)
+# anade a cada hallazgo sus `valores` y su `resultado`, a cada factura de las listas
+# y a cada excepcion sus `razones`, y a la ficha sus `reglas_sin_datos`: con eso la
+# app escribe los textos en neerlandes o en ingles (bms_agent.textos).
+CONTRATO_V2 = "2.1"
 
 
 def _pb(parte: int, todo: int) -> int | None:
@@ -2153,7 +2245,8 @@ def _bloque_facturacion(conn: sqlite3.Connection,
                                          for h in sin_facturar),
                          "clientes": sorted({h["fila_id"] for h in sin_facturar})},
         "periodos_sin_factura": [{"hallazgo_id": h["id"], "cliente_id": h["fila_id"],
-                                  "estado": h["estado"],
+                                  "estado": h["estado"], "regla": "V8", "resultado": FALLO,
+                                  "valores": valores_de(h),
                                   **{k: json.loads(h["valores_json"] or "{}").get(k)
                                      for k in ("ciclo", "desde", "hasta")}}
                                  for h in periodos],
@@ -2172,6 +2265,7 @@ def _horas_sin_facturar(h: sqlite3.Row) -> dict[str, Any]:
     estimado) que el planning tiene validadas en ese periodo y ninguna linea cubre."""
     valores = json.loads(h["valores_json"] or "{}")
     return {"hallazgo_id": h["id"], "factura_id": h["fila_id"], "estado": h["estado"],
+            "regla": "V5", "resultado": FALLO, "valores": valores,
             "objeto_id": valores.get("objeto"), "desde": valores.get("desde"),
             "hasta": valores.get("hasta"), "horas_mil": valores.get("horas_mil"),
             "horas": _horas_texto(valores.get("horas_mil")),
@@ -2452,6 +2546,7 @@ def historial_factura(conn: sqlite3.Connection, factura_id: int) -> dict[str, An
         hallazgos_.append({
             "id": h["id"], "regla": h["regla"], "titulo": h["titulo"], "estado": h["estado"],
             "severidad": h["severidad"], "detalle": h["detalle"],
+            "resultado": FALLO, "valores": valores_de(h),
             "primera_vez_en": h["primera_vez_en"],
             "eventos": [{"tipo": e["tipo"], "estado": e["estado"], "en": e["en"],
                          "usuario": nombres.get(e["usuario_id"]), "nota": e["nota"],
@@ -2524,7 +2619,7 @@ CLAVES_V2 = {
                    "periodo_hasta", "base_cent", "total_cent", "pendiente_cent", "estado_pago",
                    "estado_revision", "calidad", "nivel", "puntos", "motivos", "editada",
                    "suplementada", "corregida", "sin_resolver", "cuenta", "objetos",
-                   "etiqueta"),
+                   "etiqueta", "razones"),
     "proveedores[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel"),
     "clientes[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel"),
     "objetos": ("objetos", "sin_objeto", "totales"),
@@ -2546,6 +2641,9 @@ _IBAN_EN_TEXTO = re.compile(
 # un IBAN, asi que solo se enmascara lo que pasa el digito de control.
 _SEPARADORES = re.compile(r"[ .\-]")
 _IBAN_SUELTO = re.compile(r"(?i)\b[a-z]{2}[ .\-]?\d{2}(?:[ .\-]?[a-z0-9]){11,30}")
+# Las dos cifras seguidas que lleva todo IBAN, en las dos formas: una clave sin ellas
+# (casi todas: "pendiente_cent") no se mira.
+_DOS_CIFRAS = re.compile(r"\d\d")
 
 
 def enmascarar_iban(iban: str) -> str:
@@ -2597,12 +2695,18 @@ def sin_ibanes(valor: Any) -> Any:
     minusculas, con puntos o guiones, agrupado como sea); despues lo que tiene
     la forma de siempre aunque no lo pase (un IBAN mal copiado tambien es de
     alguien).
+
+    Desde el paso 15 cada hallazgo lleva sus `valores`, que en F2-F10 y K4 son
+    IBAN enteros (o listas de ellos): se enmascaran como cualquier texto, y
+    tambien las claves de un objeto, por si una regla llegara a usar un IBAN de
+    clave.
     """
     if isinstance(valor, str):
         valor = _IBAN_SUELTO.sub(_suelto, valor)
         return _IBAN_EN_TEXTO.sub(lambda m: enmascarar_iban(m.group(0)), valor)
     if isinstance(valor, dict):
-        return {k: sin_ibanes(v) for k, v in valor.items()}
+        return {sin_ibanes(k) if isinstance(k, str) and _DOS_CIFRAS.search(k) else k:
+                sin_ibanes(v) for k, v in valor.items()}
     if isinstance(valor, (list, tuple)):
         return [sin_ibanes(v) for v in valor]
     return valor
@@ -2669,6 +2773,9 @@ def comprobar_v2(datos: dict[str, Any]) -> list[str]:
             errores.append(f"{camino}: lleva un IBAN ({enmascarar_iban(ibanes_en(valor)[0])})")
         elif isinstance(valor, dict):
             for k, v in valor.items():
+                if isinstance(k, str) and ibanes_en(k):
+                    errores.append(f"{camino}: una clave lleva un IBAN "
+                                   f"({enmascarar_iban(ibanes_en(k)[0])})")
                 sin_decimales(v, f"{camino}.{k}")
         elif isinstance(valor, list):
             for i, v in enumerate(valor):

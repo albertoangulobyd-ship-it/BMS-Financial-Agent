@@ -341,9 +341,11 @@ def test_la_huella_cubre_las_fuentes_y_los_crlf_no_la_cambian(tmp_path) -> None:
 
 def test_el_paquete_lleva_la_app_y_los_textos() -> None:
     datos = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
-    paquete = datos["tool"]["setuptools"]["package-data"]["bms_agent"]
-    assert {"web/*.html", "web/*.json", "web/assets/*", "web/licenses/*",
-            "textos/*.json"} <= set(paquete)
+    datos_paquete = datos["tool"]["setuptools"]["package-data"]
+    assert {"web/*.html", "web/*.json", "web/assets/*", "web/licenses/*"} <= set(
+        datos_paquete["bms_agent"])
+    # textos/ es un paquete propio (tiene __init__.py): sus catalogos van con el suyo.
+    assert "*.json" in datos_paquete["bms_agent.textos"]
     # Las fuentes van con su licencia (SIL OFL 1.1 pide que cada copia la lleve).
     assert {f.name for f in (WEB / "licenses").iterdir()} == {"ibm-plex-sans-OFL.txt",
                                                               "ibm-plex-mono-OFL.txt"}

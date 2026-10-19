@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.0", ...}
+{"contrato": "2.1", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.0`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.1`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -291,6 +291,30 @@ cabecera no aparece.
 
 Un sitio debería comprobar el número mayor al leer y negarse a pintar uno que
 no conoce.
+
+**Lo que añadió el 2.1 (paso 15).** Claves nuevas, ninguna cambia ni se quita:
+
+- cada **hallazgo**, donde sale uno (la ficha de una factura, su historia, los
+  avisos de un proveedor, un cliente o una PO, lo sin facturar de un cliente y
+  del panel), lleva `resultado` (siempre `"fallo"`: lo que no se pudo mirar no
+  abre ningún hallazgo) y `valores`: lo que su regla comparó, los mismos
+  enteros y textos que van en su huella (`hallazgo.valores_json`);
+- cada **factura** de las listas y de la búsqueda, y cada **excepción**, lleva
+  `razones`: sus hallazgos pendientes, lo más urgente primero, cada uno con
+  `id`, `regla`, `severidad`, `estado`, `resultado` y `valores`;
+- la **ficha** de una factura lleva `reglas_sin_datos`: las reglas que no
+  pudieron mirarla (`regla`, `clave`, `resultado` `"sin_datos"`, `detalle` y
+  `valores`).
+
+Con eso la app de la oficina (`/app`) escribe en neerlandés o en inglés el
+detalle de cada hallazgo y el «por qué» de cada fila, con las plantillas de
+`src/bms_agent/textos/` (su lenguaje está en `src/bms_agent/textos/LEEME.md`),
+y no enseña nunca los textos en español (`titulo`, `detalle`, `etiqueta`,
+`fuente_texto`, `motivos`), que siguen ahí para la CLI y la auditoría. Los
+`motivos` de la prioridad no tienen un gemelo estructurado: harían falta
+columnas nuevas en las dos cachés de prioridad; las `razones` dicen lo mismo
+desde los hallazgos. Los `valores` de F2-F10 y K4 traen IBAN enteros: desde
+otro origen salen enmascarados como cualquier texto (abajo).
 
 ### Cuatro reglas que valen para todo
 
@@ -338,7 +362,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.0",
+  "contrato": "2.1",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -439,7 +463,10 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
   "editada", "suplementada", "corregida", "sin_resolver",   // las marcas de edición (§11)
   "cuenta",                           // false: anulada, fusionada o sustituida
   "objetos",                          // los códigos de sus Objetos
-  "etiqueta"                          // «Sin objeciones del sistema»... nunca «aprobada»
+  "etiqueta",                         // «Sin objeciones del sistema»... nunca «aprobada»
+  "razones"                           // 2.1: sus hallazgos pendientes, lo más urgente
+                                      // primero: {"id", "regla", "severidad", "estado",
+                                      // "resultado", "valores"}
 } ]
 ```
 

@@ -112,7 +112,7 @@ def test_export_v2_cumple_el_contrato_documentado(desde_out, tmp_path, capsys) -
     _puerto, _token, db = desde_out
     destino = tmp_path / "datos-v2.json"
     assert main(["export", "--v2", "--db", str(db), "--file", str(destino)]) == 0
-    assert "Contrato v2 (2.0): 7 facturas" in capsys.readouterr().out
+    assert f"Contrato v2 ({consultas.CONTRATO_V2}): 7 facturas" in capsys.readouterr().out
     datos = json.loads(destino.read_text(encoding="utf-8"))
     assert consultas.comprobar_v2(datos) == []
     assert datos["contrato"] == consultas.CONTRATO_V2

@@ -7057,3 +7057,98 @@ qué hacer, Uitzonderingen, IBAN-controles con el flujo de siempre, Inkomend, Ui
 las relaciones, Kasstroom, Btw, Importeren, Facturen lezen), con los catálogos de textos
 de Python y sus capturas. En el ordenador del dueño, mirar que Edge abre la ventana
 `--app` y que la app se ve como en las capturas.
+
+### Paso 15 · textos NL/EN
+
+La app local habla neerlandés e inglés y no enseña nunca los textos en español de la API
+(`titulo`, `detalle`, `etiqueta`, `fuente_texto`, `nota`, `motivos`), que se quedan para la
+CLI y la auditoría. Sus textos de dominio salen de `src/bms_agent/textos/`, que la app
+importa al compilarse.
+
+**Qué se construyó**
+
+- `nl.json` y `en.json`, con las mismas claves (en español, como el código) y los valores
+  en el idioma de cada uno: las 85 reglas de `reglas/catalogo.py` (de cada una `titulo`,
+  `significa`, `que_hacer` y `detalle`: 289 variantes de plantilla, con `sin_datos` en las
+  52 reglas que pueden no tener con qué mirar); las 10 categorías de `panel.atencion`; los
+  129 campos de las 9 tablas que la API devuelve en `campos[]` y en `corregibles`
+  (factura, línea, imputación, proveedor, cliente, contacto, Objeto, recurso, PO); las 7
+  fuentes; las 5 calidades; 38 grupos de estados (cada enum que la API devuelve: pago,
+  revisión, excepción, hallazgo, relación, PO, BTW, cuenta, turno, importación...); las 4
+  prioridades y las 3 severidades con su significado en una línea; las 48 órdenes de
+  `servicios.ACCIONES` (las 33 que tocan dinero, IVA o datos bancarios con su frase de
+  confirmación); los 3 roles y los 14 permisos; el veredicto de una factura («Geen bezwaren
+  van het systeem», nunca «goedgekeurd»); y 58 códigos (lo que escribe `|codigo`).
+- Un lenguaje de plantillas pequeño, escrito en `textos/LEEME.md`: `{clave}`,
+  `{clave|dinero}` (céntimos a `€ 1.234,56`), `|horas` (milésimas), `|pct` (puntos
+  básicos), `|fecha` (a `dd-mm-aaaa`), `|iban` (de cuatro en cuatro; uno enmascarado se
+  deja), y además `|tarifa` (`_e4`), `|trimestre` (`2026-T3` es `Q3 2026`), `|codigo` y las
+  transformaciones `|cuenta`, `|suma` y `|abs`, que van delante del formato; rutas con
+  puntos (`{distintos.total_cent.0}`); una clave que falta es una raya y se apunta. Cada
+  `detalle[resultado]` es una lista de variantes con condiciones (`clave`, `!clave`,
+  `clave=valor`); la primera que vale escribe, y una variante con `partes` escribe cada
+  parte que vale (A2, A7, A8, M3, F4, P3: cada diferencia que haya).
+- La referencia en Python, `bms_agent.textos` (`pintar`, `renderizar`, `detalle`,
+  `elegir`, `cumple` y los formatos), pura y sin floats.
+- `casos.json`, de `scripts/generar_casos_textos.py`: 64 casos de los bordes del lenguaje y
+  301 de reglas, 52 de la base de prueba (hecha con un reloj fijo, el 16-10-2026) y 15 de
+  las fixtures v1, con las reglas de verdad, y 234 ejemplos para las variantes que esos
+  datos no alcanzan, con la forma exacta que dan las reglas en los tests. Cada variante de
+  cada plantilla tiene al menos un caso, y el generador falla si una no lo tiene. La app
+  implementa el mismo renderizador en TypeScript y se prueba contra este fichero.
+- La API sube al contrato **2.1**, solo con claves nuevas: cada hallazgo lleva `resultado`
+  y `valores` (los de su huella) en la ficha, la historia, los avisos de un proveedor, un
+  cliente y una PO, y lo sin facturar del cliente y del panel; cada fila de las listas y de
+  la búsqueda, y cada excepción, sus `razones` (sus hallazgos pendientes, lo más urgente
+  primero, con regla, severidad, estado y valores); la ficha, sus `reglas_sin_datos`.
+  `consultas.sin_ibanes` enmascara también los IBAN de los valores (F2-F10, K4 los llevan
+  enteros), y ahora también las claves de un objeto; `comprobar_v2` mira también las
+  claves. `docs/integracion-web.md` lo documenta.
+- `tests/test_textos.py` (36 tests): los dos catálogos con las mismas claves y las mismas
+  condiciones, ningún texto vacío ni con restos de español (una lista de palabras), cada
+  regla, orden, categoría, fuente, calidad, estado, campo, rol y permiso con su texto;
+  cada plantilla bien escrita y con claves que su regla escribe en su código (sus literales
+  y los de los módulos de `reglas/` que importa); el renderizador; `casos.json` al día (el
+  generador en modo comprobar); y la API: los valores en la ficha, las listas, las
+  excepciones, los avisos y la historia, y los IBAN de los valores enmascarados desde otro
+  origen y en el export. `pyproject.toml` lleva los JSON y el LEEME como datos del paquete
+  (Docker instala con pip).
+
+**Desviaciones, y por qué**
+
+1. **Los `motivos` de la prioridad no tienen gemelo estructurado.** Se escriben en cinco
+   sitios de `prioridad.py` y se guardan en dos cachés (`factura_estado` y `prioridad`) y
+   en sus vistas: un `motivos_datos` pedía una migración y reescribir esas cachés. En su
+   lugar, `razones`: los hallazgos de cada fila con sus valores, de los que la app escribe
+   el «por qué». Lo que solo dicen los motivos (los puntos, la subida a mano, «vence en
+   6 días») lo saca la app de `puntos`, `vencimiento` y `dias_vencida`.
+2. **Los valores no se tocan.** Van en la huella: añadirles una clave para distinguir dos
+   casos (G3 ambigua y G3 sin casar dan las mismas claves) reabriría hallazgos aceptados.
+   Esos dos casos comparten un texto que vale para los dos.
+3. **Lo que los valores traen en español no se enseña.** Unos son códigos y se escriben
+   con `|codigo` (las marcas de Q3, los niveles de G2 y de G3, las unidades); otros son
+   frases (el `motivo` de F8 y de K6, las filas rechazadas de Z2 y X1, lo que falta en D1
+   con su número de línea): la plantilla dice lo mismo sin ellas (D1 da cuántas faltan; el
+   campo marcado en la ficha dice cuáles).
+4. **Las otras facturas van por id** (B2, B3, B4, R5...), no por número: la plantilla dice
+   «otra factura de la misma contraparte» y la app enlaza las de `objetivos`.
+5. **Los sin_datos sin valores tienen un texto general por regla.** Muchas reglas dan
+   sin_datos sin valores (el planning no cubre esos días, no hay planning, la línea no dice
+   sus días): el texto nombra las causas posibles en vez de adivinar una.
+6. **Importes y horas en formato neerlandés en los dos idiomas** (`€ 1.234,56`, `37,5`),
+   como pidió el dueño para el dinero; `|fecha` da `dd-mm-aaaa` también dentro de una
+   frase (la forma larga, «16 okt 2026», es de la app fuera de las plantillas).
+7. **Los ejemplos de los casos salen de los tests.** Para saber qué valores da cada regla se
+   corrió la suite entera con un plugin que apuntaba los valores de cada resultado (no se
+   guarda en el repositorio); los ejemplos son esos valores, y el test contra el código
+   comprueba que cada clave de una plantilla está escrita en el módulo de su regla.
+8. **Test cambiado a propósito:** `test_export_v2_cumple_el_contrato_documentado` buscaba
+   el literal «Contrato v2 (2.0)»; ahora usa `consultas.CONTRATO_V2` (sube a 2.1).
+
+**Lo que queda**
+
+- Que una persona de la oficina lea los textos neerlandeses en la app y diga lo que no
+  suena natural: se cambian en `nl.json` (y `en.json` si cambia el sentido), se regeneran
+  los casos y se vuelve a compilar la app.
+- Si algún día hace falta el «por qué» exacto de la prioridad, el gemelo de los motivos
+  (desviación 1).
