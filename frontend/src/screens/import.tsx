@@ -82,7 +82,19 @@ export function ImportScreen() {
   );
 }
 
-type Phase = 'idle' | 'trying' | 'previewed' | 'importing' | 'done';
+export type Phase = 'idle' | 'trying' | 'previewed' | 'importing' | 'done';
+
+/**
+ * La accion principal (el boton de color), una sola en cada momento: antes de la prueba,
+ * "Eerst proberen"; despues, "Nu echt importeren", y la prueba pasa a secundaria. Si con la
+ * prueba no entraria nada, o ya se importo, no hay ninguna (lo dice el texto). Antes las dos
+ * iban en color a la vez despues de probar.
+ */
+export function primaryImportAction(phase: Phase, canImport: boolean): 'try' | 'import' | null {
+  if (phase === 'idle' || phase === 'trying') return 'try';
+  if (phase === 'previewed' || phase === 'importing') return canImport ? 'import' : null;
+  return null;
+}
 
 /** Lo que se probo y la importacion de verdad vuelve a mandar tal cual. */
 interface TriedWith {
@@ -183,6 +195,7 @@ function Importer({ info }: { info: ImportsInfo }) {
   const needsPlanningConfirm = error instanceof ApiError && error.code === 'pide_confirmacion';
   const candidates = error instanceof ApiError && error.code === 'tipo_ambiguo' ? error.candidates : [];
   const kindName = result ? importKindLabel(lang, result.fuente, result.tipo) : '';
+  const primary = primaryImportAction(phase, result !== null && !nothingGoesIn);
 
   return (
     <section aria-labelledby='import-form' className='max-w-4xl rounded-md border border-border bg-card'>
@@ -275,7 +288,12 @@ function Importer({ info }: { info: ImportsInfo }) {
       </div>
 
       <div className='flex flex-wrap items-center gap-3 border-t border-border px-5 py-4'>
-        <Button type='button' onClick={() => send(true)} disabled={!file || Boolean(problem) || busy || phase === 'done'}>
+        <Button
+          type='button'
+          variant={primary === 'try' ? 'default' : 'outline'}
+          onClick={() => send(true)}
+          disabled={!file || Boolean(problem) || busy || phase === 'done'}
+        >
           {phase === 'trying' && <LoaderCircle className='mr-2 h-4 w-4 animate-spin motion-reduce:animate-none' aria-hidden='true' />}
           {phase === 'trying' ? t.importing.trying : t.importing.tryFirst}
         </Button>

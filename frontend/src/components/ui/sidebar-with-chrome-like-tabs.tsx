@@ -27,6 +27,15 @@
  *   el + quedaba debajo del ...) y un fundido en cada borde dice que hay mas pestanas a ese
  *   lado. La barra lateral no esconde su barra de desplazamiento y en pantallas bajas
  *   (820 px o menos) va mas junta: a 768 px se ven todos los apartados.
+ * - En el movil (por debajo de md, 768 px) la cabecera va en dos filas: arriba el boton del
+ *   menu y el `toolbar`; debajo la tira con el + y el ... . En una fila, a 400 px, a la tira le
+ *   quedaba una rendija y las pestanas ni se veian ni se podian tocar. Las pestanas van mas
+ *   estrechas (de 96 a 160 px) y, como en Chrome cuando no caben, la x solo en la activa: sin
+ *   raton no se ve antes de tocar, y tocar el borde de otra pestana la cerraba. Desde md, la
+ *   cabecera como antes. En cualquier anchura, si la tira o sus pestanas cambian de tamano
+ *   (una pestana nueva que aun crece, un titulo que llega), la activa se vuelve a ver entera
+ *   (`revealActive`): con muchas pestanas, la ultima abierta quedaba cortada por la derecha
+ *   (en el movil y tambien a 800 o 1024 px).
  * - Tailwind v4: shrink-0 en vez de flex-shrink-0; h-full en vez de h-screen (las bandas
  *   del servidor van encima); text-destructive en vez de text-red-500.
  * - `toolbar`: lo de la derecha de la tira de pestanas (idioma, persona, datos de prueba).
@@ -375,8 +384,9 @@ function ChromeTab({
           aria-keyshortcuts={canClose ? 'Delete' : undefined}
           tabIndex={isActive ? 0 : -1}
           className={cn(
-            'relative flex items-center gap-2 px-4 py-2.5 ml-[10px] sm:ml-0 text-sm cursor-pointer active:cursor-grabbing transition-colors duration-150 min-w-[140px] max-w-[220px] outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
-            canClose && 'pr-9',
+            'relative flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 ml-[10px] sm:ml-0 text-sm cursor-pointer active:cursor-grabbing transition-colors duration-150 min-w-[96px] max-w-[160px] md:min-w-[140px] md:max-w-[220px] outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
+            // En el movil la x va solo en la activa (abajo): las demas no le guardan sitio.
+            canClose && (isActive ? 'pr-8 md:pr-9' : 'md:pr-9'),
             isActive
               ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground'
@@ -433,7 +443,7 @@ function ChromeTab({
               'absolute right-3 top-1/2 -translate-y-1/2 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-colors shrink-0',
               isActive
                 ? 'hover:bg-muted text-muted-foreground hover:text-foreground'
-                : 'opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent text-muted-foreground hover:text-sidebar-foreground'
+                : 'max-md:hidden opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent text-muted-foreground hover:text-sidebar-foreground'
             )}
           >
             <X className='h-3 w-3' />
@@ -827,16 +837,36 @@ export function SidebarWithTabs({
     const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
     setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
   }, []);
+  // Cuando la tira o la lista cambian de tamano (una pestana que entra creciendo, un titulo
+  // que llega, otro idioma, otra anchura de ventana), la activa se vuelve a ver entera, lejos
+  // del fundido. El scrollIntoView de ChromeTab se hace al empezar y la pestana nueva aun
+  // crece despues: en el movil se quedaba cortada por la derecha. Se mide con offsetLeft
+  // (donde queda), no con getBoundingClientRect: durante la animacion de `layout` la pestana
+  // lleva un transform y aun se ve donde estaba.
+  const revealActive = useCallback(() => {
+    const el = stripRef.current;
+    const tab = el?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    const item = tab?.closest('li');
+    if (!el || !tab || !item) return;
+    const left = item.offsetLeft + tab.offsetLeft;
+    const right = left + tab.offsetWidth;
+    const margin = 32; // el ancho del fundido (w-8); el navegador no pasa del final
+    if (left - margin < el.scrollLeft) el.scrollLeft = left - margin;
+    else if (right + margin > el.scrollLeft + el.clientWidth) el.scrollLeft = right + margin - el.clientWidth;
+  }, []);
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return undefined;
     updateEdges();
-    const observer = new ResizeObserver(updateEdges);
+    const observer = new ResizeObserver(() => {
+      revealActive();
+      updateEdges();
+    });
     observer.observe(el);
     const list = el.firstElementChild;
     if (list) observer.observe(list);
     return () => observer.disconnect();
-  }, [updateEdges]);
+  }, [updateEdges, revealActive]);
   const defaultNav = defaultNavId || navItems[0]?.id || '';
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -1209,7 +1239,9 @@ export function SidebarWithTabs({
           </motion.aside>
 
           <div className='flex flex-1 flex-col overflow-hidden relative min-w-0'>
-            <div className='flex items-end bg-sidebar pt-2'>
+            {/* En el movil, dos filas: el menu y el toolbar arriba, la tira debajo (order-last
+                y basis-full la pasan a su fila). Desde md, una sola fila, como siempre. */}
+            <div className='flex flex-wrap md:flex-nowrap items-end gap-y-1 md:gap-y-0 bg-sidebar pt-2'>
               <div className='md:hidden shrink-0 self-center ml-2'>
                 <MobileSidebar
                   logo={logo}
@@ -1221,6 +1253,7 @@ export function SidebarWithTabs({
                 />
               </div>
 
+              <div className='order-last md:order-none flex min-w-0 basis-full md:basis-auto md:flex-1 items-end'>
               {/* Solo las pestanas se desplazan; + y ... van fuera, para que nunca se tapen
                   (a 1024 px el + quedaba debajo de ...). Un fundido en el borde dice que hay
                   mas pestanas a ese lado. */}
@@ -1228,7 +1261,8 @@ export function SidebarWithTabs({
               <div
                 ref={stripRef}
                 onScroll={updateEdges}
-                className='flex min-w-0 flex-1 items-end overflow-x-auto scrollbar-hide'
+                // relative: las pestanas (li) miden su offsetLeft desde la tira (revealActive).
+                className='relative flex min-w-0 flex-1 items-end overflow-x-auto scrollbar-hide'
                 style={{ scrollbarWidth: 'none' }}
               >
                 <Reorder.Group
@@ -1336,9 +1370,10 @@ export function SidebarWithTabs({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
 
               {toolbar && (
-                <div className='flex items-center gap-2 self-center mr-3 mb-1 shrink-0'>
+                <div className='flex items-center gap-2 self-center ml-auto md:ml-0 mr-3 mb-1 shrink-0'>
                   {toolbar}
                 </div>
               )}

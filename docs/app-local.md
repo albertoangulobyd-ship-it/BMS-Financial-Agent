@@ -46,7 +46,13 @@ y se usa también a 1024 × 768 (las tablas anchas se desplazan dentro de su caj
 lateral va más junta en pantallas bajas y se ven todos sus apartados; el + y el … de las
 pestañas van fuera de la tira, y un fundido en el borde dice que hay más pestañas a ese
 lado); por debajo de 768 px de ancho el menú va en una hoja que se abre con el botón de
-menú.
+menú, y la cabecera va en **dos filas** (pensado para el móvil, de 360 a 430 px): arriba el
+botón del menú, la marca de prueba, NL | EN y la persona; debajo, las pestañas con el + y el …
+fuera de la tira. Las pestañas van más estrechas, se desplazan con el dedo y solo la activa
+lleva la ✕ (como Chrome cuando no caben: sin ratón no se ve antes de tocar, y tocar el borde
+de otra la cerraba). En cualquier anchura, la pestaña activa se ve siempre entera: si la
+tira o sus pestañas cambian de tamaño (una que se abre, un título que llega), la tira se
+desplaza hasta ella.
 
 ## 2. Cómo se abre
 
@@ -255,12 +261,15 @@ pasar por el buzón:
    una hoja de PO en YAML); si encaja en más de una, la app pide elegir entre esas; se puede
    elegir a mano;
 2. se dice **el día en que se sacó** del sistema de origen (por defecto, el del fichero);
-3. **Eerst proberen** lo importa de prueba (`simular`): **no guarda nada** y dice en
-   palabras lo que pasaría: cuántas filas se leyeron, cuántas entrarían, cuántas son nuevas
-   y cuántas cambian, las rechazadas con su fila y su motivo, las cuentas bancarias nuevas,
-   los avisos que saldrían y, en un extracto, los pagos que casarían;
-4. solo después, con el botón **Nu echt importeren** y una confirmación aparte (que dice
-   que queda con el nombre de quien importa y no se deshace), entra de verdad, **con
+3. **Eerst proberen** (el botón de color mientras no se ha probado) lo importa de prueba
+   (`simular`): **no guarda nada** y dice en palabras lo que pasaría: cuántas filas se
+   leyeron, cuántas entrarían, cuántas son nuevas y cuántas cambian, las rechazadas con su
+   fila y su motivo, las cuentas bancarias nuevas, los avisos que saldrían y, en un
+   extracto, los pagos que casarían;
+4. solo después, con el botón **Nu echt importeren** (ahora el de color; «Eerst proberen»
+   pasa a secundario: **una sola acción principal** cada vez, y ninguna si con la prueba no
+   entraría nada o ya se importó) y una confirmación aparte (que dice que queda con el
+   nombre de quien importa y no se deshace), entra de verdad, **con
    exactamente lo que se probó** (la clase, el día de exportación y la confirmación del
    planning). Cambiar el día o la confirmación después de la prueba la borra: hay que
    volver a probar.
@@ -651,8 +660,9 @@ los scripts) y una clase escrita en una prueba cambiaba el CSS sin cambiar la hu
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
 Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
 que añade el script), arrancan `bms-agent serve` sobre ella en un puerto libre y entran
-con un token de prueba. `e2e/shell.spec.ts` prueba el marco, `e2e/daily.spec.ts` las
-pantallas del trabajo diario con órdenes de verdad (los motivos de las bloqueadas en
+con un token de prueba. `e2e/shell.spec.ts` prueba el marco (también en el móvil, a
+400 × 860 y 360 × 740: dos fichas en sus pestañas, de una a otra tocándolas y nada fuera de
+la ventana), `e2e/daily.spec.ts` las pantallas del trabajo diario con órdenes de verdad (los motivos de las bloqueadas en
 los dos idiomas, aceptar un hallazgo con la segunda firma de otra persona y resolver
 una excepción con las cuentas del menú cambiando, marcar como gecontroleerd, una `rev`
 vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos
@@ -661,9 +671,10 @@ cada lista y su ficha (con sus detalles abiertos), Kasstroom, el BTW entero (rea
 dejar listo, bajar el werkblad y mirar que es el CSV del trimestre, la regla de las dos
 personas al anotar la aangifte y anotarla con otra persona), Importeren (un fichero que no
 se reconoce, la prueba de un maestro de clientes que dice «1 nieuw» sin que cambie nada en
-la base, la importación de verdad tras la confirmación, la historia y la repetición, y el
-cliente nuevo en Klanten), Facturen lezen sin botón para leer, Instellingen, quien solo
-mira y la app a 1024 px sin desplazamiento horizontal. Van en orden y cambian la base, así
+la base, un solo botón de color en cada momento, la importación de verdad tras la
+confirmación, la historia y la repetición, y el cliente nuevo en Klanten), Facturen lezen sin
+botón para leer, Instellingen, quien solo mira y la app a 1024 px sin desplazamiento
+horizontal. Van en orden y cambian la base, así
 que comprueban cambios, no cifras sueltas. En
 cada prueba: toda petición tiene que ir a `127.0.0.1` (otra se corta y la prueba falla),
 ninguna violación de la CSP, ningún error en la consola, ninguna respuesta de error que la

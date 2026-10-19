@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "fa9e4bbf0aa9847897eac7d0660df6b217c540ae0987a855dbaa2550f4407412",
+  "sha256": "e23e327eb85db5e3f81dff01a06e35a015e2f6f90cf472adeb21e12ee2bdc82b",
   "entradas": {
     "frontend/build-inputs.json": "3c43e98c676f56bad4cc2ce24b1a31787da1f4523ab6b78c0d4e2e56060aadf7",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -36,7 +36,7 @@
     "frontend/src/components/ui/input.tsx": "f4dcacaf3a55a424210aa94b3cfa28f4412e5a7861b419d02a3a7487b66616d4",
     "frontend/src/components/ui/label.tsx": "f220941fdf759153e4e3d2a686787f674a578eee2d5c618242c326e51020a033",
     "frontend/src/components/ui/sheet.tsx": "31891f297859ba113db4e0ff6a3bf85ae32fcf3737f01c268a383acf5a380560",
-    "frontend/src/components/ui/sidebar-with-chrome-like-tabs.tsx": "3d1bf180e595b58a04885b7b06b02e8ca33845a2649e174506f49a7209beef1b",
+    "frontend/src/components/ui/sidebar-with-chrome-like-tabs.tsx": "b0ff792259611817eb3a00df2b32544342b540f456cf7199ae392332ce05174a",
     "frontend/src/components/ui/status.tsx": "8cb4de828a77f1bbf7306a829c0e88684ec5e0551dcdf32209b6fc6b5fd0caba",
     "frontend/src/components/ui/tooltip.tsx": "e8e74b0ffba3db903abecb8470a1d07ce9cb4756e2eee23dbbc6151d5cd6040d",
     "frontend/src/components/values.tsx": "7536b4ac5fa4f3378ed7bdbc1c18e3ea0fb918569050d077a10658e0aa5ff328",
@@ -65,7 +65,7 @@
     "frontend/src/screens/cash-flow.tsx": "7c04364ef1f8bcc199f4be0a1b85f735f936f750bcfbfe00ae272290c8fc329b",
     "frontend/src/screens/exceptions.tsx": "865a50c4d2e8d9dd152a6cd30e7755a50d147f59fba0e33a39565557f0fc34c0",
     "frontend/src/screens/iban-checks.tsx": "6d37a55bdb9b5eb2049cb0a757a02c6fa7c4b00a190360e77589d63fec51ca03",
-    "frontend/src/screens/import.tsx": "767768e900948cac9b9fad4376f06c55707f1ca462329828fb924a326033da1c",
+    "frontend/src/screens/import.tsx": "edf6b1ec3bdde85a45fa7604c2c8c5577e4faa191d1ecb677cf3f7db0840a0d3",
     "frontend/src/screens/invoice-fields.tsx": "241e4a17d348efab94fa4d14bd9d1dbcec42c300ef8c1e8643f61b7eb17010bc",
     "frontend/src/screens/invoice-findings.tsx": "93c9999810e15db8f8300d77032eb0b5b2e6c99906a3a71992b626577f011ce9",
     "frontend/src/screens/invoice-list.tsx": "9d5b7c65addafd21ccd0ab21c555cda3e7e1fe47cdd531c48d9d3e197955d34c",
@@ -106,10 +106,10 @@
     "assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2": "3b646991d30055a93a4ecc499713d4347953a74a947ecab435ab72070cbdab0e",
     "assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2": "0717336fb31fcdcde4b8deb3675bb4a0f7f6d484864afcd6751ac29975962203",
     "assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2": "8960851d691c054ed38e259bdcf1a6190d157b4203ed5bb32c632a863fb8ec2f",
-    "assets/index-GOvSZvwP.js": "01323c634941ad3befd0c996f2def79725c8e79cc8721cd8b5ef5d975ff1b785",
-    "assets/style-Cp2JL-xz.css": "39d5aa1e495e753f72fd60a3f61cde632b3161108ca58ced4e738826daa4be04",
+    "assets/index-CcLMLe3X.js": "85b11ee7d1af0e46d2834af5908b8f9d554f37fbf300c07ffa61fd3ff90d406c",
+    "assets/style-9HLbV6bS.css": "2753b7acd9772b221dde3456a157b1dbc84fd4651c4c6caaefe2535ece868eef",
     "assets/vendor-Dds6ie5A.js": "f3235e3c006372ff9544c8de657dc48b4e9a9784d64042bcfae57d903c6df54d",
-    "index.html": "5f93d76696254b2240fcd2aaaf2551793a89a01428f21f36759e70af2d950b4e",
+    "index.html": "38ed1adb20f446208c061372fd83186c80c62758596c2b9a73dc7ab5e48b40fe",
     "licenses/ibm-plex-mono-OFL.txt": "23b0a9d0c6d3f140a0b77e483c5cfa6bba574325ef5cb189ed9f2fec4884533f",
     "licenses/ibm-plex-sans-OFL.txt": "d0283623ef57e722fd0eb688a8041589670c608ab780cd3612d06ba6f153d3fd"
   }

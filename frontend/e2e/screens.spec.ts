@@ -261,6 +261,25 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await check(page, 'en', 'vat-quarter-filed');
 });
 
+/**
+ * Los botones de color (la accion principal) que se ven en la tarjeta de importar: tiene que
+ * haber uno como mucho. Se mira el color de fondo de cada boton contra el de --primary.
+ * (Antes de esta comprobacion, despues de probar salian dos: la prueba y la de verdad.)
+ */
+async function primaryActions(page: Page): Promise<string[]> {
+  // Sin el raton encima (hover:bg-primary/90) y sin un cambio de color a medias.
+  await page.mouse.move(0, 0);
+  await settled(page);
+  return page.locator('section[aria-labelledby="import-form"] button').evaluateAll((buttons) => {
+    const hex = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const primary = `rgb(${r}, ${g}, ${b})`;
+    return buttons
+      .filter((el) => el.getBoundingClientRect().width > 0 && getComputedStyle(el).backgroundColor === primary)
+      .map((el) => el.textContent?.trim() ?? '');
+  });
+}
+
 test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page, baseUrl, request, watch }) => {
   watch.expectHttpErrors(400);
   const clients = async () =>
@@ -279,6 +298,8 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await nav(page, 'Importeren');
   await expect(page.getByRole('heading', { level: 2, name: 'Hoe vers zijn de gegevens' })).toBeVisible();
   await check(page, 'nl', 'import');
+  // Una sola accion principal en cada momento: antes de probar, la prueba.
+  expect(await primaryActions(page)).toEqual(['Eerst proberen']);
 
   // Een bestand dat geen export is: het zegt het in gewone woorden.
   await page.locator('input[type="file"]').setInputFiles(process.env.BMS_E2E_FILE_ODD!);
@@ -297,9 +318,12 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
 
   // De debiteuren uit Exact met één nieuwe klant: de proef zegt wat er zou gebeuren...
   await page.locator('input[type="file"]').setInputFiles(process.env.BMS_E2E_FILE_CLIENTS!);
+  expect(await primaryActions(page)).toEqual(['Eerst proberen']);
   await page.getByRole('button', { name: 'Eerst proberen' }).click();
   const result = page.getByTestId('import-result');
   await expect(result).toContainText('Wat er zou gebeuren');
+  // Despues de la prueba, la principal es importar de verdad; la prueba pasa a secundaria.
+  expect(await primaryActions(page)).toEqual(['Nu echt importeren']);
   await expect(result).toContainText('Herkend als: Exact · Klanten.');
   await expect(result).toContainText('1 nieuw');
   await expect(result).toContainText('1 nieuwe bankrekening');
@@ -313,6 +337,7 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await exportedField.fill('01-01-2020');
   await expect(result).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Nu echt importeren' })).toHaveCount(0);
+  expect(await primaryActions(page)).toEqual(['Eerst proberen']);
   await exportedField.fill(previewedDay);
   await page.getByRole('button', { name: 'Eerst proberen' }).click();
   await expect(result).toContainText('Wat er zou gebeuren');
@@ -320,6 +345,7 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   expect(preview.simular).toBe(true);
   await setLang(page, 'en');
   await expect(result).toContainText('What would happen');
+  expect(await primaryActions(page)).toEqual(['Import for real']);
   await check(page, 'en', 'import-preview');
 
   // Echt importeren vraagt een eigen bevestiging.
@@ -333,6 +359,8 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await check(page, 'nl', 'import-confirm');
   await page.getByRole('dialog').getByRole('button', { name: 'Nu echt importeren' }).click();
   await expect(result).toContainText('Ingelezen. De lijsten en controles zijn bijgewerkt.');
+  // Ya importado: nada en color (lo dice el texto; "Ander bestand" es secundario).
+  expect(await primaryActions(page)).toEqual([]);
   expect(posts.at(-1)).toMatchObject({ simular: false, exportado: preview.exportado, fuente: 'exact', tipo: 'clientes' });
   await check(page, 'nl', 'import-done');
   expect((await clients()).map((c) => c.nombre)).toContain('Demo Nieuwbouw BV');
@@ -353,6 +381,8 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await page.locator('input[type="file"]').setInputFiles(process.env.BMS_E2E_FILE_CLIENTS!);
   await page.getByRole('button', { name: 'Eerst proberen' }).click();
   await expect(result).toContainText('Dit bestand is al eerder ingelezen');
+  // Con la prueba no entraria nada: tampoco hay principal (ni se ofrece importar).
+  expect(await primaryActions(page)).toEqual([]);
   await setLang(page, 'en');
   await check(page, 'en', 'import');
 

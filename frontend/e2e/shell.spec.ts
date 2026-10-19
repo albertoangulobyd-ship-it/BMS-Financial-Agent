@@ -1,7 +1,8 @@
 // La base de la app: la entrada, el marco con todas las areas, NL | EN, las pestanas (una
 // fila abre su ficha; si ya esta abierta, se va a ella), que las pestanas se guardan al
 // recargar y que salir borra el token. Captura de cada pantalla en los dos idiomas.
-import { capture, expect, expectAccessible, expectNoSpanish, login, test, token } from './fixtures';
+import type { Page } from '@playwright/test';
+import { capture, expect, expectAccessible, expectNoSpanish, login, settled, test, token } from './fixtures';
 
 const NAV = [
   ['overview', 'Overzicht', 'Overview'],
@@ -287,3 +288,144 @@ test('el teclado llega a todo y se ve donde esta', async ({ page, baseUrl }) => 
   const outline = await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle);
   expect(outline).not.toBe('none');
 });
+
+/**
+ * Lo que se sale de la ventana por los lados: cada elemento visible que pasa del borde y no
+ * esta dentro de algo que se desplaza en horizontal (la tira de pestanas, una tabla en su
+ * caja). Lo que recorta un overflow hidden no cuenta como desplazable: tambien es estar fuera.
+ */
+async function outsideTheWindow(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const width = window.innerWidth;
+    const out: string[] = [];
+    if (document.documentElement.scrollWidth > width) out.push(`html ${document.documentElement.scrollWidth}`);
+    if (document.body.scrollWidth > width) out.push(`body ${document.body.scrollWidth}`);
+    const scrolls = (el: Element) => {
+      const x = getComputedStyle(el).overflowX;
+      return x === 'auto' || x === 'scroll';
+    };
+    for (const el of Array.from(document.body.querySelectorAll('*'))) {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (box.right <= width + 1 && box.left >= -1) continue;
+      let inside = false;
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        if (scrolls(a)) {
+          inside = true;
+          break;
+        }
+      }
+      if (!inside) {
+        const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? '';
+        out.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(box.left)}-${Math.round(box.right)}`);
+      }
+    }
+    return out;
+  });
+}
+
+/** El titulo de la ficha de una factura ("Factuur KT-202608"). */
+function invoiceTitle(number: string, word = 'Factuur'): RegExp {
+  return new RegExp(`^${word} ${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+}
+
+// En el movil (de 360 a 430 px): la tira de pestanas se ve y se toca. Antes la cabecera (el
+// menu, las pestanas, + y ..., la marca de prueba, el idioma y la persona) iba en una fila y
+// a la tira le quedaba una rendija: las pestanas no se veian ni se podian tocar.
+for (const size of [
+  { width: 400, height: 860 },
+  { width: 360, height: 740 },
+] as const) {
+  test.describe(`${size.width} × ${size.height}`, () => {
+    test.use({ viewport: size, hasTouch: true, isMobile: true });
+
+    test(`en el movil (${size.width} px) las pestanas se ven y se tocan`, async ({ page, baseUrl }) => {
+      await page.goto(`${baseUrl}/app`);
+      await login(page);
+      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
+
+      await page.getByRole('button', { name: 'Menu openen' }).tap();
+      await page.getByRole('dialog', { name: 'Navigatie' }).getByRole('button', { name: /^Werklijst/ }).tap();
+      await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
+
+      // Dos facturas distintas, cada una en su pestana.
+      const rows = page.getByRole('table').getByRole('row');
+      const numbers: string[] = [];
+      for (let i = 1; numbers.length < 2; i += 1) {
+        const n = (await rows.nth(i).getByRole('button').locator('.font-mono').textContent())!.trim();
+        if (!numbers.includes(n)) numbers.push(n);
+      }
+      const tabs = page.getByRole('tab');
+      const tabOf = (n: string) => tabs.filter({ hasText: n });
+      for (const n of numbers) {
+        if (n === numbers[1]) await tabs.first().tap();
+        await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
+        await page.getByRole('table').getByRole('button', { name: `Factuur ${n} openen` }).first().tap();
+        await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(n) })).toBeVisible();
+      }
+      await expect(tabs).toHaveCount(3);
+
+      const strip = page.getByRole('tablist').locator('xpath=..');
+      // La pestana activa entera dentro de la tira, que deja ver mas de una.
+      // (la tira se desplaza con suavidad hasta la activa: se espera a que llegue)
+      const activeInStrip = async () => {
+        await settled(page);
+        await expect
+          .poll(async () => {
+            const s = (await strip.boundingBox())!;
+            const a = (await page.getByRole('tab', { selected: true }).boundingBox())!;
+            if (a.x < s.x - 1) return `empieza fuera: ${a.x} < ${s.x}`;
+            // (las curvas de la pestana de Chrome salen unos px del borde: no tapan nada)
+            if (a.x + a.width > s.x + s.width + 4) return `acaba fuera: ${a.x + a.width} > ${s.x + s.width}`;
+            return 'dentro';
+          }, { message: 'la pestana activa, entera dentro de la tira' })
+          .toBe('dentro');
+        return (await strip.boundingBox())!;
+      };
+      const s = await activeInStrip();
+      expect(s.width, 'la tira deja sitio para dos pestanas').toBeGreaterThanOrEqual(2 * 96);
+      expect(s.x + s.width).toBeLessThanOrEqual(size.width);
+      for (const tab of await tabs.all()) {
+        const box = (await tab.boundingBox())!;
+        expect(box.width, 'una pestana no es una rendija').toBeGreaterThanOrEqual(96);
+        // (WCAG 2.5.8 pide 24 px; la del dueno mide unos 40)
+        expect(box.height, 'una pestana se puede tocar').toBeGreaterThanOrEqual(36);
+      }
+      // + y ... fuera de la tira, despues de ella y dentro de la ventana.
+      const plus = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
+      const more = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
+      expect(plus.x).toBeGreaterThanOrEqual(s.x + s.width - 1);
+      expect(plus.x + plus.width).toBeLessThanOrEqual(more.x);
+      expect(more.x + more.width).toBeLessThanOrEqual(size.width);
+      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
+      await capture(page, `nl-mobile-tabs-${size.width}`);
+
+      // De una a otra tocando la pestana; la que se toca se ve entera.
+      for (const n of [numbers[0]!, numbers[1]!, numbers[0]!]) {
+        const tab = tabOf(n);
+        await expect(tab).toBeVisible();
+        await tab.tap();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(n) })).toBeVisible();
+        await activeInStrip();
+      }
+      // Tocar una pestana que no es la activa la abre, nunca la cierra (en el movil no hay
+      // raton que ensene antes la x).
+      await tabs.first().tap();
+      await expect(tabs).toHaveCount(3);
+      await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
+      await activeInStrip();
+      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
+      await expectAccessible(page, `movil ${size.width}`);
+      await capture(page, `nl-mobile-tabs-${size.width}-first`);
+
+      await page.getByRole('button', { name: 'English' }).tap();
+      await tabOf(numbers[1]!).tap();
+      await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(numbers[1]!, 'Invoice') })).toBeVisible();
+      await activeInStrip();
+      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
+      await capture(page, `en-mobile-tabs-${size.width}`);
+      await page.getByRole('button', { name: 'Nederlands' }).tap();
+    });
+  });
+}

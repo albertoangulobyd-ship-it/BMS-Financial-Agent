@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { MESSAGES } from '@/i18n';
 import { partyWhy } from '@/lib/why';
-import { fileDay, formatSize } from './import';
+import { fileDay, formatSize, primaryImportAction } from './import';
 import { periodRange } from './object';
 import { dialogTexts } from '@/components/action-dialog';
 import { catalogFor } from '@/i18n/domain';
@@ -86,6 +86,16 @@ describe('importar', () => {
     expect(formatSize(320 * 1024)).toBe('320 kB');
     expect(formatSize(8 * 1024 * 1024)).toBe('8,0 MB');
     expect(formatSize(1.5 * 1024 * 1024)).toBe('1,5 MB');
+  });
+
+  it('una sola accion principal: antes de probar, la prueba; despues, importar de verdad', () => {
+    expect(primaryImportAction('idle', false)).toBe('try');
+    expect(primaryImportAction('trying', false)).toBe('try');
+    expect(primaryImportAction('previewed', true)).toBe('import');
+    expect(primaryImportAction('importing', true)).toBe('import');
+    // Con la prueba no entraria nada (el mismo fichero otra vez): ni una ni otra.
+    expect(primaryImportAction('previewed', false)).toBeNull();
+    expect(primaryImportAction('done', true)).toBeNull();
   });
 
   it('el dia de un fichero, y hoy si dice ser del futuro', () => {

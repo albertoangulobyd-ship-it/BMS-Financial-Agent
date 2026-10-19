@@ -7685,3 +7685,51 @@ fallaba el hallazgo 5): 34 de 34.
 Chromium sin cabeza no se puede ver) y que, sin lo construido, `iniciar.bat` abre la
 consola de antes. Que alguien de la oficina lea los textos nuevos (las gravedades, «Opnieuw
 laten bekijken», «Wat nog moet»).
+
+### Paso 15 · seguimiento
+
+Dos problemas que salieron después de la puerta del paso 15, cada uno con una prueba que
+falla antes y pasa después.
+
+| # | Problema | Qué se hizo | Dónde se comprueba |
+| --- | --- | --- | --- |
+| 1 | **A la anchura de un móvil (unos 400 px) la tira de pestañas del componente del dueño era una rendija**: en una sola fila iban el menú, las pestañas, el + y el …, la marca de prueba, NL \| EN y la persona, y a la tira casi no le quedaba sitio. Las pestañas ni se veían ni se podían tocar (la herramienta de vista previa tuvo que abrir una escondida con su evento de clic); a 360 px la persona se salía además de la ventana | Por debajo de md (768 px) la cabecera va en **dos filas**: arriba el menú y el `toolbar`; debajo, la tira con el + y el … fuera de ella, como ya iban a 1024 px. Las pestañas van más estrechas (de 96 a 160 px; desde md, de 140 a 220 como antes) y, como en Chrome cuando no caben, la ✕ va solo en la activa: sin ratón no se ve antes de tocar, y tocar el borde de otra pestaña la cerraba. Y la pestaña activa se ve siempre entera: cuando la tira o sus pestañas cambian de tamaño (una que se abre y aún crece, un título que llega), `revealActive` desplaza la tira hasta ella, medida con `offsetLeft` (durante la animación de `layout` la pestaña lleva un `transform`). Arriba de `sidebar-with-chrome-like-tabs.tsx`, lo que se cambió | `e2e/shell.spec.ts` «en el movil (400 px)…» y «(360 px)…», con pantalla táctil (`hasTouch`, `isMobile`): entrar, la Werklijst desde la hoja, dos facturas distintas en sus pestañas y de una a otra **tocando la pestaña** (`tap()`), la activa entera dentro de la tira, cada pestaña de 96 px o más y 36 de alto o más, la tira con sitio para dos, el + y el … después de la tira y dentro de la ventana, tocar otra pestaña no la cierra, axe, y **nada fuera de la ventana** (`outsideTheWindow`: ningún elemento pasa del borde salvo dentro de algo que se desplaza; `html` y `body` sin desplazamiento horizontal), también en inglés. Antes fallaba: a 400 px `tap()` no llegaba a la pestaña (el + y el … la tapaban); a 360 px el menú de la persona iba de 330 a 392 px |
+| 2 | **En Importeren, después de una prueba que sale bien, «Eerst proberen» y «Nu echt importeren» eran los dos el botón de color** | `primaryImportAction` (`src/screens/import.tsx`): una sola acción principal cada vez. Antes de probar, «Eerst proberen»; después, «Nu echt importeren», y la prueba pasa a secundaria (`outline`). Si con la prueba no entraría nada (el mismo fichero otra vez) o ya se importó, ninguna: lo dice el texto, y «Ander bestand» sigue secundario. Cambiar el día, la clase o la confirmación borra la prueba y la principal vuelve a ser probar | `src/screens/screens.test.ts` («una sola accion principal…»); `e2e/screens.spec.ts` «importeren…» (`primaryActions`: los botones de la tarjeta con el fondo de `--primary`, con el ratón fuera y la pantalla quieta): sin fichero y con él, `['Eerst proberen']`; después de la prueba, `['Nu echt importeren']` (y `['Import for real']` en inglés); con otra fecha, otra vez la prueba; importado y repetido, ninguno. Antes fallaba: después de la prueba salían los dos |
+
+**Lo de escritorio sigue igual.** Se midieron las cajas de la cabecera (la tira, cada
+pestaña, el +, el …, la marca de prueba, el idioma, la persona y el panel) con lo construido
+antes y después, a 1440 × 900, 1024 × 768 y 800 × 700: a 1440 y 1024 son las mismas al
+centésimo de píxel. Lo único que cambia desde md es dónde se para la tira cuando la pestaña
+activa no cabe: a 800 px, con dos pestañas, la nueva quedaba cortada 29 px por la derecha y
+ahora se ve entera; a 1024 y 1440 con muchas pestañas, la última abierta perdía su curva
+derecha (7–8 px) y ahora no. Es lo que quería el código del dueño (llevar el + a la vista
+250 ms después de abrir la última pestaña), que no llegaba a hacer nada: su
+`closest('.flex')` encuentra la propia pestaña y ahí no hay ningún +. Se deja como estaba. Las capturas de la puerta y las nuevas se compararon píxel a píxel: 78 de 118 iguales;
+las demás cambian en las horas de los datos de prueba (la historia de una factura y de las
+importaciones), en unos píxeles sueltos del suavizado (el borde redondo de una pastilla, con
+las cajas iguales), en la tira de las pantallas con muchas pestañas (la
+activa, ahora entera), en Importeren (un solo botón de color) y a 700 px (la cabecera en dos
+filas).
+
+**Desviaciones, y por qué**
+
+1. **El orden del teclado en el móvil no es el de la vista**: en el móvil el `toolbar` se ve
+   arriba y la tira debajo, pero en el documento la tira va antes (`order`), como en
+   escritorio, para no cambiar el orden del teclado de 768 px para arriba. En un móvil no se
+   usa teclado.
+2. **Una pestaña mide unos 40 px de alto** (la del dueño): la prueba pide 36 o más (WCAG 2.5.8
+   pide 24), sin hacerla más alta.
+
+**Mirado en las capturas** (`CAPTURAS_DIR`, las 118 de siempre y 6 nuevas:
+`nl-mobile-tabs-400`, `nl-mobile-tabs-400-first`, `nl-mobile-tabs-360`,
+`nl-mobile-tabs-360-first`, `en-mobile-tabs-400`, `en-mobile-tabs-360`, y `nl-import-preview` y
+`en-import-preview`, con un solo botón de color): arriba el menú, la marca, NL | EN y la
+persona; debajo, dos pestañas legibles («Werklijst», «DGG-2026-118»), la siguiente cortada por
+el fundido, y el + y el … a la derecha.
+
+**Resultado**: Python 3.11, **2515 pasan y 12 se saltan** (como antes: aquí no cambia nada de
+Python); `npm run typecheck` limpio; vitest, **820** (uno nuevo); Playwright, **36** (2
+nuevas: el móvil a 400 y a 360 px), todas sin peticiones fuera de 127.0.0.1, sin violaciones
+de la CSP, sin errores en la consola, sin problemas de axe ni faltas de contraste y sin
+castellano, también con la suite de Python corriendo a la vez. `npm run build` vuelve a dar
+exactamente lo que va en git.
