@@ -47,7 +47,9 @@ flowchart LR
 Lo que esto te garantiza:
 
 - **La consola solo se abre desde tu ordenador.** La dirección es
-  `http://127.0.0.1:8765/consola`; desde otro ordenador de la oficina o de casa no
+  `http://127.0.0.1:8765/app` (la app, que `iniciar.bat` abre en su propia ventana de
+  Edge; la consola de antes sigue en `http://127.0.0.1:8765/consola`, de reserva, ver
+  [app-local.md](app-local.md)); desde otro ordenador de la oficina o de casa no
   se llega, aunque esté en la misma red.
 - **La consola y los datos no tienen internet.** Aunque alguien colara algo raro en
   una factura, la caja que tiene tus datos no puede mandarlos a ninguna parte.

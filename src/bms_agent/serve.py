@@ -60,6 +60,13 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
    aislamiento de algun papel fallo, falta o es vieja (`aislamiento`, que se lee
    en cada pagina): trabajar con datos de verdad sin saber que estan aislados no
    se hace a ciegas.
+
+7. Paso 15, la app local (/app, app_local.py): lo construido de frontend/, servido
+   desde una lista blanca de los ficheros de web/ (nunca una ruta de la peticion
+   juntada con una carpeta), con su propia politica de contenido (un nonce por
+   respuesta para los estilos de las bibliotecas) y las mismas comprobaciones de
+   Host y Origin. Las bandas de prueba y de aislamiento las pone el servidor, en
+   neerlandes e ingles. /consola sigue como estaba: es la de reserva.
 """
 
 from __future__ import annotations
@@ -78,7 +85,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import btw, config, consola, consultas, permisos, relaciones, servicios
+from . import app_local, btw, config, consola, consultas, permisos, relaciones, servicios
 from .almacen import preparar, ruta_por_defecto
 from .auditoria import AnclasDeOtraBase, anclar
 from .cache import CONSERVAR
@@ -472,6 +479,7 @@ class Manejador(BaseHTTPRequestHandler):
     origenes: frozenset[str]
     aislamiento: Callable[[], list[str]] | None = None
     demo: bool = False
+    app_web: app_local.App = app_local.App(None)
 
     def _cors(self) -> None:
         origen = self.headers.get("Origin")
@@ -548,6 +556,10 @@ class Manejador(BaseHTTPRequestHandler):
         ruta = self.path.split("?", 1)[0].rstrip("/")
         if ruta == "":
             self._pagina()
+        elif ruta == app_local.RUTA:
+            self._app_pagina()
+        elif ruta.startswith(app_local.PREFIJO_FICHEROS):
+            self._app_fichero(ruta)
         elif consola.fichero(ruta) is not None:
             self._consola(ruta)
         elif ruta.startswith("/api/v2/"):
@@ -657,6 +669,40 @@ class Manejador(BaseHTTPRequestHandler):
             self.send_header(nombre, valor)
         self.end_headers()
         self.wfile.write(datos)
+
+    # ---- la app local (paso 15)
+
+    def _enviar_con(self, codigo: int, tipo: str, datos: bytes, cabeceras: dict[str, str]) -> None:
+        self.send_response(codigo)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(datos)))
+        if self.demo:
+            self.send_header(CABECERA_ENTORNO, "demo")
+        for nombre, valor in cabeceras.items():
+            self.send_header(nombre, valor)
+        self.end_headers()
+        self.wfile.write(datos)
+
+    def _app_pagina(self) -> None:
+        """index.html con su nonce y sus bandas. Sin construir, lo dice y manda a /consola."""
+        nonce = app_local.nuevo_nonce()
+        try:
+            datos = app_local.pagina(self.app_web, nonce=nonce, demo=self.demo,
+                                     aislamiento=self._problemas_aislamiento())
+        except app_local.AppMalConstruida:
+            self._enviar_con(503, "text/plain; charset=utf-8", app_local.SIN_CONSTRUIR,
+                             {**app_local.cabeceras_pagina(nonce)})
+            return
+        self._enviar_con(200, "text/html; charset=utf-8", datos,
+                         app_local.cabeceras_pagina(nonce))
+
+    def _app_fichero(self, ruta: str) -> None:
+        """Un fichero de la lista blanca, por su nombre exacto; cualquier otra cosa, 404."""
+        fichero = self.app_web.ficheros.get(ruta)
+        if fichero is None:
+            self._json(404, {"error": "no existe"}, cors=False)
+            return
+        self._enviar_con(200, fichero.tipo, fichero.datos, app_local.cabeceras_fichero())
 
     def _almacen(self) -> Any:
         return preparar(self.ruta_db or ruta_por_defecto())
@@ -990,6 +1036,7 @@ def crear_servidor(
     interfaz: str = LOCAL,
     lectura: bool = True,
     aislamiento: Callable[[], list[str]] | None = None,
+    carpeta_web: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     """Crea el servidor ya escuchando en 127.0.0.1, sin atender todavia.
 
@@ -998,6 +1045,8 @@ def crear_servidor(
     `interfaz` 0.0.0.0 solo dentro de un contenedor (interfaz_permitida), y
     `lectura` False deja el boton de lanzar una pasada sin efecto. `aislamiento`
     (instalacion nativa) da lo que falla del aislamiento, para la banda roja.
+    `carpeta_web` es la app construida (por defecto, la del paquete): se lee una vez,
+    aqui, y es la lista blanca de /app.
     """
     from .demo import es_demo
 
@@ -1022,6 +1071,7 @@ def crear_servidor(
         "origenes": permitidos,
         "demo": es_demo(Path(ruta_db) if ruta_db else ruta_por_defecto()),
         "aislamiento": staticmethod(aislamiento) if aislamiento is not None else None,
+        "app_web": app_local.cargar(Path(carpeta_web) if carpeta_web else app_local.CARPETA_WEB),
     })
     return servidor
 
@@ -1055,7 +1105,8 @@ def servir(
     print("  GET  /api/datos       datos del panel (con un token personal, como /api/v2)")
     print("  GET  /api/ejecucion   estado de la ultima pasada")
     print(f"  POST /api/ejecutar    lanza una pasada (JSON y cabecera {CABECERA_TOKEN})")
-    print("  GET  /consola         consola interna (se entra con el token personal)")
+    print("  GET  /app             la app local (se entra con el token personal)")
+    print("  GET  /consola         la consola de antes, de reserva (el mismo token)")
     print("  GET  /api/v2/...      panel, busqueda, facturas, ficha e historia, excepciones, "
           "proveedores, clientes, ordenes de compra, Objetos, BTW, flujo de caja y el "
           f"export entero (token personal; contrato {consultas.CONTRATO_V2}: /api/v2/contrato)")

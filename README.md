@@ -26,6 +26,7 @@ sistema funcione.
 | [docs/instalacion-windows.md](docs/instalacion-windows.md) | Clave de API, instalación con Python y primera prueba en Windows, paso a paso (para desarrollar; para usarlo, mejor el entorno local). |
 | [docs/fase-0.md](docs/fase-0.md) | **Empieza aquí.** Puesta en marcha y uso del observador, y las decisiones de diseño del extractor. |
 | [docs/uso-v1.md](docs/uso-v1.md) | **Para el día a día.** La rutina diaria, qué quiere decir cada prioridad, cómo corregir un dato, cómo verificar un IBAN por teléfono y cómo cerrar un trimestre del BTW. |
+| [docs/app-local.md](docs/app-local.md) | **La app local** (paso 15): la ventana en neerlandés o inglés con la que trabaja administración (`/app`), cómo se entra, sus pantallas, su modelo de seguridad y cómo se cambia y se vuelve a construir. |
 | [docs/diseno-v1.md](docs/diseno-v1.md) | Resumen en castellano de la V1: modelo de datos, comprobaciones, prioridad y orden de construcción. |
 | [docs/modelo-datos.md](docs/modelo-datos.md) | El almacén de la V1: cada tabla y su clase (controlada, solo escritura, evidencia, caché), las vistas y de dónde sale cada estado. |
 | [docs/validacion-facturas.md](docs/validacion-facturas.md) | Catálogo de reglas de validación de facturas de zzp'er: identidad, numeración, fechas, importes, régimen de IVA, datos de pago, contraste con el planning y riesgo laboral; al final, la tabla de las reglas del motor, generada del código. |
@@ -84,7 +85,7 @@ bms-agent panel                # panel del historico (del almacén, con lo corre
 bms-agent simulador            # simulador de tarifas, para decidir el modelo de precios
 bms-agent export --tarifas config/tarifas.yaml   # datos en JSON, para un sitio propio (contrato v1)
 bms-agent export --v2          # todo lo de /api/v2 en un fichero (contrato v2, sin IBAN)
-bms-agent serve                # servidor local en 127.0.0.1; la consola en /consola
+bms-agent serve                # servidor local en 127.0.0.1; la app en /app (la consola de antes, en /consola)
 bms-agent report               # ficha detallada de cada factura
 bms-agent demo crear           # DATOS DE PRUEBA en datos/demo.sqlite3, aparte de la base de verdad
 bms-agent copia E:/copias      # copia de seguridad comprobada; `restaurar CARPETA`, la vuelta
@@ -115,4 +116,6 @@ a día está en [docs/uso-v1.md](docs/uso-v1.md). El paso 13 (a petición del
 dueño) la deja corriendo en un entorno local aislado con Docker y una base de
 datos de prueba: [docs/entorno-local.md](docs/entorno-local.md). El paso 14 (también a
 petición del dueño) hace lo mismo sin Docker:
-[docs/instalacion-nativa.md](docs/instalacion-nativa.md).
+[docs/instalacion-nativa.md](docs/instalacion-nativa.md). El paso 15 (otra vez a petición
+del dueño) le da a administración una app local, en neerlandés e inglés, que los
+lanzadores abren en su propia ventana: [docs/app-local.md](docs/app-local.md).

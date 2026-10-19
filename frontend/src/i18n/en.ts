@@ -1,0 +1,251 @@
+// Los textos de la app en ingles. El tipo Messages (la forma de nl.ts) obliga a tener
+// las mismas claves que en neerlandes, ni una mas ni una menos.
+import type { Messages } from './index';
+
+export const en: Messages = {
+  app: {
+    name: 'BMS Finance',
+    company: 'BM Support BV',
+    testDataTitle: 'TEST DATA',
+  },
+  common: {
+    loading: 'Loading…',
+    retry: 'Try again',
+    reload: 'Reload',
+    open: 'Open',
+    close: 'Close',
+    noData: 'No data',
+    unknown: 'Unknown',
+    comingSoon: 'This screen is built in the next version.',
+    ruleCode: 'Rule {code}',
+    details: 'Details',
+    showDetails: 'Show details',
+    hideDetails: 'Hide details',
+  },
+  units: {
+    hoursShort: 'h',
+  },
+  months: {
+    short: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    long: [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ],
+    weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+  },
+  language: {
+    label: 'Language',
+    nl: 'NL',
+    en: 'EN',
+    nlLong: 'Nederlands',
+    enLong: 'English',
+  },
+  login: {
+    title: 'Log in',
+    intro: 'The finance workplace of BM Support BV.',
+    tokenLabel: 'Personal code',
+    tokenHelp:
+      'Your personal code is a long string of characters you get from the person who maintains the program. It is yours only: do not share it.',
+    submit: 'Log in',
+    checking: 'Checking…',
+    empty: 'Enter your personal code.',
+    invalid: 'This code is not valid. Check it, or ask for a new one.',
+    forbidden: 'This code is not allowed to view invoices. Ask for access.',
+    unreachable: 'The program does not respond. Start it again with iniciar.bat and try again.',
+    incompatible: 'This app does not match the version of the program. Ask for it to be updated.',
+    sessionEnded: 'Your session has ended. Log in again.',
+    loggedOut: 'You are logged out.',
+    neverStored: 'The code stays in this window only and is gone when you log out or close it.',
+  },
+  account: {
+    menu: 'Account menu for {name}',
+    signedInAs: 'Signed in as',
+    roleAdmin: 'Administrator',
+    roleStaff: 'Administration',
+    roleReadOnly: 'Read only',
+    logout: 'Log out',
+  },
+  testData: {
+    chip: 'Test data',
+    chipHelp: 'This is the test database. Everything you see is made up and nothing goes into the real data.',
+  },
+  tabs: {
+    newTab: 'New tab',
+    closeTab: 'Close tab',
+    closeOtherTabs: 'Close other tabs',
+    closeTabsToRight: 'Close tabs to the right',
+    closeTabsToLeft: 'Close tabs to the left',
+    closeAllTabs: 'Close all tabs',
+    quickOpen: 'Quick open',
+    sidebarNavigation: 'Navigation',
+    collapseSidebar: 'Collapse sidebar',
+    expandSidebar: 'Expand sidebar',
+    moreTabOptions: 'More tab options',
+    openMenu: 'Open menu',
+    close: 'Close',
+    tabs: 'Tabs',
+    mainNavigation: 'Main menu',
+  },
+  groups: {
+    daily: 'Daily',
+    invoices: 'Invoices',
+    parties: 'Parties',
+    money: 'Money',
+    data: 'Data',
+    settings: '',
+  },
+  nav: {
+    overview: {
+      label: 'Overview',
+      hint: '',
+      description: 'What needs attention today and where the money stands.',
+    },
+    'work-queue': {
+      label: 'Work queue',
+      hint: '',
+      description: 'All invoices, with what needs doing first at the top.',
+    },
+    exceptions: {
+      label: 'Exceptions',
+      hint: '',
+      description: 'Open issues someone has to resolve, and who is working on them.',
+    },
+    'iban-checks': {
+      label: 'IBAN checks',
+      hint: '',
+      description: 'Bank accounts that still need to be checked by phone.',
+    },
+    'invoices-in': {
+      label: 'In',
+      hint: 'purchase',
+      description: 'Invoices from providers and zzp’ers to BMS.',
+    },
+    'invoices-out': {
+      label: 'Out',
+      hint: 'sales',
+      description: 'Invoices from BMS to clients.',
+    },
+    providers: {
+      label: 'Providers',
+      hint: '',
+      description: 'Zzp’ers and subcontractors: what is outstanding and what stands out.',
+    },
+    clients: {
+      label: 'Clients',
+      hint: '',
+      description: 'What clients still owe and what still has to be invoiced.',
+    },
+    objects: {
+      label: 'Objects',
+      hint: '',
+      description: 'Per client site: revenue, costs and margin.',
+    },
+    'purchase-orders': {
+      label: 'Purchase orders',
+      hint: '',
+      description: 'How much of each purchase order is left, and which are nearly used up.',
+    },
+    'cash-flow': {
+      label: 'Cash flow',
+      hint: '',
+      description: 'What comes in and goes out in the coming weeks.',
+    },
+    vat: {
+      label: 'VAT',
+      hint: 'BTW',
+      description: 'VAT per quarter, ready to check. A person files the return.',
+    },
+    import: {
+      label: 'Import',
+      hint: '',
+      description: 'Load files from Exact, the bank and TRNSPRNT.',
+    },
+    'read-invoices': {
+      label: 'Read invoices',
+      hint: 'costs money',
+      description: 'Have PDFs read. You see what it costs first.',
+    },
+    settings: {
+      label: 'Settings',
+      hint: '',
+      description: 'Your language and your account.',
+    },
+  },
+  records: {
+    invoice: { label: 'Invoice', fallbackTitle: 'Invoice {id}' },
+    provider: { label: 'Provider', fallbackTitle: 'Provider {id}' },
+    client: { label: 'Client', fallbackTitle: 'Client {id}' },
+    object: { label: 'Object', fallbackTitle: 'Object {id}' },
+    'purchase-order': { label: 'Purchase order', fallbackTitle: 'Purchase order {id}' },
+  },
+  badges: {
+    blocked: 'blocked',
+    open: 'open',
+    toCheck: 'to check',
+  },
+  help: {
+    object: {
+      term: 'Object',
+      text: 'A client site where BMS places people, such as a building or a terrain. TRNSPRNT uses the same word.',
+    },
+    po: {
+      term: 'Purchase order',
+      text: 'A purchase order (PO) sets how much may be invoiced at most. A client gives one to BMS, or BMS gives one to a provider.',
+    },
+    btw: {
+      term: 'VAT',
+      text: 'The tax on turnover (BTW in Dutch). BMS files a return with the Belastingdienst every quarter; this program only prepares the worksheet.',
+    },
+    exception: {
+      term: 'Exception',
+      text: 'An issue that will not sort itself out and that someone has to resolve, for example an invoice that came in twice.',
+    },
+    whatIs: 'What is {term}?',
+  },
+  priority: {
+    column: 'Priority',
+  },
+  errors: {
+    title: 'This does not work right now',
+    unauthorized: 'Your session has ended. Log in again.',
+    forbidden: 'You do not have permission for this.',
+    notFound: 'This does not exist (any more).',
+    stale: 'Someone else has just changed this. Reload to see the latest version.',
+    conflict: 'This is not possible in the current state.',
+    badRequest: 'The data was not accepted. Check what you entered.',
+    unavailable: 'The program does not respond. Try again in a moment.',
+    incompatible: 'This app does not match the version of the program.',
+    unexpected: 'Something went wrong. Try again.',
+  },
+  empty: {
+    nothingNeedsAttention: 'Nothing needs your attention',
+    nothingHere: 'Nothing here yet',
+  },
+  footer: {
+    today: 'Today',
+  },
+  workQueue: {
+    columns: {
+      number: 'Number',
+      party: 'Party',
+      amount: 'Amount',
+      due: 'Due date',
+      payment: 'Payment',
+    },
+    caption: 'Invoices, with what needs doing first at the top',
+    baseNote: 'Base version: the “Why” column is added once the rule texts are in.',
+    empty: 'There are no invoices yet.',
+    total: '{count} invoices',
+  },
+  invoice: {
+    baseNote: 'What is wrong and what to do comes to this screen in the next version.',
+    partyLabel: 'Party',
+    totalLabel: 'Total',
+    dateLabel: 'Invoice date',
+    dueLabel: 'Due date',
+  },
+  settings: {
+    languageHelp: 'The language of the app. Amounts and dates always stay in Dutch notation.',
+    accountHelp: 'You are logged in with your personal code. Logging out wipes the code from this window.',
+  },
+};

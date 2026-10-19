@@ -1,0 +1,251 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Option B (Workbench), solo tema claro: fondo blanco roto calido, texto casi negro, un
+ * unico acento verde azulado, lineas finas y nada de sombras salvo en lo que flota
+ * (menus, tooltips, la hoja del movil). Los pares de prioridad cambian de luminosidad,
+ * no solo de tono, y siempre van con su texto.
+ */
+
+/* Las fuentes van en el paquete (sin red): solo latin y solo los pesos que se usan. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
+:root {
+  --radius: 0.375rem;
+
+  --background: #f7f5f0;
+  --foreground: #1c1b18;
+  --card: #fbfaf7;
+  --card-foreground: #1c1b18;
+  --popover: #ffffff;
+  --popover-foreground: #1c1b18;
+  --primary: #0e5f5c;
+  --primary-foreground: #ffffff;
+  --secondary: #efece5;
+  --secondary-foreground: #2a2824;
+  --muted: #efece5;
+  --muted-foreground: #5f5b53;
+  --accent: #ebe7df;
+  --accent-foreground: #1c1b18;
+  --destructive: #9b2c1c;
+  --destructive-foreground: #ffffff;
+  --border: #e2ded5;
+  --input: #cfcac0;
+  --ring: #0e5f5c;
+
+  /* El marco del componente de navegacion: barra lateral y tira de pestanas. */
+  --sidebar: #efece5;
+  --sidebar-foreground: #2a2824;
+  --sidebar-primary: #0e5f5c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fbfaf7;
+  --sidebar-accent-foreground: #0e5f5c;
+  --sidebar-border: #e2ded5;
+  --sidebar-ring: #0e5f5c;
+
+  /* Prioridades: Bloqueada, Urgente, Atencion y Normal (fondo, texto y borde). */
+  --pill-blocked: #8a3a0c;
+  --pill-blocked-foreground: #ffffff;
+  --pill-blocked-border: #8a3a0c;
+  --pill-urgent: #f4c39c;
+  --pill-urgent-foreground: #4a1f03;
+  --pill-urgent-border: #dfa173;
+  --pill-attention: #e4ecf6;
+  --pill-attention-foreground: #1d4673;
+  --pill-attention-border: #bcd0e8;
+  --pill-normal: #efece5;
+  --pill-normal-foreground: #45423c;
+  --pill-normal-border: #d6d1c6;
+
+  /* Estados en texto: lo que esta bien, lo que va tarde y lo que no se sabe. */
+  --ok: #e2f0e5;
+  --ok-foreground: #1d5229;
+  --ok-border: #b9d9c1;
+  --late-foreground: #6e2f07;
+  --testdata: #f6dc8a;
+  --testdata-foreground: #3f2e00;
+  --testdata-border: #d9bb5c;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  /* Cuerpo a 13,5 px como en la opcion B; el resto de la escala se queda. */
+  --text-sm: 0.84375rem;
+  --text-sm--line-height: 1.45;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.4;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-pill-blocked: var(--pill-blocked);
+  --color-pill-blocked-foreground: var(--pill-blocked-foreground);
+  --color-pill-blocked-border: var(--pill-blocked-border);
+  --color-pill-urgent: var(--pill-urgent);
+  --color-pill-urgent-foreground: var(--pill-urgent-foreground);
+  --color-pill-urgent-border: var(--pill-urgent-border);
+  --color-pill-attention: var(--pill-attention);
+  --color-pill-attention-foreground: var(--pill-attention-foreground);
+  --color-pill-attention-border: var(--pill-attention-border);
+  --color-pill-normal: var(--pill-normal);
+  --color-pill-normal-foreground: var(--pill-normal-foreground);
+  --color-pill-normal-border: var(--pill-normal-border);
+
+  --color-ok: var(--ok);
+  --color-ok-foreground: var(--ok-foreground);
+  --color-ok-border: var(--ok-border);
+  --color-late-foreground: var(--late-foreground);
+  --color-testdata: var(--testdata);
+  --color-testdata-foreground: var(--testdata-foreground);
+  --color-testdata-border: var(--testdata-border);
+}
+
+/* Cifras alineadas: todas las columnas de importes y horas. */
+@utility num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* La tira de pestanas se desplaza sin barra visible (lo usa el componente del dueno). */
+@utility scrollbar-hide {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  /* Las bandas que pone el servidor van encima de la app y la app ocupa el resto, sin
+     que la pagina entera se desplace. */
+  body {
+    @apply bg-sidebar text-foreground font-sans text-sm antialiased;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #root {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="tab"] {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Las bandas del servidor (paso 13 y 14): se ven aunque el script no cargue. */
+.bms-banda {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.3rem 1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--testdata-border);
+}
+.bms-banda-prueba {
+  background: var(--testdata);
+  color: var(--testdata-foreground);
+}
+.bms-banda-aislamiento {
+  background: #a4161a;
+  color: #ffffff;
+  border-bottom-color: #7d1013;
+  letter-spacing: 0.02em;
+}
+.bms-noscript {
+  padding: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

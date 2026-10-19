@@ -6806,3 +6806,254 @@ apartados 10, 14, 16 y 17, `.gitignore` y el docstring de `fijar_windows.py`). E
 (`nativo.problemas_del_interprete` sin problemas), igual que ya hacía como si hubiera
 instalación: el Python de los tests no tiene `._pth` ni `-E`, y lo que pasa con uno así lo
 prueba `test_comprobar_aislamiento_mira_como_arranco_el_python`.
+
+## Paso 15
+
+La app local para el personal de BMS. **No está en la especificación: la pidió el
+dueño** («Podríamos construir como app local para que tenga una interfaz razonable con
+el cliente y que pueda acceder a la informacion que necesite?»), con la opción B del
+diseño y su componente de navegación («Me gusta la opcion B con el menu de navegacion
+asi. Importante que sea claro»; «Quiero que sea minimalista el panel y que sea facil de
+entender»). Usuarios: una a tres personas de administración, a diario, en sesiones
+largas y en un ordenador de mesa. Idiomas de la interfaz: neerlandés e inglés, nada de
+castellano. Lo explica [docs/app-local.md](../app-local.md).
+
+El paso va en partes. Esta es la **base** (la parte A): el `frontend/`, el marco con la
+navegación y las pestañas, la entrada, los idiomas, el cliente de la API, las piezas de
+las pantallas, el servicio en `/app`, los lanzadores y las pruebas en el navegador. A la
+vez, otra parte construye los catálogos de textos de dominio en Python
+(`src/bms_agent/textos/`, los `valores` de los avisos en la API); esta no los toca y los
+espera en un solo módulo (`frontend/src/i18n/domain.ts`). Las pantallas se llenan en
+las partes siguientes.
+
+**2418 tests de Python pasan y 12 se saltan** en `.venv` (3.11; eran 2371 y 12): los 47
+nuevos son de `tests/test_app_local.py`. En 3.13.16, con `pwsh` en el PATH, 2423 pasan y
+7 se saltan (`tests/test_app_local.py` se volvió a pasar, con `-W error`, después de la
+última construcción). Del frontend, **40 de vitest** y **9 pruebas
+en el navegador** (Playwright, con 38 capturas). Ninguno llama a la API ni sale de la
+máquina.
+
+### Qué se construyó
+
+**`frontend/`**: Vite 7 + React 19 + TypeScript estricto + Tailwind CSS v4
+(`@tailwindcss/vite`, `tw-animate-css`) y shadcn montado a mano (`components.json` con
+el estilo `default`, `tsx`, sin `rsc`, y los alias `@/components`, `@/lib/utils`,
+`@/components/ui`, `@/lib`, `@/hooks`; el alias `@/` a `frontend/src` en Vite y en
+`tsconfig`; `cn()` en `src/lib/utils.ts`). Dependencias con versión exacta, todas
+publicadas al menos 14 días antes del 19 de octubre de 2026 (`npm install
+--before=2026-10-05`; `scripts/check-lock-age.mjs` lo comprueba paquete a paquete con
+el registro: los 250 del `package-lock.json`, bien), el lock en git y
+`npm ci` para instalar. `npm run dev | build | typecheck | test | e2e`.
+
+- **El componente del dueño y los nueve de shadcn** (button, sheet, input, label,
+  tooltip, context-menu, dropdown-menu, hover-card, avatar) en
+  `frontend/src/components/ui`, la ruta de shadcn. El del dueño conserva su aspecto, su
+  movimiento, el menú contextual de cada pestaña, el «abrir rápido» del `+` y la hoja del
+  móvil; lo que se le cambió va arriba del fichero: `NavItem` con `group`, `badge` y
+  `hint`; una pestaña con `route` (pantalla + id numérico + de qué entrada viene) y
+  título, y `openRoute` (una ficha ya abierta se enfoca); los textos en `labels`; lo que
+  se guarda lo leen y escriben `loadState`/`saveState` de la app (antes, una clave fija
+  de `localStorage` sin comprobar); `prefers-reduced-motion`; el botón de cerrar fuera
+  del `role=tab` y el `li` como `presentation` (axe: un control dentro de una pestaña y
+  una lista dentro de un `tablist`); `aria-label` en cada botón de icono, `tabpanel`
+  con su pestaña; Tailwind v4 (`shrink-0`, `h-full`, `text-destructive`); `toolbar` a la
+  derecha de la tira; sin imágenes de fuera (las iniciales en `AvatarFallback`). De los
+  de shadcn solo cambia `SheetContent`, que acepta `closeLabel` (su «Close» iba fijo).
+- **Los colores de la opción B**, solo claros, como variables de `@theme` de Tailwind:
+  fondo `#f7f5f0`, texto `#1c1b18`, acento `#0e5f5c`, líneas `#e2ded5`, menús en blanco,
+  y los cuatro pares de prioridad (Geblokkeerd `#8a3a0c`/blanco, Urgent
+  `#f4c39c`/`#4a1f03`, Aandacht `#e4ecf6`/`#1d4673`, Normaal neutro). IBM Plex Sans
+  (400, 500, 600) y Mono (400, 500) de `@fontsource`, solo latin, dentro del paquete y
+  con su licencia (SIL OFL 1.1, `web/licenses/`); la utilidad `num` para las cifras.
+- **Las piezas de las pantallas** (`frontend/src/components`): `PageHeader` (título, una
+  frase, una acción como mucho; pone el título de la ventana) y `Screen`, `SummaryCard`
+  y `SummaryGrid`, `DataTable` (de una a seis columnas, lo exige el tipo; cifras a la
+  derecha; la columna principal es un botón, para el teclado), `PriorityPill` (texto,
+  color y forma), `StatusText` (texto y punto de color), `Money`, `Hours`, `DateText`
+  (sin dato, una raya con su explicación, nunca 0), `EmptyState`, `ErrorState` (dice el
+  error en el idioma de la app y ofrece reintentar o recargar), `Loading`, `HelpTip` (el
+  (?) de Object, PO, BTW y uitzondering) y `Section` (plegable).
+- **El marco** (`frontend/src/shell`, `screens/`): la entrada (el token, NL | EN y una
+  frase que dice qué es el token y quién lo da), el componente del dueño con las quince
+  entradas en seis grupos (Dagelijks, Facturen, Relaties, Geld, Gegevens y, abajo,
+  Instellingen), cada una con su título y su frase en los dos idiomas; las insignias
+  (bloqueadas, excepciones abiertas, IBAN por verificar, del panel); a la derecha de la
+  tira, la marca de datos de prueba (con `X-BMS-Entorno: demo`), NL | EN y la persona
+  (sus iniciales, un menú con quién es y «Uitloggen»); abajo, la fecha de hoy. Las
+  rutas son pantalla + id: una fila de la Werklijst abre su factura en una pestaña nueva,
+  con el número de título, o va a la suya si ya estaba. Las entradas que piden
+  `importar_datos` no salen a quien no lo tiene. Las pantallas aún no hechas enseñan su
+  título y su frase; Werklijst y la ficha de factura van en una versión mínima (abajo,
+  desviación 6) e Instellingen entera.
+- **El cliente de la API** (`frontend/src/lib/api.ts`): `X-BMS-Token`, JSON, mismo
+  origen; las rutas salen de constantes con ids comprobados (`paths`); un 401 echa a la
+  entrada, un 409 `Conflicto` es «otra persona lo cambió» y otro 409 un conflicto de
+  estado; otro número mayor del contrato (`X-BMS-Contrato`) se rechaza; el entorno sale
+  de `X-BMS-Entorno`. `action()` manda `{accion, peticion_id, datos}` a
+  `POST /api/v2/acciones` (con la `rev` dentro de `datos` cuando la orden la pide) y
+  `download()` hace `fetch` con el token, `Blob`, `a[download]` y revoca la URL. El texto
+  de error del servidor (en castellano) se guarda en `detail` y no se pinta. Tipos de
+  `/api/v2/yo`, `/api/v2/panel` y la fila de `/api/v2/facturas`.
+- **La sesión** (`lib/session.tsx`): el token solo en la memoria del cliente de la
+  sesión, que se tira al salir (`dispose`); un 401 que llega tarde de una sesión
+  anterior no echa a quien acaba de entrar.
+- **Los idiomas** (`frontend/src/i18n`): `nl.ts` (la forma) y `en.ts` (tipado con esa
+  forma: ni una clave de más ni de menos), `useT()`, `fmt()` para los huecos `{x}`;
+  neerlandés por defecto; el de cada persona se guarda con su id y su entorno. Los
+  formatos (`lib/format.ts`): importes desde céntimos con `BigInt` («€ 36.270,36»,
+  «€ −24,76»), horas desde milésimas («78,5»), porcentajes desde puntos básicos, fechas
+  «16-10-2026» en tablas y «16 okt 2026» / «16 Oct 2026» en una frase, y la hora de
+  Ámsterdam.
+- **Lo que se guarda** (`lib/storage.ts`): solo el idioma, la barra plegada y las
+  pestañas (ids de pantalla e ids numéricos), con la clave
+  `bms-app:v1:<demo|real>:<id de persona>:…`, todo en `try/catch` y comprobado al leer.
+- **`src/bms_agent/app_local.py`** y `serve.py`: `/app` (y `/app/`) da `web/index.html`
+  con un *nonce* nuevo por respuesta (en la CSP y en `<meta name="bms-nonce">`) y las
+  bandas (TESTGEGEVENS · TEST DATA con la base de prueba; la roja del aislamiento en la
+  instalación nativa), puestas por el servidor y escapadas; `/app/assets/<nombre>` sale
+  de una lista blanca hecha al arrancar con los ficheros que hay (diccionario de nombre
+  exacto: `.js`, `.css`, `.woff2`, `.svg`), con su tipo y caché inmutable; la página,
+  `no-store`. CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`,
+  y las mismas comprobaciones de Host y Origin que todo lo demás. Sin construir, `/app`
+  da 503 y manda a `/consola`, que no cambia.
+- **Lo construido va en git**: `vite build` escribe en `src/bms_agent/web` (con
+  `emptyOutDir` y `base: "/app/"`) y `scripts/fuente.mjs` escribe `web/fuente.json`, la
+  huella de las entradas (`frontend/build-inputs.json`, con los CRLF como LF) y el sha256
+  de cada fichero construido. `pyproject.toml` lleva `web/` y `textos/*.json` en el
+  paquete (comprobado construyendo la rueda: los trece ficheros de `web/` van dentro);
+  `.gitattributes`, `src/bms_agent/web/** -text`.
+- **Los lanzadores** (`windows/iniciar.ps1`, `docker/iniciar.ps1`): esperan a `/app` y la
+  abren con `Abrir-App` (en cada `comun.ps1`), en una ventana de Edge (`--app=…`); sin
+  Edge, el navegador de siempre; dicen dónde está la consola de antes. Las pistas de la
+  CLI (`usuario token`, `demo crear`) dicen `/app`.
+- **Las pruebas en el navegador** (`frontend/e2e`): `global-setup.ts` crea una base de
+  prueba nueva en una carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en
+  JSON), arranca `bms-agent serve` en un puerto libre y pasa la dirección y los tokens;
+  `fixtures.ts` vigila en cada prueba que toda petición vaya a `127.0.0.1` (otra se
+  corta), que no haya violaciones de la CSP ni errores en la consola (un 4xx que la
+  prueba provoca a propósito se declara), y da `login`, `expectAccessible` (axe, WCAG
+  2.1 AA, nada serio ni crítico) y `capture` (a `CAPTURAS_DIR`). `@playwright/test`
+  1.56.1, con el Chromium que ya está instalado.
+- **Documentación**: [docs/app-local.md](../app-local.md) (nueva); el README; `/app` en
+  docs/entorno-local.md, docs/instalacion-nativa.md, docs/uso-v1.md y
+  docs/integracion-web.md (sin cambios en el contrato: no hay claves nuevas).
+
+### La puerta, test por test
+
+| Puerta | Tests |
+| --- | --- |
+| `/app` con su CSP, un nonce por respuesta, sin nada en línea y sin direcciones de fuera | `test_app_local.py::test_app_da_la_pagina_con_una_csp_estricta_y_un_nonce_por_respuesta` |
+| Cada fichero con su tipo y caché inmutable; las fuentes, `woff2` propias | `test_cada_fichero_de_la_pagina_se_sirve_con_su_tipo_y_cache_inmutable` |
+| Lista blanca de nombres exactos, nunca una ruta juntada con una carpeta | `test_lo_que_no_esta_en_la_lista_blanca_es_un_404` (catorce rutas: `..`, `%2e%2e`, `index.html`, `fuente.json`, un `.map`…), `test_la_lista_blanca_son_los_ficheros_que_hay_y_nada_mas` (un `.txt`, un `.map`, un oculto, una subcarpeta y un enlace simbólico se quedan fuera), `test_la_lista_blanca_de_lo_construido_cubre_todo_assets` |
+| Host y Origin, como todo | `test_host_y_origin_se_comprueban_tambien_en_app` |
+| Las bandas, del servidor, en NL y EN, escapadas | `test_con_la_base_de_prueba_la_app_lleva_la_banda_en_neerlandes_e_ingles`, `test_la_banda_del_aislamiento_dice_que_papel_falla_y_escapa_lo_demas`, `test_texto_de_la_banda_del_aislamiento_sin_papeles_conocidos`, `test_un_index_sin_las_marcas_no_se_sirve_sin_bandas` |
+| Sin construir, se dice y la consola sigue | `test_sin_construir_app_lo_dice_y_la_consola_sigue` |
+| Lo construido es de estas fuentes (`fuente.json`) | `test_lo_construido_es_de_estas_fuentes`, `test_lo_construido_es_lo_que_apunta_fuente_json`, `test_la_huella_cubre_las_fuentes_y_los_crlf_no_la_cambian`, `test_el_paquete_lleva_la_app_y_los_textos` |
+| En el frontend, nada que interprete HTML, ni el token en el navegador, ni direcciones de fuera | `test_el_frontend_no_usa_nada_que_interprete_html_ni_guarde_el_token` (quince palabras prohibidas), `test_el_navegador_solo_guarda_comodidades_desde_un_sitio`, `test_el_frontend_no_lleva_ninguna_direccion_de_fuera` |
+| Los lanzadores abren `/app` en Edge, con reserva | `test_los_lanzadores_abren_la_app_en_una_ventana_de_edge` (las dos variantes), y los cambiados de abajo |
+| Formatos, idiomas, rutas, lo que se guarda, el cliente | vitest: `format.test.ts` (céntimos con `BigInt` más allá de 2^53, signo, sin dato, horas, fechas en NL/EN, hora de Ámsterdam), `i18n.test.ts` (mismas claves y huecos en NL y EN, nada vacío, nada en castellano, el catálogo de dominio con las mismas claves), `storage.test.ts` (claves por entorno y persona, lo que se descarta, sin título, sin `localStorage`), `api.test.ts` (token, 401, 409 `Conflicto`, la orden, el contrato, sin servidor, `dispose`, rutas, nombres de descarga), `registry.test.ts` |
+| La app de verdad, en un navegador | `e2e/shell.spec.ts`: la entrada en NL y EN (y un token que no vale), las quince entradas en los dos idiomas con axe en cada una, una fila que abre su ficha y la misma pestaña otra vez, las pestañas y la barra plegada al recargar (y el token, en ningún sitio), salir, el idioma de cada persona, una sesión que caduca, 1024 px y la hoja del móvil, el teclado (Supr, el foco visible). En todas: solo `127.0.0.1`, sin violaciones de la CSP, sin errores en la consola |
+
+Se comprobó aparte que axe sigue viendo los problemas con la CSP y Trusted Types (una
+imagen sin `alt` metida en la página da `image-alt`), que el servidor de desarrollo
+pasa `/api` a un `serve` en marcha, y que los cuatro `.ps1` cambiados los analiza bien
+PowerShell 7.4.21.
+
+### Desviaciones, y por qué
+
+1. **Versiones de líneas conocidas, no las mayores más nuevas.** Hay Vite 8, TypeScript
+   7, Vitest 5, framer-motion 14 y lucide-react 1.x publicados hace más de 14 días, pero
+   son cambios grandes (Vite sobre Rolldown, el compilador nuevo de TypeScript) que aquí
+   no se pueden comprobar sin riesgo. Se tomó el último parche de cada línea estable:
+   React 19.2.8, Vite 7.3.6, TypeScript 5.9.3, Tailwind 4.1.18, Vitest 3.2.7,
+   framer-motion 12.43.0, lucide-react 0.577.0, Radix 1.x/2.x. Todas cumplen la regla de
+   los 14 días.
+2. **`playwright-core` 1.56.1 fijado aparte.** `@axe-core/playwright` lo pide como
+   dependencia par y npm ponía el 1.63; con dos versiones los tipos no casan y no es el
+   del Chromium instalado.
+3. **La CSP lleva más que lo pedido**: `'nonce-…'` en `style-src` (react-remove-scroll,
+   que usan los menús y la hoja, mete un `<style>`; se le da el nonce con `get-nonce`,
+   que pasa a ser dependencia directa) y `require-trusted-types-for 'script';
+   trusted-types 'none'` (React solo usa `innerHTML` para `dangerouslySetInnerHTML`, que
+   no hay, así que no cambia nada y lo que lo intente falla). Más `Cross-Origin-Opener-Policy`
+   y `Cross-Origin-Resource-Policy: same-origin`. Nada se afloja: ni `unsafe-inline` ni
+   `unsafe-eval`.
+4. **Los textos de dominio, provisionales.** Mientras la otra parte no esté en esta rama,
+   `frontend/src/i18n/domain.ts` lee un sustituto mínimo (prioridades, estados de pago y
+   de revisión, sentido) marcado como tal en `frontend/src/i18n/domain/`. Al llegar el
+   catálogo de verdad se cambian allí las dos líneas de `import`, se borra la carpeta y
+   los dos JSON entran en `build-inputs.json` (el test lo exige cuando existen).
+5. **Las cosas de la cabecera van a la derecha de la tira de pestañas** (el `toolbar`
+   del componente), no en una barra encima: una barra más rompería las pestañas «como
+   las de Chrome», pegadas al contenido.
+6. **Werklijst y la ficha de factura no son solo un título.** Para que «una fila abre su
+   ficha en una pestaña» se pruebe con datos de verdad, la Werklijst tiene una versión
+   mínima (seis columnas: prioridad, número, relación, importe, vencimiento y pago; sin
+   «Waarom», que necesita los textos de las reglas) y la ficha dice qué es y de quién,
+   con los detalles plegados. Las dos se sustituyen en las partes siguientes.
+7. **La banda de datos de prueba es amarilla y corta** (la de la opción B), no roja como
+   en la consola: «TESTGEGEVENS · TEST DATA — testdatabase, alles is verzonnen · test
+   database, everything is made up», en una línea. La roja queda para el aislamiento.
+8. **La banda del aislamiento no copia el texto de los problemas**: viene en castellano
+   y de un fichero que se puede escribir. Dice qué papeles fallan (en neerlandés e
+   inglés) y que se ejecute `comprobar.bat`, que da el detalle.
+9. **El idioma de la entrada es el del último uso en ese ordenador** (`bms-app:v1:lang`):
+   antes de entrar no se sabe quién es. Al entrar manda el de la persona; quien nunca
+   eligió se queda con el que había, y queda como suyo.
+10. **Lo construido va en dos ficheros de script**: uno de dependencias (`vendor`, 476 kB,
+    que solo cambia al cambiar una dependencia) y uno de la app (75 kB): así git no
+    guarda medio mega nuevo con cada cambio de una pantalla.
+11. **Las licencias de las fuentes van con lo construido** (`web/licenses/`, desde
+    `frontend/public/`): la SIL OFL 1.1 pide que cada copia la lleve. No se sirven.
+12. **`CONSOLA_DOCKER` de `cli.py` vale ahora `/app`** (el nombre se queda: lo usan los
+    tests de las pistas de Docker, que no cambian).
+13. **En la barra lateral, abajo, la fecha de hoy** (el sitio del pie del componente); la
+    persona va arriba a la derecha, con su menú.
+14. **Las pruebas en el navegador separan los 4xx que se provocan.** Chromium anota en la
+    consola cada respuesta de error de un `fetch` («Failed to load resource: … 401»);
+    una prueba que la provoca a propósito (un token que no vale, una sesión que caduca)
+    lo declara con `watch.expectHttpErrors(401)`, y cualquier otro error de la consola
+    sigue haciendo fallar la prueba.
+
+**Tests existentes cambiados, y por qué** (los lanzadores abren la app a propósito):
+`test_entorno_local.py::test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace` (exige
+además que se espere a `/app` y se abra con `Abrir-App`; la consola sigue nombrada) y
+`test_instalacion_nativa.py::test_iniciar_comprueba_y_abre_la_consola_solo_en_127_0_0_1`
+(la dirección es `/app`, se espera a ella y se abre con `Abrir-App`; la de `/consola` se
+sigue diciendo).
+
+### Lo que deben saber las partes siguientes
+
+- **Una pantalla nueva** es una línea en `frontend/src/screens/render.tsx` (hoy casi
+  todas van a `PlaceholderScreen`), sus textos en `nl.ts` y `en.ts` y, si es una ficha,
+  su entrada en `RECORDS` de `screens/registry.ts`. Se abre una ficha con
+  `useTabs().openRoute(recordRoute('invoice', id, 'invoices-in'))`; la ficha pone su
+  título con `setTabTitle(tab.id, numero)` (el título no se guarda: al recargar sale
+  «Factuur 12» hasta que carga). Lo que se lee, con `useLoad` y
+  `session.api.get(paths.…)`; una ruta nueva, en `paths` (con `checkId`).
+- **Una orden**: `session.api.action(nombre, datos, { requestId })` con la `rev` de la
+  fila en `datos` cuando la orden la pide (`GET /api/v2/acciones`: `parametros`), el
+  mismo `requestId` si se reintenta, y el error con `ErrorState`/`errorMessage` (un
+  `stale` ofrece recargar). Los botones, con `useCan()(permiso)`.
+- **Los textos de dominio** solo por `frontend/src/i18n/domain.ts`: cambiar allí el
+  `import` a `src/bms_agent/textos/*.json`, añadirlos a `frontend/build-inputs.json`,
+  borrar `frontend/src/i18n/domain/` y escribir el renderizador de plantillas con un
+  test de vitest contra el fichero de casos de Python. Nada de `titulo`, `detalle`,
+  `etiqueta`, `fuente_texto`, `nota` ni `motivos` en pantalla.
+- **Después de cambiar `frontend/`**: `npm run build` y meter `src/bms_agent/web` en el
+  mismo commit (si no, `test_lo_construido_es_de_estas_fuentes` falla). Y `npm run e2e`
+  con `CAPTURAS_DIR` para mirar las capturas.
+- **Las reglas de diseño** (docs/app-local.md, apartado 4) valen para cada pantalla: una
+  pregunta y su frase, cuatro tarjetas como mucho en el Overzicht, seis columnas,
+  «Waarom», los detalles plegados, estado con texto, el (?) en las palabras del oficio.
+- **Una dependencia nueva**: `npm install --save-exact --before=<hace 14 días>`,
+  `node scripts/check-lock-age.mjs` y construir. Si mete un `<style>`, tiene que aceptar
+  el nonce (`get-nonce` o `MotionConfig nonce`), no se afloja la CSP.
+
+### Lo que falta
+
+Las pantallas (Overzicht, Werklijst completa, la ficha de factura con lo que está mal y
+qué hacer, Uitzonderingen, IBAN-controles con el flujo de siempre, Inkomend, Uitgaand,
+las relaciones, Kasstroom, Btw, Importeren, Facturen lezen), con los catálogos de textos
+de Python y sus capturas. En el ordenador del dueño, mirar que Edge abre la ventana
+`--app` y que la app se ve como en las capturas.

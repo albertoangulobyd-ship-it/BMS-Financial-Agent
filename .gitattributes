@@ -3,3 +3,5 @@ src/bms_agent/almacen/sql/*.sql text eol=lf
 # Paso 13: los scripts de Windows del entorno local, con fin de linea de Windows.
 *.ps1 text eol=crlf
 *.bat text eol=crlf
+# Paso 15: la app construida va byte a byte (web/fuente.json lleva el sha256 de cada fichero).
+src/bms_agent/web/** -text

@@ -168,6 +168,27 @@ function Arrancar-En-Segundo-Plano([string]$Rol, [string[]]$Argumentos) {
         -RedirectStandardOutput $registro -RedirectStandardError $errores)
 }
 
+function Abrir-App([string]$Direccion) {
+    # Paso 15: la app se abre en su propia ventana de Edge (--app: sin pestanas ni barra de
+    # direcciones), como un programa. Si Edge no esta, en el navegador de siempre; si
+    # tampoco se puede, se dice la direccion. /consola sigue ahi, de reserva.
+    $edge = $null
+    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles, $env:LOCALAPPDATA)) {
+        if (-not $base) { continue }
+        $candidato = Join-Path $base "Microsoft\Edge\Application\msedge.exe"
+        if (Test-Path -LiteralPath $candidato) { $edge = $candidato; break }
+    }
+    try {
+        if ($edge) {
+            Start-Process -FilePath $edge -ArgumentList @("--app=" + $Direccion)
+        } else {
+            Start-Process $Direccion
+        }
+    } catch {
+        try { Start-Process $Direccion } catch { Escribir "Abre esa direccion en el navegador." "Yellow" }
+    }
+}
+
 function Puerto-Abierto([int]$Puerto) {
     $cliente = New-Object System.Net.Sockets.TcpClient
     try {

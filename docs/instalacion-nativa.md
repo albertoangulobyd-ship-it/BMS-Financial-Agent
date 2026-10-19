@@ -46,7 +46,8 @@ flowchart LR
 
 Lo que esto te garantiza, igual que en Docker:
 
-- **La consola solo se abre desde tu ordenador** (`http://127.0.0.1:8765/consola`).
+- **La consola solo se abre desde tu ordenador** (`http://127.0.0.1:8765/app`, la app;
+  la consola de antes sigue en `http://127.0.0.1:8765/consola`, de reserva).
   Desde otro ordenador de la oficina o de casa no se llega, aunque esté en la misma red.
 - **La consola y los datos no tienen internet.** Aunque alguien colara algo raro en una
   factura, el programa que tiene tus datos no puede mandarlos a ninguna parte.
@@ -193,8 +194,11 @@ un hueco de la carpeta → **Abrir en Terminal**):
 
 Al abrirla, `iniciar.bat` hace **la pasada del día** (lo que depende de la fecha:
 vencidas, plazos, órdenes de compra que caducan) y **comprueba que la consola y las
-órdenes no tienen salida a internet**. Después arranca la consola sin ventana y abre el
-navegador en `http://127.0.0.1:8765/consola`. Entras con tu token.
+órdenes no tienen salida a internet**. Después arranca la consola sin ventana y abre la
+app, `http://127.0.0.1:8765/app`, en su propia ventana de Edge (sin pestañas ni barra de
+direcciones; si Edge no está, en el navegador de siempre). Entras con tu token. Si la app
+no se viera bien, la consola de antes sigue en `http://127.0.0.1:8765/consola`
+([app-local.md](app-local.md)).
 
 Parar no borra nada, y apagar el ordenador sin parar tampoco: la base aguanta un corte.
 
@@ -512,8 +516,9 @@ primera vez en tu ordenador**, con datos de prueba, antes de meter nada de verda
    entrada y de salida, aparecen las 12 reglas «BMS Finanzas - …».
 4. `comprobar.bat` sale **todo en verde** (los cuatro programas, el cortafuegos y la
    clave). **Sin esto, no se usan datos de verdad.**
-5. **Datos de prueba**: la consola se abre en `http://127.0.0.1:8765/consola` con la
-   banda de DATOS DE PRUEBA y sin la banda roja del aislamiento.
+5. **Datos de prueba**: la app se abre en `http://127.0.0.1:8765/app`, en su ventana
+   de Edge, con la banda de TESTGEGEVENS · TEST DATA y sin la banda roja del aislamiento
+   (y `http://127.0.0.1:8765/consola`, con la de DATOS DE PRUEBA).
 6. Desde otro ordenador o el móvil, en la misma red, `http://<la IP de tu PC>:8765` no
    abre nada.
 7. `clave.bat`, y después `leer-facturas.bat` con **una** factura de verdad: cuenta,

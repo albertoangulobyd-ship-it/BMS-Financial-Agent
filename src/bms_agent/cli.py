@@ -925,9 +925,9 @@ def _cmd_usuario(args: argparse.Namespace) -> int:
                 print(f"Token de {args.nombre} (se ensena una sola vez; el anterior ya no vale):")
                 print(f"  {token}")
                 print(_como_se_hace(
-                    "Con el se entra en la consola (bms-agent serve) y se firman las ordenes "
-                    "de la CLI (--token o BMS_TOKEN).",
-                    f"Con el se entra en la consola ({CONSOLA_DOCKER}) y se firman las ordenes "
+                    "Con el se entra en la app (bms-agent serve, en /app) y se firman las "
+                    "ordenes de la CLI (--token o BMS_TOKEN).",
+                    f"Con el se entra en la app ({CONSOLA_DOCKER}) y se firman las ordenes "
                     "de los scripts de la carpeta docker (te lo piden al empezar)."))
             elif args.accion == "desactivar":
                 permisos.desactivar_usuario(conn, permisos.usuario_por_nombre(conn, args.nombre))
@@ -1192,8 +1192,9 @@ def _cmd_accion(args: argparse.Namespace) -> int:
     return SALIDA_SIN_EFECTO if diferencia.no_vale is not None else 0
 
 
-# Donde se abre la consola del contenedor (docker-compose.yml publica el 8765 solo aqui).
-CONSOLA_DOCKER = "http://127.0.0.1:8765/consola"
+# Donde se abre la app del contenedor (docker-compose.yml publica el 8765 solo aqui). Desde
+# el paso 15 es la app (/app); la consola de antes sigue en /consola, de reserva.
+CONSOLA_DOCKER = "http://127.0.0.1:8765/app"
 
 
 def _como_se_hace(fuera: str, en_docker: str) -> str:
@@ -2412,10 +2413,10 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         print(f"  {clave:<22} {valor}")
     for aviso in resumen.avisos:
         print(f"  aviso: {aviso}")
-    print("\nTokens para entrar en la consola de prueba (solo valen en esta base):")
+    print("\nTokens para entrar en la app de prueba (/app; solo valen en esta base):")
     for nombre, token in resumen.tokens.items():
         print(f"  {nombre:<10} {token}")
-    print("\n" + _como_se_hace(f"Abrela con:  bms-agent serve --db {ruta}",
+    print("\n" + _como_se_hace(f"Abrela con:  bms-agent serve --db {ruta}  (y la app en /app)",
                                 f"iniciar.bat -Demo la abre en {CONSOLA_DOCKER}"))
     return 0
 

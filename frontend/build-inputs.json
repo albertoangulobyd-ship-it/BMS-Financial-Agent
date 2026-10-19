@@ -1,0 +1,20 @@
+{
+  "_note": "Lo que entra en la construccion de la app: la huella de src/bms_agent/web/fuente.json cubre estos ficheros (rutas desde la raiz del repositorio; una carpeta es todo lo que lleva dentro, salvo los nombres que empiezan por punto y lo que acaba en uno de 'exclude'). Lo leen scripts/fuente.mjs, que escribe la huella al construir, y tests/test_app_local.py, que la vuelve a calcular. Cuando lleguen los catalogos de textos, src/bms_agent/textos/nl.json y en.json van aqui.",
+  "include": [
+    "frontend/index.html",
+    "frontend/src",
+    "frontend/public",
+    "frontend/package.json",
+    "frontend/package-lock.json",
+    "frontend/vite.config.ts",
+    "frontend/tsconfig.json",
+    "frontend/tsconfig.app.json",
+    "frontend/components.json",
+    "frontend/build-inputs.json",
+    "frontend/scripts/fuente.mjs"
+  ],
+  "exclude": [
+    ".test.ts",
+    ".test.tsx"
+  ]
+}

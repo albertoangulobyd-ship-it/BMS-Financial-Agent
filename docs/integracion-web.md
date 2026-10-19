@@ -78,7 +78,9 @@ Levanta en `http://127.0.0.1:8765`:
 | `POST /api/ejecutar` | Lanza una pasada. Pide cabecera `X-BMS-Token` y cuerpo JSON. Devuelve `409` si ya hay una |
 | `GET /api/v2/...` | El contrato v2, por partes (abajo): piden el token **personal** de quien lee en `X-BMS-Token` |
 | `POST /api/v2/acciones` | Las órdenes de las personas (corregir un campo, revisar, verificar un IBAN...), con su token personal |
-| `GET /consola` | La consola interna, que se pinta con lo de `/api/v2` |
+| `GET /app` | La app local (paso 15, [app-local.md](app-local.md)): la que abren los lanzadores. Se pinta con lo de `/api/v2`, como la consola |
+| `GET /app/assets/...` | Sus ficheros (script, estilo, fuentes), de una lista blanca de lo construido |
+| `GET /consola` | La consola interna de antes, que se pinta con lo de `/api/v2`. Sigue, de reserva |
 
 **Escucha solo en `127.0.0.1`, a propósito.** No acepta una IP de red. Es un
 servidor de desarrollo para construir el sitio contra datos reales, no un paso
@@ -323,7 +325,7 @@ petición:
 
 | Quién pide | IBAN | Órdenes (`POST /api/v2/acciones`) |
 | --- | --- | --- |
-| La consola (`/consola`, el mismo origen que la API), o un programa sin navegador | Enteros, donde los haya (el registro de cuentas, la vista de un proveedor, los avisos): la consola es donde se verifican | Sí, con su permiso |
+| La app (`/app`) o la consola (`/consola`), del mismo origen que la API, o un programa sin navegador | Enteros, donde los haya (el registro de cuentas, la vista de un proveedor, los avisos): la consola es donde se verifican | Sí, con su permiso |
 | Un sitio en un origen declarado con `--origen` (`http://localhost:5173`) | Enmascarados en **toda** respuesta de `/api/v2` | **No**: `403`. Verificar un IBAN, marcar un pago o anular un aviso se firma en la consola |
 
 El portal de consulta, cuando exista, no tendrá ni eso: su base no guarda

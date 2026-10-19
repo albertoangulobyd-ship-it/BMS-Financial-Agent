@@ -62,9 +62,12 @@ Para trabajar con la consola: `iniciar.bat` en Docker, o
 bms-agent serve
 ```
 
-y abre `http://127.0.0.1:8765/consola` en el navegador del mismo ordenador.
-Escribe tu token en «Token personal». La consola no lo guarda: al cerrar la
-pestaña hay que volver a escribirlo.
+y abre `http://127.0.0.1:8765/app` en el navegador del mismo ordenador
+(`iniciar.bat` la abre sola, en su propia ventana de Edge). Es la app, en
+neerlandés o en inglés ([app-local.md](app-local.md)); la consola de antes sigue en
+`http://127.0.0.1:8765/consola`, de reserva, y lo que sigue de esta guía describe
+esa consola. Escribe tu token en «Token personal». Ni la app ni la consola lo
+guardan: al cerrar la ventana hay que volver a escribirlo.
 
 Arriba verás la barra con las páginas: **Panel**, **Buscar**, **Facturas**,
 **Proveedores y clientes**, **Objetos**, **Órdenes de compra**, **BTW**,

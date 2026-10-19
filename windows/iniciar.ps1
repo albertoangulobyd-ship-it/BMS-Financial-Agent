@@ -4,10 +4,11 @@
 #   .\iniciar.ps1 -Demo    con DATOS DE PRUEBA: se crean de nuevo, con la fecha de hoy
 #
 # La consola corre con su propio programa (runtime\consola\python.exe), que el cortafuegos
-# de Windows deja sin red, y solo se abre desde este ordenador
-# (http://127.0.0.1:8765/consola). Antes comprueba el aislamiento de la consola y de las
-# ordenes; si algo falla, la consola lo dice con una banda roja arriba. Para leer PDF con
-# la API esta leer-facturas.ps1.
+# de Windows deja sin red, y solo se abre desde este ordenador: la app
+# (http://127.0.0.1:8765/app), en su propia ventana de Edge; la consola de antes sigue en
+# /consola, de reserva. Antes comprueba el aislamiento de la consola y de las ordenes; si
+# algo falla, la app lo dice con una banda roja arriba. Para leer PDF con la API esta
+# leer-facturas.ps1.
 param([switch]$Demo)
 
 . "$PSScriptRoot\comun.ps1"
@@ -56,7 +57,7 @@ $proceso = Arrancar-En-Segundo-Plano "consola" @("serve", "--puerto", ([string]$
     "--out", (Join-Path $Inst.Raiz "datos\out"), "--facturas", (Join-Path $Inst.Raiz "buzon\facturas"))
 
 Escribir "Esperando a que la consola conteste..." "Cyan"
-$direccion = "http://127.0.0.1:" + $Inst.PuertoConsola + "/consola"
+$direccion = "http://127.0.0.1:" + $Inst.PuertoConsola + "/app"
 $lista = $false
 for ($i = 0; $i -lt 30; $i++) {
     if ($proceso.HasExited) { break }
@@ -70,14 +71,11 @@ if (-not $lista) {
 }
 
 if ($Demo) {
-    Escribir "Lista, con DATOS DE PRUEBA. Veras una banda roja arriba en cada pagina." "Yellow"
+    Escribir "Lista, con DATOS DE PRUEBA. Veras arriba la banda de TESTGEGEVENS (en la consola de antes, DATOS DE PRUEBA)." "Yellow"
 } else {
     Escribir "Lista, con tus datos de verdad." "Green"
 }
-Escribir "Se abre en el navegador: $direccion"
-Escribir "Entra con tu token personal. Para pararla: parar.bat"
-try {
-    Start-Process $direccion
-} catch {
-    Escribir "Abre esa direccion en el navegador." "Yellow"
-}
+Escribir "Se abre la app en su ventana: $direccion"
+Escribir ("Entra con tu token personal. Si la app no se ve bien, la consola de antes sigue en http://127.0.0.1:" + $Inst.PuertoConsola + "/consola")
+Escribir "Para pararla: parar.bat"
+Abrir-App $direccion

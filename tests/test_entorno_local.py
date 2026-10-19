@@ -283,6 +283,9 @@ def test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace() -> None:
     assert '$env:BMS_BASE = "demo"' in comun and '$env:BMS_BASE = "bms"' in comun
     assert '"demo", "crear", "--rehacer", "--db", "/datos/demo.sqlite3"' in iniciar
     assert "up -d consola salida" in iniciar
+    # Paso 15: se espera a la app y se abre en su ventana de Edge; la consola, de reserva.
+    assert '-Uri "http://127.0.0.1:8765/app"' in iniciar
+    assert 'Abrir-App "http://127.0.0.1:8765/app"' in iniciar
     assert "127.0.0.1:8765/consola" in iniciar
 
 

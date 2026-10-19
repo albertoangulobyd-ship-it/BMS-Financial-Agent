@@ -3,8 +3,10 @@
 #   .\iniciar.ps1          con los datos de verdad
 #   .\iniciar.ps1 -Demo    con DATOS DE PRUEBA: se crean de nuevo, con la fecha de hoy
 #
-# La consola solo se abre desde este ordenador (http://127.0.0.1:8765/consola) y no
-# tiene salida a internet. Para leer PDF con la API esta leer-facturas.ps1.
+# La consola solo se abre desde este ordenador y no tiene salida a internet: la app
+# (http://127.0.0.1:8765/app), en su propia ventana de Edge; la consola de antes sigue en
+# http://127.0.0.1:8765/consola, de reserva. Para leer PDF con la API esta
+# leer-facturas.ps1.
 param([switch]$Demo)
 
 . "$PSScriptRoot\comun.ps1"
@@ -41,21 +43,18 @@ Escribir "Esperando a que la consola conteste..." "Cyan"
 $lista = $false
 for ($i = 0; $i -lt 30; $i++) {
     try {
-        $respuesta = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://127.0.0.1:8765/consola"
+        $respuesta = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://127.0.0.1:8765/app"
         if ($respuesta.StatusCode -eq 200) { $lista = $true; break }
     } catch { Start-Sleep -Seconds 2 }
 }
 if (-not $lista) { Fallar "La consola no contesta. Prueba otra vez en un minuto, o mira: docker compose logs consola" }
 
 if ($Demo) {
-    Escribir "Lista, con DATOS DE PRUEBA. Veras una banda roja arriba en cada pagina." "Yellow"
+    Escribir "Lista, con DATOS DE PRUEBA. Veras arriba la banda de TESTGEGEVENS (en la consola de antes, DATOS DE PRUEBA)." "Yellow"
 } else {
     Escribir "Lista, con tus datos de verdad." "Green"
 }
-Escribir "Se abre en el navegador: http://127.0.0.1:8765/consola"
+Escribir "Se abre la app en su ventana: http://127.0.0.1:8765/app"
+Escribir "Si la app no se ve bien, la consola de antes sigue en http://127.0.0.1:8765/consola"
 Escribir "Para pararla: .\parar.ps1"
-try {
-    Start-Process "http://127.0.0.1:8765/consola"
-} catch {
-    Escribir "Abre esa direccion en el navegador." "Yellow"
-}
+Abrir-App "http://127.0.0.1:8765/app"
