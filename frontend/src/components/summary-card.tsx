@@ -1,13 +1,15 @@
 // Una tarjeta de resumen: que es (en mayusculas pequenas), una cifra grande con su frase
 // y, como mucho, tres filas de detalle. El Overzicht lleva cuatro como maximo.
 import type { ReactNode } from 'react';
+import { StatusPill, type StatusPillProps } from '@/components/status-pill';
 import { cn } from '@/lib/utils';
 
 export interface SummaryRow {
   label: string;
   value: ReactNode;
-  /** Resaltar (vencido): en el color de "tarde", y con su texto. */
-  emphasis?: boolean;
+  /** Cuando pide atencion (algo bloqueado, vencido, un plazo cerca): el estado, que se ensena
+   *  con su pastilla (components/status-pill) en lugar de la etiqueta. */
+  status?: Pick<StatusPillProps, 'group' | 'state' | 'values'>;
 }
 
 export function SummaryCard({
@@ -46,8 +48,10 @@ export function SummaryCard({
         <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-[12.5px]'>
           {rows.slice(0, 3).map((row) => (
             <div key={row.label} className='contents'>
-              <dt className={row.emphasis ? 'font-medium text-late-foreground' : 'text-[#45423c]'}>{row.label}</dt>
-              <dd className={cn('m-0 text-right num', row.emphasis && 'font-medium text-late-foreground')}>{row.value}</dd>
+              <dt className={row.status ? 'flex items-center' : 'text-[#45423c]'}>
+                {row.status ? <StatusPill {...row.status} /> : row.label}
+              </dt>
+              <dd className={cn('m-0 self-center text-right num', row.status && 'font-medium')}>{row.value}</dd>
             </div>
           ))}
         </dl>

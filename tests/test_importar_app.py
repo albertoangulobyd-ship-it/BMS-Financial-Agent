@@ -318,7 +318,37 @@ def test_el_aislamiento_por_papeles_sin_copiar_el_texto(base, tmp_path) -> None:
     assert (a["aplica"], a["entorno"], a["correcto"]) == (True, "nativo", False)
     assert {p["papel"]: p["bien"] for p in a["papeles"]} == {
         "consola": True, "lector": False, "salida": True, "orden": True}
+    assert {p["papel"]: p["estado"] for p in a["papeles"]} == {
+        "consola": "correcto", "lector": "falla", "salida": "correcto", "orden": "correcto"}
     assert "<b>" not in json.dumps(a)
+
+
+def test_el_estado_de_cada_papel_sale_del_principio_del_problema() -> None:
+    """La pastilla de la app dice si un papel falla, no se comprobo o se comprobo hace
+    demasiado; se saca de los textos que escribe aislamiento.problemas_de, sin copiarlos."""
+    from datetime import datetime, timedelta, timezone
+
+    from bms_agent import aislamiento
+    from bms_agent.app_local import ESTADOS_AISLAMIENTO, estados_de_papeles
+
+    ahora = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+    bien = {"correcto": True, "fecha": ahora.isoformat(),
+            "comprobaciones": [{"nombre": "red", "bien": True}]}
+    viejo = {**bien, "fecha": (ahora - aislamiento.CADUCIDAD - timedelta(days=1)).isoformat()}
+    futuro = {**bien, "fecha": (ahora + timedelta(days=3)).isoformat()}
+    datos = {"roles": {"consola": bien, "lector": viejo, "salida": futuro}}
+    problemas = aislamiento.problemas_de(datos, ahora)
+    assert estados_de_papeles(problemas) == {
+        "consola": "correcto", "lector": "caducada", "salida": "caducada", "orden": "sin_comprobar"}
+    malo = {"correcto": False, "fecha": ahora.isoformat(),
+            "comprobaciones": [{"nombre": "<script>", "bien": False}]}
+    problemas = aislamiento.problemas_de({"roles": {"consola": bien, "lector": malo, "salida": bien,
+                                                    "orden": bien}}, ahora)
+    assert estados_de_papeles(problemas)["lector"] == "falla"
+    assert estados_de_papeles([]) == dict.fromkeys(("consola", "lector", "salida", "orden"), "correcto")
+    # Un problema que no nombra un papel conocido: ninguno pasa por bien.
+    assert set(estados_de_papeles(["otro: lo que sea"]).values()) == {"falla"}
+    assert set(estados_de_papeles(problemas).values()) <= set(ESTADOS_AISLAMIENTO)
 
 
 def test_el_coste_de_la_lectura_sale_de_las_extracciones_guardadas(tmp_path, out_v1) -> None:

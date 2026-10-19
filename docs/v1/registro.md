@@ -6816,7 +6816,9 @@ diseño y su componente de navegación («Me gusta la opcion B con el menu de na
 asi. Importante que sea claro»; «Quiero que sea minimalista el panel y que sea facil de
 entender»). Usuarios: una a tres personas de administración, a diario, en sesiones
 largas y en un ordenador de mesa. Idiomas de la interfaz: neerlandés e inglés, nada de
-castellano. Lo explica [docs/app-local.md](../app-local.md).
+castellano. Lo explica [docs/app-local.md](../app-local.md). Después el dueño eligió
+también cómo se ven las alertas, con su componente Status («Asi quiero las alertas»):
+abajo, «Paso 15 · alertas con el componente Status».
 
 El paso va en partes. Esta es la **base** (la parte A): el `frontend/`, el marco con la
 navegación y las pestañas, la entrada, los idiomas, el cliente de la API, las piezas de
@@ -7472,3 +7474,113 @@ Capturas de cada pantalla, ficha y diálogo, en NL y EN, a 1440×900, en `CAPTUR
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
 natural. En el ordenador del dueño, mirar que Edge abre la ventana `--app`. Quedan para la
 consola y la CLI las órdenes menos de cada día ([app-local.md](../app-local.md) §8).
+
+### Paso 15 · alertas con el componente Status
+
+**El dueño eligió cómo se ven las alertas** («Asi quiero las alertas»): su componente
+**Status** (una pastilla tintada y redondeada con un punto de color que late y, siempre, su
+texto). Ahora **todo estado de la app** sale con él: las prioridades, el pago, el control,
+la gravedad y el estado de cada aviso, lo que dice el sistema de una factura, la calidad de
+un campo, las cuentas del banco, la excepción, las relaciones y los turnos, el aislamiento,
+la frescura de los datos, el BTW y su plazo, las PO, las importaciones y la marca de prueba
+de la cabecera. Las etiquetas con forma de la opción B (`PriorityPill`), los textos con
+punto (`StatusText`), la tabla de tonos (`tones.ts`) y los colores sueltos de estado se
+quitaron. La tabla entera, con su texto NL/EN, la variante y si late, está en
+[app-local.md](../app-local.md) §4.6.
+
+**Qué se construyó**
+
+- **`frontend/src/components/ui/status.tsx`**: el código del dueño, en la ruta de shadcn.
+  Solo cambia, y lo dice arriba del fichero: el **color del texto** de `success`, `warning`
+  e `info` (green-800, orange-800 y blue-700 en vez de green-600, orange-600 y blue-600,
+  que no llegaban a 4,5:1) y `motion-reduce:before:animate-none` en el punto. El tinte, el
+  borde, el punto y las clases `dark:` son los suyos.
+- **`frontend/src/components/status-pill.tsx`**: la única pieza que decide la variante y el
+  latido de cada estado (`STATUS_RULES`, por grupos con los valores tal como los manda la
+  API y los nombran los catálogos) y su texto (los catálogos de Python para lo del
+  dominio; `i18n/nl.ts` y `en.ts`, `status`, para lo demás). Las pantallas dicen el grupo y
+  el valor; ninguna elige un color. Late **solo** lo que pide hacer algo ya: bloqueada,
+  urgente, una cuenta por verificar y el aislamiento que falla, falta o es viejo.
+- **La dependencia `radix-ui` 1.6.7**, fija, con `package-lock.json` y `npm ci` limpio:
+  es la versión cuyos `@radix-ui/*` son los mismos que ya estaban (28 paquetes nuevos en
+  el lockfile, ninguno anidado, ninguno cambiado); se queda el import del dueño
+  (`import { Slot } from "radix-ui"`) y lo construido no crece (vendor en gzip: 152.610
+  bytes antes, 152.488 después). Los 278 paquetes del lockfile se publicaron antes del
+  5 oct 2026 (`scripts/check-lock-age.mjs 2026-10-19`); `npm audit --omit=dev`, nada.
+- **Lo que no estaba en el diseño del dueño** (las pantallas de la parte B2), con la misma
+  lógica: el plazo del BTW («Nog 12 dagen», naranja a 14 días o menos; rojo pasado y sin
+  aangifte) en Btw, la ficha del trimestre y el Overzicht; la configuración del BTW sin
+  confirmar con el asesor (`btw_config`) y la empresa incompleta (`empresa`); las señales
+  de una PO junto a «Over» y «Verwachting» de su ficha (`po_senal`, de sus avisos abiertos
+  P4-P10); una PO cerrada en la lista; la prueba de una importación (`importar_prueba`:
+  con filas rechazadas, con avisos o en orden) y su resultado y su historia
+  (`importacion`); la frescura de cada fuente; el aislamiento por papeles en Instellingen;
+  el pago y las cuentas en las fichas de relaciones y Objects.
+- **`GET /api/v2/aislamiento`: cada papel lleva su `estado`** (`correcto`, `falla`,
+  `sin_comprobar` o `caducada`; contrato 2.1, clave nueva). La app decía «Probleem» sin
+  saber cuál; ahora la pastilla dice «Afscherming mislukt», «Afscherming niet
+  gecontroleerd» o «Controle te oud». Sale solo de cómo empieza cada problema que escribe
+  `aislamiento.problemas_de` (`app_local.estados_de_papeles`): el detalle de una prueba que
+  falla viene de un fichero que se puede escribir y no se copia. Un problema que no nombra
+  un papel conocido deja a todos en `falla`, como la banda roja.
+- **Las pruebas**: `src/components/status-pill.test.ts` (cada valor de cada grupo de los
+  catálogos tiene su variante, la que pidió el dueño; solo laten los siete que piden algo;
+  cada uno tiene su texto en los dos idiomas; un valor desconocido va en gris, quieto y con
+  texto; la pastilla es la del dueño con `data-variant`, punto y etiqueta);
+  `src/screens/status-states.test.ts` (los estados que derivan las pantallas: el plazo del
+  BTW, la prueba de una importación, las señales de una PO, el aislamiento);
+  `e2e/status.spec.ts` (en la Werklijst y en Inkomend solo laten Geblokkeerd y Urgent; en
+  IBAN-controles late lo que está por verificar y nada más; la marca de prueba no late; con
+  «reducir movimiento» no late nada; el aislamiento por papeles, con una respuesta cambiada
+  en la prueba porque aquí no hay instalación nativa) y, en **cada pantalla**,
+  `expectAccessible` falla con cualquier falta de contraste de axe (de cualquier grado) y
+  mide el contraste de **cada pastilla** en el navegador (`expectStatusContrast`). Se
+  comprobó que las pruebas fallan con los tonos del dueño: construida con green-600 y
+  orange-600, axe para la prueba en IBAN-controles (`color-contrast`, serio).
+  `tests/test_importar_app.py::test_el_estado_de_cada_papel_sale_del_principio_del_problema`
+  y el de `GET /api/v2/aislamiento`, para el `estado`.
+
+**El contraste, medido** (Chromium, el tinte compuesto sobre cada fondo de la app; mínimo
+y máximo): `default` 5,73:1 (sin cambio); `success` green-800 5,32–6,49 (green-600 daba
+2,40–2,93); `warning` orange-800 5,43–6,62 (orange-600, 2,64–3,22); `info` blue-700
+5,00–6,07 (blue-600, 3,84–4,66); `error` `--destructive` 5,21–6,39 (sin cambio).
+
+**Desviaciones, y por qué**
+
+1. **El mismo mapa que el fichero de diseño del dueño.** Otra parte aplicó esta integración
+   sobre las pantallas del trabajo diario (364ec06) para el fichero de diseño; su parche se
+   aplicó aquí (con `git apply --3way`) y la variante y el latido de cada estado son los
+   suyos. Con él vienen dos cambios de colocación: lo que dice el sistema de una factura va
+   ahora en su pastilla junto a «Wat aandacht nodig heeft» (antes, en gris bajo «Controle»),
+   y en las tarjetas del Overzicht la fila que pide atención (bloqueadas, vencido, el plazo)
+   lleva la pastilla en lugar de su etiqueta en color.
+2. **Las señales de una PO llevan un texto corto** («Bijna op», «Eerder op»,
+   «Op, nog gefactureerd»), no el nombre de su regla: van entre las cifras de la ficha y el
+   nombre entero, con qué hacer, está justo debajo, en sus avisos. Una por cifra, la más
+   seria.
+3. **Las cifras siguen en el color de «tarde»** (un importe vencido, un margen negativo, lo
+   que queda de una PO gastada): la cifra es el texto. También los avisos de error de un
+   formulario. Un estado en palabras va siempre en la pastilla.
+4. **Facturen lezen no lleva pastilla**: `GET /api/v2/lectura` solo da las pasadas que ya
+   guardaron sus lecturas (todas terminadas), sin errores ni una en curso. El grupo
+   `lectura` está en la tabla para cuando la API lo diga.
+5. **La marca TESTGEGEVENS de la cabecera** es la pastilla `warning` (naranja, sin latir),
+   sin el icono del matraz; la banda amarilla que pone el servidor no cambia.
+6. **«Let op:» / «Note:» fuera** de las dos frases que ahora llevan su pastilla delante
+   (la stand del Overzicht y la configuración del BTW): lo dice la pastilla.
+
+**Mirado en las capturas** (`CAPTURAS_DIR`: las 109 de antes y 4 nuevas, `*-status-*`; 113):
+cada pantalla, ficha y diálogo en NL y EN a 1440×900 y las de 1024 px. Lo que se corrigió:
+la etiqueta «Probleem» del aislamiento (no decía qué), las frases con «Let op:» repetido
+junto a la pastilla, y el plazo del BTW que solo decía «Termijn dichtbij» (ahora los días).
+
+**Resultado**: Python 3.11, **2506 pasan y 12 se saltan** (uno nuevo); con Python 3.13 y
+`-W error`, `test_importar_app`, `test_app_local` y `test_contrato_v2` (80 pasan);
+`npm run typecheck` limpio; vitest, **805**; Playwright, **31** (3 de `e2e/status.spec.ts`),
+sin peticiones fuera de 127.0.0.1, sin violaciones de la CSP, sin errores en la consola,
+sin problemas serios de axe ni ninguna falta de contraste, y sin castellano.
+
+**Lo que falta**: que el dueño vea las pastillas en su pantalla (los tonos se oscurecieron
+para leerse). La insignia de IBAN-controles cuenta los avisos de IBAN abiertos (`activos`
+de la categoría `iban` del panel) y la pantalla agrupa por cuenta, así que puede decir 3
+con una sola tarjeta; no es de esta parte.

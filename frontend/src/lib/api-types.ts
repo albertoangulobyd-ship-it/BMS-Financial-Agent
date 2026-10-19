@@ -567,7 +567,8 @@ export interface Isolation {
   aplica: boolean;
   entorno: 'nativo' | 'contenedor' | 'local';
   correcto: boolean | null;
-  papeles: { papel: string; bien: boolean }[];
+  /** estado (2.1): bien, falla, sin_comprobar o caducada; la pastilla sale de el. */
+  papeles: { papel: string; bien: boolean; estado?: string }[];
 }
 
 export interface PersonWithRoles extends Person {

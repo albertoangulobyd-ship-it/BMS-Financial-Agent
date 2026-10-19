@@ -9,7 +9,7 @@ import { DataTable, type Columns } from '@/components/data-table';
 import { ExceptionActions, ExceptionStatus } from '@/components/exception-block';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -105,7 +105,7 @@ function ExceptionsTable({ data, onOpen }: { data: Loaded; onOpen: (r: Exception
     return <EmptyState icon={CircleCheck} title={t.empty.nothingNeedsAttention} text={t.exceptions.empty} />;
   }
   const columns: Columns<ExceptionRow> = [
-    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <PriorityPill priority={r.nivel} /> },
+    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
     {
       key: 'what',
       header: t.exceptions.what,
@@ -126,7 +126,7 @@ function ExceptionsTable({ data, onOpen }: { data: Loaded; onOpen: (r: Exception
         );
       },
     },
-    { key: 'status', header: t.columns.status, width: '12.5rem', cell: (r) => <ExceptionStatus exception={r} /> },
+    { key: 'status', header: t.columns.status, width: '13.5rem', cell: (r) => <ExceptionStatus exception={r} /> },
   ];
   return (
     <>
@@ -172,7 +172,7 @@ function ExceptionSheet({
               </SheetDescription>
             </SheetHeader>
             <div>
-              <PriorityPill priority={row.nivel} />
+              <StatusPill group='prioridad' state={row.nivel} />
             </div>
             <section className='flex flex-col gap-3'>
               <h3 className='text-[14px] font-semibold'>{t.exceptions.whatIsWrong}</h3>

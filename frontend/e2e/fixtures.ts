@@ -85,7 +85,8 @@ export async function login(page: Page, who: Who = 'ana'): Promise<void> {
   await expect(page.getByRole('tablist')).toBeVisible();
 }
 
-/** Ningun problema de accesibilidad serio o critico (WCAG 2.1 A y AA). */
+/** Ningun problema de accesibilidad serio o critico (WCAG 2.1 A y AA), ninguna falta de
+ *  contraste (de ningun grado) y cada pastilla de estado medida a 4,5:1 o mas. */
 export async function expectAccessible(page: Page, what: string): Promise<void> {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
@@ -94,6 +95,64 @@ export async function expectAccessible(page: Page, what: string): Promise<void> 
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
     .map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
   expect(serious, `accesibilidad: ${what}`).toEqual([]);
+  const contrast = results.violations
+    .filter((v) => v.id === 'color-contrast')
+    .flatMap((v) => v.nodes.map((n) => `${n.target.join(' ')}: ${n.failureSummary ?? ''}`));
+  expect(contrast, `contraste (axe): ${what}`).toEqual([]);
+  await expectStatusContrast(page, what);
+}
+
+/**
+ * El contraste del texto de cada pastilla de estado (components/ui/status.tsx), medido en
+ * el navegador: su color contra el fondo que se ve debajo, con los tintes semitransparentes
+ * de la pastilla y de lo que la contiene compuestos sobre un canvas (como lo pinta
+ * Chromium). axe deja estos casos como "incomplete" cuando no sabe componer el fondo; aqui
+ * no se deja ninguno sin medir.
+ */
+export async function expectStatusContrast(page: Page, what: string): Promise<void> {
+  const low = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    const paint = (colors: string[]): [number, number, number] => {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 2, 2);
+      for (const color of colors) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 2, 2);
+      }
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return [d[0]!, d[1]!, d[2]!];
+    };
+    const luminance = ([r, g, b]: [number, number, number]) => {
+      const f = (v: number) => {
+        const c = v / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const out: string[] = [];
+    for (const pill of Array.from(document.querySelectorAll<HTMLElement>('[data-slot="status"]'))) {
+      const label = pill.querySelector<HTMLElement>('[data-slot="status-label"]') ?? pill;
+      const box = label.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      // Los fondos, del de fuera al de dentro (el de la pastilla el ultimo).
+      const layers: string[] = [];
+      for (let el: HTMLElement | null = label; el; el = el.parentElement) {
+        const bg = getComputedStyle(el).backgroundColor;
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') layers.unshift(bg);
+      }
+      const background = paint(layers);
+      const text = paint([...layers, getComputedStyle(label).color]);
+      const [hi, lo] = [luminance(background), luminance(text)].sort((a, b) => b - a) as [number, number];
+      const ratio = (hi + 0.05) / (lo + 0.05);
+      if (ratio < 4.5) out.push(`${pill.dataset.variant} "${label.textContent ?? ''}": ${ratio.toFixed(2)}`);
+    }
+    return out;
+  });
+  expect(low, `contraste de las pastillas: ${what}`).toEqual([]);
 }
 
 /** Una captura de la ventana a CAPTURAS_DIR, para mirarla. */

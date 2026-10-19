@@ -3,7 +3,7 @@
 // Donde la persona puede, se cambia (antes de guardar se ve "oud -> nieuw"), se verifica
 // o se deshace un cambio manual; cada orden lleva la rev de la fila que se vio.
 import { ActionButton } from '@/components/action-dialog';
-import { StatusText, type StatusTone } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { fmt, useT } from '@/i18n';
 import { catalogFor, fieldLabel, qualityText, sourceText, stateLabel } from '@/i18n/domain';
 import { permissionFor } from '@/lib/actions';
@@ -16,14 +16,6 @@ import { revOf } from './invoice-util';
 // Verificar tiene sentido donde hay una duda (leido con duda, una discrepancia, algo
 // raro); en los demas campos, el boton solo seria ruido.
 const NEEDS_CHECK = new Set(['dudoso', 'discrepancia', 'anomalia']);
-
-const QUALITY_TONE: Record<string, StatusTone> = {
-  faltante: 'blocked',
-  discrepancia: 'late',
-  anomalia: 'late',
-  dudoso: 'attention',
-  verificado: 'ok',
-};
 
 export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDone: () => void }) {
   const { t, lang } = useT();
@@ -67,9 +59,7 @@ export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDon
                 </td>
                 <td className='px-3 py-2'>
                   {quality ? (
-                    <span title={quality.meaning}>
-                      <StatusText tone={QUALITY_TONE[f.calidad ?? ''] ?? 'neutral'}>{quality.label}</StatusText>
-                    </span>
+                    <StatusPill group='calidad' state={f.calidad} title={quality.meaning} />
                   ) : (
                     <span className='text-muted-foreground'>—</span>
                   )}

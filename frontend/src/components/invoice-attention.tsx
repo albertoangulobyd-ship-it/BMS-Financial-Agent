@@ -1,7 +1,7 @@
 // Las facturas que piden a una persona, en una lista corta: prioridad, numero y relacion, y
 // el por que en palabras normales. Una fila abre la factura en su pestana. La usa la ficha
 // de un Object: lo que necesita atencion en una locatie son sus facturas.
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { useT } from '@/i18n';
@@ -31,7 +31,7 @@ export function InvoiceAttentionList({
             className='grid w-full grid-cols-[8.5rem_minmax(10rem,15rem)_7.5rem_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-[#f4f1ea]'
           >
             <span>
-              <PriorityPill priority={row.nivel} />
+              <StatusPill group='prioridad' state={row.nivel} />
             </span>
             <span className='flex min-w-0 flex-col'>
               <span className='truncate font-mono text-[12.5px] font-medium text-primary'>{row.numero ?? '—'}</span>

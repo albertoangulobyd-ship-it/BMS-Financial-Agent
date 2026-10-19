@@ -6,10 +6,9 @@
 // corregirlo ahi mismo. El codigo de la regla va pequeno y gris: es una referencia.
 import { CircleCheck } from 'lucide-react';
 import { ActionButton } from '@/components/action-dialog';
-import { StatusText } from '@/components/status-text';
-import { FINDING_TONE, SEVERITY_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { fmt, useT } from '@/i18n';
-import { fieldLabel, findingDetail, ruleText, severityLabel, stateLabel } from '@/i18n/domain';
+import { fieldLabel, findingDetail, ruleText } from '@/i18n/domain';
 import { MIN_ACCEPT_REASON, permissionFor } from '@/lib/actions';
 import type { FieldInfo, Finding, InvoiceDetail, Person } from '@/lib/api-types';
 import { useCan, useSession } from '@/lib/session';
@@ -108,13 +107,9 @@ function FindingCard({
         <h3 id={`finding-${h.id}`} className='text-[14.5px] font-semibold'>
           {rule?.title ?? h.regla}
         </h3>
-        <span className='flex items-center gap-3 text-xs'>
-          <StatusText tone={SEVERITY_TONE[h.severidad] ?? 'neutral'}>{severityLabel(lang, h.severidad) ?? h.severidad}</StatusText>
-          {!open && (
-            <StatusText tone={FINDING_TONE[h.estado] ?? 'neutral'}>
-              {stateLabel(lang, 'hallazgo', h.estado) ?? h.estado}
-            </StatusText>
-          )}
+        <span className='flex items-center gap-2 text-xs'>
+          <StatusPill group='severidad' state={h.severidad} />
+          {!open && <StatusPill group='hallazgo' state={h.estado} />}
           <span className='font-mono text-[11px] text-muted-foreground' title={t.invoice.ruleCodeHelp}>
             {h.regla}
           </span>

@@ -162,19 +162,44 @@ export interface VerdictCounts {
   campos: number;
 }
 
+export type VerdictState = 'limpia' | 'limpia_sin_datos' | 'objeciones' | 'aceptadas' | 'campos';
+
+export interface VerdictPart {
+  /** El estado de esta parte (la clave del catalogo "veredicto"). */
+  state: VerdictState;
+  /** Las cifras de su texto. */
+  values: Record<string, number>;
+  text: string;
+}
+
+/** El texto de una parte del veredicto desde el catalogo, con sus cifras. */
+export function verdictPartText(lang: Lang, state: string, values: Record<string, string | number> = {}): string | null {
+  const v = CATALOGS[lang].veredicto as Record<string, string>;
+  return has(v, state) ? fmt(v[state]!, values) : null;
+}
+
 /** Lo que dice el sistema de una factura, como revision.etiqueta_sistema. Nunca "aprobada":
- *  limpia es "Geen bezwaren van het systeem" / "No system objections". */
-export function verdict(lang: Lang, c: VerdictCounts): { text: string; clean: boolean } {
-  const v = CATALOGS[lang].veredicto;
+ *  limpia es "Geen bezwaren van het systeem" / "No system objections". `parts` dice cada
+ *  parte con su estado, en el orden del texto; `main` es la mas seria (bezwaren, luego
+ *  velden, luego lo aceptado): la que va en la pastilla. */
+export function verdict(
+  lang: Lang,
+  c: VerdictCounts
+): { text: string; clean: boolean; parts: VerdictPart[]; main: VerdictPart } {
+  const part = (state: VerdictState, values: Record<string, number>): VerdictPart => ({
+    state,
+    values,
+    text: verdictPartText(lang, state, values) ?? state,
+  });
   if (c.pendientes === 0 && c.campos === 0) {
-    return {
-      text: c.sin_datos ? fmt(v.limpia_sin_datos, { sin_datos: c.sin_datos }) : v.limpia,
-      clean: true,
-    };
+    const only = c.sin_datos ? part('limpia_sin_datos', { sin_datos: c.sin_datos }) : part('limpia', {});
+    return { text: only.text, clean: true, parts: [only], main: only };
   }
-  const parts: string[] = [];
-  if (c.pendientes - c.aceptados > 0) parts.push(fmt(v.objeciones, { n: c.pendientes - c.aceptados }));
-  if (c.aceptados) parts.push(fmt(v.aceptadas, { n: c.aceptados }));
-  if (c.campos) parts.push(fmt(v.campos, { n: c.campos }));
-  return { text: parts.join('; '), clean: false };
+  const parts: VerdictPart[] = [];
+  if (c.pendientes - c.aceptados > 0) parts.push(part('objeciones', { n: c.pendientes - c.aceptados }));
+  if (c.aceptados) parts.push(part('aceptadas', { n: c.aceptados }));
+  if (c.campos) parts.push(part('campos', { n: c.campos }));
+  const order: VerdictState[] = ['objeciones', 'campos', 'aceptadas'];
+  const main = [...parts].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state))[0]!;
+  return { text: parts.map((p) => p.text).join('; '), clean: false, parts, main };
 }

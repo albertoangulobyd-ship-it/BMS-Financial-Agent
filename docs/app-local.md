@@ -131,9 +131,8 @@ Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
 - Una ficha empieza por qué es, qué está mal y qué hacer (una lista corta con los
   botones), y deja los detalles (campos, líneas, planning, relaciones, historia)
   plegados debajo.
-- Un estado es siempre texto **y** color, nunca solo color. Las prioridades son
-  etiquetas con forma: Geblokkeerd (cuadrado, naranja quemado oscuro), Urgent
-  (triángulo, melocotón), Aandacht (círculo, azul claro), Normaal (gris).
+- Un estado es siempre la pastilla del dueño (§4.6): texto **y** color, nunca solo
+  color, y su punto late solo en lo que pide hacer algo ya.
 - Los códigos de regla (X1, B2…) salen pequeños y en gris, como referencia.
 - Las palabras del oficio (Object, PO, BTW, uitzondering) llevan un (?) que las explica.
 - Una pantalla vacía dice algo útil («Niets heeft je aandacht nodig»); una que carga o
@@ -155,7 +154,7 @@ ficha, las listas y las insignias del menú, sin que la pantalla salte a «Laden
 | **Overzicht** | Cuatro tarjetas (Aandacht nodig: cuántas facturas esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas; Geld binnen y Geld uit: lo pendiente y lo vencido; Btw dit kwartaal: el saldo y el próximo plazo) y «Als eerste»: las cinco primeras de la werklijst con su prioridad, número, relación, importe y por qué. Cada tarjeta abre la pantalla que la explica | — |
 | **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura en una pestaña |
 | **Inkomend / Uitgaand** | Todas las de un sentido, con dos filtros (Betaling, Controle) y el buscador; seis columnas: Prioriteit, Factuur, Bedrag, Vervaldatum, Stand (pago y revisión, en texto) y Waarom | Una fila abre la factura |
-| **Ficha de factura** | Arriba, qué es: el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el pago, la revisión y lo que dice el sistema («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»). Después **Wat aandacht nodig heeft**: cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; descargar el original |
+| **Ficha de factura** | Arriba, qué es: el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el pago y la revisión. Después **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; descargar el original |
 | **Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va (la factura con su relación, el cliente, la PO o la importación), en qué estado está, quién la lleva y desde cuándo. Una fila abre un panel con lo que hay que saber y qué hacer | Zelf oppakken, toewijzen, wachten op anderen (a quién y hasta cuándo), oplossen (cómo acabó y qué se hizo); desde el panel, la factura |
 | **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd»), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
 
@@ -272,12 +271,173 @@ las últimas pasadas. **No hay ningún botón que la lance.**
   lo dice, con la orden que lo pone (`empresa.bat`).
 - **Afscherming**, solo para leer (`GET /api/v2/aislamiento`): que la app nunca tiene
   internet; en la instalación nativa, si la última comprobación está bien y cada papel (la
-  app, el lector de PDF, la salida a internet, las órdenes) con su estado; en Docker o a
-  mano, una frase sobre cómo se aísla allí.
+  app, el lector de PDF, la salida a internet, las órdenes) con su estado (en orden, una
+  prueba que falla, sin comprobar o comprobado hace demasiado: `papeles[].estado`, §4.6);
+  en Docker o a mano, una frase sobre cómo se aísla allí.
 - **Personas**, solo para quien administra: el nombre y el rol de cada una
   (`GET /api/v2/personas`), y que se añaden con `persona.bat`.
 - **Back-ups**, una frase: se hacen con `copia.bat`, en el disco externo cifrado, que
   comprueba cada copia.
+
+### 4.6 Alertas y estados
+
+El dueño eligió cómo se ven las alertas («Así quiero las alertas»): su componente
+**Status**, una pastilla redondeada y tintada con un punto de color y, siempre, su texto.
+Todo estado de la app (prioridades, pagos, controles, avisos, la calidad de un campo, las
+cuentas del banco, el aislamiento, la frescura de los datos, el BTW, las PO, las
+importaciones y la marca de prueba de la cabecera) sale con esa pastilla; las etiquetas,
+los colores sueltos y los puntos de antes se quitaron.
+
+- **Dónde vive.** El componente del dueño está en `frontend/src/components/ui/status.tsx`
+  (la ruta de shadcn), con su código; arriba del fichero se dice lo poco que se cambió y
+  por qué (el contraste y el movimiento, abajo). Lo usa **una sola pieza**,
+  `frontend/src/components/status-pill.tsx`: ahí, y solo ahí, se decide qué variante lleva
+  cada estado y si su punto late. Las pantallas dicen el grupo y el valor tal como los
+  manda la API (`<StatusPill group='pago' state={r.estado_pago} />`) y nunca eligen un
+  color. Un valor que no se conoce sale en gris, quieto y con su texto.
+- **Late solo lo que pide hacer algo ya**: una factura **bloqueada** o **urgente**, una
+  cuenta del banco **por verificar** (nueva o cambiada) y el **aislamiento** que falla,
+  falta o es viejo. Todo lo demás lleva el punto quieto: una lista de quince facturas no
+  parpadea entera. Quien pide menos movimiento en el sistema
+  (`prefers-reduced-motion`) no ve latir nada.
+- **Los textos** salen de los catálogos de Python (`src/bms_agent/textos/nl.json` y
+  `en.json`) para lo que es del dominio, y de `frontend/src/i18n/nl.ts` y `en.ts`
+  (`status`) para lo demás. Los que llevan una cifra la dicen («Nog 5 dagen», «Te oud
+  (meer dan 5 werkdagen)», «Bezwaren van het systeem: 2»).
+- **No son estados** y siguen como estaban: las insignias de la barra lateral (son
+  números), las cifras que van mal en el color de «tarde» (un importe vencido, un margen
+  negativo: la cifra es el texto), los avisos de error de un formulario y el icono de
+  «Niets heeft je aandacht nodig».
+
+**El contraste, medido.** Los tonos de texto del dueño (green-600, orange-600 y blue-600
+sobre su tinte del 10 %, a 12 px) no llegaban a 4,5:1 en los fondos de la app. Se midió en
+Chromium, componiendo el tinte sobre cada fondo (#f7f5f0, #fbfaf7, #f2efe8, #f4f1ea,
+#efece5, #ebe7df, #ffffff y la tarjeta de un aviso aceptado), y se oscureció **solo el
+texto**; el tinte, el borde y el punto son los suyos.
+
+| Variante | Texto del dueño | Texto ahora | Contraste ahora (mín.–máx.) |
+| --- | --- | --- | --- |
+| `default` | `text-muted-foreground` sobre `bg-muted` | el mismo | 5,73:1 |
+| `success` | green-600: 2,40–2,93 | green-800 (#016630) | 5,32–6,49:1 |
+| `warning` | orange-600: 2,64–3,22 | orange-800 (#9f2d00) | 5,43–6,62:1 |
+| `info` | blue-600: 3,84–4,66 | blue-700 (#1447e6) | 5,00–6,07:1 |
+| `error` | `--destructive` (#9b2c1c) | el mismo | 5,21–6,39:1 |
+
+green-700 y orange-700 tampoco llegaban (3,69:1 y 3,85:1 en el peor fondo). El punto no
+lleva texto: el estado lo dice siempre la etiqueta. Las pruebas en el navegador vuelven a
+medir **cada pastilla de cada pantalla** (`e2e/fixtures.ts`, `expectStatusContrast`) y
+fallan con cualquier falta de contraste de axe, de cualquier grado.
+
+**La dependencia.** El componente importa el `Slot` de `radix-ui` (para `asChild`). Se fijó
+`radix-ui` **1.6.7** (publicada el 24 jul 2026; la 1.7.0 salió el 5 oct, a menos de catorce
+días): es la versión cuyos `@radix-ui/*` son exactamente los que ya estaban en
+`package-lock.json` (`react-slot` 1.3.3, `react-primitive` 2.1.10, `react-dialog`
+1.1.23…), así que no duplica ninguno, y lo construido no crece (el `vendor`, en gzip,
+152.610 bytes antes y 152.488 después).
+
+**La tabla.** Variante y latido de cada estado, con su texto en neerlandés y en inglés
+(las cifras, de ejemplo: `{n}` = 2). Con * los valores que la pantalla deriva de lo que
+manda la API (el plazo del BTW a 14 días o menos, la prueba de una importación con filas
+rechazadas o avisos, las señales de una PO de sus avisos abiertos, un IBAN visto solo en
+una factura…) o que no son del dominio. Los grupos `btw_config` y `empresa` no estaban en
+la lista del dueño: van con la misma lógica (lo que falta confirmar avisa en naranja, lo
+completo en verde, nada late).
+
+| Grupo | Valor | NL | EN | Variante | Late | Dónde |
+| --- | --- | --- | --- | --- | --- | --- |
+| `prioridad` | `bloqueada` | Geblokkeerd | Blocked | error | **sí** | Overzicht, Werklijst, Inkomend, Uitgaand, Uitzonderingen, las listas de relaciones, Objecten e Inkooporders, y cada ficha |
+|  | `urgente` | Urgent | Urgent | warning | **sí** |  |
+|  | `atencion` | Aandacht | Attention | info | no |  |
+|  | `normal` | Normaal | Normal | default | no |  |
+| `veredicto` | `limpia` | Geen bezwaren van het systeem | No system objections | success | no | Ficha de factura, junto a «Wat aandacht nodig heeft» (nunca «aprobada») |
+|  | `limpia_sin_datos` | Geen bezwaren in wat is gecontroleerd; controles zonder gegevens: 3 | No objections in what was checked; checks without data: 3 | success | no |  |
+|  | `objeciones` | Bezwaren van het systeem: 2 | System objections: 2 | warning | no |  |
+|  | `campos` | Velden te verifiëren: 2 | Fields to verify: 2 | warning | no |  |
+|  | `aceptadas` | Door een medewerker geaccepteerd: 2 | Accepted by a person: 2 | default | no |  |
+| `severidad` | `bloqueo` | Blokkeert | Blocks | error | no | Cada aviso de una ficha (factura, proveedor, cliente, PO) |
+|  | `retencion` | Houdt vast | Holds | warning | no |  |
+|  | `aviso` | Waarschuwt | Warns | info | no |  |
+| `hallazgo` | `abierto` | Open | Open | warning | no | Un aviso que ya no está abierto (aceptado, ya no se ve, cerrado) |
+|  | `desaparecido` | Niet meer gezien, nog niet gesloten | No longer seen, not closed | info | no |  |
+|  | `aceptado` | Geaccepteerd | Accepted | default | no |  |
+|  | `cerrado` | Gesloten | Closed | success | no |  |
+|  | `resuelto` | Opgelost | Resolved | success | no |  |
+| `pago` | `vencida` | Vervallen | Overdue | error | no | Inkomend, Uitgaand, las facturas de una ficha, Overzicht (Vervallen) |
+|  | `pendiente` | Openstaand | Outstanding | default | no |  |
+|  | `pagada` | Betaald | Paid | success | no |  |
+|  | `anulada` | Geannuleerd | Cancelled | default | no |  |
+|  | `acreditada` | Gecrediteerd | Credited | default | no |  |
+| `revision` | `necesita_revision` | Controle nodig | Needs review | warning | no | Inkomend, Uitgaand, ficha de factura |
+|  | `sin_revisar` | Niet gecontroleerd | Unreviewed | default | no |  |
+|  | `revisada` | Gecontroleerd | Reviewed | success | no |  |
+| `excepcion` | `abierta` | Open | Open | warning | no | Uitzonderingen, ficha de factura (Afronden) |
+|  | `asignada` | Toegewezen | Assigned | info | no |  |
+|  | `esperando_externo` | Wacht op derden | Waiting on others | info | no |  |
+|  | `resuelta` | Opgelost | Resolved | success | no |  |
+| `calidad` | `faltante` | Ontbreekt | Missing | error | no | Ficha de factura, Velden |
+|  | `dudoso` | Onzeker | Uncertain | warning | no |  |
+|  | `discrepancia` | Verschil | Discrepancy | warning | no |  |
+|  | `anomalia` | Afwijking | Anomaly | info | no |  |
+|  | `verificado` | Geverifieerd | Verified | success | no |  |
+| `cuenta` | `registrada` | Geregistreerd, niet geverifieerd | Registered, not verified | warning | **sí** | IBAN-controles, ficha de proveedor (Bankrekeningen) |
+|  | `heredada` | Overgenomen, niet bevestigd | Inherited, not confirmed | warning | no |  |
+|  | `verificada` | Telefonisch geverifieerd | Verified by phone | success | no |  |
+|  | `atestada` | Bevestigd | Confirmed | success | no |  |
+|  | `rechazada` | Afgewezen | Rejected | error | no |  |
+| `iban_control` | `por_verificar` | Te verifiëren | To verify | warning | **sí** | IBAN-controles * |
+|  | `sin_telefono` | Geen telefoonnummer in de stamgegevens | No phone number in the master data | error | no |  |
+| `iban_tecleado` | `coincide` | Hetzelfde als het gevonden IBAN | Same as the IBAN found | success | no | IBAN-controles, diálogo «Telefonisch bevestigen» * |
+|  | `difiere` | Anders dan het gevonden IBAN | Different from the IBAN found | error | no |  |
+| `relacion` | `propuesta` | Voorgesteld | Suggested | warning | no | Ficha de factura, Koppelingen |
+|  | `confirmada` | Bevestigd | Confirmed | success | no |  |
+|  | `rechazada` | Afgewezen | Rejected | default | no |  |
+| `turno` | `planificado` | Gepland | Planned | default | no | Ficha de factura, Planning |
+|  | `realizado` | Gewerkt | Worked | info | no |  |
+|  | `validado` | Gevalideerd | Validated | success | no |  |
+|  | `cancelado` | Geannuleerd | Cancelled | default | no |  |
+| `aislamiento` | `correcto` | Afscherming in orde | Shielding OK | success | no | Instellingen, Afscherming (`papeles[].estado`, nuevo en 2.1) |
+|  | `falla` | Afscherming mislukt | Shielding failed | error | **sí** |  |
+|  | `sin_comprobar` | Afscherming niet gecontroleerd | Shielding not checked | error | **sí** |  |
+|  | `caducada` | Controle te oud | Check too old | error | **sí** |  |
+| `fuente` | `al_dia` | Vers genoeg | Fresh enough | success | no | Importeren (frescura) y Overzicht (cuando la stand no es de hoy) * |
+|  | `caducada` | Te oud (meer dan 2) | Too old (more than 2) | warning | no |  |
+|  | `sin_limite` | Geen termijn | No time limit | default | no |  |
+| `btw` | `abierto` | Open | Open | default | no | Btw, ficha del trimestre, Overzicht (el plazo: *) |
+|  | `listo_revision` | Klaar voor controle | Ready for review | info | no |  |
+|  | `presentado` | Aangegeven (door een medewerker vastgelegd) | Filed (recorded by a person) | success | no |  |
+|  | `plazo_cerca` | Nog 2 dagen | 2 days left | warning | no |  |
+|  | `plazo_vencido` | Termijn voorbij, niet aangegeven | Deadline passed, not filed | error | no |  |
+| `btw_config` | `confirmada` | Bevestigd met de adviseur | Confirmed with the adviser | success | no | Btw y ficha del trimestre * |
+|  | `sin_confirmar` | Niet bevestigd | Not confirmed | warning | no |  |
+| `empresa` | `completa` | Compleet | Complete | success | no | Instellingen, Het bedrijf * |
+|  | `incompleta` | Niet compleet | Not complete | warning | no |  |
+| `po` | `activa` | Actief | Active | default | no | Inkooporders (solo «cerrada») |
+|  | `cerrada` | Gesloten | Closed | default | no |  |
+|  | `caducada` | Verlopen | Expired | default | no |  |
+| `po_senal` | `P5` | Bijna op | Nearly used up | warning | no | Ficha de PO, junto a Over y Verwachting * |
+|  | `P7` | Verloopt bijna | Expires soon | warning | no |  |
+|  | `P8` | Gepland werk te hoog | Planned work too high | warning | no |  |
+|  | `P9` | Eerder op | Runs out early | warning | no |  |
+|  | `P10` | Verwacht boven de PO | Expected above the PO | warning | no |  |
+|  | `P4` | Boven het restant | Above what is left | error | no |  |
+|  | `P6` | Op, nog gefactureerd | Used up, still invoiced | error | no |  |
+| `importacion` | `en_curso` | Bezig | In progress | info | no | Importeren (después de importar, y la historia) |
+|  | `aceptada` | Ingelezen | Imported | success | no |  |
+|  | `parcial` | Deels ingelezen | Partly imported | warning | no |  |
+|  | `rechazada` | Geweigerd | Rejected | error | no |  |
+| `importar_prueba` | `ok` | In orde | OK | success | no | Importeren (la prueba) * |
+|  | `avisos` | Met waarschuwingen | With warnings | warning | no |  |
+|  | `errores` | Met fouten | With errors | error | no |  |
+| `lectura` | `en_curso` | Bezig | Running | info | no | Ninguna todavía (la API no dice el estado de una pasada) * |
+|  | `terminada` | Klaar | Done | success | no |  |
+|  | `con_errores` | Met fouten | With errors | error | no |  |
+| `datos_prueba` | `demo` | Testgegevens | Test data | warning | no | Cabecera, con la base de prueba * |
+
+Lo mismo que en el fichero de diseño del dueño (que se hizo sobre las pantallas del
+trabajo diario): la variante y el latido de cada estado son los mismos; en la app las
+señales de una PO llevan un texto corto (van entre las cifras de su ficha; el nombre
+entero de la regla está en sus avisos, justo debajo), y se añadieron `btw_config` y
+`empresa`.
 
 ## 5. Neerlandés e inglés
 
@@ -389,8 +549,8 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 
 | Carpeta | Qué |
 | --- | --- |
-| `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y el componente de navegación del dueño (`sidebar-with-chrome-like-tabs.tsx`; arriba del fichero, lo que se le cambió y por qué) |
-| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `PriorityPill`, `StatusText`, `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura), `ProperName` (un nombre propio, como un acceso directo, que no se traduce); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
+| `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y los dos del dueño: la navegación (`sidebar-with-chrome-like-tabs.tsx`) y las alertas (`status.tsx`); arriba de cada uno, lo que se le cambió y por qué |
+| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura), `ProperName` (un nombre propio, como un acceso directo, que no se traduce); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
 | `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `import`, `read-invoices`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso, y las fichas) y `render.tsx` (qué pinta cada ruta) |
 | `src/shell/` | El marco: la navegación con sus insignias, el idioma, la persona, la marca de datos de prueba |
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |

@@ -10,7 +10,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { ProperName, withNode } from '@/components/proper-name';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { LanguageSwitch } from '@/shell/language-switch';
 import { useT } from '@/i18n';
@@ -147,9 +147,24 @@ function CompanyRow({ company: c }: { company: Company }) {
           {c.cuentas_propias.length ? c.cuentas_propias.map((iban) => <span key={iban} className='block'>{iban}</span>) : missing}
         </dd>
       </dl>
-      {!c.completa && <p className='mt-3 text-[13px] text-late-foreground'>{t.settings.companyIncomplete}</p>}
+      <p className='mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]'>
+        <StatusPill group='empresa' state={c.completa ? 'completa' : 'incompleta'} />
+        {!c.completa && <span>{t.settings.companyIncomplete}</span>}
+      </p>
     </Row>
   );
+}
+
+/** El estado de un papel como lo manda la API (estado, 2.1); sin el, solo se sabe si va bien. */
+export function roleIsolation(p: Isolation['papeles'][number]): string {
+  return p.estado ?? (p.bien ? 'correcto' : 'falla');
+}
+
+/** Lo mas serio de los papeles, para la frase de arriba: una prueba que falla, despues lo
+ *  comprobado hace demasiado y despues lo que nunca se comprobo. */
+export function worstIsolation(i: Isolation): string {
+  const states = i.papeles.map(roleIsolation);
+  return ['falla', 'caducada', 'sin_comprobar'].find((s) => states.includes(s)) ?? 'falla';
 }
 
 function IsolationRow({ isolation: i }: { isolation: Isolation }) {
@@ -160,14 +175,15 @@ function IsolationRow({ isolation: i }: { isolation: Isolation }) {
       <p className='text-muted-foreground'>{t.settings.isolationAlways}</p>
       {i.aplica ? (
         <>
-          <p className={i.correcto ? 'mt-2 font-medium text-ok-foreground' : 'mt-2 font-medium text-late-foreground'}>
-            {i.correcto ? t.settings.isolationOk : t.settings.isolationProblem}
+          <p className='mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]'>
+            <StatusPill group='aislamiento' state={i.correcto ? 'correcto' : worstIsolation(i)} />
+            <span>{i.correcto ? t.settings.isolationOk : t.settings.isolationProblem}</span>
           </p>
-          <ul className='mt-2 grid grid-cols-1 gap-1 text-[13px] sm:grid-cols-2'>
+          <ul className='mt-3 grid grid-cols-1 gap-x-8 gap-y-1.5 text-[13px] sm:grid-cols-2'>
             {i.papeles.map((p) => (
-              <li key={p.papel} className='flex items-center justify-between gap-3 pr-4'>
+              <li key={p.papel} className='flex items-center justify-between gap-3'>
                 <span>{roleName(p.papel)}</span>
-                <StatusText tone={p.bien ? 'ok' : 'blocked'}>{p.bien ? t.settings.roleOk : t.settings.roleProblem}</StatusText>
+                <StatusPill group='aislamiento' state={roleIsolation(p)} />
               </li>
             ))}
           </ul>

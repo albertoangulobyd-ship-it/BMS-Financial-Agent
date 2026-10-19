@@ -157,6 +157,40 @@ def papeles_con_problemas(problemas: Sequence[str]) -> list[str]:
     return [papel for papel in PAPELES if papel in vistos]
 
 
+# Lo que le pasa a un papel, para la pastilla de la app (components/status-pill.tsx, grupo
+# aislamiento): correcto, una prueba que falla, sin comprobar o comprobado hace demasiado
+# (o con una fecha que no vale).
+ESTADOS_AISLAMIENTO = ("correcto", "falla", "sin_comprobar", "caducada")
+
+
+def _clase_de_problema(resto: str) -> str:
+    """La clase de un problema por como empieza el texto que escribe
+    aislamiento.problemas_de ("sin comprobar", "FALLA (...)", "comprobado por ultima
+    vez...", "la fecha de la comprobacion no vale"). Solo se mira el principio: el detalle
+    de una prueba que falla sale de un fichero que se puede escribir y no se copia. Uno que
+    no se reconoce es una prueba que falla (nunca pasa por correcto)."""
+    if resto.startswith("sin comprobar"):
+        return "sin_comprobar"
+    if resto.startswith("comprobado por ultima vez") or resto.startswith("la fecha de la comprobacion"):
+        return "caducada"
+    return "falla"
+
+
+def estados_de_papeles(problemas: Sequence[str]) -> dict[str, str]:
+    """El estado de cada papel (ESTADOS_AISLAMIENTO), en el orden de PAPELES. Un problema
+    que no nombra ningun papel conocido deja a todos en "falla": no se sabe cual va bien,
+    y es la misma regla que la banda roja (con algun problema no hay verde)."""
+    clases: dict[str, str] = {}
+    for texto in problemas:
+        papel, _, resto = texto.partition(":")
+        papel = papel.strip()
+        if papel in PAPELES and papel not in clases:
+            clases[papel] = _clase_de_problema(resto.strip())
+    if problemas and not clases:
+        return {papel: "falla" for papel in PAPELES}
+    return {papel: clases.get(papel, "correcto") for papel in PAPELES}
+
+
 def texto_aislamiento(problemas: Sequence[str]) -> str:
     """La banda roja, en neerlandes e ingles."""
     papeles = papeles_con_problemas(problemas)

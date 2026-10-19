@@ -10,15 +10,13 @@ import { ActionButton } from '@/components/action-dialog';
 import { ExceptionActions, ExceptionStatus } from '@/components/exception-block';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { PAYMENT_TONE, REVIEW_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
-import { directionLabel, paymentStateLabel, reviewStateLabel, ruleText, stateLabel, verdict } from '@/i18n/domain';
+import { directionLabel, paymentStateLabel, ruleText, stateLabel, verdict } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { InvoiceDetail, Person } from '@/lib/api-types';
 import { formatDateProse, formatMoney } from '@/lib/format';
@@ -111,7 +109,7 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
       <dl className='mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border text-[13px] xl:grid-cols-5'>
         <Fact label={t.columns.priority} wide>
           <span className='flex flex-col items-start gap-1'>
-            <PriorityPill priority={e?.nivel ?? 'normal'} />
+            <StatusPill group='prioridad' state={e?.nivel ?? 'normal'} />
             {reason && <span className='text-[12.5px] text-[#45423c]'>{reason}</span>}
           </span>
         </Fact>
@@ -122,32 +120,40 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
           <DateText value={f.vencimiento?.fecha} prose />
         </Fact>
         <Fact label={t.invoice.paymentLabel}>
-          <StatusText tone={PAYMENT_TONE[e?.estado_pago ?? ''] ?? 'neutral'}>
-            {paymentStateLabel(lang, e?.estado_pago) ?? t.common.unknown}
-          </StatusText>
+          <StatusPill group='pago' state={e?.estado_pago} />
           {e?.pendiente_cent !== null && e?.pendiente_cent !== undefined && e.estado_pago !== 'pagada' && (
-            <span className='block text-xs text-muted-foreground'>
+            <span className='mt-1 block text-xs text-muted-foreground'>
               {fmt(t.invoice.outstanding, { amount: formatMoney(e.pendiente_cent) })}
             </span>
           )}
         </Fact>
         <Fact label={t.invoice.reviewLabel}>
-          <StatusText tone={REVIEW_TONE[e?.estado_revision ?? ''] ?? 'muted'}>
-            {reviewStateLabel(lang, e?.estado_revision) ?? t.common.unknown}
-          </StatusText>
-          <span className={v.clean ? 'mt-0.5 block font-medium text-ok-foreground' : 'mt-0.5 block text-xs text-muted-foreground'} data-testid='verdict'>
-            {v.text}
-          </span>
+          <StatusPill group='revision' state={e?.estado_revision} />
         </Fact>
       </dl>
 
       {f.anulada && <p className='mb-6 rounded-md border border-border bg-muted px-4 py-3'>{t.invoice.cancelled}</p>}
 
       <section aria-labelledby='attention' className='mb-8'>
-        <h2 id='attention' className='mb-3 text-[16px] font-semibold'>
-          {t.invoice.attentionTitle}
-          {openFindings.length > 0 && <span className='ml-2 text-[13px] font-normal text-muted-foreground'>{openFindings.length}</span>}
-        </h2>
+        {/* Lo que dice el sistema va con lo que necesita atencion: la parte mas seria en su
+            pastilla y las demas detras, en gris. */}
+        <div className='mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2'>
+          <h2 id='attention' className='text-[16px] font-semibold'>
+            {t.invoice.attentionTitle}
+            {openFindings.length > 0 && <span className='ml-2 text-[13px] font-normal text-muted-foreground'>{openFindings.length}</span>}
+          </h2>
+          <div data-testid='verdict' className='flex flex-wrap items-center gap-x-3 gap-y-1'>
+            <StatusPill group='veredicto' state={v.main.state} values={v.main.values} />
+            {v.parts.length > 1 && (
+              <span className='text-xs text-muted-foreground'>
+                {v.parts
+                  .filter((p) => p !== v.main)
+                  .map((p) => p.text)
+                  .join('; ')}
+              </span>
+            )}
+          </div>
+        </div>
         <FindingsList invoice={f} people={people} onDone={reload} />
       </section>
 

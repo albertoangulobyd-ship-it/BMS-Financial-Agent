@@ -5,7 +5,7 @@
 import { ArrowRight } from 'lucide-react';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { SummaryCard, SummaryGrid } from '@/components/summary-card';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { useSession } from '@/lib/session';
 import { needsPerson, whyOf } from '@/lib/why';
 import { CircleCheck } from 'lucide-react';
 import { recordRoute, type NavId } from './registry';
+import { deadlineState } from './vat';
 import { useLoad } from './use-load';
 
 const NEXT_UP = 5;
@@ -57,6 +58,8 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
   // La misma cuenta que la werklijst: lo que pide a una persona (no solo la prioridad).
   const needing = queue.length;
   const deadline = vat.proximo_plazo;
+  // La misma regla que la lista del btw: pasado y sin aangifte, o a 14 dias o menos.
+  const deadlineStatus = deadline ? deadlineState(deadline) : null;
   const open = (id: NavId) => setActiveNav(id);
 
   const go = (id: NavId, label: string) => (
@@ -69,9 +72,10 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
   return (
     <div className='flex flex-col gap-8'>
       {!panel.al_dia && (
-        <p role='status' className='-mt-2 text-[13px] text-late-foreground'>
-          {fmt(t.overview.stale, { date: formatDate(panel.estado_del) })}
-        </p>
+        <div role='status' className='-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]'>
+          <StatusPill group='fuente' state='caducada' />
+          <span>{fmt(t.overview.stale, { date: formatDate(panel.estado_del) })}</span>
+        </div>
       )}
       <SummaryGrid>
         <SummaryCard
@@ -79,7 +83,11 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
           value={fmt(needing === 1 ? t.overview.attention.valueOne : t.overview.attention.value, { n: needing })}
           caption={t.overview.attention.caption}
           rows={[
-            { label: t.overview.attention.blocked, value: a.bloqueadas, emphasis: a.bloqueadas > 0 },
+            {
+              label: t.overview.attention.blocked,
+              value: a.bloqueadas,
+              status: a.bloqueadas > 0 ? { group: 'prioridad', state: 'bloqueada' } : undefined,
+            },
             { label: t.overview.attention.urgent, value: a.urgentes },
             { label: t.overview.attention.exceptions, value: a.excepciones.abiertas },
           ]}
@@ -93,7 +101,7 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
             {
               label: t.overview.money.overdue,
               value: <Money cents={panel.dinero_entra.vencido_cent} />,
-              emphasis: panel.dinero_entra.vencido_cent > 0,
+              status: panel.dinero_entra.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
             },
             { label: t.overview.money.next30, value: <Money cents={panel.dinero_entra.proximos_30_cent} /> },
           ]}
@@ -107,7 +115,7 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
             {
               label: t.overview.money.overdue,
               value: <Money cents={panel.dinero_sale.vencido_cent} />,
-              emphasis: panel.dinero_sale.vencido_cent > 0,
+              status: panel.dinero_sale.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
             },
             { label: t.overview.money.thisWeek, value: <Money cents={panel.dinero_sale.semana_cent} /> },
           ]}
@@ -133,7 +141,7 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
                     value: fmt(deadline.dias_para_limite === 1 ? t.overview.vat.dayLeft : t.overview.vat.daysLeft, {
                       n: deadline.dias_para_limite ?? 0,
                     }),
-                    emphasis: (deadline.dias_para_limite ?? 99) <= 14,
+                    status: deadlineStatus ? { group: 'btw', state: deadlineStatus } : undefined,
                   },
                 ]
               : []
@@ -174,7 +182,7 @@ function NextUpRow({ row, onOpen }: { row: InvoiceRow; onOpen: () => void }) {
         className='grid w-full grid-cols-[8.5rem_minmax(10rem,15rem)_7.5rem_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-[#f4f1ea]'
       >
         <span>
-          <PriorityPill priority={row.nivel} />
+          <StatusPill group='prioridad' state={row.nivel} />
         </span>
         <span className='flex min-w-0 flex-col'>
           <span className='truncate font-mono text-[12.5px] font-medium text-primary'>{row.numero ?? '—'}</span>

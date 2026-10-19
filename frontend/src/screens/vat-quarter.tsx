@@ -15,20 +15,19 @@ import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading, errorMessage } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { VAT_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
-import { actionText, ruleText, stateLabel } from '@/i18n/domain';
+import { actionText, ruleText } from '@/i18n/domain';
 import { vatQuarterPath } from '@/lib/api';
 import type { VatQuarter, VatRubric } from '@/lib/api-types';
 import { MINUS, formatCents, formatDateProse, formatMoney, idToQuarter, quarterLabel } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
 import { recordRoute } from './registry';
-import { Deadline, balanceText } from './vat';
+import { ConfigNotConfirmed, Deadline, balanceText } from './vat';
 import { useLoad } from './use-load';
 
 /** Un importe para escribirlo en un campo: "4.743,86" o "-409,70" (el menos de teclado). */
@@ -63,7 +62,7 @@ export function VatQuarterScreen({ id, tabId }: { id: number; tabId: string }) {
 }
 
 function QuarterDetail({ quarter: q, title }: { quarter: VatQuarter; title: string }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const c = q.cifras;
   const balance = c['5c'];
   return (
@@ -75,7 +74,7 @@ function QuarterDetail({ quarter: q, title }: { quarter: VatQuarter; title: stri
       />
       <FactStrip>
         <Fact label={t.vat.status}>
-          <StatusText tone={VAT_TONE[q.estado] ?? 'neutral'}>{stateLabel(lang, 'btw', q.estado) ?? q.estado}</StatusText>
+          <StatusPill group='btw' state={q.estado} />
         </Fact>
         <Fact label={t.vat.balance} note={balance > 0 ? t.vat.toPayShort : balance < 0 ? t.vat.refundShort : undefined}>
           <Money cents={Math.abs(balance)} className='text-[15px] font-semibold' />
@@ -93,7 +92,7 @@ function QuarterDetail({ quarter: q, title }: { quarter: VatQuarter; title: stri
           <Money cents={c.iva_deducible_cent} className='text-[15px] font-semibold' />
         </Fact>
       </FactStrip>
-      {!q.configuracion.confirmada && <p className='-mt-4 mb-6 text-[13px] text-late-foreground'>{t.vat.configNotConfirmed}</p>}
+      {!q.configuracion.confirmada && <ConfigNotConfirmed className='-mt-4 mb-6' />}
 
       <section aria-labelledby='vat-attention' className='mb-8'>
         <h2 id='vat-attention' className='mb-3 text-[16px] font-semibold'>

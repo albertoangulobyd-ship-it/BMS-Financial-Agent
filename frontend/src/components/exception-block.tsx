@@ -3,30 +3,29 @@
 // resolverla). La usan la ficha de una factura y la pantalla de Uitzonderingen. Cada
 // orden lleva la rev de la excepcion que se vio (concurrencia optimista).
 import { ActionButton } from '@/components/action-dialog';
-import { StatusText } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { fmt, useT } from '@/i18n';
 import { stateLabel } from '@/i18n/domain';
 import type { ExceptionInfo, Person } from '@/lib/api-types';
 import { formatDateProse, todayIso } from '@/lib/format';
 import { useCan, useSession } from '@/lib/session';
 import { daysBetween } from '@/lib/text';
-import { EXCEPTION_TONE } from '@/components/tones';
 
 const WAITING_ON = ['proveedor', 'cliente', 'contable', 'exact', 'trnsprnt', 'banco', 'otro'] as const;
 const RESOLUTIONS = ['corregido', 'aceptado', 'anulado', 'no_procede', 'condicion_desaparecida'] as const;
 
 export function ExceptionStatus({ exception }: { exception: ExceptionInfo }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const age = daysBetween(exception.creada_en, todayIso());
-  const waiting = exception.estado === 'esperando_externo' && exception.esperando_a;
-  const status = waiting
-    ? fmt(t.exceptions.waitingOn, { who: stateLabel(lang, 'esperando_a', exception.esperando_a) ?? exception.esperando_a ?? '' })
-    : (stateLabel(lang, 'excepcion', exception.estado) ?? exception.estado);
   const ageText =
     age === null ? null : age <= 0 ? t.exceptions.openedToday : fmt(age === 1 ? t.exceptions.ageOne : t.exceptions.age, { n: age });
   return (
-    <div className='flex flex-col gap-0.5 text-[13px]'>
-      <StatusText tone={EXCEPTION_TONE[exception.estado] ?? 'neutral'}>{status}</StatusText>
+    <div className='flex flex-col items-start gap-1 text-[13px]'>
+      <StatusPill
+        group='excepcion'
+        state={exception.estado}
+        values={exception.esperando_a ? { esperando_a: exception.esperando_a } : undefined}
+      />
       <span className='text-muted-foreground'>
         {exception.responsable ? fmt(t.exceptions.owner, { name: exception.responsable }) : t.exceptions.noOwner}
         {ageText && ` · ${ageText}`}

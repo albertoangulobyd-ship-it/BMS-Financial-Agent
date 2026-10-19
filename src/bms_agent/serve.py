@@ -989,11 +989,13 @@ class Manejador(BaseHTTPRequestHandler):
         if self.aislamiento is None:
             entorno = "contenedor" if self.server.server_address[0] == TODAS else "local"
             return {"aplica": False, "entorno": entorno, "correcto": None, "papeles": []}
-        malos = set(app_local.papeles_con_problemas(self._problemas_aislamiento()))
         problemas = self._problemas_aislamiento()
+        # estado (contrato 2.1, clave nueva): correcto, falla, sin_comprobar o caducada,
+        # para que la app diga cual de las tres cosas pasa sin copiar el texto del problema.
+        estados = app_local.estados_de_papeles(problemas)
         return {"aplica": True, "entorno": "nativo", "correcto": not problemas,
-                "papeles": [{"papel": rol, "bien": rol not in malos and not (
-                    problemas and not malos)} for rol in ROLES]}
+                "papeles": [{"papel": rol, "bien": estados.get(rol, "falla") == "correcto",
+                             "estado": estados.get(rol, "falla")} for rol in ROLES]}
 
     def _importar_v2(self) -> None:
         """Importar un fichero desde la app (importar_web.py): la misma orden que `bms-agent

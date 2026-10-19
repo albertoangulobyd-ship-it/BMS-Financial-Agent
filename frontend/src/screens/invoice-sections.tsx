@@ -6,7 +6,7 @@ import { Download, FileText } from 'lucide-react';
 import { useState } from 'react';
 import { ActionButton } from '@/components/action-dialog';
 import { errorMessage, ErrorState, Loading, TechnicalDetail } from '@/components/states';
-import { StatusText } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Hours, Money } from '@/components/values';
@@ -137,12 +137,10 @@ export function RelationsList({ invoice, onDone }: { invoice: InvoiceDetail; onD
                 </span>
               )}
             </p>
-            <p className='mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground'>
-              <StatusText tone={r.estado === 'confirmada' ? 'ok' : r.estado === 'rechazada' ? 'muted' : 'attention'}>
-                {stateLabel(lang, 'relacion', r.estado) ?? r.estado}
-              </StatusText>
+            <div className='mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground'>
+              <StatusPill group='relacion' state={r.estado} />
               <span>{fmt(t.relations.source, { source: stateLabel(lang, 'fuente_relacion', r.fuente) ?? r.fuente })}</span>
-            </p>
+            </div>
             {r.evidencia_doc && (
               <p className='mt-1 text-xs text-muted-foreground'>
                 {t.relations.evidence} <span className='text-foreground'>{r.evidencia_doc}</span>
@@ -175,7 +173,7 @@ export function RelationsList({ invoice, onDone }: { invoice: InvoiceDetail; onD
 }
 
 export function PlanningTable({ invoice }: { invoice: InvoiceDetail }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const shifts = invoice.conciliacion.flatMap((c) => c.turnos);
   if (!shifts.length) return <p className='text-muted-foreground'>{t.sections.noPlanning}</p>;
   return (
@@ -209,7 +207,9 @@ export function PlanningTable({ invoice }: { invoice: InvoiceDetail }) {
               <td className={`${cell} text-right`}>
                 <Hours mil={s.horas_asignadas_mil} />
               </td>
-              <td className={cell}>{stateLabel(lang, 'turno', s.estado) ?? s.estado}</td>
+              <td className={cell}>
+                <StatusPill group='turno' state={s.estado} />
+              </td>
             </tr>
           ))}
         </tbody>

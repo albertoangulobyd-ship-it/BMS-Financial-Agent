@@ -9,15 +9,13 @@ import { AttentionList } from '@/components/attention-list';
 import { DataTable, type Columns } from '@/components/data-table';
 import { Fact, FactStrip } from '@/components/fact-strip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { ACCOUNT_TONE, PAYMENT_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Hours, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
-import { paymentStateLabel, ruleText, stateLabel } from '@/i18n/domain';
+import { ruleText, stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { PartyInvoice, PartyView, ProposedRelation } from '@/lib/api-types';
 import { formatHours, formatMoney } from '@/lib/format';
@@ -82,7 +80,7 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
       <PageHeader title={p.nombre} description={description} meta={p.exact_id ? `Exact ${p.exact_id}` : undefined} />
       <FactStrip>
         <Fact label={t.columns.priority} note={reason}>
-          <PriorityPill priority={p.prioridad.nivel} />
+          <StatusPill group='prioridad' state={p.prioridad.nivel} />
         </Fact>
         <Fact
           label={t.parties.outstanding}
@@ -191,10 +189,7 @@ function UnbilledFact({ party: p }: { party: PartyView }) {
 }
 
 function PaymentState({ state }: { state: string | null }) {
-  const { t, lang } = useT();
-  return (
-    <StatusText tone={PAYMENT_TONE[state ?? ''] ?? 'neutral'}>{paymentStateLabel(lang, state) ?? t.common.unknown}</StatusText>
-  );
+  return <StatusPill group='pago' state={state} />;
 }
 
 function InvoiceNumber({ value }: { value: string | null }) {
@@ -307,7 +302,7 @@ function PerObject({ party: p }: { party: PartyView }) {
 }
 
 function Accounts({ party: p }: { party: PartyView }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   type Row = NonNullable<PartyView['ibanes']>['registro'][number];
   const yesNo = (v: boolean) => (v ? t.parties.yes : t.parties.no);
   const columns: Columns<Row> = [
@@ -315,7 +310,7 @@ function Accounts({ party: p }: { party: PartyView }) {
     {
       key: 'state',
       header: t.parties.status,
-      cell: (r) => <StatusText tone={ACCOUNT_TONE[r.estado] ?? 'neutral'}>{stateLabel(lang, 'cuenta', r.estado) ?? r.estado}</StatusText>,
+      cell: (r) => <StatusPill group='cuenta' state={r.estado} />,
     },
     { key: 'exact', header: t.parties.inExact, width: '7rem', cell: (r) => yesNo(r.en_exact) },
     { key: 'payable', header: t.parties.payable, width: '7rem', cell: (r) => yesNo(r.pagable) },

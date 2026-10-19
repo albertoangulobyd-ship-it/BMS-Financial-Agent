@@ -4,11 +4,10 @@
 // ordenes: aceptar, cerrar, corregir). Lo aceptado sigue a la vista, en gris. El codigo de
 // la regla va pequeno.
 import { CircleCheck } from 'lucide-react';
-import { StatusText } from '@/components/status-text';
-import { FINDING_TONE, SEVERITY_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { fmt, useT } from '@/i18n';
-import { findingDetail, ruleText, severityLabel, stateLabel } from '@/i18n/domain';
+import { findingDetail, ruleText } from '@/i18n/domain';
 import type { Json } from '@/lib/api-types';
 
 export interface AttentionItem {
@@ -115,12 +114,8 @@ function AttentionCard({ item: h }: { item: AttentionItem }) {
         <h3 id={`attention-${h.id}`} className='text-[14.5px] font-semibold'>
           {rule?.title ?? h.regla}
         </h3>
-        <span className='flex items-center gap-3 text-xs'>
-          {accepted ? (
-            <StatusText tone={FINDING_TONE.aceptado}>{stateLabel(lang, 'hallazgo', h.estado) ?? h.estado}</StatusText>
-          ) : (
-            <StatusText tone={SEVERITY_TONE[h.severidad] ?? 'neutral'}>{severityLabel(lang, h.severidad) ?? h.severidad}</StatusText>
-          )}
+        <span className='flex items-center gap-2 text-xs'>
+          {accepted ? <StatusPill group='hallazgo' state={h.estado} /> : <StatusPill group='severidad' state={h.severidad} />}
           <span className='font-mono text-[11px] text-muted-foreground' title={t.invoice.ruleCodeHelp}>
             {h.regla}
           </span>

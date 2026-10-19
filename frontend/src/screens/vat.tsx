@@ -8,17 +8,16 @@ import { DataTable, type Columns } from '@/components/data-table';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { VAT_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText } from '@/components/values';
 import { fmt, useT, type Messages } from '@/i18n';
-import { stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { VatSummary } from '@/lib/api-types';
 import { formatMoney, quarterLabel, quarterToId } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
+import { cn } from '@/lib/utils';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
 
@@ -90,7 +89,7 @@ export function VatScreen() {
 }
 
 function VatList({ summary }: { summary: VatSummary }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const { openRoute } = useTabs();
   const rows = quarterRows(summary);
   const columns: Columns<QuarterRow> = [
@@ -105,7 +104,7 @@ function VatList({ summary }: { summary: VatSummary }) {
       key: 'status',
       header: t.vat.status,
       width: '15rem',
-      cell: (r) => <StatusText tone={VAT_TONE[r.estado] ?? 'neutral'}>{stateLabel(lang, 'btw', r.estado) ?? r.estado}</StatusText>,
+      cell: (r) => <StatusPill group='btw' state={r.estado} />,
     },
     { key: 'balance', header: t.vat.balance, align: 'right', width: '11rem', cell: (r) => <span className='num'>{balanceText(r.saldo_cent, t)}</span> },
     { key: 'deadline', header: t.vat.deadline, width: '10rem', cell: (r) => <Deadline row={r} /> },
@@ -117,9 +116,7 @@ function VatList({ summary }: { summary: VatSummary }) {
         <Info className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground' aria-hidden='true' />
         <span>{t.vat.note}</span>
       </p>
-      {!summary.actual.configuracion.confirmada && (
-        <p className='text-[13px] text-late-foreground'>{t.vat.configNotConfirmed}</p>
-      )}
+      {!summary.actual.configuracion.confirmada && <ConfigNotConfirmed />}
       <DataTable
         columns={columns}
         rows={rows}
@@ -136,18 +133,44 @@ function VatList({ summary }: { summary: VatSummary }) {
   );
 }
 
+/** Cuando el plazo pide atencion: pasado y sin aangifte (error) o a 14 dias o menos
+ *  (warning, con los dias que quedan); con mas margen, solo los dias, en gris. */
+export const DEADLINE_CLOSE_DAYS = 14;
+
+export function deadlineState(row: Pick<QuarterRow, 'estado' | 'dias_para_limite'>): 'plazo_vencido' | 'plazo_cerca' | null {
+  const days = row.dias_para_limite;
+  if (row.estado === 'presentado' || days === null) return null;
+  if (days < 0) return 'plazo_vencido';
+  return days <= DEADLINE_CLOSE_DAYS ? 'plazo_cerca' : null;
+}
+
 export function Deadline({ row }: { row: Pick<QuarterRow, 'estado' | 'limite_presentacion' | 'dias_para_limite'> }) {
   const { t } = useT();
   const days = row.dias_para_limite;
   const filed = row.estado === 'presentado';
+  const state = deadlineState(row);
   return (
-    <span className='flex flex-col'>
+    <span className='flex flex-col items-start gap-1'>
       <DateText value={row.limite_presentacion} />
-      {!filed && days !== null && (
-        <span className={days < 0 ? 'text-xs font-medium text-late-foreground' : days <= 14 ? 'text-xs text-late-foreground' : 'text-xs text-muted-foreground'}>
-          {days < 0 ? t.vat.late : fmt(days === 1 ? t.vat.dayLeft : t.vat.daysLeft, { n: days })}
-        </span>
+      {state ? (
+        <StatusPill group='btw' state={state} values={days !== null ? { n: days } : undefined} />
+      ) : (
+        !filed &&
+        days !== null && (
+          <span className='text-xs text-muted-foreground'>{fmt(days === 1 ? t.vat.dayLeft : t.vat.daysLeft, { n: days })}</span>
+        )
       )}
     </span>
+  );
+}
+
+/** La configuracion del btw sin confirmar con el asesor: el estado y, al lado, la frase. */
+export function ConfigNotConfirmed({ className }: { className?: string }) {
+  const { t } = useT();
+  return (
+    <p className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]', className)}>
+      <StatusPill group='btw_config' state='sin_confirmar' />
+      <span>{t.vat.configNotConfirmed}</span>
+    </p>
   );
 }

@@ -10,8 +10,7 @@ import { CircleCheck, Phone } from 'lucide-react';
 import { ActionButton } from '@/components/action-dialog';
 import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { ACCOUNT_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { fmt, useT } from '@/i18n';
@@ -142,10 +141,12 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
     <article className='rounded-md border border-border bg-card px-5 py-4' aria-label={`${c.provider ?? ''} ${shown}`}>
       <header className='flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1'>
         <h2 className='text-[15px] font-semibold'>{provider?.nombre ?? c.provider ?? '—'}</h2>
-        {c.account && (
-          <StatusText tone={ACCOUNT_TONE[c.account.estado] ?? 'neutral'}>
-            {stateLabel(lang, 'cuenta', c.account.estado) ?? c.account.estado}
-          </StatusText>
+        {/* Una cuenta del registro dice su estado; un IBAN visto solo en una factura (un
+            aviso F) esta por verificar. */}
+        {c.account ? (
+          <StatusPill group='cuenta' state={c.account.estado} />
+        ) : (
+          <StatusPill group='iban_control' state='por_verificar' />
         )}
       </header>
       <dl className='mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-[13px] md:grid-cols-[11rem_1fr]'>
@@ -192,7 +193,10 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
               {phone}
             </span>
           ) : (
-            <span className='text-late-foreground'>{t.iban.noPhone}</span>
+            <span className='flex flex-col items-start gap-1'>
+              <StatusPill group='iban_control' state='sin_telefono' />
+              <span className='text-muted-foreground'>{t.iban.noPhoneHelp}</span>
+            </span>
           )}
         </dd>
       </dl>
@@ -272,13 +276,14 @@ function TypedMatch({ typed, seen }: { typed: string; seen: string }) {
   const value = compactIban(typed);
   if (value.length < 8) return null;
   return value === seen ? (
-    <p className='text-[13px]'>
-      <StatusText tone='ok'>{t.iban.matches}</StatusText>
-    </p>
+    <div className='text-[13px]'>
+      <StatusPill group='iban_tecleado' state='coincide' />
+    </div>
   ) : (
-    <p role='status' className='text-[13px]'>
-      <StatusText tone='late'>{t.iban.differs}</StatusText>
-    </p>
+    <div role='status' className='flex flex-col items-start gap-1 text-[13px]'>
+      <StatusPill group='iban_tecleado' state='difiere' />
+      <span>{t.iban.differsHelp}</span>
+    </div>
   );
 }
 

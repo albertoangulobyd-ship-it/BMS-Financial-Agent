@@ -315,7 +315,10 @@ no conoce.
   `GET /api/v2/personas` los suyos;
 - cuatro lecturas nuevas para la app (`GET /api/v2/importaciones`,
   `GET /api/v2/lectura`, `GET /api/v2/empresa`, `GET /api/v2/aislamiento`) y una
-  orden, `POST /api/v2/importar` (abajo, «Importar desde la app»).
+  orden, `POST /api/v2/importar` (abajo, «Importar desde la app»);
+- cada papel de `GET /api/v2/aislamiento` lleva, además de `bien`, su `estado`
+  (`correcto`, `falla`, `sin_comprobar` o `caducada`), para que la pastilla de la
+  app diga cuál de las tres cosas pasa.
 
 Con eso la app de la oficina (`/app`) escribe en neerlandés o en inglés el
 detalle de cada hallazgo y el «por qué» de cada fila, con las plantillas de
@@ -560,7 +563,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/importaciones` | Las últimas 30 importaciones (qué, de cuándo, quién, cómo acabó), lo que se puede importar (`tipos`: cada `fuente` y `tipo`), el tamaño máximo de un fichero (`limite_bytes`) y de cuándo es cada fuente (`fuentes`, como `GET /api/v2/fuentes`) | — |
 | `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no) | — |
 | `GET /api/v2/empresa` | La identidad de BM Support BV que usan las reglas (`nombre`, `otros_nombres`, `btw_id`, `kvk`, `cuentas_propias`, `completa`). Se cambia con `empresa.bat`, no desde la app | — |
-| `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien`). No copia el texto de los problemas (sale de un fichero que se puede escribir) | — |
+| `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien` y `estado`: `correcto`, `falla`, `sin_comprobar` o `caducada`, comprobado hace demasiado o con una fecha que no vale). No copia el texto de los problemas (sale de un fichero que se puede escribir): `estado` sale solo de cómo empieza cada problema | — |
 
 ### Los errores (`error` y `codigo`)
 

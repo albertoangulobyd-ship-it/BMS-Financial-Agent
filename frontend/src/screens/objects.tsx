@@ -5,7 +5,7 @@
 import { DataTable, type Columns } from '@/components/data-table';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
@@ -49,7 +49,7 @@ function ObjectsTable({ list, query, setQuery }: { list: ObjectsList; query: str
   const shown = rows.filter((r) => matches(query, r.codigo, r.nombre, r.cliente));
   const year = { year: list.ano };
   const columns: Columns<ObjectRow> = [
-    { key: 'priority', header: t.columns.priority, width: '8rem', cell: (r) => <PriorityPill priority={r.nivel} /> },
+    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
     {
       key: 'object',
       header: t.objects.object,

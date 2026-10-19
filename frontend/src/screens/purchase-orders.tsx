@@ -5,7 +5,7 @@
 import { DataTable, type Columns } from '@/components/data-table';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
@@ -50,7 +50,7 @@ function PoTable({ rows, query, setQuery }: { rows: PoRow[]; query: string; setQ
   if (rows.length === 0) return <EmptyState title={t.empty.nothingHere} text={t.pos.empty} />;
   const shown = rows.filter((r) => matches(query, r.numero, r.parte.nombre));
   const columns: Columns<PoRow> = [
-    { key: 'priority', header: t.columns.priority, width: '8rem', cell: (r) => <PriorityPill priority={r.nivel} /> },
+    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
     {
       key: 'po',
       header: t.pos.po,
@@ -111,8 +111,8 @@ function PoCell({ row: r }: { row: PoRow }) {
       <span className='text-xs font-normal text-muted-foreground'>
         {stateLabel(lang, 'lado_po', r.lado) ?? r.lado} ·{' '}
         <span className='whitespace-nowrap'>{r.fecha_fin ? fmt(t.pos.until, { date: formatDate(r.fecha_fin) }) : t.pos.noEnd}</span>
-        {r.cerrada && ` · ${t.pos.closed}`}
       </span>
+      {r.cerrada && <StatusPill group='po' state='cerrada' className='mt-1' />}
     </span>
   );
 }

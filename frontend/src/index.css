@@ -4,8 +4,9 @@
 /*
  * Option B (Workbench), solo tema claro: fondo blanco roto calido, texto casi negro, un
  * unico acento verde azulado, lineas finas y nada de sombras salvo en lo que flota
- * (menus, tooltips, la hoja del movil). Los pares de prioridad cambian de luminosidad,
- * no solo de tono, y siempre van con su texto.
+ * (menus, tooltips, la hoja del movil). Los estados (prioridades incluidas) son la
+ * pastilla del dueno (components/ui/status.tsx, via components/status-pill.tsx), con los
+ * tonos de Tailwind y --destructive, y siempre con su texto.
  */
 
 /* Las fuentes van en el paquete (sin red): solo latin y solo los pesos que se usan. */
@@ -78,25 +79,16 @@
   --sidebar-border: #e2ded5;
   --sidebar-ring: #0e5f5c;
 
-  /* Prioridades: Bloqueada, Urgente, Atencion y Normal (fondo, texto y borde). */
+  /* La insignia de la Werklijst cuando hay facturas bloqueadas (una cuenta, no un estado). */
   --pill-blocked: #8a3a0c;
   --pill-blocked-foreground: #ffffff;
-  --pill-blocked-border: #8a3a0c;
-  --pill-urgent: #f4c39c;
-  --pill-urgent-foreground: #4a1f03;
-  --pill-urgent-border: #dfa173;
-  --pill-attention: #e4ecf6;
-  --pill-attention-foreground: #1d4673;
-  --pill-attention-border: #bcd0e8;
-  --pill-normal: #efece5;
-  --pill-normal-foreground: #45423c;
-  --pill-normal-border: #d6d1c6;
 
-  /* Estados en texto: lo que esta bien, lo que va tarde y lo que no se sabe. */
-  --ok: #e2f0e5;
+  /* El icono de "nada pendiente"; los avisos de error de un formulario y las cifras que van
+     mal (un importe vencido, un margen negativo). Un estado en palabras nunca: ese va en la
+     pastilla (components/status-pill.tsx). */
   --ok-foreground: #1d5229;
-  --ok-border: #b9d9c1;
   --late-foreground: #6e2f07;
+  /* La banda TESTGEGEVENS que pone el servidor (.bms-banda-prueba). */
   --testdata: #f6dc8a;
   --testdata-foreground: #3f2e00;
   --testdata-border: #d9bb5c;
@@ -148,24 +140,9 @@
 
   --color-pill-blocked: var(--pill-blocked);
   --color-pill-blocked-foreground: var(--pill-blocked-foreground);
-  --color-pill-blocked-border: var(--pill-blocked-border);
-  --color-pill-urgent: var(--pill-urgent);
-  --color-pill-urgent-foreground: var(--pill-urgent-foreground);
-  --color-pill-urgent-border: var(--pill-urgent-border);
-  --color-pill-attention: var(--pill-attention);
-  --color-pill-attention-foreground: var(--pill-attention-foreground);
-  --color-pill-attention-border: var(--pill-attention-border);
-  --color-pill-normal: var(--pill-normal);
-  --color-pill-normal-foreground: var(--pill-normal-foreground);
-  --color-pill-normal-border: var(--pill-normal-border);
 
-  --color-ok: var(--ok);
   --color-ok-foreground: var(--ok-foreground);
-  --color-ok-border: var(--ok-border);
   --color-late-foreground: var(--late-foreground);
-  --color-testdata: var(--testdata);
-  --color-testdata-foreground: var(--testdata-foreground);
-  --color-testdata-border: var(--testdata-border);
 }
 
 /* Cifras alineadas: todas las columnas de importes y horas. */

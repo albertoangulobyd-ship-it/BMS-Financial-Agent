@@ -9,9 +9,9 @@ import { DataTable, type Columns } from '@/components/data-table';
 import { Fact, FactStrip } from '@/components/fact-strip';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
@@ -23,6 +23,17 @@ import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
+
+// Lo que dice el estado de una PO, de sus hallazgos abiertos (las reglas P): junto a lo que
+// queda, lo del valor y el plazo (P6, P4, P5, P7); junto a la prevision, lo esperado (P10,
+// P9, P8). Una pastilla por dato, la mas seria; la variante la pone components/status-pill
+// (grupo po_senal) y el detalle sigue en "Wat aandacht nodig heeft".
+const LEFT_SIGNALS = ['P6', 'P4', 'P5', 'P7'] as const;
+const FORECAST_SIGNALS = ['P10', 'P9', 'P8'] as const;
+
+export function poSignal(open: ReadonlySet<string>, order: readonly string[]): string | null {
+  return order.find((code) => open.has(code)) ?? null;
+}
 
 export function PurchaseOrderScreen({ id, tabId }: { id: number; tabId: string }) {
   const { t } = useT();
@@ -59,6 +70,9 @@ function PoDetail({ po }: { po: PoView }) {
     to: po.fecha_fin ? formatDateProse(po.fecha_fin, t) : t.pos.noEnd,
   });
   const first = po.avisos.hallazgos.find((h) => h.estado === 'abierto');
+  const open = new Set(po.avisos.hallazgos.filter((h) => h.estado === 'abierto').map((h) => h.regla));
+  const leftSignal = poSignal(open, LEFT_SIGNALS);
+  const forecastSignal = poSignal(open, FORECAST_SIGNALS);
   const reason = first ? ruleText(lang, first.regla)?.title : null;
   const runsOut = po.prevision?.agotamiento ?? null;
   const beforeEnd = runsOut && (!po.fecha_fin || runsOut <= po.fecha_fin);
@@ -81,7 +95,7 @@ function PoDetail({ po }: { po: PoView }) {
       {po.cerrada && <p className='mb-6 rounded-md border border-border bg-muted px-4 py-3'>{t.pos.closedNote}</p>}
       <FactStrip>
         <Fact label={t.columns.priority} note={reason}>
-          <PriorityPill priority={po.prioridad.nivel} />
+          <StatusPill group='prioridad' state={po.prioridad.nivel} />
         </Fact>
         <Fact
           label={t.pos.value}
@@ -93,18 +107,24 @@ function PoDetail({ po }: { po: PoView }) {
           <Money cents={po.consumido_cent} className='text-[15px] font-semibold' />
         </Fact>
         <Fact label={t.pos.left} note={po.fecha_fin ? fmt(t.pos.until, { date: formatDateProse(po.fecha_fin, t) }) : t.pos.noEnd}>
-          <Money
-            cents={po.restante_cent}
-            className={po.restante_cent <= 0 ? 'text-[15px] font-semibold text-late-foreground' : 'text-[15px] font-semibold'}
-          />
+          <span className='flex flex-col items-start gap-1'>
+            <Money
+              cents={po.restante_cent}
+              className={po.restante_cent <= 0 ? 'text-[15px] font-semibold text-late-foreground' : 'text-[15px] font-semibold'}
+            />
+            {leftSignal && <StatusPill group='po_senal' state={leftSignal} />}
+          </span>
         </Fact>
         <Fact label={t.pos.forecast} note={expected !== null ? fmt(t.pos.expected, { amount: formatMoney(expected) }) : undefined}>
-          <span className={beforeEnd ? 'text-[15px] font-semibold text-late-foreground' : 'text-[15px] font-semibold'}>
-            {runsOut
-              ? beforeEnd
-                ? fmt(t.pos.runsOut, { date: formatDateProse(runsOut, t) })
-                : t.pos.lasts
-              : t.pos.tooEarly}
+          <span className='flex flex-col items-start gap-1'>
+            <span className='text-[15px] font-semibold'>
+              {runsOut
+                ? beforeEnd
+                  ? fmt(t.pos.runsOut, { date: formatDateProse(runsOut, t) })
+                  : t.pos.lasts
+                : t.pos.tooEarly}
+            </span>
+            {forecastSignal && <StatusPill group='po_senal' state={forecastSignal} />}
           </span>
         </Fact>
       </FactStrip>

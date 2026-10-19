@@ -7,7 +7,7 @@ import { CircleCheck } from 'lucide-react';
 import { DataTable, type Columns } from '@/components/data-table';
 import { FilterChips } from '@/components/filter-chips';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
+import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
@@ -68,7 +68,7 @@ function QueueTable({
   const shown = rows.filter((r) => (filter === 'all' || r.nivel === filter) && matches(query, r.numero, r.contraparte));
 
   const columns: Columns<InvoiceRow> = [
-    { key: 'priority', header: t.columns.priority, width: '8rem', cell: (r) => <PriorityPill priority={r.nivel} /> },
+    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
     {
       key: 'invoice',
       header: t.columns.invoice,

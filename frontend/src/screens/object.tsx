@@ -11,15 +11,13 @@ import { FilterChips } from '@/components/filter-chips';
 import { HelpTip } from '@/components/help-tip';
 import { InvoiceAttentionList } from '@/components/invoice-attention';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
-import { PAYMENT_TONE } from '@/components/tones';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Hours, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
-import { paymentStateLabel, stateLabel } from '@/i18n/domain';
+import { stateLabel } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
 import type { ObjectInvoice, ObjectView, PoRow, WeekHours } from '@/lib/api-types';
 import { formatHours, formatPercentFromBasisPoints, todayIso } from '@/lib/format';
@@ -134,7 +132,7 @@ function ObjectDetail({
       />
       <FactStrip>
         <Fact label={t.columns.priority}>
-          <PriorityPill priority={o.prioridad.nivel} />
+          <StatusPill group='prioridad' state={o.prioridad.nivel} />
         </Fact>
         <Fact label={t.objects.revenueFact} note={periodNote}>
           <Money cents={e.ingresos_cent} className='text-[15px] font-semibold' />
@@ -220,7 +218,7 @@ export function weekLabel(week: string): string {
 }
 
 function ObjectInvoices({ rows, onOpen, caption }: { rows: ObjectInvoice[]; onOpen: (id: number) => void; caption: string }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const columns: Columns<ObjectInvoice> = [
     {
       key: 'invoice',
@@ -236,11 +234,7 @@ function ObjectInvoices({ rows, onOpen, caption }: { rows: ObjectInvoice[]; onOp
       key: 'payment',
       header: t.parties.payment,
       width: '8.5rem',
-      cell: (r) => (
-        <StatusText tone={PAYMENT_TONE[r.estado_pago ?? ''] ?? 'neutral'}>
-          {paymentStateLabel(lang, r.estado_pago) ?? t.common.unknown}
-        </StatusText>
-      ),
+      cell: (r) => <StatusPill group='pago' state={r.estado_pago} />,
     },
   ];
   return (

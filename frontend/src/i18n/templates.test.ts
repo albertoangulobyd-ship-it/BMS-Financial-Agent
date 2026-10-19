@@ -112,10 +112,17 @@ describe('las piezas', () => {
 
   it('el veredicto no aprueba nada', () => {
     const clean = verdict('en', { pendientes: 0, aceptados: 0, sin_datos: 0, campos: 0 });
-    expect(clean).toEqual({ text: 'No system objections', clean: true });
-    expect(verdict('nl', { pendientes: 3, aceptados: 1, sin_datos: 0, campos: 2 }).text).toBe(
-      'Bezwaren van het systeem: 2; Door een medewerker geaccepteerd: 1; Velden te verifiëren: 2'
-    );
+    expect(clean).toMatchObject({ text: 'No system objections', clean: true, main: { state: 'limpia' } });
+    const mixed = verdict('nl', { pendientes: 3, aceptados: 1, sin_datos: 0, campos: 2 });
+    expect(mixed.text).toBe('Bezwaren van het systeem: 2; Door een medewerker geaccepteerd: 1; Velden te verifiëren: 2');
+    // La parte mas seria es la de la pastilla (components/status-pill).
+    expect(mixed.main).toEqual({ state: 'objeciones', values: { n: 2 }, text: 'Bezwaren van het systeem: 2' });
+    expect(mixed.parts.map((p) => p.state)).toEqual(['objeciones', 'aceptadas', 'campos']);
+    expect(verdict('en', { pendientes: 1, aceptados: 1, sin_datos: 0, campos: 1 }).main.state).toBe('campos');
+    expect(verdict('en', { pendientes: 0, aceptados: 0, sin_datos: 2, campos: 0 }).main).toMatchObject({
+      state: 'limpia_sin_datos',
+      text: 'No objections in what was checked; checks without data: 2',
+    });
     for (const lang of LANGS) {
       for (const text of Object.values(catalogFor(lang).veredicto)) {
         expect(text).not.toMatch(/goedgekeurd|approved/i);

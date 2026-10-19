@@ -6,13 +6,13 @@
 // una confirmacion aparte, se importa de verdad. Debajo, de cuando es cada fuente (su
 // frescura) y, plegadas, las ultimas importaciones. Ni procesos ni red: el fichero va al
 // programa local, como cualquier orden.
-import { CircleCheck, FileUp, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { FileUp, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { DataTable, type Columns } from '@/components/data-table';
 import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading, TechnicalDetail, errorMessage } from '@/components/states';
-import { StatusText, type StatusTone } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -33,12 +33,14 @@ import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { useLoad } from './use-load';
 
-const IMPORT_TONE: Record<string, StatusTone> = {
-  aceptada: 'ok',
-  parcial: 'attention',
-  rechazada: 'blocked',
-  en_curso: 'muted',
-};
+/** Lo que diria la prueba de un lote (grupo importar_prueba): con filas rechazadas, con
+ *  errores; con avisos o con valores que chocan con uno puesto a mano, con avisos; si no, en
+ *  orden. Despues de importar manda el estado de la importacion (grupo importacion). */
+export function previewState(b: Pick<ImportBatch, 'rechazadas' | 'avisos' | 'sin_resolver'>): 'ok' | 'avisos' | 'errores' {
+  if (b.rechazadas > 0) return 'errores';
+  if (b.avisos.length > 0 || b.sin_resolver > 0) return 'avisos';
+  return 'ok';
+}
 
 /** "1,5 MB" / "320 kB": el tamano de un fichero, en notacion neerlandesa. */
 export function formatSize(bytes: number): string {
@@ -290,10 +292,7 @@ function Importer({ info }: { info: ImportsInfo }) {
           <ImportSummary result={result} done={phase === 'done'} />
           {phase === 'done' ? (
             <div className='flex flex-wrap items-center gap-3'>
-              <p className='flex items-center gap-2 font-medium text-ok-foreground'>
-                <CircleCheck className='h-4 w-4' aria-hidden='true' />
-                {t.importing.done}
-              </p>
+              <p className='font-medium'>{t.importing.done}</p>
               <Button type='button' variant='outline' size='sm' onClick={reset}>
                 {t.importing.another}
               </Button>
@@ -377,19 +376,15 @@ function Batch({ batch: b, done }: { batch: ImportBatch; done: boolean }) {
     <div className='rounded-md border border-border px-4 py-3'>
       <div className='flex flex-wrap items-baseline justify-between gap-2'>
         <p className='font-medium'>{kind}</p>
-        {/* En la proef no se dice "Ingelezen": aun no ha entrado nada. */}
-        {done && b.estado && (
-          <StatusText tone={IMPORT_TONE[b.estado] ?? 'neutral'} className='text-xs'>
-            {stateLabel(lang, 'importacion', b.estado) ?? b.estado}
-          </StatusText>
-        )}
+        {/* En la proef no se dice "Ingelezen": aun no ha entrado nada; dice como saldria. */}
+        {done && b.estado ? <StatusPill group='importacion' state={b.estado} /> : !done && <StatusPill group='importar_prueba' state={previewState(b)} />}
       </div>
       <p className='num text-[13px]'>{parts.join(' · ')}</p>
       {b.cuentas && b.cuentas.nuevas > 0 && (
         <p className='text-[13px]'>{fmt(b.cuentas.nuevas === 1 ? t.importing.accountsNewOne : t.importing.accountsNew, { n: b.cuentas.nuevas })}</p>
       )}
       {b.cuentas?.primer_maestro && <p className='text-xs text-muted-foreground'>{t.importing.firstMaster}</p>}
-      {b.sin_resolver > 0 && <p className='text-[13px] text-late-foreground'>{fmt(t.importing.unresolved, { n: b.sin_resolver })}</p>}
+      {b.sin_resolver > 0 && <p className='text-[13px]'>{fmt(t.importing.unresolved, { n: b.sin_resolver })}</p>}
       {b.rechazos.length > 0 && <Rejections batch={b} />}
       {b.avisos.length > 0 && (
         // Los avisos son la frase del importador (para el soporte): plegados, como los detalles tecnicos.
@@ -411,8 +406,8 @@ function Rejections({ batch: b }: { batch: ImportBatch }) {
   const codeText = (code: string) => t.importing.rejection[code as keyof Messages['importing']['rejection']] ?? t.importing.rejection.other;
   return (
     <div className='mt-2'>
-      <p className='flex items-center gap-1.5 text-[13px] font-medium text-late-foreground'>
-        <TriangleAlert className='h-3.5 w-3.5' aria-hidden='true' />
+      <p className='flex items-center gap-1.5 text-[13px] font-medium'>
+        <TriangleAlert className='h-3.5 w-3.5 text-muted-foreground' aria-hidden='true' />
         {t.importing.rejectionsTitle}
       </p>
       <ul className='mt-1 flex flex-col gap-1 text-[13px]'>
@@ -484,11 +479,11 @@ function Freshness({ rows }: { rows: SourceFreshness[] }) {
       width: '13rem',
       cell: (r) =>
         r.caducada === null ? (
-          <StatusText tone='muted'>{t.importing.noLimit}</StatusText>
+          <StatusPill group='fuente' state='sin_limite' />
         ) : r.caducada ? (
-          <StatusText tone='late'>{fmt(t.importing.stale, { n: limitText(r) })}</StatusText>
+          <StatusPill group='fuente' state='caducada' values={{ n: limitText(r) }} />
         ) : (
-          <StatusText tone='ok'>{t.importing.fresh}</StatusText>
+          <StatusPill group='fuente' state='al_dia' />
         ),
     },
   ];
@@ -521,7 +516,7 @@ function History({ rows }: { rows: ImportHistoryRow[] }) {
       width: '12rem',
       cell: (r) => (
         <span className='flex flex-col'>
-          <StatusText tone={IMPORT_TONE[r.estado] ?? 'neutral'}>{stateLabel(lang, 'importacion', r.estado) ?? r.estado}</StatusText>
+          <StatusPill group='importacion' state={r.estado} />
           <span className='num text-xs text-muted-foreground'>
             {fmt(r.filas_leidas === 1 ? t.importing.resultRowsOne : t.importing.resultRows, { accepted: r.filas_aceptadas, read: r.filas_leidas })}
           </span>

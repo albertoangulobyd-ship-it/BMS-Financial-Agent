@@ -5,10 +5,9 @@
 // factura en una pestana.
 import { DataTable, type Columns } from '@/components/data-table';
 import { PageHeader, Screen } from '@/components/page-header';
-import { PriorityPill } from '@/components/priority-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { StatusText } from '@/components/status-text';
+import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
@@ -20,7 +19,6 @@ import { useSession } from '@/lib/session';
 import { useTabState } from '@/lib/tab-memory';
 import { matches } from '@/lib/text';
 import { whyOf } from '@/lib/why';
-import { PAYMENT_TONE, REVIEW_TONE } from '@/components/tones';
 import { recordRoute, type NavId } from './registry';
 import { useLoad } from './use-load';
 
@@ -46,7 +44,7 @@ export function InvoiceListScreen({ navId, tabId }: { navId: Extract<NavId, 'inv
   const nav = t.nav[navId];
 
   const columns: Columns<InvoiceRow> = [
-    { key: 'priority', header: t.columns.priority, width: '8rem', cell: (r) => <PriorityPill priority={r.nivel} /> },
+    { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
     {
       key: 'invoice',
       header: t.columns.invoice,
@@ -63,15 +61,11 @@ export function InvoiceListScreen({ navId, tabId }: { navId: Extract<NavId, 'inv
     {
       key: 'status',
       header: t.columns.status,
-      width: '9.5rem',
+      width: '11rem',
       cell: (r) => (
-        <span className='flex flex-col gap-0.5'>
-          <StatusText tone={PAYMENT_TONE[r.estado_pago ?? ''] ?? 'neutral'}>
-            {paymentStateLabel(lang, r.estado_pago) ?? t.common.unknown}
-          </StatusText>
-          <StatusText tone={REVIEW_TONE[r.estado_revision ?? ''] ?? 'muted'} className='text-xs'>
-            {reviewStateLabel(lang, r.estado_revision) ?? t.common.unknown}
-          </StatusText>
+        <span className='flex flex-col items-start gap-1'>
+          <StatusPill group='pago' state={r.estado_pago} />
+          <StatusPill group='revision' state={r.estado_revision} />
         </span>
       ),
     },
