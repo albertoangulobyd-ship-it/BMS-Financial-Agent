@@ -104,3 +104,35 @@ export async function capture(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(350);
   await page.screenshot({ path: join(dir, `${name}.png`), caret: 'hide', animations: 'disabled' });
 }
+
+// Palabras que son castellano y no neerlandes ni ingles (sin las que coinciden: "los",
+// "las", "mes", "nota", "saldo", "leer", "persona", "con", "sin", "total"...). La app no
+// ensena nunca el castellano de la API; los nombres de ficheros y accesos directos
+// (copia.bat, "BMS Finanzas - Leer facturas") van marcados con data-proper-name y no
+// cuentan.
+const SPANISH = new Set([
+  'factura', 'facturas', 'proveedor', 'proveedores', 'cliente', 'clientes', 'pendiente',
+  'pendientes', 'vencida', 'vencidas', 'vencido', 'hallazgo', 'hallazgos', 'excepción',
+  'excepcion', 'excepciones', 'importe', 'importes', 'fecha', 'fechas', 'motivo', 'motivos',
+  'regla', 'reglas', 'revisión', 'revisada', 'pagada', 'pagado', 'pagar', 'pago', 'pagos',
+  'abierta', 'abierto', 'cerrada', 'cerrado', 'aceptado', 'aceptada', 'objeto', 'objetos',
+  'ninguno', 'ninguna', 'también', 'según', 'está', 'están', 'aquí', 'datos', 'trimestre',
+  'presentado', 'presentar', 'bloqueada', 'cuenta', 'cuentas', 'bancaria', 'periodo', 'semana',
+  'hoy', 'lista', 'listo', 'nueva', 'nuevo', 'añadir', 'guardar', 'cancelar', 'cerrar', 'abrir',
+  'buscar', 'importar', 'empresa', 'copia', 'estado', 'resumen', 'iva', 'aprobado', 'aprobar',
+  'cobro', 'cobrado', 'órdenes', 'qué', 'para', 'pero', 'una', 'uno', 'del', 'por', 'sí',
+  'línea', 'líneas', 'número', 'código', 'después', 'antes', 'cuando', 'porque',
+]);
+
+/** Ninguna palabra en castellano en lo que se ve (salvo los nombres propios marcados). */
+export async function expectNoSpanish(page: Page, what: string): Promise<void> {
+  const text = await page.evaluate(() => {
+    let visible = document.body.innerText;
+    for (const element of Array.from(document.querySelectorAll('[data-proper-name]'))) {
+      visible = visible.split(element.textContent ?? '').join(' ');
+    }
+    return visible;
+  });
+  const found = [...new Set((text.toLocaleLowerCase('nl-NL').match(/\p{L}+/gu) ?? []).filter((w) => SPANISH.has(w)))];
+  expect(found, `castellano en ${what}`).toEqual([]);
+}

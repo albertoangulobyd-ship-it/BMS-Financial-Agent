@@ -37,7 +37,7 @@ def test_cada_codigo_tiene_su_texto_en_los_dos_idiomas() -> None:
 
 
 _MODULOS = ("permisos", "campos", "hallazgos", "excepciones", "revision", "estados", "pagos",
-            "btw", "cuentas", "servicios")
+            "btw", "cuentas", "servicios", "importar_web", "almacen", "importadores.planning")
 
 
 def test_cada_excepcion_con_codigo_usa_uno_de_la_lista() -> None:

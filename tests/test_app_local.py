@@ -412,14 +412,20 @@ def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> No
     from bms_agent import servicios
 
     usadas = _ordenes_usadas()
-    assert {"anular_hallazgo", "marcar_revisada", "verificar_iban", "resolver_excepcion"} <= usadas
+    assert {"anular_hallazgo", "marcar_revisada", "verificar_iban", "resolver_excepcion",
+            "btw_lista_para_revision"} <= usadas
     assert usadas <= set(servicios.ACCIONES), usadas - set(servicios.ACCIONES)
     # Pagar, aprobar un pago, presentar el btw o crear una factura no existen en
     # servicios.py, y la app no los nombra (marcar_pagada apunta lo pagado fuera: tampoco
     # es una orden de estas pantallas).
-    for prohibida in ("pagar", "aprobar", "presentar", "crear_factura", "marcar_pagada",
-                      "btw_anotar_presentacion"):
+    for prohibida in ("pagar", "aprobar", "presentar", "crear_factura", "marcar_pagada"):
         assert not any(prohibida in u for u in usadas), prohibida
+    # Paso 15 (B2): anotar la aangifte que una persona ya presento en el portal de la
+    # Belastingdienst (con su referencia) es una orden de estado, y solo la da la ficha del
+    # trimestre: el programa no presenta nada.
+    donde = {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
+             if "action='btw_anotar_presentacion'" in f.read_text(encoding="utf-8")}
+    assert donde == {"src/screens/vat-quarter.tsx"}, donde
 
 
 def test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios() -> None:

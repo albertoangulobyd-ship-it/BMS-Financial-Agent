@@ -43,3 +43,9 @@ export const ACCOUNT_TONE: Record<string, StatusTone> = {
   atestada: 'ok',
   rechazada: 'blocked',
 };
+
+export const VAT_TONE: Record<string, StatusTone> = {
+  abierto: 'neutral',
+  listo_revision: 'attention',
+  presentado: 'ok',
+};

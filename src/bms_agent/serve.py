@@ -85,7 +85,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import app_local, btw, config, consola, consultas, permisos, relaciones, servicios
+from . import (app_local, btw, config, consola, consultas, importar_web, permisos, relaciones,
+               servicios)
 from .almacen import preparar, ruta_por_defecto
 from .auditoria import AnclasDeOtraBase, anclar
 from .cache import CONSERVAR
@@ -139,6 +140,11 @@ LECTURAS_V2 = (
     ("/api/v2/cuentas", ()),
     ("/api/v2/acciones", ()),
     ("/api/v2/exportar", ()),
+    # Paso 15: lo que lee la app local (Importeren, Facturen lezen, Instellingen).
+    ("/api/v2/importaciones", ()),
+    ("/api/v2/lectura", ()),
+    ("/api/v2/empresa", ()),
+    ("/api/v2/aislamiento", ()),
 )
 _BUSCAR = "/api/v2/buscar"
 _PARAMETROS_V2 = {ruta: parametros for ruta, parametros in LECTURAS_V2}
@@ -604,10 +610,12 @@ class Manejador(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(datos)
 
-    def _cuerpo_json(self, maximo: int) -> dict[str, Any] | None:
+    def _cuerpo_json(self, maximo: int, *, codigo_grande: str = "demasiado_grande"
+                     ) -> dict[str, Any] | None:
         """El cuerpo de un POST: application/json, un objeto, de un tamano razonable.
 
-        Contesta el error y devuelve None si no lo es.
+        Contesta el error y devuelve None si no lo es. `codigo_grande`: el codigo de un
+        cuerpo que pasa del limite (al importar, el fichero es demasiado grande).
         """
         if self.headers.get_content_type() != "application/json":
             self._json(415, {"error": "el cuerpo tiene que ser application/json",
@@ -619,7 +627,7 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(400, {"error": "Content-Length no valido", "codigo": "invalido"})
             return None
         if largo < 0 or largo > maximo:
-            self._json(413, {"error": "cuerpo demasiado grande", "codigo": "demasiado_grande"})
+            self._json(413, {"error": "cuerpo demasiado grande", "codigo": codigo_grande})
             return None
         crudo = self.rfile.read(largo) if largo else b""
         try:
@@ -640,6 +648,9 @@ class Manejador(BaseHTTPRequestHandler):
         ruta = self.path.split("?", 1)[0].rstrip("/")
         if ruta == "/api/v2/acciones":
             self._accion_v2()
+            return
+        if ruta == "/api/v2/importar":
+            self._importar_v2()
             return
         if ruta != "/api/ejecutar":
             self._json(404, {"error": "no existe", "codigo": "no_existe"})
@@ -787,7 +798,10 @@ class Manejador(BaseHTTPRequestHandler):
                     fila = conn.execute("SELECT nombre FROM usuario WHERE id = ?",
                                         (usuario_id,)).fetchone()
                     self._json(200, {"id": usuario_id, "nombre": fila["nombre"],
-                                     "permisos": sorted(permisos.permisos_de(conn, usuario_id))})
+                                     "permisos": sorted(permisos.permisos_de(conn, usuario_id)),
+                                     "roles": permisos.roles_de(conn, usuario_id)})
+                elif self._leer_paso_15(conn, partes):
+                    pass
                 elif partes == ["facturas"]:
                     self._json(200, {"facturas": consultas.listado(
                         conn, nivel=nivel_pedido(datos))})
@@ -945,6 +959,89 @@ class Manejador(BaseHTTPRequestHandler):
         else:
             return False
         return True
+
+    def _leer_paso_15(self, conn: Any, partes: list[str]) -> bool:
+        """Las lecturas de la app local: la historia de las importaciones (con lo que se puede
+        importar y el tamano maximo), lo que ha costado leer los PDF, la identidad de la
+        empresa y el estado del aislamiento. True si la ruta era una de ellas."""
+        if partes == ["importaciones"]:
+            self._json(200, {"importaciones": importar_web.historial(conn),
+                             "tipos": [{"fuente": f, "tipo": t} for f, t in importar_web.tipos()],
+                             "limite_bytes": importar_web.MAX_FICHERO,
+                             "fuentes": consultas.fuentes(conn)})
+        elif partes == ["lectura"]:
+            self._json(200, {"lectura": {**consultas.lectura_pdf(conn),
+                                         "lee_aqui": bool(getattr(self.agente, "lectura", False))}})
+        elif partes == ["empresa"]:
+            self._json(200, {"empresa": consultas.empresa(conn)})
+        elif partes == ["aislamiento"]:
+            self._json(200, {"aislamiento": self._estado_aislamiento()})
+        else:
+            return False
+        return True
+
+    def _estado_aislamiento(self) -> dict[str, Any]:
+        """Lo que la banda roja dice, por papeles: en la instalacion nativa, cada papel bien o
+        con un problema (sin copiar el texto, que se lee de un fichero que se puede escribir);
+        fuera de ella no hay comprobacion que leer, y se dice donde se esta."""
+        from .aislamiento import ROLES
+
+        if self.aislamiento is None:
+            entorno = "contenedor" if self.server.server_address[0] == TODAS else "local"
+            return {"aplica": False, "entorno": entorno, "correcto": None, "papeles": []}
+        malos = set(app_local.papeles_con_problemas(self._problemas_aislamiento()))
+        problemas = self._problemas_aislamiento()
+        return {"aplica": True, "entorno": "nativo", "correcto": not problemas,
+                "papeles": [{"papel": rol, "bien": rol not in malos and not (
+                    problemas and not malos)} for rol in ROLES]}
+
+    def _importar_v2(self) -> None:
+        """Importar un fichero desde la app (importar_web.py): la misma orden que `bms-agent
+        importar`, con la misma persona, permiso, auditoria y todo o nada.
+
+        Como una orden: solo desde la propia app (nunca desde otro origen), con el token de la
+        persona y su permiso importar_datos, cuerpo JSON con un limite propio (el fichero va en
+        base64) y, si no es una simulacion, anclada al terminar como cualquier orden.
+        """
+        self._contrato_v2 = True
+        if self._de_otro_origen():
+            self._json(403, {"error": "se importa desde la app o la consola, no desde otro "
+                                      "origen", "codigo": "otro_origen"})
+            return
+        cuerpo = self._cuerpo_json(importar_web.MAX_CUERPO,
+                                   codigo_grande="fichero_demasiado_grande")
+        if cuerpo is None:
+            return
+        with self._almacen() as almacen:
+            conn = almacen.conn
+            usuario_id = self._persona(conn, "importar")
+            if usuario_id is None:
+                return
+            try:
+                # Antes de leer nada: quien no puede importar no sabe ni que es el fichero.
+                permisos.exigir(conn, usuario_id, "importar_datos", accion="importar desde la app")
+                peticion = importar_web.leer_peticion(cuerpo)
+                resultado = importar_web.importar(almacen, usuario_id, peticion)
+            except permisos.PermisoDenegado as exc:
+                self._json(403, {"error": str(exc), "codigo": servicios.codigo_de_error(exc)})
+                return
+            except importar_web.TipoAmbiguo as exc:
+                self._json(400, {"error": str(exc), "codigo": exc.codigo, "candidatos": [
+                    {"fuente": f, "tipo": t} for f, t in exc.candidatos]})
+                return
+            except importar_web.FicheroDemasiadoGrande as exc:
+                self._json(413, {"error": str(exc), "codigo": exc.codigo})
+                return
+            except ValueError as exc:
+                # PideConfirmacion (409) y lo demas que no se entiende o no se lee (400), cada
+                # uno con su codigo (importar_web, almacen.DatosDePrueba).
+                codigo = servicios.codigo_de_error(exc)
+                self._json(409 if codigo == "pide_confirmacion" else 400,
+                           {"error": str(exc), "codigo": codigo})
+                return
+            if almacen.ruta_anclas is not None and not peticion.simular:
+                _anclar(conn, almacen.ruta_anclas)
+        self._json(200, {"importacion": resultado})
 
     def _accion_v2(self) -> None:
         """Una orden de una persona: su token, su permiso y todo en una transaccion.
@@ -1120,6 +1217,7 @@ def servir(
           "proveedores, clientes, ordenes de compra, Objetos, BTW, flujo de caja y el "
           f"export entero (token personal; contrato {consultas.CONTRATO_V2}: /api/v2/contrato)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
+    print("  POST /api/v2/importar importar un fichero desde la app (simular primero)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")
     print("  Cambia en cada arranque. La pagina local ya lo lleva dentro.")
     print("\nOrigenes admitidos: " + ", ".join(sorted(manejador.origenes)))

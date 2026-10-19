@@ -217,6 +217,54 @@ def _razones_por_factura(conn: sqlite3.Connection) -> dict[int, list[dict[str, A
     return salida
 
 
+def _razones_por_parte(conn: sqlite3.Connection) -> dict[str, dict[int, list[dict[str, Any]]]]:
+    """Los hallazgos pendientes de cada proveedor, cliente, Objeto y PO, lo mas urgente primero
+    (contrato 2.1): el "por que" de cada fila de sus listas en la app.
+
+    Los de un proveedor o un cliente son los de sus facturas y los que lo senalan a el (lo
+    sin facturar de un cliente, V6 y V8, no es de ninguna factura); los de un Objeto, los de
+    las facturas que le imputan algo; los de una PO, los que la senalan (P5-P10). Como en las
+    facturas, los `motivos` de la prioridad son frases en espanol y la app no los ensena.
+    """
+    partes_de_factura: dict[int, list[tuple[str, int]]] = defaultdict(list)
+    for f in conn.execute("SELECT id, proveedor_id, cliente_id FROM factura"):
+        if f["proveedor_id"] is not None:
+            partes_de_factura[f["id"]].append(("proveedor", f["proveedor_id"]))
+        if f["cliente_id"] is not None:
+            partes_de_factura[f["id"]].append(("cliente", f["cliente_id"]))
+    for factura_id, objeto_id in conn.execute(
+            "SELECT DISTINCT factura_id, objeto_id FROM factura_imputacion "
+            "WHERE retirada_en IS NULL AND objeto_id IS NOT NULL"):
+        partes_de_factura[factura_id].append(("objeto", objeto_id))
+    directas: dict[int, set[tuple[str, int]]] = defaultdict(set)
+    facturas: dict[int, set[int]] = defaultdict(set)
+    tablas = ("proveedor", "cliente", "objeto", "orden_compra")
+    for hallazgo_id, tabla, fila_id in conn.execute(
+            "SELECT hallazgo_id, tabla, fila_id FROM hallazgo_objetivo"):
+        if tabla == "factura":
+            facturas[hallazgo_id].add(fila_id)
+        elif tabla in tablas:
+            directas[hallazgo_id].add((tabla, fila_id))
+    marcas = ", ".join("?" * len(ESTADOS_PENDIENTES))
+    salida: dict[str, dict[int, list[dict[str, Any]]]] = {t: defaultdict(list) for t in tablas}
+    for h in conn.execute(f"SELECT id, regla, severidad, estado, tabla, fila_id, factura_id, "
+                          f"valores_json FROM hallazgo WHERE estado IN ({marcas}) ORDER BY id",
+                          sorted(ESTADOS_PENDIENTES)):
+        destinos = set(directas.get(h["id"], set()))
+        if h["tabla"] in tablas:
+            destinos.add((h["tabla"], h["fila_id"]))
+        de_facturas = facturas.get(h["id"], set()) | (
+            {h["factura_id"]} if h["factura_id"] is not None else set())
+        for factura_id in de_facturas:
+            destinos.update(partes_de_factura.get(factura_id, ()))
+        for tabla, fila_id in destinos:
+            salida[tabla][fila_id].append(razon(h))
+    for por_fila in salida.values():
+        for lista in por_fila.values():
+            lista.sort(key=_clave_razon)
+    return salida
+
+
 def _sin_datos_de(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
     """Las reglas que no pudieron mirar una factura (evaluacion sin_datos), en el orden del
     catalogo: lo que "Sin objeciones en lo comprobado; N reglas sin datos" no dice."""
@@ -645,9 +693,13 @@ def _planning(conn: sqlite3.Connection) -> Any:
 
 
 def personas(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Las personas activas, para asignar una excepcion."""
-    return [{"id": f["id"], "nombre": f["nombre"]} for f in conn.execute(
-        "SELECT id, nombre FROM usuario WHERE es_sistema = 0 AND activo = 1 ORDER BY nombre")]
+    """Las personas activas, para asignar una excepcion; con sus roles (contrato 2.1: la lista
+    de personas de Instellingen, para quien administra)."""
+    from .permisos import roles_de
+
+    return [{"id": f["id"], "nombre": f["nombre"], "roles": roles_de(conn, f["id"])}
+            for f in conn.execute("SELECT id, nombre FROM usuario WHERE es_sistema = 0 "
+                                  "AND activo = 1 ORDER BY nombre")]
 
 
 def recursos(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -1206,6 +1258,7 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
         if getattr(f, columna) is not None:
             por_parte[getattr(f, columna)].append(f)
     prioridades = _prioridades(conn, tabla)
+    razones = _razones_por_parte(conn)[tabla]
     salida = []
     claves = {}
     for fila in conn.execute(f"SELECT id, nombre, exact_id, activo FROM {tabla} "
@@ -1221,6 +1274,8 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
             "ano_facturado_cent": resumen["ano_facturado"]["total_cent"],
             "siempre_facturado_cent": resumen["siempre_facturado"]["total_cent"],
             "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"],
+            # Contrato 2.1: sus hallazgos pendientes, para el "por que" de la app.
+            "razones": razones.get(fila["id"], []),
         })
         claves[fila["id"]] = prioridad.clave_orden(
             p["nivel"], p["puntos"], date.fromisoformat(p["vencimiento"])
@@ -1286,11 +1341,13 @@ def ordenes_compra(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     cargos = po_.cargos(conn)
     nombres = _nombres_de_partes(conn)
     prioridades = _prioridades(conn, "orden_compra")
+    razones = _razones_por_parte(conn)["orden_compra"]
     salida, claves = [], {}
     for orden in ordenes.values():
         p = prioridades.get(orden.id, _SIN_PRIORIDAD)
         salida.append({**_cabecera_po(orden, nombres), **_cifras(orden, cargos.get(orden.id, [])),
-                       "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"]})
+                       "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"],
+                       "razones": razones.get(orden.id, [])})
         claves[orden.id] = prioridad.clave_orden(
             p["nivel"], p["puntos"], date.fromisoformat(p["vencimiento"])
             if p["vencimiento"] else None, p["importe_cent"], orden.id)
@@ -1673,6 +1730,7 @@ def objetos_resumen(conn: sqlite3.Connection) -> dict[str, Any]:
     siempre = _economia_por_objeto(conn)
     ano = _economia_por_objeto(conn, hoy.replace(month=1, day=1), hoy)
     prioridades = _prioridades(conn, "objeto")
+    razones = _razones_por_parte(conn)["objeto"]
     filas = []
     for o in conn.execute("SELECT o.id, o.codigo, o.nombre, o.cliente_id, c.nombre AS cliente "
                           "FROM objeto AS o LEFT JOIN cliente AS c ON c.id = o.cliente_id "
@@ -1681,7 +1739,8 @@ def objetos_resumen(conn: sqlite3.Connection) -> dict[str, Any]:
         filas.append({"id": o["id"], "codigo": o["codigo"], "nombre": o["nombre"],
                       "cliente_id": o["cliente_id"], "cliente": o["cliente"],
                       "siempre": _de(siempre, o["id"]), "ano": _de(ano, o["id"]),
-                      "nivel": p["nivel"], "puntos": p["puntos"]})
+                      "nivel": p["nivel"], "puntos": p["puntos"],
+                      "razones": razones.get(o["id"], [])})
     venta_base, venta_n, venta_sin = _base_y_sin_imputar(conn, "saliente")
     compra_base, compra_n, compra_sin = _base_y_sin_imputar(conn, "entrante")
     sin_objeto = siempre.get(None, {})
@@ -2620,11 +2679,13 @@ CLAVES_V2 = {
                    "estado_revision", "calidad", "nivel", "puntos", "motivos", "editada",
                    "suplementada", "corregida", "sin_resolver", "cuenta", "objetos",
                    "etiqueta", "razones"),
-    "proveedores[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel"),
-    "clientes[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel"),
+    "proveedores[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
+                      "razones"),
+    "clientes[]": ("id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
+                   "razones"),
     "objetos": ("objetos", "sin_objeto", "totales"),
     "ordenes_compra[]": ("id", "numero", "lado", "parte", "valor_cent", "consumido_cent",
-                         "restante_cent", "fecha_fin", "cerrada", "nivel"),
+                         "restante_cent", "fecha_fin", "cerrada", "nivel", "razones"),
     "btw": ("hoy", "actual", "por_presentar", "anteriores", "ano_hasta_hoy"),
     "flujo_caja": ("hoy", "ventanas", "esperado", "real", "estimado"),
 }
@@ -2783,3 +2844,84 @@ def comprobar_v2(datos: dict[str, Any]) -> list[str]:
 
     sin_decimales(datos, "")
     return errores
+
+
+# ------------------------------------------------------------ la app local (paso 15)
+#
+# Dos lecturas que solo pinta la app de la oficina: lo que ha costado leer los PDF (la
+# pantalla "Facturen lezen", que no lanza nada) y la identidad de la empresa
+# (Instellingen). Las dos son de solo lectura y no llaman a nadie.
+
+_MICRO = Decimal(1_000_000)
+MAX_PASADAS = 10
+
+
+def _micro(coste: Decimal | None) -> int | None:
+    """Dolares (con seis decimales, pricing.estimate_cost) en millonesimas enteras: el
+    contrato no lleva numeros con decimales."""
+    return None if coste is None else int(coste * _MICRO)
+
+
+def lectura_pdf(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Lo que ha costado leer los PDF y lo que costaria leer uno mas, de lo que guarda el
+    almacen (cada extraccion con su consumo, extraccion.uso_json): lo mismo que dice
+    `bms-agent coste`, sin contar nada con la API (esto no tiene red).
+
+    La consola no lee PDF (no tiene internet): los lee el lector, con el acceso directo
+    "Leer facturas", que ensena lo que va a costar antes de pagar. Aqui solo se mira.
+    """
+    from statistics import median
+
+    from . import config, coste
+    from .pricing import estimate_cost
+
+    registros = [{"usage": json.loads(f["uso_json"]) if f["uso_json"] else {},
+                  "model": f["modelo"], "extracted_at": f["extraido_en"],
+                  "source_name": f["nombre_original"], "schema_version": f["schema_version"]}
+                 for f in conn.execute(
+                     "SELECT e.modelo, e.extraido_en, e.uso_json, e.schema_version, "
+                     "d.nombre_original FROM extraccion AS e "
+                     "JOIN documento AS d ON d.id = e.documento_id ORDER BY e.id")]
+    documentos = coste.leer_documentos(registros)
+    costes = [d.coste for d in documentos if d.coste is not None]
+    completo = bool(documentos) and len(costes) == len(documentos)
+    total = sum(costes, Decimal(0)) if completo else None
+    modelo = config.model_id()
+    estimacion = None
+    entradas = [d.entrada for d in documentos if d.entrada]
+    if entradas:
+        salida = coste.estimar_salida(documentos, modelo=modelo, esquema=config.SCHEMA_VERSION,
+                                      esfuerzo=config.effort())
+        entrada = int(median(entradas))
+        bajo, alto = (estimate_cost(modelo, entrada, salida.bajo),
+                      estimate_cost(modelo, entrada, salida.alto))
+        if bajo is not None and alto is not None:
+            estimacion = {"por_documento_bajo_usd_micro": _micro(bajo),
+                          "por_documento_alto_usd_micro": _micro(alto),
+                          "medida": salida.medida}
+    pasadas = coste.agrupar_en_pasadas(documentos)[:MAX_PASADAS]
+    leidos = conn.execute("SELECT count(DISTINCT documento_id) FROM extraccion").fetchone()[0]
+    return {
+        "modelo": modelo, "extracciones": len(documentos), "documentos": leidos,
+        "coste_usd_micro": _micro(total),
+        "por_documento_usd_micro": _micro((total / len(documentos)).quantize(Decimal("0.000001")))
+        if total is not None else None,
+        "ultima": max((d.cuando.isoformat() for d in documentos if d.cuando), default=None),
+        "pasadas": [{"desde": p.desde.isoformat() if p.desde else None,
+                     "hasta": p.hasta.isoformat() if p.hasta else None,
+                     "documentos": len(p.documentos), "coste_usd_micro": _micro(p.coste)}
+                    for p in pasadas],
+        "estimacion": estimacion,
+    }
+
+
+def empresa(conn: sqlite3.Connection) -> dict[str, Any]:
+    """La identidad de BM Support BV tal como la usan las reglas (la politica vigente de
+    empresa.yaml): nombre, otros nombres, btw-id, KvK y sus cuentas propias. Se cambia con
+    `bms-agent empresa fijar` (empresa.bat), no desde la app."""
+    from . import politica
+
+    e = politica.empresa(conn)
+    return {"nombre": e.nombre, "otros_nombres": list(e.otros_nombres), "btw_id": e.btw_id,
+            "kvk": e.kvk, "cuentas_propias": list(e.cuentas_propias),
+            "completa": bool(e.btw_id and e.kvk and e.cuentas_propias)}

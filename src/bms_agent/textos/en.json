@@ -3247,7 +3247,13 @@
     "orden_desconocida": "This action does not exist in this program.",
     "invalido": "The data was not accepted. Check what you filled in.",
     "tipo_no_admitido": "The request was not in the right form.",
-    "demasiado_grande": "The request is too large. Make the text shorter."
+    "demasiado_grande": "The request is too large. Make the text shorter.",
+    "fichero_no_reconocido": "This file is not recognised as an export from Exact, TRNSPRNT or the bank. Choose what kind of file it is yourself, or check the file.",
+    "tipo_ambiguo": "This file could be more than one kind of export. Choose which one it is.",
+    "fichero_no_valido": "The file does not match this kind or cannot be read. Check the file and the kind you chose.",
+    "datos_de_prueba": "Test data and real data are never mixed: this file belongs to the other database.",
+    "pide_confirmacion": "This planning would drop much of the current planning, or has weeks without shifts. Confirm that this is right and try again.",
+    "fichero_demasiado_grande": "The file is too large (more than 8 MB). Make a smaller export, for example per month."
   },
   "roles": {
     "administrador": {

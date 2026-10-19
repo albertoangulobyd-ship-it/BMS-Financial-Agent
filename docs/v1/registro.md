@@ -7317,3 +7317,158 @@ del catálogo se alinearon también).
 Leveranciers, Klanten, Objecten e Inkooporders (con sus fichas), Kasstroom, Btw,
 Importeren y Facturen lezen. Que alguien de la oficina lea los textos neerlandeses en la
 app. En el ordenador del dueño, mirar que Edge abre la ventana `--app`.
+
+### Paso 15 · resto de pantallas
+
+La última parte del paso: **todas las pantallas que faltaban**, con datos y órdenes de
+verdad sobre `/api/v2`, la **importación desde la app** (con una prueba antes) y las
+**pruebas en el navegador de cada pantalla** en los dos idiomas. La consola de antes sigue
+en `/consola`, de reserva; nada de lo que había se quitó.
+
+**Qué se construyó**
+
+- **Las pantallas** (qué contesta cada una, en [app-local.md](../app-local.md) §4.2–4.5):
+  Leveranciers y Klanten con su ficha (qué es, cinco cifras, lo que necesita atención
+  agrupado por factura con un botón para abrirla, y plegado: las facturas abiertas y todas,
+  los pagos, el reparto por Object, las cuentas con el teléfono de los maestros, el trabajo
+  sin facturar y las relaciones propuestas); Objecten con su ficha (el periodo Deze maand /
+  Vorige maand / Dit jaar, opbrengst, kosten y marge, las horas planificadas frente a las
+  facturadas, las facturas que piden a una persona y, plegado, las horas por semana, las
+  facturas y las PO); Inkooporders con su ficha (waarde, verbruikt, over y la previsión, lo
+  que necesita atención y, plegado, sus facturas y sus Objects); Kasstroom (una tabla, sin
+  gráficos, y aparte y marcada la estimación del planning); Btw con la ficha del trimestre
+  (las cifras, lo que hay que mirar, bajar el werkblad, dejarlo listo o reabrirlo y anotar
+  la aangifte que una persona ya presentó); Importeren; Facturen lezen (sin botón para
+  leer) e Instellingen (idioma, quién eres con tus permisos en palabras, la empresa y el
+  aislamiento para leer, las personas para quien administra y una frase sobre las copias).
+  Toda lista, como mucho seis columnas con «Waarom»; toda ficha, en su pestaña.
+- **`POST /api/v2/importar`** (`src/bms_agent/importar_web.py`): el fichero va en JSON, en
+  base64, como mucho 8 MB (`413 fichero_demasiado_grande` si pasa, sin leer el resto); las
+  mismas puertas que una orden (Host y Origin de la app, token, permiso `importar_datos`
+  comprobado antes de leer el fichero, con la negativa en la auditoría); la clase se
+  reconoce por el contenido (o la elige la persona, o se pide elegir entre las que encajan:
+  `400 tipo_ambiguo` con sus `candidatos`); dentro, la misma
+  `importadores.registrar.importar_fichero` que la CLI, que ahora acepta el contenido en
+  memoria (`contenido=`, también `importadores.banco.importar_extracto`): sin escribir el
+  fichero en disco, sin procesos y sin red. `simular` lo deshace todo al acabar. Contesta lo
+  que entraría o entró por lote (leídas, aceptadas, nuevas en la tabla principal,
+  cambiadas, rechazadas con su fila y su código, cuentas nuevas, avisos), los hallazgos que
+  cambian y, en un extracto, los pagos que casan.
+- **Lecturas nuevas** (contrato 2.1, solo claves añadidas): `GET /api/v2/importaciones` (la
+  historia, las clases que se pueden elegir, el límite y la frescura de cada fuente),
+  `GET /api/v2/lectura` (lecturas, documentos, coste medido, la estimación de la siguiente y
+  las últimas pasadas, de `extraccion.uso_json`, como `bms-agent coste`, sin red),
+  `GET /api/v2/empresa` y `GET /api/v2/aislamiento` (la comprobación del aislamiento por
+  papel, sin copiar ningún texto). `GET /api/v2/yo` y `GET /api/v2/personas` dan además los
+  `roles` (`permisos.roles_de`); las filas de `proveedores`, `clientes`,
+  `ordenes_compra` y `objetos` llevan `razones` (sus hallazgos pendientes, como las de las
+  facturas, para «Waarom»). Seis códigos de error nuevos, con sus textos NL/EN:
+  `fichero_no_reconocido`, `tipo_ambiguo`, `fichero_no_valido`, `datos_de_prueba`,
+  `pide_confirmacion` y `fichero_demasiado_grande`. Todo en
+  [integracion-web.md](../integracion-web.md).
+- **Las piezas nuevas**: `FactStrip` (las cifras de arriba de una ficha), `AttentionList` e
+  `InvoiceAttentionList`, `ProperName` (un nombre de fichero o de acceso directo, que no se
+  traduce: va marcado y la comprobación del castellano no lo cuenta), los tipos de lo que
+  contestan las lecturas en `lib/api-types.ts`, y en `lib/format.ts` los dólares en
+  millonésimas, los trimestres y las fechas tecleadas.
+
+**La puerta, test por test**
+
+| Lo pedido | Dónde se comprueba |
+| --- | --- |
+| Importar: la prueba dice lo que entraría y no guarda nada (el volcado entero de la base, igual antes y después) | `tests/test_importar_app.py::test_la_simulacion_dice_lo_que_entraria_y_no_guarda_nada` |
+| Importar de verdad, la historia, el mismo fichero dos veces | `::test_importar_de_verdad_guarda_queda_en_la_historia_y_no_entra_dos_veces` |
+| El permiso, antes de leer el fichero, y su negativa en la auditoría; sin token, 401; sin JSON, 415 | `::test_sin_permiso_es_un_403_antes_de_leer_el_fichero` |
+| Otro origen, un origen no permitido | `::test_desde_otro_origen_no_se_importa` |
+| El límite de tamaño (del fichero y del cuerpo) | `::test_el_limite_de_tamano_del_cuerpo_y_del_fichero` |
+| Un fichero mal hecho (base64, nombre, clase, contenido) y uno que no se reconoce; elegir la clase a mano | `::test_lo_mal_formado_dice_su_codigo_y_no_escribe_nada`, `::test_la_eleccion_explicita_y_un_fichero_que_no_es_de_esa_clase`, `::test_el_nombre_del_fichero_es_solo_un_nombre`, `::test_detectar_el_banco_y_el_yaml_de_po` |
+| Una clase ambigua dice entre cuáles elegir | `::test_un_fichero_que_reconocen_dos_clases_pide_elegir` |
+| Las lecturas nuevas, los roles y las `razones` de las relaciones | `::test_la_lectura_de_pdf_la_empresa_y_el_aislamiento`, `::test_el_aislamiento_por_papeles_sin_copiar_el_texto`, `::test_el_coste_de_la_lectura_sale_de_las_extracciones_guardadas`, `::test_yo_y_las_personas_llevan_sus_roles`, `::test_las_listas_de_partes_llevan_sus_razones`; que todo está en el contrato, `tests/test_contrato_v2.py` |
+| Cada código nuevo tiene su texto y lo usa una excepción con código | `tests/test_codigos_error.py` (con `importar_web`, `almacen` e `importadores.planning` en la lista de módulos) |
+| La app solo manda órdenes que existen; ninguna paga, aprueba, presenta ni crea una factura; anotar la aangifte solo desde la ficha del trimestre | `tests/test_app_local.py::test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba` |
+| Cada lista y su ficha en NL y EN, con sus detalles abiertos | `e2e/screens.spec.ts` «de fiches…» |
+| Kasstroom: una tabla, sin gráficos, la estimación aparte | «kasstroom…» |
+| Btw: el werkblad es el CSV del trimestre; reabrir, dejar listo; quien lo dejó listo no anota la aangifte (`segunda_persona`); otra persona sí | «btw…» |
+| Importar: un fichero que no se reconoce; la prueba dice «1 nieuw» y la base no cambia; confirmar aparte; la historia; el mismo fichero otra vez; el cliente nuevo en Klanten | «importeren…» |
+| Facturen lezen: lo gastado y cómo se empieza, sin botón que lo lance | «facturen lezen…» |
+| Instellingen, y quien solo mira (sin Importeren, sin botones del btw, sin personas) | «instellingen…», «wie alleen mag kijken…» |
+| A 1024 px: sin desplazamiento horizontal de la página, y las tablas de Objecten e Inkooporders caben en su caja | «op 1024 px…» |
+| En cada pantalla: solo 127.0.0.1, ninguna violación de la CSP, ningún error en la consola, axe sin problemas serios ni críticos y **ninguna palabra castellana** | los vigilantes de `e2e/fixtures.ts` y `expectNoSpanish`, también en cada pantalla de `e2e/shell.spec.ts` |
+
+Resultado: Python 3.11, **2505 pasan y 12 se saltan** (21 más que en la parte anterior: 15
+de `tests/test_importar_app.py` y los de los códigos nuevos); los tests tocados
+(`test_importar_app`, `test_codigos_error`, `test_contrato_v2`, `test_app_local` y los de la
+demo), también con Python 3.13 y `-W error` (136 pasan); `npm run typecheck` limpio;
+vitest, **793**; Playwright, **28** (8 de `e2e/screens.spec.ts`), todas sin peticiones fuera de
+127.0.0.1, sin violaciones de la CSP, sin errores en la consola, sin problemas serios de axe
+y sin castellano en ninguna pantalla.
+
+Capturas de cada pantalla, ficha y diálogo, en NL y EN, a 1440×900, en `CAPTURAS_DIR`
+(`<idioma>-<pantalla>.png`; las del trabajo diario siguen como `daily-*.png`), y a 1024 px
+(`nl-*-1024.png`). Se miraron todas. Lo que se corrigió al mirarlas:
+
+- en una ficha de proveedor, los avisos de la misma factura salían sueltos, cada uno con su
+  botón: ahora van juntos, con un botón «Factuur X openen» por factura;
+- la lista de Objecten seguía el orden de los códigos: ahora va lo más urgente arriba, como
+  las demás;
+- las semanas del planning decían `2026-W31`: ahora «31 · 2026»;
+- en la ficha de un Object, los avisos de sus facturas podían ser decenas: se ven cinco y
+  «en nog N»; el margen salía alineado a la derecha entre cifras alineadas a la izquierda;
+- las fechas de los diálogos y de Importeren salían en el formato del navegador
+  (`mm/dd/yyyy`): ahora se teclean como `dd-mm-jjjj` (abajo, desviación 6);
+- los catorce permisos de Instellingen ocupaban media pantalla: van plegados, con su número;
+- Importeren decía «Ingelezen» en la prueba, cuando aún no había entrado nada (ahora solo
+  después), «1 nieuwe bankrekeningen» y «1 van 1 regels» (ahora en singular), la historia
+  era más ancha que lo demás (ahora todo al mismo ancho, como Kasstroom y Facturen lezen) y
+  partía el nombre del fichero por cualquier letra;
+- los avisos del importador (en castellano, para el soporte) van plegados como «Technische
+  details»;
+- en el trimestre, una factura que no entra en las cifras salía dos veces, una sin texto;
+  presentado, el paso «Klaarzetten» dice quién lo dejó listo;
+- en Facturen lezen, «Laatst gelezen» daba mañana: los datos de prueba leían una factura de
+  hoy el día siguiente (ahora nunca después de hoy, como su llegada; `demo.py`);
+- a 1024 px, Objecten e Inkooporders desplazaban la tabla y apretaban el nombre: dejan la
+  columna que se deduce de las otras (abajo, desviación 8).
+
+**Desviaciones, y por qué**
+
+1. **«Waarom» en las relaciones viene de la API.** Las filas de proveedores, clientes, PO y
+   Objects llevan `razones`, como las facturas, para escribir la frase con los catálogos y
+   no inventarla en la app. Es una clave nueva (el contrato sigue en 2.1).
+2. **Anotar la aangifte (`btw_anotar_presentacion`) sí está en la app.** Deja constancia de
+   lo que una persona ya presentó en el portal; no presenta nada. Por eso cambió a propósito
+   `test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba`: ahora exige que
+   la app use `btw_lista_para_revision`, prohíbe cualquier orden que pague, apruebe,
+   presente, cree una factura o marque una pagada, y permite `btw_anotar_presentacion` solo
+   en `src/screens/vat-quarter.tsx`.
+3. **Importar un fichero suelto sin pasar por el buzón.** El buzón sigue siendo el camino de
+   `importar.bat`; desde la app el fichero llega en la petición y no se mueve ni se guarda.
+   Lo importado queda igual que desde la CLI (la misma función, la misma auditoría).
+4. **Facturen lezen no lanza nada.** Leer cuesta dinero y necesita red; la app no tiene red.
+   La pantalla explica el acceso directo y enseña lo gastado de lo que ya guarda el almacén.
+5. **Instellingen solo cambia el idioma.** La empresa, las personas y las copias se leen; se
+   cambian con `empresa.bat`, `persona.bat` y `copia.bat` (sus nombres van marcados como
+   nombres propios, sin traducir).
+6. **Las fechas se teclean (`dd-mm-jjjj`) en vez del selector del navegador**, también en
+   los diálogos del trabajo diario (el seguimiento de una excepción, una fecha de un campo):
+   el selector de Chromium salía como `mm/dd/yyyy` y el resto de la app escribe las fechas a
+   la neerlandesa. Se acepta también `d-m-jjjj`, `d/m/jjjj` y la ISO; la app manda ISO.
+7. **El panel de la pestaña se puede enfocar** (`tabIndex={0}` en el componente del dueño,
+   anotado arriba del fichero): una pantalla sin botones, como Facturen lezen, no se podía
+   bajar con el teclado (axe: `scrollable-region-focusable`).
+8. **Columnas que se deducen, solo desde 1280 px** (`wideOnly` en `DataTable`): Kosten en
+   Objecten (opbrengst menos marge) y Waarde en Inkooporders (verbruikt más over).
+9. **La comprobación del castellano.** `expectNoSpanish` busca en el texto visible de cada
+   pantalla una lista de palabras castellanas que no son neerlandesas ni inglesas; los
+   nombres propios (`data-proper-name`) no cuentan. Se añadió también a cada pantalla de
+   `e2e/shell.spec.ts`.
+10. **Ficheros de prueba para importar.** `scripts/crear_demo_e2e.py` deja en la carpeta de
+    la base de prueba `exact-debiteuren-nieuw.csv` (los clientes de prueba más «Demo
+    Nieuwbouw BV», con la marca de prueba) y `notities.txt` (que no es nada).
+11. **`placeholder.tsx` se quitó**: ya no queda ninguna pantalla por llenar.
+
+**Lo que falta**
+
+Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
+natural. En el ordenador del dueño, mirar que Edge abre la ventana `--app`. Quedan para la
+consola y la CLI las órdenes menos de cada día ([app-local.md](../app-local.md) §8).

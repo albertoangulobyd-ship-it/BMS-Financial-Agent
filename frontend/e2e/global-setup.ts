@@ -58,7 +58,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     throw new Error(`No se ha podido crear la base de prueba:\n${created.stdout}\n${created.stderr}`);
   }
   const lines = created.stdout.trim().split('\n');
-  const demo = JSON.parse(lines[lines.length - 1]!) as { db: string; tokens: Record<string, string> };
+  const demo = JSON.parse(lines[lines.length - 1]!) as {
+    db: string;
+    tokens: Record<string, string>;
+    ficheros: Record<string, string>;
+  };
 
   // Las ordenes del servidor van a esta base y a ninguna otra.
   env.BMS_DB = demo.db;
@@ -80,6 +84,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   process.env.BMS_E2E_TOKEN_BRAM = demo.tokens['Bram Demo'];
   // Solo lectura (rol consulta): la anade scripts/crear_demo_e2e.py.
   process.env.BMS_E2E_TOKEN_CAS = demo.tokens['Cas Consulta'];
+  // Los ficheros que sube la prueba de Importeren (los deja scripts/crear_demo_e2e.py).
+  process.env.BMS_E2E_FILE_CLIENTS = demo.ficheros.clientes;
+  process.env.BMS_E2E_FILE_ODD = demo.ficheros.raro;
 
   return async () => {
     server.kill();

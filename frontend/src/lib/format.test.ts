@@ -118,3 +118,64 @@ describe('iniciales', () => {
     expect(initials('')).toBe('?');
   });
 });
+
+describe('lo que cuesta leer un pdf y los trimestres (paso 15)', () => {
+  it('millonesimas de dolar al centimo, la mitad hacia arriba', async () => {
+    const { formatUsdMicro } = await import('./format');
+    expect(formatUsdMicro(32360)).toBe('$ 0,03');
+    expect(formatUsdMicro(35000)).toBe('$ 0,04');
+    expect(formatUsdMicro(517760)).toBe('$ 0,52');
+    expect(formatUsdMicro(1234567890)).toBe('$ 1.234,57');
+    expect(formatUsdMicro(0)).toBe('$ 0,00');
+    expect(formatUsdMicro(null)).toBe('—');
+    expect(formatUsdMicro(1.5)).toBe('—');
+  });
+
+  it('un trimestre va y vuelve como numero de pestana, y solo uno que existe', async () => {
+    const { idToQuarter, quarterLabel, quarterToId } = await import('./format');
+    expect(quarterToId('2026-T3')).toBe(20263);
+    expect(idToQuarter(20263)).toBe('2026-T3');
+    expect(quarterToId('2026-T5')).toBeNull();
+    expect(idToQuarter(20265)).toBeNull();
+    expect(idToQuarter(20260)).toBeNull();
+    expect(idToQuarter(3)).toBeNull();
+    expect(quarterLabel('2026-T4')).toBe('Q4 2026');
+    expect(quarterLabel(null)).toBe('—');
+  });
+});
+
+describe('las clases de fichero de un tipo_ambiguo', () => {
+  it('solo pasan las que tienen forma de fuente y tipo', async () => {
+    const { importKinds } = await import('./api');
+    expect(
+      importKinds([
+        { fuente: 'exact', tipo: 'clientes' },
+        { fuente: 'Exact', tipo: 'x' },
+        { fuente: 'exact' },
+        'exact/clientes',
+        null,
+      ])
+    ).toEqual([{ fuente: 'exact', tipo: 'clientes' }]);
+    expect(importKinds('nada')).toEqual([]);
+  });
+
+  it('el base64 de unos bytes, tambien de los que pasan de un trozo', async () => {
+    const { toBase64 } = await import('./api');
+    expect(toBase64(new TextEncoder().encode('Crediteurnummer;Naam'))).toBe(btoa('Crediteurnummer;Naam'));
+    const big = new Uint8Array(70000).map((_, i) => i % 251);
+    expect(atob(toBase64(big)).length).toBe(70000);
+  });
+});
+
+describe('una fecha tecleada', () => {
+  it('dd-mm-aaaa (o con barras, o ya en AAAA-MM-DD) a AAAA-MM-DD, solo si el dia existe', async () => {
+    const { parseTypedDate } = await import('./format');
+    expect(parseTypedDate('16-10-2026')).toBe('2026-10-16');
+    expect(parseTypedDate(' 6/1/2027 ')).toBe('2027-01-06');
+    expect(parseTypedDate('2026-10-16')).toBe('2026-10-16');
+    expect(parseTypedDate('30-02-2026')).toBeNull();
+    expect(parseTypedDate('10/19/2026')).toBeNull();
+    expect(parseTypedDate('morgen')).toBeNull();
+    expect(parseTypedDate('')).toBeNull();
+  });
+});

@@ -26,4 +26,10 @@ describe('las pantallas', () => {
     expect(isValidRoute({ screen: 'invoice', id: 5, from: 'nope' })).toBe(false);
     expect(isValidRoute({ screen: 'admin' })).toBe(false);
   });
+
+  it('un trimestre del btw va como numero, y solo uno que existe', () => {
+    expect(isValidRoute(recordRoute('vat-quarter', 20263, 'vat'))).toBe(true);
+    expect(isValidRoute(recordRoute('vat-quarter', 20265, 'vat'))).toBe(false);
+    expect(isValidRoute(recordRoute('vat-quarter', 3, 'vat'))).toBe(false);
+  });
 });

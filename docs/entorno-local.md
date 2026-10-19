@@ -209,10 +209,15 @@ Después:
   motivo: corrígelo en el sistema de origen y vuelve a exportarlo. Lo que no entra
   se queda donde estaba y el script dice por qué; el mismo fichero no entrará nunca
   (se reconoce por su contenido): hay que sacar uno nuevo.
+- **O un fichero suelto desde la app**, en **Importeren**: la app reconoce qué es, lo
+  prueba primero sin guardar nada (dice qué entraría, qué cambiaría y qué se rechazaría) y
+  solo después lo importa de verdad, con tu nombre. Tampoco cuesta nada; el fichero no pasa
+  por el buzón ([app-local.md](app-local.md), §4.4).
 - **Doble clic en `leer-facturas.bat`** para los PDF. **Esto sí cuesta dinero**
   (unos céntimos por factura), así que primero cuenta, gratis, lo que va a mandar,
   te enseña el coste y solo sigue si escribes `si`. Un PDF que ya se leyó no se
-  vuelve a pagar.
+  vuelve a pagar. **Facturen lezen**, en la app, enseña lo gastado, pero no lee: se
+  empieza siempre con `leer-facturas.bat`.
 
 El buzón solo lo leen las cajas: nada de dentro de Docker puede escribir ni borrar en
 él. Lo mueve el script, en tu Windows.

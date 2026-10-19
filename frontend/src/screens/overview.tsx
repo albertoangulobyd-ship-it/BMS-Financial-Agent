@@ -14,7 +14,7 @@ import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
 import { paths, type InvoiceRow, type Panel } from '@/lib/api';
-import { formatDate, formatDateProse } from '@/lib/format';
+import { formatDate, formatDateProse, quarterLabel } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { needsPerson, whyOf } from '@/lib/why';
@@ -189,8 +189,5 @@ function NextUpRow({ row, onOpen }: { row: InvoiceRow; onOpen: () => void }) {
   );
 }
 
-/** "2026-T3" -> "Q3 2026" (se lee igual en neerlandes y en ingles). */
-export function quarterLabel(label: string | null | undefined): string {
-  const m = /^(\d{4})-T([1-4])$/.exec(label ?? '');
-  return m ? `Q${m[2]} ${m[1]}` : (label ?? '—');
-}
+// El trimestre como se lee vive en lib/format (lo usan tambien el btw y las pestanas).
+export { quarterLabel } from '@/lib/format';

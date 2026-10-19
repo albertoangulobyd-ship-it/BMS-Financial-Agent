@@ -134,6 +134,19 @@ export function roleText(lang: Lang, role: string): { label: string; description
   return r ? { label: r.etiqueta, description: r.descripcion } : null;
 }
 
+/** Un permiso en palabras ("Facturen bekijken") y que deja hacer. */
+export function permissionText(lang: Lang, permission: string): { label: string; description: string } | null {
+  const p = pick(CATALOGS[lang].permisos as Record<string, { etiqueta: string; descripcion: string }>, permission);
+  return p ? { label: p.etiqueta, description: p.descripcion } : null;
+}
+
+/** Una clase de fichero que se importa ("Exact · Leveranciers"). */
+export function importKindLabel(lang: Lang, source: string, kind: string): string {
+  const s = stateLabel(lang, 'fuente_importacion', source) ?? source;
+  const k = stateLabel(lang, 'tipo_importacion', kind) ?? kind;
+  return `${s} · ${k}`;
+}
+
 /** El texto de un codigo de error de la API (`codigo`), o null si no se conoce. */
 export function errorText(lang: Lang, code: string | null | undefined): string | null {
   return pick(CATALOGS[lang].errores, code);

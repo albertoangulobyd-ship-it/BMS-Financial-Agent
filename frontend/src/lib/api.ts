@@ -38,8 +38,17 @@ export class ApiError extends Error {
   readonly detail: string | undefined;
   /** El codigo estable del error (`codigo`), del que sale el texto en NL o EN. */
   readonly code: string | undefined;
+  /** Al importar un fichero que reconocen varias clases (tipo_ambiguo): cuales. */
+  readonly candidates: ImportKind[];
 
-  constructor(kind: ApiErrorKind, status: number, type?: string, detail?: string, code?: string) {
+  constructor(
+    kind: ApiErrorKind,
+    status: number,
+    type?: string,
+    detail?: string,
+    code?: string,
+    candidates: ImportKind[] = []
+  ) {
     super(`${kind} (${status})`);
     this.name = 'ApiError';
     this.kind = kind;
@@ -47,7 +56,34 @@ export class ApiError extends Error {
     this.type = type;
     this.detail = detail;
     this.code = code;
+    this.candidates = candidates;
   }
+}
+
+/** Una clase de fichero que se importa: la fuente y el tipo, como en la CLI. */
+export interface ImportKind {
+  fuente: string;
+  tipo: string;
+}
+
+// Un nombre de fuente o de tipo: minusculas, cifras y _ (como los de la CLI).
+const KIND_PART = /^[a-z0-9_]{1,40}$/;
+
+/** Las clases que trae un error tipo_ambiguo, comprobadas una a una. */
+export function importKinds(value: unknown): ImportKind[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (k): k is ImportKind =>
+        Boolean(k) &&
+        typeof k === 'object' &&
+        typeof (k as ImportKind).fuente === 'string' &&
+        typeof (k as ImportKind).tipo === 'string' &&
+        KIND_PART.test((k as ImportKind).fuente) &&
+        KIND_PART.test((k as ImportKind).tipo)
+    )
+    .slice(0, 20)
+    .map((k) => ({ fuente: k.fuente, tipo: k.tipo }));
 }
 
 /** Un id de la API que va en una ruta: entero positivo, o fuera. */
@@ -81,6 +117,11 @@ export const paths = {
   people: '/api/v2/personas',
   relations: '/api/v2/relaciones',
   sources: '/api/v2/fuentes',
+  imports: '/api/v2/importaciones',
+  importFile: '/api/v2/importar',
+  reading: '/api/v2/lectura',
+  company: '/api/v2/empresa',
+  isolation: '/api/v2/aislamiento',
 } as const;
 
 // Un trimestre como 2026-T3; es lo unico de una ruta que no es un id.
@@ -110,6 +151,8 @@ export interface Me {
   id: number;
   nombre: string;
   permisos: string[];
+  /** Contrato 2.1 (paso 15): los roles de la persona (administrador, administracion...). */
+  roles?: string[];
 }
 
 export interface MoneyBlock {
@@ -277,6 +320,8 @@ export interface ApiClient {
   action(name: string, data: Record<string, unknown>, options?: { requestId?: string }): Promise<ActionResult>;
   /** Una descarga (original, hoja del BTW): fetch con el token, Blob y a[download]. */
   download(path: string, fallbackName: string): Promise<void>;
+  /** Importar un fichero (POST /api/v2/importar): simulando primero, y despues de verdad. */
+  importFile(request: ImportRequest): Promise<ImportResult>;
   /** Olvida el token (al salir): lo que se pida despues da 'unauthorized' sin llamar. */
   dispose(): void;
 }
@@ -300,7 +345,9 @@ function kindFor(status: number, type: string | undefined, code?: string): ApiEr
 // Un codigo es una palabra en minusculas: otra cosa no se usa para buscar su texto.
 const CODE = /^[a-z_]{1,40}$/;
 
-async function readError(response: Response): Promise<{ type?: string; detail?: string; code?: string }> {
+async function readError(
+  response: Response
+): Promise<{ type?: string; detail?: string; code?: string; candidates?: ImportKind[] }> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === 'object') {
@@ -309,6 +356,7 @@ async function readError(response: Response): Promise<{ type?: string; detail?: 
         type: typeof record.tipo === 'string' ? record.tipo : undefined,
         detail: typeof record.error === 'string' ? record.error.slice(0, 2000) : undefined,
         code: typeof record.codigo === 'string' && CODE.test(record.codigo) ? record.codigo : undefined,
+        candidates: importKinds(record.candidatos),
       };
     }
   } catch {
@@ -351,9 +399,9 @@ export function createApiClient({ token, onUnauthorized, fetchImpl }: ApiClientO
     }
     environment = response.headers.get(ENVIRONMENT_HEADER) === 'demo' ? 'demo' : 'real';
     if (!response.ok) {
-      const { type, detail, code } = await readError(response);
+      const { type, detail, code, candidates } = await readError(response);
       if (response.status === 401) onUnauthorized?.();
-      throw new ApiError(kindFor(response.status, type, code), response.status, type, detail, code);
+      throw new ApiError(kindFor(response.status, type, code), response.status, type, detail, code, candidates);
     }
     const contract = response.headers.get(CONTRACT_HEADER);
     if (contract && contract.split('.')[0] !== CONTRACT_MAJOR) {
@@ -413,8 +461,75 @@ export function createApiClient({ token, onUnauthorized, fetchImpl }: ApiClientO
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
     },
+    async importFile(request) {
+      const response = await send(paths.importFile, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(request),
+      });
+      return (await json<{ importacion: ImportResult }>(response)).importacion;
+    },
     dispose() {
       current = null;
     },
   };
+}
+
+// ---- importar (paso 15): lo que se manda y lo que contesta (docs/integracion-web.md)
+
+export interface ImportRequest {
+  fichero: string;
+  /** Los bytes del fichero en base64. */
+  contenido: string;
+  fuente?: string;
+  tipo?: string;
+  simular: boolean;
+  /** AAAA-MM-DD: el dia en que se saco del sistema. */
+  exportado?: string;
+  confirmar?: boolean;
+}
+
+export interface ImportRejection {
+  fila: number;
+  codigo: string;
+  motivo: string;
+}
+
+export interface ImportBatch {
+  tipo: string;
+  estado: string | null;
+  repetida: boolean;
+  importacion_id: number | null;
+  filas_leidas: number;
+  aceptadas: number;
+  rechazadas: number;
+  rechazos: ImportRejection[];
+  nuevos: number;
+  nuevos_por_tabla: Record<string, number>;
+  cambiados: number;
+  sin_resolver: number;
+  retirados: number;
+  cuentas: { vistas: number; nuevas: number; ausentes: number; primer_maestro: boolean } | null;
+  avisos: string[];
+}
+
+export interface ImportResult {
+  fichero: string;
+  mapeo: string;
+  fuente: string;
+  tipo: string;
+  simulada: boolean;
+  lotes: ImportBatch[];
+  hallazgos: Record<string, number>;
+  pagos: { casados: number; propuestas: number } | null;
+}
+
+/** Los bytes de un fichero en base64, a trozos (sin FileReader ni URL de datos). */
+export function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }

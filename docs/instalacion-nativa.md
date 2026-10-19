@@ -220,6 +220,11 @@ mismas carpetas que el entorno de Docker: la tabla está en
   No cuesta nada: no llama a ninguna API y el programa que importa no tiene red. Te pide
   tu token. Lo que entra se mueve a `buzon\hecho\<fecha>\`; lo que entra con filas
   rechazadas también, y lo dice en amarillo; lo que no entra se queda y dice por qué.
+- **Un fichero suelto, desde la app**: en **Importeren** eliges el fichero (la app reconoce
+  qué es), lo pruebas primero (**Eerst proberen**: dice qué entraría, qué cambiaría y qué se
+  rechazaría, sin guardar nada) y solo después lo importas de verdad. Tampoco cuesta nada ni
+  usa la red, y queda con tu nombre como con `importar.bat`; el fichero no pasa por el buzón,
+  así que no se mueve ([app-local.md](app-local.md), §4.4).
 - **BMS Finanzas - Leer facturas** (`leer-facturas.bat`) para los PDF. **Esto sí cuesta
   dinero** (unos céntimos por factura). Lo que hace, en orden:
   1. enciende la salida, solo en este ordenador y con una credencial nueva para esta
@@ -233,7 +238,9 @@ mismas carpetas que el entorno de Docker: la tabla está en
      con la X a mitad, Windows no deja al script apagarla: la salida se apaga sola a las
      tres horas como mucho, y también al abrir la consola o con **Parar**.
 
-  Un PDF que ya se leyó no se vuelve a pagar.
+  Un PDF que ya se leyó no se vuelve a pagar. En la app, **Facturen lezen** enseña lo
+  leído y lo gastado hasta ahora y lo que costaría la siguiente factura, pero no tiene
+  botón para leer: se empieza siempre con este acceso directo.
 
 ### Las órdenes sueltas (`orden.bat`)
 

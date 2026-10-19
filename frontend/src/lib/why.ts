@@ -62,3 +62,26 @@ export function needsPerson(row: WhyRow & { nivel: string; estado_revision?: str
     (row.sin_resolver ?? 0) + (row.dudosos ?? 0) > 0
   );
 }
+
+/** El "por que" de una fila de proveedor, cliente, Objeto o PO: su hallazgo mas urgente
+ *  (`razones`, contrato 2.1) o, sin ninguno, lo vencido. */
+export function partyWhy(
+  row: { razones?: Reason[]; vencido_cent?: number | null },
+  lang: Lang,
+  t: Messages,
+  overdueText: (cents: number) => string
+): Why | null {
+  const why = whyOf({ razones: row.razones }, lang, t);
+  if (why) return why;
+  if (row.vencido_cent && row.vencido_cent > 0) {
+    return { text: overdueText(row.vencido_cent), title: null, rule: null, more: 0 };
+  }
+  return null;
+}
+
+const RANK: Record<string, number> = { bloqueada: 0, urgente: 1, atencion: 2, normal: 3 };
+
+/** El orden de una prioridad: lo bloqueado primero, lo normal al final. */
+export function priorityRank(level: string): number {
+  return RANK[level] ?? 4;
+}

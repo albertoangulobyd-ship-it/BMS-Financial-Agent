@@ -120,6 +120,9 @@ CODIGOS_ERROR = (
     "no_revisable", "bloqueo_abierto", "estado_no_valido", "campo_no_editable",
     "campo_de_otro_sistema", "falta_motivo", "iban_no_valido", "orden_desconocida", "invalido",
     "tipo_no_admitido", "demasiado_grande",
+    # Paso 15: importar desde la app (POST /api/v2/importar, importar_web.py).
+    "fichero_no_reconocido", "tipo_ambiguo", "fichero_no_valido", "datos_de_prueba",
+    "pide_confirmacion", "fichero_demasiado_grande",
 )
 
 

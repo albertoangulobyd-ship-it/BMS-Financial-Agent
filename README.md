@@ -118,4 +118,6 @@ datos de prueba: [docs/entorno-local.md](docs/entorno-local.md). El paso 14 (tam
 petición del dueño) hace lo mismo sin Docker:
 [docs/instalacion-nativa.md](docs/instalacion-nativa.md). El paso 15 (otra vez a petición
 del dueño) le da a administración una app local, en neerlandés e inglés, que los
-lanzadores abren en su propia ventana: [docs/app-local.md](docs/app-local.md).
+lanzadores abren en su propia ventana, con todas sus pantallas (el trabajo diario, las
+relaciones, el dinero, el BTW, importar un fichero con una prueba antes y lo que cuesta
+leer facturas): [docs/app-local.md](docs/app-local.md).

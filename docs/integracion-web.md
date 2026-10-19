@@ -306,7 +306,16 @@ no conoce.
   pudieron mirarla (`regla`, `clave`, `resultado` `"sin_datos"`, `detalle` y
   `valores`);
 - cada **respuesta de error** lleva, junto a su frase en español (`error`), un
-  `codigo` estable (abajo, «Los errores»).
+  `codigo` estable (abajo, «Los errores»);
+- cada fila de las listas de **proveedores**, **clientes**, **Objetos** y
+  **órdenes de compra** lleva también `razones` (la misma forma): los hallazgos
+  pendientes de sus facturas y los que la señalan a ella (lo sin facturar de un
+  cliente, V6 y V8; los límites de una PO, P5-P10), lo más urgente primero;
+- `GET /api/v2/yo` lleva los `roles` de la persona, y cada persona de
+  `GET /api/v2/personas` los suyos;
+- cuatro lecturas nuevas para la app (`GET /api/v2/importaciones`,
+  `GET /api/v2/lectura`, `GET /api/v2/empresa`, `GET /api/v2/aislamiento`) y una
+  orden, `POST /api/v2/importar` (abajo, «Importar desde la app»).
 
 Con eso la app de la oficina (`/app`) escribe en neerlandés o en inglés el
 detalle de cada hallazgo y el «por qué» de cada fila, con las plantillas de
@@ -475,15 +484,17 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
 ### Proveedores, clientes, Objetos y órdenes de compra
 
 ```
-"proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel", ...} ],
-"clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel", ...} ],
+"proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
+                  "razones", ...} ],
+"clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
+                  "razones", ...} ],
 "objetos": {
-  "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel"} ],
+  "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel", "razones"} ],
   "sin_objeto": {"imputado", "sin_imputar", "total"},
   "totales": {"ingresos_cent", "costes_cent", "sin_base", ...}
 },
 "ordenes_compra": [ {"id", "numero", "lado", "parte", "valor_cent", "consumido_cent",
-                     "restante_cent", "fecha_fin", "cerrada", "nivel", ...} ]
+                     "restante_cent", "fecha_fin", "cerrada", "nivel", "razones", ...} ]
 ```
 
 Cada `siempre`, `ano`, `imputado`, `sin_imputar`, `total` y `totales` lleva
@@ -546,6 +557,10 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/cuentas` | El registro de cuentas de los proveedores (IBAN enmascarados si se pide desde otro origen) | — |
 | `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
 | `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
+| `GET /api/v2/importaciones` | Las últimas 30 importaciones (qué, de cuándo, quién, cómo acabó), lo que se puede importar (`tipos`: cada `fuente` y `tipo`), el tamaño máximo de un fichero (`limite_bytes`) y de cuándo es cada fuente (`fuentes`, como `GET /api/v2/fuentes`) | — |
+| `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no) | — |
+| `GET /api/v2/empresa` | La identidad de BM Support BV que usan las reglas (`nombre`, `otros_nombres`, `btw_id`, `kvk`, `cuentas_propias`, `completa`). Se cambia con `empresa.bat`, no desde la app | — |
+| `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien`). No copia el texto de los problemas (sale de un fichero que se puede escribir) | — |
 
 ### Los errores (`error` y `codigo`)
 
@@ -592,10 +607,65 @@ dos idiomas y que cada error que escribe `serve.py` lleva el suyo.
 | `invalido` | 400 | Un parámetro, un filtro o un dato que no se entiende, o un cuerpo que no es `{accion, peticion_id, datos}` |
 | `tipo_no_admitido` | 415 | El cuerpo no es `application/json` |
 | `demasiado_grande` | 413 | El cuerpo pasa del límite |
+| `fichero_no_reconocido` | 400 | Al importar sin decir qué es: ninguna clase de fichero lo reconoce |
+| `tipo_ambiguo` | 400 | Al importar sin decir qué es: lo reconocen varias; van en `candidatos` (`fuente`, `tipo`) |
+| `fichero_no_valido` | 400 | El fichero no se lee como la clase elegida (columnas, codificación, XML, YAML, una fecha de exportación futura) |
+| `datos_de_prueba` | 400 | Un fichero de los datos de prueba en la base de verdad, o uno de verdad en la de prueba |
+| `pide_confirmacion` | 409 | Un planning que dejaría sin valer mucho del de ahora o con semanas vacías: se repite con `confirmar` |
+| `fichero_demasiado_grande` | 413 | El fichero que se importa pasa de 8 MB |
 
 Un fallo de verdad del servidor (un `500`) no es un error de la orden y no
 lleva código: la orden no se aplica (va entera o nada) y la app dice «Er ging
 iets mis».
+
+### Importar desde la app (`POST /api/v2/importar`)
+
+La pantalla «Importeren» de la app sube un fichero (una exportación de Exact,
+un extracto del banco CAMT.053, MT940 o CSV, la exportación del planning de
+TRNSPRNT, una hoja de PO o un maestro) y lo importa con **la misma orden** que
+`bms-agent importar` (`importadores.registrar.importar_fichero`): la persona y
+su permiso `importar_datos` (y `cambiar_po` para las PO), todo o nada, cada
+lote en la auditoría, la pasada del motor de reglas al final y la guarda de los
+datos de prueba. El fichero no se escribe en ninguna carpeta: se lee en memoria
+(`importar_web.py`). Ni procesos ni red.
+
+```
+POST /api/v2/importar        X-BMS-Token: <token personal>     Content-Type: application/json
+{"fichero": "crediteuren.csv",           // el nombre (solo un nombre: no se abre como ruta)
+ "contenido": "77u/Q3JlZGl0ZX...",       // los bytes, en base64
+ "fuente": "exact", "tipo": "proveedores",  // los dos o ninguno: sin ellos se detecta
+ "simular": true,                        // se hace entero y se deshace: no guarda nada
+ "exportado": "2026-10-16",              // opcional: el día en que se sacó (la frescura, Z1)
+ "confirmar": false}                     // solo el planning (pide_confirmacion)
+```
+
+Contesta `{"importacion": {...}}`:
+
+```
+"importacion": {"fichero", "mapeo", "fuente", "tipo", "simulada",
+                "lotes": [ {"tipo", "estado", "repetida", "importacion_id", "filas_leidas",
+                            "aceptadas", "rechazadas", "rechazos", "nuevos", "nuevos_por_tabla",
+                            "cambiados", "sin_resolver", "retirados", "cuentas", "avisos"} ],
+                "hallazgos": {"detectado": 2, "cerrado_automatico": 1, ...},
+                "pagos": {"casados", "propuestas"}}
+```
+
+`nuevos` cuenta lo nuevo de la tabla del lote (un cliente nuevo es `1`, aunque
+traiga su alias); `nuevos_por_tabla`, cada fila nueva por su tabla. Cada
+`rechazos[]` lleva `fila` (0 es el fichero entero), `codigo` (`fila`,
+`referencia`, `X1`, `duplicada`, `sistema`) y `motivo`; `motivo` y `avisos` son
+frases en español para el soporte (la app dice el código en neerlandés o en
+inglés y deja la frase plegada). Simulando, `importacion_id` es `null`.
+
+La app **siempre simula primero** y enseña lo que se añadiría, cambiaría o se
+rechazaría; solo después, con un botón aparte, manda la misma petición con
+`"simular": false`. Las mismas puertas que una orden: el `Host` y el `Origin`
+de siempre, nunca desde otro origen (`403 otro_origen`), el token (`401`), el
+permiso (`403`, antes de leer el fichero), cuerpo JSON con claves conocidas
+(`400 invalido`) y un límite propio: 8 MB de fichero (`413
+fichero_demasiado_grande`). El mismo fichero dos veces no entra dos veces
+(`repetida`). Una importación de verdad se ancla al terminar, como cualquier
+orden; una simulación no escribe nada.
 
 ### La búsqueda (`GET /api/v2/buscar`)
 

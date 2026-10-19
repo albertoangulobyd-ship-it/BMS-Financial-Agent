@@ -1303,7 +1303,8 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
                      lanzado_por: int, mapeo: str | Path | Mapeo | None = None,
                      exportado_en: datetime | None = None, simular: bool = False,
                      cubre_desde: date | None = None, cubre_hasta: date | None = None,
-                     confirmar: bool = False) -> ResultadoImportacion:
+                     confirmar: bool = False,
+                     contenido: bytes | None = None) -> ResultadoImportacion:
     """La orden entera: elegir el mapeo, leer, registrar cada lote y recalcular, todo o nada.
 
     Un fichero de acreedores de Exact da dos lotes (proveedores y sus
@@ -1314,6 +1315,10 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
     cubre los dias que trae, o los que se digan (`cubre_desde`, `cubre_hasta`:
     la exportacion de un periodo, aunque algun dia no tenga turnos). Una foto
     que borraria mucho del planning de ahora solo entra con `confirmar`.
+
+    `contenido`: los bytes del fichero cuando no estan en disco (la app los sube a
+    POST /api/v2/importar); `ruta` da entonces solo el nombre, y no se lee nada de
+    disco: el nombre lo escribe quien sube el fichero.
     """
     from ..hallazgos import recalcular
 
@@ -1322,9 +1327,11 @@ def importar_fichero(almacen: Almacen, fuente: str, tipo: str, ruta: str | Path,
 
         formato = mapeo.id if isinstance(mapeo, Mapeo) else (str(mapeo) if mapeo else None)
         return importar_extracto(almacen, ruta, lanzado_por=lanzado_por, formato=formato,
-                                 exportado_en=exportado_en, simular=simular)
+                                 exportado_en=exportado_en, simular=simular,
+                                 contenido=contenido)
     ruta = Path(ruta)
-    contenido = ruta.read_bytes()
+    if contenido is None:
+        contenido = ruta.read_bytes()
     # Antes de leer nada, y tambien al simular: lo de la prueba no se mira aqui.
     exigir_de_su_base(almacen.conn, contenido, ruta.name)
     elegido: Mapeo | None = None

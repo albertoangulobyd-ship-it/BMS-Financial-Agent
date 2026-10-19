@@ -17,6 +17,9 @@ export interface Column<Row> {
   width?: string;
   /** Texto del encabezado para el lector de pantalla si el visible no basta. */
   srHeader?: string;
+  /** Una cifra que se deduce de las otras (el coste, de opbrengst y marge): por debajo de
+   *  1280 px no se pinta, para que "Waarom" quepa a 1024 px sin desplazarse. */
+  wideOnly?: boolean;
 }
 
 /** De una a seis columnas, ni una mas. */
@@ -63,7 +66,8 @@ export function DataTable<Row>({
                 style={col.width ? { width: col.width } : undefined}
                 className={cn(
                   'px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground',
-                  col.align === 'right' && 'text-right'
+                  col.align === 'right' && 'text-right',
+                  col.wideOnly && 'hidden xl:table-cell'
                 )}
               >
                 {col.header}
@@ -85,7 +89,7 @@ export function DataTable<Row>({
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  className={cn('px-3 py-2.5', col.align === 'right' && 'text-right num')}
+                  className={cn('px-3 py-2.5', col.align === 'right' && 'text-right num', col.wideOnly && 'hidden xl:table-cell')}
                 >
                   {col.primary && onOpen ? (
                     <button

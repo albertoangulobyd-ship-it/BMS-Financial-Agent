@@ -129,6 +129,9 @@ def con_cobertura(lote: LoteLeido, desde: date | None, hasta: date | None) -> Lo
 class PideConfirmacion(ValueError):
     """Una foto del planning que borraria mucho del de ahora, importada sin --confirmar."""
 
+    # El codigo de su error en /api/v2 (servicios.CODIGOS_ERROR; la app lo dice en NL/EN).
+    codigo = "pide_confirmacion"
+
 
 def hueco_mas_largo(lote: LoteLeido) -> tuple[date, date] | None:
     """Los dias seguidos mas largos sin ningun turno dentro de lo que cubre la foto (una fila

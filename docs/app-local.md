@@ -15,11 +15,12 @@ claro») y «Quiero que sea minimalista el panel y que sea fácil de entender».
 > sistema» nunca es «aprobado». Un IBAN se verifica como siempre, por teléfono al
 > número que ya se tenía, y lo firma una persona ([arquitectura.md](arquitectura.md)).
 
-Este documento cubre la **base** del paso 15 (el marco, la entrada, la navegación, los
-idiomas y el servicio) y **las pantallas del trabajo diario**: Overzicht, Werklijst,
-Inkomend, Uitgaand, la ficha de una factura, Uitzonderingen e IBAN-controles, con
-datos y órdenes de verdad (§4.1). Las demás pantallas se llenan en las partes
-siguientes del paso (al final, «Lo que falta»).
+Este documento cubre el paso 15 entero: la **base** (el marco, la entrada, la
+navegación, los idiomas y el servicio), **las pantallas del trabajo diario** (Overzicht,
+Werklijst, Inkomend, Uitgaand, la ficha de una factura, Uitzonderingen e IBAN-controles,
+§4.1) y **las demás**: Leveranciers, Klanten, Objecten e Inkooporders con sus fichas
+(§4.2), Kasstroom y Btw (§4.3), Importeren y Facturen lezen (§4.4) e Instellingen (§4.5),
+todas con datos y órdenes de verdad.
 
 ---
 
@@ -100,9 +101,12 @@ una frase debajo de su título.
 | | Inkooporders · Purchase orders | Cuánto queda de cada PO y cuáles se acaban |
 | Geld · Money | Kasstroom · Cash flow | Lo que entra y sale las próximas semanas |
 | | Btw · VAT | El BTW por trimestre, listo para revisar (lo presenta una persona) |
-| Gegevens · Data | Importeren · Import | Leer ficheros de Exact, del banco y de TRNSPRNT |
-| | Facturen lezen · Read invoices | Leer PDF; antes se ve lo que cuesta |
-| (abajo) | Instellingen · Settings | El idioma y la cuenta |
+| Gegevens · Data | Importeren · Import | Leer un fichero de Exact, del banco o de TRNSPRNT: primero de prueba, luego de verdad |
+| | Facturen lezen · Read invoices | Lo que ha costado leer los PDF y cómo se empieza (no desde aquí) |
+| (abajo) | Instellingen · Settings | El idioma, quién eres, la empresa y cómo está aislado el programa |
+
+Y las fichas, cada una en su pestaña: una factura, un proveedor, un cliente, un Object,
+una PO y un trimestre del BTW.
 
 Junto a Werklijst, Uitzonderingen e IBAN-controles va una insignia solo con lo que pide
 hacer algo (las facturas bloqueadas, las excepciones abiertas, las cuentas por
@@ -117,9 +121,6 @@ de una lista **abre su ficha en una pestaña nueva**, con su número de título;
 ficha ya estaba abierta, se va a su pestaña. Las pestañas abiertas y si la barra
 lateral va plegada se guardan **por persona y por entorno**: al volver a entrar están
 como se dejaron, y las de la base de prueba nunca abren una ficha de la de verdad.
-
-Las pantallas del trabajo diario y la ficha de factura están hechas (§4.1) e
-Instellingen está entera; las demás enseñan su título y su frase.
 
 Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
 
@@ -175,6 +176,108 @@ presenta el BTW: esas órdenes no existen (un test comprueba que la app solo man
 órdenes de `servicios.ACCIONES` y ninguna de esas). El IBAN del documento se enseña en
 los campos («er wordt niet naar betaald») pero no se cambia ni se verifica desde ahí:
 los datos bancarios van por IBAN-controles.
+
+### 4.2 Relaciones: proveedores, clientes, Objects y PO
+
+Cuatro listas con la misma forma: lo más urgente arriba (el orden de la API), un buscador
+(nombre, código o número, sin mayúsculas ni acentos) y como mucho seis columnas, la última
+«Waarom»: el hallazgo pendiente más urgente de esa relación (de sus facturas, de sus
+Objects o de ella misma), escrito desde sus valores, o «N dagen te laat» cuando lo único es
+lo vencido. Una fila abre su ficha en una pestaña nueva. Por debajo de 1280 px, Objecten deja
+la columna Kosten e Inkooporders la de Waarde (se deducen de las otras), para que «Waarom»
+quepa a 1024 px sin desplazar la tabla. Aquí solo se mira: las órdenes de una factura están
+en la factura, que se abre desde la ficha.
+
+| Pantalla | La lista | La ficha |
+| --- | --- | --- |
+| **Leveranciers** | Prioriteit, Naam (con cuántas facturas), Openstaand, Vervallen, Waarom | Qué es (cuántas facturas, cuánto queda), cinco cifras (prioridad, openstaand, vervallen, lo facturado este año, el plazo de pago), **Wat aandacht nodig heeft** (los hallazgos agrupados por factura, con «Wat te doen» y un botón «Factuur X openen» por factura) y, plegado: las facturas abiertas y todas, los pagos del banco, el reparto por Object, las cuentas bancarias con su estado y el teléfono de los maestros (la verificación va por IBAN-controles) y las relaciones propuestas |
+| **Klanten** | Igual | Igual, con lo que queda por facturar en vez del plazo y, plegado, el trabajo del planning aún sin facturar por Object |
+| **Objecten** | Prioriteit, Object (código, nombre y cliente), Opbrengst, Kosten y Marge de este año (sin btw), Waarom | El cliente y si pide PO; el periodo (Deze maand, Vorige maand, Dit jaar) con opbrengst, kosten, marge y las **horas planificadas frente a las facturadas** (a la clientela y de los proveedores); las facturas de la locatie que piden a una persona (cinco, y cuántas más); plegado: las horas por semana, las facturas a la clientela y de los proveedores y las PO |
+| **Inkooporders** | Prioriteit, PO (número, de quién o para quién y hasta cuándo), Waarde, Verbruikt (con su parte), Over, Waarom | De qué cliente o para qué proveedor y de cuándo a cuándo; **waarde, verbruikt, over y la previsión** (cuándo se acaba al ritmo de las últimas semanas, y lo esperado contando lo planificado y lo aún sin facturar); lo que necesita atención (P5–P10) y, plegado, sus facturas (con lo que quedaba después de cada una) y sus Objects |
+
+### 4.3 El dinero: Kasstroom y Btw
+
+**Kasstroom** es **una sola tabla**, sin gráficos: por filas, Al vervallen, Deze week,
+Rest van deze maand, Komende 30 dagen, Zonder vervaldatum y Alles wat openstaat; por
+columnas, Komt binnen, Gaat uit y Netto. Sale de las facturas abiertas por su vencimiento
+(`/api/v2/flujo`; los periodos se solapan, y la tabla lo dice). Debajo, lo que ya se movió
+este mes según el banco y, **aparte y marcado como estimación** («Schatting · geen
+facturen»), el trabajo del planning aún sin facturar: no son facturas y no se suma a la
+tabla.
+
+**Btw** lista los trimestres, el más reciente primero, con su estado en texto y color
+(Open, Klaar voor controle, Aangegeven), el saldo (te betalen / terug), hasta cuándo hay
+para la aangifte (con los días que quedan, o «te laat») y qué hacer ahora, en palabras.
+Una fila abre el **trimestre** en una pestaña: arriba el estado y las cifras (omzet, btw
+sobre la omzet, voorbelasting, saldo y plazo); después lo que hay que mirar antes de que
+las cifras valgan (facturas por revisar, las que no entran, lo que cambió después de
+dejarlo listo, con su factura) y los pasos para terminar, en orden:
+
+1. **Werkblad downloaden**: la hoja del trimestre en CSV
+   (`/api/v2/btw/AAAA-TN/hoja`, con `fetch` y un `Blob`), la misma que da la CLI;
+2. **Klaarzetten** (`btw_lista_para_revision`, cuando el trimestre ya acabó), con la huella
+   del werkblad que se vio, o **Kwartaal heropenen** con un motivo (`btw_reabrir`) si ya
+   estaba listo;
+3. cuando **una persona ya presentó la aangifte en el portal de la Belastingdienst**,
+   **Ingediende aangifte vastleggen** (`btw_anotar_presentacion`): la fecha, la referencia
+   y el importe que presentó. Lo hace otra persona que quien lo dejó listo (la regla de las
+   dos personas, `segunda_persona`).
+
+El programa **no presenta nada**: cada paso lo dice («Er wordt niets ingediend en niets
+betaald»), la pantalla también («dient nooit iets in»), y el último paso solo deja
+constancia de lo que hizo una persona. Plegadas debajo, las cifras por rubriek.
+
+### 4.4 Los datos: Importeren y Facturen lezen
+
+**Importeren** lee un fichero suelto, igual que `bms-agent importar` (o `importar.bat`), sin
+pasar por el buzón:
+
+1. se **elige el fichero** (como mucho 8 MB) y **su clase**: se reconoce sola por su
+   contenido (las columnas de cada CSV de `config/importacion/`, un CAMT.053 o un MT940,
+   una hoja de PO en YAML); si encaja en más de una, la app pide elegir entre esas; se puede
+   elegir a mano;
+2. se dice **el día en que se sacó** del sistema de origen (por defecto, el del fichero);
+3. **Eerst proberen** lo importa de prueba (`simular`): **no guarda nada** y dice en
+   palabras lo que pasaría: cuántas filas se leyeron, cuántas entrarían, cuántas son nuevas
+   y cuántas cambian, las rechazadas con su fila y su motivo, las cuentas bancarias nuevas,
+   los avisos que saldrían y, en un extracto, los pagos que casarían;
+4. solo después, con el botón **Nu echt importeren** y una confirmación aparte (que dice
+   que queda con el nombre de quien importa y no se deshace), entra de verdad.
+
+Si el fichero ya entró (el mismo contenido) lo dice y no lo repite. La base de prueba solo
+acepta ficheros de prueba (con la marca `BMS-DEMO`), como siempre. Un planning que borra
+turnos pide confirmarlo, como en la CLI. Debajo, **de cuándo es cada fuente**
+(`/api/v2/fuentes`: la fecha de lo último importado, su edad y si está al día) y, plegadas,
+las últimas importaciones (cuándo, qué, el fichero, quién, cuántas filas). Necesita el permiso
+`importar_datos`; sin él, la pantalla no sale en el menú.
+
+**Facturen lezen** no lee nada. Dice primero, en palabras normales, que **leer un PDF cuesta
+dinero** (unos céntimos por factura, la API de Anthropic), que la app **no lo puede
+empezar** (no tiene internet, a propósito) y que se empieza con el acceso directo del
+escritorio **BMS Finanzas - Leer facturas** (`leer-facturas.bat` en Docker), que antes de
+leer cuenta, gratis, lo que va a costar y solo sigue con un «si». Después, de
+`GET /api/v2/lectura`: cuántos documentos van, cuánto se ha gastado (en dólares, que es
+como cobra el servicio, de lo medido en cada lectura), cuánto costaría la siguiente factura
+(de lo medido, o una estimación holgada si aún no hay medidas; [costes.md](costes.md)) y
+las últimas pasadas. **No hay ningún botón que la lance.**
+
+### 4.5 Instellingen
+
+- **Taal**: NL | EN (el mismo interruptor de la cabecera).
+- **Quién eres**: el nombre, el rol o los roles en palabras (Beheerder, Administratie,
+  Alleen lezen) y, plegado con su número, **«Wat je mag doen»**: cada permiso en una
+  frase (`GET /api/v2/yo`, que ahora da también los roles). Uitloggen.
+- **Het bedrijf**, solo para leer: el nombre, los otros nombres, el btw-id, el KvK y las
+  cuentas propias, tal como los usan los controles (`GET /api/v2/empresa`); si falta algo,
+  lo dice, con la orden que lo pone (`empresa.bat`).
+- **Afscherming**, solo para leer (`GET /api/v2/aislamiento`): que la app nunca tiene
+  internet; en la instalación nativa, si la última comprobación está bien y cada papel (la
+  app, el lector de PDF, la salida a internet, las órdenes) con su estado; en Docker o a
+  mano, una frase sobre cómo se aísla allí.
+- **Personas**, solo para quien administra: el nombre y el rol de cada una
+  (`GET /api/v2/personas`), y que se añaden con `persona.bat`.
+- **Back-ups**, una frase: se hacen con `copia.bat`, en el disco externo cifrado, que
+  comprueba cada copia.
 
 ## 5. Neerlandés e inglés
 
@@ -246,6 +349,22 @@ Lo mismo que la consola, y algo más:
   permiso, y quien decide es siempre el servidor.
   Las descargas (el PDF original, la hoja del BTW) se piden con `fetch` y el token, y se
   guardan con un `Blob`: el token nunca va en una dirección.
+- **Importar desde la app** (`POST /api/v2/importar`) es una orden más, con las mismas
+  puertas: Host y Origin de la propia app (otro origen es un `403 otro_origen`), el token de
+  la persona, el permiso `importar_datos` (comprobado **antes** de leer el fichero; una
+  negativa queda en la auditoría) y un cuerpo JSON con su propio límite: el fichero va en
+  base64 y no pasa de 8 MB (más es un `413 fichero_demasiado_grande`, sin leer el resto).
+  Dentro, la misma `importar_fichero` que la CLI, todo o nada y auditada con el nombre de
+  quien importa; la prueba (`simular`) deshace todo al acabar y no deja ni la importación.
+  El fichero no se guarda en disco ni se abre con otro programa: el proceso de la app sigue
+  sin red y sin lanzar procesos. Lo que contesta va en
+  [integracion-web.md](integracion-web.md) («Importar desde la app»).
+- **Lo que no hay, a propósito, en estas pantallas.** Facturen lezen no tiene botón para
+  leer (la app no tiene red, y el lector cuesta dinero: lo empieza una persona con su
+  acceso directo). Btw no presenta: deja el trimestre listo y anota lo que una persona ya
+  presentó (un test comprueba que `btw_anotar_presentacion` solo sale en la ficha del
+  trimestre). Instellingen solo cambia el idioma: la empresa, las personas y las copias se
+  hacen con sus órdenes.
 
 ## 7. Para quien la cambia
 
@@ -271,8 +390,8 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | Carpeta | Qué |
 | --- | --- |
 | `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y el componente de navegación del dueño (`sidebar-with-chrome-like-tabs.tsx`; arriba del fichero, lo que se le cambió y por qué) |
-| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `PriorityPill`, `StatusText`, `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`; `ActionDialog` / `ActionButton` (toda orden pasa por ahí) y `ExceptionStatus` / `ExceptionActions` |
-| `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso) y `render.tsx` (qué pinta cada ruta) |
+| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `PriorityPill`, `StatusText`, `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura), `ProperName` (un nombre propio, como un acceso directo, que no se traduce); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
+| `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `import`, `read-invoices`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso, y las fichas) y `render.tsx` (qué pinta cada ruta) |
 | `src/shell/` | El marco: la navegación con sus insignias, el idioma, la persona, la marca de datos de prueba |
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`), el acceso a los del dominio (`domain.ts`) y el lenguaje de sus plantillas (`templates.ts`) |
@@ -305,26 +424,40 @@ versión del Chromium que hay instalado para las pruebas.
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
 Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
 que añade el script), arrancan `bms-agent serve` sobre ella en un puerto libre y entran
-con un token de prueba. `e2e/shell.spec.ts` prueba el marco y `e2e/daily.spec.ts` las
-pantallas del trabajo diario con órdenes de verdad: los motivos de las bloqueadas en
-los dos idiomas, aceptar un hallazgo (con la segunda firma de otra persona) y resolver
+con un token de prueba. `e2e/shell.spec.ts` prueba el marco, `e2e/daily.spec.ts` las
+pantallas del trabajo diario con órdenes de verdad (los motivos de las bloqueadas en
+los dos idiomas, aceptar un hallazgo con la segunda firma de otra persona y resolver
 una excepción con las cuentas del menú cambiando, marcar como gecontroleerd, una `rev`
 vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos
-personas, y que quien solo mira no ve ningún botón. Van en orden y cambian la base, así
+personas, y que quien solo mira no ve ningún botón) y `e2e/screens.spec.ts` las demás:
+cada lista y su ficha (con sus detalles abiertos), Kasstroom, el BTW entero (reabrir,
+dejar listo, bajar el werkblad y mirar que es el CSV del trimestre, la regla de las dos
+personas al anotar la aangifte y anotarla con otra persona), Importeren (un fichero que no
+se reconoce, la prueba de un maestro de clientes que dice «1 nieuw» sin que cambie nada en
+la base, la importación de verdad tras la confirmación, la historia y la repetición, y el
+cliente nuevo en Klanten), Facturen lezen sin botón para leer, Instellingen, quien solo
+mira y la app a 1024 px sin desplazamiento horizontal. Van en orden y cambian la base, así
 que comprueban cambios, no cifras sueltas. En
 cada prueba: toda petición tiene que ir a `127.0.0.1` (otra se corta y la prueba falla),
-ninguna violación de la CSP, ningún error en la consola, y axe sin problemas serios ni
-críticos (WCAG 2.1 AA). Dejan una captura de cada pantalla en neerlandés y en inglés,
-a 1440×900, en `CAPTURAS_DIR` (por defecto `frontend/test-results/capturas`, que no va
-en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de
+ninguna violación de la CSP, ningún error en la consola, ninguna respuesta de error que la
+prueba no espere, y axe sin problemas serios ni críticos (WCAG 2.1 AA); en cada pantalla,
+además, ninguna palabra de una lista de palabras castellanas (`expectNoSpanish` en
+`e2e/fixtures.ts`; los nombres propios marcados con `ProperName` no cuentan). Dejan una
+captura de cada pantalla, ficha y diálogo en neerlandés y en inglés, a 1440×900
+(`<idioma>-<pantalla>.png`), en `CAPTURAS_DIR` (por defecto
+`frontend/test-results/capturas`, que no va en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de
 `PLAYWRIGHT_BROWSERS_PATH` (no se baja nada: nunca `playwright install`).
 
 ## 8. Lo que falta
 
-Las partes siguientes del paso 15 llenan el resto sobre esta base: Leveranciers,
-Klanten, Objecten e Inkooporders (con sus fichas), Kasstroom, Btw, Importeren y
-Facturen lezen. En la ficha de factura quedan para la consola las órdenes menos de
-cada día (imputar una línea a otro Objeto o a una PO, dividir o añadir líneas,
-anular o fusionar una factura, enlazar dos a mano, marcar un pago, subir la prioridad).
+En la ficha de factura quedan para la consola las órdenes menos de cada día (imputar una
+línea a otro Objeto o a una PO, dividir o añadir líneas, anular o fusionar una factura,
+enlazar dos a mano, marcar un pago, subir la prioridad), y de las fichas de relaciones lo
+que no se hace cada semana: registrar, modificar, corregir o cerrar una PO a mano y sus
+Objects (`registrar_po`, `modificar_po`, `corregir_po`, `cerrar_po`, `objetos_po`),
+corregir un dato maestro, poner el teléfono de verificación de un proveedor, añadir un
+alias o un beneficiario. Las fichas lo enseñan todo y esas órdenes siguen en `/consola` y
+en la CLI. Leer los PDF se sigue empezando con su acceso directo, a propósito.
+
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
-natural.
+natural, y mirar en el ordenador del dueño que Edge abre la ventana `--app`.

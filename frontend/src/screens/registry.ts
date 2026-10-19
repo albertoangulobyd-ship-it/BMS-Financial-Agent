@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { TabRoute } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import type { Messages } from '@/i18n';
+import { idToQuarter } from '@/lib/format';
 
 export const NAV_IDS = [
   'overview',
@@ -44,7 +45,7 @@ export const NAV_IDS = [
 ] as const;
 export type NavId = (typeof NAV_IDS)[number];
 
-export const RECORD_IDS = ['invoice', 'provider', 'client', 'object', 'purchase-order'] as const;
+export const RECORD_IDS = ['invoice', 'provider', 'client', 'object', 'purchase-order', 'vat-quarter'] as const;
 export type RecordId = (typeof RECORD_IDS)[number];
 
 export type ScreenId = NavId | RecordId;
@@ -83,6 +84,8 @@ export const RECORDS: Readonly<Record<RecordId, { icon: LucideIcon; nav: NavId }
   client: { icon: Users, nav: 'clients' },
   object: { icon: Building2, nav: 'objects' },
   'purchase-order': { icon: ClipboardList, nav: 'purchase-orders' },
+  // Un trimestre del btw: su id es el ano por diez mas el trimestre (2026-T3 es 20263).
+  'vat-quarter': { icon: Percent, nav: 'vat' },
 };
 
 export const DEFAULT_SCREEN: NavId = 'overview';
@@ -100,7 +103,8 @@ export function isValidRoute(route: TabRoute): boolean {
   if (route.from !== undefined && !isNavId(route.from)) return false;
   if (isNavId(route.screen)) return route.id === undefined && route.from === undefined;
   if (isRecordId(route.screen)) {
-    return typeof route.id === 'number' && Number.isSafeInteger(route.id) && route.id > 0;
+    if (typeof route.id !== 'number' || !Number.isSafeInteger(route.id) || route.id <= 0) return false;
+    return route.screen !== 'vat-quarter' || idToQuarter(route.id) !== null;
   }
   return false;
 }

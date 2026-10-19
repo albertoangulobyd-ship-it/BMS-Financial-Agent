@@ -96,17 +96,20 @@ def leer(contenido: bytes, nombre: str = "", *, formato: str | None = None,
 
 def importar_extracto(almacen: Almacen, ruta: str | Path, *, lanzado_por: int,
                       formato: str | None = None, exportado_en: datetime | None = None,
-                      simular: bool = False) -> ResultadoImportacion:
+                      simular: bool = False, contenido: bytes | None = None
+                      ) -> ResultadoImportacion:
     """La orden entera de importar un fichero del banco, todo o nada, con su pasada del motor.
 
     La pasada (hallazgos.recalcular) casa los movimientos nuevos con las
     facturas (pagos.conciliar) y evalua K1-K8 y F7 en la misma transaccion.
-    Simulando, se hace todo y se deshace.
+    Simulando, se hace todo y se deshace. Con `contenido` (lo que sube la app) no se lee
+    nada de disco: `ruta` da solo el nombre.
     """
     from ..hallazgos import recalcular
 
     ruta = Path(ruta)
-    contenido = ruta.read_bytes()
+    if contenido is None:
+        contenido = ruta.read_bytes()
     conn = almacen.conn
     exigir_de_su_base(conn, contenido, ruta.name)
     lote, mapeo = leer(contenido, ruta.name, formato=formato, exportado_en=exportado_en)

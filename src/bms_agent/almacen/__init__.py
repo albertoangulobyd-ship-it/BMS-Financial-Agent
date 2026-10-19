@@ -123,6 +123,9 @@ _IBAN_DEMO = re.compile(r"\b[A-Z]{2}\d{2} ?DEMO ?\d{4} ?\d{4} ?\d{2}\b")
 class DatosDePrueba(ValueError):
     """Algo hecho por `demo crear` iba a entrar en una base que no es la de prueba."""
 
+    # El codigo de su error en /api/v2 (servicios.CODIGOS_ERROR; la app lo dice en NL/EN).
+    codigo = "datos_de_prueba"
+
 
 def contiene_datos_de_prueba(contenido: bytes | str | None) -> bool:
     """Si un fichero o un texto lleva la marca de los datos de prueba."""

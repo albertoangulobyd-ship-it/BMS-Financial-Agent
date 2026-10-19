@@ -1,7 +1,7 @@
 // La base de la app: la entrada, el marco con todas las areas, NL | EN, las pestanas (una
 // fila abre su ficha; si ya esta abierta, se va a ella), que las pestanas se guardan al
 // recargar y que salir borra el token. Captura de cada pantalla en los dos idiomas.
-import { capture, expect, expectAccessible, login, test, token } from './fixtures';
+import { capture, expect, expectAccessible, expectNoSpanish, login, test, token } from './fixtures';
 
 const NAV = [
   ['overview', 'Overzicht', 'Overview'],
@@ -70,6 +70,7 @@ test('el marco con todas las areas, en los dos idiomas', async ({ page, baseUrl 
       await expect(page.getByRole('tab', { selected: true })).toContainText(label);
       if (id === 'work-queue') await expect(page.getByRole('table')).toBeVisible();
       await expectAccessible(page, `${lang} ${id}`);
+      await expectNoSpanish(page, `${lang} ${id}`);
       await capture(page, `${lang}-${id}`);
     }
   }

@@ -149,3 +149,49 @@ export function initials(name: string | null | undefined): string {
   const letters = words.slice(0, 2).map((w) => Array.from(w)[0] ?? '');
   return letters.join('').toLocaleUpperCase('nl-NL') || '?';
 }
+
+/** Millonesimas de dolar (lo que cuesta leer un pdf: *_usd_micro) -> "$ 0,03", redondeado al
+ *  centimo (la mitad hacia arriba), en notacion neerlandesa. Sin dato, "—". */
+export function formatUsdMicro(value: number | bigint | string | null | undefined): string {
+  const micro = toBigInt(value);
+  if (micro === null) return NO_VALUE;
+  const negative = micro < 0n;
+  const abs = negative ? -micro : micro;
+  const cents = (abs + 5000n) / 10000n;
+  const text = formatCents(negative ? -cents : cents);
+  return `$ ${text}`;
+}
+
+/** Un trimestre de la API ("2026-T3") como numero de pestana (20263) y al reves: las
+ *  pestanas guardan solo ids numericos. */
+export function quarterToId(label: string): number | null {
+  const m = /^(\d{4})-T([1-4])$/.exec(label);
+  return m ? Number(m[1]) * 10 + Number(m[2]) : null;
+}
+
+export function idToQuarter(id: number): string | null {
+  if (!Number.isSafeInteger(id)) return null;
+  const year = Math.floor(id / 10);
+  const quarter = id % 10;
+  if (year < 2000 || year > 2100 || quarter < 1 || quarter > 4) return null;
+  return `${year}-T${quarter}`;
+}
+
+/** "2026-T3" -> "Q3 2026" (se lee igual en neerlandes y en ingles). */
+export function quarterLabel(label: string | null | undefined): string {
+  const m = /^(\d{4})-T([1-4])$/.exec(label ?? '');
+  return m ? `Q${m[2]} ${m[1]}` : (label ?? NO_VALUE);
+}
+
+/** Lo que una persona escribe como fecha ("16-10-2026", "16/10/2026" o "2026-10-16") como
+ *  AAAA-MM-DD, o null si no es un dia que exista. Los campos de fecha de la app son de texto,
+ *  en dd-mm-aaaa como el resto: el selector del navegador sale en el formato y el idioma de
+ *  Windows (mm/dd/yyyy, o en castellano). */
+export function parseTypedDate(text: string): string | null {
+  const value = text.trim();
+  let iso: string | null = null;
+  const dmy = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(value);
+  if (dmy) iso = `${dmy[3]}-${dmy[2]!.padStart(2, '0')}-${dmy[1]!.padStart(2, '0')}`;
+  else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) iso = value;
+  return iso && parseIsoDate(iso) ? iso : null;
+}

@@ -3247,7 +3247,13 @@
     "orden_desconocida": "Deze handeling bestaat niet in dit programma.",
     "invalido": "De gegevens zijn niet geaccepteerd. Controleer wat je hebt ingevuld.",
     "tipo_no_admitido": "Het verzoek had niet de juiste vorm.",
-    "demasiado_grande": "Het verzoek is te groot. Maak de tekst korter."
+    "demasiado_grande": "Het verzoek is te groot. Maak de tekst korter.",
+    "fichero_no_reconocido": "Dit bestand wordt niet herkend als een export uit Exact, TRNSPRNT of van de bank. Kies zelf wat voor bestand het is, of controleer het bestand.",
+    "tipo_ambiguo": "Dit bestand kan meer dan één soort export zijn. Kies welke het is.",
+    "fichero_no_valido": "Het bestand past niet bij deze soort of kan niet worden gelezen. Controleer het bestand en de gekozen soort.",
+    "datos_de_prueba": "Testgegevens en echte gegevens worden nooit gemengd: dit bestand hoort bij de andere database.",
+    "pide_confirmacion": "Deze planning zou veel van de huidige planning laten vervallen, of heeft weken zonder diensten. Bevestig dat dit klopt en probeer het opnieuw.",
+    "fichero_demasiado_grande": "Het bestand is te groot (meer dan 8 MB). Maak een kleinere export, bijvoorbeeld per maand."
   },
   "roles": {
     "administrador": {

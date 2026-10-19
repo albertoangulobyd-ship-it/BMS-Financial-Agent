@@ -20,7 +20,8 @@
  * - Respeta prefers-reduced-motion (desplazamientos sin animar; el resto lo hace
  *   MotionConfig en la app).
  * - Accesibilidad: cada boton de icono lleva aria-label; la pestana activa controla el
- *   panel (role tabpanel); el boton de cerrar va fuera del elemento role=tab (un boton
+ *   panel (role tabpanel, que se puede enfocar para desplazarlo con el teclado: patron de
+ *   pestanas de WAI-ARIA); el boton de cerrar va fuera del elemento role=tab (un boton
  *   dentro de una pestana es un control anidado) y se cierra tambien con Supr.
  * - Tailwind v4: shrink-0 en vez de flex-shrink-0; h-full en vez de h-screen (las bandas
  *   del servidor van encima); text-destructive en vez de text-red-500.
@@ -1296,9 +1297,13 @@ export function SidebarWithTabs({
               <div
                 id='tab-panel'
                 role='tabpanel'
+                // Se desplaza: con el teclado tiene que poder enfocarse para bajar con las
+                // flechas (una pantalla sin botones, como Facturen lezen, no tendria otra forma).
+                tabIndex={0}
                 aria-labelledby={activeTab ? tabDomId(activeTab.id) : undefined}
                 className={cn(
                   'h-full bg-background overflow-auto transition-all duration-300 ease-in-out',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                   'md:rounded-br-3xl md:rounded-bl-3xl md:rounded-tr-3xl',
                   activeTabIndex !== 0 && 'md:rounded-tl-3xl'
                 )}

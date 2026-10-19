@@ -391,17 +391,23 @@ def cerrar_rol(
     return int(fila["id"])
 
 
+def roles_de(conn: sqlite3.Connection, usuario_id: int, instante: str | None = None
+             ) -> list[str]:
+    """Los nombres de los roles abiertos de un usuario, por orden alfabetico."""
+    instante = instante or _ahora(conn)
+    return [r["nombre"] for r in conn.execute(
+        "SELECT r.nombre FROM usuario_rol AS ur JOIN rol AS r ON r.id = ur.rol_id "
+        "WHERE ur.usuario_id = ? AND ur.desde <= ? AND (ur.hasta IS NULL OR ur.hasta > ?) "
+        "ORDER BY r.nombre", (usuario_id, instante, instante))]
+
+
 def listar_usuarios(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Cada usuario con sus roles abiertos, para la CLI."""
     instante = _ahora(conn)
     usuarios = []
     for fila in conn.execute(
             "SELECT id, nombre, email, es_sistema, activo FROM usuario ORDER BY id"):
-        roles = [r["nombre"] for r in conn.execute(
-            "SELECT r.nombre FROM usuario_rol AS ur JOIN rol AS r ON r.id = ur.rol_id "
-            "WHERE ur.usuario_id = ? AND ur.desde <= ? AND (ur.hasta IS NULL OR ur.hasta > ?) "
-            "ORDER BY r.nombre", (fila["id"], instante, instante))]
-        usuarios.append({**dict(fila), "roles": roles})
+        usuarios.append({**dict(fila), "roles": roles_de(conn, fila["id"], instante)})
     return usuarios
 
 

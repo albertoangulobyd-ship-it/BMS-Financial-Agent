@@ -3,7 +3,8 @@
 // boton solo sale si la persona tiene el permiso; aun asi, quien decide es el servidor.
 //
 // No hay, ni habra, una orden que cree facturas, pague, apruebe un pago o presente el
-// btw: no existen en servicios.py y la app no las inventa.
+// btw: no existen en servicios.py y la app no las inventa. btw_anotar_presentacion solo
+// anota que una persona ya presento la aangifte en el portal (con su referencia).
 
 export const ACTION_PERMISSION = {
   anular_hallazgo: 'anular_aviso',
@@ -21,6 +22,11 @@ export const ACTION_PERMISSION = {
   verificar_iban: 'confirmar_iban',
   rechazar_iban: 'confirmar_iban',
   atestar_iban: 'confirmar_iban',
+  // El estado de un trimestre del btw (pantalla Btw). Ninguna presenta nada: la aangifte la
+  // hace una persona en el portal de la Belastingdienst y aqui solo se anota que se hizo.
+  btw_lista_para_revision: 'gestionar_btw',
+  btw_reabrir: 'gestionar_btw',
+  btw_anotar_presentacion: 'gestionar_btw',
 } as const;
 
 export type ActionName = keyof typeof ACTION_PERMISSION | 'fijar_campo' | 'verificar_campo' | 'revertir_campo';

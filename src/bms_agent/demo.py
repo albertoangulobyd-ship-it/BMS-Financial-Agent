@@ -828,8 +828,9 @@ class _Escenario:
         registro = {"source_sha256": sha, "source_name": f"{c.numero}.pdf",
                     "model": config.DEFAULT_MODEL, "prompt_version": config.PROMPT_VERSION,
                     "schema_version": config.SCHEMA_VERSION,
-                    "extracted_at": datetime.combine(c.fecha + timedelta(days=1), time(8, 0),
-                                                     tzinfo=timezone.utc).isoformat(),
+                    # Leida el dia despues de llegar, nunca despues de hoy (como el recibido).
+                    "extracted_at": datetime.combine(min(c.fecha + timedelta(days=1), self.hoy),
+                                                     time(8, 0), tzinfo=timezone.utc).isoformat(),
                     "request_id": f"{MARCA_TEXTO}-{c.numero}-{c.copia}",
                     "usage": {"input_tokens": 3400 + 40 * len(c.lineas),
                               "output_tokens": 700 + 60 * len(c.lineas)},

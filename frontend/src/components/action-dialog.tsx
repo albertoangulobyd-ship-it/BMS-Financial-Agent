@@ -24,6 +24,7 @@ import type { ActionName } from '@/lib/actions';
 import { ApiError } from '@/lib/api';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
+import { NO_VALUE, formatDate, parseTypedDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 export interface ActionField {
@@ -112,7 +113,15 @@ export function ActionDialog({
         return;
       }
     }
-    const extra = validate?.(values) ?? null;
+    for (const field of fields) {
+      const value = (values[field.name] ?? '').trim();
+      if (field.kind === 'date' && value && parseTypedDate(value) === null) {
+        setProblem(fmt(t.action.badDate, { field: field.label }));
+        return;
+      }
+    }
+    const sent = apiValues(fields, values);
+    const extra = validate?.(sent) ?? null;
     if (extra) {
       setProblem(extra);
       return;
@@ -121,7 +130,7 @@ export function ActionDialog({
     setError(null);
     setBusy(true);
     try {
-      await session.api.action(action, data(values));
+      await session.api.action(action, data(sent));
       onOpenChange(false);
       bump();
       onDone?.();
@@ -158,10 +167,10 @@ export function ActionDialog({
                 onChange={(v) => setValues((old) => ({ ...old, [field.name]: v }))}
               />
               {/* Lo que se va a guardar, justo debajo de lo que se escribe. */}
-              {index === 0 && preview?.(values)}
+              {index === 0 && preview?.(apiValues(fields, values))}
             </div>
           ))}
-          {fields.length === 0 && preview?.(values)}
+          {fields.length === 0 && preview?.(apiValues(fields, values))}
           {texts?.confirm && (
             <p className='rounded-md border border-border bg-muted px-3 py-2 text-[13px] leading-relaxed'>{texts.confirm}</p>
           )}
@@ -205,7 +214,19 @@ export function ActionDialog({
 }
 
 function initialValues(fields: ActionField[]): Values {
-  return Object.fromEntries(fields.map((f) => [f.name, f.initial ?? '']));
+  // Una fecha se escribe dd-mm-aaaa (lo que llega de la API es AAAA-MM-DD).
+  return Object.fromEntries(
+    fields.map((f) => [f.name, f.kind === 'date' && f.initial ? formatDate(f.initial).replace(NO_VALUE, '') : (f.initial ?? '')])
+  );
+}
+
+/** Lo escrito como lo pide la API: cada fecha en AAAA-MM-DD (vacia si no se lee). */
+function apiValues(fields: ActionField[], values: Values): Values {
+  const out = { ...values };
+  for (const field of fields) {
+    if (field.kind === 'date') out[field.name] = parseTypedDate(values[field.name] ?? '') ?? '';
+  }
+  return out;
 }
 
 function FieldInput({ field, value, onChange }: { field: ActionField; value: string; onChange: (v: string) => void }) {
@@ -249,11 +270,15 @@ function FieldInput({ field, value, onChange }: { field: ActionField; value: str
       ) : (
         <Input
           {...common}
-          type={field.kind === 'date' ? 'date' : field.kind === 'tel' ? 'tel' : 'text'}
+          // Las fechas son texto dd-mm-aaaa: el selector del navegador sale en el formato y el
+          // idioma de Windows (mm/dd/yyyy, o en castellano).
+          type={field.kind === 'tel' ? 'tel' : 'text'}
+          inputMode={field.kind === 'date' ? 'numeric' : undefined}
+          placeholder={field.kind === 'date' ? t.action.datePlaceholder : undefined}
           autoComplete='off'
           spellCheck={field.kind === 'text'}
           onChange={(e) => onChange(e.target.value)}
-          className={cn(field.kind === 'iban' && 'font-mono uppercase tracking-[0.04em]')}
+          className={cn(field.kind === 'iban' && 'font-mono uppercase tracking-[0.04em]', field.kind === 'date' && 'w-40')}
         />
       )}
       {field.help && (

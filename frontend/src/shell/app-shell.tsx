@@ -9,7 +9,7 @@ import {
   type TabRoute,
 } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { fmt, useT } from '@/i18n';
-import { formatDateLong, todayIso } from '@/lib/format';
+import { formatDateLong, idToQuarter, quarterLabel, todayIso } from '@/lib/format';
 import { RefreshProvider, useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
 import { loadTabs, personKey, saveTabs } from '@/lib/storage';
@@ -86,8 +86,10 @@ function Shell() {
   const describeRoute = useCallback(
     (route: TabRoute) => {
       if (!isRecordId(route.screen)) return null;
+      // Un trimestre se nombra como se lee ("Btw Q3 2026"), no por su numero de pestana.
+      const quarter = route.screen === 'vat-quarter' && route.id ? idToQuarter(route.id) : null;
       return {
-        label: fmt(t.records[route.screen].fallbackTitle, { id: route.id ?? '' }),
+        label: fmt(t.records[route.screen].fallbackTitle, { id: quarter ? quarterLabel(quarter) : (route.id ?? '') }),
         icon: RECORDS[route.screen].icon,
       };
     },
