@@ -1,6 +1,8 @@
-// Una orden de una persona, siempre igual: un boton abre un dialogo que dice en palabras
-// normales que va a pasar (la frase de confirmacion del catalogo cuando mueve dinero, btw
-// o el banco), pide lo que la orden necesita (un motivo, una fecha...) y la manda a
+// Una orden de una persona, siempre igual: un boton abre un dialogo que dice UNA vez, en
+// palabras normales, que va a pasar (la frase de la pantalla o, sin ella, la de
+// confirmacion del catalogo cuando mueve dinero, btw o el banco; el boton ya dice la orden,
+// asi que no se pregunta "Doorgaan?"), pide lo que la orden necesita (un motivo, una
+// fecha...) y la manda a
 // POST /api/v2/acciones con la rev o la huella que la persona vio. Si otra persona lo
 // cambio antes (409, codigo conflicto) lo dice y ofrece volver a cargar; cualquier otro
 // error, en neerlandes o ingles por su codigo, con la frase del servidor plegada.
@@ -18,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { fmt, useT } from '@/i18n';
+import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { actionText } from '@/i18n/domain';
 import type { ActionName } from '@/lib/actions';
 import { ApiError } from '@/lib/api';
@@ -42,6 +44,23 @@ export interface ActionField {
 
 type Values = Record<string, string>;
 
+// Lo que no se puede deshacer lleva ademas su aviso aparte, aunque la pantalla ya explique
+// la orden: anotar una aangifte ya presentada.
+const IRREVERSIBLE = new Set<ActionName>(['btw_anotar_presentacion']);
+
+/** Lo que dice el dialogo: la frase de la pantalla o, sin ella, la del catalogo (la de
+ *  confirmar si la hay, si no la descripcion); y el aviso aparte, solo si no se deshace. */
+export function dialogTexts(
+  action: ActionName,
+  hasIntro: boolean,
+  texts: { description: string; confirm: string | null } | null
+): { description: string | null; warning: string | null } {
+  const confirm = texts?.confirm ?? null;
+  const warning = IRREVERSIBLE.has(action) ? confirm : null;
+  if (hasIntro) return { description: null, warning };
+  return { description: warning ? (texts?.description ?? null) : (confirm ?? texts?.description ?? null), warning };
+}
+
 export function ActionDialog({
   open,
   onOpenChange,
@@ -55,6 +74,7 @@ export function ActionDialog({
   children,
   validate,
   preview,
+  blocked,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,6 +93,9 @@ export function ActionDialog({
   validate?: (values: Values) => string | null;
   /** Lo que se ve bajo los campos segun lo escrito (p. ej. "antes -> despues"). */
   preview?: (values: Values) => ReactNode;
+  /** Por que esta orden no se puede mandar aun (falta la firma de un colega): se dice y el
+   *  boton no se deja pulsar, en vez de mandar algo que el servidor va a negar. */
+  blocked?: string;
 }) {
   const { t, lang } = useT();
   const { session } = useSession();
@@ -101,7 +124,7 @@ export function ActionDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!session || busy) return;
+    if (!session || busy || blocked) return;
     for (const field of fields) {
       const value = (values[field.name] ?? '').trim();
       if (field.required && !value) {
@@ -142,6 +165,7 @@ export function ActionDialog({
   }
 
   const stale = error instanceof ApiError && error.kind === 'stale';
+  const said = dialogTexts(action, Boolean(intro), texts);
   return (
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent closeLabel={t.common.close} className='max-w-lg'>
@@ -154,10 +178,16 @@ export function ActionDialog({
               <div className='pt-1 text-[13.5px] leading-relaxed text-foreground'>{intro}</div>
             </DialogDescription>
           ) : (
-            <DialogDescription>{texts?.description}</DialogDescription>
+            <DialogDescription>{said.description}</DialogDescription>
           )}
         </DialogHeader>
         {children}
+        {/* Lo que impide mandarla, lo primero que se lee. */}
+        {blocked && (
+          <p role='status' data-testid='action-blocked' className='rounded-md border border-border bg-muted px-3 py-2 text-[13px] font-medium leading-relaxed'>
+            {blocked}
+          </p>
+        )}
         <form id={formId} onSubmit={submit} className='flex flex-col gap-4' noValidate>
           {fields.map((field, index) => (
             <div key={field.name} className='flex flex-col gap-2'>
@@ -171,8 +201,13 @@ export function ActionDialog({
             </div>
           ))}
           {fields.length === 0 && preview?.(apiValues(fields, values))}
-          {texts?.confirm && (
-            <p className='rounded-md border border-border bg-muted px-3 py-2 text-[13px] leading-relaxed'>{texts.confirm}</p>
+          {said.warning && (
+            <p
+              data-testid='action-warning'
+              className='rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-3 py-2 text-[13px] leading-relaxed text-[#4a2205]'
+            >
+              {said.warning}
+            </p>
           )}
           {problem && (
             <p role='alert' className='text-sm font-medium text-late-foreground'>
@@ -181,7 +216,7 @@ export function ActionDialog({
           )}
           {error !== null && (
             <div ref={alertRef} role='alert' className='flex flex-col gap-2 rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-3 py-2 text-[#4a2205]'>
-              <p className='font-medium'>{errorMessage(error, t, lang)}</p>
+              <p className='font-medium'>{actionErrorMessage(action, error, t, lang)}</p>
               <TechnicalDetail error={error} />
             </div>
           )}
@@ -202,7 +237,7 @@ export function ActionDialog({
               {t.common.reload}
             </Button>
           ) : (
-            <Button type='submit' form={formId} disabled={busy}>
+            <Button type='submit' form={formId} disabled={busy || Boolean(blocked)}>
               {busy && <LoaderCircle className='mr-2 h-4 w-4 animate-spin motion-reduce:animate-none' aria-hidden='true' />}
               {submitLabel ?? texts?.label ?? t.common.save}
             </Button>
@@ -211,6 +246,20 @@ export function ActionDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * El error de una orden. "segunda_persona" (la regla de las dos personas) dice, para cada
+ * orden, por que: la app sabe cual de los casos es (tu cambiaste el telefono, tu dejaste
+ * listo el trimestre, falta la firma de un colega...), y la frase general del catalogo
+ * ("o esto, o lo otro") no ayuda a saber que hacer.
+ */
+export function actionErrorMessage(action: ActionName, error: unknown, t: Messages, lang: Lang): string {
+  if (error instanceof ApiError && error.code === 'segunda_persona') {
+    const specific = (t.errors.secondPerson as Partial<Record<string, string>>)[action];
+    if (specific) return specific;
+  }
+  return errorMessage(error, t, lang);
 }
 
 function initialValues(fields: ActionField[]): Values {

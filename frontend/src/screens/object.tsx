@@ -112,7 +112,7 @@ function ObjectDetail({
   );
 
   return (
-    <Screen>
+    <Screen calm>
       <PageHeader
         title={o.nombre ?? o.codigo}
         description={description}

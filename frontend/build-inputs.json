@@ -13,7 +13,8 @@
     "src/bms_agent/textos/nl.json",
     "src/bms_agent/textos/en.json",
     "frontend/build-inputs.json",
-    "frontend/scripts/fuente.mjs"
+    "frontend/scripts/fuente.mjs",
+    "frontend/scripts/tailwind-fuentes.mjs"
   ],
   "exclude": [
     ".test.ts",

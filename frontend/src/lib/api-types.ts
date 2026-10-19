@@ -41,6 +41,14 @@ export interface FieldInfo {
   motivo: string | null;
 }
 
+export interface SecondSignature {
+  solicitante_id: number;
+  firmante_id: number;
+  firmante: string | null;
+  vigente_hasta: string | null;
+  caduca_en: string;
+}
+
 export interface Finding {
   id: number;
   clave: string;
@@ -52,6 +60,8 @@ export interface Finding {
   pegajosa: boolean;
   calidad: string | null;
   segunda_firma: boolean;
+  /** 2.1: las segundas firmas que ya hay y aun valen (para quien, de quien, el plazo). */
+  firmas?: SecondSignature[];
   primera_vez_en: string | null;
   objetivos: { tabla: string; fila_id: number; campo: string | null; papel: string }[];
   resultado: string;
@@ -240,6 +250,8 @@ export interface PartyRow {
   pendiente_cent: number;
   vencido_cent: number;
   ano_facturado_cent: number;
+  /** Contrato 2.1: sus facturas sin importe en euros (otra moneda), fuera de las sumas. */
+  sin_importe?: number;
   nivel: string;
   /** Contrato 2.1: los hallazgos pendientes de sus facturas y los suyos. */
   razones?: Reason[];

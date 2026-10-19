@@ -8,7 +8,7 @@
 // <idioma>-<pantalla>.png en CAPTURAS_DIR.
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
-import { capture, expect, expectAccessible, expectNoSpanish, login, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, expectNoSpanish, login, settled, test, token, type Who } from './fixtures';
 
 type Lang = 'nl' | 'en';
 const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
@@ -22,12 +22,14 @@ async function setLang(page: Page, lang: Lang) {
   await page.getByRole('button', { name: lang === 'nl' ? 'Nederlands' : 'English' }).first().click();
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   // Los textos de la navegacion entran con un fundido: axe mide el contraste al final.
-  await page.waitForTimeout(450);
+  await settled(page);
 }
 
 async function nav(page: Page, label: string, lang: Lang = 'nl') {
   await page.getByRole('navigation', { name: MENU[lang] }).getByRole('button', { name: new RegExp(`^${label}`) }).click();
   await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
+  // Ir a una pestana ya abierta la vuelve a pintar con un fundido (150 ms).
+  await settled(page);
 }
 
 /** Lo que se mira en cada pantalla, y su captura. */
@@ -211,7 +213,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await file.getByLabel('Referentie van de Belastingdienst').fill('BD-2026-Q3-0042');
   await file.getByLabel('Toelichting').fill('Ingediend in het portaal');
   await file.getByRole('button', { name: 'Ingediende aangifte vastleggen' }).click();
-  await expect(file.getByRole('alert')).toContainText('Dit moet een andere persoon doen');
+  await expect(file.getByRole('alert')).toContainText('Jij hebt dit kwartaal klaargezet. Een collega legt de ingediende aangifte vast.');
   await check(page, 'nl', 'vat-second-person');
   await file.getByRole('button', { name: 'Annuleren' }).click();
   await setLang(page, 'en');
@@ -219,7 +221,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await file.getByLabel('Tax office reference').fill('BD-2026-Q3-0042');
   await file.getByLabel('Explanation').fill('Filed in the portal');
   await file.getByRole('button', { name: 'Record filed return' }).click();
-  await expect(file.getByRole('alert')).toContainText('Another person has to do or confirm this');
+  await expect(file.getByRole('alert')).toContainText('You prepared this quarter. A colleague records the filed return.');
   await check(page, 'en', 'vat-second-person');
   await file.getByRole('button', { name: 'Cancel' }).click();
   await setLang(page, 'nl');
@@ -229,7 +231,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   const other = await ana.newPage();
   await other.goto(`${baseUrl}/app`);
   await other.locator('#token').fill(token('ana'));
-  await other.locator('form button[type="submit"]').click();
+  await other.locator('#login-submit').click();
   await nav(other, 'Btw');
   await openRow(other, /Q3 2026/);
   await setLang(other, 'en');
@@ -268,6 +270,11 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   const before = await clients();
   expect(before.map((c) => c.nombre)).not.toContain('Demo Nieuwbouw BV');
 
+  // Lo que manda la app a POST /api/v2/importar: la importacion de verdad, lo mismo que la proef.
+  const posts: { simular: boolean; exportado?: string; fuente?: string; tipo?: string }[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v2/importar') posts.push(JSON.parse(r.postData() ?? '{}'));
+  });
   await signIn(page, baseUrl);
   await nav(page, 'Importeren');
   await expect(page.getByRole('heading', { level: 2, name: 'Hoe vers zijn de gegevens' })).toBeVisible();
@@ -278,7 +285,11 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await expect(page.getByTestId('import-file')).toContainText('notities.txt');
   await page.getByRole('button', { name: 'Eerst proberen' }).click();
   await expect(page.getByTestId('import-error')).toContainText('Dit bestand wordt niet herkend');
+  // De technische details: alleen de status en de code, niet de Spaanse zin van de server.
+  await page.getByTestId('import-error').getByText('Technische details').click();
+  await expect(page.getByTestId('import-error').locator('details p')).toHaveText('400 fichero_no_reconocido');
   await check(page, 'nl', 'import-not-recognised');
+  await page.getByTestId('import-error').getByText('Technische details').click();
   await setLang(page, 'en');
   await expect(page.getByTestId('import-error')).toContainText('This file is not recognised');
   await check(page, 'en', 'import-not-recognised');
@@ -295,6 +306,18 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await check(page, 'nl', 'import-preview');
   // ... en bewaart niets.
   expect((await clients()).length).toBe(before.length);
+  // Een andere exportdatum na de proef: de proef geldt niet meer, er is geen knop om echt te
+  // importeren, en na een nieuwe proef gaat precies dat mee.
+  const exportedField = page.locator('#import-exported');
+  const previewedDay = await exportedField.inputValue();
+  await exportedField.fill('01-01-2020');
+  await expect(result).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Nu echt importeren' })).toHaveCount(0);
+  await exportedField.fill(previewedDay);
+  await page.getByRole('button', { name: 'Eerst proberen' }).click();
+  await expect(result).toContainText('Wat er zou gebeuren');
+  const preview = posts.at(-1)!;
+  expect(preview.simular).toBe(true);
   await setLang(page, 'en');
   await expect(result).toContainText('What would happen');
   await check(page, 'en', 'import-preview');
@@ -310,6 +333,7 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await check(page, 'nl', 'import-confirm');
   await page.getByRole('dialog').getByRole('button', { name: 'Nu echt importeren' }).click();
   await expect(result).toContainText('Ingelezen. De lijsten en controles zijn bijgewerkt.');
+  expect(posts.at(-1)).toMatchObject({ simular: false, exportado: preview.exportado, fuente: 'exact', tipo: 'clientes' });
   await check(page, 'nl', 'import-done');
   expect((await clients()).map((c) => c.nombre)).toContain('Demo Nieuwbouw BV');
   await setLang(page, 'en');
@@ -340,7 +364,9 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
 test('facturen lezen: wat het kost en hoe je het start, zonder knop die het start', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl);
   await nav(page, 'Facturen lezen');
-  await expect(page.getByText('BMS Finanzas - Leer facturas')).toBeVisible();
+  // Hoe je het start, zonder de (Spaanse) naam van de snelkoppeling of het .bat-bestand.
+  await expect(page.getByText('met de snelkoppeling op het bureaublad voor het lezen van facturen')).toBeVisible();
+  await expect(page.getByText(/Finanzas|\.bat\b/)).toHaveCount(0);
   await expect(page.getByText('Deze app heeft bewust geen internet')).toBeVisible();
   await expect(page.getByText(/16 documenten/)).toBeVisible();
   // Geen knop die het lezen start: in de hoofdinhoud staan alleen de plooibare uitleg en tabellen.

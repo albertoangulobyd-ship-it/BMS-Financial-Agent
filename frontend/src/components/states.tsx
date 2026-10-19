@@ -69,16 +69,17 @@ export function errorMessage(error: unknown, t: Messages, lang: Lang): string {
 }
 
 /** La frase del servidor, en castellano, para quien da soporte: plegada y en pequeno. */
+// Para el soporte: el estado HTTP y el codigo estable del error. La frase del servidor
+// (`error`) es castellano para la CLI y la auditoria y no se ensena en la app.
 export function TechnicalDetail({ error }: { error: unknown }) {
   const { t } = useT();
-  if (!(error instanceof ApiError) || (!error.detail && !error.code)) return null;
+  if (!(error instanceof ApiError) || !error.code) return null;
   return (
     <details className='text-xs text-muted-foreground'>
       <summary className='cursor-pointer select-none rounded-sm'>{t.errors.technical}</summary>
       <p className='mt-1 font-mono break-words'>
         {error.status ? `${error.status} ` : ''}
-        {error.code ? `${error.code}: ` : ''}
-        {error.detail ?? ''}
+        {error.code}
       </p>
     </details>
   );

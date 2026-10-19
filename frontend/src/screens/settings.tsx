@@ -2,19 +2,20 @@
 // bedrijf tal como lo usan las controles (solo lectura), como esta afscherming este programa
 // (la comprobacion del aislamiento que el servidor ya lee, por partes), las personas (solo
 // para quien administra) y donde se hacen las copias, en una frase. Lo unico que se ajusta
-// aqui es el idioma: lo demas se hace con las ordenes del programa (empresa.bat, persona.bat).
+// aqui es el idioma: lo demas lo hace quien administra el programa, fuera de la app (sin
+// nombrar sus .bat, que estan en castellano).
 import { LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DataTable, type Columns } from '@/components/data-table';
 import { PageHeader, Screen } from '@/components/page-header';
-import { ProperName, withNode } from '@/components/proper-name';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { LanguageSwitch } from '@/shell/language-switch';
 import { useT } from '@/i18n';
-import { permissionText, roleText } from '@/i18n/domain';
+import { permissionText, roleText, templateCatalog } from '@/i18n/domain';
+import { formatWith } from '@/i18n/templates';
 import { paths } from '@/lib/api';
 import type { Company, Isolation, PersonWithRoles } from '@/lib/api-types';
 import { roleOf, useCan, useSession } from '@/lib/session';
@@ -128,11 +129,11 @@ function SystemInfo() {
 }
 
 function CompanyRow({ company: c }: { company: Company }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const missing = <span className='text-muted-foreground'>{t.settings.notFilled}</span>;
   return (
     <Row title={t.settings.companyTitle}>
-      <p className='text-muted-foreground'>{withNode(t.settings.companyHelp, 'file', <ProperName>empresa.bat</ProperName>)}</p>
+      <p className='text-muted-foreground'>{t.settings.companyHelp}</p>
       <dl className='mt-3 grid grid-cols-[12rem_1fr] gap-x-4 gap-y-1.5 text-[13px]'>
         <dt className='text-[#45423c]'>{t.parties.name}</dt>
         <dd className='m-0 font-medium'>{c.nombre}</dd>
@@ -144,7 +145,10 @@ function CompanyRow({ company: c }: { company: Company }) {
         <dd className='m-0 font-mono text-[12.5px]'>{c.kvk ?? missing}</dd>
         <dt className='text-[#45423c]'>{t.settings.ownAccounts}</dt>
         <dd className='m-0 font-mono text-[12.5px]'>
-          {c.cuentas_propias.length ? c.cuentas_propias.map((iban) => <span key={iban} className='block'>{iban}</span>) : missing}
+          {/* En grupos de cuatro, como en IBAN-controles. */}
+          {c.cuentas_propias.length
+            ? c.cuentas_propias.map((iban) => <span key={iban} className='block'>{formatWith('iban', iban, templateCatalog(lang))}</span>)
+            : missing}
         </dd>
       </dl>
       <p className='mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]'>
@@ -207,7 +211,7 @@ function PeopleRow({ people }: { people: PersonWithRoles[] }) {
   ];
   return (
     <Row title={t.settings.peopleTitle}>
-      <p className='mb-3 text-muted-foreground'>{withNode(t.settings.peopleHelp, 'file', <ProperName>persona.bat</ProperName>)}</p>
+      <p className='mb-3 text-muted-foreground'>{t.settings.peopleHelp}</p>
       <DataTable columns={columns} rows={people} rowKey={(p) => p.id} caption={t.settings.peopleTitle} />
     </Row>
   );
@@ -217,7 +221,7 @@ function BackupsRow() {
   const { t } = useT();
   return (
     <Row title={t.settings.backupsTitle}>
-      <p className='text-muted-foreground'>{withNode(t.settings.backupsText, 'file', <ProperName>copia.bat</ProperName>)}</p>
+      <p className='text-muted-foreground'>{t.settings.backupsText}</p>
     </Row>
   );
 }

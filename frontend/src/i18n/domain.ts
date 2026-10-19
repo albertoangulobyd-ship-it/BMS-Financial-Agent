@@ -58,6 +58,11 @@ export function severityLabel(lang: Lang, severity: string | null | undefined): 
   return pick(CATALOGS[lang].severidades, severity)?.etiqueta ?? null;
 }
 
+/** Lo que hace esa gravedad con la factura, en una frase (la ayuda de su pastilla). */
+export function severityMeaning(lang: Lang, severity: string | null | undefined): string | null {
+  return pick(CATALOGS[lang].severidades, severity)?.significa ?? null;
+}
+
 // ------------------------------------------------------------ estados
 
 type StateGroup = keyof Catalog['estados'];

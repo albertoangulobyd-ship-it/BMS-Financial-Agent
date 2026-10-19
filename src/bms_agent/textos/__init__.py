@@ -128,13 +128,16 @@ def _entero_de(valor: Any) -> int | None:
 
 
 def dinero(cent: int) -> str:
-    """Centimos como se lee un importe en la empresa: € 1.234,56 (y € -1.234,56)."""
-    return "€ " + _escala(cent, 2, 2)
+    """Centimos como se lee un importe en la empresa: € 1.234,56 (y € -1.234,56).
+
+    Entre el euro y la cifra va un espacio que no se parte (U+00A0): sin el, una frase
+    larga dejaba el euro al final de una linea y el importe en la siguiente."""
+    return "€\u00a0" + _escala(cent, 2, 2)
 
 
 def tarifa(e4: int) -> str:
     """Diezmilesimas de euro: € 42,50, o € 42,505 si la tarifa lleva mas decimales."""
-    return "€ " + _escala(e4, 4, 2)
+    return "€\u00a0" + _escala(e4, 4, 2)
 
 
 def horas(mil: int) -> str:

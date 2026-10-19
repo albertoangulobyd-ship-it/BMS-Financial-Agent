@@ -7584,3 +7584,104 @@ sin problemas serios de axe ni ninguna falta de contraste, y sin castellano.
 para leerse). La insignia de IBAN-controles cuenta los avisos de IBAN abiertos (`activos`
 de la categoría `iban` del panel) y la pantalla agrupa por cuenta, así que puede decir 3
 con una sola tarjeta; no es de esta parte.
+
+### Paso 15 · correcciones de la revisión
+
+La revisión del paso 15 (revisores y orquestador) dejó **26 hallazgos**. Se miraron todos,
+reproduciéndolos (un script, una captura o una prueba que fallaba antes) y **todos eran de
+verdad**; los 26 se corrigieron, cada uno con una prueba que falla antes y pasa después
+cuando se puede (las de redacción y aspecto, mirando las capturas nuevas). Uno se corrigió
+de otra forma que la propuesta (los nombres de los accesos directos, abajo, desviación 4).
+
+| # | Hallazgo | Qué se hizo | Dónde se comprueba |
+| --- | --- | --- | --- |
+| 1 | **Una bomba de YAML** (470 bytes, 5,4 GB y 68 s) en `POST /api/v2/importar`, también simulando | El cargador de la hoja de PO (`importadores/ordenes.py`, `_Cargador.compose_node`) rechaza **anclas y alias** antes de construir nada y no anida más de `MAX_PROFUNDIDAD` (12) niveles; `str(entrada)` de una fila que no es un mapa se recorta | `tests/test_importar_app.py::test_un_yaml_con_alias_es_un_400_rapido_y_no_una_bomba` (la bomba de 8 niveles es un 400 en menos de 5 s, por detección y eligiendo la clase), `::test_un_yaml_muy_anidado_se_rechaza_sin_agotar_la_pila` |
+| 2 | Un fichero roto (un campo de CSV de más de 128 KB, un YAML de 5.000 niveles) **cortaba la conexión** sin respuesta | `importar_web.detectar` e `importar` convierten `csv.Error`, `RecursionError`, `UnicodeError`, `SyntaxError` (el `ParseError` de XML) y `yaml.YAMLError` en `FicheroNoValido`; `_importar_v2` tiene un último `except Exception`: 400 `fichero_no_valido` sin el texto de la excepción, y al registro solo su clase | `::test_un_fichero_que_rompe_el_lector_es_un_400_y_no_un_corte`, `::test_un_error_inesperado_del_lector_es_un_400_sin_su_texto` |
+| 3 | El token, en un `<input type=password>` dentro de un `<form>`: **Edge podía ofrecer guardarlo** en su gestor de contraseñas | Sin `<form>` ni campo de contraseña: texto tapado con `-webkit-text-security: disc`, `autocomplete="one-time-code"`, Intro para entrar y el campo vacío antes de comprobar el token; [app-local.md](../app-local.md) §3 dice que se diga que no si Edge ofrece guardarlo | `e2e/shell.spec.ts` «la entrada…» (ningún `form` ni `input[type=password]`, el `autocomplete` y el tapado; Intro entra) |
+| 4 | El Overzicht **no decía un plazo del BTW pasado** sin aangifte (`proximo_plazo` salta al trimestre siguiente) | La tarjeta del BTW pone primero «Aangifte te laat» con la pastilla `plazo_vencido` y los trimestres (`overdueQuarters`, de `por_presentar` y `plazos_pasados`); el tipo de `plazos_pasados` es `string[]` | `src/screens/screens.test.ts` («un plazo pasado sin aangifte…», con lo que da el panel el 5 de noviembre); `e2e/status.spec.ts` «un plazo del btw pasado…» (el panel de ese día, en la respuesta) |
+| 5 | **e2e inestable**: axe medía el contraste en mitad del fundido de la pestaña | `settled()` en `e2e/fixtures.ts`: ninguna animación con fin en marcha, el contenido de la pestaña entero y a opacidad 1 y ninguna opacidad a medias durante tres cuadros, **sin esperas fijas**; antes de axe, de cada captura, tras `nav()` y al cambiar de idioma (se quitaron los `waitForTimeout`). El fundido respeta además `prefers-reduced-motion` | La pasada entera con la suite de Python corriendo a la vez (abajo) |
+| 6 | **Tailwind leía ficheros fuera de la huella** (pruebas, `e2e/`, scripts): una clase allí cambiaba el CSS sin cambiar `fuente.json` | `src/index.css`: `@import "tailwindcss" source(none)` y `@source` solo para `src` (sin `*.test.ts(x)`) e `index.html`; `scripts/tailwind-fuentes.mjs` saca con el escáner de Tailwind lo que lee, y `fuente.mjs` no escribe ni da por buena la huella si algo queda fuera de `build-inputs.json` | `scripts/tailwind-fuentes.test.mjs` (falla con el `index.css` de antes: lo comprobé); `tests/test_app_local.py::test_tailwind_solo_lee_lo_que_cubre_la_huella`. El CSS construido no perdió ninguna clase |
+| 7 | Sin lo construido (`/app` da 503), **los lanzadores fallaban** sin abrir nada, aunque `/consola` funcionaba | `windows/iniciar.ps1` y `docker/iniciar.ps1` esperan a `/consola`; `Direccion-De-La-App` (en los dos `comun.ps1`) abre `/app` si da 200 y, si no, lo dice y abre `/consola` | `tests/test_app_local.py::test_sin_la_app_construida_el_lanzador_abre_la_consola` (Windows y Docker); los de `test_entorno_local.py` y `test_instalacion_nativa.py` cambian (abajo) |
+| 8 | Después de la prueba, cambiar el día de exportación o la confirmación **importaba algo no probado** | La prueba guarda lo que probó (`TriedWith`: clase, día, confirmación) y la importación de verdad manda **eso**; cambiar el día, la clase o la confirmación borra la prueba | `e2e/screens.spec.ts` «importeren…» (otra fecha borra la prueba y el botón; lo que se manda de verdad es lo probado) |
+| 9 | **IBAN-controles se contradecía**: «Telefonisch geverifieerd» junto a «nog niet bevestigd», con el botón de llamar otra vez | `accountStep`: «nog niet bevestigd» solo sin verificar; verificada con un F2 abierto, «Wat nog moet: … zet de rekening in Exact en importeer de leveranciers opnieuw»; ya no se ofrece llamar. El subtítulo de la pantalla dice «Nieuwe of gewijzigde bankrekeningen, en wat er nog moet gebeuren» | `screens.test.ts` («lo que falta de una cuenta…»); `e2e/daily.spec.ts` «IBAN-controles…» (después de verificar) |
+| 10 | **El punto latía en todas partes** (10 pastillas en la Werklijst, 6 en el Overzicht) | `PingScope` en `status-pill.tsx`: `DataTable` y `SummaryCard` van quietos; `Screen calm` en el Overzicht y las fichas de relaciones, Objects y PO; la Werklijst deja latir solo lo **bloqueado**; late la cabecera de la ficha de una factura | `status-pill.test.ts` («late en un solo sitio por pantalla…»); `e2e/status.spec.ts` «un solo sitio late por pantalla…» (el Overzicht y siete listas sin latido; la ficha de un proveedor, quieta; la de una factura bloqueada, una) |
+| 11 | **El mismo problema en dos colores** (P5 «Bijna op» naranja y su aviso azul), «Termijn dichtbij» frente a «Nog 12 dagen» | `po_senal` toma el color de la gravedad de su aviso (P5, P7, P8, P9 info; P4, P6, P10 warning); el plazo cercano dice los días también en el Overzicht. KT-202608 «Urgent» con el pago «Vervallen» en rojo se queda: son dos preguntas distintas (cuánto corre y si está pagada), y la regla está en la tabla de [app-local.md](../app-local.md) §4.6 | `status-states.test.ts` (cada señal con el color de su gravedad), `status-pill.test.ts` (la tabla) |
+| 12 | **La navegación** a 1024 × 768: el + bajo el …, pestañas cortadas sin aviso, Instellingen fuera de la vista | Solo las pestañas se desplazan (el + y el … van fuera de la tira); un fundido en el borde dice que hay más (`tabs-fade-left/right`); la barra lateral no esconde su barra de desplazamiento y va más junta con 820 px de alto o menos (`@custom-variant short`) | `e2e/shell.spec.ts` «a 1024 px…» (Facturen lezen e Instellingen dentro de los 768 px; + antes de …, también con siete pestañas; el fundido; la pestaña activa entera) |
+| 13 | «Blokkeert / Houdt vast / Waarschuwt» no se explicaban | Las etiquetas del catálogo dicen lo que hacen: «Blokkeert de factuur», «Wacht op controle», «Alleen een waarschuwing» (y en inglés «Blocks the invoice», «Waits for a check», «Warning only»); al pasar el ratón, su `significa` | Capturas (`daily-nl-invoice-blocked`, `nl-purchase-order`) |
+| 14 | «Terugsturen» no decía qué ni a quién | La orden es «Opnieuw laten bekijken» / «Ask for another look» (lo que hace: la revisión queda devuelta), y su resultado «Opnieuw te bekijken» / «Needs another look» | Capturas; `e2e/daily.spec.ts` (los botones de quien solo mira) |
+| 15 | Los diálogos **decían lo mismo dos veces** y preguntaban «Doorgaan?» | `dialogTexts`: la frase de la pantalla **o** la del catálogo, no las dos; los 33 `confirmar` de los catálogos ya no acaban en «Doorgaan?» / «Continue?»; aparte, en una caja, solo lo que no se deshace (`btw_anotar_presentacion`) | `screens.test.ts` («lo que dice el diálogo…», con los catálogos); `e2e/daily.spec.ts` (sin «Doorgaan?») |
+| 16 | **Castellano en la pantalla**: `empresa.bat`, `persona.bat`, «BMS Finanzas - Leer facturas», la frase del servidor en «Technische details», `exact-facturas_venta.csv` | Instellingen y Facturen lezen describen sin nombrar el `.bat` ni el acceso directo; «Technische details» enseña solo el estado y el código; los avisos del importador se cuentan sin enseñarlos; los ficheros de la base de prueba se llaman en neerlandés (`exact-verkoopfacturen.csv`, `exact-leveranciers.csv`…; `demo.py`); `ProperName` se quitó | `e2e/screens.spec.ts` («facturen lezen…»: ni «Finanzas» ni `.bat`; «importeren…»: los detalles son `400 fichero_no_reconocido`); `expectNoSpanish` cuenta también «finanzas» |
+| 17 | El euro se separaba de su importe al partir la línea | Espacio que no se parte (U+00A0) entre `€` y la cifra, antes de `%` y tras `$`, en `lib/format.ts` y en las dos implementaciones de las plantillas (`templates.ts` y `bms_agent.textos`); `casos.json` regenerado | `format.test.ts` («el euro y la cifra no se separan…»), `tests/test_textos.py::test_dinero`, `templates.test.ts` contra los casos |
+| 18 | **Dos filas iguales** (JV-2026-006 dos veces) sin nada que las distinga | `lib/twins.ts`: «1 van 2» / «2 van 2» junto al número en la Werklijst, Inkomend, Uitgaand, Uitzonderingen y las facturas de una ficha; «Als eerste» junta las del mismo número («2 facturen met dit nummer») y enseña cinco cosas distintas | `src/lib/twins.test.ts`; `e2e/daily.spec.ts` (cinco números distintos en «Als eerste»; «1 van 2» y «2 van 2» en la Werklijst) |
+| 19 | «€ 0,00 open» para quien solo tiene una factura en USD | Las filas de proveedores y clientes llevan `sin_importe` (contrato 2.1, clave nueva); la lista enseña «—» y «+ 1 factuur niet in euro» | `tests/test_importar_app.py::test_las_listas_de_partes_llevan_sus_razones` (Demo Global Guarding: 0 en euros y 1 fuera); captura `nl-providers` |
+| 20 | Inkomend / Uitgaand, **tres pastillas por fila** y otros filtros | Una pastilla por fila (la prioridad); el pago y el control en texto gris; fichas como las de la Werklijst (Alle, Vervallen, Openstaand, Controle nodig, Betaald) | `e2e/daily.spec.ts` «inkomend en uitgaand…» (cada fila, una pastilla como mucho; las fichas) |
+| 21 | «Nog te ontvangen van leveranciers» con un importe negativo | «Facturen van leveranciers die nog komen» / «Provider invoices still to come» | Captura `en-cash-flow` |
+| 22 | Textos rígidos: Q2 («Met twijfel gelezen…: totaal»), P10, «De controles daarna: De controles…», la PO en «Over» y la hoja titulada «Uitzondering 11» | Q2: «Het veld totaalbedrag is nog door niemand met het origineel vergeleken» (y en plural con dos o más; `codigos.total_cent` es «totaalbedrag»; un caso nuevo en `generar_casos_textos.py`); P10 «Verwacht meer dan de PO-waarde»; «Daarna: de controles blijven hetzelfde.»; la PO con su cliente o proveedor; la hoja con su asunto | `tests/test_textos.py` (los casos, también la variante nueva); `e2e/daily.spec.ts` (el título de la hoja no es «Uitzondering N») |
+| 23 | «Geld binnen · Uitgaand →» se leía como una contradicción | «Verkoopfacturen →» / «Sales invoices →» y «Inkoopfacturen →» / «Purchase invoices →» | `e2e/daily.spec.ts` (los dos enlaces) |
+| 24 | Formatos: fechas en prosa en una tabla, un IBAN sin agrupar, «niets» como saldo | `dd-mm-jjjj` en «Laatste leesrondes»; las cuentas propias en grupos de cuatro; el saldo cero es «€ 0,00» | `screens.test.ts` (`balanceText(0)`); capturas `nl-read-invoices`, `nl-settings`, `nl-vat` |
+| 25 | **La segunda firma**: se dejaba mandar una aceptación segura de fallar, con un error «o esto, o lo otro» | La ficha de una factura trae las firmas vigentes de cada aviso (`firmas`: para quién, de quién, el plazo y la caducidad; contrato 2.1; `hallazgos.firmas_vigentes`, que usa también la orden); sin la suya, el diálogo **no deja mandar** y dice que se pida «Tweede handtekening geven»; con ella, de quién es y el mismo plazo. `segunda_persona` dice para cada orden cuál de los casos es | `tests/test_servicios.py::test_la_ficha_dice_que_segundas_firmas_hay_para_quien`; `e2e/daily.spec.ts` «accepteren vraagt een tweede persoon…» (botón desactivado y el aviso; Ana no está en «Voor wie»; con la firma de Bram, su nombre) y «IBAN-controles…» y `screens.spec.ts` «btw…» (el mensaje de cada caso) |
+| 26 | **Las clases `dark:` del componente Status se aplicaban en un Windows en modo oscuro** (texto -400, menos de 2:1; del orquestador y del fichero de diseño) | `@custom-variant dark (&:where(.dark, .dark *))` en `src/index.css`; la nota de `status.tsx`, corregida | `tests/test_app_local.py::test_el_css_construido_no_cambia_con_el_modo_oscuro_del_sistema` (ningún `prefers-color-scheme` en el CSS construido); `e2e/status.spec.ts` «con el modo oscuro del sistema…» (axe y cada pastilla en el Overzicht, la Werklijst, IBAN-controles y una factura) |
+
+**Tests que cambian, y por qué** (cambian a propósito; nada se quitó):
+
+- `tests/test_entorno_local.py::test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace` y
+  `tests/test_instalacion_nativa.py::test_iniciar_comprueba_y_abre_la_consola_solo_en_127_0_0_1`:
+  el lanzador espera a `/consola` y abre `Direccion-De-La-App` (hallazgo 7).
+- `tests/test_textos.py`: `dinero` y `tarifa` llevan el espacio que no se parte (17).
+- `src/components/status-pill.test.ts` y `src/screens/status-states.test.ts`: las señales
+  de una PO con el color de la gravedad de su aviso (11).
+- `src/lib/format.test.ts` y `src/screens/screens.test.ts`: el espacio que no se parte; el
+  saldo cero es «€ 0,00» (17, 24).
+- `e2e/`: lo que dicen ahora los diálogos (sin «Doorgaan?»; el mensaje de cada caso de
+  `segunda_persona`), las fichas de Inkomend y Uitgaand en vez de los desplegables, que en
+  la Werklijst solo late lo bloqueado y en Inkomend nada, el texto de Facturen lezen, el
+  botón de entrar (`#login-submit`), y el acceso a una ficha sin «Doorgaan?».
+
+**Desviaciones, y por qué**
+
+1. **Las señales de una PO no siguen el color que pidió el dueño** («casi agotada» naranja,
+   «por encima de su valor» rojo): llevan el de la gravedad de su aviso, porque con el suyo
+   el mismo aviso salía en dos colores en la misma ficha. Un aviso, un color, en toda la
+   app (§4.6).
+2. **En Inkomend y Uitgaand el pago y el control van en texto gris**, no en su pastilla:
+   una pastilla de color por fila (la prioridad) es lo que pide «minimalista». En la ficha
+   de la factura siguen con la suya.
+3. **El latido, en un solo sitio por pantalla.** La regla del dueño (late lo bloqueado y lo
+   urgente) sigue en `STATUS_RULES`; `PingScope` decide además dónde: en las listas y las
+   tarjetas, nada; en la Werklijst, lo bloqueado; en la cabecera de una factura, lo suyo.
+4. **Los accesos directos y los `.bat` siguen en castellano** (son de la instalación, para
+   el dueño, y comparten el prefijo «BMS Finanzas - » con las reglas del cortafuegos):
+   cambiarlos era del paso 14. La app ya no los nombra: describe qué hacer.
+5. **Contrato 2.1, dos claves más** (`firmas` en cada hallazgo de la ficha y `sin_importe`
+   en las listas de proveedores y clientes), con [integracion-web.md](../integracion-web.md):
+   el contrato sigue en 2.1 porque el paso aún no ha salido.
+6. **Los catálogos cambian algunos textos** (las tres gravedades, devolver, P10, Q2,
+   `total_cent`, los `confirmar` sin «Doorgaan?»): los ve solo la app (la CLI y la
+   auditoría usan el castellano), y `casos.json` se regeneró.
+
+**Mirado en las capturas** (`CAPTURAS_DIR`, cada pantalla, ficha y diálogo en NL y EN a
+1440×900, las de 1024 px y las nuevas: `nl-tabs-1024`, `nl-dark-overview`,
+`nl-overview-vat-overdue`, `daily-nl-iban-verified`, `daily-nl-accept-signed`). Lo que se
+corrigió al mirarlas: el aviso de la segunda firma iba debajo de los campos (ahora arriba,
+lo primero), la etiqueta corta de P10 en la ficha de una PO decía aún «Verwacht boven de
+PO» (ahora «Meer dan de PO-waarde»), «+ 1 factuur niet in euro» se partía en tres líneas
+(ahora en una), los dólares de Facturen lezen llevaban un espacio normal, y la pastilla del
+plazo pasado («Termijn voorbij, geen aangifte vastgelegd») no cabía en la tarjeta del BTW y
+empujaba las cifras fuera: ahora dice «Aangifte te laat» / «Return overdue», en todas partes.
+
+**Resultado**: Python 3.11, **2515 pasan y 12 se saltan** (9 más: 4 de
+`tests/test_importar_app.py`, 4 de `tests/test_app_local.py` y 1 de `tests/test_servicios.py`);
+con Python 3.13.16 y `-W error`, los tocados (`test_importar_app`, `test_textos`,
+`test_servicios`, `test_entorno_local`, `test_instalacion_nativa`, `test_contrato_v2` y
+`test_app_local`: 494 pasan, 7 se saltan); `npm run typecheck` limpio; vitest, **819** (11
+ficheros, con `scripts/tailwind-fuentes.test.mjs` y `src/lib/twins.test.ts`); Playwright,
+**34** (3 nuevas: un solo sitio que late, el modo oscuro y el plazo pasado), todas sin
+peticiones fuera de 127.0.0.1, sin violaciones de la CSP, sin errores en la consola, sin
+problemas de axe ni faltas de contraste y sin castellano. La pasada entera de Playwright se
+hizo también **con la suite de Python corriendo a la vez** (la máquina cargada, como cuando
+fallaba el hallazgo 5): 34 de 34.
+
+**Lo que falta**: mirar en el ordenador del dueño que Edge no ofrece guardar el token (en
+Chromium sin cabeza no se puede ver) y que, sin lo construido, `iniciar.bat` abre la
+consola de antes. Que alguien de la oficina lea los textos nuevos (las gravedades, «Opnieuw
+laten bekijken», «Wat nog moet»).

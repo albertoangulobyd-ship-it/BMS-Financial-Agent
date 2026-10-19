@@ -22,6 +22,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import time
 from contextlib import closing
 from pathlib import Path
 
@@ -279,6 +280,88 @@ def test_detectar_el_banco_y_el_yaml_de_po() -> None:
     assert importar_web.detectar(planning, "planning.csv") == [("trnsprnt", "planning")]
 
 
+# ============================================================ ficheros hostiles
+
+def _bomba_yaml(niveles: int) -> bytes:
+    """Unos cientos de bytes que, con sus alias expandidos, son 9**niveles textos."""
+    lineas = ["&a0 [" + ", ".join(['"xxxxxxxxxx"'] * 9) + "]"]
+    lineas += [f"&a{i} [" + ", ".join([f"*a{i - 1}"] * 9) + "]" for i in range(1, niveles)]
+    return ("ordenes:\n" + "".join(f"  - {linea}\n" for linea in lineas)).encode("ascii")
+
+
+def test_un_yaml_con_alias_es_un_400_rapido_y_no_una_bomba(servidor) -> None:
+    """Una hoja de PO tecleada no necesita anclas ni alias; con ellos, unos cientos de bytes
+    se expanden a gigas al leerlos (cada nivel, 9 veces mas). Se rechazan antes de construir
+    nada, tambien simulando, y lo mismo un ancla sola o un alias de un texto."""
+    from bms_agent.importadores import ordenes
+
+    for malo in (_bomba_yaml(7), b"ordenes:\n  - &x {numero: PO-1}\n",
+                 b"ordenes:\n  - {numero: &n PO-1}\n  - {numero: *n}\n"):
+        with pytest.raises(ordenes.YamlNoValido):
+            ordenes._cargar(malo)
+        assert importar_web.detectar(malo, "po.yaml") == []
+    puerto, tokens, db = servidor
+    antes = _volcado(db)
+    for extra in ({}, {"fuente": "po_csv", "tipo": "ordenes_compra"}):
+        empieza = time.monotonic()
+        estado, respuesta = _importar(puerto, tokens["ana"], _cuerpo(
+            contenido=_bomba_yaml(8), nombre="po.yaml", simular=True, **extra))
+        assert time.monotonic() - empieza < 5
+        assert estado == 400 and respuesta["codigo"] in (
+            "fichero_no_valido", "fichero_no_reconocido"), respuesta
+    assert _volcado(db) == antes
+
+
+def test_un_yaml_muy_anidado_se_rechaza_sin_agotar_la_pila() -> None:
+    from bms_agent.importadores import ordenes
+
+    hondo = b"ordenes: " + b"[" * 5000 + b"]" * 5000
+    with pytest.raises(ordenes.YamlNoValido):
+        ordenes._cargar(hondo)
+    assert importar_web.detectar(hondo, "po.yaml") == []
+    # Lo normal sigue entrando: un mapa, su lista de PO y la lista de Objects de cada una.
+    normal = b"ordenes:\n  - numero: PO-1\n    objetos_ref: [Rijnhaven, Waalhaven]\n"
+    assert ordenes._cargar(normal)["ordenes"][0]["objetos_ref"] == ["Rijnhaven", "Waalhaven"]
+
+
+def test_un_fichero_que_rompe_el_lector_es_un_400_y_no_un_corte(servidor) -> None:
+    """Un campo de CSV de mas de 128 KB (csv.Error, que no es un ValueError) o un YAML muy
+    anidado (RecursionError) son un fichero que no se lee: 400 fichero_no_valido con su
+    codigo, nunca la conexion cortada ni un error a medias."""
+    puerto, tokens, db = servidor
+    antes = _volcado(db)
+    campo = b"Naam\n\"" + b"x" * 200_000 + b"\"\n"
+    hondo = b"ordenes: " + b"[" * 5000 + b"]" * 5000
+    casos = [
+        (_cuerpo(contenido=campo, nombre="clientes.csv", simular=True),
+         ("fichero_no_valido", "fichero_no_reconocido")),
+        (_cuerpo(contenido=campo, nombre="clientes.csv", simular=True, fuente="exact",
+                 tipo="clientes"), ("fichero_no_valido",)),
+        (_cuerpo(contenido=hondo, nombre="po.yaml", simular=True),
+         ("fichero_no_valido", "fichero_no_reconocido")),
+        (_cuerpo(contenido=hondo, nombre="po.yaml", simular=True, fuente="po_csv",
+                 tipo="ordenes_compra"), ("fichero_no_valido",)),
+    ]
+    for cuerpo, codigos in casos:
+        estado, respuesta = _importar(puerto, tokens["ana"], cuerpo)
+        assert estado == 400 and respuesta["codigo"] in codigos, (cuerpo.get("fuente"), respuesta)
+    assert _volcado(db) == antes
+
+
+def test_un_error_inesperado_del_lector_es_un_400_sin_su_texto(servidor, monkeypatch) -> None:
+    """Lo ultimo: un lector que falla de una forma que nadie previo no deja la peticion sin
+    respuesta; es un 400 fichero_no_valido sin el texto de la excepcion."""
+    puerto, tokens, _db = servidor
+
+    def revienta(*_a, **_k):
+        raise KeyError("secreto-interno")
+
+    monkeypatch.setattr(importar_web, "importar", revienta)
+    estado, respuesta = _importar(puerto, tokens["ana"], _cuerpo(PROVEEDORES, simular=True))
+    assert (estado, respuesta["codigo"]) == (400, "fichero_no_valido")
+    assert "secreto-interno" not in json.dumps(respuesta)
+
+
 # ============================================================ las lecturas nuevas
 
 def test_yo_y_las_personas_llevan_sus_roles(servidor) -> None:
@@ -381,6 +464,11 @@ def test_las_listas_de_partes_llevan_sus_razones(tmp_path) -> None:
         ordenes = {o["numero"]: [r["regla"] for r in o["razones"]]
                    for o in consultas.ordenes_compra(conn)}
         razon = consultas.clientes(conn)[0]["razones"][0]
+        # La que solo factura en USD: nada en las sumas en euros, pero 1 factura fuera de ellas.
+        sin_importe = {p["nombre"]: (p["pendiente_cent"], p["sin_importe"])
+                       for p in consultas.proveedores(conn)}
+    assert sin_importe["Demo Global Guarding Ltd"] == (0, 1)
+    assert sin_importe["J. Voorbeeld Beveiliging (zzp)"][1] == 0
     # Las de sus facturas (el numero repetido de J. Voorbeeld) y las que la senalan a ella:
     # lo sin facturar de un cliente (V6, V8) no es de ninguna factura.
     assert "B2" in proveedores["J. Voorbeeld Beveiliging (zzp)"]

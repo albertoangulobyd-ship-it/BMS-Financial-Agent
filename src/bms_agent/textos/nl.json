@@ -51,13 +51,19 @@
         "fallo": [
           {
             "cuando": [
+              "campos.1"
+            ],
+            "texto": "De velden {campos|codigo} zijn nog door niemand met het origineel vergeleken."
+          },
+          {
+            "cuando": [
               "campos"
             ],
-            "texto": "Met twijfel gelezen en nog niet geverifieerd: {campos|codigo}."
+            "texto": "Het veld {campos|codigo} is nog door niemand met het origineel vergeleken."
           },
           {
             "cuando": [],
-            "texto": "Een veld is met twijfel gelezen en nog niet geverifieerd."
+            "texto": "Een veld is nog door niemand met het origineel vergeleken."
           }
         ]
       }
@@ -2301,7 +2307,7 @@
       }
     },
     "P10": {
-      "titulo": "Verwacht boven de PO",
+      "titulo": "Verwacht meer dan de PO-waarde",
       "significa": "Gefactureerd plus niet-gefactureerd werk plus gepland werk is meer dan de waarde van de PO; facturen die daarna nog op de PO boeken, worden vastgehouden.",
       "que_hacer": "Vraag de klant om een verhoging of een nieuwe PO.",
       "detalle": {
@@ -2762,7 +2768,7 @@
     },
     "resultado_revision": {
       "revisada": "Gecontroleerd",
-      "devuelta": "Teruggestuurd"
+      "devuelta": "Opnieuw te bekijken"
     },
     "excepcion": {
       "abierta": "Open",
@@ -2987,15 +2993,15 @@
   },
   "severidades": {
     "bloqueo": {
-      "etiqueta": "Blokkeert",
+      "etiqueta": "Blokkeert de factuur",
       "significa": "De factuur kan niet verder tot dit is opgelost."
     },
     "retencion": {
-      "etiqueta": "Houdt vast",
+      "etiqueta": "Wacht op controle",
       "significa": "De factuur wacht tot iemand dit heeft bekeken."
     },
     "aviso": {
-      "etiqueta": "Waarschuwt",
+      "etiqueta": "Alleen een waarschuwing",
       "significa": "Een waarschuwing; de factuur gaat wel verder."
     }
   },
@@ -3003,7 +3009,7 @@
     "fijar_campo": {
       "etiqueta": "Waarde invullen of corrigeren",
       "descripcion": "Een ontbrekende waarde invullen of een verkeerd gelezen waarde corrigeren.",
-      "confirmar": "Deze waarde wordt gewijzigd en vastgelegd met jouw naam en reden. Doorgaan?"
+      "confirmar": "Deze waarde wordt gewijzigd en vastgelegd met jouw naam en reden."
     },
     "verificar_campo": {
       "etiqueta": "Waarde verifiëren",
@@ -3012,7 +3018,7 @@
     "revertir_campo": {
       "etiqueta": "Wijziging ongedaan maken",
       "descripcion": "Een handmatige wijziging terugdraaien naar de automatische waarde.",
-      "confirmar": "De handmatige waarde wordt teruggezet naar de automatische. Doorgaan?"
+      "confirmar": "De handmatige waarde wordt teruggezet naar de automatische."
     },
     "anadir_nota": {
       "etiqueta": "Notitie toevoegen",
@@ -3021,7 +3027,7 @@
     "cambiar_objeto": {
       "etiqueta": "Object wijzigen",
       "descripcion": "Een factuurregel aan een ander Object (en persoon) toewijzen.",
-      "confirmar": "De kosten of opbrengst van deze regel gaan naar een ander Object. Doorgaan?"
+      "confirmar": "De kosten of opbrengst van deze regel gaan naar een ander Object."
     },
     "anadir_alias": {
       "etiqueta": "Alias toevoegen",
@@ -3038,17 +3044,17 @@
     "registrar_po": {
       "etiqueta": "PO vastleggen",
       "descripcion": "Een inkooporder van een klant of aan een leverancier vastleggen, met waarde, datums en Objecten.",
-      "confirmar": "Deze PO wordt vastgelegd en facturen worden ertegen gecontroleerd. Doorgaan?"
+      "confirmar": "Deze PO wordt vastgelegd en facturen worden ertegen gecontroleerd."
     },
     "modificar_po": {
       "etiqueta": "PO wijzigen",
       "descripcion": "Een wijziging van waarde of einddatum van een PO vastleggen (vanaf een datum).",
-      "confirmar": "De waarde of einddatum van deze PO wordt gewijzigd. Doorgaan?"
+      "confirmar": "De waarde of einddatum van deze PO wordt gewijzigd."
     },
     "cerrar_po": {
       "etiqueta": "PO sluiten of heropenen",
       "descripcion": "Een PO sluiten (nieuwe boekingen erop worden vastgehouden) of weer openen.",
-      "confirmar": "De status van deze PO wordt gewijzigd. Doorgaan?"
+      "confirmar": "De status van deze PO wordt gewijzigd."
     },
     "objetos_po": {
       "etiqueta": "Objecten van een PO",
@@ -3061,70 +3067,70 @@
     "imputar_po": {
       "etiqueta": "Regel op PO boeken",
       "descripcion": "Een factuurregel op een PO boeken (of de PO weghalen).",
-      "confirmar": "Deze regel telt voortaan mee in het verbruik van deze PO. Doorgaan?"
+      "confirmar": "Deze regel telt voortaan mee in het verbruik van deze PO."
     },
     "excluir_linea": {
       "etiqueta": "Regel uitsluiten",
       "descripcion": "Een factuurregel uitsluiten; hij wordt bewaard, niet verwijderd.",
-      "confirmar": "Deze regel telt niet meer mee in de bedragen van de factuur. Doorgaan?"
+      "confirmar": "Deze regel telt niet meer mee in de bedragen van de factuur."
     },
     "anadir_linea": {
       "etiqueta": "Regel toevoegen",
       "descripcion": "Een regel toevoegen die op het papier staat maar niet is gelezen.",
-      "confirmar": "Deze regel wordt aan de factuur toegevoegd. Doorgaan?"
+      "confirmar": "Deze regel wordt aan de factuur toegevoegd."
     },
     "dividir_linea": {
       "etiqueta": "Regel verdelen",
       "descripcion": "Een regel over meerdere Objecten verdelen; de delen samen geven het regelbedrag.",
-      "confirmar": "De regel wordt over de gekozen Objecten verdeeld. Doorgaan?"
+      "confirmar": "De regel wordt over de gekozen Objecten verdeeld."
     },
     "corregir_maestro": {
       "etiqueta": "Stamgegevens corrigeren",
       "descripcion": "Een leverancier, klant of contactpersoon corrigeren die niet uit Exact of TRNSPRNT komt.",
-      "confirmar": "De stamgegevens worden gewijzigd. Doorgaan?"
+      "confirmar": "De stamgegevens worden gewijzigd."
     },
     "anular_factura": {
       "etiqueta": "Factuur annuleren",
       "descripcion": "Een factuur annuleren: ze wordt niet betaald en telt niet mee (er komt geen creditnota).",
-      "confirmar": "Deze factuur telt niet meer mee in totalen, betalingen en btw. Doorgaan?"
+      "confirmar": "Deze factuur telt niet meer mee in totalen, betalingen en btw."
     },
     "fusionar_factura": {
       "etiqueta": "Dubbele factuur samenvoegen",
       "descripcion": "Een opnieuw verstuurde factuur samenvoegen met de originele.",
-      "confirmar": "Deze factuur wordt samengevoegd met de gekozen factuur en telt niet meer apart. Doorgaan?"
+      "confirmar": "Deze factuur wordt samengevoegd met de gekozen factuur en telt niet meer apart."
     },
     "deshacer_fusion": {
       "etiqueta": "Samenvoegen ongedaan maken",
       "descripcion": "Een samenvoeging terugdraaien; de factuur telt weer apart.",
-      "confirmar": "Deze factuur telt weer apart mee. Doorgaan?"
+      "confirmar": "Deze factuur telt weer apart mee."
     },
     "enlazar_facturas": {
       "etiqueta": "Facturen koppelen",
       "descripcion": "Twee facturen koppelen: een creditnota, een correctie, een vervanging of alleen samenhangend.",
-      "confirmar": "De koppeling is meteen bevestigd en verandert saldi, btw en dubbele facturen. Doorgaan?"
+      "confirmar": "De koppeling is meteen bevestigd en verandert saldi, btw en dubbele facturen."
     },
     "confirmar_relacion": {
       "etiqueta": "Koppeling bevestigen",
       "descripcion": "Een voorgestelde koppeling bevestigen (eventueel met een ander soort of bedrag).",
-      "confirmar": "Na bevestigen veranderen saldi, btw en dubbele facturen. Doorgaan?"
+      "confirmar": "Na bevestigen veranderen saldi, btw en dubbele facturen."
     },
     "rechazar_relacion": {
       "etiqueta": "Koppeling afwijzen",
       "descripcion": "Een voorgestelde koppeling afwijzen; ze wordt niet opnieuw voorgesteld.",
-      "confirmar": "Deze koppeling wordt afgewezen. Doorgaan?"
+      "confirmar": "Deze koppeling wordt afgewezen."
     },
     "retirar_relacion": {
       "etiqueta": "Koppeling intrekken",
       "descripcion": "Een koppeling intrekken (ook een bevestigde); ze wordt bewaard, niet verwijderd.",
-      "confirmar": "Deze koppeling verandert vanaf nu niets meer aan saldi of btw. Doorgaan?"
+      "confirmar": "Deze koppeling verandert vanaf nu niets meer aan saldi of btw."
     },
     "marcar_revisada": {
       "etiqueta": "Markeren als gecontroleerd",
       "descripcion": "Een factuur als gecontroleerd markeren. Dit keurt geen betaling goed.",
-      "confirmar": "De factuur wordt als gecontroleerd gemarkeerd met jouw naam. Dit keurt geen betaling goed. Doorgaan?"
+      "confirmar": "De factuur wordt als gecontroleerd gemarkeerd met jouw naam. Dit keurt geen betaling goed."
     },
     "devolver_factura": {
-      "etiqueta": "Terugsturen",
+      "etiqueta": "Opnieuw laten bekijken",
       "descripcion": "Een factuur terugsturen met een notitie waarom."
     },
     "crear_excepcion": {
@@ -3150,12 +3156,12 @@
     "anular_hallazgo": {
       "etiqueta": "Melding accepteren",
       "descripcion": "Een melding accepteren (alleen waar de controle dat toestaat), met een reden van minstens 10 tekens.",
-      "confirmar": "De melding wordt geaccepteerd met jouw naam en reden en blijft in de historie. Doorgaan?"
+      "confirmar": "De melding wordt geaccepteerd met jouw naam en reden en blijft in de historie."
     },
     "firmar_anulacion": {
       "etiqueta": "Tweede handtekening geven",
       "descripcion": "De tweede handtekening geven voor het accepteren van een melding door een collega (geldig voor korte tijd en één keer).",
-      "confirmar": "Je tekent als tweede persoon voor het accepteren van deze melding. Doorgaan?"
+      "confirmar": "Je tekent als tweede persoon voor het accepteren van deze melding."
     },
     "subir_prioridad": {
       "etiqueta": "Prioriteit verhogen",
@@ -3164,62 +3170,62 @@
     "verificar_iban": {
       "etiqueta": "IBAN telefonisch verifiëren",
       "descripcion": "Een rekening van een leverancier vastleggen na een telefoongesprek met het nummer dat al in de stamgegevens stond. Typ het IBAN over; kopieer het nooit van de factuur.",
-      "confirmar": "Je verklaart dat je de leverancier hebt gebeld op het nummer uit de stamgegevens en dat hij dit IBAN heeft bevestigd. Doorgaan?"
+      "confirmar": "Je verklaart dat je de leverancier hebt gebeld op het nummer uit de stamgegevens en dat hij dit IBAN heeft bevestigd."
     },
     "rechazar_iban": {
       "etiqueta": "IBAN afwijzen",
       "descripcion": "Een rekening van een leverancier afwijzen en zeggen wat er met de factuur gebeurt.",
-      "confirmar": "Deze rekening wordt afgewezen voor deze leverancier. Doorgaan?"
+      "confirmar": "Deze rekening wordt afgewezen voor deze leverancier."
     },
     "atestar_iban": {
       "etiqueta": "Overgenomen rekening bevestigen",
       "descripcion": "Een rekening uit de eerste stamgegevens bevestigen (of alle die nog open staan).",
-      "confirmar": "Je bevestigt dat deze rekening(en) uit de stamgegevens kloppen. Doorgaan?"
+      "confirmar": "Je bevestigt dat deze rekening(en) uit de stamgegevens kloppen."
     },
     "fijar_telefono_verificacion": {
       "etiqueta": "Verificatienummer instellen",
       "descripcion": "Het telefoonnummer voor verificatie van een leverancier vastleggen. Wijzigen start een wachttijd.",
-      "confirmar": "Na een wijziging telt een tijd lang geen telefonische verificatie van deze leverancier. Doorgaan?"
+      "confirmar": "Na een wijziging telt een tijd lang geen telefonische verificatie van deze leverancier."
     },
     "anadir_beneficiario": {
       "etiqueta": "Begunstigde toevoegen",
       "descripcion": "Een begunstigde die geen leverancier is vastleggen (Belastingdienst, salarissen, huur).",
-      "confirmar": "Betalingen aan deze rekening gelden voortaan niet meer als verdacht. Doorgaan?"
+      "confirmar": "Betalingen aan deze rekening gelden voortaan niet meer als verdacht."
     },
     "retirar_beneficiario": {
       "etiqueta": "Begunstigde intrekken",
       "descripcion": "Een bekende begunstigde intrekken (wordt bewaard, niet verwijderd).",
-      "confirmar": "Betalingen aan deze rekening worden weer gecontroleerd. Doorgaan?"
+      "confirmar": "Betalingen aan deze rekening worden weer gecontroleerd."
     },
     "marcar_pagada": {
       "etiqueta": "Betaling vastleggen",
       "descripcion": "Vastleggen dat een factuur buiten het systeem om is betaald, of een bankboeking koppelen. Dit betaalt niets.",
-      "confirmar": "Je legt vast dat deze factuur al betaald is. Het systeem betaalt niets. Doorgaan?"
+      "confirmar": "Je legt vast dat deze factuur al betaald is. Het systeem betaalt niets."
     },
     "confirmar_pago": {
       "etiqueta": "Betaling bevestigen",
       "descripcion": "Een betaling bevestigen die het systeem bij een bankboeking voorstelde.",
-      "confirmar": "Deze betaling telt mee in het saldo van de factuur. Doorgaan?"
+      "confirmar": "Deze betaling telt mee in het saldo van de factuur."
     },
     "retirar_pago": {
       "etiqueta": "Betaling intrekken",
       "descripcion": "Een voorgestelde, gekoppelde of handmatige betaling intrekken die niet klopt (wordt bewaard).",
-      "confirmar": "Deze betaling telt niet meer mee in het saldo. Doorgaan?"
+      "confirmar": "Deze betaling telt niet meer mee in het saldo."
     },
     "btw_lista_para_revision": {
       "etiqueta": "Kwartaal klaarzetten voor controle",
       "descripcion": "Een afgesloten kwartaal klaarzetten voor controle, met het werkblad dat je hebt bekeken. Er wordt niets aangegeven.",
-      "confirmar": "Het werkblad van dit kwartaal wordt vastgelegd voor controle. Er wordt niets aangegeven. Doorgaan?"
+      "confirmar": "Het werkblad van dit kwartaal wordt vastgelegd voor controle. Er wordt niets aangegeven."
     },
     "btw_reabrir": {
       "etiqueta": "Kwartaal heropenen",
       "descripcion": "Een kwartaal dat klaarstond voor controle weer openen (het werkblad vervalt).",
-      "confirmar": "Het vastgelegde werkblad vervalt. Doorgaan?"
+      "confirmar": "Het vastgelegde werkblad vervalt."
     },
     "btw_anotar_presentacion": {
       "etiqueta": "Ingediende aangifte vastleggen",
       "descripcion": "Vastleggen dat het kwartaal in het portaal van de Belastingdienst is aangegeven, met de referentie. Het systeem geeft zelf niets aan.",
-      "confirmar": "Je legt vast dat deze aangifte al bij de Belastingdienst is ingediend. Dit kan niet ongedaan worden gemaakt. Doorgaan?"
+      "confirmar": "Je legt vast dat deze aangifte al bij de Belastingdienst is ingediend. Dit kan niet ongedaan worden gemaakt."
     },
     "recalcular": {
       "etiqueta": "Controles opnieuw uitvoeren",
@@ -3334,7 +3340,7 @@
     "periodo": "periode",
     "base": "bedrag excl. btw",
     "iva": "btw of btw-regeling",
-    "total": "totaal",
+    "total": "totaalbedrag",
     "proveedor_id": "leverancier",
     "cliente_id": "klant",
     "emisor_nombre_doc": "naam van de afzender",
@@ -3342,7 +3348,7 @@
     "periodo_inicio": "begin van de periode",
     "periodo_fin": "einde van de periode",
     "iva_cent": "btw-bedrag",
-    "total_cent": "totaal",
+    "total_cent": "totaalbedrag",
     "iban_doc": "IBAN",
     "tipo_iva_pb": "btw-tarief",
     "un IBAN": "een IBAN",

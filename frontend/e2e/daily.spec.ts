@@ -3,7 +3,7 @@
 // de verdad. Las pruebas van en orden y cambian la base (aceptar, resolver, marcar), asi
 // que cada una mira lo que deja la anterior: lo que comprueban son cambios, no cifras
 // sueltas. Captura de cada pantalla en neerlandes y en ingles (CAPTURAS_DIR).
-import { capture, expect, expectAccessible, login, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, login, settled, test, token, type Who } from './fixtures';
 import type { Page } from '@playwright/test';
 
 const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
@@ -11,16 +11,19 @@ const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
 async function nav(page: Page, label: string, lang: 'nl' | 'en' = 'nl') {
   await page.getByRole('navigation', { name: MENU[lang] }).getByRole('button', { name: new RegExp(`^${label}`) }).click();
   await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
+  await settled(page);
 }
 
 async function english(page: Page) {
   await page.getByRole('button', { name: 'English' }).first().click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await settled(page);
 }
 
 async function dutch(page: Page) {
   await page.getByRole('button', { name: 'Nederlands' }).first().click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'nl');
+  await settled(page);
 }
 
 /** Abre una factura desde Inkomend o Uitgaand buscando su numero. */
@@ -69,6 +72,13 @@ test('het overzicht: vier kaarten en wat als eerste moet, in NL en EN', async ({
   await expect(next).toHaveCount(5);
   await expect(next.first()).toContainText('Geblokkeerd');
   await expect(next.first()).toContainText('Bedragen in USD: niet in euro');
+  // Vijf verschillende dingen: twee facturen met hetzelfde nummer staan in één rij.
+  const numbers = await next.getByTestId('next-up-number').allTextContents();
+  expect(new Set(numbers).size).toBe(5);
+  await expect(next.filter({ hasText: 'JV-2026-006' })).toContainText('2 facturen met dit nummer');
+  // De kaarten van het geld zeggen welke facturen ze openen.
+  await expect(page.getByRole('main').getByRole('button', { name: 'Verkoopfacturen' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Inkoopfacturen' })).toBeVisible();
   await expectAccessible(page, 'overzicht nl');
   await capture(page, 'daily-nl-overview');
   await english(page);
@@ -90,6 +100,9 @@ test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', 
   await expect(rows).toHaveCount(5);
   await expect(page.getByRole('table')).toContainText('Bedragen in USD: niet in euro, daarom buiten alle totalen.');
   await expect(page.getByRole('table')).toContainText('Hetzelfde nummer (JV2026006) staat op 2 facturen van dezelfde wederpartij.');
+  // De twee met hetzelfde nummer zijn te onderscheiden.
+  await expect(page.getByRole('table')).toContainText('1 van 2');
+  await expect(page.getByRole('table')).toContainText('2 van 2');
   await expect(page.getByRole('table')).toContainText('NL37 DEMO 0009 9903 01 staat niet in het rekeningregister van deze leverancier.');
   // Geen Spaans van de API.
   await expect(page.getByRole('table')).not.toContainText('Importes en USD');
@@ -130,18 +143,19 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
   await card.getByRole('button', { name: 'Accepteren' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Melding accepteren' })).toBeVisible();
-  // Te kort: dat zegt de app zelf, zonder iets te versturen.
-  await dialog.getByLabel('Reden').fill('kort');
-  await dialog.getByRole('button', { name: 'Melding accepteren' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('minstens 10 tekens');
+  // De regel van de twee personen: zonder de handtekening van een collega kan het niet. De
+  // app zegt het en laat niet versturen wat de server toch zou weigeren.
+  await expect(dialog.getByTestId('action-blocked')).toContainText('Vraag een collega met dezelfde bevoegdheid om “Tweede handtekening geven”');
+  await expect(dialog.getByRole('button', { name: 'Melding accepteren' })).toBeDisabled();
   await dialog.getByLabel('Reden').fill('Twee keer dezelfde factuur ontvangen; de leverancier heeft het bevestigd.');
-  await dialog.getByRole('button', { name: 'Melding accepteren' }).click();
-  // De regel van de twee personen: de server weigert, en de app zegt het duidelijk.
-  await expect(dialog.getByRole('alert')).toContainText('Dit moet een andere persoon doen of bevestigen');
-  await expect(dialog.getByText('Technische details')).toBeVisible();
   await expectAccessible(page, 'dialoog tweede persoon');
   await capture(page, 'daily-nl-accept-second-person');
   await dialog.getByRole('button', { name: 'Annuleren' }).click();
+  // Ana zet geen tweede handtekening voor zichzelf: zij staat niet bij "Voor wie".
+  await page.getByRole('article', { name: 'Factuurnummer dubbel' }).getByRole('button', { name: 'Tweede handtekening geven' }).click();
+  const own = page.getByRole('dialog');
+  await expect(own.getByLabel('Voor wie').locator('option', { hasText: 'Ana Demo' })).toHaveCount(0);
+  await own.getByRole('button', { name: 'Annuleren' }).click();
   await signOut(page, 'Ana Demo');
 
   // Bram zet de tweede handtekening voor Ana.
@@ -160,7 +174,14 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
   await openInvoice(page, 'JV-2026-006');
   await page.getByRole('article', { name: 'Factuurnummer dubbel' }).getByRole('button', { name: 'Accepteren' }).click();
   const accept = page.getByRole('dialog');
+  await expect(accept).toContainText('Bram Demo heeft de tweede handtekening voor jou gegeven');
+  await expect(accept.getByTestId('action-blocked')).toHaveCount(0);
+  // Te kort: dat zegt de app zelf, zonder iets te versturen.
+  await accept.getByLabel('Reden').fill('kort');
+  await accept.getByRole('button', { name: 'Melding accepteren' }).click();
+  await expect(accept.getByRole('alert')).toContainText('minstens 10 tekens');
   await accept.getByLabel('Reden').fill('Twee keer dezelfde factuur ontvangen; de leverancier heeft het bevestigd.');
+  await capture(page, 'daily-nl-accept-signed');
   await accept.getByRole('button', { name: 'Melding accepteren' }).click();
   await expect(accept).toBeHidden();
   await expect(page.getByRole('article', { name: 'Factuurnummer dubbel' })).toContainText('Geaccepteerd');
@@ -199,7 +220,9 @@ test('een schone factuur markeren als gecontroleerd', async ({ page, baseUrl }) 
   await expect(page.getByText('Niets heeft je aandacht nodig')).toBeVisible();
   await page.getByRole('button', { name: 'Markeren als gecontroleerd' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Dit keurt geen betaling goed');
+  // Una explicacion, la de la pantalla (sin repetirla en una caja gris con "Doorgaan?").
+  await expect(dialog).toContainText('Dat keurt geen betaling goed en betaalt niets.');
+  await expect(dialog).not.toContainText('Doorgaan?');
   await dialog.getByRole('button', { name: 'Markeren als gecontroleerd' }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText(/^Gecontroleerd door Ana Demo op \d+ \w+ 20\d\d\.$/)).toBeVisible();
@@ -250,7 +273,7 @@ test('een verouderde rev geeft de melding dat iemand anders het wijzigde', async
 
 test('wie alleen mag kijken, ziet geen enkele knop voor een handeling', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'cas');
-  const actions = /Accepteren|Tweede handtekening|Afsluiten|Markeren als|Terugsturen|Notitie toevoegen|Uitzondering openen|Zelf oppakken|Toewijzen|Wacht op anderen|Oplossen|Wijzigen|Invullen|Verifiëren|Terugzetten|Bevestigen|Afwijzen|Telefonisch|Overgenomen rekeningen bevestigen/;
+  const actions = /Accepteren|Tweede handtekening|Afsluiten|Markeren als|Opnieuw laten bekijken|Notitie toevoegen|Uitzondering openen|Zelf oppakken|Toewijzen|Wacht op anderen|Oplossen|Wijzigen|Invullen|Verifiëren|Terugzetten|Bevestigen|Afwijzen|Telefonisch|Overgenomen rekeningen bevestigen/;
   await openInvoice(page, 'DGG-2026-118');
   await expect(page.getByRole('heading', { level: 3, name: 'Andere valuta dan euro' })).toBeVisible();
   await page.getByRole('button', { name: /^Velden/ }).click();
@@ -281,6 +304,9 @@ test('uitzonderingen: de lijst, het paneel en zelf oppakken', async ({ page, bas
   await page.getByRole('button', { name: /^Uitzondering \d+ openen$/ }).first().click();
   const sheet = page.getByRole('dialog');
   await expect(sheet.getByRole('heading', { name: 'Wat is er aan de hand' })).toBeVisible();
+  // De titel zegt waar het om gaat, niet een intern nummer.
+  await expect(sheet.getByRole('heading', { level: 2 }).first()).not.toHaveText(/^Uitzondering \d+$/);
+  await expect(sheet.getByRole('heading', { level: 2 }).first()).not.toBeEmpty();
   await sheet.getByRole('button', { name: 'Zelf oppakken' }).click();
   await page.getByRole('dialog', { name: 'Zelf oppakken' }).getByRole('button', { name: 'Uitzondering toewijzen' }).click();
   await expect(sheet).toContainText('Bij Bram Demo');
@@ -332,7 +358,8 @@ test('IBAN-controles: bellen naar het nummer uit de stamgegevens, zelf typen, en
   await expectAccessible(page, 'iban dialoog');
   await capture(page, 'daily-nl-iban-verify');
   await dialog.getByRole('button', { name: 'IBAN telefonisch verifiëren' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Dit moet een andere persoon doen of bevestigen');
+  // Waarom precies: zij stelde het nummer zelf in (niet een algemene "of dit, of dat").
+  await expect(dialog.getByRole('alert')).toContainText('Je hebt het telefoonnummer voor controle van deze leverancier zelf ingesteld');
   await capture(page, 'daily-nl-iban-second-person');
   await dialog.getByRole('button', { name: 'Annuleren' }).click();
   await signOut(page, 'Ana Demo');
@@ -347,6 +374,13 @@ test('IBAN-controles: bellen naar het nummer uit de stamgegevens, zelf typen, en
   await expect(card).not.toContainText('Nieuw of gewijzigd IBAN');
   await expect(card).toContainText('IBAN niet betaalbaar');
   await expect(card).toContainText('Telefonisch geverifieerd');
+  // Una tarjeta dice un solo estado: ya no "nog niet bevestigd" ni otra vez el boton de
+  // bellen; lo que falta (ponerla en Exact) en palabras.
+  await expect(card).not.toContainText('nog niet bevestigd');
+  await expect(card.getByRole('button', { name: 'Telefonisch bevestigen' })).toHaveCount(0);
+  await expect(card.getByTestId('iban-step')).toContainText('nog niet in de stamgegevens van Exact');
+  await expectAccessible(page, 'iban geverifieerd');
+  await capture(page, 'daily-nl-iban-verified');
   await english(page);
   await expect(page.getByRole('heading', { level: 1, name: 'IBAN checks' })).toBeVisible();
   await capture(page, 'daily-en-iban-checks');
@@ -356,11 +390,16 @@ test('IBAN-controles: bellen naar het nummer uit de stamgegevens, zelf typen, en
 test('inkomend en uitgaand: filters, zoeken en een rij opent de factuur', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'ana');
   await nav(page, 'Inkomend');
-  await page.getByLabel('Betaling').selectOption('vencida');
+  // Fichas, como in de Werklijst; één gekleurde pastilla per rij (de prioriteit).
+  const chips = page.getByRole('group', { name: 'Welke facturen' });
+  await chips.getByRole('button', { name: /^Vervallen/ }).click();
   const rows = page.getByRole('table').getByRole('row');
   await expect(rows).toHaveCount(2);
   await expect(page.getByRole('table')).toContainText('KT-202608');
-  await page.getByLabel('Betaling').selectOption('');
+  await chips.getByRole('button', { name: /^Alle/ }).click();
+  for (const row of await page.getByRole('table').getByRole('row').all()) {
+    expect(await row.locator('[data-slot="status"]').count()).toBeLessThanOrEqual(1);
+  }
   await page.getByRole('searchbox').fill('voorbeeld');
   await expect(page.getByRole('table')).toContainText('J. Voorbeeld Beveiliging (zzp)');
   await expect(page.getByRole('table')).not.toContainText('Proefwacht');
@@ -370,9 +409,10 @@ test('inkomend en uitgaand: filters, zoeken en een rij opent de factuur', async 
   await nav(page, 'Uitgaand');
   await expect(page.getByRole('table')).toContainText('Gemeente Demodorp');
   await expect(page.getByRole('table')).not.toContainText('Proefwacht');
-  await page.getByLabel('Controle').selectOption('revisada');
-  await expect(page.getByRole('table')).toContainText('Gecontroleerd');
-  await page.getByLabel('Controle').selectOption('');
+  await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Controle nodig/ }).click();
+  await expect(page.getByRole('table')).toContainText('Controle nodig');
+  await expect(page.getByRole('table')).not.toContainText('Gecontroleerd');
+  await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Alle/ }).click();
   await capture(page, 'daily-nl-invoices-out');
   await english(page);
   await nav(page, 'Out', 'en');
@@ -408,7 +448,9 @@ test('de details van een factuur: velden, koppelingen, geschiedenis en het origi
   // De relatie bevestigen: daarna is ze bevestigd.
   await page.getByRole('button', { name: 'Bevestigen' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Doorgaan?');
+  // Lo que va a pasar, una vez y sin "Doorgaan?" (el boton ya dice la orden).
+  await expect(dialog).toContainText('Na bevestigen veranderen saldi, btw en dubbele facturen.');
+  await expect(dialog).not.toContainText('Doorgaan?');
   await dialog.getByLabel('Reden').fill('De creditnota noemt deze factuur.');
   await dialog.getByRole('button', { name: 'Koppeling bevestigen' }).click();
   await expect(dialog).toBeHidden();

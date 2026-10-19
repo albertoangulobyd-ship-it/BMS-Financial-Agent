@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { I18nProvider, LANGS, MESSAGES, type Lang } from '@/i18n';
 import { catalogFor } from '@/i18n/domain';
-import { STATUS_GROUPS, STATUS_RULES, StatusPill, statusLabel, statusRule, type StatusGroup } from './status-pill';
+import { PingScope, STATUS_GROUPS, STATUS_RULES, StatusPill, pings, statusLabel, statusRule, type StatusGroup } from './status-pill';
 
 type Catalog = ReturnType<typeof catalogFor>;
 
@@ -83,10 +83,12 @@ const OWNER: Record<string, [string, boolean]> = {
   'btw.listo_revision': ['info', false],
   'btw.presentado': ['success', false],
   'btw.plazo_vencido': ['error', false],
-  'po_senal.P5': ['warning', false],
-  'po_senal.P7': ['warning', false],
-  'po_senal.P9': ['warning', false],
-  'po_senal.P4': ['error', false],
+  // Las senales de una PO llevan el color de la gravedad de su aviso (revision del paso 15:
+  // el mismo aviso salia en dos colores en la misma ficha). Avisan: info; retienen: warning.
+  'po_senal.P5': ['info', false],
+  'po_senal.P7': ['info', false],
+  'po_senal.P9': ['info', false],
+  'po_senal.P4': ['warning', false],
   'importar_prueba.ok': ['success', false],
   'importar_prueba.avisos': ['warning', false],
   'importar_prueba.errores': ['error', false],
@@ -102,8 +104,8 @@ const OWNER: Record<string, [string, boolean]> = {
   'empresa.completa': ['success', false],
   'excepcion.asignada': ['info', false],
   'po.cerrada': ['default', false],
-  'po_senal.P6': ['error', false],
-  'po_senal.P8': ['warning', false],
+  'po_senal.P6': ['warning', false],
+  'po_senal.P8': ['info', false],
   'po_senal.P10': ['warning', false],
 };
 
@@ -157,6 +159,34 @@ describe('status-pill: la tabla de estados', () => {
       .map(([g, s]) => `${g}.${s}`)
       .sort();
     expect(pinging).toEqual([...PING].sort());
+  });
+
+  it('late en un solo sitio por pantalla: en las listas y tarjetas nada, en la Werklijst lo bloqueado', () => {
+    const blocked = statusRule('prioridad', 'bloqueada');
+    const urgent = statusRule('prioridad', 'urgente');
+    const toCall = statusRule('cuenta', 'registrada');
+    // La cabecera de una ficha (y lo demas fuera de una lista): como dice la regla.
+    expect(pings(blocked, 'all', 'prioridad', 'bloqueada')).toBe(true);
+    expect(pings(urgent, 'all', 'prioridad', 'urgente')).toBe(true);
+    // Las filas de la Werklijst: solo lo bloqueado.
+    expect(pings(blocked, 'blocked', 'prioridad', 'bloqueada')).toBe(true);
+    expect(pings(urgent, 'blocked', 'prioridad', 'urgente')).toBe(false);
+    expect(pings(toCall, 'blocked', 'cuenta', 'registrada')).toBe(false);
+    // Una lista, una tarjeta, una ficha de relacion: nada late.
+    for (const [rule, g, st] of [[blocked, 'prioridad', 'bloqueada'], [urgent, 'prioridad', 'urgente'], [toCall, 'cuenta', 'registrada']] as const) {
+      expect(pings(rule, 'none', g, st)).toBe(false);
+    }
+    // Lo que no late nunca, tampoco con 'all'.
+    expect(pings(statusRule('prioridad', 'atencion'), 'all', 'prioridad', 'atencion')).toBe(false);
+    // Y en el HTML: dentro de PingScope none, el punto lleva before:animate-none.
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, {
+        lang: 'nl',
+        setLang: () => {},
+        children: createElement(PingScope, { scope: 'none', children: createElement(StatusPill, { group: 'prioridad', state: 'bloqueada' }) }),
+      } as never)
+    );
+    expect(html).toContain('before:animate-none');
   });
 
   it('un estado que no se conoce va en gris, quieto y con su texto', () => {

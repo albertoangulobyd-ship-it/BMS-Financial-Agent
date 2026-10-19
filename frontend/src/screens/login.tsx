@@ -1,7 +1,14 @@
 // La entrada: la persona escribe su token personal (el mismo de la consola). Una frase
 // dice que es y quien lo da. El token no se guarda en ningun sitio del navegador: si la
 // entrada sale bien vive en la memoria de la sesion; si no, se borra del campo.
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+//
+// Por eso no hay <form> ni <input type="password">: Edge y Chromium no hacen caso de
+// autocomplete="off" para guardar contrasenas, y un campo de contrasena que desaparece
+// despues de un fetch es para ellos una entrada que salio bien, asi que ofrecerian guardar
+// el token en su gestor (y de ahi sincronizarlo con la cuenta de Microsoft). Es un campo de
+// texto con los caracteres tapados (-webkit-text-security), autocomplete="one-time-code"
+// (que no se ofrece guardar), Intro para entrar y el campo vaciado antes de comprobarlo.
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,23 +49,32 @@ export function LoginScreen() {
     inputRef.current?.focus();
   }, [t]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function submit() {
+    if (busy) return;
     const value = token.trim();
     if (!value) {
       setError('empty');
       return;
     }
+    // Fuera del campo antes de comprobarlo: si sale bien, la pantalla se va sin el token
+    // dentro; si no, la persona lo vuelve a escribir.
+    setToken('');
     setBusy(true);
     setError(null);
     try {
       await login(value);
     } catch (e) {
       setError(loginError(e));
-      setToken('');
       inputRef.current?.focus();
     } finally {
       setBusy(false);
+    }
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void submit();
     }
   }
 
@@ -94,20 +110,24 @@ export function LoginScreen() {
             </p>
           )}
 
-          <form className='mt-5 flex flex-col gap-3' onSubmit={submit} noValidate>
+          <div className='mt-5 flex flex-col gap-3'>
             <Label htmlFor='token'>{t.login.tokenLabel}</Label>
             <Input
               id='token'
               ref={inputRef}
-              type='password'
-              autoComplete='off'
+              type='text'
+              autoComplete='one-time-code'
               autoCapitalize='off'
+              autoCorrect='off'
               spellCheck={false}
+              data-lpignore='true'
+              data-1p-ignore='true'
               value={token}
               onChange={(e) => setToken(e.target.value)}
+              onKeyDown={onKeyDown}
               aria-describedby={error ? `${errorId} ${helpId}` : helpId}
               aria-invalid={error ? true : undefined}
-              className='font-mono'
+              className='font-mono [-webkit-text-security:disc]'
             />
             <p id={helpId} className='text-xs leading-relaxed text-muted-foreground'>
               {t.login.tokenHelp}
@@ -117,11 +137,11 @@ export function LoginScreen() {
                 {errorText(error, t)}
               </p>
             )}
-            <Button type='submit' disabled={busy} className='mt-1'>
+            <Button id='login-submit' type='button' disabled={busy} className='mt-1' onClick={() => void submit()}>
               <KeyRound className='mr-2 h-4 w-4' aria-hidden='true' />
               {busy ? t.login.checking : t.login.submit}
             </Button>
-          </form>
+          </div>
           <p className='mt-4 text-xs text-muted-foreground'>{t.login.neverStored}</p>
         </div>
       </main>

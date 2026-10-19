@@ -3,6 +3,7 @@
 // es un boton: con el raton se abre la fila entera, con el teclado ese boton (Tab y
 // Intro). Abrir una fila abre su ficha en una pestana (useTabs().openRoute).
 import type { ReactNode } from 'react';
+import { PingScope, type PingScopeValue } from '@/components/status-pill';
 import { cn } from '@/lib/utils';
 
 export interface Column<Row> {
@@ -39,6 +40,7 @@ export function DataTable<Row>({
   openLabel,
   caption,
   empty,
+  ping = 'none',
 }: {
   columns: Columns<Row>;
   rows: readonly Row[];
@@ -51,9 +53,13 @@ export function DataTable<Row>({
   caption: string;
   /** Lo que se ensena sin filas (un EmptyState). */
   empty?: ReactNode;
+  /** Que punto late en las filas: ninguno (una lista no parpadea) o, en la Werklijst, solo
+   *  las bloqueadas (components/status-pill, PingScope). */
+  ping?: Exclude<PingScopeValue, 'all'>;
 }) {
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
+    <PingScope scope={ping}>
     <div className='overflow-x-auto rounded-md border border-border bg-card'>
       <table className='w-full border-collapse text-left'>
         <caption className='sr-only'>{caption}</caption>
@@ -113,5 +119,6 @@ export function DataTable<Row>({
         </tbody>
       </table>
     </div>
+    </PingScope>
   );
 }

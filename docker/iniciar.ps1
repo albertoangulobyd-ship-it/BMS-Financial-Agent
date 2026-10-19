@@ -40,21 +40,26 @@ docker compose up -d consola salida
 if ($LASTEXITCODE -ne 0) { Fallar "La consola no ha arrancado. Mira el mensaje de arriba." }
 
 Escribir "Esperando a que la consola conteste..." "Cyan"
+# Lista cuando contesta /consola, que no depende de lo construido de la app: si la app falta,
+# la consola de antes se abre igual (Direccion-De-La-App).
+$base = "http://127.0.0.1:8765"
+$consola_url = $base + "/consola"
 $lista = $false
 for ($i = 0; $i -lt 30; $i++) {
     try {
-        $respuesta = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://127.0.0.1:8765/app"
+        $respuesta = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri $consola_url
         if ($respuesta.StatusCode -eq 200) { $lista = $true; break }
     } catch { Start-Sleep -Seconds 2 }
 }
 if (-not $lista) { Fallar "La consola no contesta. Prueba otra vez en un minuto, o mira: docker compose logs consola" }
+$direccion = Direccion-De-La-App $base
 
 if ($Demo) {
     Escribir "Lista, con DATOS DE PRUEBA. Veras arriba la banda de TESTGEGEVENS (en la consola de antes, DATOS DE PRUEBA)." "Yellow"
 } else {
     Escribir "Lista, con tus datos de verdad." "Green"
 }
-Escribir "Se abre la app en su ventana: http://127.0.0.1:8765/app"
-Escribir "Si la app no se ve bien, la consola de antes sigue en http://127.0.0.1:8765/consola"
+Escribir "Se abre en su ventana: $direccion"
+Escribir "Si la app no se ve bien, la consola de antes sigue en $consola_url"
 Escribir "Para pararla: .\parar.ps1"
-Abrir-App "http://127.0.0.1:8765/app"
+Abrir-App $direccion

@@ -84,6 +84,13 @@ export function ImportScreen() {
 
 type Phase = 'idle' | 'trying' | 'previewed' | 'importing' | 'done';
 
+/** Lo que se probo y la importacion de verdad vuelve a mandar tal cual. */
+interface TriedWith {
+  pick: ImportKind | null;
+  exportado: string | null;
+  confirmar: boolean;
+}
+
 function Importer({ info }: { info: ImportsInfo }) {
   const { t, lang } = useT();
   const { session } = useSession();
@@ -99,11 +106,22 @@ function Importer({ info }: { info: ImportsInfo }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [dateProblem, setDateProblem] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  // Lo que se probo (la clase, el dia de exportacion, la confirmacion del planning): la
+  // importacion de verdad manda exactamente eso, no lo que diga el formulario despues.
+  const [tried, setTried] = useState<TriedWith | null>(null);
   const limit = formatSize(info.limite_bytes);
+
+  /** Algo de lo probado cambio: la prueba ya no vale y hay que volver a probar. */
+  function stale() {
+    setResult(null);
+    setTried(null);
+    setPhase('idle');
+  }
 
   function choose(next: File | null) {
     setFile(next);
     setResult(null);
+    setTried(null);
     setError(null);
     setConfirmPlanning(false);
     setPhase('idle');
@@ -119,33 +137,43 @@ function Importer({ info }: { info: ImportsInfo }) {
 
   async function send(simulate: boolean, chosen: ImportKind | null = null) {
     if (!session || !file || problem) return;
-    const day = exported.trim() ? parseTypedDate(exported) : null;
-    if (exported.trim() && day === null) {
-      setDateProblem(fmt(t.action.badDate, { field: t.importing.exported }));
-      return;
+    let params: TriedWith;
+    if (simulate) {
+      const day = exported.trim() ? parseTypedDate(exported) : null;
+      if (exported.trim() && day === null) {
+        setDateProblem(fmt(t.action.badDate, { field: t.importing.exported }));
+        return;
+      }
+      const pick = chosen ?? (kind ? { fuente: kind.split('/')[0]!, tipo: kind.split('/')[1]! } : null);
+      params = { pick, exportado: day, confirmar: confirmPlanning };
+    } else {
+      // Sin prueba no se importa; con ella, lo mismo que se probo.
+      if (tried === null) return;
+      params = tried;
     }
     setDateProblem(null);
     setError(null);
     setPhase(simulate ? 'trying' : 'importing');
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const pick = chosen ?? (kind ? { fuente: kind.split('/')[0]!, tipo: kind.split('/')[1]! } : null);
       const response = await session.api.importFile({
         fichero: file.name,
         contenido: toBase64(bytes),
-        ...(pick ? { fuente: pick.fuente, tipo: pick.tipo } : {}),
+        ...(params.pick ? { fuente: params.pick.fuente, tipo: params.pick.tipo } : {}),
         simular: simulate,
-        exportado: day ?? undefined,
-        confirmar: confirmPlanning || undefined,
+        exportado: params.exportado ?? undefined,
+        confirmar: params.confirmar || undefined,
       });
       setResult(response);
       // La clase que se reconocio se queda elegida: la importacion de verdad es la misma.
       setKind(`${response.fuente}/${response.tipo}`);
+      if (simulate) setTried({ ...params, pick: { fuente: response.fuente, tipo: response.tipo } });
       setPhase(simulate ? 'previewed' : 'done');
       if (!simulate) bump();
     } catch (e) {
       setError(e);
       setResult(null);
+      setTried(null);
       setPhase('idle');
     }
   }
@@ -207,8 +235,7 @@ function Importer({ info }: { info: ImportsInfo }) {
             value={kind}
             onChange={(e) => {
               setKind(e.target.value);
-              setResult(null);
-              setPhase('idle');
+              stale();
             }}
             className='h-9 min-w-[16rem] rounded-md border border-input bg-card px-2.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
           >
@@ -232,7 +259,10 @@ function Importer({ info }: { info: ImportsInfo }) {
             placeholder={t.action.datePlaceholder}
             autoComplete='off'
             value={exported}
-            onChange={(e) => setExported(e.target.value)}
+            onChange={(e) => {
+              setExported(e.target.value);
+              if (phase !== 'done') stale();
+            }}
             className='h-9 w-40'
           />
           <p className='text-xs leading-relaxed text-muted-foreground'>{t.importing.exportedHelp}</p>
@@ -275,7 +305,14 @@ function Importer({ info }: { info: ImportsInfo }) {
           )}
           {needsPlanningConfirm && (
             <label className='flex items-center gap-2 text-[13px]'>
-              <input type='checkbox' checked={confirmPlanning} onChange={(e) => setConfirmPlanning(e.target.checked)} />
+              <input
+                type='checkbox'
+                checked={confirmPlanning}
+                onChange={(e) => {
+                  setConfirmPlanning(e.target.checked);
+                  stale();
+                }}
+              />
               {t.importing.confirmPlanning}
             </label>
           )}
@@ -387,14 +424,12 @@ function Batch({ batch: b, done }: { batch: ImportBatch; done: boolean }) {
       {b.sin_resolver > 0 && <p className='text-[13px]'>{fmt(t.importing.unresolved, { n: b.sin_resolver })}</p>}
       {b.rechazos.length > 0 && <Rejections batch={b} />}
       {b.avisos.length > 0 && (
-        // Los avisos son la frase del importador (para el soporte): plegados, como los detalles tecnicos.
-        <Folded summary={`${fmt(b.avisos.length === 1 ? t.importing.warningsOne : t.importing.warnings, { n: b.avisos.length })} · ${t.errors.technical}`}>
-          <ul className='list-disc pl-5 font-mono text-xs'>
-            {b.avisos.map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-        </Folded>
+        // Los avisos son frases del importador en castellano (para el soporte y la CLI): la app
+        // dice cuantos y donde se leen, sin ensenar el castellano.
+        <p className='text-[13px]'>
+          {fmt(b.avisos.length === 1 ? t.importing.warningsOne : t.importing.warnings, { n: b.avisos.length })}{' '}
+          <span className='text-muted-foreground'>{t.importing.warningsWhere}</span>
+        </p>
       )}
     </div>
   );
@@ -422,11 +457,12 @@ function Rejections({ batch: b }: { batch: ImportBatch }) {
       {b.rechazadas > shown.length && (
         <p className='text-xs text-muted-foreground'>{fmt(t.importing.moreRejections, { n: b.rechazadas - shown.length })}</p>
       )}
+      {/* Para el soporte: la fila y el codigo (el motivo del importador es castellano). */}
       <Folded summary={t.errors.technical}>
         <ul className='font-mono text-xs'>
           {shown.map((r, i) => (
             <li key={`${r.fila}-${i}`}>
-              {r.fila}: {r.motivo}
+              {r.fila}: {r.codigo}
             </li>
           ))}
         </ul>

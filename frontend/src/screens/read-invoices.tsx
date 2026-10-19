@@ -8,20 +8,17 @@ import { Info } from 'lucide-react';
 import { DataTable, type Columns } from '@/components/data-table';
 import { Fact, FactStrip } from '@/components/fact-strip';
 import { PageHeader, Screen } from '@/components/page-header';
-import { ProperName, withNode } from '@/components/proper-name';
 import { ErrorState, Loading } from '@/components/states';
 import { DateText } from '@/components/values';
 import { fmt, useT } from '@/i18n';
 import { paths } from '@/lib/api';
 import type { ReadingStatus } from '@/lib/api-types';
-import { formatUsdMicro } from '@/lib/format';
+import { NBSP, formatUsdMicro } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { useLoad } from './use-load';
 
 /** El acceso directo del escritorio que lanza el lector (windows/instalar.ps1). */
-export const READER_SHORTCUT = 'BMS Finanzas - Leer facturas';
-export const READER_DOCKER = 'leer-facturas.bat';
 
 type Pass = ReadingStatus['pasadas'][number];
 
@@ -59,8 +56,10 @@ function HowToStart() {
       <ul className='flex list-disc flex-col gap-1.5 pl-5 text-[13.5px] leading-relaxed'>
         <li>{t.reading.how1}</li>
         <li>{t.reading.how2}</li>
-        <li>{withNode(t.reading.how3, 'shortcut', <ProperName>{READER_SHORTCUT}</ProperName>)}</li>
-        <li className='text-[#45423c]'>{withNode(t.reading.how4, 'file', <ProperName>{READER_DOCKER}</ProperName>)}</li>
+        {/* Sin el nombre del acceso directo ni del .bat (estan en castellano, como la
+            instalacion): la app no ensena castellano. */}
+        <li>{t.reading.how3}</li>
+        <li className='text-[#45423c]'>{t.reading.how4}</li>
       </ul>
     </section>
   );
@@ -70,7 +69,8 @@ function ReadingFigures({ status: s }: { status: ReadingStatus }) {
   const { t } = useT();
   const est = s.estimacion;
   const columns: Columns<Pass> = [
-    { key: 'when', header: t.reading.when, cell: (r) => <DateText value={r.hasta} prose /> },
+    // En una tabla, dd-mm-jjjj como en todas (la prosa es para frases y cifras sueltas).
+    { key: 'when', header: t.reading.when, cell: (r) => <DateText value={r.hasta} /> },
     { key: 'count', header: t.reading.count, align: 'right', width: '9rem', cell: (r) => <span className='num'>{r.documentos}</span> },
     { key: 'cost', header: t.reading.cost, align: 'right', width: '9rem', cell: (r) => <span className='num'>{formatUsdMicro(r.coste_usd_micro)}</span> },
   ];
@@ -92,7 +92,7 @@ function ReadingFigures({ status: s }: { status: ReadingStatus }) {
           <Fact label={t.reading.next} note={est ? (est.medida ? t.reading.measured : t.reading.notMeasured) : undefined}>
             <span className='num text-[15px] font-semibold'>
               {est
-                ? `${formatUsdMicro(est.por_documento_bajo_usd_micro)} – ${formatUsdMicro(est.por_documento_alto_usd_micro).replace('$ ', '')}`
+                ? `${formatUsdMicro(est.por_documento_bajo_usd_micro)} – ${formatUsdMicro(est.por_documento_alto_usd_micro).replace(`$${NBSP}`, '')}`
                 : '—'}
             </span>
           </Fact>

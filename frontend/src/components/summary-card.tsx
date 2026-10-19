@@ -1,7 +1,7 @@
 // Una tarjeta de resumen: que es (en mayusculas pequenas), una cifra grande con su frase
 // y, como mucho, tres filas de detalle. El Overzicht lleva cuatro como maximo.
 import type { ReactNode } from 'react';
-import { StatusPill, type StatusPillProps } from '@/components/status-pill';
+import { PingScope, StatusPill, type StatusPillProps } from '@/components/status-pill';
 import { cn } from '@/lib/utils';
 
 export interface SummaryRow {
@@ -32,6 +32,8 @@ export function SummaryCard({
   className?: string;
 }) {
   return (
+    // Una tarjeta resume: su pastilla va quieta (lo que late esta en su pantalla).
+    <PingScope scope='none'>
     <section data-testid='summary-card' className={cn('flex flex-col gap-2 bg-card px-4 pb-4 pt-3', className)}>
       <div className='flex items-baseline justify-between gap-2'>
         <h2 className='flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground'>
@@ -57,6 +59,7 @@ export function SummaryCard({
         </dl>
       )}
     </section>
+    </PingScope>
   );
 }
 

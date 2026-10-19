@@ -452,7 +452,7 @@ class _Escenario:
             self._ordenes_compra(ventas)
             self._planning(turnos)
             self._entrar_compras(compras)
-            self._importar("exact", "facturas_venta", "exact-facturas_venta.csv",
+            self._importar("exact", "facturas_venta", "exact-verkoopfacturen.csv",
                            self._csv_ventas(ventas))
             self._banco(compras, ventas)
             self._personas_actuan()
@@ -498,6 +498,8 @@ class _Escenario:
     # ---- importar
 
     def _importar(self, fuente: str, tipo: str, nombre: str, contenido: bytes, **opciones):
+        # Los nombres de los ficheros de prueba van en neerlandes: la app los ensena tal cual
+        # en la historia de Importeren, y la app no lleva castellano.
         from .importadores.registrar import importar_fichero
 
         ruta = self.trabajo / nombre
@@ -519,11 +521,11 @@ class _Escenario:
                           f"{p.plazo} dagen", *p.direccion,
                           f"facturen@{p.codigo}.demo.invalid", p.telefono or "", "Actief",
                           p.iban or "", p.nombre])
-        self._importar("exact", "proveedores", "exact-proveedores.csv", _csv(
+        self._importar("exact", "proveedores", "exact-leveranciers.csv", _csv(
             ["Crediteurnummer", "Naam", "Soort", "KvK-nummer", "Btw-nummer", "Btw-code",
              "Betalingsconditie", "Adres", "Postcode", "Plaats", "E-mail facturen",
              "Telefoon verificatie", "Status", "IBAN", "Tenaamstelling"], filas))
-        self._importar("exact", "clientes", "exact-clientes.csv", _csv(
+        self._importar("exact", "clientes", "exact-klanten.csv", _csv(
             ["Debiteurnummer", "Naam", "KvK-nummer", "Btw-nummer", "Btw-behandeling",
              "Verleggen toegestaan", "PO verplicht", "Betalingsconditie", "Status", "IBAN",
              "Tenaamstelling"],
@@ -531,11 +533,11 @@ class _Escenario:
               "ja" if c.codigo == "10001" else "nee", f"{c.plazo} dagen", "Actief",
               c.iban or "", c.nombre] for c in CLIENTES]))
         inicio = _nl(self.desde - timedelta(days=200))
-        self._importar("maestro_csv", "objetos", "maestro-objetos.csv", _csv(
+        self._importar("maestro_csv", "objetos", "stamgegevens-objecten.csv", _csv(
             ["Code", "Naam", "Klant", "PO verplicht", "Actief vanaf", "Actief tot"],
             [[codigo, nombre, cliente, po, inicio, ""] for codigo, nombre, cliente, po
              in OBJETOS]))
-        self._importar("maestro_csv", "recursos", "maestro-recursos.csv", _csv(
+        self._importar("maestro_csv", "recursos", "stamgegevens-medewerkers.csv", _csv(
             ["Naam", "Soort", "Leverancier", "Actief"],
             [[nombre, soort, proveedor, "ja"] for nombre, soort, proveedor in RECURSOS]))
         filas_tarifas = [["Inkoop", proveedor, "", "", objeto, "", dienst, "uur",
@@ -544,12 +546,12 @@ class _Escenario:
         filas_tarifas += [["Verkoop", "", "", cliente, objeto, "", dienst, "uur",
                            _csv_decimal(Decimal(tarifa)), "EUR", inicio, ""]
                           for cliente, objeto, dienst, tarifa in TARIFAS_VENTA]
-        self._importar("maestro_csv", "tarifas", "maestro-tarifas.csv", _csv(
+        self._importar("maestro_csv", "tarifas", "stamgegevens-tarieven.csv", _csv(
             ["Richting", "Leverancier", "Medewerker", "Klant", "Object", "Soort werk", "Dienst",
              "Eenheid", "Tarief", "Valuta", "Geldig vanaf", "Geldig tot"], filas_tarifas))
         ancla = _nl(_lunes(self.desde - timedelta(days=200)))
         ancla_mes = _nl(_mes_anterior(self.desde, 6))
-        self._importar("maestro_csv", "ciclos", "maestro-ciclos.csv", _csv(
+        self._importar("maestro_csv", "ciclos", "stamgegevens-factuurcycli.csv", _csv(
             ["Klant", "Object", "Frequentie", "Anker", "Dagen marge", "Geldig vanaf",
              "Geldig tot"],
             [["10001", HAVEN, "Wekelijks", ancla, "7", inicio, ""],
@@ -979,7 +981,7 @@ class _Escenario:
         zkh = sum((v.base for v in ventas if v.po == "PO-DEMO-4502"), Decimal(0))
         valor_zkh = ((zkh + Decimal("16000")) / 100).quantize(Decimal(1)) * 100
         inicio = self.desde - timedelta(days=30)
-        self._importar("po_csv", "ordenes_compra", "po-ordenes.csv", _csv(
+        self._importar("po_csv", "ordenes_compra", "po-inkooporders.csv", _csv(
             ["PO-nummer", "Zijde", "Partij", "Objecten", "Uitgiftedatum", "Begindatum",
              "Einddatum", "Bedrag", "Valuta", "Gesloten"],
             [["PO-DEMO-4501", "Klant", "10001", HAVEN, _nl(inicio), _nl(inicio),

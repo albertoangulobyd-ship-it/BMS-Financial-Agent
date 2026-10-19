@@ -41,9 +41,12 @@ instalación nativa) no necesita Node para nada.
 El aspecto es el de la opción B («Workbench»), más sencillo: fondo blanco roto
 (`#f7f5f0`), texto casi negro, un solo color de acento (verde azulado `#0e5f5c`),
 líneas finas, sin gráficos y sin sombras salvo en lo que flota (menús, avisos). Solo
-tema claro. Pensado para una ventana de 1440 px, y se usa también a 1024 px (las
-tablas anchas se desplazan dentro de su caja); por debajo de 768 px el menú va en una
-hoja que se abre con el botón de menú.
+tema claro (el modo oscuro de Windows no la cambia). Pensado para una ventana de 1440 px,
+y se usa también a 1024 × 768 (las tablas anchas se desplazan dentro de su caja; la barra
+lateral va más junta en pantallas bajas y se ven todos sus apartados; el + y el … de las
+pestañas van fuera de la tira, y un fundido en el borde dice que hay más pestañas a ese
+lado); por debajo de 768 px de ancho el menú va en una hoja que se abre con el botón de
+menú.
 
 ## 2. Cómo se abre
 
@@ -53,11 +56,14 @@ hoja que se abre con el botón de menú.
 | Instalación nativa | **BMS Finanzas - Abrir la consola** (`windows\iniciar.bat`; con `-Demo`, los datos de prueba) |
 | A mano, para desarrollar | `bms-agent serve` (con `--db datos/demo.sqlite3` para los de prueba) y abrir `http://127.0.0.1:8765/app` |
 
-Los dos `iniciar` esperan a que `/app` conteste y la abren **en su propia ventana de
-Edge** (`msedge --app=http://127.0.0.1:8765/app`): sin pestañas del navegador ni barra
-de direcciones, como un programa. Si Edge no está, se abre en el navegador de siempre;
-si tampoco se puede, dicen la dirección. Al terminar dicen también dónde está la
-consola de antes.
+Los dos `iniciar` esperan a que conteste la consola (`/consola`, que no depende de lo
+construido) y abren la app **en su propia ventana de Edge**
+(`msedge --app=http://127.0.0.1:8765/app`): sin pestañas del navegador ni barra de
+direcciones, como un programa. Si `/app` no contesta 200 (el servidor da 503 cuando falta
+lo construido o está incompleto), lo dicen y abren **la consola de antes** en su lugar: es
+la reserva, y así se abre justo cuando hace falta. Si Edge no está, se abre en el navegador
+de siempre; si tampoco se puede, dicen la dirección. Al terminar dicen también dónde está
+la consola de antes.
 
 Con la base de prueba, arriba de todo va la banda **TESTGEGEVENS · TEST DATA**, y en
 la cabecera la marca «Testgegevens». En la instalación nativa, si la comprobación del
@@ -74,6 +80,14 @@ dice en una frase qué es y quién lo da.
 - **El token vive solo en la memoria de la ventana.** No va a `localStorage`, ni a
   `sessionStorage`, ni a una cookie, ni a la dirección. Recargar o cerrar la ventana es
   volver a escribirlo.
+- **Tampoco al gestor de contraseñas de Edge.** Edge y Chromium no hacen caso de
+  `autocomplete="off"` para guardar contraseñas, y un campo de contraseña que desaparece
+  después de un `fetch` es para ellos una entrada que salió bien: ofrecerían guardar el
+  token (y sincronizarlo con la cuenta de Microsoft). Por eso la entrada no tiene `<form>`
+  ni `<input type="password">`: es un campo de texto con los caracteres tapados
+  (`-webkit-text-security`), `autocomplete="one-time-code"`, Intro para entrar, y el
+  campo se vacía antes de comprobar el token. Si aun así Edge ofreciera guardar algo, hay
+  que decir **que no**.
 - `GET /api/v2/yo` dice quién es y qué permisos tiene: el menú solo enseña lo que la
   persona puede usar (Importeren y Facturen lezen piden `importar_datos`) y los botones
   de cada orden siguen su permiso.
@@ -145,25 +159,30 @@ Todo sale de `/api/v2` y cada orden es una de `servicios.ACCIONES` por
 orden (`frontend/src/lib/actions.ts`, que un test compara con `servicios.ACCIONES`);
 quien solo puede mirar (rol `consulta`) no ve ninguno. Cada orden abre un diálogo que
 dice en palabras normales qué va a pasar (la frase de confirmación del catálogo en lo
-que mueve dinero, BTW o el banco: «… Dit keurt geen betaling goed. Doorgaan?») y pide
-lo que hace falta (un motivo, una fecha). Después de una orden se vuelven a leer la
+que mueve dinero, BTW o el banco), **una sola vez** y sin «Doorgaan?» (el botón ya dice
+la orden; aparte, en una caja, solo lo que no se deshace, como anotar una aangifte), y
+pide lo que hace falta (un motivo, una fecha). Después de una orden se vuelven a leer la
 ficha, las listas y las insignias del menú, sin que la pantalla salte a «Laden…».
 
 | Pantalla | Qué hay | Órdenes |
 | --- | --- | --- |
-| **Overzicht** | Cuatro tarjetas (Aandacht nodig: cuántas facturas esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas; Geld binnen y Geld uit: lo pendiente y lo vencido; Btw dit kwartaal: el saldo y el próximo plazo) y «Als eerste»: las cinco primeras de la werklijst con su prioridad, número, relación, importe y por qué. Cada tarjeta abre la pantalla que la explica | — |
+| **Overzicht** | Cuatro tarjetas (Aandacht nodig: cuántas facturas esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas; Geld binnen y Geld uit: lo pendiente y lo vencido, con un enlace a las Verkoopfacturen o las Inkoopfacturen; Btw dit kwartaal: el saldo, **un plazo ya pasado sin la aangifte anotada** («Aangifte te laat», en rojo, aunque el próximo plazo sea ya el del trimestre siguiente) y el próximo plazo) y «Als eerste»: las cinco primeras **cosas distintas** de la werklijst (dos facturas con el mismo número y relación van en una fila: «2 facturen met dit nummer») con su prioridad, número, relación, importe y por qué. Cada tarjeta abre la pantalla que la explica. Nada late | — |
 | **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura en una pestaña |
-| **Inkomend / Uitgaand** | Todas las de un sentido, con dos filtros (Betaling, Controle) y el buscador; seis columnas: Prioriteit, Factuur, Bedrag, Vervaldatum, Stand (pago y revisión, en texto) y Waarom | Una fila abre la factura |
+| **Inkomend / Uitgaand** | Todas las de un sentido, con fichas como las de la Werklijst (Alle, Vervallen, Openstaand, Controle nodig, Betaald, con su cuenta) y el buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Bedrag, Vervaldatum, Stand (pago y revisión, en texto gris) y Waarom | Una fila abre la factura |
 | **Ficha de factura** | Arriba, qué es: el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el pago y la revisión. Después **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; descargar el original |
 | **Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va (la factura con su relación, el cliente, la PO o la importación), en qué estado está, quién la lleva y desde cuándo. Una fila abre un panel con lo que hay que saber y qué hacer | Zelf oppakken, toewijzen, wachten op anderen (a quién y hasta cuándo), oplossen (cómo acabó y qué se hizo); desde el panel, la factura |
-| **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd»), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
+| **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd» solo si aún no se llamó), **lo que falta en una frase** cuando ya se verificó por teléfono (con un F2 abierto: «nog niet in de stamgegevens van Exact: zet de rekening in Exact en importeer de leveranciers opnieuw»; ya no se ofrece volver a llamar), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
 
-La **regla de las dos personas** la hace cumplir el servidor, y la app enseña su
-mensaje tal cual en el diálogo («Dit moet een andere persoon doen of bevestigen…»,
-código `segunda_persona`). En la base de prueba se ve dos veces: Ana puso los
-teléfonos de los proveedores, así que no puede verificar con ellos una cuenta (lo hace
-Bram), y aceptar el número de factura repetido (B2, que bloquea) pide que otra persona
-dé antes la segunda firma.
+La **regla de las dos personas** la hace cumplir el servidor (código `segunda_persona`),
+y la app dice en el diálogo cuál de los casos es («Je hebt het telefoonnummer voor
+controle van deze leverancier zelf ingesteld…»). Cuando un aviso pide la segunda firma y
+aún no la hay, la app **no deja mandar** la aceptación: lo dice arriba del diálogo y
+pide a un colega «Tweede handtekening geven»; con la firma ya dada, dice de quién es y
+hasta cuándo vale, y pone el mismo plazo (la ficha trae las firmas vigentes, `firmas`,
+contrato 2.1). En la base de prueba se ve dos veces: Ana puso los teléfonos de los
+proveedores, así que no puede verificar con ellos una cuenta (lo hace Bram), y aceptar el
+número de factura repetido (B2, que bloquea) pide que otra persona dé antes la segunda
+firma.
 
 **Concurrencia.** Cada orden lleva la `rev` de la fila (o la huella de la factura o
 del hallazgo) que la persona vio. Si otra persona la cambió antes, el servidor contesta
@@ -241,7 +260,10 @@ pasar por el buzón:
    y cuántas cambian, las rechazadas con su fila y su motivo, las cuentas bancarias nuevas,
    los avisos que saldrían y, en un extracto, los pagos que casarían;
 4. solo después, con el botón **Nu echt importeren** y una confirmación aparte (que dice
-   que queda con el nombre de quien importa y no se deshace), entra de verdad.
+   que queda con el nombre de quien importa y no se deshace), entra de verdad, **con
+   exactamente lo que se probó** (la clase, el día de exportación y la confirmación del
+   planning). Cambiar el día o la confirmación después de la prueba la borra: hay que
+   volver a probar.
 
 Si el fichero ya entró (el mismo contenido) lo dice y no lo repite. La base de prueba solo
 acepta ficheros de prueba (con la marca `BMS-DEMO`), como siempre. Un planning que borra
@@ -252,8 +274,9 @@ las últimas importaciones (cuándo, qué, el fichero, quién, cuántas filas). 
 
 **Facturen lezen** no lee nada. Dice primero, en palabras normales, que **leer un PDF cuesta
 dinero** (unos céntimos por factura, la API de Anthropic), que la app **no lo puede
-empezar** (no tiene internet, a propósito) y que se empieza con el acceso directo del
-escritorio **BMS Finanzas - Leer facturas** (`leer-facturas.bat` en Docker), que antes de
+empezar** (no tiene internet, a propósito) y que se empieza fuera de la app, con el acceso
+directo del escritorio para leer facturas (**BMS Finanzas - Leer facturas**;
+`leer-facturas.bat` en Docker: la app no lo nombra, porque es castellano), que antes de
 leer cuenta, gratis, lo que va a costar y solo sigue con un «si». Después, de
 `GET /api/v2/lectura`: cuántos documentos van, cuánto se ha gastado (en dólares, que es
 como cobra el servicio, de lo medido en cada lectura), cuánto costaría la siguiente factura
@@ -267,17 +290,18 @@ las últimas pasadas. **No hay ningún botón que la lance.**
   Alleen lezen) y, plegado con su número, **«Wat je mag doen»**: cada permiso en una
   frase (`GET /api/v2/yo`, que ahora da también los roles). Uitloggen.
 - **Het bedrijf**, solo para leer: el nombre, los otros nombres, el btw-id, el KvK y las
-  cuentas propias, tal como los usan los controles (`GET /api/v2/empresa`); si falta algo,
-  lo dice, con la orden que lo pone (`empresa.bat`).
+  cuentas propias (en grupos de cuatro), tal como los usan los controles
+  (`GET /api/v2/empresa`); si falta algo, lo dice, y que lo cambia quien administra el
+  programa (con `empresa.bat`, que la app no nombra).
 - **Afscherming**, solo para leer (`GET /api/v2/aislamiento`): que la app nunca tiene
   internet; en la instalación nativa, si la última comprobación está bien y cada papel (la
   app, el lector de PDF, la salida a internet, las órdenes) con su estado (en orden, una
   prueba que falla, sin comprobar o comprobado hace demasiado: `papeles[].estado`, §4.6);
   en Docker o a mano, una frase sobre cómo se aísla allí.
 - **Personas**, solo para quien administra: el nombre y el rol de cada una
-  (`GET /api/v2/personas`), y que se añaden con `persona.bat`.
-- **Back-ups**, una frase: se hacen con `copia.bat`, en el disco externo cifrado, que
-  comprueba cada copia.
+  (`GET /api/v2/personas`), y que se gestionan fuera de la app (`persona.bat`).
+- **Back-ups**, una frase: los hace quien administra el programa (`copia.bat`), en el
+  disco externo cifrado, y se comprueba cada copia.
 
 ### 4.6 Alertas y estados
 
@@ -297,13 +321,34 @@ los colores sueltos y los puntos de antes se quitaron.
   color. Un valor que no se conoce sale en gris, quieto y con su texto.
 - **Late solo lo que pide hacer algo ya**: una factura **bloqueada** o **urgente**, una
   cuenta del banco **por verificar** (nueva o cambiada) y el **aislamiento** que falla,
-  falta o es viejo. Todo lo demás lleva el punto quieto: una lista de quince facturas no
-  parpadea entera. Quien pide menos movimiento en el sistema
+  falta o es viejo. Todo lo demás lleva el punto quieto. **Y en un solo sitio por
+  pantalla** (`PingScope`, revisión del paso 15): las listas (`DataTable`), las tarjetas
+  del Overzicht y su «Als eerste», y las fichas de proveedores, clientes, Objects y PO van
+  **quietas**; late la cabecera de la ficha de una factura bloqueada o urgente, las filas
+  **Geblokkeerd** de la Werklijst (la lista donde se trabaja; las urgentes, quietas), una
+  cuenta por llamar en IBAN-controles y el aislamiento. Antes latían diez pastillas a la
+  vez en la Werklijst y seis en el Overzicht. Quien pide menos movimiento en el sistema
   (`prefers-reduced-motion`) no ve latir nada.
+- **Una pastilla de color por fila** en Inkomend y Uitgaand: la prioridad. El pago y el
+  control van en texto gris debajo («Openstaand · Controle nodig»), y lo vencido lo dice
+  «Waarom»; antes eran tres pastillas por fila (49 en una pantalla).
+- **Cada pastilla dice una cosa, y la misma cosa tiene un solo color.** La prioridad dice
+  cuánto corre una factura; el pago, si está pagada; la gravedad de un aviso, qué hace con
+  la factura. Por eso KT-202608 puede ser «Urgent» (naranja) con el pago «Vervallen»
+  (rojo): son dos preguntas distintas. Un mismo aviso, en cambio, sale siempre en el color
+  de su gravedad: también las señales de una PO junto a sus cifras (P5 «Bijna op» y su
+  aviso «PO bijna op», debajo, los dos en azul).
 - **Los textos** salen de los catálogos de Python (`src/bms_agent/textos/nl.json` y
   `en.json`) para lo que es del dominio, y de `frontend/src/i18n/nl.ts` y `en.ts`
   (`status`) para lo demás. Los que llevan una cifra la dicen («Nog 5 dagen», «Te oud
-  (meer dan 5 werkdagen)», «Bezwaren van het systeem: 2»).
+  (meer dan 5 werkdagen)», «Bezwaren van het systeem: 2»), y el plazo cercano dice los
+  días en todas partes (Overzicht, Btw y la ficha del trimestre). La gravedad de un aviso
+  dice además, al pasar el ratón, qué hace con la factura (`significa` del catálogo).
+- **El modo oscuro de Windows no cambia nada.** La app solo tiene tema claro; las clases
+  `dark:` del componente del dueño solo valdrían con una clase `.dark` que la app nunca
+  pone (`@custom-variant dark` en `src/index.css`). Sin eso, Tailwind v4 las aplicaba con
+  `prefers-color-scheme: dark` y el texto de las pastillas salía ilegible (menos de 2:1);
+  `e2e/status.spec.ts` lo mide con el modo oscuro del sistema.
 - **No son estados** y siguen como estaban: las insignias de la barra lateral (son
   números), las cifras que van mal en el color de «tarde» (un importe vencido, un margen
   negativo: la cifra es el texto), los avisos de error de un formulario y el icono de
@@ -345,8 +390,8 @@ completo en verde, nada late).
 
 | Grupo | Valor | NL | EN | Variante | Late | Dónde |
 | --- | --- | --- | --- | --- | --- | --- |
-| `prioridad` | `bloqueada` | Geblokkeerd | Blocked | error | **sí** | Overzicht, Werklijst, Inkomend, Uitgaand, Uitzonderingen, las listas de relaciones, Objecten e Inkooporders, y cada ficha |
-|  | `urgente` | Urgent | Urgent | warning | **sí** |  |
+| `prioridad` | `bloqueada` | Geblokkeerd | Blocked | error | **sí** (cabecera de la ficha de una factura; filas de la Werklijst) | Overzicht, Werklijst, Inkomend, Uitgaand, Uitzonderingen, las listas de relaciones, Objecten e Inkooporders, y cada ficha |
+|  | `urgente` | Urgent | Urgent | warning | **sí** (solo la cabecera de la ficha de una factura) |  |
 |  | `atencion` | Aandacht | Attention | info | no |  |
 |  | `normal` | Normaal | Normal | default | no |  |
 | `veredicto` | `limpia` | Geen bezwaren van het systeem | No system objections | success | no | Ficha de factura, junto a «Wat aandacht nodig heeft» (nunca «aprobada») |
@@ -354,20 +399,20 @@ completo en verde, nada late).
 |  | `objeciones` | Bezwaren van het systeem: 2 | System objections: 2 | warning | no |  |
 |  | `campos` | Velden te verifiëren: 2 | Fields to verify: 2 | warning | no |  |
 |  | `aceptadas` | Door een medewerker geaccepteerd: 2 | Accepted by a person: 2 | default | no |  |
-| `severidad` | `bloqueo` | Blokkeert | Blocks | error | no | Cada aviso de una ficha (factura, proveedor, cliente, PO) |
-|  | `retencion` | Houdt vast | Holds | warning | no |  |
-|  | `aviso` | Waarschuwt | Warns | info | no |  |
+| `severidad` | `bloqueo` | Blokkeert de factuur | Blocks the invoice | error | no | Cada aviso de una ficha (factura, proveedor, cliente, PO); al pasar el ratón, qué hace |
+|  | `retencion` | Wacht op controle | Waits for a check | warning | no |  |
+|  | `aviso` | Alleen een waarschuwing | Warning only | info | no |  |
 | `hallazgo` | `abierto` | Open | Open | warning | no | Un aviso que ya no está abierto (aceptado, ya no se ve, cerrado) |
 |  | `desaparecido` | Niet meer gezien, nog niet gesloten | No longer seen, not closed | info | no |  |
 |  | `aceptado` | Geaccepteerd | Accepted | default | no |  |
 |  | `cerrado` | Gesloten | Closed | success | no |  |
 |  | `resuelto` | Opgelost | Resolved | success | no |  |
-| `pago` | `vencida` | Vervallen | Overdue | error | no | Inkomend, Uitgaand, las facturas de una ficha, Overzicht (Vervallen) |
+| `pago` | `vencida` | Vervallen | Overdue | error | no | La ficha de una factura y las facturas de una ficha, Overzicht (Vervallen); en Inkomend y Uitgaand, en texto gris |
 |  | `pendiente` | Openstaand | Outstanding | default | no |  |
 |  | `pagada` | Betaald | Paid | success | no |  |
 |  | `anulada` | Geannuleerd | Cancelled | default | no |  |
 |  | `acreditada` | Gecrediteerd | Credited | default | no |  |
-| `revision` | `necesita_revision` | Controle nodig | Needs review | warning | no | Inkomend, Uitgaand, ficha de factura |
+| `revision` | `necesita_revision` | Controle nodig | Needs review | warning | no | Ficha de factura; en Inkomend y Uitgaand, en texto gris |
 |  | `sin_revisar` | Niet gecontroleerd | Unreviewed | default | no |  |
 |  | `revisada` | Gecontroleerd | Reviewed | success | no |  |
 | `excepcion` | `abierta` | Open | Open | warning | no | Uitzonderingen, ficha de factura (Afronden) |
@@ -381,7 +426,7 @@ completo en verde, nada late).
 |  | `verificado` | Geverifieerd | Verified | success | no |  |
 | `cuenta` | `registrada` | Geregistreerd, niet geverifieerd | Registered, not verified | warning | **sí** | IBAN-controles, ficha de proveedor (Bankrekeningen) |
 |  | `heredada` | Overgenomen, niet bevestigd | Inherited, not confirmed | warning | no |  |
-|  | `verificada` | Telefonisch geverifieerd | Verified by phone | success | no |  |
+|  | `verificada` | Telefonisch geverifieerd | Verified by phone | success | no | (con un F2 abierto, «Wat nog moet»: ponerla en Exact) |
 |  | `atestada` | Bevestigd | Confirmed | success | no |  |
 |  | `rechazada` | Afgewezen | Rejected | error | no |  |
 | `iban_control` | `por_verificar` | Te verifiëren | To verify | warning | **sí** | IBAN-controles * |
@@ -406,7 +451,7 @@ completo en verde, nada late).
 |  | `listo_revision` | Klaar voor controle | Ready for review | info | no |  |
 |  | `presentado` | Aangegeven (door een medewerker vastgelegd) | Filed (recorded by a person) | success | no |  |
 |  | `plazo_cerca` | Nog 2 dagen | 2 days left | warning | no |  |
-|  | `plazo_vencido` | Termijn voorbij, niet aangegeven | Deadline passed, not filed | error | no |  |
+|  | `plazo_vencido` | Aangifte te laat | Return overdue | error | no | También en el Overzicht, con los trimestres, aunque el próximo plazo ya sea el del trimestre siguiente |
 | `btw_config` | `confirmada` | Bevestigd met de adviseur | Confirmed with the adviser | success | no | Btw y ficha del trimestre * |
 |  | `sin_confirmar` | Niet bevestigd | Not confirmed | warning | no |  |
 | `empresa` | `completa` | Compleet | Complete | success | no | Instellingen, Het bedrijf * |
@@ -414,13 +459,13 @@ completo en verde, nada late).
 | `po` | `activa` | Actief | Active | default | no | Inkooporders (solo «cerrada») |
 |  | `cerrada` | Gesloten | Closed | default | no |  |
 |  | `caducada` | Verlopen | Expired | default | no |  |
-| `po_senal` | `P5` | Bijna op | Nearly used up | warning | no | Ficha de PO, junto a Over y Verwachting * |
-|  | `P7` | Verloopt bijna | Expires soon | warning | no |  |
-|  | `P8` | Gepland werk te hoog | Planned work too high | warning | no |  |
-|  | `P9` | Eerder op | Runs out early | warning | no |  |
-|  | `P10` | Verwacht boven de PO | Expected above the PO | warning | no |  |
-|  | `P4` | Boven het restant | Above what is left | error | no |  |
-|  | `P6` | Op, nog gefactureerd | Used up, still invoiced | error | no |  |
+| `po_senal` | `P5` | Bijna op | Nearly used up | info | no | Ficha de PO, junto a Over y Verwachting *; el color de la gravedad de su aviso (avisa: info; retiene: warning) |
+|  | `P7` | Verloopt bijna | Expires soon | info | no |  |
+|  | `P8` | Gepland werk te hoog | Planned work too high | info | no |  |
+|  | `P9` | Eerder op | Runs out early | info | no |  |
+|  | `P10` | Meer dan de PO-waarde | More than the PO value | warning | no |  |
+|  | `P4` | Boven het restant | Above what is left | warning | no |  |
+|  | `P6` | Op, nog gefactureerd | Used up, still invoiced | warning | no |  |
 | `importacion` | `en_curso` | Bezig | In progress | info | no | Importeren (después de importar, y la historia) |
 |  | `aceptada` | Ingelezen | Imported | success | no |  |
 |  | `parcial` | Deels ingelezen | Partly imported | warning | no |  |
@@ -434,10 +479,13 @@ completo en verde, nada late).
 | `datos_prueba` | `demo` | Testgegevens | Test data | warning | no | Cabecera, con la base de prueba * |
 
 Lo mismo que en el fichero de diseño del dueño (que se hizo sobre las pantallas del
-trabajo diario): la variante y el latido de cada estado son los mismos; en la app las
-señales de una PO llevan un texto corto (van entre las cifras de su ficha; el nombre
-entero de la regla está en sus avisos, justo debajo), y se añadieron `btw_config` y
-`empresa`.
+trabajo diario): la variante y el latido de cada estado son los mismos, salvo tres cosas
+de la revisión del paso 15: el latido va en un solo sitio por pantalla (arriba), en las
+listas de facturas el pago y el control van en texto, y las señales de una PO toman el
+color de la gravedad de su aviso (el dueño las había pedido naranja, y en rojo «por encima
+de su valor»: el mismo aviso salía así en dos colores en la misma ficha). Las señales
+llevan un texto corto (van entre las cifras de su ficha; el nombre entero de la regla está
+en sus avisos, justo debajo), y se añadieron `btw_config` y `empresa`.
 
 ## 5. Neerlandés e inglés
 
@@ -448,7 +496,9 @@ interfaz.
 
 - **Importes, horas y fechas siempre en notación neerlandesa**, también en inglés:
   `€ 36.270,36`, `€ −24,76`, `78,5 u` / `78,5 h`; en tablas `16-10-2026`, en una frase
-  `16 okt 2026` / `16 Oct 2026`. Los importes se escriben desde los céntimos enteros de
+  `16 okt 2026` / `16 Oct 2026`. Entre el euro y la cifra, y antes de `%`, va un espacio
+  que no se parte (U+00A0): el euro nunca se queda al final de una línea sin su importe
+  (igual en las plantillas de Python y de TypeScript). Los importes se escriben desde los céntimos enteros de
   la API (`*_cent`) y las horas desde las milésimas (`*_mil`) con aritmética de
   enteros: ni un céntimo se pierde por redondeo.
 - **Los textos de la app** (menús, títulos, botones, avisos) están en
@@ -469,8 +519,17 @@ interfaz.
   hallazgo de cada variante de cada regla), en neerlandés y en inglés.
 - **Los errores** se dicen por su `codigo` estable (`conflicto`, `falta_motivo`,
   `segunda_persona`…, [integracion-web.md](integracion-web.md)), con el texto del
-  catálogo (`errores`); la frase del servidor en castellano solo se ve dentro del
-  desplegable «Technische details», para quien da soporte.
+  catálogo (`errores`); `segunda_persona` dice además, para cada orden, cuál de los
+  casos es (tú pusiste el teléfono, tú dejaste listo el trimestre, falta la firma de un
+  colega). El desplegable «Technische details» enseña solo el estado HTTP y el código
+  (`400 fichero_no_reconocido`), nunca la frase del servidor en castellano; los avisos del
+  importador (frases en castellano) se cuentan, sin enseñarlos.
+- **Ningún nombre en castellano en la pantalla**: la app no nombra los `.bat` ni los
+  accesos directos de la instalación (están en castellano, para el dueño): dice «de
+  beheerder van het programma» o «de snelkoppeling op het bureaublad voor het lezen van
+  facturen». Los ficheros de la base de prueba se llaman en neerlandés
+  (`exact-verkoopfacturen.csv`…). Solo el nombre de un fichero que eligió o importó la
+  persona va marcado como nombre propio, tal cual.
 - Lo que escribe una persona (notas, motivos) y lo que viene de un documento
   (descripciones de línea, referencias, nombres) se enseña tal cual, como texto.
 
@@ -550,10 +609,10 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | Carpeta | Qué |
 | --- | --- |
 | `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y los dos del dueño: la navegación (`sidebar-with-chrome-like-tabs.tsx`) y las alertas (`status.tsx`); arriba de cada uno, lo que se le cambió y por qué |
-| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura), `ProperName` (un nombre propio, como un acceso directo, que no se traduce); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
+| `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
 | `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `import`, `read-invoices`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso, y las fichas) y `render.tsx` (qué pinta cada ruta) |
 | `src/shell/` | El marco: la navegación con sus insignias, el idioma, la persona, la marca de datos de prueba |
-| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
+| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`), el acceso a los del dominio (`domain.ts`) y el lenguaje de sus plantillas (`templates.ts`) |
 | `e2e/` | Las pruebas en el navegador |
 
@@ -580,6 +639,14 @@ menos 14 días antes de fijarla, con `package-lock.json` en git. Para añadir o 
 volver a construir. `@playwright/test` y `playwright-core` van fijados en 1.56.1, la
 versión del Chromium que hay instalado para las pruebas.
 
+**Lo que lee Tailwind.** `src/index.css` le quita la detección automática
+(`@import "tailwindcss" source(none)`) y le da solo `src` (sin las pruebas) e `index.html`:
+lo que cubre la huella de `fuente.json`. Sin eso leía todo `frontend/` (las pruebas, `e2e/`,
+los scripts) y una clase escrita en una prueba cambiaba el CSS sin cambiar la huella.
+`scripts/tailwind-fuentes.mjs` saca con el escáner de Tailwind los ficheros que lee;
+`fuente.mjs` no construye ni da por buena la huella si alguno no está en
+`build-inputs.json`, y `scripts/tailwind-fuentes.test.mjs` (vitest) lo comprueba.
+
 **Las pruebas en el navegador** (`npm run e2e`) crean una base de prueba nueva en una
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
 Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
@@ -602,7 +669,10 @@ cada prueba: toda petición tiene que ir a `127.0.0.1` (otra se corta y la prueb
 ninguna violación de la CSP, ningún error en la consola, ninguna respuesta de error que la
 prueba no espere, y axe sin problemas serios ni críticos (WCAG 2.1 AA); en cada pantalla,
 además, ninguna palabra de una lista de palabras castellanas (`expectNoSpanish` en
-`e2e/fixtures.ts`; los nombres propios marcados con `ProperName` no cuentan). Dejan una
+`e2e/fixtures.ts`; solo no cuenta el nombre de un fichero de la persona, marcado con
+`data-proper-name`). Antes de medir y de cada captura esperan a que la pantalla esté quieta
+(`settled`: ninguna animación con fin en marcha y el contenido de la pestaña entero, sin
+esperas fijas), y miden también con el modo oscuro del sistema. Dejan una
 captura de cada pantalla, ficha y diálogo en neerlandés y en inglés, a 1440×900
 (`<idioma>-<pantalla>.png`), en `CAPTURAS_DIR` (por defecto
 `frontend/test-results/capturas`, que no va en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de

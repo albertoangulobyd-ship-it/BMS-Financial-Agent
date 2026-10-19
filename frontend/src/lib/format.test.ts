@@ -19,16 +19,22 @@ import {
 
 describe('importes desde centimos', () => {
   it('escribe la notacion neerlandesa con el simbolo del euro', () => {
-    expect(formatMoney(3627036)).toBe('€ 36.270,36');
-    expect(formatMoney(0)).toBe('€ 0,00');
-    expect(formatMoney(5)).toBe('€ 0,05');
-    expect(formatMoney(100)).toBe('€ 1,00');
-    expect(formatMoney(99999999)).toBe('€ 999.999,99');
-    expect(formatMoney(100000000)).toBe('€ 1.000.000,00');
+    expect(formatMoney(3627036)).toBe('€\u00a036.270,36');
+    expect(formatMoney(0)).toBe('€\u00a00,00');
+    expect(formatMoney(5)).toBe('€\u00a00,05');
+    expect(formatMoney(100)).toBe('€\u00a01,00');
+    expect(formatMoney(99999999)).toBe('€\u00a0999.999,99');
+    expect(formatMoney(100000000)).toBe('€\u00a01.000.000,00');
+  });
+
+  it('el euro y la cifra no se separan al partir una linea (espacio que no se parte)', () => {
+    expect(formatMoney(4500000)).toBe('€\u00a045.000,00');
+    expect(formatMoney(4500000)).not.toContain(' ');
+    expect(formatPercentFromBasisPoints(2100)).not.toContain(' ');
   });
 
   it('pone el signo menos de verdad delante de la cifra', () => {
-    expect(formatMoney(-2476)).toBe(`€ ${MINUS}24,76`);
+    expect(formatMoney(-2476)).toBe(`€\u00a0${MINUS}24,76`);
     expect(formatCents(-1)).toBe(`${MINUS}0,01`);
   });
 
@@ -68,9 +74,9 @@ describe('horas desde milesimas', () => {
   });
 
   it('escribe los porcentajes desde puntos basicos', () => {
-    expect(formatPercentFromBasisPoints(2100)).toBe('21 %');
-    expect(formatPercentFromBasisPoints(875)).toBe('8,75 %');
-    expect(formatPercentFromBasisPoints(1050)).toBe('10,5 %');
+    expect(formatPercentFromBasisPoints(2100)).toBe('21\u00a0%');
+    expect(formatPercentFromBasisPoints(875)).toBe('8,75\u00a0%');
+    expect(formatPercentFromBasisPoints(1050)).toBe('10,5\u00a0%');
   });
 });
 
@@ -122,11 +128,11 @@ describe('iniciales', () => {
 describe('lo que cuesta leer un pdf y los trimestres (paso 15)', () => {
   it('millonesimas de dolar al centimo, la mitad hacia arriba', async () => {
     const { formatUsdMicro } = await import('./format');
-    expect(formatUsdMicro(32360)).toBe('$ 0,03');
-    expect(formatUsdMicro(35000)).toBe('$ 0,04');
-    expect(formatUsdMicro(517760)).toBe('$ 0,52');
-    expect(formatUsdMicro(1234567890)).toBe('$ 1.234,57');
-    expect(formatUsdMicro(0)).toBe('$ 0,00');
+    expect(formatUsdMicro(32360)).toBe('$\u00a00,03');
+    expect(formatUsdMicro(35000)).toBe('$\u00a00,04');
+    expect(formatUsdMicro(517760)).toBe('$\u00a00,52');
+    expect(formatUsdMicro(1234567890)).toBe('$\u00a01.234,57');
+    expect(formatUsdMicro(0)).toBe('$\u00a00,00');
     expect(formatUsdMicro(null)).toBe('—');
     expect(formatUsdMicro(1.5)).toBe('—');
   });

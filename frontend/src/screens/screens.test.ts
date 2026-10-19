@@ -6,7 +6,10 @@ import { MESSAGES } from '@/i18n';
 import { partyWhy } from '@/lib/why';
 import { fileDay, formatSize } from './import';
 import { periodRange } from './object';
-import { balanceText, nextStep, quarterRows } from './vat';
+import { dialogTexts } from '@/components/action-dialog';
+import { catalogFor } from '@/i18n/domain';
+import { accountStep } from './iban-checks';
+import { balanceText, nextStep, overdueQuarters, quarterRows } from './vat';
 import { plainAmount } from './vat-quarter';
 import type { VatSummary } from '@/lib/api-types';
 
@@ -24,9 +27,26 @@ describe('el periodo de un Object', () => {
 
 describe('el btw', () => {
   it('el saldo dice si se paga o se recibe, en euros', () => {
-    expect(balanceText(474386, nl)).toBe('€ 4.743,86 te betalen');
-    expect(balanceText(-40970, nl)).toBe('€ 409,70 terug');
-    expect(balanceText(0, nl)).toBe('niets');
+    expect(balanceText(474386, nl)).toBe('€\u00a04.743,86 te betalen');
+    expect(balanceText(-40970, nl)).toBe('€\u00a0409,70 terug');
+    // Cero es un importe como los demas, no una palabra.
+    expect(balanceText(0, nl)).toBe('€\u00a00,00');
+  });
+
+  it('un plazo pasado sin aangifte se ve aunque el proximo plazo sea el del trimestre siguiente', () => {
+    // Lo que da el panel el 5 de noviembre: proximo_plazo ya es el T4 (87 dias), y el T3 tiene
+    // el plazo pasado (-5) sin la presentacion anotada.
+    const btw = {
+      plazos_pasados: ['2026-T3'],
+      por_presentar: [
+        { trimestre: '2026-T3', estado: 'listo_revision', limite_presentacion: '2026-10-31', dias_para_limite: -5 },
+        { trimestre: '2026-T2', estado: 'presentado', limite_presentacion: '2026-07-31', dias_para_limite: -97 },
+      ],
+    };
+    expect(overdueQuarters(btw)).toEqual(['2026-T3']);
+    expect(overdueQuarters({ plazos_pasados: [], por_presentar: [] })).toEqual([]);
+    // Solo la etiqueta (por si un trimestre no viniera en por_presentar).
+    expect(overdueQuarters({ plazos_pasados: ['2026-T2'], por_presentar: [] })).toEqual(['2026-T2']);
   });
 
   it('el paso siguiente de cada estado, y nunca "aprobado"', () => {
@@ -88,5 +108,39 @@ describe('el por que de una relacion', () => {
     expect(why?.text).not.toMatch(/factura|número/);
     expect(partyWhy({ razones: [], vencido_cent: 734349 }, 'nl', nl, overdue)?.text).toBe('vencido 734349');
     expect(partyWhy({ razones: [], vencido_cent: 0 }, 'nl', nl, overdue)).toBeNull();
+  });
+});
+
+describe('lo que falta de una cuenta en IBAN-controles', () => {
+  const f = (regla: string) => ({ reason: { regla } as never, invoice: {} as never });
+  const account = (estado: string) => ({ estado } as never);
+  it('una sola cosa por tarjeta: llamar, ponerla en Exact, mirar lo abierto o nada', () => {
+    expect(accountStep({ account: null, findings: [f('F3'), f('F2')] })).toBe('confirm');
+    expect(accountStep({ account: account('registrada'), findings: [] })).toBe('confirm');
+    expect(accountStep({ account: account('heredada'), findings: [f('F2')] })).toBe('confirm');
+    // Verificada por telefono y aun no en los ultimos maestros de Exact (F2).
+    expect(accountStep({ account: account('verificada'), findings: [f('F2')] })).toBe('exact');
+    expect(accountStep({ account: account('atestada'), findings: [f('F4')] })).toBe('open');
+    expect(accountStep({ account: account('rechazada'), findings: [f('F3')] })).toBe('rejected');
+  });
+});
+
+describe('lo que dice el dialogo de una orden', () => {
+  const texts = { description: 'Wat de opdracht doet.', confirm: 'Wat er gebeurt.' };
+  it('una sola explicacion: la de la pantalla o, sin ella, la del catalogo', () => {
+    expect(dialogTexts('anular_hallazgo', true, texts)).toEqual({ description: null, warning: null });
+    expect(dialogTexts('anular_hallazgo', false, texts)).toEqual({ description: 'Wat er gebeurt.', warning: null });
+    expect(dialogTexts('anadir_nota', false, { description: 'Notitie.', confirm: null })).toEqual({ description: 'Notitie.', warning: null });
+  });
+  it('lo que no se deshace lleva su aviso aparte', () => {
+    expect(dialogTexts('btw_anotar_presentacion', true, texts)).toEqual({ description: null, warning: 'Wat er gebeurt.' });
+    expect(dialogTexts('btw_anotar_presentacion', false, texts)).toEqual({ description: 'Wat de opdracht doet.', warning: 'Wat er gebeurt.' });
+  });
+  it('ningun texto de confirmacion pregunta "Doorgaan?": el boton dice la orden', () => {
+    for (const lang of ['nl', 'en'] as const) {
+      for (const [name, a] of Object.entries(catalogFor(lang).acciones as Record<string, { confirmar?: string }>)) {
+        expect(a.confirmar ?? '', `${lang} ${name}`).not.toMatch(/Doorgaan\?|Continue\?/);
+      }
+    }
   });
 });

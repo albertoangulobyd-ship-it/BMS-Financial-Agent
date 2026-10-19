@@ -17,12 +17,16 @@
  *   escribe el componente: lo hacen `loadState` y `saveState`, que la app guarda con una
  *   clave por entorno y por persona y comprueba al leer (lib/storage.ts). Antes era una
  *   clave fija de localStorage sin comprobar nada.
- * - Respeta prefers-reduced-motion (desplazamientos sin animar; el resto lo hace
- *   MotionConfig en la app).
+ * - Respeta prefers-reduced-motion (desplazamientos y el fundido del contenido de la
+ *   pestana sin animar; el resto lo hace MotionConfig en la app).
  * - Accesibilidad: cada boton de icono lleva aria-label; la pestana activa controla el
  *   panel (role tabpanel, que se puede enfocar para desplazarlo con el teclado: patron de
  *   pestanas de WAI-ARIA); el boton de cerrar va fuera del elemento role=tab (un boton
  *   dentro de una pestana es un control anidado) y se cierra tambien con Supr.
+ * - La tira de pestanas: solo las pestanas se desplazan; el + y el ... van fuera (a 1024 px
+ *   el + quedaba debajo del ...) y un fundido en cada borde dice que hay mas pestanas a ese
+ *   lado. La barra lateral no esconde su barra de desplazamiento y en pantallas bajas
+ *   (820 px o menos) va mas junta: a 768 px se ven todos los apartados.
  * - Tailwind v4: shrink-0 en vez de flex-shrink-0; h-full en vez de h-screen (las bandas
  *   del servidor van encima); text-destructive en vez de text-red-500.
  * - `toolbar`: lo de la derecha de la tira de pestanas (idioma, persona, datos de prueba).
@@ -529,7 +533,7 @@ function SidebarNavigation({
         aria-current={isActive ? 'page' : undefined}
         aria-label={isCollapsed ? [item.label, extra].filter(Boolean).join(', ') : undefined}
         className={cn(
-          'w-full flex items-center gap-3 px-3 py-[7px] rounded-lg transition-all duration-150 text-left relative',
+          'w-full flex items-center gap-3 px-3 py-[7px] short:py-[4px] rounded-lg transition-all duration-150 text-left relative',
           isActive
             ? 'bg-sidebar-accent text-sidebar-accent-foreground font-semibold'
             : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
@@ -605,11 +609,11 @@ function SidebarNavigation({
           aria-label={group || undefined}
           className={cn(
             'space-y-0.5',
-            index > 0 && (group ? 'mt-3' : 'mt-3 pt-2 border-t border-sidebar-border')
+            index > 0 && (group ? 'mt-3 short:mt-2' : 'mt-3 short:mt-2 pt-2 border-t border-sidebar-border')
           )}
         >
           {group && !isCollapsed && (
-            <div className='px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground select-none'>
+            <div className='px-3 pb-1 short:pb-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground select-none'>
               {group}
             </div>
           )}
@@ -810,6 +814,29 @@ export function SidebarWithTabs({
   labels: labelsProp,
 }: SidebarWithTabsProps) {
   const labels = useMemo(() => ({ ...DEFAULT_LABELS, ...labelsProp }), [labelsProp]);
+  // MotionConfig reducedMotion='user' quita los desplazamientos, no la opacidad: el
+  // fundido del contenido de la pestana se quita aqui.
+  const reduceMotion = useReducedMotion();
+  // Si hay pestanas escondidas a un lado de la tira (para su fundido).
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return undefined;
+    updateEdges();
+    const observer = new ResizeObserver(updateEdges);
+    observer.observe(el);
+    const list = el.firstElementChild;
+    if (list) observer.observe(list);
+    return () => observer.disconnect();
+  }, [updateEdges]);
   const defaultNav = defaultNavId || navItems[0]?.id || '';
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -1126,7 +1153,10 @@ export function SidebarWithTabs({
                 </div>
               )}
 
-              <div className='flex-1 py-3 overflow-y-auto scrollbar-hide'>
+              {/* Sin esconder la barra de desplazamiento (si no cabe, se ve que hay mas) y
+                  mas junto en pantallas bajas (short: 820 px o menos): a 768 px de alto
+                  caben todos los apartados, Instellingen incluido. */}
+              <div className='flex-1 py-3 short:py-2 overflow-y-auto [scrollbar-width:thin]'>
                 <SidebarNavigation
                   navItems={navItems}
                   activeNavId={activeNavId}
@@ -1191,8 +1221,14 @@ export function SidebarWithTabs({
                 />
               </div>
 
+              {/* Solo las pestanas se desplazan; + y ... van fuera, para que nunca se tapen
+                  (a 1024 px el + quedaba debajo de ...). Un fundido en el borde dice que hay
+                  mas pestanas a ese lado. */}
+              <div className='relative flex min-w-0 flex-1 items-end'>
               <div
-                className='flex items-end overflow-x-auto scrollbar-hide flex-1'
+                ref={stripRef}
+                onScroll={updateEdges}
+                className='flex min-w-0 flex-1 items-end overflow-x-auto scrollbar-hide'
                 style={{ scrollbarWidth: 'none' }}
               >
                 <Reorder.Group
@@ -1251,10 +1287,25 @@ export function SidebarWithTabs({
                     })}
                   </AnimatePresence>
                 </Reorder.Group>
+              </div>
+              {edges.left && (
+                <div
+                  aria-hidden='true'
+                  data-testid='tabs-fade-left'
+                  className='pointer-events-none absolute inset-y-0 left-0 w-8 bg-linear-to-r from-sidebar to-transparent'
+                />
+              )}
+              {edges.right && (
+                <div
+                  aria-hidden='true'
+                  data-testid='tabs-fade-right'
+                  className='pointer-events-none absolute inset-y-0 right-0 w-8 bg-linear-to-l from-sidebar to-transparent'
+                />
+              )}
+              </div>
 
-                <motion.div layout className='shrink-0'>
-                  <NewTabButton navItems={navItems} onAddTab={addTab} labels={labels} />
-                </motion.div>
+              <div className='shrink-0'>
+                <NewTabButton navItems={navItems} onAddTab={addTab} labels={labels} />
               </div>
 
               <DropdownMenu>
@@ -1311,10 +1362,10 @@ export function SidebarWithTabs({
                 <AnimatePresence mode='wait'>
                   <motion.div
                     key={`${activeTabId}-${activeRoute.screen}-${activeRoute.id ?? ''}`}
-                    initial={{ opacity: 0 }}
+                    initial={reduceMotion ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
+                    exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.15 }}
                     className='h-full'
                   >
                     {activeTab ? renderContent(activeRoute, activeTab) : null}

@@ -8,8 +8,8 @@
    "valores": {
     "x": 0
    },
-   "nl": "€ 0,00",
-   "en": "€ 0,00",
+   "nl": "€ 0,00",
+   "en": "€ 0,00",
    "faltan": []
   },
   {
@@ -17,8 +17,8 @@
    "valores": {
     "x": 5
    },
-   "nl": "€ 0,05",
-   "en": "€ 0,05",
+   "nl": "€ 0,05",
+   "en": "€ 0,05",
    "faltan": []
   },
   {
@@ -26,8 +26,8 @@
    "valores": {
     "x": -5
    },
-   "nl": "€ -0,05",
-   "en": "€ -0,05",
+   "nl": "€ -0,05",
+   "en": "€ -0,05",
    "faltan": []
   },
   {
@@ -35,8 +35,8 @@
    "valores": {
     "x": 123456
    },
-   "nl": "€ 1.234,56",
-   "en": "€ 1.234,56",
+   "nl": "€ 1.234,56",
+   "en": "€ 1.234,56",
    "faltan": []
   },
   {
@@ -44,8 +44,8 @@
    "valores": {
     "x": -123456
    },
-   "nl": "€ -1.234,56",
-   "en": "€ -1.234,56",
+   "nl": "€ -1.234,56",
+   "en": "€ -1.234,56",
    "faltan": []
   },
   {
@@ -53,8 +53,8 @@
    "valores": {
     "x": 123456789012
    },
-   "nl": "€ 1.234.567.890,12",
-   "en": "€ 1.234.567.890,12",
+   "nl": "€ 1.234.567.890,12",
+   "en": "€ 1.234.567.890,12",
    "faltan": []
   },
   {
@@ -62,8 +62,8 @@
    "valores": {
     "x": "181350"
    },
-   "nl": "€ 1.813,50",
-   "en": "€ 1.813,50",
+   "nl": "€ 1.813,50",
+   "en": "€ 1.813,50",
    "faltan": []
   },
   {
@@ -71,8 +71,8 @@
    "valores": {
     "x": "181351/2"
    },
-   "nl": "€ 906,76",
-   "en": "€ 906,76",
+   "nl": "€ 906,76",
+   "en": "€ 906,76",
    "faltan": []
   },
   {
@@ -80,8 +80,8 @@
    "valores": {
     "x": "-25/4"
    },
-   "nl": "€ -0,06",
-   "en": "€ -0,06",
+   "nl": "€ -0,06",
+   "en": "€ -0,06",
    "faltan": []
   },
   {
@@ -107,8 +107,8 @@
    "valores": {
     "x": 425000
    },
-   "nl": "€ 42,50",
-   "en": "€ 42,50",
+   "nl": "€ 42,50",
+   "en": "€ 42,50",
    "faltan": []
   },
   {
@@ -116,8 +116,8 @@
    "valores": {
     "x": 425050
    },
-   "nl": "€ 42,505",
-   "en": "€ 42,505",
+   "nl": "€ 42,505",
+   "en": "€ 42,505",
    "faltan": []
   },
   {
@@ -125,8 +125,8 @@
    "valores": {
     "x": 12345678
    },
-   "nl": "€ 1.234,5678",
-   "en": "€ 1.234,5678",
+   "nl": "€ 1.234,5678",
+   "en": "€ 1.234,5678",
    "faltan": []
   },
   {
@@ -134,8 +134,8 @@
    "valores": {
     "x": -4250
    },
-   "nl": "€ -0,425",
-   "en": "€ -0,425",
+   "nl": "€ -0,425",
+   "en": "€ -0,425",
    "faltan": []
   },
   {
@@ -499,8 +499,8 @@
      250
     ]
    },
-   "nl": "€ 3,50",
-   "en": "€ 3,50",
+   "nl": "€ 3,50",
+   "en": "€ 3,50",
    "faltan": []
   },
   {
@@ -520,8 +520,8 @@
    "valores": {
     "xs": []
    },
-   "nl": "€ 0,00",
-   "en": "€ 0,00",
+   "nl": "€ 0,00",
+   "en": "€ 0,00",
    "faltan": []
   },
   {
@@ -563,8 +563,8 @@
    "valores": {
     "x": -500
    },
-   "nl": "€ 5,00",
-   "en": "€ 5,00",
+   "nl": "€ 5,00",
+   "en": "€ 5,00",
    "faltan": []
   },
   {
@@ -575,8 +575,8 @@
      200
     ]
    },
-   "nl": "€ 1,00, € 2,00",
-   "en": "€ 1,00, € 2,00",
+   "nl": "€ 1,00, € 2,00",
+   "en": "€ 1,00, € 2,00",
    "faltan": []
   },
   {
@@ -622,8 +622,8 @@
    "valores": {
     "x": 100
    },
-   "nl": "100 en € 1,00 en —",
-   "en": "100 en € 1,00 en —",
+   "nl": "100 en € 1,00 en —",
+   "en": "100 en € 1,00 en —",
    "faltan": [
     "y"
    ]
@@ -678,6 +678,21 @@
    "faltan": []
   },
   {
+   "origen": "ejemplo",
+   "regla": "Q2",
+   "resultado": "fallo",
+   "valores": {
+    "campos": [
+     "total_cent",
+     "fecha_factura"
+    ]
+   },
+   "variante": 0,
+   "nl": "De velden totaalbedrag, factuurdatum zijn nog door niemand met het origineel vergeleken.",
+   "en": "The fields total amount, invoice date have not been compared with the original by anyone yet.",
+   "faltan": []
+  },
+  {
    "origen": "demo",
    "regla": "Q2",
    "resultado": "fallo",
@@ -686,9 +701,9 @@
      "total_cent"
     ]
    },
-   "variante": 0,
-   "nl": "Met twijfel gelezen en nog niet geverifieerd: totaal.",
-   "en": "Read with doubt and not yet verified: total.",
+   "variante": 1,
+   "nl": "Het veld totaalbedrag is nog door niemand met het origineel vergeleken.",
+   "en": "The field total amount has not been compared with the original by anyone yet.",
    "faltan": []
   },
   {
@@ -696,9 +711,9 @@
    "regla": "Q2",
    "resultado": "fallo",
    "valores": {},
-   "variante": 1,
-   "nl": "Een veld is met twijfel gelezen en nog niet geverifieerd.",
-   "en": "A field was read with doubt and is not yet verified.",
+   "variante": 2,
+   "nl": "Een veld is nog door niemand met het origineel vergeleken.",
+   "en": "A field has not been compared with the original by anyone yet.",
    "faltan": []
   },
   {
@@ -898,8 +913,8 @@
     }
    },
    "variante": 2,
-   "nl": "Totaal: geboekt € 411,40, pdf € 411,50.",
-   "en": "Total: booked € 411,40, PDF € 411,50.",
+   "nl": "Totaal: geboekt € 411,40, pdf € 411,50.",
+   "en": "Total: booked € 411,40, PDF € 411,50.",
    "faltan": []
   },
   {
@@ -1326,8 +1341,8 @@
     ]
    },
    "variante": 0,
-   "nl": "Zelfde totaal (€ 1.781,12) als een andere factuur van dezelfde wederpartij; dagen ertussen: 0.",
-   "en": "Same total (€ 1.781,12) as another invoice from the same party; days apart: 0.",
+   "nl": "Zelfde totaal (€ 1.781,12) als een andere factuur van dezelfde wederpartij; dagen ertussen: 0.",
+   "en": "Same total (€ 1.781,12) as another invoice from the same party; days apart: 0.",
    "faltan": []
   },
   {
@@ -1483,8 +1498,8 @@
     ]
    },
    "variante": 1,
-   "nl": "Zelfde totaal (€ 542,68) als een andere verkoopfactuur aan deze klant; dagen ertussen: 1.",
-   "en": "Same total (€ 542,68) as another sales invoice to this client; days apart: 1.",
+   "nl": "Zelfde totaal (€ 542,68) als een andere verkoopfactuur aan deze klant; dagen ertussen: 1.",
+   "en": "Same total (€ 542,68) as another sales invoice to this client; days apart: 1.",
    "faltan": []
   },
   {
@@ -1619,8 +1634,8 @@
     ]
    },
    "variante": 0,
-   "nl": "De regels tellen op tot € 2.297,75; het bedrag excl. btw is € 2.399,00.",
-   "en": "The lines add up to € 2.297,75; the amount excl. VAT is € 2.399,00.",
+   "nl": "De regels tellen op tot € 2.297,75; het bedrag excl. btw is € 2.399,00.",
+   "en": "The lines add up to € 2.297,75; the amount excl. VAT is € 2.399,00.",
    "faltan": []
   },
   {
@@ -1746,8 +1761,8 @@
     "tipo_iva_pb": 2100
    },
    "variante": 1,
-   "nl": "21% btw over € 1.000,00 geeft niet de € 250,00 op de factuur.",
-   "en": "21% VAT on € 1.000,00 does not give the € 250,00 on the invoice.",
+   "nl": "21% btw over € 1.000,00 geeft niet de € 250,00 op de factuur.",
+   "en": "21% VAT on € 1.000,00 does not give the € 250,00 on the invoice.",
    "faltan": []
   },
   {
@@ -1788,8 +1803,8 @@
     "total_cent": 1
    },
    "variante": 0,
-   "nl": "€ 2.399,00 excl. btw plus € 503,79 btw is niet het totaal van € 0,01.",
-   "en": "€ 2.399,00 excl. VAT plus € 503,79 VAT is not the total of € 0,01.",
+   "nl": "€ 2.399,00 excl. btw plus € 503,79 btw is niet het totaal van € 0,01.",
+   "en": "€ 2.399,00 excl. VAT plus € 503,79 VAT is not the total of € 0,01.",
    "faltan": []
   },
   {
@@ -1835,8 +1850,8 @@
     ]
    },
    "variante": 0,
-   "nl": "De btw-specificatie telt niet op tot de kop (€ 2.399,00 excl. btw, € 503,79 btw).",
-   "en": "The VAT breakdown does not add up to the header (€ 2.399,00 excl. VAT, € 503,79 VAT).",
+   "nl": "De btw-specificatie telt niet op tot de kop (€ 2.399,00 excl. btw, € 503,79 btw).",
+   "en": "The VAT breakdown does not add up to the header (€ 2.399,00 excl. VAT, € 503,79 VAT).",
    "faltan": []
   },
   {
@@ -2044,8 +2059,8 @@
     "total_cent": 41140
    },
    "variante": 0,
-   "nl": "Met de KOR hoort er geen btw op te staan, maar de factuur rekent € 71,40.",
-   "en": "With the KOR there should be no VAT, but the invoice charges € 71,40.",
+   "nl": "Met de KOR hoort er geen btw op te staan, maar de factuur rekent € 71,40.",
+   "en": "With the KOR there should be no VAT, but the invoice charges € 71,40.",
    "faltan": []
   },
   {
@@ -2059,8 +2074,8 @@
     "total_cent": 41140
    },
    "variante": 1,
-   "nl": "Met de KOR hoort er geen btw op te staan, maar het totaal (€ 411,40) is hoger dan het bedrag excl. btw (€ 340,00).",
-   "en": "With the KOR there should be no VAT, but the total (€ 411,40) is higher than the amount excl. VAT (€ 340,00).",
+   "nl": "Met de KOR hoort er geen btw op te staan, maar het totaal (€ 411,40) is hoger dan het bedrag excl. btw (€ 340,00).",
+   "en": "With the KOR there should be no VAT, but the total (€ 411,40) is higher than the amount excl. VAT (€ 340,00).",
    "faltan": []
   },
   {
@@ -2094,8 +2109,8 @@
     "total_cent": 80500
    },
    "variante": 0,
-   "nl": "Met verlegde btw hoort er geen btw op te staan, maar de factuur rekent € 105,00.",
-   "en": "With reverse-charged VAT there should be no VAT, but the invoice charges € 105,00.",
+   "nl": "Met verlegde btw hoort er geen btw op te staan, maar de factuur rekent € 105,00.",
+   "en": "With reverse-charged VAT there should be no VAT, but the invoice charges € 105,00.",
    "faltan": []
   },
   {
@@ -2109,8 +2124,8 @@
     "total_cent": 84700
    },
    "variante": 1,
-   "nl": "Met verlegde btw hoort er geen btw op te staan, maar het totaal (€ 847,00) is hoger dan het bedrag excl. btw (€ 700,00).",
-   "en": "With reverse-charged VAT there should be no VAT, but the total (€ 847,00) is higher than the amount excl. VAT (€ 700,00).",
+   "nl": "Met verlegde btw hoort er geen btw op te staan, maar het totaal (€ 847,00) is hoger dan het bedrag excl. btw (€ 700,00).",
+   "en": "With reverse-charged VAT there should be no VAT, but the total (€ 847,00) is higher than the amount excl. VAT (€ 700,00).",
    "faltan": []
   },
   {
@@ -2161,8 +2176,8 @@
     "pasado": true
    },
    "variante": 0,
-   "nl": "In 2026 heeft deze KOR-leverancier meer aan BM Support BV gefactureerd dan de KOR-grens van € 20.000,00. Hij moet waarschijnlijk btw gaan rekenen.",
-   "en": "In 2026 this KOR provider has invoiced more to BM Support BV than the KOR threshold of € 20.000,00. They probably have to start charging VAT.",
+   "nl": "In 2026 heeft deze KOR-leverancier meer aan BM Support BV gefactureerd dan de KOR-grens van € 20.000,00. Hij moet waarschijnlijk btw gaan rekenen.",
+   "en": "In 2026 this KOR provider has invoiced more to BM Support BV than the KOR threshold of € 20.000,00. They probably have to start charging VAT.",
    "faltan": []
   },
   {
@@ -2176,8 +2191,8 @@
     "pasado": false
    },
    "variante": 1,
-   "nl": "In 2026 heeft deze KOR-leverancier al 90% of meer van de KOR-grens (€ 20.000,00) aan BM Support BV gefactureerd.",
-   "en": "In 2026 this KOR provider has already invoiced 90% or more of the KOR threshold (€ 20.000,00) to BM Support BV.",
+   "nl": "In 2026 heeft deze KOR-leverancier al 90% of meer van de KOR-grens (€ 20.000,00) aan BM Support BV gefactureerd.",
+   "en": "In 2026 this KOR provider has already invoiced 90% or more of the KOR threshold (€ 20.000,00) to BM Support BV.",
    "faltan": []
   },
   {
@@ -2695,8 +2710,8 @@
     "vencimiento": "2026-08-02"
    },
    "variante": 0,
-   "nl": "Vervallen sinds 02-08-2026; nog open: € 7.343,49.",
-   "en": "Overdue since 02-08-2026; still open: € 7.343,49.",
+   "nl": "Vervallen sinds 02-08-2026; nog open: € 7.343,49.",
+   "en": "Overdue since 02-08-2026; still open: € 7.343,49.",
    "faltan": []
   },
   {
@@ -2709,8 +2724,8 @@
     "vencimiento": "2026-08-12"
    },
    "variante": 0,
-   "nl": "Vervallen sinds 12-08-2026; nog open: € 4.072,86.",
-   "en": "Overdue since 12-08-2026; still open: € 4.072,86.",
+   "nl": "Vervallen sinds 12-08-2026; nog open: € 4.072,86.",
+   "en": "Overdue since 12-08-2026; still open: € 4.072,86.",
    "faltan": []
   },
   {
@@ -2745,8 +2760,8 @@
     "acreditado_cent": 23958
    },
    "variante": 0,
-   "nl": "Totaal € 8.654,83, betaald € 8.654,83 (volgens de bank), gecrediteerd € 239,58, nog open € -239,58.",
-   "en": "Total € 8.654,83, paid € 8.654,83 (according to the bank), credited € 239,58, still open € -239,58.",
+   "nl": "Totaal € 8.654,83, betaald € 8.654,83 (volgens de bank), gecrediteerd € 239,58, nog open € -239,58.",
+   "en": "Total € 8.654,83, paid € 8.654,83 (according to the bank), credited € 239,58, still open € -239,58.",
    "faltan": []
   },
   {
@@ -2760,8 +2775,8 @@
     "fuente": "manual"
    },
    "variante": 1,
-   "nl": "Totaal € 2.902,79, betaald € 1.000,00 (handmatig vastgelegd), nog open € 1.902,79.",
-   "en": "Total € 2.902,79, paid € 1.000,00 (recorded by hand), still open € 1.902,79.",
+   "nl": "Totaal € 2.902,79, betaald € 1.000,00 (handmatig vastgelegd), nog open € 1.902,79.",
+   "en": "Total € 2.902,79, paid € 1.000,00 (recorded by hand), still open € 1.902,79.",
    "faltan": []
   },
   {
@@ -2839,8 +2854,8 @@
     ]
    },
    "variante": 0,
-   "nl": "2 afschrijvingen van € 2.902,79 naar NL02 ABNA 0123 4567 89 met referentie 20264471, kort na elkaar: mogelijk dubbel betaald.",
-   "en": "2 payments of € 2.902,79 to NL02 ABNA 0123 4567 89 with reference 20264471, shortly after each other: possibly paid twice.",
+   "nl": "2 afschrijvingen van € 2.902,79 naar NL02 ABNA 0123 4567 89 met referentie 20264471, kort na elkaar: mogelijk dubbel betaald.",
+   "en": "2 payments of € 2.902,79 to NL02 ABNA 0123 4567 89 with reference 20264471, shortly after each other: possibly paid twice.",
    "faltan": []
   },
   {
@@ -2856,8 +2871,8 @@
     "total_cent": 290279
    },
    "variante": 1,
-   "nl": "Twee keer betaald: de afschrijvingen samen zijn € 5.805,58 voor een totaal van € 2.902,79.",
-   "en": "Paid twice: the payments together are € 5.805,58 for a total of € 2.902,79.",
+   "nl": "Twee keer betaald: de afschrijvingen samen zijn € 5.805,58 voor een totaal van € 2.902,79.",
+   "en": "Paid twice: the payments together are € 5.805,58 for a total of € 2.902,79.",
    "faltan": []
   },
   {
@@ -2945,8 +2960,8 @@
     "sin_casar_cent": -1250
    },
    "variante": 0,
-   "nl": "Boeking van € -12,50 op 05-09-2026; niet gekoppeld: € -12,50.",
-   "en": "Transaction of € -12,50 on 05-09-2026; not matched: € -12,50.",
+   "nl": "Boeking van € -12,50 op 05-09-2026; niet gekoppeld: € -12,50.",
+   "en": "Transaction of € -12,50 on 05-09-2026; not matched: € -12,50.",
    "faltan": []
   },
   {
@@ -2968,8 +2983,8 @@
     "exact_cent": 50000
    },
    "variante": 0,
-   "nl": "De bank toont € 2.902,79 betaald, Exact € 500,00.",
-   "en": "The bank shows € 2.902,79 paid, Exact € 500,00.",
+   "nl": "De bank toont € 2.902,79 betaald, Exact € 500,00.",
+   "en": "The bank shows € 2.902,79 paid, Exact € 500,00.",
    "faltan": []
   },
   {
@@ -2994,8 +3009,8 @@
     ]
    },
    "variante": 0,
-   "nl": "Deze factuur telt niet meer mee, maar heeft € 411,40 aan bevestigde betalingen (volgens de bank).",
-   "en": "This invoice no longer counts, but has € 411,40 in confirmed payments (according to the bank).",
+   "nl": "Deze factuur telt niet meer mee, maar heeft € 411,40 aan bevestigde betalingen (volgens de bank).",
+   "en": "This invoice no longer counts, but has € 411,40 in confirmed payments (according to the bank).",
    "faltan": []
   },
   {
@@ -3182,8 +3197,8 @@
     "valor_cent": 2000
    },
    "variante": 0,
-   "nl": "Regeltarief € 42,50; afgesproken (per leverancier of klant): € 40,00. Verschil op deze regel: € 20,00.",
-   "en": "Line rate € 42,50; agreed (per provider or client): € 40,00. Difference on this line: € 20,00.",
+   "nl": "Regeltarief € 42,50; afgesproken (per leverancier of klant): € 40,00. Verschil op deze regel: € 20,00.",
+   "en": "Line rate € 42,50; agreed (per provider or client): € 40,00. Difference on this line: € 20,00.",
    "faltan": []
   },
   {
@@ -3198,8 +3213,8 @@
     "valor_cent": 2000
    },
    "variante": 1,
-   "nl": "Regeltarief € 42,50; tarief van de dienst in de planning: € 40,00 (geen afgesproken tarief).",
-   "en": "Line rate € 42,50; shift rate in the planning: € 40,00 (no agreed rate).",
+   "nl": "Regeltarief € 42,50; tarief van de dienst in de planning: € 40,00 (geen afgesproken tarief).",
+   "en": "Line rate € 42,50; shift rate in the planning: € 40,00 (no agreed rate).",
    "faltan": []
   },
   {
@@ -3219,8 +3234,8 @@
     ]
    },
    "variante": 2,
-   "nl": "Ander tarief voor hetzelfde werk (montagewerk, per uur): eerst € 44,00, daarna € 42,50.",
-   "en": "Different rate for the same work (montagewerk, per hour): first € 44,00, later € 42,50.",
+   "nl": "Ander tarief voor hetzelfde werk (montagewerk, per uur): eerst € 44,00, daarna € 42,50.",
+   "en": "Different rate for the same work (montagewerk, per hour): first € 44,00, later € 42,50.",
    "faltan": []
   },
   {
@@ -3435,8 +3450,8 @@
     "valor_cent": 4400
    },
    "variante": 0,
-   "nl": "Regeltarief € 42,50; afgesproken toeslagtarief (per leverancier of klant): € 37,00. Verschil op deze regel: € 44,00.",
-   "en": "Line rate € 42,50; agreed surcharge rate (per provider or client): € 37,00. Difference on this line: € 44,00.",
+   "nl": "Regeltarief € 42,50; afgesproken toeslagtarief (per leverancier of klant): € 37,00. Verschil op deze regel: € 44,00.",
+   "en": "Line rate € 42,50; agreed surcharge rate (per provider or client): € 37,00. Difference on this line: € 44,00.",
    "faltan": []
   },
   {
@@ -3737,8 +3752,8 @@
     "valor_cent": 2400000
    },
    "variante": 0,
-   "nl": "Regeltarief € 74,00; afgesproken verkooptarief (per Object): € 1.074,00. Verschil op deze regel: € 24.000,00.",
-   "en": "Line rate € 74,00; agreed sales rate (per Object): € 1.074,00. Difference on this line: € 24.000,00.",
+   "nl": "Regeltarief € 74,00; afgesproken verkooptarief (per Object): € 1.074,00. Verschil op deze regel: € 24.000,00.",
+   "en": "Line rate € 74,00; agreed sales rate (per Object): € 1.074,00. Difference on this line: € 24.000,00.",
    "faltan": []
   },
   {
@@ -3753,8 +3768,8 @@
     "valor_cent": 11700
    },
    "variante": 1,
-   "nl": "Regeltarief € 59,80; tarief van de dienst in de planning: € 52,00 (geen afgesproken tarief).",
-   "en": "Line rate € 59,80; shift rate in the planning: € 52,00 (no agreed rate).",
+   "nl": "Regeltarief € 59,80; tarief van de dienst in de planning: € 52,00 (geen afgesproken tarief).",
+   "en": "Line rate € 59,80; shift rate in the planning: € 52,00 (no agreed rate).",
    "faltan": []
   },
   {
@@ -3829,8 +3844,8 @@
     ]
    },
    "variante": 0,
-   "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, geschat op € 838,50.",
-   "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, estimated at € 838,50.",
+   "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, geschat op € 838,50.",
+   "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, estimated at € 838,50.",
    "faltan": []
   },
   {
@@ -3850,8 +3865,8 @@
     ]
    },
    "variante": 1,
-   "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, waarde € 838,50.",
-   "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, worth € 838,50.",
+   "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, waarde € 838,50.",
+   "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, worth € 838,50.",
    "faltan": []
   },
   {
@@ -3915,8 +3930,8 @@
     ]
    },
    "variante": 0,
-   "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Geschatte waarde: € 2.028,00.",
-   "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Estimated value: € 2.028,00.",
+   "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Geschatte waarde: € 2.028,00.",
+   "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Estimated value: € 2.028,00.",
    "faltan": []
   },
   {
@@ -3939,8 +3954,8 @@
     "valor_cent": 202800
    },
    "variante": 1,
-   "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Waarde: € 2.028,00.",
-   "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Value: € 2.028,00.",
+   "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Waarde: € 2.028,00.",
+   "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Value: € 2.028,00.",
    "faltan": []
   },
   {
@@ -3968,8 +3983,8 @@
     "valor_cent": 403000
    },
    "variante": 1,
-   "nl": "Niet gefactureerd: 77,5 uur van 03-08-2026 tot en met 09-08-2026, na de periode en de extra dagen (tot 16-08-2026). Waarde: € 4.030,00.",
-   "en": "Not billed: 77,5 h from 03-08-2026 to 09-08-2026, past the period and its grace days (until 16-08-2026). Value: € 4.030,00.",
+   "nl": "Niet gefactureerd: 77,5 uur van 03-08-2026 tot en met 09-08-2026, na de periode en de extra dagen (tot 16-08-2026). Waarde: € 4.030,00.",
+   "en": "Not billed: 77,5 h from 03-08-2026 to 09-08-2026, past the period and its grace days (until 16-08-2026). Value: € 4.030,00.",
    "faltan": []
   },
   {
@@ -4238,8 +4253,8 @@
     "exceso_cent": 75600
    },
    "variante": 0,
-   "nl": "Deze factuur boekt € 1.000,00 op PO-nummer PO-4500123 en gaat € 756,00 over wat er over was.",
-   "en": "This invoice charges € 1.000,00 to PO number PO-4500123 and goes € 756,00 over what was left.",
+   "nl": "Deze factuur boekt € 1.000,00 op PO-nummer PO-4500123 en gaat € 756,00 over wat er over was.",
+   "en": "This invoice charges € 1.000,00 to PO number PO-4500123 and goes € 756,00 over what was left.",
    "faltan": []
   },
   {
@@ -4291,8 +4306,8 @@
     "valor_cent": 4490000
    },
    "variante": 0,
-   "nl": "Deze PO is voor 85,99% verbruikt (€ 38.610,00 van € 44.900,00); over: € 6.290,00. Waarschuwing vanaf 80%.",
-   "en": "This PO is 85,99% used (€ 38.610,00 of € 44.900,00); left: € 6.290,00. Warning from 80%.",
+   "nl": "Deze PO is voor 85,99% verbruikt (€ 38.610,00 van € 44.900,00); over: € 6.290,00. Waarschuwing vanaf 80%.",
+   "en": "This PO is 85,99% used (€ 38.610,00 of € 44.900,00); left: € 6.290,00. Warning from 80%.",
    "faltan": []
   },
   {
@@ -4317,8 +4332,8 @@
     "importe_cent": 5000
    },
    "variante": 0,
-   "nl": "PO-nummer PO-1 was al op; deze factuur boekt er nog € 50,00 op.",
-   "en": "PO number PO-1 was already used up; this invoice charges another € 50,00 to it.",
+   "nl": "PO-nummer PO-1 was al op; deze factuur boekt er nog € 50,00 op.",
+   "en": "PO number PO-1 was already used up; this invoice charges another € 50,00 to it.",
    "faltan": []
   },
   {
@@ -4369,8 +4384,8 @@
     "turnos_despues": 4
    },
    "variante": 0,
-   "nl": "PO verlopen op 01-10-2026 met € 100,00 ongebruikt, en de planning heeft daarna nog 4 diensten die geen andere PO dekt.",
-   "en": "PO expired on 01-10-2026 with € 100,00 unused, and the planning has 4 shifts after that date that no other PO covers.",
+   "nl": "PO verlopen op 01-10-2026 met € 100,00 ongebruikt, en de planning heeft daarna nog 4 diensten die geen andere PO dekt.",
+   "en": "PO expired on 01-10-2026 with € 100,00 unused, and the planning has 4 shifts after that date that no other PO covers.",
    "faltan": []
   },
   {
@@ -4383,8 +4398,8 @@
     "restante_cent": 1596800
    },
    "variante": 1,
-   "nl": "PO verloopt op 06-11-2026; nog ongebruikt: € 15.968,00.",
-   "en": "PO expires on 06-11-2026; still unused: € 15.968,00.",
+   "nl": "PO verloopt op 06-11-2026; nog ongebruikt: € 15.968,00.",
+   "en": "PO expires on 06-11-2026; still unused: € 15.968,00.",
    "faltan": []
   },
   {
@@ -4407,8 +4422,8 @@
     "limite_dias": 30
    },
    "variante": 0,
-   "nl": "PO verlopen op 30-10-2026 met € 5.000,00 ongebruikt; zonder planning is niet bekend of er daarna nog werk is.",
-   "en": "PO expired on 30-10-2026 with € 5.000,00 unused; without a planning it is unknown whether there is work after that date.",
+   "nl": "PO verlopen op 30-10-2026 met € 5.000,00 ongebruikt; zonder planning is niet bekend of er daarna nog werk is.",
+   "en": "PO expired on 30-10-2026 with € 5.000,00 unused; without a planning it is unknown whether there is work after that date.",
    "faltan": []
   },
   {
@@ -4430,8 +4445,8 @@
     "valor_po_cent": 4490000
    },
    "variante": 0,
-   "nl": "Het geplande werk is meer waard dan de € 6.290,00 die er op deze PO over is.",
-   "en": "The planned work is worth more than the € 6.290,00 left on this PO.",
+   "nl": "Het geplande werk is meer waard dan de € 6.290,00 die er op deze PO over is.",
+   "en": "The planned work is worth more than the € 6.290,00 left on this PO.",
    "faltan": []
   },
   {
@@ -4464,8 +4479,8 @@
     "restante_cent": 629000
    },
    "variante": 0,
-   "nl": "In het huidige tempo is deze PO meer dan 14 dagen vóór de einddatum (13-02-2027) op. Over: € 6.290,00.",
-   "en": "At the current rate this PO runs out more than 14 days before its end date (13-02-2027). Left: € 6.290,00.",
+   "nl": "In het huidige tempo is deze PO meer dan 14 dagen vóór de einddatum (13-02-2027) op. Over: € 6.290,00.",
+   "en": "At the current rate this PO runs out more than 14 days before its end date (13-02-2027). Left: € 6.290,00.",
    "faltan": []
   },
   {
@@ -4487,8 +4502,8 @@
     "valor_po_cent": 4490000
    },
    "variante": 0,
-   "nl": "Gefactureerd, niet-gefactureerd en gepland werk samen (€ 55.042,00) is meer dan de waarde van de PO (€ 44.900,00).",
-   "en": "Invoiced, unbilled and planned work together (€ 55.042,00) is more than the PO value (€ 44.900,00).",
+   "nl": "Gefactureerd, niet-gefactureerd en gepland werk samen (€ 55.042,00) is meer dan de waarde van de PO (€ 44.900,00).",
+   "en": "Invoiced, unbilled and planned work together (€ 55.042,00) is more than the PO value (€ 44.900,00).",
    "faltan": []
   },
   {
@@ -4577,8 +4592,8 @@
     ]
    },
    "variante": 0,
-   "nl": "De creditnota's halen € 511,40 van een factuur van € 411,40.",
-   "en": "The credit notes take € 511,40 off an invoice of € 411,40.",
+   "nl": "De creditnota's halen € 511,40 van een factuur van € 411,40.",
+   "en": "The credit notes take € 511,40 off an invoice of € 411,40.",
    "faltan": []
   },
   {
@@ -4594,8 +4609,8 @@
     ]
    },
    "variante": 1,
-   "nl": "Deze creditnota van € 100,00 is gebruikt voor € 160,00.",
-   "en": "This credit note of € 100,00 is applied for € 160,00.",
+   "nl": "Deze creditnota van € 100,00 is gebruikt voor € 160,00.",
+   "en": "This credit note of € 100,00 is applied for € 160,00.",
    "faltan": []
   },
   {
@@ -4681,8 +4696,8 @@
     "total_cent": -23958
    },
    "variante": 0,
-   "nl": "Creditnota van € 239,58 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
-   "en": "Credit note of € 239,58 without a confirmed link: it does not reduce any open amount yet.",
+   "nl": "Creditnota van € 239,58 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
+   "en": "Credit note of € 239,58 without a confirmed link: it does not reduce any open amount yet.",
    "faltan": []
   },
   {
@@ -4694,8 +4709,8 @@
     "total_cent": -36203
    },
    "variante": 0,
-   "nl": "Creditnota van € 362,03 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
-   "en": "Credit note of € 362,03 without a confirmed link: it does not reduce any open amount yet.",
+   "nl": "Creditnota van € 362,03 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
+   "en": "Credit note of € 362,03 without a confirmed link: it does not reduce any open amount yet.",
    "faltan": []
   },
   {
@@ -4707,8 +4722,8 @@
     "total_cent": -12251
    },
    "variante": 0,
-   "nl": "Creditnota van € 122,51 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
-   "en": "Credit note of € 122,51 without a confirmed link: it does not reduce any open amount yet.",
+   "nl": "Creditnota van € 122,51 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
+   "en": "Credit note of € 122,51 without a confirmed link: it does not reduce any open amount yet.",
    "faltan": []
   },
   {
@@ -4774,8 +4789,8 @@
     "mediana_cent": "181350"
    },
    "variante": 0,
-   "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 5).",
-   "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 5).",
+   "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 5).",
+   "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 5).",
    "faltan": []
   },
   {
@@ -4789,8 +4804,8 @@
     "mediana_cent": "181350"
    },
    "variante": 0,
-   "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 6).",
-   "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 6).",
+   "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 6).",
+   "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 6).",
    "faltan": []
   },
   {

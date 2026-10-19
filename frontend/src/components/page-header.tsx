@@ -1,6 +1,7 @@
 // La cabecera de cada pantalla: su titulo, UNA frase que dice que pregunta contesta y,
 // como mucho, una accion principal. Asi cada pantalla se entiende sin leer nada mas.
 import { useEffect, type ReactNode } from 'react';
+import { PingScope } from '@/components/status-pill';
 import { useT } from '@/i18n';
 import { useSession } from '@/lib/session';
 
@@ -40,7 +41,10 @@ export function PageHeader({
   );
 }
 
-/** El marco de una pantalla: ancho maximo comodo y aire alrededor. */
-export function Screen({ children }: { children: ReactNode }) {
-  return <div className='mx-auto w-full max-w-[1240px] px-5 py-6 xl:px-8'>{children}</div>;
+/** El marco de una pantalla: ancho maximo comodo y aire alrededor. `calm`: nada late en
+ *  ella (el Overzicht y las fichas de relaciones, Objects y PO: resumen, no piden la
+ *  accion; la piden la Werklijst y la ficha de la factura). */
+export function Screen({ children, calm = false }: { children: ReactNode; calm?: boolean }) {
+  const body = <div className='mx-auto w-full max-w-[1240px] px-5 py-6 xl:px-8'>{children}</div>;
+  return calm ? <PingScope scope='none'>{body}</PingScope> : body;
 }

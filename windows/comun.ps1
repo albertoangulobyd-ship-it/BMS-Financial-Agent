@@ -168,6 +168,18 @@ function Arrancar-En-Segundo-Plano([string]$Rol, [string[]]$Argumentos) {
         -RedirectStandardOutput $registro -RedirectStandardError $errores)
 }
 
+function Direccion-De-La-App([string]$Base) {
+    # Paso 15: la app (/app) si esta construida. Si no contesta 200 (serve da 503 cuando falta
+    # lo construido o esta incompleto), se dice y se abre la consola de antes (/consola), que
+    # no depende de ello: es la reserva.
+    try {
+        $respuesta = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri ($Base + "/app")
+        if ($respuesta.StatusCode -eq 200) { return ($Base + "/app") }
+    } catch { }
+    Escribir "La app no se puede abrir (falta lo construido o esta incompleto). Se abre la consola de antes; avisa a quien mantiene el programa." "Yellow"
+    return ($Base + "/consola")
+}
+
 function Abrir-App([string]$Direccion) {
     # Paso 15: la app se abre en su propia ventana de Edge (--app: sin pestanas ni barra de
     # direcciones), como un programa. Si Edge no esta, en el navegador de siempre; si

@@ -82,7 +82,7 @@ function PoDetail({ po }: { po: PoView }) {
       : null;
 
   return (
-    <Screen>
+    <Screen calm>
       <PageHeader
         title={po.numero}
         description={description}

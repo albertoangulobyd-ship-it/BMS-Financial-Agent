@@ -252,7 +252,8 @@ export interface Panel {
     limite_pago: string | null;
     revisar: number;
     proximo_plazo: VatDeadline | null;
-    plazos_pasados: VatDeadline[];
+    /** Las etiquetas ("2026-T3") de los trimestres con el plazo pasado y sin aangifte. */
+    plazos_pasados: string[];
     por_presentar: VatDeadline[];
   };
   atencion: {

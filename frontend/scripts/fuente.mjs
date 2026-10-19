@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { outsideInputs } from './tailwind-fuentes.mjs';
 
 const repo = fileURLToPath(new URL('../..', import.meta.url));
 const web = join(repo, 'src', 'bms_agent', 'web');
@@ -73,6 +74,15 @@ function outputs() {
 
 const mode = process.argv[2];
 const entries = inputs();
+if (mode === '--escribir' || mode === '--comprobar') {
+  // Tailwind decide el CSS leyendo ficheros: todos tienen que estar en la huella, o un
+  // cambio en uno que no esta cambiaria lo construido sin que la huella lo vea.
+  const outside = await outsideInputs(Object.keys(entries));
+  if (outside.length > 0) {
+    console.log(`Tailwind lee ficheros que no estan en build-inputs.json: ${outside.join(', ')}`);
+    process.exit(1);
+  }
+}
 if (mode === '--escribir') {
   const record = {
     _nota:

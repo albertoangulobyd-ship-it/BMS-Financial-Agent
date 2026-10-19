@@ -51,13 +51,19 @@
         "fallo": [
           {
             "cuando": [
+              "campos.1"
+            ],
+            "texto": "The fields {campos|codigo} have not been compared with the original by anyone yet."
+          },
+          {
+            "cuando": [
               "campos"
             ],
-            "texto": "Read with doubt and not yet verified: {campos|codigo}."
+            "texto": "The field {campos|codigo} has not been compared with the original by anyone yet."
           },
           {
             "cuando": [],
-            "texto": "A field was read with doubt and is not yet verified."
+            "texto": "A field has not been compared with the original by anyone yet."
           }
         ]
       }
@@ -2301,7 +2307,7 @@
       }
     },
     "P10": {
-      "titulo": "Expected above the PO",
+      "titulo": "Expected to exceed the PO value",
       "significa": "Invoiced plus unbilled plus planned work is more than the PO value; invoices that charge to it from then on are held.",
       "que_hacer": "Ask the client for an increase or a new PO.",
       "detalle": {
@@ -2762,7 +2768,7 @@
     },
     "resultado_revision": {
       "revisada": "Reviewed",
-      "devuelta": "Returned"
+      "devuelta": "Needs another look"
     },
     "excepcion": {
       "abierta": "Open",
@@ -2987,15 +2993,15 @@
   },
   "severidades": {
     "bloqueo": {
-      "etiqueta": "Blocks",
+      "etiqueta": "Blocks the invoice",
       "significa": "The invoice cannot go further until this is solved."
     },
     "retencion": {
-      "etiqueta": "Holds",
+      "etiqueta": "Waits for a check",
       "significa": "The invoice waits until someone has looked at this."
     },
     "aviso": {
-      "etiqueta": "Warns",
+      "etiqueta": "Warning only",
       "significa": "A warning; the invoice still goes on."
     }
   },
@@ -3003,7 +3009,7 @@
     "fijar_campo": {
       "etiqueta": "Fill in or correct a value",
       "descripcion": "Fill in a missing value or correct one that was read wrongly.",
-      "confirmar": "This value will be changed and recorded with your name and reason. Continue?"
+      "confirmar": "This value will be changed and recorded with your name and reason."
     },
     "verificar_campo": {
       "etiqueta": "Verify value",
@@ -3012,7 +3018,7 @@
     "revertir_campo": {
       "etiqueta": "Undo change",
       "descripcion": "Undo a manual change and go back to the automatic value.",
-      "confirmar": "The manual value will be reset to the automatic one. Continue?"
+      "confirmar": "The manual value will be reset to the automatic one."
     },
     "anadir_nota": {
       "etiqueta": "Add note",
@@ -3021,7 +3027,7 @@
     "cambiar_objeto": {
       "etiqueta": "Change Object",
       "descripcion": "Assign an invoice line to another Object (and person).",
-      "confirmar": "The cost or revenue of this line moves to another Object. Continue?"
+      "confirmar": "The cost or revenue of this line moves to another Object."
     },
     "anadir_alias": {
       "etiqueta": "Add alias",
@@ -3038,17 +3044,17 @@
     "registrar_po": {
       "etiqueta": "Register PO",
       "descripcion": "Register a purchase order from a client or to a provider, with value, dates and Objects.",
-      "confirmar": "This PO will be registered and invoices will be checked against it. Continue?"
+      "confirmar": "This PO will be registered and invoices will be checked against it."
     },
     "modificar_po": {
       "etiqueta": "Change PO",
       "descripcion": "Record a change of value or end date of a PO (from a date).",
-      "confirmar": "The value or end date of this PO will be changed. Continue?"
+      "confirmar": "The value or end date of this PO will be changed."
     },
     "cerrar_po": {
       "etiqueta": "Close or reopen PO",
       "descripcion": "Close a PO (new charges to it are held) or reopen it.",
-      "confirmar": "The status of this PO will be changed. Continue?"
+      "confirmar": "The status of this PO will be changed."
     },
     "objetos_po": {
       "etiqueta": "Objects of a PO",
@@ -3061,70 +3067,70 @@
     "imputar_po": {
       "etiqueta": "Charge line to PO",
       "descripcion": "Charge an invoice line to a PO (or remove the PO).",
-      "confirmar": "This line will count in the use of this PO from now on. Continue?"
+      "confirmar": "This line will count in the use of this PO from now on."
     },
     "excluir_linea": {
       "etiqueta": "Exclude line",
       "descripcion": "Exclude an invoice line; it is kept, not deleted.",
-      "confirmar": "This line will no longer count in the invoice amounts. Continue?"
+      "confirmar": "This line will no longer count in the invoice amounts."
     },
     "anadir_linea": {
       "etiqueta": "Add line",
       "descripcion": "Add a line that is on the paper but was not read.",
-      "confirmar": "This line will be added to the invoice. Continue?"
+      "confirmar": "This line will be added to the invoice."
     },
     "dividir_linea": {
       "etiqueta": "Split line",
       "descripcion": "Split a line over several Objects; the parts add up to the line amount.",
-      "confirmar": "The line will be split over the chosen Objects. Continue?"
+      "confirmar": "The line will be split over the chosen Objects."
     },
     "corregir_maestro": {
       "etiqueta": "Correct master data",
       "descripcion": "Correct a provider, client or contact that does not come from Exact or TRNSPRNT.",
-      "confirmar": "The master data will be changed. Continue?"
+      "confirmar": "The master data will be changed."
     },
     "anular_factura": {
       "etiqueta": "Cancel invoice",
       "descripcion": "Cancel an invoice: it is not paid and does not count (no credit note is made).",
-      "confirmar": "This invoice will no longer count in totals, payments and VAT. Continue?"
+      "confirmar": "This invoice will no longer count in totals, payments and VAT."
     },
     "fusionar_factura": {
       "etiqueta": "Merge duplicate",
       "descripcion": "Merge a resent invoice into the original.",
-      "confirmar": "This invoice will be merged into the chosen one and no longer count separately. Continue?"
+      "confirmar": "This invoice will be merged into the chosen one and no longer count separately."
     },
     "deshacer_fusion": {
       "etiqueta": "Undo merge",
       "descripcion": "Undo a merge; the invoice counts on its own again.",
-      "confirmar": "This invoice will count on its own again. Continue?"
+      "confirmar": "This invoice will count on its own again."
     },
     "enlazar_facturas": {
       "etiqueta": "Link invoices",
       "descripcion": "Link two invoices: a credit note, a correction, a replacement or just related.",
-      "confirmar": "The link is confirmed at once and changes balances, VAT and duplicates. Continue?"
+      "confirmar": "The link is confirmed at once and changes balances, VAT and duplicates."
     },
     "confirmar_relacion": {
       "etiqueta": "Confirm link",
       "descripcion": "Confirm a suggested link (optionally with another type or amount).",
-      "confirmar": "Once confirmed, balances, VAT and duplicates change. Continue?"
+      "confirmar": "Once confirmed, balances, VAT and duplicates change."
     },
     "rechazar_relacion": {
       "etiqueta": "Reject link",
       "descripcion": "Reject a suggested link; it will not be suggested again.",
-      "confirmar": "This link will be rejected. Continue?"
+      "confirmar": "This link will be rejected."
     },
     "retirar_relacion": {
       "etiqueta": "Withdraw link",
       "descripcion": "Withdraw a link (also a confirmed one); it is kept, not deleted.",
-      "confirmar": "This link will no longer change balances or VAT. Continue?"
+      "confirmar": "This link will no longer change balances or VAT."
     },
     "marcar_revisada": {
       "etiqueta": "Mark as reviewed",
       "descripcion": "Mark an invoice as reviewed. This does not approve any payment.",
-      "confirmar": "The invoice will be marked as reviewed with your name. This does not approve any payment. Continue?"
+      "confirmar": "The invoice will be marked as reviewed with your name. This does not approve any payment."
     },
     "devolver_factura": {
-      "etiqueta": "Return",
+      "etiqueta": "Ask for another look",
       "descripcion": "Return an invoice with a note saying why."
     },
     "crear_excepcion": {
@@ -3150,12 +3156,12 @@
     "anular_hallazgo": {
       "etiqueta": "Accept finding",
       "descripcion": "Accept a finding (only where the check allows it), with a reason of at least 10 characters.",
-      "confirmar": "The finding will be accepted with your name and reason and stays in the history. Continue?"
+      "confirmar": "The finding will be accepted with your name and reason and stays in the history."
     },
     "firmar_anulacion": {
       "etiqueta": "Give second signature",
       "descripcion": "Give the second signature for a colleague accepting a finding (valid for a short time and once).",
-      "confirmar": "You sign as the second person for accepting this finding. Continue?"
+      "confirmar": "You sign as the second person for accepting this finding."
     },
     "subir_prioridad": {
       "etiqueta": "Raise priority",
@@ -3164,62 +3170,62 @@
     "verificar_iban": {
       "etiqueta": "Verify IBAN by phone",
       "descripcion": "Record a provider's account after a phone call to the number already in the master data. Type the IBAN; never copy it from the invoice.",
-      "confirmar": "You confirm that you called the provider on the number from the master data and that they confirmed this IBAN. Continue?"
+      "confirmar": "You confirm that you called the provider on the number from the master data and that they confirmed this IBAN."
     },
     "rechazar_iban": {
       "etiqueta": "Reject IBAN",
       "descripcion": "Reject a provider's account and say what happens to the invoice.",
-      "confirmar": "This account will be rejected for this provider. Continue?"
+      "confirmar": "This account will be rejected for this provider."
     },
     "atestar_iban": {
       "etiqueta": "Confirm inherited account",
       "descripcion": "Confirm an account from the first master data (or all that are still open).",
-      "confirmar": "You confirm that these accounts from the master data are right. Continue?"
+      "confirmar": "You confirm that these accounts from the master data are right."
     },
     "fijar_telefono_verificacion": {
       "etiqueta": "Set verification phone",
       "descripcion": "Set a provider's verification phone number. Changing it starts a waiting period.",
-      "confirmar": "After a change, no phone verification of this provider counts for a while. Continue?"
+      "confirmar": "After a change, no phone verification of this provider counts for a while."
     },
     "anadir_beneficiario": {
       "etiqueta": "Add payee",
       "descripcion": "Record a payee that is not a provider (tax office, salaries, rent).",
-      "confirmar": "Payments to this account will no longer be treated as suspicious. Continue?"
+      "confirmar": "Payments to this account will no longer be treated as suspicious."
     },
     "retirar_beneficiario": {
       "etiqueta": "Withdraw payee",
       "descripcion": "Withdraw a known payee (kept, not deleted).",
-      "confirmar": "Payments to this account will be checked again. Continue?"
+      "confirmar": "Payments to this account will be checked again."
     },
     "marcar_pagada": {
       "etiqueta": "Record payment",
       "descripcion": "Record that an invoice was paid outside the system, or link a bank transaction. This pays nothing.",
-      "confirmar": "You record that this invoice has already been paid. The system pays nothing. Continue?"
+      "confirmar": "You record that this invoice has already been paid. The system pays nothing."
     },
     "confirmar_pago": {
       "etiqueta": "Confirm payment",
       "descripcion": "Confirm a payment the system suggested from a bank transaction.",
-      "confirmar": "This payment will count in the invoice balance. Continue?"
+      "confirmar": "This payment will count in the invoice balance."
     },
     "retirar_pago": {
       "etiqueta": "Withdraw payment",
       "descripcion": "Withdraw a suggested, linked or manual payment that is wrong (it is kept).",
-      "confirmar": "This payment will no longer count in the balance. Continue?"
+      "confirmar": "This payment will no longer count in the balance."
     },
     "btw_lista_para_revision": {
       "etiqueta": "Mark quarter ready for review",
       "descripcion": "Mark a finished quarter ready for review, with the worksheet you looked at. Nothing is filed.",
-      "confirmar": "The worksheet of this quarter will be recorded for review. Nothing is filed. Continue?"
+      "confirmar": "The worksheet of this quarter will be recorded for review. Nothing is filed."
     },
     "btw_reabrir": {
       "etiqueta": "Reopen quarter",
       "descripcion": "Reopen a quarter that was ready for review (the worksheet no longer counts).",
-      "confirmar": "The recorded worksheet will no longer count. Continue?"
+      "confirmar": "The recorded worksheet will no longer count."
     },
     "btw_anotar_presentacion": {
       "etiqueta": "Record filed return",
       "descripcion": "Record that the quarter was filed in the tax office portal, with the reference. The system files nothing itself.",
-      "confirmar": "You record that this return has already been filed with the tax office. This cannot be undone. Continue?"
+      "confirmar": "You record that this return has already been filed with the tax office. This cannot be undone."
     },
     "recalcular": {
       "etiqueta": "Run checks again",
@@ -3334,7 +3340,7 @@
     "periodo": "period",
     "base": "amount excl. VAT",
     "iva": "VAT or VAT treatment",
-    "total": "total",
+    "total": "total amount",
     "proveedor_id": "provider",
     "cliente_id": "client",
     "emisor_nombre_doc": "issuer name",
@@ -3342,7 +3348,7 @@
     "periodo_inicio": "period start",
     "periodo_fin": "period end",
     "iva_cent": "VAT amount",
-    "total_cent": "total",
+    "total_cent": "total amount",
     "iban_doc": "IBAN",
     "tipo_iva_pb": "VAT rate",
     "un IBAN": "an IBAN",

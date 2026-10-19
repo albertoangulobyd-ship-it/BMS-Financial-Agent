@@ -1800,10 +1800,12 @@ def test_iniciar_comprueba_y_abre_la_consola_solo_en_127_0_0_1() -> None:
     assert texto.index('"recalcular", "--diaria"') < texto.index('Arrancar-En-Segundo-Plano "consola"')
     assert texto.index('Comprobar-Rol "consola"') < texto.index('Arrancar-En-Segundo-Plano "consola"')
     assert 'Comprobar-Rol "orden"' in texto
-    # Paso 15: se espera a la app y se abre en su ventana de Edge; la consola, de reserva.
-    assert '$direccion = "http://127.0.0.1:" + $Inst.PuertoConsola + "/app"' in texto
-    assert "-Uri $direccion" in texto and "Abrir-App $direccion" in texto
-    assert '$Inst.PuertoConsola + "/consola"' in texto
+    # Paso 15: se espera a la consola (no depende de lo construido) y se abre la app en su
+    # ventana de Edge; si la app no esta construida, la consola, de reserva.
+    assert '$base = "http://127.0.0.1:" + $Inst.PuertoConsola' in texto
+    assert '$consola_url = $base + "/consola"' in texto and "-Uri $consola_url" in texto
+    assert "$direccion = Direccion-De-La-App $base" in texto
+    assert "Abrir-App $direccion" in texto
     assert "--contenedor" not in texto and "0.0.0.0" not in texto and "--interfaz" not in texto
     assert '@("serve", "--puerto"' in texto
     assert 'Parar-Rol "consola"' in _ps1("parar") and 'Parar-Rol "salida"' in _ps1("parar")

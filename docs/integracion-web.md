@@ -318,7 +318,16 @@ no conoce.
   orden, `POST /api/v2/importar` (abajo, «Importar desde la app»);
 - cada papel de `GET /api/v2/aislamiento` lleva, además de `bien`, su `estado`
   (`correcto`, `falla`, `sin_comprobar` o `caducada`), para que la pastilla de la
-  app diga cuál de las tres cosas pasa.
+  app diga cuál de las tres cosas pasa;
+- cada hallazgo de la **ficha** de una factura lleva `firmas`: las segundas firmas que
+  otra persona ya dio para anularlo y aún valen (con la huella de ahora, sin caducar ni
+  gastar), cada una con `solicitante_id` (para quién), `firmante_id` y `firmante` (de
+  quién), `vigente_hasta` (el plazo firmado: la anulación tiene que llevar el mismo) y
+  `caduca_en`. La app no deja mandar `anular_hallazgo` cuando `segunda_firma` es `true`,
+  hay otra persona que podría firmar y no hay una firma para quien acepta;
+- cada fila de las listas de **proveedores** y **clientes** lleva `sin_importe`: cuántas
+  de sus facturas no tienen importe en euros (otra moneda, X1). Quedan fuera de
+  `pendiente_cent` y `vencido_cent`, así que un `0` ahí no quiere decir «no se debe nada».
 
 Con eso la app de la oficina (`/app`) escribe en neerlandés o en inglés el
 detalle de cada hallazgo y el «por qué» de cada fila, con las plantillas de
@@ -612,7 +621,7 @@ dos idiomas y que cada error que escribe `serve.py` lleva el suyo.
 | `demasiado_grande` | 413 | El cuerpo pasa del límite |
 | `fichero_no_reconocido` | 400 | Al importar sin decir qué es: ninguna clase de fichero lo reconoce |
 | `tipo_ambiguo` | 400 | Al importar sin decir qué es: lo reconocen varias; van en `candidatos` (`fuente`, `tipo`) |
-| `fichero_no_valido` | 400 | El fichero no se lee como la clase elegida (columnas, codificación, XML, YAML, una fecha de exportación futura) |
+| `fichero_no_valido` | 400 | El fichero no se lee como la clase elegida (columnas, codificación, XML, YAML, una fecha de exportación futura), o rompe el lector: un campo de CSV de más de 128 KB, un XML o YAML que anida demasiado, un YAML de PO con anclas o alias (`&`, `*`: unos cientos de bytes que se expandirían a gigas), o cualquier fallo del lector que nadie previó (sin su texto) |
 | `datos_de_prueba` | 400 | Un fichero de los datos de prueba en la base de verdad, o uno de verdad en la de prueba |
 | `pide_confirmacion` | 409 | Un planning que dejaría sin valer mucho del de ahora o con semanas vacías: se repite con `confirmar` |
 | `fichero_demasiado_grande` | 413 | El fichero que se importa pasa de 8 MB |

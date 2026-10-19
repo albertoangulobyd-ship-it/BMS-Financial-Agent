@@ -92,8 +92,9 @@ export function integerOf(value: Value): bigint | null {
 }
 
 const NUMERIC: Record<string, (n: bigint) => string> = {
-  dinero: (cent) => `€ ${scaled(cent, 2, 2)}`,
-  tarifa: (e4) => `€ ${scaled(e4, 4, 2)}`,
+  // Con un espacio que no se parte (U+00A0), como bms_agent.textos.dinero.
+  dinero: (cent) => `€\u00a0${scaled(cent, 2, 2)}`,
+  tarifa: (e4) => `€\u00a0${scaled(e4, 4, 2)}`,
   horas: (mil) => scaled(mil, 3, 0),
   pct: (pb) => `${scaled(pb, 2, 0)}%`,
 };

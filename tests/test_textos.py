@@ -316,15 +316,15 @@ def test_la_comprobacion_contra_el_codigo_ve_una_errata() -> None:
 # ============================================================ el renderizador
 
 @pytest.mark.parametrize("cent, texto", [
-    (0, "€ 0,00"), (1, "€ 0,01"), (-1, "€ -0,01"), (290279, "€ 2.902,79"),
-    (-290279, "€ -2.902,79"), (100000000, "€ 1.000.000,00"),
+    (0, "€\u00a00,00"), (1, "€\u00a00,01"), (-1, "€\u00a0-0,01"), (290279, "€\u00a02.902,79"),
+    (-290279, "€\u00a0-2.902,79"), (100000000, "€\u00a01.000.000,00"),
 ])
 def test_dinero(cent: int, texto: str) -> None:
     assert textos.dinero(cent) == texto
 
 
 def test_los_demas_formatos() -> None:
-    assert textos.tarifa(425000) == "€ 42,50" and textos.tarifa(1) == "€ 0,0001"
+    assert textos.tarifa(425000) == "€\u00a042,50" and textos.tarifa(1) == "€\u00a00,0001"
     assert textos.horas(37500) == "37,5" and textos.horas(8000) == "8"
     assert textos.horas(-250) == "-0,25" and textos.horas(1000000) == "1.000"
     assert textos.pct(2100) == "21%" and textos.pct(-825) == "-8,25%"

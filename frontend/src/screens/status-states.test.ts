@@ -43,10 +43,12 @@ describe('las senales de una PO', () => {
     expect(poSignal(new Set(['P7', 'P5']), left)).toBe('P5');
     expect(poSignal(new Set(['P9', 'P8']), forecast)).toBe('P9');
     expect(poSignal(new Set(['P1', 'P2']), left)).toBeNull();
-    // Por encima de su valor, error; cerca del limite, del final o de agotarse, aviso.
-    expect(statusRule('po_senal', 'P6').variant).toBe('error');
-    expect(statusRule('po_senal', 'P4').variant).toBe('error');
-    for (const code of ['P5', 'P7', 'P8', 'P9', 'P10']) expect(statusRule('po_senal', code).variant, code).toBe('warning');
+    // El color de la gravedad de su aviso, como en la lista de debajo: retienen (P4, P6,
+    // P10) warning, como "Wacht op controle"; avisan (P5, P7, P8, P9) info, como "Alleen een waarschuwing".
+    const retain = statusRule('severidad', 'retencion').variant;
+    const warn = statusRule('severidad', 'aviso').variant;
+    for (const code of ['P4', 'P6', 'P10']) expect(statusRule('po_senal', code).variant, code).toBe(retain);
+    for (const code of ['P5', 'P7', 'P8', 'P9']) expect(statusRule('po_senal', code).variant, code).toBe(warn);
   });
 });
 

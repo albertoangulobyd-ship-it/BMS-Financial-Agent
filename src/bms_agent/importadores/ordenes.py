@@ -56,11 +56,41 @@ class YamlNoValido(ValueError):
     """Un fichero que no es un YAML de PO (no es un mapa con ordenes o modificaciones)."""
 
 
+# Lo mas hondo que se anida una hoja de PO: el mapa, su lista, cada PO y su lista de
+# Objects son cuatro niveles. Con margen, y muy lejos del limite de recursion de Python
+# (el compositor de PyYAML baja un nivel de pila por nivel del fichero).
+MAX_PROFUNDIDAD = 12
+
+
 class _Cargador(yaml.SafeLoader):
     """SafeLoader sin enteros ni floats implicitos: un numero sin comillas queda como texto.
 
-    Las fechas, los si/no y los nulos se siguen resolviendo como siempre.
+    Las fechas, los si/no y los nulos se siguen resolviendo como siempre. Sin anclas ni
+    alias: un alias es una referencia al mismo objeto, y al pasar la entrada a texto (el
+    crudo de cada fila) se expande entera; unos pocos niveles de alias en unos cientos de
+    bytes son gigas de memoria y minutos de servidor (una "bomba" de YAML). Una hoja
+    tecleada no los necesita, asi que se rechazan antes de construir nada. Y sin anidar mas
+    de MAX_PROFUNDIDAD: mas hondo no es una hoja de PO y agotaria la pila.
     """
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._profundidad = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        evento = self.peek_event()
+        if isinstance(evento, yaml.AliasEvent) or getattr(evento, "anchor", None) is not None:
+            raise yaml.composer.ComposerError(
+                None, None, "una hoja de PO no lleva anclas (&) ni alias (*)",
+                evento.start_mark)
+        if self._profundidad >= MAX_PROFUNDIDAD:
+            raise yaml.composer.ComposerError(
+                None, None, f"anida mas de {MAX_PROFUNDIDAD} niveles", evento.start_mark)
+        self._profundidad += 1
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._profundidad -= 1
 
 
 _Cargador.yaml_implicit_resolvers = {
@@ -118,8 +148,9 @@ def leer(contenido: bytes, tipo: str, *, exportado_en: datetime | None = None) -
     registros, rechazos = [], []
     for fila, entrada in enumerate(entradas, start=1):
         if not isinstance(entrada, dict):
+            # Recortado: la fila rechazada se guarda con su crudo, y basta para reconocerla.
             rechazos.append(Rechazo(fila, "cada entrada es un mapa de campos",
-                                    {"entrada": str(entrada)}))
+                                    {"entrada": str(entrada)[:200]}))
             continue
         crudo = _crudo(entrada)
         malos = _importes_no_validos(entrada)

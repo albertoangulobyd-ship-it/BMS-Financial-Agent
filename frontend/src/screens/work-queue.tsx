@@ -19,6 +19,7 @@ import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { useTabState } from '@/lib/tab-memory';
 import { matches } from '@/lib/text';
+import { twinMarks, type TwinMark } from '@/lib/twins';
 import { needsPerson, whyOf } from '@/lib/why';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
@@ -66,6 +67,7 @@ function QueueTable({
   const { openRoute } = useTabs();
   const count = (level: QueueFilter) => (level === 'all' ? rows.length : rows.filter((r) => r.nivel === level).length);
   const shown = rows.filter((r) => (filter === 'all' || r.nivel === filter) && matches(query, r.numero, r.contraparte));
+  const twins = twinMarks(rows);
 
   const columns: Columns<InvoiceRow> = [
     { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
@@ -73,7 +75,7 @@ function QueueTable({
       key: 'invoice',
       header: t.columns.invoice,
       primary: true,
-      cell: (r) => <InvoiceCell numero={r.numero} party={r.contraparte} />,
+      cell: (r) => <InvoiceCell numero={r.numero} party={r.contraparte} twin={twins.get(r.id)} />,
     },
     { key: 'amount', header: t.columns.amount, align: 'right', width: '7.5rem', cell: (r) => <Money cents={r.total_cent} /> },
     { key: 'due', header: t.columns.due, width: '7rem', cell: (r) => <DateText value={r.vencimiento} /> },
@@ -104,6 +106,8 @@ function QueueTable({
           rows={shown}
           rowKey={(r) => r.id}
           caption={t.workQueue.caption}
+          // La lista donde se trabaja: late lo bloqueado, nada mas (lo urgente, quieto).
+          ping='blocked'
           onOpen={(r) => openRoute(recordRoute('invoice', r.id, 'work-queue'))}
           openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records.invoice.label} ${r.numero ?? r.id}` })}
           empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
@@ -116,11 +120,16 @@ function QueueTable({
   );
 }
 
-/** Numero (mono) y relacion debajo: texto del documento, tal cual. */
-export function InvoiceCell({ numero, party }: { numero: string | null; party: string | null }) {
+/** Numero (mono) y relacion debajo: texto del documento, tal cual. Si otra factura de la
+ *  lista tiene el mismo numero y la misma relacion, "1 van 2" al lado (lib/twins). */
+export function InvoiceCell({ numero, party, twin }: { numero: string | null; party: string | null; twin?: TwinMark | undefined }) {
+  const { t } = useT();
   return (
     <span className='flex min-w-0 flex-col items-start'>
-      <span className='whitespace-nowrap font-mono text-[12.5px]'>{numero ?? '—'}</span>
+      <span className='whitespace-nowrap font-mono text-[12.5px]'>
+        {numero ?? '—'}
+        {twin && <span className='ml-1.5 font-sans text-xs font-normal text-muted-foreground'>{fmt(t.common.twin, { n: twin.n, of: twin.of })}</span>}
+      </span>
       <span className='text-[13px] font-normal text-[#45423c]'>{party ?? '—'}</span>
     </span>
   );

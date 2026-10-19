@@ -81,13 +81,61 @@ export function token(who: Who = 'ana'): string {
 /** Entra con el token de una persona de prueba y espera al marco con las pestanas. */
 export async function login(page: Page, who: Who = 'ana'): Promise<void> {
   await page.locator('#token').fill(token(who));
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('#login-submit').click();
   await expect(page.getByRole('tablist')).toBeVisible();
 }
 
+/**
+ * Espera a que la pantalla este quieta: ninguna animacion con fin en marcha (las que laten
+ * sin fin, como el punto de una pastilla, no cuentan), el contenido de la pestana (que entra
+ * con un fundido) entero y a opacidad 1, y ninguna opacidad a medias durante tres cuadros
+ * seguidos. Sin esperas fijas: con la maquina cargada, axe media el contraste en mitad del
+ * fundido (opacidad < 1 cuenta como visible para Playwright) y fallaba sin motivo.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        let calm = 0;
+        let last = '';
+        const still = (): string | null => {
+          const running = document.getAnimations().filter((a) => {
+            if (a.playState !== 'running') return false;
+            const end = a.effect?.getComputedTiming().endTime;
+            return typeof end === 'number' && Number.isFinite(end);
+          });
+          if (running.length > 0) return null;
+          const panels = Array.from(document.querySelectorAll<HTMLElement>('#tab-panel > div'));
+          if (panels.length > 1 || panels.some((el) => getComputedStyle(el).opacity !== '1')) return null;
+          const fading = Array.from(document.querySelectorAll<HTMLElement>('[style*="opacity"]'))
+            .map((el) => el.style.opacity)
+            .filter((o) => o !== '' && Number(o) > 0 && Number(o) < 1);
+          if (fading.length > 0) return null;
+          return Array.from(document.querySelectorAll<HTMLElement>('[style*="opacity"]'))
+            .map((el) => el.style.opacity)
+            .join(',');
+        };
+        const tick = (frames: number) => {
+          const now = still();
+          if (now !== null && now === last) calm += 1;
+          else calm = 0;
+          last = now ?? '';
+          if (calm >= 3) resolve(true);
+          else if (frames > 600) resolve(false);
+          else requestAnimationFrame(() => tick(frames + 1));
+        };
+        requestAnimationFrame(() => tick(0));
+      }),
+    undefined,
+    { timeout: 15_000 }
+  );
+}
+
 /** Ningun problema de accesibilidad serio o critico (WCAG 2.1 A y AA), ninguna falta de
- *  contraste (de ningun grado) y cada pastilla de estado medida a 4,5:1 o mas. */
+ *  contraste (de ningun grado) y cada pastilla de estado medida a 4,5:1 o mas. Se mide con
+ *  la pantalla quieta (settled). */
 export async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -160,16 +208,17 @@ export async function capture(page: Page, name: string): Promise<void> {
   const dir = process.env.CAPTURAS_DIR || join('test-results', 'capturas');
   mkdirSync(dir, { recursive: true });
   // Que no salga a medias una animacion ni el cursor de texto.
-  await page.waitForTimeout(350);
+  await settled(page);
   await page.screenshot({ path: join(dir, `${name}.png`), caret: 'hide', animations: 'disabled' });
 }
 
 // Palabras que son castellano y no neerlandes ni ingles (sin las que coinciden: "los",
 // "las", "mes", "nota", "saldo", "leer", "persona", "con", "sin", "total"...). La app no
-// ensena nunca el castellano de la API; los nombres de ficheros y accesos directos
-// (copia.bat, "BMS Finanzas - Leer facturas") van marcados con data-proper-name y no
-// cuentan.
+// ensena nunca el castellano de la API ni los nombres de los .bat o de los accesos directos
+// de la instalacion (en castellano, para el dueno). Solo el nombre de un fichero que eligio
+// o importo la persona va marcado con data-proper-name y no cuenta: es suyo, tal cual.
 const SPANISH = new Set([
+  'finanzas',
   'factura', 'facturas', 'proveedor', 'proveedores', 'cliente', 'clientes', 'pendiente',
   'pendientes', 'vencida', 'vencidas', 'vencido', 'hallazgo', 'hallazgos', 'excepción',
   'excepcion', 'excepciones', 'importe', 'importes', 'fecha', 'fechas', 'motivo', 'motivos',

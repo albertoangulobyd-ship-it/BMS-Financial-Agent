@@ -1181,6 +1181,40 @@ def test_la_segunda_firma_es_una_orden_de_la_otra_persona(almacen, tmp_path, rel
     assert hallazgos.verificar(conn) == []
 
 
+def test_la_ficha_dice_que_segundas_firmas_hay_para_quien(almacen, tmp_path, reloj) -> None:
+    """La ficha de la factura dice las segundas firmas que aun valen (para quien, de quien y
+    el plazo firmado): la app solo ofrece aceptar a quien tiene la suya, en vez de dejar
+    mandar una orden que el servidor va a negar. Gastada o caducada, ya no esta."""
+    from bms_agent import consultas
+
+    conn = almacen.conn
+    d2b = _d2b(almacen, tmp_path)
+    ana = persona(conn, "Ana", "administracion")
+    bea = persona(conn, "Bea", "administracion")
+
+    def firmas():
+        ficha = consultas.detalle(conn, d2b["factura_id"])
+        return next(h for h in ficha["hallazgos"] if h["id"] == d2b["id"])["firmas"]
+
+    assert firmas() == []
+    firmar = {"hallazgo_id": d2b["id"], "huella": d2b["huella"], "solicitante_id": ana,
+              "motivo": "Lo he visto con Ana", "vigente_hasta": "2026-12-31"}
+    servicios.ejecutar(conn, "firmar_anulacion", firmar, usuario_id=bea)
+    [firma] = firmas()
+    assert (firma["solicitante_id"], firma["firmante_id"], firma["firmante"],
+            firma["vigente_hasta"]) == (ana, bea, "Bea", "2026-12-31")
+    assert firma["caduca_en"]
+    servicios.ejecutar(conn, "anular_hallazgo", {
+        "hallazgo_id": d2b["id"], "huella": d2b["huella"], "vigente_hasta": "2026-12-31",
+        "motivo": "La tarifa de 43 euros esta pactada"}, usuario_id=ana)
+    assert firmas() == []
+    servicios.ejecutar(conn, "firmar_anulacion", {**firmar, "huella": _hallazgo(
+        conn, "D2b")["huella"]}, usuario_id=bea)
+    assert len(firmas()) == 1
+    reloj.avanzar(hours=servicios.FIRMA_VALIDA_HORAS, minutes=1)
+    assert firmas() == []
+
+
 def test_cerrar_un_hallazgo_pide_la_evidencia_que_se_vio(escenario) -> None:
     conn = escenario.conn
     admin = permisos.usuario_por_nombre(conn, "Ana")

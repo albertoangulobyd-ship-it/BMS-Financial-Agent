@@ -13,7 +13,7 @@ import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
 import { paths } from '@/lib/api';
 import type { PartyRow } from '@/lib/api-types';
-import { formatMoney } from '@/lib/format';
+import { NO_VALUE, formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { useTabState } from '@/lib/tab-memory';
@@ -90,13 +90,25 @@ function PartyTable({
         </span>
       ),
     },
-    { key: 'outstanding', header: t.parties.outstanding, align: 'right', width: '8rem', cell: (r) => <Money cents={r.pendiente_cent} /> },
+    {
+      key: 'outstanding',
+      header: t.parties.outstanding,
+      align: 'right',
+      width: '9rem',
+      cell: (r) => <OutsideEuro cents={r.pendiente_cent} outside={r.sin_importe ?? 0} />,
+    },
     {
       key: 'overdue',
       header: t.parties.overdueColumn,
       align: 'right',
       width: '8rem',
-      cell: (r) => <Money cents={r.vencido_cent} className={r.vencido_cent > 0 ? 'font-medium text-late-foreground' : 'text-muted-foreground'} />,
+      cell: (r) =>
+        // Cero en euros con facturas en otra moneda no es "nada vencido": no se sabe en euros.
+        r.vencido_cent === 0 && (r.sin_importe ?? 0) > 0 ? (
+          <span className='text-muted-foreground'>{NO_VALUE}</span>
+        ) : (
+          <Money cents={r.vencido_cent} className={r.vencido_cent > 0 ? 'font-medium text-late-foreground' : 'text-muted-foreground'} />
+        ),
     },
     { key: 'why', header: t.columns.why, cell: (r) => <WhyCell why={partyWhy(r, lang, t, overdueText)} /> },
   ];
@@ -119,5 +131,18 @@ function PartyTable({
         <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.parties.total, { shown: shown.length, all: rows.length })}</p>
       )}
     </>
+  );
+}
+
+/** Lo pendiente en euros y, si hay facturas en otra moneda, cuantas quedan fuera de la suma:
+ *  "€ 0,00" solo no diria que se debe algo en dolares. */
+function OutsideEuro({ cents, outside }: { cents: number; outside: number }) {
+  const { t } = useT();
+  if (outside === 0) return <Money cents={cents} />;
+  return (
+    <span className='flex flex-col items-end'>
+      {cents === 0 ? <span className='text-muted-foreground'>{NO_VALUE}</span> : <Money cents={cents} />}
+      <span className='whitespace-nowrap text-xs text-muted-foreground'>{fmt(outside === 1 ? t.parties.notInEuroOne : t.parties.notInEuro, { n: outside })}</span>
+    </span>
   );
 }

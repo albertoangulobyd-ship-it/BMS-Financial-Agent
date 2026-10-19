@@ -139,6 +139,7 @@ EJEMPLOS: list[tuple[str, str, dict[str, Any]]] = [
     ("Q1", "fallo", {}),
     ("Q1", "sin_datos", {"no_solicitado": "contraparte"}),
     ("Q1", "sin_datos", {}),
+    ("Q2", "fallo", {"campos": ["total_cent", "fecha_factura"]}),
     ("Q2", "fallo", {}),
     ("Q3", "fallo", {}),
     ("X1", "fallo", {"filas": [[3, "esta en USD: lo que no esta en euros no entra"]]}),

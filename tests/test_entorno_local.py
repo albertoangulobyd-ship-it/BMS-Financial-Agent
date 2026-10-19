@@ -283,10 +283,12 @@ def test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace() -> None:
     assert '$env:BMS_BASE = "demo"' in comun and '$env:BMS_BASE = "bms"' in comun
     assert '"demo", "crear", "--rehacer", "--db", "/datos/demo.sqlite3"' in iniciar
     assert "up -d consola salida" in iniciar
-    # Paso 15: se espera a la app y se abre en su ventana de Edge; la consola, de reserva.
-    assert '-Uri "http://127.0.0.1:8765/app"' in iniciar
-    assert 'Abrir-App "http://127.0.0.1:8765/app"' in iniciar
-    assert "127.0.0.1:8765/consola" in iniciar
+    # Paso 15: se espera a la consola (no depende de lo construido) y se abre la app en su
+    # ventana de Edge; si la app no esta construida, la consola, de reserva.
+    assert '$base = "http://127.0.0.1:8765"' in iniciar
+    assert '$consola_url = $base + "/consola"' in iniciar and "-Uri $consola_url" in iniciar
+    assert "$direccion = Direccion-De-La-App $base" in iniciar
+    assert "Abrir-App $direccion" in iniciar
 
 
 def test_el_token_va_por_el_entorno_y_no_en_la_orden() -> None:

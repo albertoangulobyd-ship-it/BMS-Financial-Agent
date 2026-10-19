@@ -7,14 +7,20 @@
 // El punto late SOLO en lo que pide hacer algo ya (bloqueada, urgente, una cuenta por
 // verificar, el aislamiento que falla o falta). Todo lo demas lleva el punto quieto: una
 // lista de quince facturas no parpadea entera ("minimalista y facil de entender").
+// Y ademas, solo en UN sitio por pantalla (PingScope): en las listas, las tarjetas y las
+// fichas de relaciones las prioridades van quietas (DataTable y SummaryCard lo ponen);
+// late la cabecera de la ficha que se tiene delante (una factura bloqueada o urgente), las
+// filas Geblokkeerd de la Werklijst (la lista donde se trabaja), una cuenta por llamar en
+// IBAN-controles y el aislamiento.
 //
 // Las etiquetas salen de los catalogos de Python (src/bms_agent/textos, via
 // i18n/domain.ts) y, para lo que no es del dominio (la marca de prueba, el IBAN tecleado,
 // el aislamiento, la frescura...), de los textos de la app (i18n/nl.ts y en.ts, status).
+import { createContext, useContext, type ReactNode } from 'react';
 import type * as React from 'react';
 import { Status, StatusIndicator, StatusLabel } from '@/components/ui/status';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
-import { priorityLabel, qualityText, severityLabel, stateLabel, verdictPartText } from '@/i18n/domain';
+import { priorityLabel, qualityText, severityLabel, severityMeaning, stateLabel, verdictPartText } from '@/i18n/domain';
 
 export type StatusVariant = 'default' | 'success' | 'error' | 'warning' | 'info';
 
@@ -162,16 +168,20 @@ export const STATUS_RULES = {
     cerrada: quieto('default'),
     caducada: quieto('default'),
   },
-  /** Lo que avisa de una PO: el codigo de su regla (catalogo: reglas). Bijna op, verloopt,
-   *  gepland of verwacht boven het restant: warning; over su valor: error. */
+  /** Lo que avisa de una PO junto a sus cifras: el codigo de su regla (catalogo: reglas).
+   *  Lleva el color de la gravedad de ese aviso (severidad), el mismo que tiene justo debajo
+   *  en "Wat aandacht nodig heeft" y en cualquier otra pantalla: un aviso, un color. Avisan
+   *  (aviso: info) bijna op P5, verloopt P7, gepland P8 y eerder op P9; retienen
+   *  (retencion: warning) la factura por encima de lo que queda P4, la PO gastada P6 y lo
+   *  esperado por encima P10 (reglas/catalogo.py). */
   po_senal: {
-    P5: quieto('warning'),
-    P7: quieto('warning'),
-    P8: quieto('warning'),
-    P9: quieto('warning'),
+    P5: quieto('info'),
+    P7: quieto('info'),
+    P8: quieto('info'),
+    P9: quieto('info'),
     P10: quieto('warning'),
-    P4: quieto('error'),
-    P6: quieto('error'),
+    P4: quieto('warning'),
+    P6: quieto('warning'),
   },
   /** Una importacion (catalogo: estados.importacion). */
   importacion: {
@@ -285,6 +295,26 @@ export function statusLabel(
   }
 }
 
+/**
+ * Donde puede latir un punto, de fuera a dentro: 'all' (lo de siempre: la cabecera de una
+ * ficha, IBAN-controles, el aislamiento), 'blocked' (solo una prioridad bloqueada: las filas
+ * de la Werklijst) o 'none' (todo quieto: listas, tarjetas, fichas de relaciones).
+ */
+export type PingScopeValue = 'all' | 'blocked' | 'none';
+
+const PingContext = createContext<PingScopeValue>('all');
+
+export function PingScope({ scope, children }: { scope: PingScopeValue; children: ReactNode }) {
+  return <PingContext.Provider value={scope}>{children}</PingContext.Provider>;
+}
+
+/** Si el punto late: la regla del estado y, encima, donde esta la pastilla. */
+export function pings(rule: StatusRule, scope: PingScopeValue, group: StatusGroup, state: string | null | undefined): boolean {
+  if (!rule.ping || scope === 'none') return false;
+  if (scope === 'blocked') return group === 'prioridad' && state === 'bloqueada';
+  return true;
+}
+
 export interface StatusPillProps extends Omit<React.ComponentProps<'div'>, 'children'> {
   group: StatusGroup;
   state: string | null | undefined;
@@ -295,11 +325,14 @@ export interface StatusPillProps extends Omit<React.ComponentProps<'div'>, 'chil
 /** Un estado del dominio, como lo quiere el dueno: pastilla, punto y texto. */
 export function StatusPill({ group, state, values, ...props }: StatusPillProps) {
   const { lang, t } = useT();
+  const scope = useContext(PingContext);
   const rule = statusRule(group, state);
   const label = statusLabel(lang, t, group, state, values) ?? t.common.unknown;
+  // La gravedad de un aviso dice ademas, al pasar el raton, que hace con la factura.
+  const hint = group === 'severidad' ? severityMeaning(lang, state) : null;
   return (
-    <Status variant={rule.variant} {...props}>
-      <StatusIndicator className={rule.ping ? undefined : 'before:animate-none'} />
+    <Status variant={rule.variant} title={hint ?? undefined} {...props}>
+      <StatusIndicator className={pings(rule, scope, group, state) ? undefined : 'before:animate-none'} />
       <StatusLabel>{label}</StatusLabel>
     </Status>
   );

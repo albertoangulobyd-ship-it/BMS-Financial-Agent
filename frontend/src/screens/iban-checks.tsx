@@ -39,6 +39,26 @@ export function compactIban(text: string): string {
 }
 
 const REVISAR_EN_LA_CUENTA = new Set(['registrada']);
+// Las que ya se comprobaron por telefono (o se confirmaron): no se vuelven a verificar.
+const YA_COMPROBADA = new Set(['verificada', 'atestada']);
+
+/**
+ * Lo que falta de una cuenta, en una frase: confirmarla por telefono (nueva, sin registrar
+ * o sin verificar), ponerla en Exact (verificada, pero el aviso F2 dice que no esta en los
+ * ultimos maestros o tiene una wijziging abierta), mirar lo que queda abierto (verificada,
+ * con otro aviso) o nada mas (afgewezen). Asi una tarjeta nunca dice a la vez
+ * "geverifieerd" y "nog niet bevestigd".
+ */
+export type AccountStep = 'confirm' | 'exact' | 'open' | 'rejected';
+
+export function accountStep(check: Pick<Check, 'account' | 'findings'>): AccountStep {
+  const estado = check.account?.estado;
+  if (estado === 'rechazada') return 'rejected';
+  if (estado && YA_COMPROBADA.has(estado)) {
+    return check.findings.some((f) => f.reason.regla === 'F2') ? 'exact' : 'open';
+  }
+  return 'confirm';
+}
 
 export function buildChecks(invoices: InvoiceRow[], accounts: AccountRow[]): Check[] {
   const checks = new Map<string, Check>();
@@ -137,6 +157,7 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
   const invoice = c.findings[0]?.invoice ?? null;
   const seen = new Set<string>();
   const findings = c.findings.filter((f) => !seen.has(f.reason.regla) && seen.add(f.reason.regla));
+  const step = accountStep(c);
   return (
     <article className='rounded-md border border-border bg-card px-5 py-4' aria-label={`${c.provider ?? ''} ${shown}`}>
       <header className='flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1'>
@@ -153,8 +174,16 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
         <dt className='text-muted-foreground'>{t.iban.found}</dt>
         <dd className='m-0'>
           <span className='font-mono text-[13px] tracking-[0.02em]'>{shown}</span>
-          <span className='ml-2 text-xs text-muted-foreground'>{t.iban.notCorrectYet}</span>
+          {step === 'confirm' && <span className='ml-2 text-xs text-muted-foreground'>{t.iban.notCorrectYet}</span>}
         </dd>
+        {step !== 'confirm' && (
+          <>
+            <dt className='text-muted-foreground'>{t.iban.stillToDo}</dt>
+            <dd className='m-0 font-medium' data-testid='iban-step'>
+              {step === 'exact' ? t.iban.stepExact : step === 'open' ? t.iban.stepOpen : t.iban.stepRejected}
+            </dd>
+          </>
+        )}
         {invoice && (
           <>
             <dt className='text-muted-foreground'>{t.iban.where}</dt>
@@ -202,7 +231,8 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
       </dl>
       {can('confirmar_iban') && (
         <div className='mt-4 flex flex-wrap gap-2'>
-          {phone && (
+          {/* Ya comprobada por telefono: no se vuelve a ofrecer; lo que falta lo dice arriba. */}
+          {phone && step !== 'exact' && step !== 'open' && (
             <ActionButton
               action='verificar_iban'
               label={t.iban.verify}

@@ -17,10 +17,11 @@ import { paths, type InvoiceRow, type Panel } from '@/lib/api';
 import { formatDate, formatDateProse, quarterLabel } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
+import { distinctByNumber } from '@/lib/twins';
 import { needsPerson, whyOf } from '@/lib/why';
 import { CircleCheck } from 'lucide-react';
 import { recordRoute, type NavId } from './registry';
-import { deadlineState } from './vat';
+import { deadlineState, overdueQuarters } from './vat';
 import { useLoad } from './use-load';
 
 const NEXT_UP = 5;
@@ -40,7 +41,7 @@ export function OverviewScreen() {
   const nav = t.nav.overview;
 
   return (
-    <Screen>
+    <Screen calm>
       <PageHeader title={nav.label} description={nav.description} />
       {state.status === 'loading' && <Loading />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={retry} />}
@@ -60,6 +61,9 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
   const deadline = vat.proximo_plazo;
   // La misma regla que la lista del btw: pasado y sin aangifte, o a 14 dias o menos.
   const deadlineStatus = deadline ? deadlineState(deadline) : null;
+  // Un plazo que ya paso sin la aangifte anotada va primero: es lo unico de la tarjeta que
+  // pide hacer algo ya, y el proximo plazo no lo dice.
+  const overdue = overdueQuarters(vat);
   const open = (id: NavId) => setActiveNav(id);
 
   const go = (id: NavId, label: string) => (
@@ -129,23 +133,39 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
             quarter: quarterLabel(vat.trimestre),
             what: vat.saldo_cent < 0 ? t.overview.vat.refund : vat.saldo_cent > 0 ? t.overview.vat.toPay : t.overview.vat.zero,
           })}
-          rows={
-            deadline
+          rows={[
+            ...(overdue.length > 0
+              ? [
+                  {
+                    label: t.overview.vat.overdue,
+                    value: overdue.map(quarterLabel).join(', '),
+                    status: { group: 'btw', state: 'plazo_vencido' } as const,
+                  },
+                ]
+              : []),
+            ...(deadline
               ? [
                   {
                     label: fmt(t.overview.vat.deadline, { quarter: quarterLabel(deadline.trimestre) }),
                     value: formatDateProse(deadline.limite_presentacion, t),
                   },
-                  {
-                    label: t.overview.vat.left,
-                    value: fmt(deadline.dias_para_limite === 1 ? t.overview.vat.dayLeft : t.overview.vat.daysLeft, {
-                      n: deadline.dias_para_limite ?? 0,
-                    }),
-                    status: deadlineStatus ? { group: 'btw', state: deadlineStatus } : undefined,
-                  },
+                  // Cerca: la pastilla dice los dias ("Nog 12 dagen"), como en Btw y en el
+                  // trimestre; si no, en gris.
+                  deadlineStatus === 'plazo_cerca'
+                    ? {
+                        label: t.overview.vat.left,
+                        value: '',
+                        status: { group: 'btw', state: 'plazo_cerca', values: { n: deadline.dias_para_limite ?? 0 } } as const,
+                      }
+                    : {
+                        label: t.overview.vat.left,
+                        value: fmt(deadline.dias_para_limite === 1 ? t.overview.vat.dayLeft : t.overview.vat.daysLeft, {
+                          n: deadline.dias_para_limite ?? 0,
+                        }),
+                      },
                 ]
-              : []
-          }
+              : []),
+          ]}
           action={go('vat', t.overview.open.vat)}
         />
       </SummaryGrid>
@@ -161,9 +181,13 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
           <EmptyState icon={CircleCheck} title={t.empty.nothingNeedsAttention} text={t.overview.nextUp.empty} />
         ) : (
           <ol className='divide-y divide-[#ebe7df] overflow-hidden rounded-md border border-border bg-card'>
-            {queue.slice(0, NEXT_UP).map((row) => (
-              <NextUpRow key={row.id} row={row} onOpen={() => openRoute(recordRoute('invoice', row.id, 'work-queue'))} />
-            ))}
+            {/* Cinco cosas distintas: las facturas con el mismo numero y relacion van en una
+                fila, con cuantas son (las dos estan en la Werklijst). */}
+            {distinctByNumber(queue)
+              .slice(0, NEXT_UP)
+              .map(({ row, count }) => (
+                <NextUpRow key={row.id} row={row} count={count} onOpen={() => openRoute(recordRoute('invoice', row.id, 'work-queue'))} />
+              ))}
           </ol>
         )}
       </section>
@@ -171,7 +195,7 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
   );
 }
 
-function NextUpRow({ row, onOpen }: { row: InvoiceRow; onOpen: () => void }) {
+function NextUpRow({ row, count, onOpen }: { row: InvoiceRow; count: number; onOpen: () => void }) {
   const { t, lang } = useT();
   return (
     <li>
@@ -185,7 +209,8 @@ function NextUpRow({ row, onOpen }: { row: InvoiceRow; onOpen: () => void }) {
           <StatusPill group='prioridad' state={row.nivel} />
         </span>
         <span className='flex min-w-0 flex-col'>
-          <span className='truncate font-mono text-[12.5px] font-medium text-primary'>{row.numero ?? '—'}</span>
+          <span data-testid='next-up-number' className='truncate font-mono text-[12.5px] font-medium text-primary'>{row.numero ?? '—'}</span>
+          {count > 1 && <span className='text-xs text-muted-foreground'>{fmt(t.overview.nextUp.sameNumber, { n: count })}</span>}
           <span className='truncate text-[13px] text-[#45423c]'>{row.contraparte ?? '—'}</span>
         </span>
         <span className='text-right'>

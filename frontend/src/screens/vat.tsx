@@ -60,7 +60,8 @@ export function quarterRows(summary: VatSummary): QuarterRow[] {
 export function balanceText(cents: number, t: Messages): string {
   if (cents > 0) return fmt(t.vat.toPay, { amount: formatMoney(cents) });
   if (cents < 0) return fmt(t.vat.refund, { amount: formatMoney(-cents) });
-  return t.vat.nothing;
+  // Un importe como los demas de la columna (no una palabra).
+  return formatMoney(0);
 }
 
 export function nextStep(row: Pick<QuarterRow, 'estado' | 'terminado'>, t: Messages): string {
@@ -131,6 +132,20 @@ function VatList({ summary }: { summary: VatSummary }) {
       />
     </div>
   );
+}
+
+/** Los trimestres con el plazo de la aangifte pasado y sin la presentacion anotada, el mas
+ *  viejo primero. El panel los da en `por_presentar` (con sus dias, negativos) y sus
+ *  etiquetas en `plazos_pasados`; `proximo_plazo` solo mira los que no han pasado, asi que
+ *  sin esto el Overzicht saltaria al trimestre siguiente y no diria nada. */
+export function overdueQuarters(btw: {
+  por_presentar: { trimestre: string; estado: string; dias_para_limite: number | null }[];
+  plazos_pasados: string[];
+}): string[] {
+  const late = btw.por_presentar
+    .filter((q) => q.estado !== 'presentado' && q.dias_para_limite !== null && q.dias_para_limite < 0)
+    .map((q) => q.trimestre);
+  return [...new Set([...late, ...btw.plazos_pasados])].sort();
 }
 
 /** Cuando el plazo pide atencion: pasado y sin aangifte (error) o a 14 dias o menos

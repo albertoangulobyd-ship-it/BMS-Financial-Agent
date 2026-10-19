@@ -1041,6 +1041,15 @@ class Manejador(BaseHTTPRequestHandler):
                 self._json(409 if codigo == "pide_confirmacion" else 400,
                            {"error": str(exc), "codigo": codigo})
                 return
+            except Exception as exc:  # noqa: BLE001
+                # Lo ultimo: un lector que falla de una forma que nadie previo. La importacion
+                # es todo o nada (el almacen ya deshizo la transaccion), asi que es un fichero
+                # que no se lee: 400 con su codigo y sin el texto de la excepcion, que puede
+                # traer trozos del fichero. Al registro, solo la clase.
+                self.log_message("importar: el lector fallo con %s", type(exc).__name__)
+                self._json(400, {"error": "el fichero no se puede leer",
+                                 "codigo": importar_web.FicheroNoValido.codigo})
+                return
             if almacen.ruta_anclas is not None and not peticion.simular:
                 _anclar(conn, almacen.ruta_anclas)
         self._json(200, {"importacion": resultado})

@@ -13,6 +13,7 @@ import { MIN_ACCEPT_REASON, permissionFor } from '@/lib/actions';
 import type { FieldInfo, Finding, InvoiceDetail, Person } from '@/lib/api-types';
 import { useCan, useSession } from '@/lib/session';
 import { editableInApp } from '@/lib/field-format';
+import { formatDateTime } from '@/lib/format';
 import { FieldEditButton } from './invoice-fields';
 import { findField, revOf } from './invoice-util';
 
@@ -95,7 +96,11 @@ function FindingCard({
 
   const showTargets = targets.length > 0 && can('editar_extraccion');
   const showAccept = canAccept && open;
-  const showSign = showAccept && h.segunda_firma && colleagues.length > 0;
+  // La segunda firma: solo se exige si hay otra persona que la pueda dar. La que ya dio un
+  // colega para mi, con su plazo (la anulacion tiene que llevar ese mismo plazo).
+  const needsSignature = h.segunda_firma && colleagues.length > 0;
+  const mine = (h.firmas ?? []).find((f) => f.solicitante_id === session?.me.id) ?? null;
+  const showSign = showAccept && needsSignature;
   const showClose = gone && can('resolver_aviso');
 
   return (
@@ -134,9 +139,16 @@ function FindingCard({
               intro={
                 <div className='flex flex-col gap-2'>
                   <p>{t.invoice.acceptIntro}</p>
-                  {h.segunda_firma && <p className='font-medium'>{t.invoice.secondSignatureNeeded}</p>}
+                  {needsSignature && mine && (
+                    <p className='font-medium'>
+                      {fmt(t.invoice.secondSignatureGiven, { name: mine.firmante ?? '—', time: formatDateTime(mine.caduca_en) })}
+                    </p>
+                  )}
                 </div>
               }
+              // Sin la firma de un colega el servidor lo negaria: no se deja mandar, y se dice
+              // que hacer (pedir "Tweede handtekening geven").
+              blocked={needsSignature && !mine ? t.invoice.secondSignatureNeeded : undefined}
               fields={[
                 {
                   name: 'motivo',
@@ -146,7 +158,13 @@ function FindingCard({
                   minLength: MIN_ACCEPT_REASON,
                   help: fmt(t.invoice.acceptReasonHelp, { n: MIN_ACCEPT_REASON }),
                 },
-                { name: 'vigente_hasta', label: t.invoice.validUntil, kind: 'date', help: t.invoice.validUntilHelp },
+                {
+                  name: 'vigente_hasta',
+                  label: t.invoice.validUntil,
+                  kind: 'date',
+                  help: mine ? t.invoice.validUntilSigned : t.invoice.validUntilHelp,
+                  ...(mine?.vigente_hasta ? { initial: mine.vigente_hasta } : {}),
+                },
               ]}
               data={(v) => ({ hallazgo_id: h.id, huella: h.huella, motivo: v.motivo, vigente_hasta: v.vigente_hasta || null })}
               onDone={onDone}

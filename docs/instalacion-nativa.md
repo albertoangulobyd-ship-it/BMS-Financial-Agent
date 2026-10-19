@@ -194,11 +194,13 @@ un hueco de la carpeta → **Abrir en Terminal**):
 
 Al abrirla, `iniciar.bat` hace **la pasada del día** (lo que depende de la fecha:
 vencidas, plazos, órdenes de compra que caducan) y **comprueba que la consola y las
-órdenes no tienen salida a internet**. Después arranca la consola sin ventana y abre la
-app, `http://127.0.0.1:8765/app`, en su propia ventana de Edge (sin pestañas ni barra de
-direcciones; si Edge no está, en el navegador de siempre). Entras con tu token. Si la app
-no se viera bien, la consola de antes sigue en `http://127.0.0.1:8765/consola`
-([app-local.md](app-local.md)).
+órdenes no tienen salida a internet**. Después arranca la consola sin ventana, espera a
+que conteste `/consola` y abre la app, `http://127.0.0.1:8765/app`, en su propia ventana
+de Edge (sin pestañas ni barra de direcciones; si Edge no está, en el navegador de
+siempre). Entras con tu token; si Edge ofrece guardarlo como contraseña, di que no. Si la
+app no se viera bien, la consola de antes sigue en `http://127.0.0.1:8765/consola`; y si la
+app no estuviera construida (la dirección `/app` contesta un error), `iniciar.bat` lo dice
+y abre directamente la consola de antes ([app-local.md](app-local.md)).
 
 Parar no borra nada, y apagar el ordenador sin parar tampoco: la base aguanta un corte.
 

@@ -339,6 +339,36 @@ def test_la_huella_cubre_las_fuentes_y_los_crlf_no_la_cambian(tmp_path) -> None:
     assert _normalizado(fichero) == _normalizado(otro)
 
 
+def test_tailwind_solo_lee_lo_que_cubre_la_huella() -> None:
+    """Tailwind decide el CSS leyendo ficheros; sin limites lee todo frontend/ (las pruebas,
+    e2e/, los scripts) y una clase escrita alli cambiaria lo construido sin cambiar la
+    huella. index.css le quita la deteccion automatica y le da solo src (sin las pruebas) e
+    index.html, que estan en build-inputs.json. (Con Node, scripts/tailwind-fuentes.test.mjs
+    lo comprueba con el escaner de Tailwind, y fuente.mjs no construye si lee algo mas.)"""
+    css = (FRONTEND / "src" / "index.css").read_text(encoding="utf-8")
+    assert '@import "tailwindcss" source(none);' in css
+    fuentes = re.findall(r'^@source\s+(not\s+)?"([^"]+)";', css, flags=re.M)
+    assert sorted(fuentes) == sorted([("", "../src"), ("", "../index.html"),
+                                      ("not ", "../src/**/*.test.ts"),
+                                      ("not ", "../src/**/*.test.tsx")])
+    config = json.loads((FRONTEND / "build-inputs.json").read_text(encoding="utf-8"))
+    assert {"frontend/src", "frontend/index.html",
+            "frontend/scripts/tailwind-fuentes.mjs"} <= set(config["include"])
+    assert {".test.ts", ".test.tsx"} <= set(config["exclude"])
+
+
+def test_el_css_construido_no_cambia_con_el_modo_oscuro_del_sistema() -> None:
+    """La app solo tiene tema claro. Las clases dark: del componente Status del dueno solo
+    valen con una clase .dark que la app nunca pone (@custom-variant en index.css): en un
+    Windows en modo oscuro, Tailwind v4 las aplicaria por prefers-color-scheme y el texto de
+    las pastillas saldria en tonos -400 sobre el fondo claro (menos de 2:1)."""
+    css = (FRONTEND / "src" / "index.css").read_text(encoding="utf-8")
+    assert "@custom-variant dark (&:where(.dark, .dark *));" in css
+    for hoja in (WEB / "assets").glob("*.css"):
+        texto = hoja.read_text(encoding="utf-8")
+        assert "prefers-color-scheme" not in texto, hoja.name
+
+
 def test_el_paquete_lleva_la_app_y_los_textos() -> None:
     datos = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
     datos_paquete = datos["tool"]["setuptools"]["package-data"]
@@ -463,3 +493,25 @@ def test_los_lanzadores_abren_la_app_en_una_ventana_de_edge(carpeta) -> None:
     iniciar = (RAIZ / carpeta / "iniciar.ps1").read_text(encoding="utf-8")
     assert "Abrir-App" in iniciar and "/app" in iniciar
     assert "Start-Process" not in iniciar
+
+
+@pytest.mark.parametrize("carpeta", ["windows", "docker"])
+def test_sin_la_app_construida_el_lanzador_abre_la_consola(carpeta) -> None:
+    """serve contesta 503 en /app si falta lo construido: el lanzador espera a /consola (que
+    no depende de ello) y despues, si /app no da 200, lo dice y abre /consola, de reserva."""
+    comun = (RAIZ / carpeta / "comun.ps1").read_text(encoding="utf-8")
+    funcion = comun[comun.index("function Direccion-De-La-App"):]
+    funcion = funcion[:funcion.index("\n}") + 2]
+    assert '-Uri ($Base + "/app")' in funcion
+    assert "$respuesta.StatusCode -eq 200" in funcion and 'return ($Base + "/app")' in funcion
+    assert 'return ($Base + "/consola")' in funcion
+    assert funcion.index('return ($Base + "/app")') < funcion.index('return ($Base + "/consola")')
+    assert funcion.isascii() and "??" not in funcion and "&&" not in funcion
+    iniciar = (RAIZ / carpeta / "iniciar.ps1").read_text(encoding="utf-8")
+    espera = iniciar[iniciar.index("Esperando a que la consola conteste"):]
+    espera = espera[:espera.index("Abrir-App")]
+    # Lista cuando contesta /consola, no /app.
+    assert '"/consola"' in espera and "-Uri $consola_url" in espera
+    assert "-Uri $direccion" not in espera and '/app"' not in espera.split("Direccion-De-La-App")[0]
+    assert "$direccion = Direccion-De-La-App $base" in iniciar
+    assert "Abrir-App $direccion" in iniciar

@@ -37,7 +37,17 @@ test('la entrada, en neerlandes por defecto y en ingles', async ({ page, baseUrl
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await capture(page, 'en-login');
 
-  // Un token que no vale: lo dice, y el campo se vacia.
+  // Ni <form> ni campo de contrasena: Edge no ofrece guardar el token en su gestor de
+  // contrasenas. Los caracteres van tapados igual.
+  await expect(page.locator('form')).toHaveCount(0);
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(page.locator('#token')).toHaveAttribute('autocomplete', 'one-time-code');
+  expect(await page.locator('#token').evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-text-security'))).toBe('disc');
+
+  // Un token que no vale: lo dice, y el campo se vacia. Intro tambien entra.
+  await page.locator('#token').fill('bms_no-vale');
+  await page.locator('#token').press('Enter');
+  await expect(page.getByRole('alert').filter({ hasText: 'This code is not valid' })).toBeVisible();
   await page.locator('#token').fill('bms_no-vale');
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'This code is not valid' })).toBeVisible();
@@ -211,9 +221,45 @@ test('a 1024 px se usa igual, y en estrecho el menu va en una hoja', async ({ pa
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  await page.getByRole('navigation', { name: 'Hoofdmenu' }).getByRole('button', { name: /^Werklijst/ }).click();
+  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
+  await menu.getByRole('button', { name: /^Werklijst/ }).click();
   await expect(page.getByRole('table')).toBeVisible();
+  // A 768 px de alto se ven todos los apartados de la barra lateral, Instellingen el ultimo.
+  for (const label of ['Facturen lezen', 'Instellingen']) {
+    const box = await menu.getByRole('button', { name: new RegExp(`^${label}`) }).boundingBox();
+    expect(box, label).not.toBeNull();
+    expect(box!.y + box!.height, label).toBeLessThanOrEqual(768);
+  }
   await capture(page, 'nl-work-queue-1024');
+
+  // Con una ficha abierta, + y ... no se tapan; con muchas pestanas, un fundido dice que hay
+  // mas a un lado.
+  await menu.getByRole('button', { name: /^Leveranciers/ }).click();
+  await page.getByRole('table').getByRole('button').first().click();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  const plus = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
+  const more = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
+  expect(plus.x + plus.width, '+ antes de ...').toBeLessThanOrEqual(more.x);
+  for (const label of ['Klanten', 'Objecten', 'Inkooporders', 'Kasstroom', 'Btw', 'Importeren']) {
+    await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
+    await page.getByRole('menuitem', { name: 'Nieuw tabblad' }).click();
+    await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+    await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
+  }
+  await expect(page.getByTestId('tabs-fade-left')).toBeVisible();
+  const plusAfter = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
+  const moreAfter = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
+  expect(plusAfter.x + plusAfter.width).toBeLessThanOrEqual(moreAfter.x);
+  // La pestana activa se ve entera.
+  const strip = (await page.getByRole('tablist').locator('xpath=..').boundingBox())!;
+  const active = (await page.getByRole('tab', { selected: true }).boundingBox())!;
+  expect(active.x).toBeGreaterThanOrEqual(strip.x - 1);
+  // (las curvas de la pestana de Chrome salen 1-2 px del borde: no tapan nada)
+  expect(active.x + active.width).toBeLessThanOrEqual(strip.x + strip.width + 4);
+  await capture(page, 'nl-tabs-1024');
+  await expectAccessible(page, '1024 con muchas pestanas');
+  await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
+  await page.getByRole('menuitem', { name: 'Alle tabbladen sluiten' }).click();
 
   await page.setViewportSize({ width: 700, height: 900 });
   await page.getByRole('button', { name: 'Menu openen' }).click();

@@ -565,6 +565,12 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
             # Si anularlo pide la firma de otra persona (la regla, un bloqueo o el
             # importe): la consola le ofrece entonces firmar_anulacion.
             "segunda_firma": hallazgos.requiere_segunda_firma(conn, h),
+            # 2.1: las segundas firmas que ya hay y aun valen (para quien, de quien, el plazo
+            # firmado y cuando caducan): la app ofrece aceptar solo a quien tiene la suya.
+            "firmas": [{"solicitante_id": f["solicitante_id"], "firmante_id": f["usuario_id"],
+                        "firmante": nombres.get(f["usuario_id"]),
+                        "vigente_hasta": f["vigente_hasta"], "caduca_en": f["caduca_en"]}
+                       for f in hallazgos.firmas_vigentes(conn, h)],
             "primera_vez_en": h["primera_vez_en"], "objetivos": objetivos.get(h["id"], []),
             "resultado": FALLO, "valores": valores_de(h),
         })
@@ -1273,6 +1279,9 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
             "vencido_cent": resumen["vencido_cent"], "vencido": resumen["vencido"],
             "ano_facturado_cent": resumen["ano_facturado"]["total_cent"],
             "siempre_facturado_cent": resumen["siempre_facturado"]["total_cent"],
+            # 2.1: sus facturas sin importe en euros (otra moneda, X1): fuera de las sumas, asi
+            # que un "0,00 pendiente" no quiere decir "no se debe nada".
+            "sin_importe": resumen["sin_importe"],
             "nivel": p["nivel"], "puntos": p["puntos"], "motivos": p["motivos"],
             # Contrato 2.1: sus hallazgos pendientes, para el "por que" de la app.
             "razones": razones.get(fila["id"], []),

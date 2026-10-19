@@ -1,5 +1,24 @@
-@import "tailwindcss";
+/* Lo que lee Tailwind para saber que clases van en el CSS: solo lo que cubre la huella de
+   lo construido (frontend/build-inputs.json y src/bms_agent/web/fuente.json): src sin sus
+   pruebas e index.html. Sin esto lee todo frontend/ (las pruebas, e2e/, los scripts) y una
+   clase escrita en una prueba cambiaria el CSS sin cambiar la huella.
+   scripts/tailwind-fuentes.mjs lo comprueba al construir. */
+@import "tailwindcss" source(none);
+@source "../src";
+@source "../index.html";
+@source not "../src/**/*.test.ts";
+@source not "../src/**/*.test.tsx";
 @import "tw-animate-css";
+
+/* La app solo tiene tema claro. Las clases dark: del componente de estados del dueno
+   (components/ui/status.tsx) se quedan, pero solo valdrian con una clase .dark que la app
+   nunca pone: sin esto, Tailwind v4 las aplica con prefers-color-scheme: dark y, en un
+   Windows en modo oscuro, el texto de las pastillas saldria en los tonos -400 sobre el
+   fondo claro (menos de 2:1). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Una pantalla baja (un portatil de 768 px de alto): la barra lateral va mas junta. */
+@custom-variant short (@media (max-height: 820px));
 
 /*
  * Option B (Workbench), solo tema claro: fondo blanco roto calido, texto casi negro, un

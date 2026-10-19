@@ -1230,20 +1230,12 @@ def _firmar_anulacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 
 
 def _firma_para(conn: sqlite3.Connection, hallazgo: sqlite3.Row, solicitante: int,
-                vigente_hasta: str | None) -> sqlite3.Row | None:
-    """La firma sin gastar ni caducar que otra persona dio para esta anulacion, o None."""
-    return conn.execute(
-        "SELECT e.id, e.usuario_id, e.motivo FROM evento AS e "
-        "WHERE e.tipo = 'anulacion_firmada' AND e.resultado = 'ok' AND e.tabla = 'hallazgo' "
-        "AND e.fila_id = ? AND json_extract(e.datos_json, '$.huella') = ? "
-        "AND json_extract(e.datos_json, '$.solicitante_id') = ? "
-        "AND json_extract(e.datos_json, '$.vigente_hasta') IS ? "
-        "AND json_extract(e.datos_json, '$.caduca_en') > ? "
-        "AND NOT EXISTS (SELECT 1 FROM evento AS s WHERE s.tipo = 'hallazgo_segunda_firma' "
-        "AND json_extract(s.datos_json, '$.firma_evento_id') = e.id) "
-        "ORDER BY e.id DESC LIMIT 1",
-        (hallazgo["id"], hallazgo["huella"], solicitante, vigente_hasta,
-         marca(reloj_de(conn).ahora()))).fetchone()
+                vigente_hasta: str | None) -> dict[str, Any] | None:
+    """La firma sin gastar ni caducar que otra persona dio para esta anulacion (para esta
+    persona y este plazo), o None. Las mismas que ensena la ficha (hallazgos.firmas_vigentes)."""
+    return next((f for f in hallazgos.firmas_vigentes(conn, hallazgo)
+                 if f["solicitante_id"] == solicitante and f["vigente_hasta"] == vigente_hasta),
+                None)
 
 
 def _anular_hallazgo(ctx: Contexto, d: dict[str, Any]) -> Hecho:

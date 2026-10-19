@@ -732,6 +732,30 @@ def _importe_mayor(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> int | Non
     return max(importes) if importes else None
 
 
+def firmas_vigentes(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> list[dict[str, Any]]:
+    """Las segundas firmas que otra persona dio para anular este hallazgo y aun valen: con
+    la evidencia de ahora (su huella), sin caducar y sin gastar; la mas reciente primero.
+
+    Cada una dice para quien es (`solicitante_id`), quien firmo (`usuario_id`), hasta cuando
+    vale la anulacion firmada (`vigente_hasta`) y cuando caduca la firma (`caduca_en`). La
+    usa la orden de anular (servicios) y la ficha de la factura, para que la app no ofrezca
+    aceptar algo que el servidor va a negar por falta de firma."""
+    filas = conn.execute(
+        "SELECT e.id, e.usuario_id, e.motivo, "
+        "json_extract(e.datos_json, '$.solicitante_id') AS solicitante_id, "
+        "json_extract(e.datos_json, '$.vigente_hasta') AS vigente_hasta, "
+        "json_extract(e.datos_json, '$.caduca_en') AS caduca_en "
+        "FROM evento AS e "
+        "WHERE e.tipo = 'anulacion_firmada' AND e.resultado = 'ok' AND e.tabla = 'hallazgo' "
+        "AND e.fila_id = ? AND json_extract(e.datos_json, '$.huella') = ? "
+        "AND json_extract(e.datos_json, '$.caduca_en') > ? "
+        "AND NOT EXISTS (SELECT 1 FROM evento AS s WHERE s.tipo = 'hallazgo_segunda_firma' "
+        "AND json_extract(s.datos_json, '$.firma_evento_id') = e.id) "
+        "ORDER BY e.id DESC",
+        (hallazgo["id"], hallazgo["huella"], marca(reloj_de(conn).ahora()))).fetchall()
+    return [dict(f) for f in filas]
+
+
 def requiere_segunda_firma(conn: sqlite3.Connection, hallazgo: sqlite3.Row) -> bool:
     """Si anular este hallazgo pide la firma de una segunda persona.
 

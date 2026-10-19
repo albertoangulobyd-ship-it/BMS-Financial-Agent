@@ -24,6 +24,7 @@ import { useSession } from '@/lib/session';
 import type { PartyKind } from './party-list';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
+import { twinMarks, type TwinMark } from '@/lib/twins';
 
 export function PartyScreen({ kind, id, tabId }: { kind: PartyKind; id: number; tabId: string }) {
   const { t } = useT();
@@ -76,7 +77,7 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
   const ours = relations.filter((r) => numbers.has(r.origen_id) || numbers.has(r.destino_id));
 
   return (
-    <Screen>
+    <Screen calm>
       <PageHeader title={p.nombre} description={description} meta={p.exact_id ? `Exact ${p.exact_id}` : undefined} />
       <FactStrip>
         <Fact label={t.columns.priority} note={reason}>
@@ -192,15 +193,25 @@ function PaymentState({ state }: { state: string | null }) {
   return <StatusPill group='pago' state={state} />;
 }
 
-function InvoiceNumber({ value }: { value: string | null }) {
-  return <span className='whitespace-nowrap font-mono text-[12.5px]'>{value ?? '—'}</span>;
+function InvoiceNumber({ value, twin }: { value: string | null; twin?: TwinMark | undefined }) {
+  const { t } = useT();
+  return (
+    <span className='whitespace-nowrap font-mono text-[12.5px]'>
+      {value ?? '—'}
+      {twin && <span className='ml-1.5 font-sans text-xs font-normal text-muted-foreground'>{fmt(t.common.twin, { n: twin.n, of: twin.of })}</span>}
+    </span>
+  );
 }
+
+/** Las de la misma relacion con el mismo numero, para su "1 van 2". */
+const twinsOf = (rows: readonly { id: number; numero: string | null }[]) => twinMarks(rows.map((r) => ({ ...r, contraparte: null })));
 
 function OpenInvoices({ party: p, onOpen }: { party: PartyView; onOpen: (id: number) => void }) {
   const { t } = useT();
   type Row = PartyView['abiertas_detalle'][number];
+  const twins = twinsOf(p.abiertas_detalle);
   const columns: Columns<Row> = [
-    { key: 'invoice', header: t.columns.invoice, primary: true, cell: (r) => <InvoiceNumber value={r.numero} /> },
+    { key: 'invoice', header: t.columns.invoice, primary: true, cell: (r) => <InvoiceNumber value={r.numero} twin={twins.get(r.id)} /> },
     { key: 'due', header: t.columns.due, width: '8rem', cell: (r) => <DateText value={r.vencimiento} /> },
     { key: 'outstanding', header: t.parties.outstanding, align: 'right', width: '9rem', cell: (r) => <Money cents={r.pendiente_cent} /> },
     { key: 'payment', header: t.parties.payment, width: '9rem', cell: (r) => <PaymentState state={r.estado_pago} /> },
@@ -220,8 +231,9 @@ function OpenInvoices({ party: p, onOpen }: { party: PartyView; onOpen: (id: num
 
 export function AllInvoices({ rows, onOpen }: { rows: PartyInvoice[]; onOpen: (id: number) => void }) {
   const { t } = useT();
+  const twins = twinsOf(rows);
   const columns: Columns<PartyInvoice> = [
-    { key: 'invoice', header: t.columns.invoice, primary: true, cell: (r) => <InvoiceNumber value={r.numero} /> },
+    { key: 'invoice', header: t.columns.invoice, primary: true, cell: (r) => <InvoiceNumber value={r.numero} twin={twins.get(r.id)} /> },
     { key: 'date', header: t.parties.date, width: '8rem', cell: (r) => <DateText value={r.fecha_factura} /> },
     { key: 'amount', header: t.columns.amount, align: 'right', width: '9rem', cell: (r) => <Money cents={r.total_cent} /> },
     { key: 'outstanding', header: t.parties.outstanding, align: 'right', width: '9rem', cell: (r) => <Money cents={r.pendiente_cent} /> },

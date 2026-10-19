@@ -9,6 +9,8 @@ import type { Messages } from '@/i18n';
 export const MINUS = '−';
 /** Lo que se ensena cuando no hay dato: sin datos no es cero. */
 export const NO_VALUE = '—';
+/** Un espacio que no se parte (U+00A0): entre el euro y la cifra, y antes de %. */
+export const NBSP = '\u00a0';
 
 /** Un entero de la API (numero sin decimales, o texto de cifras) como BigInt; null si no lo es. */
 export function toBigInt(value: number | bigint | string | null | undefined): bigint | null {
@@ -45,7 +47,8 @@ export function formatCents(value: number | bigint | string | null | undefined):
 /** Centimos -> "€ 36.270,36" / "€ −24,76"; sin dato, "—". */
 export function formatMoney(value: number | bigint | string | null | undefined): string {
   const text = formatCents(value);
-  return text === null ? NO_VALUE : `€ ${text}`;
+  // Un espacio que no se parte: el euro nunca queda al final de una linea sin su cifra.
+  return text === null ? NO_VALUE : `€${NBSP}${text}`;
 }
 
 /** Milesimas de hora -> "78,5" / "8" / "1.250,25" (sin ceros de mas a la derecha). */
@@ -67,7 +70,7 @@ export function formatPercentFromBasisPoints(value: number | bigint | string | n
   const abs = negative ? -pb : pb;
   const whole = groupThousands((abs / 100n).toString());
   const fraction = (abs % 100n).toString().padStart(2, '0').replace(/0+$/, '');
-  return `${negative ? MINUS : ''}${whole}${fraction ? `,${fraction}` : ''} %`;
+  return `${negative ? MINUS : ''}${whole}${fraction ? `,${fraction}` : ''}${NBSP}%`;
 }
 
 interface IsoDate {
@@ -159,7 +162,7 @@ export function formatUsdMicro(value: number | bigint | string | null | undefine
   const abs = negative ? -micro : micro;
   const cents = (abs + 5000n) / 10000n;
   const text = formatCents(negative ? -cents : cents);
-  return `$ ${text}`;
+  return `$${NBSP}${text}`;
 }
 
 /** Un trimestre de la API ("2026-T3") como numero de pestana (20263) y al reves: las

@@ -17,17 +17,20 @@ import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { findingDetail, ruleText, stateLabel } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
-import type { ExceptionRow, Person } from '@/lib/api-types';
+import type { ExceptionRow, Person, PoRow } from '@/lib/api-types';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { whyOf } from '@/lib/why';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
+import { twinMarks, type TwinMark } from '@/lib/twins';
 
 interface Names {
   invoices: Map<number, InvoiceRow>;
   clients: Map<number, string>;
-  orders: Map<number, string>;
+  orders: Map<number, { numero: string; parte: string | null }>;
+  /** Las facturas con el mismo numero y relacion que otra ("1 van 2"). */
+  twins: Map<number, TwinMark>;
 }
 
 interface Loaded {
@@ -48,7 +51,7 @@ export function ExceptionsScreen() {
       api.get<{ personas: Person[] }>(paths.people).then((r) => r.personas),
       api.get<{ facturas: InvoiceRow[] }>(paths.invoices).then((r) => r.facturas),
       api.get<{ clientes: { id: number; nombre: string }[] }>(paths.clients).then((r) => r.clientes),
-      api.get<{ ordenes: { id: number; numero: string }[] }>(paths.purchaseOrders).then((r) => r.ordenes),
+      api.get<{ ordenes: PoRow[] }>(paths.purchaseOrders).then((r) => r.ordenes),
     ]);
     return {
       rows,
@@ -56,7 +59,8 @@ export function ExceptionsScreen() {
       names: {
         invoices: new Map(invoices.map((f) => [f.id, f])),
         clients: new Map(clients.map((c) => [c.id, c.nombre])),
-        orders: new Map(orders.map((o) => [o.id, o.numero])),
+        orders: new Map(orders.map((o) => [o.id, { numero: o.numero, parte: o.parte.nombre }])),
+        twins: twinMarks(invoices),
       },
     };
   }, [session, version]);
@@ -87,14 +91,23 @@ export function ExceptionsScreen() {
 }
 
 /** De que va una excepcion: su factura (numero y relacion), o el cliente, la PO, la import. */
-function concerns(r: ExceptionRow, names: Names, t: Messages, lang: Lang): { main: string; sub: string | null } {
+function concerns(r: ExceptionRow, names: Names, t: Messages, lang: Lang): { main: string; sub: string | null; twin?: string } {
   if (r.factura_id) {
     const f = names.invoices.get(r.factura_id);
-    return { main: f?.numero ?? fmt(t.records.invoice.fallbackTitle, { id: r.factura_id }), sub: f?.contraparte ?? null };
+    const twin = names.twins.get(r.factura_id);
+    return {
+      main: f?.numero ?? fmt(t.records.invoice.fallbackTitle, { id: r.factura_id }),
+      sub: f?.contraparte ?? null,
+      ...(twin ? { twin: fmt(t.common.twin, { n: twin.n, of: twin.of }) } : {}),
+    };
   }
   const entity = stateLabel(lang, 'entidad', r.tabla) ?? null;
   if (r.tabla === 'cliente') return { main: names.clients.get(r.fila_id) ?? `#${r.fila_id}`, sub: entity };
-  if (r.tabla === 'orden_compra') return { main: names.orders.get(r.fila_id) ?? `#${r.fila_id}`, sub: entity };
+  if (r.tabla === 'orden_compra') {
+    // La PO y de quien es (el cliente o el proveedor), no la palabra "PO" otra vez.
+    const po = names.orders.get(r.fila_id);
+    return { main: po?.numero ?? `#${r.fila_id}`, sub: po?.parte ?? entity };
+  }
   if (r.tabla === 'importacion') return { main: fmt(t.exceptions.importNumber, { id: r.fila_id }), sub: null };
   return { main: `${entity ?? r.tabla} #${r.fila_id}`, sub: null };
 }
@@ -120,7 +133,10 @@ function ExceptionsTable({ data, onOpen }: { data: Loaded; onOpen: (r: Exception
         const c = concerns(r, data.names, t, lang);
         return (
           <span className='flex flex-col'>
-            <span className={r.factura_id ? 'font-mono text-[12.5px]' : undefined}>{c.main}</span>
+            <span className={r.factura_id ? 'font-mono text-[12.5px]' : undefined}>
+              {c.main}
+              {c.twin && <span className='ml-1.5 font-sans text-xs text-muted-foreground'>{c.twin}</span>}
+            </span>
             {c.sub && <span className='text-[13px] text-[#45423c]'>{c.sub}</span>}
           </span>
         );
@@ -163,7 +179,8 @@ function ExceptionSheet({
         {row && (
           <>
             <SheetHeader className='pr-6'>
-              <SheetTitle>{fmt(t.exceptions.sheetTitle, { id: row.id })}</SheetTitle>
+              {/* De que va (su aviso mas urgente, o el asunto que escribio una persona), no su id. */}
+              <SheetTitle>{exceptionSubject(row, lang, t)}</SheetTitle>
               <SheetDescription>
                 {(() => {
                   const c = concerns(row, data.names, t, lang);
@@ -226,6 +243,13 @@ function ExceptionSheet({
 /** Lo que pasa, en palabras normales: el nombre del hallazgo mas urgente (el enlace de la
  *  fila), su detalle debajo y cuantos mas hay. Una excepcion abierta a mano no tiene
  *  hallazgos: su asunto lo escribio una persona y se ensena tal cual. */
+/** El asunto de una excepcion en palabras: el titulo de su aviso mas urgente o el asunto que
+ *  tecleo quien la abrio (texto de una persona, tal cual). */
+export function exceptionSubject(row: ExceptionRow, lang: Lang, t: Messages): string {
+  const why = whyOf(row, lang, t);
+  return why ? (why.title ?? why.text) : row.titulo;
+}
+
 function WhatCell({ row }: { row: ExceptionRow }) {
   const { t, lang } = useT();
   const why = whyOf(row, lang, t);

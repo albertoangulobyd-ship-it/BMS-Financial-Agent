@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import csv
 import re
 import sqlite3
 import unicodedata
@@ -182,8 +183,33 @@ def tipos() -> list[tuple[str, str]]:
     return salida
 
 
+# Lo que lanzan los lectores con un fichero roto y no es un ValueError: un campo de CSV de
+# mas de 128 KB (csv.Error), un XML o un YAML que no se leen o que anidan hasta agotar la
+# pila, una codificacion imposible. Es el mismo caso que un ValueError del lector: el
+# fichero no se lee como esa clase (FicheroNoValido), nunca una peticion sin respuesta.
+ERRORES_DE_LECTURA: tuple[type[BaseException], ...] = (
+    csv.Error, RecursionError, UnicodeError, SyntaxError)
+
+
+def _errores_de_lectura() -> tuple[type[BaseException], ...]:
+    """ERRORES_DE_LECTURA y los de PyYAML (se importa tarde, como los lectores)."""
+    import yaml
+
+    return (*ERRORES_DE_LECTURA, yaml.YAMLError)
+
+
 def detectar(contenido: bytes, nombre: str) -> list[tuple[str, str]]:
-    """Las clases que reconocen el fichero, sin escribir nada (lo que mira el importador)."""
+    """Las clases que reconocen el fichero, sin escribir nada (lo que mira el importador).
+
+    Un fichero que rompe el lector de una clase al mirarlo (ERRORES_DE_LECTURA) no es un
+    fichero que se pueda leer: FicheroNoValido, con su codigo."""
+    try:
+        return _detectar(contenido, nombre)
+    except _errores_de_lectura() as exc:
+        raise FicheroNoValido(f"{nombre} no se puede leer: {type(exc).__name__}") from None
+
+
+def _detectar(contenido: bytes, nombre: str) -> list[tuple[str, str]]:
     from .importadores import camt053, mt940, ordenes
     from .importadores.tabular import LectorTabular, mapeos
 
@@ -253,6 +279,9 @@ def importar(almacen: Any, usuario_id: int, peticion: Peticion) -> dict[str, Any
         # Lo mismo que la CLI dice "No se importa: ..." (MapeoNoValido, FicheroIlegible, un
         # XML o un YAML que no se leen, columnas que no son las del mapeo, una fecha futura).
         raise FicheroNoValido(str(exc)) from None
+    except _errores_de_lectura() as exc:
+        raise FicheroNoValido(f"{peticion.nombre} no se puede leer: {type(exc).__name__}"
+                              ) from None
     return resultado(r, fuente, tipo)
 
 
