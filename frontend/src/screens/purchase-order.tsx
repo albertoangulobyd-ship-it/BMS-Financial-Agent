@@ -190,10 +190,10 @@ function PoObjects({ po }: { po: PoView }) {
           <button
             type='button'
             onClick={() => openRoute(recordRoute('object', o.id, 'objects'))}
-            className='rounded-md border border-border bg-card px-3 py-2 text-left hover:bg-[#f4f1ea]'
+            className='rounded-md border border-border bg-card px-3 py-2 text-left hover:bg-row-hover'
           >
             <span className='block font-mono text-[12.5px] text-primary'>{o.codigo}</span>
-            {o.nombre && <span className='block text-[13px] text-[#45423c]'>{o.nombre}</span>}
+            {o.nombre && <span className='block text-[13px] text-soft-foreground'>{o.nombre}</span>}
           </button>
         </li>
       ))}

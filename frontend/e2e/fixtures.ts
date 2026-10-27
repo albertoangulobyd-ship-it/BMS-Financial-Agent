@@ -2,12 +2,16 @@
 // - cada peticion de la pagina va a 127.0.0.1 (una a otro sitio se corta y la prueba falla);
 // - ninguna violacion de la politica de contenido (CSP);
 // - ningun error en la consola ni ninguna excepcion sin capturar.
-// Y las ayudas: entrar con un token de prueba, el analisis de accesibilidad (axe) y las
-// capturas, que van a CAPTURAS_DIR (por defecto test-results/capturas).
+// Y las ayudas: entrar con un token de prueba, elegir el tema, el analisis de accesibilidad
+// (axe), los restos de otro idioma y las capturas, que van a CAPTURAS_DIR (por defecto
+// test-results/capturas), en una carpeta por tema: dark/ o light/ (paso 16).
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test as base, type Page } from '@playwright/test';
+import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
+import { leftoversIn } from '../src/i18n/leftovers';
+import { THEME_CHOICES, type ThemeChoice } from '../src/lib/theme-choice';
 
 interface Watch {
   external: string[];
@@ -203,44 +207,63 @@ export async function expectStatusContrast(page: Page, what: string): Promise<vo
   expect(low, `contraste de las pastillas: ${what}`).toEqual([]);
 }
 
-/** Una captura de la ventana a CAPTURAS_DIR, para mirarla. */
+/** El tema que se ve: la clase .dark de <html> (lib/theme.tsx), la unica que lo decide. */
+export async function shownTheme(page: Page): Promise<'dark' | 'light'> {
+  return (await page.evaluate(() => document.documentElement.classList.contains('dark'))) ? 'dark' : 'light';
+}
+
+/** Elige el tema en el menu de la cuenta (Donker / Licht / Volg Windows, en el orden de
+ *  THEME_CHOICES, sea cual sea el idioma) y espera a que se vea. */
+export async function chooseTheme(page: Page, choice: ThemeChoice): Promise<void> {
+  await page.getByRole('button', { name: /^(Accountmenu van|Account menu for|Menú de la cuenta de) / }).click();
+  const items = page.getByRole('menuitemradio');
+  await expect(items).toHaveCount(THEME_CHOICES.length);
+  await items.nth(THEME_CHOICES.indexOf(choice)).click();
+  await expect(page.getByRole('menu')).toBeHidden();
+  if (choice !== 'system') {
+    await expect(page.locator('html')).toHaveAttribute('data-theme', choice);
+  }
+  await settled(page);
+}
+
+/** Una captura de la ventana a CAPTURAS_DIR/<tema>/<nombre>.png, para mirarla. */
 export async function capture(page: Page, name: string): Promise<void> {
-  const dir = process.env.CAPTURAS_DIR || join('test-results', 'capturas');
+  const dir = join(process.env.CAPTURAS_DIR || join('test-results', 'capturas'), await shownTheme(page));
   mkdirSync(dir, { recursive: true });
   // Que no salga a medias una animacion ni el cursor de texto.
   await settled(page);
   await page.screenshot({ path: join(dir, `${name}.png`), caret: 'hide', animations: 'disabled' });
 }
 
-// Palabras que son castellano y no neerlandes ni ingles (sin las que coinciden: "los",
-// "las", "mes", "nota", "saldo", "leer", "persona", "con", "sin", "total"...). La app no
-// ensena nunca el castellano de la API ni los nombres de los .bat o de los accesos directos
-// de la instalacion (en castellano, para el dueno). Solo el nombre de un fichero que eligio
-// o importo la persona va marcado con data-proper-name y no cuenta: es suyo, tal cual.
-const SPANISH = new Set([
-  'finanzas',
-  'factura', 'facturas', 'proveedor', 'proveedores', 'cliente', 'clientes', 'pendiente',
-  'pendientes', 'vencida', 'vencidas', 'vencido', 'hallazgo', 'hallazgos', 'excepción',
-  'excepcion', 'excepciones', 'importe', 'importes', 'fecha', 'fechas', 'motivo', 'motivos',
-  'regla', 'reglas', 'revisión', 'revisada', 'pagada', 'pagado', 'pagar', 'pago', 'pagos',
-  'abierta', 'abierto', 'cerrada', 'cerrado', 'aceptado', 'aceptada', 'objeto', 'objetos',
-  'ninguno', 'ninguna', 'también', 'según', 'está', 'están', 'aquí', 'datos', 'trimestre',
-  'presentado', 'presentar', 'bloqueada', 'cuenta', 'cuentas', 'bancaria', 'periodo', 'semana',
-  'hoy', 'lista', 'listo', 'nueva', 'nuevo', 'añadir', 'guardar', 'cancelar', 'cerrar', 'abrir',
-  'buscar', 'importar', 'empresa', 'copia', 'estado', 'resumen', 'iva', 'aprobado', 'aprobar',
-  'cobro', 'cobrado', 'órdenes', 'qué', 'para', 'pero', 'una', 'uno', 'del', 'por', 'sí',
-  'línea', 'líneas', 'número', 'código', 'después', 'antes', 'cuando', 'porque',
-]);
-
-/** Ninguna palabra en castellano en lo que se ve (salvo los nombres propios marcados). */
-export async function expectNoSpanish(page: Page, what: string): Promise<void> {
+/**
+ * Ningun resto de otro idioma en lo que se ve (paso 16; antes solo "nada de castellano"): en
+ * neerlandes, ninguna palabra que solo sea inglesa o castellana; en ingles, ninguna neerlandesa
+ * o castellana; en castellano, ninguna neerlandesa ni inglesa. Las listas son las de
+ * src/i18n/leftovers.ts, las mismas que miran los diccionarios. Mientras el castellano diga lo
+ * del dominio en ingles (DOMAIN_FALLBACK, src/i18n/langs.ts), en castellano se toleran restos
+ * en ingles y solo eso. Lo que no es de la app va con data-proper-name y no cuenta: un
+ * fichero de la persona, o el texto libre de un campo tal como vino del documento.
+ */
+export async function expectNoLeftovers(page: Page, lang: Lang, what: string): Promise<void> {
+  await expect(page.locator('html')).toHaveAttribute('lang', lang);
   const text = await page.evaluate(() => {
     let visible = document.body.innerText;
-    for (const element of Array.from(document.querySelectorAll('[data-proper-name]'))) {
-      visible = visible.split(element.textContent ?? '').join(' ');
-    }
+    // Las bandas que pone el servidor (.bms-banda, app_local.py) van en neerlandes e ingles a
+    // la vez, a proposito: no son de la app.
+    // Los mas largos primero: un "30" suelto no deja a medias un "30 dagen".
+    const own = Array.from(document.querySelectorAll<HTMLElement>('[data-proper-name], .bms-banda'))
+      .map((element) => (element.innerText || element.textContent || '').trim())
+      .filter((t) => t !== '')
+      .sort((a, b) => b.length - a.length);
+    for (const t of own) visible = visible.split(t).join(' ');
     return visible;
   });
-  const found = [...new Set((text.toLocaleLowerCase('nl-NL').match(/\p{L}+/gu) ?? []).filter((w) => SPANISH.has(w)))];
-  expect(found, `castellano en ${what}`).toEqual([]);
+  const fallback = DOMAIN_FALLBACK[lang];
+  // Cada resto con un poco de lo que lo rodea, para encontrarlo en la pantalla.
+  const found = leftoversIn(text, lang, fallback ? [fallback] : []).map((hit) => {
+    const word = hit.slice(hit.indexOf(':') + 1);
+    const at = text.toLocaleLowerCase('nl-NL').search(new RegExp(`(?<!\\p{L})${word}(?!\\p{L})`, 'u'));
+    return at < 0 ? hit : `${hit} («${text.slice(Math.max(0, at - 30), at + word.length + 30).replace(/\s+/g, ' ')}»)`;
+  });
+  expect(found, `restos de otro idioma en ${what}`).toEqual([]);
 }

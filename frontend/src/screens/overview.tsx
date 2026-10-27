@@ -3,6 +3,7 @@
 // una abre la pantalla que la explica, y "Als eerste" con las cinco primeras facturas de
 // la werklijst. Nada mas: lo demas vive en su pantalla.
 import { ArrowRight } from 'lucide-react';
+import { AuroraOrb } from '@/aurora/orb/aurora-orb';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
@@ -42,7 +43,14 @@ export function OverviewScreen() {
 
   return (
     <Screen calm>
-      <PageHeader title={nav.label} description={nav.description} />
+      <PageHeader
+        title={nav.label}
+        description={nav.description}
+        // El orbe de Aurora, el asistente: quieto en reposo; se mueve mientras lee el panel.
+        // Un bloque de 160 px cuyo margen negativo lo deja en 56 px de alto, centrado con el
+        // titulo y su frase: no empuja la cabecera hacia abajo.
+        action={<AuroraOrb label={t.aurora.orb} size={160} active={state.status === 'loading'} className='-my-13 -mr-4 grid' />}
+      />
       {state.status === 'loading' && <Loading />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={retry} />}
       {state.status === 'ready' && <OverviewContent panel={state.data[0]} invoices={state.data[1]} />}
@@ -180,7 +188,7 @@ function OverviewContent({ panel, invoices }: { panel: Panel; invoices: InvoiceR
         {queue.length === 0 ? (
           <EmptyState icon={CircleCheck} title={t.empty.nothingNeedsAttention} text={t.overview.nextUp.empty} />
         ) : (
-          <ol className='divide-y divide-[#ebe7df] overflow-hidden rounded-md border border-border bg-card'>
+          <ol className='divide-y divide-divider overflow-hidden rounded-md border border-border bg-card'>
             {/* Cinco cosas distintas: las facturas con el mismo numero y relacion van en una
                 fila, con cuantas son (las dos estan en la Werklijst). */}
             {distinctByNumber(queue)
@@ -203,7 +211,7 @@ function NextUpRow({ row, count, onOpen }: { row: InvoiceRow; count: number; onO
         type='button'
         onClick={onOpen}
         aria-label={`${t.records.invoice.label} ${row.numero ?? row.id}`}
-        className='grid w-full grid-cols-[8.5rem_minmax(10rem,15rem)_7.5rem_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-[#f4f1ea]'
+        className='grid w-full grid-cols-[8.5rem_minmax(10rem,15rem)_7.5rem_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-row-hover'
       >
         <span>
           <StatusPill group='prioridad' state={row.nivel} />
@@ -211,7 +219,7 @@ function NextUpRow({ row, count, onOpen }: { row: InvoiceRow; count: number; onO
         <span className='flex min-w-0 flex-col'>
           <span data-testid='next-up-number' className='truncate font-mono text-[12.5px] font-medium text-primary'>{row.numero ?? '—'}</span>
           {count > 1 && <span className='text-xs text-muted-foreground'>{fmt(t.overview.nextUp.sameNumber, { n: count })}</span>}
-          <span className='truncate text-[13px] text-[#45423c]'>{row.contraparte ?? '—'}</span>
+          <span className='truncate text-[13px] text-soft-foreground'>{row.contraparte ?? '—'}</span>
         </span>
         <span className='text-right'>
           <Money cents={row.total_cent} />

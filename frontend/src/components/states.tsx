@@ -30,7 +30,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className='flex flex-col items-center gap-2 rounded-md border border-dashed border-[#d6d1c6] px-6 py-12 text-center'>
+    <div className='flex flex-col items-center gap-2 rounded-md border border-dashed border-border-strong px-6 py-12 text-center'>
       <Icon className='h-6 w-6 text-muted-foreground' aria-hidden='true' />
       <p className='font-medium'>{title}</p>
       {text && <p className='max-w-md text-muted-foreground'>{text}</p>}
@@ -89,12 +89,12 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   const { t, lang } = useT();
   const stale = error instanceof ApiError && error.kind === 'stale';
   return (
-    <div role='alert' className='flex flex-col items-start gap-3 rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-5 py-4'>
-      <div className='flex items-center gap-2 font-medium text-[#4a2205]'>
+    <div role='alert' className='flex flex-col items-start gap-3 rounded-md border border-notice-border bg-notice px-5 py-4'>
+      <div className='flex items-center gap-2 font-medium text-notice-foreground'>
         <CircleAlert className='h-4 w-4' aria-hidden='true' />
         <span>{t.errors.title}</span>
       </div>
-      <p className='text-[#4a2205]'>{errorMessage(error, t, lang)}</p>
+      <p className='text-notice-foreground'>{errorMessage(error, t, lang)}</p>
       <TechnicalDetail error={error} />
       {onRetry && (
         <Button variant='outline' size='sm' onClick={onRetry}>

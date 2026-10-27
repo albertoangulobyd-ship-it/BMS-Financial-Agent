@@ -291,7 +291,7 @@ function PerObject({ party: p }: { party: PartyView }) {
       cell: (r) => (
         <span className='flex flex-col items-start'>
           <span className='font-mono text-[12.5px]'>{r.objeto ?? '—'}</span>
-          {r.nombre && <span className='text-[13px] font-normal text-[#45423c]'>{r.nombre}</span>}
+          {r.nombre && <span className='text-[13px] font-normal text-soft-foreground'>{r.nombre}</span>}
         </span>
       ),
     },

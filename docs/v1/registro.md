@@ -7733,3 +7733,169 @@ nuevas: el móvil a 400 y a 360 px), todas sin peticiones fuera de 127.0.0.1, si
 de la CSP, sin errores en la consola, sin problemas de axe ni faltas de contraste y sin
 castellano, también con la suite de Python corriendo a la vez. `npm run build` vuelve a dar
 exactamente lo que va en git.
+
+## Paso 16 · base de Aurora dentro de la app, temas e idiomas
+
+Paso 0 del §8.3 de la revisión de Aurora, más la infraestructura de temas e idiomas sobre la
+que se monta lo demás. La navegación de pestañas sigue como estaba (la sustituye la rueda de
+Aurora en el paso siguiente) y no se toca nada de Python salvo una prueba
+(`tests/test_app_local.py`). El detalle, en [app-local.md](../app-local.md) (§1, §5 y §7,
+«Aurora dentro de la app»).
+
+### Qué se construyó
+
+- **Aurora en `frontend/src/aurora/`**, desde `app-nuestras` del prototipo, formateado y con
+  TypeScript estricto: el logo (`logo.tsx`, la marca BMS como un SVG pequeño trazado del PNG),
+  el orbe (`orb/`), el orbe de partículas (`thinking-orb/`), el suricato y el cargador
+  (`meerkat/`, `processing/`), el archivo (`documents/`), la conversación y la caja de
+  escribir, la búsqueda, el resumen del dinero (`finance/`) y la rueda (`wheel.tsx`). Hoy se
+  montan el logo (entrada y barra lateral) y el orbe (cabecera del Overzicht, que se mueve
+  mientras carga); lo demás espera a su pantalla.
+- **Fuera todo lo simulado**: `invoice-analysis.ts`, los lotes de muestra, las dos claves de
+  `localStorage` del prototipo, las respuestas fijas, «Simular liquidación», «Agregar
+  muestra», «Compartir», los pulgares, «Regenerar», los botones de depuración, los paneles a
+  los que no se llegaba y las funciones globales del cargador. NumberFlow y date-fns no se
+  traen: los importes salen de `format.ts` desde céntimos enteros, en notación neerlandesa y
+  solo en euros, también en `FinanceBento`.
+- **Las tres correcciones de la CSP** (revisión, hallazgo 9): el estilo de las carpetas en
+  su propio fichero (`glass-folder.css`; el prototipo metía un `<style>` en cada carpeta), la
+  suricata montada sin `innerHTML` (un canvas que pinta sus sprites) y las cifras sin
+  NumberFlow. Además, nada de enlaces ni imágenes hechos con un dato (`href`, `image`) y el
+  cargador ya no deja funciones en `window`.
+- **El CSS de Aurora**, bajo `.aurora-root`, en `@layer components`, con los colores como
+  variables de `aurora/palette.css` (oscuro el de Aurora, claro su pareja con la luminosidad
+  invertida en OKLab, y `--au-t-…` para texto a 4,6:1), nada por debajo de 12 px y los
+  `@keyframes` como `aurora-…`. IBM Plex Sans en 300, 400, 500, 600 y 700, y Mono.
+- **El orbe con las reglas de la revisión**: quieto en reposo (una imagen, ningún cuadro
+  pedido), como mucho 30 imágenes por segundo, parado con la ventana oculta, fuera de
+  pantalla o con «menos movimiento», uno por pantalla y, sin WebGL, un degradado fijo.
+- **Los temas**: el oscuro de Aurora por defecto, el claro y «Volg Windows», como variables
+  CSS de toda la app (`src/index.css`: `:root` claro, `:root.dark` oscuro). Lo decide la clase
+  `.dark` de `<html>` (`lib/theme.tsx`, antes de pintar nada); «Volg Windows» escucha
+  `matchMedia` y cambia en vivo. Se elige en el menú de la cuenta y en Instellingen y se
+  guarda como el idioma (`bms-app:v1:theme` y `bms-app:v1:<entorno>:<persona>:theme`). Los
+  colores fijos de las pantallas (`#45423c`, `#ebe7df`, `#f4f1ea`, `#f2efe8`, `#d6d1c6`…)
+  pasaron a variables (`soft-foreground`, `divider`, `row-hover`, `table-head`,
+  `border-strong`, `notice`, `avatar`, `sidebar-tab-active`).
+- **El castellano**: `i18n/es.ts` con todas las claves (el tipo y `i18n.test.ts` lo
+  obligan), el interruptor NL | EN | ES y, mientras falte `src/bms_agent/textos/es.json`
+  (lo prepara otro trabajo), los textos de dominio en inglés, marcado en `DOMAIN_FALLBACK`
+  (`i18n/langs.ts`) con lo que hay que hacer cuando llegue.
+- **Los restos de otro idioma por idioma** (`i18n/leftovers.ts`) en lugar de «ningún
+  castellano»: los usan `i18n.test.ts` (los tres diccionarios) y `expectNoLeftovers` en cada
+  pantalla de las pruebas en el navegador.
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Solo tema claro | **Oscuro por defecto** (el de Aurora), claro y «Volg Windows», por persona | Lo pide el paso 16; el modo de Windows solo cuenta con «Volg Windows» |
+| 2 | NL \| EN; `isLang('es')` era falso y un `es` guardado se ignoraba | NL \| EN \| ES; `es` vale en `isLang` y en lo guardado (`fr` o `ES` siguen sin valer) | El castellano como tercer idioma |
+| 3 | El dominio solo en nl y en | En castellano, el dominio dice el inglés (`DOMAIN_FALLBACK`) hasta que llegue `es.json` | `es.json` lo hace otro trabajo; el siguiente lo conecta |
+| 4 | `expectNoSpanish`: ninguna palabra de una lista castellana en nl y en | `expectNoLeftovers`: en cada idioma, ninguna palabra que solo sea de otro (en castellano se tolera el inglés del dominio); no cuentan las bandas del servidor ni lo marcado con `data-proper-name` | Con tres idiomas, «nada de castellano» ya no sirve |
+| 5 | `data-proper-name`, solo el nombre de un fichero de la persona | También el valor de texto libre de un campo, tal como vino del documento («30 dagen») | Es texto del documento, no de la app (salía como resto de neerlandés en inglés y castellano) |
+| 6 | Título de pantalla de 21 px, seminegrita | 26 px, peso normal, más apretado | El estilo de Aurora |
+| 7 | La marca «BM» en una caja | La marca BMS en SVG (`BmsMark`) con «finance» | El logo de Aurora, pequeño y sin imagen |
+| 8 | La cabecera del Overzicht, sin nada a la derecha | El orbe de Aurora, quieto salvo mientras carga | El asistente se ve en el inicio |
+| 9 | Fechas largas armadas en el código | `months.longDate`, una plantilla por idioma | El castellano las dice de otra forma («martes, 27 de octubre de 2026») |
+| 10 | `status.spec`: «con el modo oscuro del sistema la app sigue clara» | «el tema es el que elige la persona, no el del sistema»: oscuro por defecto con Windows en claro, claro con Windows en oscuro, cada pastilla a 4,5:1 en los dos | Con dos temas, lo que hay que probar es que el tema no lo cambia Windows |
+| 11 | Capturas en `CAPTURAS_DIR/<nombre>.png` | En `CAPTURAS_DIR/dark/` o `CAPTURAS_DIR/light/`, según el tema que se ve | El mismo nombre en los dos temas |
+
+### La puerta, prueba por prueba
+
+- **Temas**: `src/lib/storage.test.ts` (guardar y leer el tema, valores que no valen, un
+  almacén roto, `DEFAULT_THEME` oscuro, `resolveTheme`); `e2e/themes.spec.ts` «oscuro por
+  defecto…» (oscuro con Windows en claro, elegir claro en el menú de la cuenta, recargar y
+  seguir en claro, «Volg Windows» cambiando en vivo, otra persona en el mismo ordenador con
+  su propio tema); `e2e/status.spec.ts` «el tema es el que elige la persona…»;
+  `tests/test_app_local.py` (el CSS construido sin `prefers-color-scheme`, `:root` claro y
+  `:root.dark` oscuro).
+- **Cada pantalla en los dos temas**: `e2e/themes.spec.ts` recorre las 15 áreas en claro en
+  neerlandés, inglés y castellano y en oscuro en castellano, y las fichas en claro; las demás
+  pruebas, en oscuro. En cada una, axe sin nada serio, ninguna falta de contraste, cada
+  pastilla a 4,5:1 o más, ningún resto de otro idioma y un orbe como mucho.
+- **El orbe**: `src/aurora/orb/orb-loop.test.ts` (cuándo se mueve, como mucho 30 imágenes
+  por segundo a 60, 120 y 144 Hz, ningún cuadro parado, uno por pantalla) y
+  `e2e/themes.spec.ts`: mientras carga se mueve y pide cuadros; con la ventana oculta o fuera
+  de pantalla se para; en reposo, **0 cuadros pedidos en 3 s** (límite: menos de 10; mientras carga
+  se cuentan unos 78 en un segundo) y **unos 3 ms de trabajo del hilo principal en 5 s** (límite:
+  0,25 s, el 5 % de un núcleo; `TaskDuration` del protocolo de Chrome); con «menos
+  movimiento», quieto también mientras carga; sin WebGL, `data-orb="fallback"` con el
+  degradado y la pantalla igual de accesible.
+- **Idiomas**: `src/i18n/i18n.test.ts` (las mismas claves y huecos en los tres, ningún texto
+  vacío, ningún resto de otro idioma en cada diccionario, el castellano no es una copia del
+  inglés ni del neerlandés, `LANGS`, `DOMAIN_FALLBACK`); `templates.test.ts` prueba cada
+  idioma que trae `casos.json`.
+
+### Desviaciones, y por qué
+
+1. **El CSS de Aurora se sacó con una herramienta de una sola vez** (solo las reglas que usan
+   sus componentes, con el ámbito, la capa, la paleta y los nombres cambiados) que no va en el
+   repositorio: desde ahora esas hojas se cambian a mano, como el resto.
+2. **El tema claro de Aurora no existía**: su pareja de cada color es el mismo matiz con la
+   luminosidad invertida en OKLab, y los colores de texto se ajustaron a 4,6:1. En claro, el
+   lienzo del orbe lleva `saturate` y `contrast` (sin eso se veía lavado), y el suricato y el
+   cargador se invierten.
+3. **`thinking-orb/renderer.ts` va sin comprobar tipos** (`// @ts-nocheck`): es el dibujo del
+   «Thinking Orb» tal cual, con nombres de una letra; tiparlo sería reescribirlo. La frontera
+   (`thinking-orb.tsx`) sí lleva tipos, y el dibujo no toca el DOM ni la red.
+4. **Sin axe con el menú de la cuenta abierto**: Radix esconde el resto con `aria-hidden`
+   mientras el foco está en el menú y axe lo da como `aria-hidden-focus`. Con el menú abierto
+   se mide solo el contraste de las pastillas.
+5. **«Cola de trabajo» y su insignia se cortan en la barra lateral**: la barra se va con la
+   rueda en el paso siguiente.
+6. **`GlassFolder` ya no tiene la prop `action`** (`'more' | 'none'`), ahora `moreButton`:
+   `tests/test_app_local.py` busca `action='…'` para saber qué órdenes manda la app, y
+   `action='none'` salía como una orden que no existe.
+7. **En castellano la app sí nombra los `.bat` y los accesos directos** (`empresa.bat`,
+   «BMS Finanzas - Leer facturas»): en neerlandés y en inglés no los nombra porque están en
+   castellano; en castellano se llaman así.
+8. **Cuatro pruebas en el navegador del paso 15 dependían del día en que se crea la base de
+   prueba.** `demo.py` numera las facturas quincenales de J. Voorbeeld Beveiliging desde el
+   principio de la planificación: creada el 19-10-2026, la que llega dos veces era
+   JV-2026-006 y había 16 documentos leídos; creada el 27-10-2026 es JV-2026-007 y son 17
+   (comprobado en la base). Con las cifras escritas a mano, «het overzicht…», «de
+   geblokkeerde facturen…», «accepteren vraagt een tweede persoon…» y «facturen lezen…»
+   fallaban por los datos, no por la app. Ahora `daily.spec.ts` lee el número de la Werklijst
+   (`twinNumber`: la fila con «1 van 2») y `screens.spec.ts` lee los documentos de
+   `/api/v2/lectura`; lo que se comprueba es lo mismo. «Un solo sitio late» de
+   `status.spec.ts` falló en la misma pasada solo porque la prueba de aceptar se quedó a
+   medias y dejó la base de otra manera; sola y en la pasada entera, pasa.
+
+### Lo que deben saber los pasos siguientes
+
+- **Tema**: `useTheme()` (de `@/lib/theme`) da `{ choice, resolved, setChoice }`; `choice` es
+  `'dark' | 'light' | 'system'` y `resolved`, `'dark' | 'light'`. Los colores, siempre con
+  las variables (`bg-card`, `text-soft-foreground`, `var(--au-…)`), nunca un hex fijo; una
+  clase `dark:` vale con la `.dark` de `<html>`.
+- **Idiomas**: `useT()` da `{ t, lang, setLang }`; `Lang`, `LANGS`, `LOCALES` y `isLang` están
+  en `@/i18n/langs` (y se reexportan desde `@/i18n`). Un texto nuevo va en `nl.ts`, `en.ts` y
+  `es.ts` a la vez. Para conectar `es.json`: lo que dice `DOMAIN_FALLBACK`.
+- **Aurora**: cada pieza envuelve su raíz en `.aurora-root` y recibe sus textos de
+  `t.aurora`; un orbe nuevo en una pantalla que ya tiene uno sale como degradado.
+
+**Mirado en las capturas** (`CAPTURAS_DIR`, 143 en `dark/` y 55 en `light/`, y las de las
+piezas sin montar en un banco de pruebas aparte): cada área en claro en los tres idiomas y en
+oscuro en castellano; la entrada en los dos temas y en castellano; el menú de la cuenta con
+«Licht» marcado; Instellingen con «Volg Windows» siguiendo al oscuro; el Overzicht con el
+orbe quieto a la derecha del título y, sin WebGL, con el degradado; la factura en castellano
+con los campos de dominio en inglés (la reserva); el menú del móvil en oscuro. Las piezas sin
+montar (la conversación, el archivo con sus carpetas, la búsqueda, «Lo importante» y el
+cargador con la suricata y el resultado) se miraron en los dos temas con datos de prueba.
+Lo que se arregló al mirarlas: en la primera pasada el orbe empujaba la cabecera del
+Overzicht 60 px hacia abajo (era un elemento en línea con márgenes negativos: ahora un
+bloque de 56 px de alto); el orbe del archivo tapaba la línea pequeña de encima del título
+(ahora va centrado detrás); en claro, un halo oscuro alrededor del orbe (ahora `saturate` y
+`contrast`); «1 proveedores con saldo» (ahora singular). Queda: «Cola de trabajo» y su
+insignia se cortan en la barra lateral (desviación 5).
+
+**Resultado**: Python 3.11, **2515 pasan y 12 se saltan** (como antes: de Python solo cambia
+una prueba de `test_app_local.py`, que pasa también con Python 3.13); `npm run typecheck`
+limpio; vitest, **830** (12 ficheros; 10 más: el bucle del orbe, el tema guardado y los
+tres idiomas); Playwright, **45** (9 nuevas en `themes.spec.ts`), todas sin peticiones fuera
+de 127.0.0.1, sin violaciones de la CSP, sin errores en la consola, sin problemas de axe ni
+faltas de contraste en los dos temas y sin restos de otro idioma, con la suite de Python
+corriendo a la vez. El orbe en reposo: 0 cuadros pedidos en 3 s y 3 ms de trabajo del hilo
+principal en 5 s; moviéndose, unos 78 cuadros pedidos por segundo (los del orbe y los de la
+app mientras carga). Sin dependencias nuevas (`package.json` y `package-lock.json` sin
+cambios); `npm run build` vuelve a dar exactamente lo que va en git.

@@ -31,7 +31,8 @@ export function PageHeader({
     <header className='flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pb-5'>
       <div className='min-w-0'>
         <div className='flex items-baseline gap-3'>
-          <h1 className='text-[21px] leading-tight font-semibold tracking-[-0.005em]'>{title}</h1>
+          {/* El titulo como en Aurora: grande, ligero y apretado. */}
+          <h1 className='text-[26px] leading-tight font-normal tracking-[-0.02em]'>{title}</h1>
           {meta && <span className='text-xs text-muted-foreground'>{meta}</span>}
         </div>
         <p className='mt-1 text-muted-foreground'>{description}</p>

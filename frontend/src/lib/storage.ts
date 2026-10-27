@@ -1,6 +1,6 @@
-// Lo unico que la app guarda en el navegador: comodidades de cada persona (el idioma, si
-// la barra lateral va plegada y que pestanas tenia abiertas, con ids de pantalla e ids
-// numericos). Nunca el token ni un dato de la API. La clave lleva el entorno (demo o
+// Lo unico que la app guarda en el navegador: comodidades de cada persona (el idioma, el
+// tema, si la barra lateral va plegada y que pestanas tenia abiertas, con ids de pantalla e
+// ids numericos). Nunca el token ni un dato de la API. La clave lleva el entorno (demo o
 // real) y el id de la persona: un id de la base de prueba nunca abre una ficha en la de
 // verdad, ni las pestanas de una persona aparecen a otra en el mismo ordenador.
 //
@@ -9,6 +9,7 @@
 import type { SavedTabsState, TabRoute } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { isLang, type Lang } from '@/i18n';
 import type { Environment } from './api';
+import { isThemeChoice, type ThemeChoice } from './theme-choice';
 
 export const STORAGE_PREFIX = 'bms-app:v1';
 const MAX_TABS = 30;
@@ -46,7 +47,7 @@ function write(store: KeyValueStore | null, key: string, value: string): void {
 }
 
 /** La clave de una preferencia de una persona en un entorno. */
-export function personKey(environment: Environment, userId: number, what: 'lang' | 'tabs'): string {
+export function personKey(environment: Environment, userId: number, what: 'lang' | 'tabs' | 'theme'): string {
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('user id');
   return `${STORAGE_PREFIX}:${environment}:${userId}:${what}`;
 }
@@ -61,6 +62,18 @@ export function loadLang(key: string, store: KeyValueStore | null = browserStore
 
 export function saveLang(key: string, lang: Lang, store: KeyValueStore | null = browserStore()): void {
   write(store, key, lang);
+}
+
+/** El tema del ultimo uso en este ordenador: el de la pantalla de entrada. */
+export const DEVICE_THEME_KEY = `${STORAGE_PREFIX}:theme`;
+
+export function loadTheme(key: string, store: KeyValueStore | null = browserStore()): ThemeChoice | null {
+  const value = read(store, key);
+  return isThemeChoice(value) ? value : null;
+}
+
+export function saveTheme(key: string, theme: ThemeChoice, store: KeyValueStore | null = browserStore()): void {
+  write(store, key, theme);
 }
 
 const TAB_ID = /^tab-\d{1,6}(-\d{1,16})?$/;

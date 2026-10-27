@@ -3,7 +3,7 @@
 // facturas. Los importes llegan en centimos enteros (*_cent) y las horas en milesimas
 // (*_mil): se escriben con aritmetica de enteros (BigInt y texto), nunca con float, para
 // que un centimo no se pierda ni aparezca por redondeo.
-import type { Messages } from '@/i18n';
+import { fmt, type Messages } from '@/i18n';
 
 /** El signo menos de verdad (U+2212): mas legible que el guion en cifras alineadas. */
 export const MINUS = '−';
@@ -108,12 +108,18 @@ export function formatDateProse(value: string | null | undefined, t: Messages): 
   return `${d.day} ${t.months.short[d.month - 1]} ${d.year}`;
 }
 
-/** Con el dia de la semana: "maandag 19 oktober 2026" / "Monday 19 October 2026". */
+/** Con el dia de la semana: "maandag 19 oktober 2026" / "Monday 19 October 2026" /
+ *  "lunes, 19 de octubre de 2026" (el orden lo da cada idioma: months.longDate). */
 export function formatDateLong(value: string | null | undefined, t: Messages): string {
   const d = parseIsoDate(value);
   if (!d) return NO_VALUE;
   const weekday = new Date(Date.UTC(d.year, d.month - 1, d.day)).getUTCDay();
-  return `${t.months.weekdays[weekday]} ${d.day} ${t.months.long[d.month - 1]} ${d.year}`;
+  return fmt(t.months.longDate, {
+    weekday: t.months.weekdays[weekday] ?? '',
+    day: d.day,
+    month: t.months.long[d.month - 1] ?? '',
+    year: d.year,
+  });
 }
 
 /** Un instante ISO con hora, en la hora de Amsterdam: "16-10-2026 10:12". */

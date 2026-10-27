@@ -1,9 +1,9 @@
 # La app local de BMS
 
-Paso 15 · 19 de octubre de 2026
+Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano) · 27 de octubre de 2026
 
 La ventana con la que trabaja administración: facturas, avisos, relaciones, dinero y
-datos, en **neerlandés o inglés**, sin salir del ordenador. La pidió el dueño así:
+datos, en **neerlandés, inglés o castellano**, sin salir del ordenador. La pidió el dueño así:
 «Podríamos construir como app local para que tenga una interfaz razonable con el
 cliente y que pueda acceder a la información que necesite?», con la opción B del
 diseño («Me gusta la opción B con el menú de navegación así. Importante que sea
@@ -22,6 +22,12 @@ Werklijst, Inkomend, Uitgaand, la ficha de una factura, Uitzonderingen e IBAN-co
 (§4.2), Kasstroom y Btw (§4.3), Importeren y Facturen lezen (§4.4) e Instellingen (§4.5),
 todas con datos y órdenes de verdad.
 
+El **paso 16** trae dentro la base de **Aurora**, el prototipo del dueño: su aspecto
+oscuro, su orbe, su logo y sus piezas, sin nada simulado (§7, «Aurora dentro de la app»);
+los **dos temas**, el oscuro de Aurora por defecto, el claro y «Volg Windows» (§1); y el
+**castellano** como tercer idioma (§5). La navegación de pestañas sigue como estaba: la
+sustituye la rueda de Aurora en el paso siguiente.
+
 ---
 
 ## 1. Qué es
@@ -38,16 +44,25 @@ instalación nativa) no necesita Node para nada.
 - **La consola de antes sigue** en `http://127.0.0.1:8765/consola`, de reserva, con
   el mismo token. Si algo de la app no se viera bien, todo se puede hacer allí.
 
-El aspecto es el de la opción B («Workbench»), más sencillo: fondo blanco roto
-(`#f7f5f0`), texto casi negro, un solo color de acento (verde azulado `#0e5f5c`),
-líneas finas, sin gráficos y sin sombras salvo en lo que flota (menús, avisos). Solo
-tema claro (el modo oscuro de Windows no la cambia). Pensado para una ventana de 1440 px,
+El aspecto es el de Aurora desde el paso 16: **tema oscuro por defecto** (fondo
+`#0a0a0d`, tarjetas `#111116`, texto `#ebe8f0`, acento lila `#c2aed7`), IBM Plex Sans en
+cinco pesos (300 a 700) y Mono, títulos finos, líneas finas y sin sombras salvo en lo que
+flota (menús, avisos). Hay también un **tema claro** con la misma paleta (fondo `#f5f4f8`,
+tarjetas `#fcfbfe`, acento `#5b4890`) y **«Volg Windows»**, que sigue al modo de Windows y
+cambia en vivo si Windows cambia. Lo elige cada persona en el menú de su cuenta o en
+Instellingen, y se guarda como el idioma: por persona y entorno, y la entrada sale con el
+último de ese ordenador. Los dos temas son variables CSS que usa toda la app
+(`src/index.css`: las claras en `:root`, las oscuras en `:root.dark`) y los dos pasan WCAG
+AA (axe y la medida de cada pastilla en cada pantalla, §7). El tema lo decide **solo la
+clase `.dark` de `<html>`** (`frontend/src/lib/theme.tsx`, que la pone antes de pintar
+nada): el CSS construido no lleva `prefers-color-scheme`, así que un Windows en oscuro no
+cambia el tema que la persona eligió. Pensado para una ventana de 1440 px,
 y se usa también a 1024 × 768 (las tablas anchas se desplazan dentro de su caja; la barra
 lateral va más junta en pantallas bajas y se ven todos sus apartados; el + y el … de las
 pestañas van fuera de la tira, y un fundido en el borde dice que hay más pestañas a ese
 lado); por debajo de 768 px de ancho el menú va en una hoja que se abre con el botón de
 menú, y la cabecera va en **dos filas** (pensado para el móvil, de 360 a 430 px): arriba el
-botón del menú, la marca de prueba, NL | EN y la persona; debajo, las pestañas con el + y el …
+botón del menú, la marca de prueba, NL | EN | ES y la persona; debajo, las pestañas con el + y el …
 fuera de la tira. Las pestañas van más estrechas, se desplazan con el dedo y solo la activa
 lleva la ✕ (como Chrome cuando no caben: sin ratón no se ve antes de tocar, y tocar el borde
 de otra la cerraba). En cualquier anchura, la pestaña activa se ve siempre entera: si la
@@ -294,7 +309,8 @@ las últimas pasadas. **No hay ningún botón que la lance.**
 
 ### 4.5 Instellingen
 
-- **Taal**: NL | EN (el mismo interruptor de la cabecera).
+- **Taal**: NL | EN | ES (el mismo interruptor de la cabecera).
+- **Thema**: Donker | Licht | Volg Windows (lo mismo que en el menú de la cuenta).
 - **Quién eres**: el nombre, el rol o los roles en palabras (Beheerder, Administratie,
   Alleen lezen) y, plegado con su número, **«Wat je mag doen»**: cada permiso en una
   frase (`GET /api/v2/yo`, que ahora da también los roles). Uitloggen.
@@ -353,11 +369,13 @@ los colores sueltos y los puntos de antes se quitaron.
   (meer dan 5 werkdagen)», «Bezwaren van het systeem: 2»), y el plazo cercano dice los
   días en todas partes (Overzicht, Btw y la ficha del trimestre). La gravedad de un aviso
   dice además, al pasar el ratón, qué hace con la factura (`significa` del catálogo).
-- **El modo oscuro de Windows no cambia nada.** La app solo tiene tema claro; las clases
-  `dark:` del componente del dueño solo valdrían con una clase `.dark` que la app nunca
-  pone (`@custom-variant dark` en `src/index.css`). Sin eso, Tailwind v4 las aplicaba con
-  `prefers-color-scheme: dark` y el texto de las pastillas salía ilegible (menos de 2:1);
-  `e2e/status.spec.ts` lo mide con el modo oscuro del sistema.
+- **El tema lo decide la app, no Windows.** Las clases `dark:` del componente del dueño
+  valen con la clase `.dark` que la app pone en `<html>` con el tema oscuro
+  (`@custom-variant dark` en `src/index.css`), nunca con `prefers-color-scheme`: con eso,
+  un Windows en oscuro las aplicaría aunque la persona hubiera elegido el claro, y el texto
+  de las pastillas saldría ilegible (menos de 2:1). En oscuro, el texto de cada variante es
+  el tono -400 del dueño sobre su tinte; `e2e/status.spec.ts` y `e2e/themes.spec.ts` miden
+  cada pastilla en los dos temas a 4,5:1 o más, también con Windows en el modo contrario.
 - **No son estados** y siguen como estaban: las insignias de la barra lateral (son
   números), las cifras que van mal en el color de «tarde» (un importe vencido, un margen
   negativo: la cifra es el texto), los avisos de error de un formulario y el icono de
@@ -496,23 +514,24 @@ de su valor»: el mismo aviso salía así en dos colores en la misma ficha). Las
 llevan un texto corto (van entre las cifras de su ficha; el nombre entero de la regla está
 en sus avisos, justo debajo), y se añadieron `btw_config` y `empresa`.
 
-## 5. Neerlandés e inglés
+## 5. Neerlandés, inglés y castellano
 
-Por defecto, **neerlandés**; el interruptor **NL | EN** está en la cabecera, en la
-entrada y en Instellingen. Cada persona tiene el suyo (se guarda con su id y el
-entorno); la entrada sale en el último usado en ese ordenador. No hay castellano en la
-interfaz.
+Por defecto, **neerlandés**; el interruptor **NL | EN | ES** está en la cabecera, en la
+entrada y en Instellingen (cada botón lleva el nombre del idioma en ese idioma: Nederlands,
+English, Español). Cada persona tiene el suyo (se guarda con su id y el entorno); la
+entrada sale en el último usado en ese ordenador. El castellano llegó en el paso 16.
 
-- **Importes, horas y fechas siempre en notación neerlandesa**, también en inglés:
-  `€ 36.270,36`, `€ −24,76`, `78,5 u` / `78,5 h`; en tablas `16-10-2026`, en una frase
-  `16 okt 2026` / `16 Oct 2026`. Entre el euro y la cifra, y antes de `%`, va un espacio
+- **Importes, horas y fechas siempre en notación neerlandesa**, también en inglés y en
+  castellano: `€ 36.270,36`, `€ −24,76`, `78,5 u` / `78,5 h`; en tablas `16-10-2026`, en una
+  frase `16 okt 2026` / `16 Oct 2026` / `16 oct 2026`. Solo euros. Entre el euro y la cifra, y antes de `%`, va un espacio
   que no se parte (U+00A0): el euro nunca se queda al final de una línea sin su importe
   (igual en las plantillas de Python y de TypeScript). Los importes se escriben desde los céntimos enteros de
   la API (`*_cent`) y las horas desde las milésimas (`*_mil`) con aritmética de
   enteros: ni un céntimo se pierde por redondeo.
 - **Los textos de la app** (menús, títulos, botones, avisos) están en
-  `frontend/src/i18n/nl.ts` y `en.ts`; el tipo obliga a que los dos tengan las mismas
-  claves.
+  `frontend/src/i18n/nl.ts`, `en.ts` y `es.ts`; el tipo (`Messages`, la forma de `nl.ts`)
+  obliga a que los tres tengan las mismas claves, e `i18n.test.ts` lo vuelve a comprobar
+  (las mismas claves, los mismos huecos `{n}` y ningún texto vacío).
 - **Los textos del dominio** (cada regla, qué quiere decir y qué hacer; estados,
   prioridades, campos, fuentes, órdenes) salen de los catálogos de Python
   `src/bms_agent/textos/nl.json` y `en.json`, que la app importa al construirse, para
@@ -520,12 +539,19 @@ interfaz.
   (`titulo`, `detalle`, `etiqueta`, `fuente_texto`, `nota`, `motivos`) no se enseña:
   queda para la CLI y la auditoría. Solo `frontend/src/i18n/domain.ts` los importa, y
   los dos ficheros entran en la huella de `web/fuente.json`.
+- **Mientras falte `es.json`** (lo prepara otro trabajo), la app en castellano dice lo del
+  dominio (reglas, estados, prioridades, campos, errores, el tipo de factura) **en
+  inglés**. Lo marca `DOMAIN_FALLBACK` en `frontend/src/i18n/langs.ts`, con lo que hay que
+  hacer cuando llegue: importarlo en `domain.ts`, añadirlo a `frontend/build-inputs.json` y
+  a `tests/test_app_local.py` (los catálogos de la huella) y quitar la entrada de
+  `DOMAIN_FALLBACK`.
 - **El detalle de cada hallazgo se escribe desde sus `valores`** con las plantillas
   del catálogo (el lenguaje está en `src/bms_agent/textos/LEEME.md`).
   `frontend/src/i18n/templates.ts` es ese lenguaje en TypeScript, y
   `templates.test.ts` comprueba que da exactamente lo mismo que la referencia en Python
   en cada caso de `src/bms_agent/textos/casos.json` (los bordes del lenguaje y un
-  hallazgo de cada variante de cada regla), en neerlandés y en inglés.
+  hallazgo de cada variante de cada regla), en cada idioma que traiga `casos.json` (hoy
+  neerlandés e inglés; el castellano, en cuanto llegue).
 - **Los errores** se dicen por su `codigo` estable (`conflicto`, `falta_motivo`,
   `segunda_persona`…, [integracion-web.md](integracion-web.md)), con el texto del
   catálogo (`errores`); `segunda_persona` dice además, para cada orden, cuál de los
@@ -533,12 +559,19 @@ interfaz.
   colega). El desplegable «Technische details» enseña solo el estado HTTP y el código
   (`400 fichero_no_reconocido`), nunca la frase del servidor en castellano; los avisos del
   importador (frases en castellano) se cuentan, sin enseñarlos.
-- **Ningún nombre en castellano en la pantalla**: la app no nombra los `.bat` ni los
-  accesos directos de la instalación (están en castellano, para el dueño): dice «de
-  beheerder van het programma» o «de snelkoppeling op het bureaublad voor het lezen van
-  facturen». Los ficheros de la base de prueba se llaman en neerlandés
-  (`exact-verkoopfacturen.csv`…). Solo el nombre de un fichero que eligió o importó la
-  persona va marcado como nombre propio, tal cual.
+- **Ningún resto de otro idioma.** En neerlandés, ninguna palabra que solo sea inglesa o
+  castellana, y así con cada idioma: `frontend/src/i18n/leftovers.ts` tiene, por idioma,
+  palabras que solo existen en él, y lo miran `i18n.test.ts` en los diccionarios y las
+  pruebas en el navegador en cada pantalla (en castellano se toleran los restos en inglés
+  del dominio mientras dure `DOMAIN_FALLBACK`). En neerlandés y en inglés la app no nombra
+  los `.bat` ni los accesos directos de la instalación (están en castellano, para el dueño):
+  dice «de beheerder van het programma» o «de snelkoppeling op het bureaublad voor het lezen
+  van facturen»; en castellano sí los nombra (`empresa.bat`, «BMS Finanzas - Leer
+  facturas»), porque se llaman así. Los
+  ficheros de la base de prueba se llaman en neerlandés (`exact-verkoopfacturen.csv`…). Lo
+  que no es de la app va marcado con `data-proper-name` y no cuenta: el nombre de un
+  fichero que eligió o importó la persona y el texto libre de un campo tal como vino del
+  documento («30 dagen»).
 - Lo que escribe una persona (notas, motivos) y lo que viene de un documento
   (descripciones de línea, referencias, nombres) se enseña tal cual, como texto.
 
@@ -566,9 +599,10 @@ Lo mismo que la consola, y algo más:
   enlace ni imagen hecho con un dato de la API y ninguna dirección de fuera (lo mira
   `tests/test_app_local.py`).
 - **Lo único que se guarda en el navegador** son comodidades de cada persona, en
-  `localStorage` y solo desde `frontend/src/lib/storage.ts`: el idioma, si la barra va
-  plegada y qué pestañas había (ids de pantalla e ids numéricos), con la clave
-  `bms-app:v1:<entorno>:<persona>:…`. Lo que se lee se comprueba campo a campo; si el
+  `localStorage` y solo desde `frontend/src/lib/storage.ts`: el idioma, el tema, si la
+  barra va plegada y qué pestañas había (ids de pantalla e ids numéricos), con la clave
+  `bms-app:v1:<entorno>:<persona>:…` (y `bms-app:v1:lang` y `bms-app:v1:theme`, los del
+  último uso en ese ordenador, para la entrada). Lo que se lee se comprueba campo a campo; si el
   navegador no deja guardar, la app sigue igual.
 - **Las órdenes** van solo por `POST /api/v2/acciones`, con la `rev` de la fila
   cuando la orden la pide y un `peticion_id` nuevo (repetirla no la aplica dos veces).
@@ -620,10 +654,58 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y los dos del dueño: la navegación (`sidebar-with-chrome-like-tabs.tsx`) y las alertas (`status.tsx`); arriba de cada uno, lo que se le cambió y por qué |
 | `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
 | `src/screens/` | Las pantallas (`overview`, `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `import`, `read-invoices`, `settings`), `registry.ts` (cuáles hay, su grupo, su icono y su permiso, y las fichas) y `render.tsx` (qué pinta cada ruta) |
-| `src/shell/` | El marco: la navegación con sus insignias, el idioma, la persona, la marca de datos de prueba |
-| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
-| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`), el acceso a los del dominio (`domain.ts`) y el lenguaje de sus plantillas (`templates.ts`) |
+| `src/shell/` | El marco: la navegación con sus insignias, el idioma (`language-switch.tsx`, NL \| EN \| ES), el tema (`theme-switch.tsx`), la persona (con el tema en su menú), la marca de datos de prueba |
+| `src/aurora/` | Las piezas de Aurora (paso 16), cada una con su hoja de estilos: abajo, «Aurora dentro de la app» |
+| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una pestaña mientras la app está abierta (`tab-memory.ts`, solo en memoria) y lo que se guarda (`storage.ts`) |
+| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`) y las listas de restos de otro idioma (`leftovers.ts`) |
 | `e2e/` | Las pruebas en el navegador |
+
+**Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
+respuestas inventados. Se trajo a `src/aurora/` lo que la revisión quiere conservar, con
+TypeScript estricto y sin nada simulado: fuera `invoice-analysis.ts` (decidía «repetida»
+por el nombre del fichero), los lotes de muestra, sus dos claves de `localStorage`
+(`bms-demo-parties-v1` y el borrador), las respuestas fijas del chat, «Simular
+liquidación», «Agregar muestra», «Compartir», los pulgares, «Regenerar», los botones de
+depuración, los paneles a los que no se llegaba y las funciones globales del cargador. Sin
+NumberFlow ni date-fns (no se traen bibliotecas nuevas): los importes los escribe
+`format.ts` desde los céntimos, y las fechas, nuestro formato. Cada pieza recibe sus datos
+ya traducidos y avisa con callbacks (nada de enlaces `#/`); todo texto que viene de un dato
+se pinta como texto.
+
+| Pieza | Qué es | Dónde se usa |
+| --- | --- | --- |
+| `logo.tsx` | `BmsMark` (la marca BMS en un SVG pequeño, trazada del PNG del dueño, en `currentColor`) y `BmsLogo` (la marca con «finance») | La entrada y la barra lateral |
+| `orb/` | `AuroraOrb`, el orbe de colores (WebGL), y `AuroraMark`, su degradado fijo en pequeño; `orb-loop.ts` decide cuándo se mueve y a qué ritmo, sin React (`orb-loop.test.ts`) | La cabecera del Overzicht (se mueve mientras carga) |
+| `thinking-orb/` | `ThinkingOrb`, el orbe de partículas de «Pensando…» | La búsqueda, cuando llegue |
+| `meerkat/` | `MeerkatScene`, el suricato del cargador (sus sprites en el código) | El cargador de documentos |
+| `processing/` | `DocumentLoader` y `loader-engine.ts` (el cargador con progreso de verdad: `setStage`), `ProcessingCard`, `ProcessingResult` (nuevas, ya leídas, posibles duplicados, fallidas), `FlowButton` | Procesar, cuando la lectura llegue a la app |
+| `documents/` | `ArchiveLayout`, `Breadcrumbs`, `ArchiveHeading`, `FolderGrid`, `FolderCell`, `GlassFolder`, `TreeView`, `FolderProfile`, `DocumentPreview` (un `<dialog>` nativo dibujado desde el registro, nunca desde el PDF) | Documentos |
+| `conversation/`, `composer.tsx` | `Conversation` (copiar y parar; sin pulgares, regenerar ni compartir) y `WorkspaceComposer`, la caja de escribir | El asistente local |
+| `search/` | La barra de filtros, sus pastillas, los resultados, «Pensando…» y el vacío | Zoeken sobre `/api/v2/buscar` |
+| `finance/` | `FinanceBento`, «Lo importante»: vencido por cobrar y por pagar, el neto de 30 días y la nota de que no es dinero disponible, desde céntimos | El resumen del asistente |
+| `wheel.tsx` | `Wheel`, la rueda de navegación | La navegación, en el paso siguiente |
+
+Hoy la app monta el logo y el orbe; las demás piezas esperan a su pantalla y no entran en
+lo construido hasta que alguien las importe.
+
+- **Los estilos** van bajo `.aurora-root` (cada pieza envuelve su raíz; `display: contents`,
+  así no cambia la maquetación), en `@layer components` (las utilidades de Tailwind mandan)
+  y con los `@keyframes` como `aurora-…`. Se sacaron una vez de las hojas del prototipo, solo
+  con las reglas que usan sus componentes, y desde ahora se cambian a mano. Los colores son
+  variables de `palette.css`: `--au-RRGGBB` es el color de Aurora en oscuro y su pareja en
+  claro (el mismo matiz con la luminosidad invertida en OKLab), y `--au-t-…` el mismo color
+  como texto, con 4,6:1 sobre una tarjeta en cada tema. Nada por debajo de 12 px.
+  `src/main.tsx` importa `index.css` antes que nada, para que el orden de las capas sea el
+  de Tailwind.
+- **El orbe**, con las reglas de la revisión: quieto en reposo (dibuja **una** imagen y no
+  pide ningún cuadro más); se mueve solo con `active` (el asistente trabaja) y como mucho a
+  30 imágenes por segundo; nunca con la ventana oculta, fuera de pantalla
+  (IntersectionObserver) ni con «menos movimiento»; **uno por pantalla** (`orbRegistry`:
+  otro que llegue a la vez sale como el degradado fijo); y sin WebGL, o si el contexto se
+  pierde, el degradado fijo con CSS. `data-orb` (`webgl` o `fallback`) y `data-moving`
+  dicen en la página lo que hace, para las pruebas. En el prototipo dibujaba 60 veces por
+  segundo siempre.
+- **Los textos** de las piezas están en la sección `aurora` de los tres diccionarios.
 
 **Por qué los componentes de shadcn están en `src/components/ui`.** Es la ruta que usan
 shadcn y su CLI (`components.json`: `ui` es `@/components/ui`), y todos sus imports
@@ -679,13 +761,19 @@ que comprueban cambios, no cifras sueltas. En
 cada prueba: toda petición tiene que ir a `127.0.0.1` (otra se corta y la prueba falla),
 ninguna violación de la CSP, ningún error en la consola, ninguna respuesta de error que la
 prueba no espere, y axe sin problemas serios ni críticos (WCAG 2.1 AA); en cada pantalla,
-además, ninguna palabra de una lista de palabras castellanas (`expectNoSpanish` en
-`e2e/fixtures.ts`; solo no cuenta el nombre de un fichero de la persona, marcado con
-`data-proper-name`). Antes de medir y de cada captura esperan a que la pantalla esté quieta
-(`settled`: ninguna animación con fin en marcha y el contenido de la pestaña entero, sin
-esperas fijas), y miden también con el modo oscuro del sistema. Dejan una
-captura de cada pantalla, ficha y diálogo en neerlandés y en inglés, a 1440×900
-(`<idioma>-<pantalla>.png`), en `CAPTURAS_DIR` (por defecto
+además, ningún resto de otro idioma (`expectNoLeftovers` en `e2e/fixtures.ts`, con las
+listas de `src/i18n/leftovers.ts`; no cuenta lo marcado con `data-proper-name` ni las
+bandas que pone el servidor, que van en dos idiomas a propósito). Antes de medir y de cada
+captura esperan a que la pantalla esté quieta (`settled`: ninguna animación con fin en
+marcha y el contenido de la pestaña entero, sin esperas fijas). Las demás pruebas van en el
+tema por defecto (el oscuro); `e2e/themes.spec.ts` recorre cada pantalla en claro en los
+tres idiomas y en oscuro en castellano, las fichas en claro, cómo se elige y se guarda el
+tema por persona y «Volg Windows» cambiando en vivo, y el orbe: en reposo, ningún cuadro
+pedido en 3 s y menos de 0,25 s de trabajo del hilo principal en 5 s (`TaskDuration` del
+protocolo de Chrome; se mide cerca de 0); se mueve solo mientras carga y se para con la
+ventana oculta, fuera de pantalla o con «menos movimiento»; sin WebGL, el degradado fijo.
+Dejan una captura de cada pantalla, ficha y diálogo, a 1440×900 (`<idioma>-<pantalla>.png`),
+en `CAPTURAS_DIR/dark/` o `CAPTURAS_DIR/light/` según el tema que se ve (por defecto
 `frontend/test-results/capturas`, que no va en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de
 `PLAYWRIGHT_BROWSERS_PATH` (no se baja nada: nunca `playwright install`).
 
@@ -702,3 +790,9 @@ en la CLI. Leer los PDF se sigue empezando con su acceso directo, a propósito.
 
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
 natural, y mirar en el ordenador del dueño que Edge abre la ventana `--app`.
+
+Del paso 16: la navegación de Aurora (la rueda, `src/aurora/wheel.tsx`) sustituye a la
+barra lateral con pestañas en el paso siguiente (con ella, «Cola de trabajo» y su insignia
+ya no se cortan en la barra); las demás piezas de `src/aurora/` esperan a la pantalla que
+las use; y el catálogo de dominio en castellano (`src/bms_agent/textos/es.json`), que
+prepara otro trabajo, se conecta como dice `DOMAIN_FALLBACK` (§5).

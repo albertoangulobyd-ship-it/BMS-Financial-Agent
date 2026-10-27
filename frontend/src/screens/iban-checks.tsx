@@ -129,7 +129,7 @@ export function IbanChecksScreen() {
       {state.status === 'error' && <ErrorState error={state.error} onRetry={retry} />}
       {state.status === 'ready' && (
         <div className='flex flex-col gap-8'>
-          <p className='max-w-3xl text-[13px] leading-relaxed text-[#45423c]'>{t.iban.rule}</p>
+          <p className='max-w-3xl text-[13px] leading-relaxed text-soft-foreground'>{t.iban.rule}</p>
           {state.data.checks.length === 0 ? (
             <EmptyState icon={CircleCheck} title={t.iban.emptyTitle} text={t.iban.emptyText} />
           ) : (
@@ -207,7 +207,7 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
               <span key={r.id}>
                 <span className='font-medium'>{ruleText(lang, r.regla)?.title ?? r.regla}</span>{' '}
                 <span className='font-mono text-[11px] text-muted-foreground'>{r.regla}</span>
-                <span className='block text-[#45423c]'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</span>
+                <span className='block text-soft-foreground'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</span>
               </span>
             ))
           ) : (
@@ -325,7 +325,7 @@ function Inherited({ accounts, onDone }: { accounts: AccountRow[]; onDone: () =>
       <h2 id='inherited' className='text-[15px] font-semibold'>
         {t.iban.inheritedTitle}
       </h2>
-      <p className='mt-1 max-w-3xl text-[13px] text-[#45423c]'>
+      <p className='mt-1 max-w-3xl text-[13px] text-soft-foreground'>
         {fmt(accounts.length === 1 ? t.iban.inheritedTextOne : t.iban.inheritedText, { n: accounts.length })}
       </p>
       {can('confirmar_iban') && (

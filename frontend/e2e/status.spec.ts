@@ -1,9 +1,9 @@
 // Las alertas con el componente Status del dueno ("Asi quiero las alertas"): cada estado es
 // una pastilla con su punto y SIEMPRE su texto; el punto late solo en lo que pide hacer algo
 // ya (en la Werklijst, lo bloqueado y lo urgente), y deja de latir para quien pide menos
-// movimiento. Capturas de las pastillas en NL y EN.
+// movimiento. Capturas de las pastillas en NL y EN, y las pastillas medidas en los dos temas.
 import type { Page } from '@playwright/test';
-import { capture, expect, expectAccessible, login, test } from './fixtures';
+import { capture, chooseTheme, expect, expectAccessible, login, test } from './fixtures';
 
 interface Pill {
   variant: string;
@@ -173,36 +173,54 @@ test('la afscherming por papeles: lo que falla, falta o es viejo, en rojo y lati
   await page.getByRole('button', { name: 'Nederlands' }).first().click();
 });
 
-test('con el modo oscuro del sistema la app sigue clara y cada pastilla se lee', async ({ page, baseUrl }) => {
-  // La app solo tiene tema claro: un Windows en modo oscuro no cambia nada (las clases
-  // dark: del componente Status solo valen con una clase .dark que la app nunca pone).
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto(`${baseUrl}/app`);
-  await login(page);
+test('el tema es el que elige la persona, no el del sistema, y cada pastilla se lee en los dos', async ({
+  page,
+  baseUrl,
+}) => {
+  // Paso 16: el oscuro de Aurora por defecto aunque Windows este en claro (la configuracion de
+  // las pruebas emula claro), y el claro aunque Windows este en oscuro si la persona lo eligio.
+  // Las clases dark: del componente Status valen con la clase .dark que pone la app en <html>,
+  // nunca con prefers-color-scheme (con eso, un Windows en oscuro pintaria los tonos -400
+  // sobre un fondo claro: menos de 2:1).
+  // La marca de prueba de la cabecera es una pastilla de aviso que siempre esta.
+  const ORANGE_400 = 'oklch(0.75 0.183 55.934)';
+  const chipColor = () =>
+    page.getByTestId('test-data-chip').evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-label"]') ?? el).color);
   const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
-  await expect(page.getByTestId('summary-card').first()).toBeVisible();
-  await expectAccessible(page, 'oscuro: overzicht');
-  await capture(page, 'nl-dark-overview');
+  const visit = async (theme: string) => {
+    await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
+    await expect(page.getByTestId('summary-card').first()).toBeVisible();
+    await expectAccessible(page, `${theme}: overzicht`);
+    for (const [label, check] of [['Werklijst', 'werklijst'], ['IBAN-controles', 'iban-controles']] as const) {
+      await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+      await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
+      await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
+      await expectAccessible(page, `${theme}: ${check}`);
+    }
+    // Una factura, con su veredicto, sus avisos y sus campos.
+    await menu.getByRole('button', { name: /^Werklijst/ }).click();
+    await page.getByRole('table').getByRole('button').first().click();
+    await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
+    await expectAccessible(page, `${theme}: factuur`);
+    await menu.getByRole('button', { name: /^Overzicht/ }).click();
+  };
 
-  for (const [label, check] of [['Werklijst', 'werklijst'], ['IBAN-controles', 'iban-controles']] as const) {
-    await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
-    await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
-    await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
-    await expectAccessible(page, `oscuro: ${check}`);
-  }
-  // Una factura, con su veredicto, sus avisos y sus campos.
-  await menu.getByRole('button', { name: /^Werklijst/ }).click();
-  await page.getByRole('table').getByRole('button').first().click();
-  await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
-  await expectAccessible(page, 'oscuro: factuur');
-  // El texto de una pastilla verde es el de siempre (green-800), no el -400 del modo oscuro.
-  const colors = await page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>('[data-slot="status"][data-variant="success"] [data-slot="status-label"]')).map(
-      (el) => getComputedStyle(el).color
-    )
-  );
-  for (const color of colors) expect(color).not.toBe('oklch(0.792 0.209 151.711)');
+  await page.goto(`${baseUrl}/app`);
+  await expect(page.locator('html')).toHaveClass(/(^|\s)dark(\s|$)/);
+  await login(page);
+  await visit('oscuro con Windows en claro');
+  // En oscuro, el texto naranja es el claro (-400): se lee sobre el fondo oscuro.
+  expect(await chipColor()).toBe(ORANGE_400);
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await chooseTheme(page, 'light');
+  await expect(page.locator('html')).not.toHaveClass(/(^|\s)dark(\s|$)/);
+  await visit('claro con Windows en oscuro');
+  // En claro, el de siempre (orange-800), no el -400 del oscuro.
+  expect(await chipColor()).not.toBe(ORANGE_400);
+  await menu.getByRole('button', { name: /^IBAN-controles/ }).click();
+  await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
+  await capture(page, 'nl-status-iban-checks');
 });
 
 test('un plazo del btw pasado sin aangifte se ve en el Overzicht, en rojo', async ({ page, baseUrl }) => {

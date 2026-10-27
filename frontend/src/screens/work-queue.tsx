@@ -130,7 +130,7 @@ export function InvoiceCell({ numero, party, twin }: { numero: string | null; pa
         {numero ?? '—'}
         {twin && <span className='ml-1.5 font-sans text-xs font-normal text-muted-foreground'>{fmt(t.common.twin, { n: twin.n, of: twin.of })}</span>}
       </span>
-      <span className='text-[13px] font-normal text-[#45423c]'>{party ?? '—'}</span>
+      <span className='text-[13px] font-normal text-soft-foreground'>{party ?? '—'}</span>
     </span>
   );
 }

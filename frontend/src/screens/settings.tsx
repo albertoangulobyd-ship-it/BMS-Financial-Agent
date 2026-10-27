@@ -1,9 +1,10 @@
-// Instellingen / Settings: el idioma, quien eres (rol y lo que puedes hacer, en palabras), el
-// bedrijf tal como lo usan las controles (solo lectura), como esta afscherming este programa
-// (la comprobacion del aislamiento que el servidor ya lee, por partes), las personas (solo
-// para quien administra) y donde se hacen las copias, en una frase. Lo unico que se ajusta
-// aqui es el idioma: lo demas lo hace quien administra el programa, fuera de la app (sin
-// nombrar sus .bat, que estan en castellano).
+// Instellingen / Settings / Ajustes: el idioma, el tema, quien eres (rol y lo que puedes
+// hacer, en palabras), el bedrijf tal como lo usan las controles (solo lectura), como esta
+// afscherming este programa (la comprobacion del aislamiento que el servidor ya lee, por
+// partes), las personas (solo para quien administra) y donde se hacen las copias, en una
+// frase. Lo unico que se ajusta aqui es el idioma y el tema: lo demas lo hace quien
+// administra el programa, fuera de la app (sus .bat estan en castellano: solo los nombra la
+// app en castellano).
 import { LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DataTable, type Columns } from '@/components/data-table';
@@ -13,6 +14,7 @@ import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { LanguageSwitch } from '@/shell/language-switch';
+import { ThemeSwitch } from '@/shell/theme-switch';
 import { useT } from '@/i18n';
 import { permissionText, roleText, templateCatalog } from '@/i18n/domain';
 import { formatWith } from '@/i18n/templates';
@@ -30,6 +32,7 @@ export function SettingsScreen() {
       <div className='flex max-w-3xl flex-col gap-6'>
         <div className='flex flex-col divide-y divide-border rounded-md border border-border bg-card'>
           <LanguageRow />
+          <ThemeRow />
           <AccountRow />
         </div>
         <SystemInfo />
@@ -55,6 +58,15 @@ function LanguageRow() {
   return (
     <Row title={t.language.label} aside={<LanguageSwitch />}>
       <p className='text-muted-foreground'>{t.settings.languageHelp}</p>
+    </Row>
+  );
+}
+
+function ThemeRow() {
+  const { t } = useT();
+  return (
+    <Row title={t.theme.label} aside={<ThemeSwitch />}>
+      <p className='text-muted-foreground'>{t.theme.help}</p>
     </Row>
   );
 }
@@ -135,15 +147,15 @@ function CompanyRow({ company: c }: { company: Company }) {
     <Row title={t.settings.companyTitle}>
       <p className='text-muted-foreground'>{t.settings.companyHelp}</p>
       <dl className='mt-3 grid grid-cols-[12rem_1fr] gap-x-4 gap-y-1.5 text-[13px]'>
-        <dt className='text-[#45423c]'>{t.parties.name}</dt>
+        <dt className='text-soft-foreground'>{t.parties.name}</dt>
         <dd className='m-0 font-medium'>{c.nombre}</dd>
-        <dt className='text-[#45423c]'>{t.settings.otherNames}</dt>
+        <dt className='text-soft-foreground'>{t.settings.otherNames}</dt>
         <dd className='m-0'>{c.otros_nombres.length ? c.otros_nombres.join(', ') : '—'}</dd>
-        <dt className='text-[#45423c]'>{t.settings.vatId}</dt>
+        <dt className='text-soft-foreground'>{t.settings.vatId}</dt>
         <dd className='m-0 font-mono text-[12.5px]'>{c.btw_id ?? missing}</dd>
-        <dt className='text-[#45423c]'>{t.settings.kvk}</dt>
+        <dt className='text-soft-foreground'>{t.settings.kvk}</dt>
         <dd className='m-0 font-mono text-[12.5px]'>{c.kvk ?? missing}</dd>
-        <dt className='text-[#45423c]'>{t.settings.ownAccounts}</dt>
+        <dt className='text-soft-foreground'>{t.settings.ownAccounts}</dt>
         <dd className='m-0 font-mono text-[12.5px]'>
           {/* En grupos de cuatro, como en IBAN-controles. */}
           {c.cuentas_propias.length

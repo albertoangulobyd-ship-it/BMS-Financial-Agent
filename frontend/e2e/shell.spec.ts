@@ -2,7 +2,7 @@
 // fila abre su ficha; si ya esta abierta, se va a ella), que las pestanas se guardan al
 // recargar y que salir borra el token. Captura de cada pantalla en los dos idiomas.
 import type { Page } from '@playwright/test';
-import { capture, expect, expectAccessible, expectNoSpanish, login, settled, test, token } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
 
 const NAV = [
   ['overview', 'Overzicht', 'Overview'],
@@ -81,7 +81,7 @@ test('el marco con todas las areas, en los dos idiomas', async ({ page, baseUrl 
       await expect(page.getByRole('tab', { selected: true })).toContainText(label);
       if (id === 'work-queue') await expect(page.getByRole('table')).toBeVisible();
       await expectAccessible(page, `${lang} ${id}`);
-      await expectNoSpanish(page, `${lang} ${id}`);
+      await expectNoLeftovers(page, lang, `${lang} ${id}`);
       await capture(page, `${lang}-${id}`);
     }
   }

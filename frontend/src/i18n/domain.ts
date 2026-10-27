@@ -1,5 +1,6 @@
 // Los textos de dominio (reglas, prioridades, estados, campos, fuentes, acciones, errores)
-// salen de los catalogos de Python, src/bms_agent/textos/nl.json y en.json, que la app
+// salen de los catalogos de Python, src/bms_agent/textos/nl.json y en.json (y es.json en
+// cuanto llegue: DOMAIN_FALLBACK, en langs.ts), que la app
 // importa al construirse: asi la app y lo que se prueba en Python dicen lo mismo y no hay
 // una segunda traduccion escondida. Este es el UNICO modulo que los importa; las
 // pantallas usan estas funciones y no la forma del JSON. Los dos ficheros entran en la
@@ -10,6 +11,7 @@
 import nlCatalog from '../../../src/bms_agent/textos/nl.json';
 import enCatalog from '../../../src/bms_agent/textos/en.json';
 import type { Lang } from './index';
+import { DOMAIN_FALLBACK } from './langs';
 import { fmt } from './index';
 import { renderDetail, type RuleTexts, type TemplateCatalog } from './templates';
 
@@ -17,8 +19,14 @@ export type Priority = 'normal' | 'atencion' | 'urgente' | 'bloqueada';
 export type Severity = 'bloqueo' | 'retencion' | 'aviso';
 
 type Catalog = typeof nlCatalog;
-// Los dos tienen la misma forma (lo comprueban tests/test_textos.py y i18n.test.ts).
-const CATALOGS: Record<Lang, Catalog> = { nl: nlCatalog, en: enCatalog as Catalog };
+
+// Mientras falte es.json, el castellano dice lo del dominio en ingles: DOMAIN_FALLBACK, con su
+// PENDIENTE, vive en langs.ts (lo leen tambien las pruebas en el navegador).
+export { DOMAIN_FALLBACK };
+
+// Los catalogos tienen la misma forma (lo comprueban tests/test_textos.py y i18n.test.ts).
+// es: el ingles, marcado en DOMAIN_FALLBACK, hasta que llegue es.json.
+const CATALOGS: Record<Lang, Catalog> = { nl: nlCatalog, en: enCatalog as Catalog, es: enCatalog as Catalog };
 
 export const PRIORITIES: readonly Priority[] = ['normal', 'atencion', 'urgente', 'bloqueada'];
 

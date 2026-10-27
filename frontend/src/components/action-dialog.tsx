@@ -204,7 +204,7 @@ export function ActionDialog({
           {said.warning && (
             <p
               data-testid='action-warning'
-              className='rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-3 py-2 text-[13px] leading-relaxed text-[#4a2205]'
+              className='rounded-md border border-notice-border bg-notice px-3 py-2 text-[13px] leading-relaxed text-notice-foreground'
             >
               {said.warning}
             </p>
@@ -215,7 +215,7 @@ export function ActionDialog({
             </p>
           )}
           {error !== null && (
-            <div ref={alertRef} role='alert' className='flex flex-col gap-2 rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-3 py-2 text-[#4a2205]'>
+            <div ref={alertRef} role='alert' className='flex flex-col gap-2 rounded-md border border-notice-border bg-notice px-3 py-2 text-notice-foreground'>
               <p className='font-medium'>{actionErrorMessage(action, error, t, lang)}</p>
               <TechnicalDetail error={error} />
             </div>

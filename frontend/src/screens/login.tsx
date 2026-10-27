@@ -10,6 +10,7 @@
 // (que no se ofrece guardar), Intro para entrar y el campo vaciado antes de comprobarlo.
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { KeyRound } from 'lucide-react';
+import { BmsLogo } from '@/aurora/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -85,17 +86,9 @@ export function LoginScreen() {
     <div className='flex h-full items-center justify-center overflow-auto bg-background px-4 py-10'>
       <main className='w-full max-w-[26rem]'>
         <div className='mb-8 flex items-center justify-between gap-4'>
-          <div className='flex items-center gap-3'>
-            <span
-              aria-hidden='true'
-              className='flex h-9 w-9 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground'
-            >
-              BM
-            </span>
-            <div className='leading-tight'>
-              <p className='text-[15px] font-semibold'>{t.app.name}</p>
-              <p className='text-xs text-muted-foreground'>{t.app.company}</p>
-            </div>
+          <div className='flex flex-col gap-1.5'>
+            <BmsLogo />
+            <p className='text-xs text-muted-foreground'>{t.app.company}</p>
           </div>
           <LanguageSwitch />
         </div>

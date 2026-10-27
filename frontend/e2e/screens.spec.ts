@@ -4,11 +4,11 @@
 // anota una persona, el programa no presenta nada); importar primero como proef y despues de
 // verdad; la lectura de los pdf sin ningun boton que la lance; y la configuracion. En cada
 // pantalla: solo 127.0.0.1, ninguna violacion de la CSP ni error en la consola (fixtures),
-// axe sin nada serio y ninguna palabra en castellano. Captura de cada una como
+// axe sin nada serio y ningun resto de otro idioma (fixtures). Captura de cada una como
 // <idioma>-<pantalla>.png en CAPTURAS_DIR.
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
-import { capture, expect, expectAccessible, expectNoSpanish, login, settled, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
 
 type Lang = 'nl' | 'en';
 const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
@@ -35,7 +35,7 @@ async function nav(page: Page, label: string, lang: Lang = 'nl') {
 /** Lo que se mira en cada pantalla, y su captura. */
 async function check(page: Page, lang: Lang, screen: string) {
   await expectAccessible(page, `${lang} ${screen}`);
-  await expectNoSpanish(page, `${lang} ${screen}`);
+  await expectNoLeftovers(page, lang, `${lang} ${screen}`);
   await capture(page, `${lang}-${screen}`);
 }
 
@@ -391,14 +391,20 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await expect(page.getByRole('table')).toContainText('Demo Nieuwbouw BV');
 });
 
-test('facturen lezen: wat het kost en hoe je het start, zonder knop die het start', async ({ page, baseUrl }) => {
+test('facturen lezen: wat het kost en hoe je het start, zonder knop die het start', async ({ page, baseUrl, request }) => {
   await signIn(page, baseUrl);
   await nav(page, 'Facturen lezen');
   // Hoe je het start, zonder de (Spaanse) naam van de snelkoppeling of het .bat-bestand.
   await expect(page.getByText('met de snelkoppeling op het bureaublad voor het lezen van facturen')).toBeVisible();
   await expect(page.getByText(/Finanzas|\.bat\b/)).toHaveCount(0);
   await expect(page.getByText('Deze app heeft bewust geen internet')).toBeVisible();
-  await expect(page.getByText(/16 documenten/)).toBeVisible();
+  // Cuantos se han leido depende del dia en que se crea la base de prueba (16 el 19-10-2026, 17
+  // el 27-10-2026): lo que diga la API, tal cual.
+  const reading = (await (await request.get(`${baseUrl}/api/v2/lectura`, { headers: { 'X-BMS-Token': token('ana') } })).json()) as {
+    lectura: { documentos: number };
+  };
+  expect(reading.lectura.documentos).toBeGreaterThan(1);
+  await expect(page.getByText(new RegExp(`\\b${reading.lectura.documentos} documenten`))).toBeVisible();
   // Geen knop die het lezen start: in de hoofdinhoud staan alleen de plooibare uitleg en tabellen.
   await expect(page.getByRole('main').getByRole('button', { name: /lezen|lees|start|read/i })).toHaveCount(0);
   await check(page, 'nl', 'read-invoices');

@@ -1,0 +1,18 @@
+/* La suricata de los estados vacios (meerkat-scene.tsx). Las tiras son blancas: en el tema
+   oscuro van tal cual; en el claro, un filtro las pasa a negro (sin otra tira que mantener). */
+@layer components {
+  .meerkat-scene {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .meerkat-scene__canvas {
+    display: block;
+    image-rendering: pixelated;
+    background: transparent;
+  }
+  :root:not(.dark) .meerkat-scene__canvas {
+    filter: invert(1);
+  }
+}

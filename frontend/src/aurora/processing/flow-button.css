@@ -1,0 +1,85 @@
+/* El boton con la flecha (flow-button.tsx), de processing-workspace.css.
+   Traido de Aurora (paso 16) con una herramienta de una sola vez: solo las reglas que usan sus
+   componentes, bajo .aurora-root, en la capa components (las utilidades de Tailwind mandan),
+   los colores como variables de aurora/palette.css (oscuro el de Aurora, claro su pareja), nada
+   por debajo de 12 px y los @keyframes con "aurora-". */
+@layer components {
+  .aurora-root .flow-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 100px;
+    border: 1px solid var(--au-a47bc450);
+    background: transparent;
+    color: var(--au-t-d6bce6);
+    padding: 14px 40px 14px 30px;
+    font-size: 12px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: border-color 0.6s, color 0.6s, border-radius 0.6s, scale 0.2s;
+    isolation: isolate;
+    min-width: 195px;
+  }
+  .aurora-root .flow-label {
+    position: relative;
+    z-index: 2;
+    transform: translateX(-8px);
+    transition: transform 0.8s ease-out;
+  }
+  .aurora-root .flow-circle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    transform: translate(-50%, -50%);
+    background: var(--au-9b70b9);
+    border-radius: 50%;
+    opacity: 0;
+    transition: width 0.8s cubic-bezier(0.19, 1, 0.22, 1), height 0.8s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.5s;
+    z-index: 0;
+  }
+  .aurora-root .flow-arrow-left,
+  .aurora-root .flow-arrow-right {
+    position: absolute;
+    top: calc(50% - 8px);
+    z-index: 2;
+    transition: left 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), right 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .aurora-root .flow-arrow-left {
+    left: -25%;
+  }
+  .aurora-root .flow-arrow-right {
+    right: 17px;
+  }
+  .aurora-root .flow-button:hover {
+    border-color: transparent;
+    border-radius: 12px;
+    color: var(--au-t-130d18);
+  }
+  .aurora-root .flow-button:hover .flow-circle {
+    width: 350px;
+    height: 350px;
+    opacity: 1;
+  }
+  .aurora-root .flow-button:hover .flow-label {
+    transform: translateX(8px);
+  }
+  .aurora-root .flow-button:hover .flow-arrow-left {
+    left: 16px;
+  }
+  .aurora-root .flow-button:hover .flow-arrow-right {
+    right: -25%;
+  }
+  .aurora-root .flow-button:active {
+    scale: 0.95;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-root .flow-button {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}

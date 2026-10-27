@@ -358,12 +358,17 @@ def test_tailwind_solo_lee_lo_que_cubre_la_huella() -> None:
 
 
 def test_el_css_construido_no_cambia_con_el_modo_oscuro_del_sistema() -> None:
-    """La app solo tiene tema claro. Las clases dark: del componente Status del dueno solo
-    valen con una clase .dark que la app nunca pone (@custom-variant en index.css): en un
-    Windows en modo oscuro, Tailwind v4 las aplicaria por prefers-color-scheme y el texto de
-    las pastillas saldria en tonos -400 sobre el fondo claro (menos de 2:1)."""
+    """Dos temas (paso 16): el oscuro de Aurora, por defecto, y el claro. Los decide solo la
+    clase .dark que la app pone en <html> (lib/theme.tsx); "seguir a Windows" se resuelve en
+    JavaScript con matchMedia. Las clases dark: (las del componente Status del dueno y las de
+    la app) valen solo con esa clase (@custom-variant en index.css): si el CSS construido
+    llevara prefers-color-scheme, un Windows en modo oscuro las aplicaria aunque la persona
+    eligiera el claro, y el texto de las pastillas saldria en tonos -400 sobre el fondo claro
+    (menos de 2:1)."""
     css = (FRONTEND / "src" / "index.css").read_text(encoding="utf-8")
     assert "@custom-variant dark (&:where(.dark, .dark *));" in css
+    assert ":root {\n  color-scheme: light;" in css
+    assert ":root.dark {\n  color-scheme: dark;" in css
     for hoja in (WEB / "assets").glob("*.css"):
         texto = hoja.read_text(encoding="utf-8")
         assert "prefers-color-scheme" not in texto, hoja.name

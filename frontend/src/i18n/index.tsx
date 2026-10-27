@@ -1,20 +1,20 @@
-// La infraestructura de idiomas: neerlandes (por defecto) e ingles, nada mas. El
-// idioma lo elige cada persona en la cabecera y se guarda en sus preferencias
-// (lib/storage.ts); aqui solo vive el estado y el acceso a los textos.
+// La infraestructura de idiomas: neerlandes (por defecto), ingles y castellano (paso 16).
+// El idioma lo elige cada persona y se guarda en sus preferencias (lib/storage.ts); aqui
+// solo vive el estado y el acceso a los textos. Los tres diccionarios tienen la forma de
+// nl.ts (el tipo Messages): una clave que falte o sobre en uno no compila.
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { nl } from './nl';
 import { en } from './en';
+import { es } from './es';
+
+import type { Lang } from './langs';
+
+export { DEFAULT_LANG, LANGS, LOCALES, isLang } from './langs';
+export type { Lang } from './langs';
 
 export type Messages = typeof nl;
-export type Lang = 'nl' | 'en';
-export const LANGS: readonly Lang[] = ['nl', 'en'];
-export const DEFAULT_LANG: Lang = 'nl';
 
-export const MESSAGES: Record<Lang, Messages> = { nl, en };
-
-export function isLang(value: unknown): value is Lang {
-  return value === 'nl' || value === 'en';
-}
+export const MESSAGES: Record<Lang, Messages> = { nl, en, es };
 
 /** Rellena los huecos {nombre} de un texto. Un hueco sin valor se queda como esta (se ve). */
 export function fmt(template: string, values: Record<string, string | number>): string {

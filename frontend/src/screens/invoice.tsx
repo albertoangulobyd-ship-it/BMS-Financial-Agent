@@ -15,7 +15,7 @@ import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Money } from '@/components/values';
-import { fmt, useT } from '@/i18n';
+import { fmt, useT, type Lang } from '@/i18n';
 import { directionLabel, paymentStateLabel, ruleText, stateLabel, verdict } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { InvoiceDetail, Person } from '@/lib/api-types';
@@ -110,7 +110,7 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
         <Fact label={t.columns.priority} wide>
           <span className='flex flex-col items-start gap-1'>
             <StatusPill group='prioridad' state={e?.nivel ?? 'normal'} />
-            {reason && <span className='text-[12.5px] text-[#45423c]'>{reason}</span>}
+            {reason && <span className='text-[12.5px] text-soft-foreground'>{reason}</span>}
           </span>
         </Fact>
         <Fact label={t.invoice.totalLabel}>
@@ -161,7 +161,7 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
         <h2 id='finish' className='mb-3 text-[16px] font-semibold'>
           {t.invoice.finishTitle}
         </h2>
-        <ol className='flex flex-col divide-y divide-[#ebe7df] rounded-md border border-border bg-card'>
+        <ol className='flex flex-col divide-y divide-divider rounded-md border border-border bg-card'>
           <Step title={t.invoice.reviewStep}>
             <ReviewStep invoice={f} onDone={reload} />
           </Step>
@@ -267,9 +267,9 @@ function ReviewStep({ invoice: f, onDone }: { invoice: InvoiceDetail; onDone: ()
       {reviewed && last ? (
         <p>{fmt(t.invoice.reviewedBy, { name: last.usuario ?? '—', date: formatDateProse(last.en, t) })}</p>
       ) : blocked ? (
-        <p className='text-[#45423c]'>{t.invoice.reviewBlocked}</p>
+        <p className='text-soft-foreground'>{t.invoice.reviewBlocked}</p>
       ) : (
-        <p className='text-[#45423c]'>{t.invoice.reviewReady}</p>
+        <p className='text-soft-foreground'>{t.invoice.reviewReady}</p>
       )}
       {!reviewed && can('revisar_factura') && (
         <div className='flex flex-wrap gap-2'>
@@ -299,7 +299,7 @@ function ReviewStep({ invoice: f, onDone }: { invoice: InvoiceDetail; onDone: ()
 }
 
 /** La razon con nombre de la prioridad: la del hallazgo mas grave, o que va tarde. */
-function priorityReason(f: InvoiceDetail, lang: 'nl' | 'en'): string | null {
+function priorityReason(f: InvoiceDetail, lang: Lang): string | null {
   const first = sortFindings(f.hallazgos).find((h) => h.estado !== 'aceptado');
   if (first) return ruleText(lang, first.regla)?.title ?? null;
   if (f.estado?.estado_pago === 'vencida') return paymentStateLabel(lang, 'vencida');

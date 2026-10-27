@@ -491,7 +491,7 @@ function NavBadgeView({ badge, compact }: { badge?: NavBadge; compact?: boolean 
         'ml-auto inline-flex items-center gap-1 rounded-full px-1.5 text-[11.5px] font-semibold leading-[18px] num shrink-0',
         blocked
           ? 'bg-pill-blocked text-pill-blocked-foreground'
-          : 'bg-[#e3ded3] text-sidebar-foreground'
+          : 'bg-sidebar-tab-active text-sidebar-foreground'
       )}
     >
       <span>{badge.count}</span>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MESSAGES, fmt, isLang } from './index';
-import { catalogFor } from './domain';
+import { LANGS, MESSAGES, fmt, isLang, type Lang } from './index';
+import { DOMAIN_FALLBACK, catalogFor } from './domain';
+import { leftoversIn, sharedWords } from './leftovers';
 
 type Tree = { [key: string]: Tree | string | string[] };
 
@@ -15,27 +16,31 @@ function leaves(tree: Tree, prefix = ''): Map<string, string | string[]> {
 }
 
 const holes = (text: string) => [...text.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]).sort();
+const dictionaries = Object.fromEntries(LANGS.map((lang) => [lang, leaves(MESSAGES[lang] as unknown as Tree)])) as Record<
+  Lang,
+  Map<string, string | string[]>
+>;
 
 describe('los textos de la app', () => {
-  const nl = leaves(MESSAGES.nl as unknown as Tree);
-  const en = leaves(MESSAGES.en as unknown as Tree);
-
-  it('tienen las mismas claves en neerlandes y en ingles', () => {
-    expect([...en.keys()].sort()).toEqual([...nl.keys()].sort());
+  it('tienen las mismas claves en los tres idiomas', () => {
+    const nl = [...dictionaries.nl.keys()].sort();
+    for (const lang of LANGS) expect([...dictionaries[lang].keys()].sort(), lang).toEqual(nl);
   });
 
-  it('tienen los mismos huecos en los dos idiomas', () => {
-    for (const [key, value] of nl) {
-      const other = en.get(key)!;
-      if (typeof value === 'string') expect(holes(other as string), key).toEqual(holes(value));
-      else expect((other as string[]).length, key).toBe(value.length);
+  it('tienen los mismos huecos en los tres idiomas', () => {
+    for (const [key, value] of dictionaries.nl) {
+      for (const lang of LANGS) {
+        const other = dictionaries[lang].get(key)!;
+        if (typeof value === 'string') expect(holes(other as string), `${lang}:${key}`).toEqual(holes(value));
+        else expect((other as string[]).length, `${lang}:${key}`).toBe(value.length);
+      }
     }
   });
 
   it('no dejan ningun texto vacio salvo los que son a proposito', () => {
     const allowedEmpty = /^(groups\.settings|nav\.[a-z-]+\.hint)$/;
-    for (const [lang, map] of [['nl', nl], ['en', en]] as const) {
-      for (const [key, value] of map) {
+    for (const lang of LANGS) {
+      for (const [key, value] of dictionaries[lang]) {
         if (typeof value === 'string' && value.trim() === '') {
           expect(allowedEmpty.test(key), `${lang}:${key}`).toBe(true);
         }
@@ -43,15 +48,30 @@ describe('los textos de la app', () => {
     }
   });
 
-  it('no llevan castellano (la interfaz es solo neerlandes e ingles)', () => {
-    const spanish = /\b(factura|proveedor|cliente|pendiente|vencida|bloqueada|aviso|revisar|regla|importe|también|está|qué)\b/i;
-    for (const map of [nl, en]) {
-      for (const [key, value] of map) {
+  it('no llevan restos de otro idioma: cada uno libre de las palabras de los otros dos', () => {
+    expect(sharedWords(), 'una palabra en dos listas').toEqual([]);
+    const found: string[] = [];
+    for (const lang of LANGS) {
+      for (const [key, value] of dictionaries[lang]) {
         for (const text of Array.isArray(value) ? value : [value]) {
-          expect(spanish.test(text), `${key}: ${text}`).toBe(false);
+          const words = leftoversIn(text, lang);
+          if (words.length) found.push(`${lang}:${key} ${words.join(',')}: ${text}`);
         }
       }
     }
+    expect(found).toEqual([]);
+  });
+
+  it('el castellano esta traducido: ninguna frase igual que en ingles o en neerlandes', () => {
+    // Iguales a proposito: nombres propios, siglas y codigos (y las palabras del oficio que
+    // BMS usa tal cual: Object, IBAN, BTW).
+    const same = /^(app\.|language\.(nl|en|es)(Long)?$|units\.|records\.object\.|lines\.object$|planning\.object$|objects\.(object|sectionPos)$|pos\.sectionObjects$|parties\.(iban|no)$|nav\.(objects|vat)\.|help\.object\.term$|vat\.(title|vat)$|overview\.open\.vat$|common\.twin$|parties\.total$|overview\.vat\.caption$|months\.(short|long)\.)/;
+    const untranslated: string[] = [];
+    for (const [key, value] of dictionaries.es) {
+      if (typeof value !== 'string' || same.test(key) || !/\p{L}{3,}.*\s.*\p{L}{3,}/u.test(value)) continue;
+      if (value === dictionaries.en.get(key) || value === dictionaries.nl.get(key)) untranslated.push(`${key}: ${value}`);
+    }
+    expect(untranslated).toEqual([]);
   });
 });
 
@@ -64,15 +84,32 @@ describe('fmt', () => {
 });
 
 describe('idiomas', () => {
-  it('solo nl y en', () => {
-    expect(isLang('nl') && isLang('en')).toBe(true);
-    expect(isLang('es')).toBe(false);
+  it('neerlandes, ingles y castellano; nada mas', () => {
+    expect(LANGS).toEqual(['nl', 'en', 'es']);
+    expect(isLang('nl') && isLang('en') && isLang('es')).toBe(true);
+    expect(isLang('fr')).toBe(false);
+    expect(isLang('ES')).toBe(false);
     expect(isLang(null)).toBe(false);
   });
 
-  it('los textos de dominio tienen las mismas claves en los dos idiomas', () => {
+  it('los textos de dominio tienen las mismas claves en cada idioma', () => {
     const nl = leaves(catalogFor('nl') as unknown as Tree);
-    const en = leaves(catalogFor('en') as unknown as Tree);
-    expect([...en.keys()].sort()).toEqual([...nl.keys()].sort());
+    for (const lang of LANGS) {
+      expect([...leaves(catalogFor(lang) as unknown as Tree).keys()].sort(), lang).toEqual([...nl.keys()].sort());
+    }
+  });
+
+  it('el castellano del dominio usa el ingles mientras no llega es.json (y lo dice)', () => {
+    // PENDIENTE: al llegar src/bms_agent/textos/es.json, DOMAIN_FALLBACK queda vacio y esta
+    // prueba pasa a pedir que el castellano tenga su propio catalogo.
+    if (DOMAIN_FALLBACK.es) {
+      expect(DOMAIN_FALLBACK.es).toBe('en');
+      expect(catalogFor('es')).toBe(catalogFor('en'));
+    } else {
+      expect(catalogFor('es')).not.toBe(catalogFor('en'));
+      expect(catalogFor('es').idioma).toBe('es');
+    }
+    expect(DOMAIN_FALLBACK.nl).toBeUndefined();
+    expect(DOMAIN_FALLBACK.en).toBeUndefined();
   });
 });

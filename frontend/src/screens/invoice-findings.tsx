@@ -122,7 +122,7 @@ function FindingCard({
       </header>
       {detail && <p className='mt-1.5 text-[13.5px] leading-relaxed'>{detail}</p>}
       {rule && (
-        <p className='mt-1.5 text-[13px] leading-relaxed text-[#45423c]'>
+        <p className='mt-1.5 text-[13px] leading-relaxed text-soft-foreground'>
           <span className='font-medium text-foreground'>{t.invoice.whatToDo} </span>
           {gone ? t.invoice.goneWhatToDo : rule.whatToDo}
         </p>

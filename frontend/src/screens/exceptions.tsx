@@ -137,7 +137,7 @@ function ExceptionsTable({ data, onOpen }: { data: Loaded; onOpen: (r: Exception
               {c.main}
               {c.twin && <span className='ml-1.5 font-sans text-xs text-muted-foreground'>{c.twin}</span>}
             </span>
-            {c.sub && <span className='text-[13px] text-[#45423c]'>{c.sub}</span>}
+            {c.sub && <span className='text-[13px] text-soft-foreground'>{c.sub}</span>}
           </span>
         );
       },
@@ -200,7 +200,7 @@ function ExceptionSheet({
                       <span className='font-medium'>{ruleText(lang, r.regla)?.title ?? r.regla}</span>{' '}
                       <span className='font-mono text-[11px] text-muted-foreground'>{r.regla}</span>
                       <p className='leading-relaxed'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</p>
-                      <p className='leading-relaxed text-[#45423c]'>
+                      <p className='leading-relaxed text-soft-foreground'>
                         <span className='font-medium text-foreground'>{t.invoice.whatToDo} </span>
                         {ruleText(lang, r.regla)?.whatToDo}
                       </p>
@@ -257,7 +257,7 @@ function WhatCell({ row }: { row: ExceptionRow }) {
   return (
     <span className='flex flex-col items-start gap-0.5'>
       <span>{why.title ?? why.text}</span>
-      {why.title && <span className='line-clamp-2 text-[13px] font-normal text-[#45423c]'>{why.text}</span>}
+      {why.title && <span className='line-clamp-2 text-[13px] font-normal text-soft-foreground'>{why.text}</span>}
       <span className='text-[11px] font-normal text-muted-foreground'>
         {why.rule && <span className='font-mono'>{why.rule}</span>}
         {why.rule && why.more > 0 && ' · '}

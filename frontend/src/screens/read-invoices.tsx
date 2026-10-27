@@ -59,7 +59,7 @@ function HowToStart() {
         {/* Sin el nombre del acceso directo ni del .bat (estan en castellano, como la
             instalacion): la app no ensena castellano. */}
         <li>{t.reading.how3}</li>
-        <li className='text-[#45423c]'>{t.reading.how4}</li>
+        <li className='text-soft-foreground'>{t.reading.how4}</li>
       </ul>
     </section>
   );

@@ -2,15 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { isValidRoute } from '@/screens/registry';
 import {
   DEVICE_LANG_KEY,
+  DEVICE_THEME_KEY,
   cleanRoute,
   loadLang,
   loadTabs,
+  loadTheme,
   parseTabsState,
   personKey,
   saveLang,
   saveTabs,
+  saveTheme,
   type KeyValueStore,
 } from './storage';
+import { DEFAULT_THEME, resolveTheme } from './theme-choice';
 
 class MemoryStore implements KeyValueStore {
   data = new Map<string, string>();
@@ -36,23 +40,53 @@ describe('las claves', () => {
     expect(personKey('demo', 1, 'tabs')).toBe('bms-app:v1:demo:1:tabs');
     expect(personKey('real', 1, 'tabs')).not.toBe(personKey('demo', 1, 'tabs'));
     expect(personKey('real', 2, 'lang')).toBe('bms-app:v1:real:2:lang');
+    expect(personKey('demo', 3, 'theme')).toBe('bms-app:v1:demo:3:theme');
     expect(() => personKey('real', 0, 'lang')).toThrow();
   });
 });
 
 describe('el idioma', () => {
-  it('se guarda y se lee; lo que no es nl o en no vale', () => {
+  it('se guarda y se lee; lo que no es nl, en o es no vale', () => {
     const store = new MemoryStore();
     saveLang(DEVICE_LANG_KEY, 'en', store);
     expect(loadLang(DEVICE_LANG_KEY, store)).toBe('en');
-    store.setItem(DEVICE_LANG_KEY, 'es');
-    expect(loadLang(DEVICE_LANG_KEY, store)).toBeNull();
+    saveLang(DEVICE_LANG_KEY, 'es', store);
+    expect(loadLang(DEVICE_LANG_KEY, store)).toBe('es');
+    for (const other of ['fr', 'ES', ' nl', '']) {
+      store.setItem(DEVICE_LANG_KEY, other);
+      expect(loadLang(DEVICE_LANG_KEY, store)).toBeNull();
+    }
   });
 
   it('sin localStorage (o con uno que tira) la app sigue', () => {
     expect(loadLang(DEVICE_LANG_KEY, new BrokenStore())).toBeNull();
     expect(() => saveLang(DEVICE_LANG_KEY, 'nl', new BrokenStore())).not.toThrow();
     expect(loadLang(DEVICE_LANG_KEY, null)).toBeNull();
+  });
+});
+
+describe('el tema', () => {
+  it('se guarda y se lee; solo oscuro, claro o seguir a Windows', () => {
+    const store = new MemoryStore();
+    expect(loadTheme(DEVICE_THEME_KEY, store)).toBeNull();
+    for (const theme of ['dark', 'light', 'system'] as const) {
+      saveTheme(DEVICE_THEME_KEY, theme, store);
+      expect(loadTheme(DEVICE_THEME_KEY, store)).toBe(theme);
+    }
+    for (const other of ['auto', 'Dark', '{"x":1}', '']) {
+      store.setItem(DEVICE_THEME_KEY, other);
+      expect(loadTheme(DEVICE_THEME_KEY, store)).toBeNull();
+    }
+    expect(loadTheme(DEVICE_THEME_KEY, new BrokenStore())).toBeNull();
+    expect(() => saveTheme(DEVICE_THEME_KEY, 'light', new BrokenStore())).not.toThrow();
+  });
+
+  it('por defecto el oscuro de Aurora; seguir a Windows resuelve con el del sistema', () => {
+    expect(DEFAULT_THEME).toBe('dark');
+    expect(resolveTheme('dark', false)).toBe('dark');
+    expect(resolveTheme('light', true)).toBe('light');
+    expect(resolveTheme('system', true)).toBe('dark');
+    expect(resolveTheme('system', false)).toBe('light');
   });
 });
 

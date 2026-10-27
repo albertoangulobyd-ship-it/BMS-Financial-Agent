@@ -1,0 +1,135 @@
+/* La tarjeta de la lectura (processing-card.tsx), de processing-card.css.
+   Traido de Aurora (paso 16) con una herramienta de una sola vez: solo las reglas que usan sus
+   componentes, bajo .aurora-root, en la capa components (las utilidades de Tailwind mandan),
+   los colores como variables de aurora/palette.css (oscuro el de Aurora, claro su pareja), nada
+   por debajo de 12 px y los @keyframes con "aurora-". */
+@layer components {
+  .aurora-root .processing-card {
+    position: relative;
+    width: 100%;
+    isolation: isolate;
+    color: var(--au-t-eeeeee);
+  }
+  .aurora-root .pc-outline {
+    position: absolute;
+    inset: 0 -12px -10px;
+    border: 1px solid var(--au-ffffff0c);
+    border-radius: 14px;
+    pointer-events: none;
+    z-index: -1;
+    transition: border-color 0.6s ease;
+  }
+  .aurora-root .is-running .pc-outline {
+    border-color: var(--au-ffffff19);
+  }
+  .aurora-root .pc-label {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--au-t-777777);
+    font: 12px/1.5 "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    letter-spacing: 1.2px;
+    pointer-events: none;
+  }
+  .aurora-root .pc-texture {
+    position: absolute;
+    top: 35px;
+    left: 0;
+    right: 0;
+    height: 105px;
+    overflow: hidden;
+    z-index: 3;
+    mask-image: radial-gradient(ellipse, #000, transparent 72%);
+    opacity: 0.06;
+    pointer-events: none;
+    font: 12px/20px "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color: var(--au-t-ffffff);
+  }
+  .aurora-root .pc-texture span {
+    display: block;
+    white-space: nowrap;
+  }
+  .aurora-root .is-running .pc-texture {
+    animation: aurora-pc-breathe 6s ease-in-out infinite;
+  }
+  .aurora-root .pc-scene {
+    position: relative;
+  }
+  .aurora-root .pc-reading {
+    min-height: 107px;
+    width: min(350px, 100%);
+    margin: 4px auto 0;
+    padding: 0 0 12px;
+    white-space: normal;
+    font: 12px/1.8 "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    color: var(--au-t-888888);
+  }
+  .aurora-root .pc-reading p {
+    margin: 0;
+    color: var(--au-t-cccccc);
+    text-align: center;
+    padding-top: 8px;
+  }
+  .aurora-root .pc-reading p span {
+    color: var(--au-t-777777);
+  }
+  .aurora-root .pc-progress {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    color: var(--au-t-777777);
+    font-size: 12px;
+  }
+  .aurora-root .pc-progress i {
+    font-style: normal;
+    color: var(--au-t-333333);
+    transition: color 0.3s ease;
+  }
+  .aurora-root .pc-progress i.filled {
+    color: var(--au-t-dddddd);
+  }
+  .aurora-root .pc-progress b {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--au-t-dddddd);
+  }
+  .aurora-root .pc-reading pre {
+    font: inherit;
+    min-height: 49px;
+    margin: 9px 0 3px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--au-t-aaaaaa);
+    animation: aurora-pc-reveal 0.3s ease;
+  }
+  .aurora-root .pc-reading small {
+    font-size: 12px;
+    letter-spacing: 0.8px;
+    color: var(--au-t-666666);
+  }
+  @keyframes aurora-pc-breathe {
+    0%,
+    100% {
+      opacity: 0.04;
+    }
+    50% {
+      opacity: 0.09;
+    }
+  }
+  @keyframes aurora-pc-reveal {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .aurora-root .pc-label {
+    text-transform: uppercase;
+  }
+}

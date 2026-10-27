@@ -9,26 +9,40 @@
 @source not "../src/**/*.test.ts";
 @source not "../src/**/*.test.tsx";
 @import "tw-animate-css";
+/* Aurora (paso 16): su paleta en los dos temas y la base de sus piezas (frontend/src/aurora).
+   Las hojas de cada pieza las importa la pieza. */
+@import "./aurora/palette.css";
+@import "./aurora/aurora.css";
 
-/* La app solo tiene tema claro. Las clases dark: del componente de estados del dueno
-   (components/ui/status.tsx) se quedan, pero solo valdrian con una clase .dark que la app
-   nunca pone: sin esto, Tailwind v4 las aplica con prefers-color-scheme: dark y, en un
-   Windows en modo oscuro, el texto de las pastillas saldria en los tonos -400 sobre el
-   fondo claro (menos de 2:1). */
+/* Dos temas (paso 16): el oscuro de Aurora, por defecto, y el claro. Los decide SOLO la clase
+   .dark en <html>, que pone lib/theme.tsx (tambien con "seguir a Windows", mirando
+   matchMedia desde el codigo): el CSS construido no lleva ninguna consulta
+   prefers-color-scheme (lo comprueba tests/test_app_local.py). Las clases dark: del
+   componente de estados del dueno (components/ui/status.tsx) van atadas a esa misma clase. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Una pantalla baja (un portatil de 768 px de alto): la barra lateral va mas junta. */
 @custom-variant short (@media (max-height: 820px));
 
 /*
- * Option B (Workbench), solo tema claro: fondo blanco roto calido, texto casi negro, un
- * unico acento verde azulado, lineas finas y nada de sombras salvo en lo que flota
- * (menus, tooltips, la hoja del movil). Los estados (prioridades incluidas) son la
- * pastilla del dueno (components/ui/status.tsx, via components/status-pill.tsx), con los
- * tonos de Tailwind y --destructive, y siempre con su texto.
+ * La piel de Aurora para toda la app: las pantallas usan estas variables (bg-card,
+ * text-muted-foreground...) y nunca un color suelto, asi que cambian de tema solas. El oscuro
+ * es la paleta de Aurora (fondo casi negro, texto lavanda claro, acento lavanda); el claro es
+ * su pareja con el mismo matiz. Los dos pasan AA (4,5:1) en el texto: medido en
+ * e2e/themes.spec.ts con axe y con cada pastilla de estado (e2e/fixtures.ts). Los estados
+ * son la pastilla del dueno (components/ui/status.tsx, via components/status-pill.tsx),
+ * siempre con su texto.
  */
 
-/* Las fuentes van en el paquete (sin red): solo latin y solo los pesos que se usan. */
+/* Las fuentes van en el paquete (sin red): solo latin y solo los pesos que se usan. El 300 y
+   el 700 son los de Aurora (titulos ligeros y el nombre del saludo). */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-300-normal.woff2") format("woff2");
+}
 @font-face {
   font-family: "IBM Plex Sans";
   font-style: normal;
@@ -51,6 +65,13 @@
   src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
 }
 @font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
   font-family: "IBM Plex Mono";
   font-style: normal;
   font-display: swap;
@@ -65,38 +86,56 @@
   src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
 }
 
+/* El tema claro: la pareja de Aurora con el mismo matiz lavanda. */
 :root {
-  --radius: 0.375rem;
+  color-scheme: light;
+  --radius: 0.625rem;
 
-  --background: #f7f5f0;
-  --foreground: #1c1b18;
-  --card: #fbfaf7;
-  --card-foreground: #1c1b18;
+  --background: #f5f4f8;
+  --foreground: #18161e;
+  --card: #fcfbfe;
+  --card-foreground: #18161e;
   --popover: #ffffff;
-  --popover-foreground: #1c1b18;
-  --primary: #0e5f5c;
+  --popover-foreground: #18161e;
+  --primary: #5b4890;
   --primary-foreground: #ffffff;
-  --secondary: #efece5;
-  --secondary-foreground: #2a2824;
-  --muted: #efece5;
-  --muted-foreground: #5f5b53;
-  --accent: #ebe7df;
-  --accent-foreground: #1c1b18;
-  --destructive: #9b2c1c;
+  --secondary: #ebe8f1;
+  --secondary-foreground: #2a2633;
+  --muted: #edebf2;
+  --muted-foreground: #5c5768;
+  --accent: #e6e2ee;
+  --accent-foreground: #18161e;
+  --destructive: #a3261a;
   --destructive-foreground: #ffffff;
-  --border: #e2ded5;
-  --input: #cfcac0;
-  --ring: #0e5f5c;
+  --border: #dfdbe6;
+  --input: #c9c4d3;
+  --ring: #5b4890;
+  /* Texto secundario pero mas fuerte que muted (lo que explica una fila). */
+  --soft-foreground: #45404f;
+  /* Lineas entre filas, la fila bajo el raton y la cabecera de una tabla. */
+  --divider: #e6e3ec;
+  --row-hover: #f0eef5;
+  --table-head: #efedf4;
+  /* El borde de un estado vacio (discontinuo). */
+  --border-strong: #d0cbd9;
+  /* Un aviso dentro de una pantalla o un dialogo (no un estado: lo que no se deshace). */
+  --notice: #fbf1e6;
+  --notice-border: #e3c3a8;
+  --notice-foreground: #4a2205;
+  /* Las iniciales de la persona. */
+  --avatar: #e3dfeb;
+  --avatar-foreground: #2a2633;
 
   /* El marco del componente de navegacion: barra lateral y tira de pestanas. */
-  --sidebar: #efece5;
-  --sidebar-foreground: #2a2824;
-  --sidebar-primary: #0e5f5c;
+  --sidebar: #efedf4;
+  --sidebar-foreground: #2a2633;
+  --sidebar-primary: #5b4890;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fbfaf7;
-  --sidebar-accent-foreground: #0e5f5c;
-  --sidebar-border: #e2ded5;
-  --sidebar-ring: #0e5f5c;
+  --sidebar-accent: #fcfbfe;
+  --sidebar-accent-foreground: #4a3a78;
+  --sidebar-border: #dfdbe6;
+  --sidebar-ring: #5b4890;
+  --sidebar-tab-active: #e3dfeb;
 
   /* La insignia de la Werklijst cuando hay facturas bloqueadas (una cuenta, no un estado). */
   --pill-blocked: #8a3a0c;
@@ -107,17 +146,69 @@
      pastilla (components/status-pill.tsx). */
   --ok-foreground: #1d5229;
   --late-foreground: #6e2f07;
-  /* La banda TESTGEGEVENS que pone el servidor (.bms-banda-prueba). */
+  /* La banda TESTGEGEVENS que pone el servidor (.bms-banda-prueba): igual en los dos temas. */
   --testdata: #f6dc8a;
   --testdata-foreground: #3f2e00;
   --testdata-border: #d9bb5c;
+}
+
+/* El tema oscuro: la paleta de Aurora (fondo #08090b-#101015, texto #e8e5ee, acento lavanda
+   #c2aed7). Los grises de texto de Aurora (#77717f) no llegaban a 4,5:1: aqui son mas claros. */
+:root.dark {
+  color-scheme: dark;
+
+  --background: #0a0a0d;
+  --foreground: #ebe8f0;
+  --card: #111116;
+  --card-foreground: #ebe8f0;
+  --popover: #16151c;
+  --popover-foreground: #ebe8f0;
+  --primary: #c2aed7;
+  --primary-foreground: #1c1426;
+  --secondary: #1c1b23;
+  --secondary-foreground: #e2dee9;
+  --muted: #1a1920;
+  --muted-foreground: #a7a1b1;
+  --accent: #221f2b;
+  --accent-foreground: #f1ecf7;
+  --destructive: #ff8b7e;
+  --destructive-foreground: #2a0b06;
+  --border: #26242e;
+  --input: #3a3744;
+  --ring: #b9a6dc;
+  --soft-foreground: #c9c3d2;
+  --divider: #1f1e26;
+  --row-hover: #17161d;
+  --table-head: #141319;
+  --border-strong: #3a3744;
+  --notice: #2a1d12;
+  --notice-border: #6b4527;
+  --notice-foreground: #f5d3b5;
+  --avatar: #2a2733;
+  --avatar-foreground: #ece6f5;
+
+  --sidebar: #0e0e12;
+  --sidebar-foreground: #d9d4e1;
+  --sidebar-primary: #c2aed7;
+  --sidebar-primary-foreground: #1c1426;
+  --sidebar-accent: #1b1a22;
+  --sidebar-accent-foreground: #f1ecf7;
+  --sidebar-border: #1f1e26;
+  --sidebar-ring: #b9a6dc;
+  --sidebar-tab-active: #1c1b23;
+
+  --pill-blocked: #f2a07a;
+  --pill-blocked-foreground: #2a1206;
+
+  --ok-foreground: #86d9a0;
+  --late-foreground: #f6a37f;
 }
 
 @theme inline {
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
 
-  /* Cuerpo a 13,5 px como en la opcion B; el resto de la escala se queda. */
+  /* Cuerpo a 13,5 px; el resto de la escala se queda. */
   --text-sm: 0.84375rem;
   --text-sm--line-height: 1.45;
   --text-xs: 0.75rem;
@@ -162,6 +253,18 @@
 
   --color-ok-foreground: var(--ok-foreground);
   --color-late-foreground: var(--late-foreground);
+
+  --color-soft-foreground: var(--soft-foreground);
+  --color-divider: var(--divider);
+  --color-row-hover: var(--row-hover);
+  --color-table-head: var(--table-head);
+  --color-border-strong: var(--border-strong);
+  --color-notice: var(--notice);
+  --color-notice-border: var(--notice-border);
+  --color-notice-foreground: var(--notice-foreground);
+  --color-avatar: var(--avatar);
+  --color-avatar-foreground: var(--avatar-foreground);
+  --color-sidebar-tab-active: var(--sidebar-tab-active);
 }
 
 /* Cifras alineadas: todas las columnas de importes y horas. */

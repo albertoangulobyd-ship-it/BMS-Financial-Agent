@@ -1,6 +1,8 @@
 // El marco de la app una vez dentro: el componente de navegacion del dueno con todas las
 // entradas (las que la persona puede ver), las pestanas guardadas por entorno y persona,
-// y a la derecha de la tira de pestanas la marca de datos de prueba, NL | EN y la persona.
+// y a la derecha de la tira de pestanas la marca de datos de prueba, NL | EN | ES y la
+// persona (con el tema en su menu). El siguiente paso lo cambia por la rueda de Aurora en el
+// inicio y las seis entradas compactas en las demas pantallas.
 import { useCallback, useMemo } from 'react';
 import {
   SidebarWithTabs,
@@ -15,20 +17,15 @@ import { useCan, useSession } from '@/lib/session';
 import { loadTabs, personKey, saveTabs } from '@/lib/storage';
 import { NAV, RECORDS, DEFAULT_SCREEN, isRecordId, isValidRoute } from '@/screens/registry';
 import { ScreenFor } from '@/screens/render';
+import { BmsMark } from '@/aurora/logo';
 import { AccountMenu } from './account-menu';
 import { LanguageSwitch } from './language-switch';
 import { TestDataChip } from './test-data-chip';
 import { badgeFor, useBadgeCounts } from './use-badges';
 
+// La marca de Aurora: "BMS //" en SVG (aurora/logo.tsx) y, al lado, "finance".
 function Logo() {
-  return (
-    <span
-      aria-hidden='true'
-      className='flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-xs font-semibold tracking-[0.02em] text-sidebar-primary-foreground'
-    >
-      BM
-    </span>
-  );
+  return <BmsMark className='w-[52px] shrink-0 text-sidebar-foreground' />;
 }
 
 export function AppShell() {
@@ -103,7 +100,7 @@ function Shell() {
       // Otra persona u otro entorno es otro estado de pestanas desde cero.
       key={tabsKey ?? 'sin-sesion'}
       logo={<Logo />}
-      companyName={t.app.name}
+      companyName='finance'
       navItems={navItems}
       defaultNavId={DEFAULT_SCREEN}
       renderContent={(route, tab) => <ScreenFor route={route} tab={tab} />}

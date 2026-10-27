@@ -34,7 +34,7 @@ export function FilterChips<K extends string>({
               'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-input bg-card text-[#2a2824] hover:bg-accent'
+                : 'border-input bg-card text-secondary-foreground hover:bg-accent'
             )}
           >
             <span>{chip.label}</span>

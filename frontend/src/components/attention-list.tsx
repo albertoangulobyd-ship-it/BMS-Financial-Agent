@@ -61,8 +61,8 @@ export function AttentionList({
         <li key={group.invoice ?? `h-${group.items[0]!.id}`}>
           <section className='rounded-md border border-border bg-card'>
             {group.invoice !== null && (
-              <header className='flex flex-wrap items-center justify-between gap-3 border-b border-[#ebe7df] px-4 py-2.5'>
-                <span className='text-[13px] text-[#45423c]'>
+              <header className='flex flex-wrap items-center justify-between gap-3 border-b border-divider px-4 py-2.5'>
+                <span className='text-[13px] text-soft-foreground'>
                   {t.records.invoice.label}{' '}
                   <span className='font-mono text-[12.5px] font-medium text-foreground'>
                     {invoiceNumber?.(group.invoice) ?? group.invoice}
@@ -75,7 +75,7 @@ export function AttentionList({
                 )}
               </header>
             )}
-            <div className='divide-y divide-[#ebe7df]'>
+            <div className='divide-y divide-divider'>
               {group.items.map((item) => (
                 <AttentionCard key={item.id} item={item} />
               ))}
@@ -123,7 +123,7 @@ function AttentionCard({ item: h }: { item: AttentionItem }) {
       </header>
       {detail && <p className='mt-1.5 text-[13.5px] leading-relaxed'>{detail}</p>}
       {rule && !accepted && (
-        <p className='mt-1.5 text-[13px] leading-relaxed text-[#45423c]'>
+        <p className='mt-1.5 text-[13px] leading-relaxed text-soft-foreground'>
           <span className='font-medium text-foreground'>{t.invoice.whatToDo} </span>
           {rule.whatToDo}
         </p>

@@ -6,8 +6,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { setNonce } from 'get-nonce';
-import { App } from './App';
+// Primero el CSS de la app: declara el orden de las capas (theme, base, components,
+// utilities) antes que las hojas de Aurora que importan los componentes.
 import './index.css';
+import { App } from './App';
+import { DEVICE_THEME_KEY, loadTheme } from './lib/storage';
+import { DEFAULT_THEME, applyInitialTheme } from './lib/theme';
 
 function pageNonce(): string | undefined {
   const value = document.querySelector('meta[name="bms-nonce"]')?.getAttribute('content') ?? '';
@@ -16,6 +20,9 @@ function pageNonce(): string | undefined {
 
 const nonce = pageNonce();
 if (nonce) setNonce(nonce);
+
+// El tema antes de la primera pintura (index.html ya trae el oscuro, el de por defecto).
+applyInitialTheme(loadTheme(DEVICE_THEME_KEY) ?? DEFAULT_THEME);
 
 const root = document.getElementById('root');
 if (root) {

@@ -52,6 +52,20 @@ async function badge(page: Page, label: string): Promise<number> {
   return m ? Number(m[1]) : 0;
 }
 
+/**
+ * La factura que la base de prueba recibe dos veces (B2): la ultima quincenal de J. Voorbeeld
+ * Beveiliging. Su numero depende del dia en que se crea la base (el 19-10-2026 era
+ * JV-2026-006; el 27-10-2026, JV-2026-007): se lee de la Werklijst, donde va con "1 van 2".
+ */
+async function twinNumber(page: Page): Promise<string> {
+  await nav(page, 'Werklijst');
+  const row = page.getByRole('table').getByRole('row').filter({ hasText: '1 van 2' }).first();
+  await expect(row).toBeVisible();
+  const number = /JV-\d{4}-\d{3}/.exec((await row.textContent()) ?? '')?.[0];
+  if (!number) throw new Error('la Werklijst no trae la factura repetida');
+  return number;
+}
+
 /** La insignia cuando ya ha llegado del panel (al entrar, aun no hay ninguna). */
 async function loadedBadge(page: Page, label: string): Promise<number> {
   await expect.poll(() => badge(page, label)).toBeGreaterThan(0);
@@ -75,7 +89,10 @@ test('het overzicht: vier kaarten en wat als eerste moet, in NL en EN', async ({
   // Vijf verschillende dingen: twee facturen met hetzelfde nummer staan in één rij.
   const numbers = await next.getByTestId('next-up-number').allTextContents();
   expect(new Set(numbers).size).toBe(5);
-  await expect(next.filter({ hasText: 'JV-2026-006' })).toContainText('2 facturen met dit nummer');
+  // La de J. Voorbeeld es la que llego dos veces (su numero depende del dia: twinNumber).
+  const twin = next.filter({ hasText: /JV-\d{4}-\d{3}/ });
+  await expect(twin).toHaveCount(1);
+  await expect(twin).toContainText('2 facturen met dit nummer');
   // De kaarten van het geld zeggen welke facturen ze openen.
   await expect(page.getByRole('main').getByRole('button', { name: 'Verkoopfacturen' })).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: 'Inkoopfacturen' })).toBeVisible();
@@ -99,7 +116,7 @@ test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', 
   // De kop en vier geblokkeerde facturen.
   await expect(rows).toHaveCount(5);
   await expect(page.getByRole('table')).toContainText('Bedragen in USD: niet in euro, daarom buiten alle totalen.');
-  await expect(page.getByRole('table')).toContainText('Hetzelfde nummer (JV2026006) staat op 2 facturen van dezelfde wederpartij.');
+  await expect(page.getByRole('table')).toContainText(/Hetzelfde nummer \(JV\d{7}\) staat op 2 facturen van dezelfde wederpartij\./);
   // De twee met hetzelfde nummer zijn te onderscheiden.
   await expect(page.getByRole('table')).toContainText('1 van 2');
   await expect(page.getByRole('table')).toContainText('2 van 2');
@@ -111,7 +128,7 @@ test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', 
 
   await english(page);
   await expect(page.getByRole('table')).toContainText('Amounts in USD: not in euros, so left out of all totals.');
-  await expect(page.getByRole('table')).toContainText('The same number (JV2026006) is on 2 invoices from the same party.');
+  await expect(page.getByRole('table')).toContainText(/The same number \(JV\d{7}\) is on 2 invoices from the same party\./);
   await capture(page, 'daily-en-work-queue-blocked');
 
   // De factuur zelf: wat het is, wat er mis is en wat te doen.
@@ -138,7 +155,8 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
   watch.expectHttpErrors(403);
   await signIn(page, baseUrl, 'ana');
   const blockedBefore = await loadedBadge(page, 'Werklijst');
-  await openInvoice(page, 'JV-2026-006');
+  const twin = await twinNumber(page);
+  await openInvoice(page, twin);
   const card = page.getByRole('article', { name: 'Factuurnummer dubbel' });
   await card.getByRole('button', { name: 'Accepteren' }).click();
   const dialog = page.getByRole('dialog');
@@ -160,7 +178,7 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
 
   // Bram zet de tweede handtekening voor Ana.
   await login(page, 'bram');
-  await openInvoice(page, 'JV-2026-006');
+  await openInvoice(page, twin);
   await page.getByRole('article', { name: 'Factuurnummer dubbel' }).getByRole('button', { name: 'Tweede handtekening geven' }).click();
   const sign = page.getByRole('dialog');
   await sign.getByLabel('Voor wie').selectOption({ label: 'Ana Demo' });
@@ -171,7 +189,7 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
 
   // Nu accepteert Ana: de melding is geaccepteerd en er staan minder facturen geblokkeerd.
   await login(page, 'ana');
-  await openInvoice(page, 'JV-2026-006');
+  await openInvoice(page, twin);
   await page.getByRole('article', { name: 'Factuurnummer dubbel' }).getByRole('button', { name: 'Accepteren' }).click();
   const accept = page.getByRole('dialog');
   await expect(accept).toContainText('Bram Demo heeft de tweede handtekening voor jou gegeven');

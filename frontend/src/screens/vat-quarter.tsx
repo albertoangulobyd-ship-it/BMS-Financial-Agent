@@ -105,7 +105,7 @@ function QuarterDetail({ quarter: q, title }: { quarter: VatQuarter; title: stri
         <h2 id='vat-finish' className='mb-3 text-[16px] font-semibold'>
           {t.invoice.finishTitle}
         </h2>
-        <ol className='flex flex-col divide-y divide-[#ebe7df] rounded-md border border-border bg-card'>
+        <ol className='flex flex-col divide-y divide-divider rounded-md border border-border bg-card'>
           <Step title={t.vat.stepSheet}>
             <SheetStep quarter={q} />
           </Step>
@@ -150,7 +150,7 @@ function QuarterAttention({ quarter: q }: { quarter: VatQuarter }) {
   }
   return (
     <div className='flex flex-col gap-4'>
-      {changedSheet && <p className='rounded-md border border-[#e2c1a8] bg-[#fdf3e8] px-4 py-3 text-[#4a2205]'>{t.vat.sheetChanged}</p>}
+      {changedSheet && <p className='rounded-md border border-notice-border bg-notice px-4 py-3 text-notice-foreground'>{t.vat.sheetChanged}</p>}
       {review.length > 0 && (
         <Group title={t.vat.reviewInvoices}>
           {review.map((r) => (
@@ -189,8 +189,8 @@ function QuarterAttention({ quarter: q }: { quarter: VatQuarter }) {
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <h3 className='mb-2 text-[13px] font-semibold text-[#45423c]'>{title}</h3>
-      <ul className='divide-y divide-[#ebe7df] overflow-hidden rounded-md border border-border bg-card'>{children}</ul>
+      <h3 className='mb-2 text-[13px] font-semibold text-soft-foreground'>{title}</h3>
+      <ul className='divide-y divide-divider overflow-hidden rounded-md border border-border bg-card'>{children}</ul>
     </div>
   );
 }
@@ -213,11 +213,11 @@ function InvoiceLine({
         type='button'
         onClick={onOpen}
         aria-label={fmt(t.parties.openInvoice, { number: number ?? '' })}
-        className='grid w-full grid-cols-[minmax(10rem,16rem)_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-[#f4f1ea]'
+        className='grid w-full grid-cols-[minmax(10rem,16rem)_1fr] items-start gap-4 px-4 py-3 text-left hover:bg-row-hover'
       >
         <span className='flex min-w-0 flex-col'>
           <span className='truncate font-mono text-[12.5px] font-medium text-primary'>{number ?? '—'}</span>
-          {party && <span className='truncate text-[13px] text-[#45423c]'>{party}</span>}
+          {party && <span className='truncate text-[13px] text-soft-foreground'>{party}</span>}
         </span>
         <span className='text-[13px] leading-snug'>{children}</span>
       </button>
@@ -245,7 +245,7 @@ function SheetStep({ quarter: q }: { quarter: VatQuarter }) {
   }
   return (
     <>
-      <p className='text-[#45423c]'>{t.vat.stepSheetText}</p>
+      <p className='text-soft-foreground'>{t.vat.stepSheetText}</p>
       <div>
         <Button type='button' variant='outline' size='sm' onClick={download} disabled={busy}>
           {busy ? (
@@ -271,7 +271,7 @@ function ReadyStep({ quarter: q }: { quarter: VatQuarter }) {
   const can = useCan();
   const allowed = can('gestionar_btw');
   if (q.estado === 'presentado') {
-    return <p className='text-[#45423c]'>{q.listo_por ? fmt(t.vat.stepReadyDone, { name: q.listo_por }) : t.vat.nextFiled}</p>;
+    return <p className='text-soft-foreground'>{q.listo_por ? fmt(t.vat.stepReadyDone, { name: q.listo_por }) : t.vat.nextFiled}</p>;
   }
   if (q.estado === 'listo_revision') {
     return (
@@ -291,10 +291,10 @@ function ReadyStep({ quarter: q }: { quarter: VatQuarter }) {
       </>
     );
   }
-  if (!q.terminado) return <p className='text-[#45423c]'>{fmt(t.vat.stepReadyRunning, { date: formatDateProse(q.fin, t) })}</p>;
+  if (!q.terminado) return <p className='text-soft-foreground'>{fmt(t.vat.stepReadyRunning, { date: formatDateProse(q.fin, t) })}</p>;
   return (
     <>
-      <p className='text-[#45423c]'>{t.vat.stepReadyText}</p>
+      <p className='text-soft-foreground'>{t.vat.stepReadyText}</p>
       {allowed && (
         <div>
           <ActionButton
@@ -327,10 +327,10 @@ function FileStep({ quarter: q }: { quarter: VatQuarter }) {
       </p>
     );
   }
-  if (q.estado !== 'listo_revision') return <p className='text-[#45423c]'>{t.vat.stepFileWait}</p>;
+  if (q.estado !== 'listo_revision') return <p className='text-soft-foreground'>{t.vat.stepFileWait}</p>;
   return (
     <>
-      <p className='text-[#45423c]'>{t.vat.stepFileText}</p>
+      <p className='text-soft-foreground'>{t.vat.stepFileText}</p>
       {can('gestionar_btw') && q.rev !== null && (
         <div>
           <ActionButton

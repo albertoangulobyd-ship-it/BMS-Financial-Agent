@@ -4,7 +4,7 @@
 // o se deshace un cambio manual; cada orden lleva la rev de la fila que se vio.
 import { ActionButton } from '@/components/action-dialog';
 import { StatusPill } from '@/components/status-pill';
-import { fmt, useT } from '@/i18n';
+import { fmt, useT, type Lang } from '@/i18n';
 import { catalogFor, fieldLabel, qualityText, sourceText, stateLabel } from '@/i18n/domain';
 import { permissionFor } from '@/lib/actions';
 import type { FieldInfo, InvoiceDetail } from '@/lib/api-types';
@@ -17,6 +17,11 @@ import { revOf } from './invoice-util';
 // raro); en los demas campos, el boton solo seria ruido.
 const NEEDS_CHECK = new Set(['dudoso', 'discrepancia', 'anomalia']);
 
+// Los tipos que la app escribe a su manera (importes, fechas, estados...). Un valor de los
+// demas es texto libre tal cual vino del documento ("30 dagen"): va marcado como propio
+// (data-proper-name) y no cuenta como resto de otro idioma (e2e/fixtures.ts).
+const FORMATTED = new Set(['cent', 'mil', 'pb', 'e4', 'fecha', 'bool', 'enum']);
+
 export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDone: () => void }) {
   const { t, lang } = useT();
   const can = useCan();
@@ -26,7 +31,7 @@ export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDon
       <table className='w-full border-collapse text-left text-[13px]'>
         <caption className='sr-only'>{t.sections.fields}</caption>
         <thead>
-          <tr className='border-b border-border bg-[#f2efe8] text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground'>
+          <tr className='border-b border-border bg-table-head text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground'>
             <th scope='col' className='px-3 py-2'>{t.fields.field}</th>
             <th scope='col' className='px-3 py-2'>{t.fields.value}</th>
             <th scope='col' className='px-3 py-2'>{t.fields.source}</th>
@@ -41,12 +46,17 @@ export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDon
             const rev = revOf(invoice, f);
             const canEdit = editableInApp(f) && can(permissionFor('fijar_campo', f.valor !== null));
             return (
-              <tr key={f.campo} className='border-b border-[#ebe7df] align-top last:border-b-0'>
-                <th scope='row' className='px-3 py-2 font-normal text-[#45423c]'>
+              <tr key={f.campo} className='border-b border-divider align-top last:border-b-0'>
+                <th scope='row' className='px-3 py-2 font-normal text-soft-foreground'>
                   {fieldLabel(lang, f.tabla, f.campo) ?? f.campo}
                 </th>
                 <td className='px-3 py-2'>
-                  <span className={f.tipo === 'cent' ? 'num' : undefined}>{formatFieldValue(f, f.valor, lang)}</span>
+                  <span
+                    className={f.tipo === 'cent' ? 'num' : undefined}
+                    data-proper-name={FORMATTED.has(f.tipo) ? undefined : ''}
+                  >
+                    {formatFieldValue(f, f.valor, lang)}
+                  </span>
                   {f.editado && f.cambiado_por && (
                     <span className='mt-0.5 block text-xs text-muted-foreground'>
                       {fmt(t.fields.changedBy, { name: f.cambiado_por })}
@@ -54,7 +64,7 @@ export function FieldsTable({ invoice, onDone }: { invoice: InvoiceDetail; onDon
                     </span>
                   )}
                 </td>
-                <td className='px-3 py-2 text-[#45423c]' title={source?.meaning}>
+                <td className='px-3 py-2 text-soft-foreground' title={source?.meaning}>
                   {source?.label ?? '—'}
                 </td>
                 <td className='px-3 py-2'>
@@ -153,7 +163,7 @@ export function FieldEditButton({
   );
 }
 
-function inputFor(field: FieldInfo, lang: 'nl' | 'en', label: string): ActionField {
+function inputFor(field: FieldInfo, lang: Lang, label: string): ActionField {
   const initial = editableText(field);
   if (field.tipo === 'fecha') return { name: 'valor', label, kind: 'date', initial, hideOptional: true };
   if (field.tipo === 'bool') {
@@ -181,7 +191,7 @@ function inputFor(field: FieldInfo, lang: 'nl' | 'en', label: string): ActionFie
 }
 
 /** El valor nuevo como se vera (un importe escrito 2902,79 se ve € 2.902,79). */
-function previewValue(field: FieldInfo, text: string, lang: 'nl' | 'en'): string {
+function previewValue(field: FieldInfo, text: string, lang: Lang): string {
   const value = text.trim();
   if (!value) return '—';
   if (['cent', 'mil', 'e4', 'pb'].includes(field.tipo)) {

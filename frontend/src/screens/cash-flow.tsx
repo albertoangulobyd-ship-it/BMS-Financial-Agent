@@ -128,16 +128,16 @@ function Estimate({ flow }: { flow: CashFlow }) {
   const income = (est.entrada_sin_facturar_cent ?? 0) + (est.entrada_planificada_cent ?? 0);
   const costs = (est.salida_sin_facturar_cent ?? 0) + (est.salida_planificada_cent ?? 0);
   return (
-    <section aria-labelledby='cash-estimate' className='max-w-4xl rounded-md border border-dashed border-[#c9c2b4] px-5 py-4'>
+    <section aria-labelledby='cash-estimate' className='max-w-4xl rounded-md border border-dashed border-border-strong px-5 py-4'>
       <div className='mb-1 flex flex-wrap items-baseline justify-between gap-3'>
         <h2 id='cash-estimate' className='text-[15px] font-semibold'>
           {t.cash.estimateTitle}
         </h2>
-        <span className='rounded-[3px] border border-[#c9c2b4] px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground'>
+        <span className='rounded-[3px] border border-border-strong px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground'>
           {t.cash.estimateBadge}
         </span>
       </div>
-      <p className='mb-3 text-[13px] text-[#45423c]'>{t.cash.estimateText}</p>
+      <p className='mb-3 text-[13px] text-soft-foreground'>{t.cash.estimateText}</p>
       {hasEstimate ? (
         <dl className='grid max-w-xl grid-cols-[1fr_auto] gap-x-6 gap-y-1.5 text-[13px]'>
           <dt>{t.cash.estimateIn}</dt>

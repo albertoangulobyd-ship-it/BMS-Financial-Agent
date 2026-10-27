@@ -1,0 +1,820 @@
+/* El archivo de Documentos (archive.tsx y tree-view.tsx), de document-workspace.css.
+   Traido de Aurora (paso 16) con una herramienta de una sola vez: solo las reglas que usan sus
+   componentes, bajo .aurora-root, en la capa components (las utilidades de Tailwind mandan),
+   los colores como variables de aurora/palette.css (oscuro el de Aurora, claro su pareja), nada
+   por debajo de 12 px y los @keyframes con "aurora-". */
+@layer components {
+  .aurora-root .ws-shell {
+    max-width: 1120px;
+    margin: auto;
+    padding: 122px 40px 45px;
+  }
+  .aurora-root .ws-breadcrumbs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--au-t-716878);
+    line-height: 2;
+  }
+  .aurora-root .ws-breadcrumbs button:hover {
+    color: var(--au-t-ded1ed);
+  }
+  .aurora-root .ws-breadcrumbs [aria-current="page"] {
+    color: var(--au-t-c9b4da);
+  }
+  .aurora-root .ws-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 45px 0 40px;
+    gap: 20px;
+  }
+  .aurora-root .ws-eyebrow {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--au-t-8d779f);
+    margin: 0 0 14px;
+  }
+  .aurora-root .ws-heading h1 {
+    font-size: 38px;
+    font-weight: 400;
+    letter-spacing: -1.6px;
+    margin: 0 0 12px;
+  }
+  .aurora-root .ws-heading > div > p:last-child {
+    font-size: 12px;
+    color: var(--au-t-81778d);
+    margin: 0;
+  }
+  .aurora-root .ws-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 36px 40px;
+    padding: 40px 0 25px;
+  }
+  .aurora-root .ws-folder-cell {
+    min-width: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 0 10px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    transition: border-color 0.35s, background 0.35s;
+  }
+  .aurora-root .ws-folder-active {
+    border-color: var(--au-9571b129);
+    background: var(--au-9775b005);
+  }
+  .aurora-root .ws-party-type {
+    width: 264px;
+    font-size: 12px;
+    color: var(--au-t-706078);
+    letter-spacing: 1.5px;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .aurora-root .ws-party-type > span {
+    color: var(--au-t-494050);
+  }
+  .aurora-root .ws-folder-caption {
+    width: 264px;
+    margin-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--au-t-85748f);
+  }
+  .aurora-root .ws-folder-caption > button {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--au-t-b39bc6);
+  }
+  .aurora-root .ws-profile {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 45px;
+    border: 1px solid var(--au-ffffff10);
+    border-radius: 16px;
+    padding: 30px;
+    margin-top: 40px;
+    animation: appear 0.4s ease;
+  }
+  .aurora-root .ws-profile h2 {
+    font-size: 24px;
+    letter-spacing: -0.7px;
+    font-weight: 450;
+    margin: 0 0 12px;
+  }
+  .aurora-root .ws-tax {
+    font-size: 12px;
+    color: var(--au-t-74657f);
+  }
+  .aurora-root .ws-profile dl {
+    display: grid;
+    grid-template-columns: 1fr 1.8fr;
+    gap: 12px 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 26px 0 0;
+  }
+  .aurora-root .ws-profile dt {
+    color: var(--au-t-75657f);
+  }
+  .aurora-root .ws-profile dd {
+    margin: 0;
+    color: var(--au-t-bcafc7);
+    overflow-wrap: anywhere;
+  }
+  .aurora-root .ws-table-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    gap: 10px;
+    color: var(--au-t-b09bc1);
+    padding-bottom: 14px;
+  }
+  .aurora-root .ws-table-head button {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--au-t-9d83b3);
+  }
+  .aurora-root .ws-file-table > button {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 15px 0;
+    border-top: 1px solid var(--au-ffffff0c);
+    color: var(--au-t-927c9f);
+  }
+  .aurora-root .ws-file-table > button > span {
+    flex: 1;
+  }
+  .aurora-root .ws-file-table strong {
+    font-size: 12px;
+    font-weight: 450;
+    color: var(--au-t-d0c2dc);
+  }
+  .aurora-root .ws-file-table small {
+    display: block;
+    font-size: 12px;
+    color: var(--au-t-786982);
+    margin-top: 5px;
+  }
+  .aurora-root .ws-empty {
+    padding: 70px;
+    text-align: center;
+    color: var(--au-t-7c688e);
+  }
+  .aurora-root .ws-empty svg {
+    margin: auto;
+  }
+  .aurora-root .ws-empty h2 {
+    font-size: 20px;
+    color: var(--au-t-c5b2d3);
+    font-weight: 400;
+  }
+  .aurora-root .ws-empty p {
+    font-size: 12px;
+  }
+  .aurora-root .ws-empty button {
+    font-size: 12px;
+    color: var(--au-t-caa7e0);
+    margin-top: 14px;
+  }
+  .aurora-root .ws-dialog {
+    position: fixed;
+    inset: 0;
+    border: 1px solid var(--au-84718d44);
+    border-radius: 20px;
+    margin: auto;
+    background: var(--au-111015);
+    color: var(--au-t-d7cce2);
+    padding: 24px;
+    width: min(560px, calc(100% - 32px));
+    max-height: 90dvh;
+    box-shadow: 0 30px 100px var(--au-00000099);
+    overflow: auto;
+  }
+  .aurora-root .ws-dialog::backdrop {
+    background: var(--au-030206c9);
+    backdrop-filter: blur(12px);
+  }
+  .aurora-root .ws-dialog-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    letter-spacing: 1.3px;
+    color: var(--au-t-9b84ab);
+  }
+  .aurora-root .ws-paper {
+    position: relative;
+    background: var(--au-edeaf1);
+    color: var(--au-t-28232e);
+    border-radius: 9px;
+    padding: 32px;
+    overflow: hidden;
+    margin: 22px 0;
+  }
+  .aurora-root .ws-paper-brand {
+    display: block;
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 35px;
+  }
+  .aurora-root .ws-paper-brand small {
+    font-size: 12px;
+    font-weight: 400;
+    margin-left: 5px;
+  }
+  .aurora-root .ws-paper h2 {
+    font-size: 24px;
+    letter-spacing: -0.7px;
+    font-weight: 500;
+    position: relative;
+    margin: 15px 0;
+  }
+  .aurora-root .ws-paper > p {
+    font-size: 12px;
+    color: var(--au-t-68616f);
+  }
+  .aurora-root .ws-paper hr {
+    border: 0;
+    border-top: 1px solid var(--au-d0c9d7);
+    margin: 26px 0;
+  }
+  .aurora-root .ws-paper dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .aurora-root .ws-paper dt {
+    color: var(--au-t-82758e);
+  }
+  .aurora-root .ws-paper dd {
+    margin: 0;
+  }
+  @media (max-width: 1000px) {
+    .aurora-root .ws-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+    }
+    .aurora-root .ws-profile {
+      grid-template-columns: 1fr 1.2fr;
+      gap: 24px;
+    }
+  }
+  @media (max-width: 650px) {
+    .aurora-root .ws-shell {
+      padding: 100px 22px 35px;
+    }
+    .aurora-root .ws-heading {
+      margin-top: 34px;
+      display: block;
+    }
+    .aurora-root .ws-heading h1 {
+      font-size: 29px;
+    }
+    .aurora-root .ws-heading > div > p:last-child {
+      font-size: 12px;
+      line-height: 1.8;
+    }
+    .aurora-root .ws-grid {
+      grid-template-columns: 1fr;
+      gap: 35px;
+      padding-top: 25px;
+    }
+    .aurora-root .ws-profile {
+      grid-template-columns: 1fr;
+      padding: 22px;
+    }
+    .aurora-root .ws-empty {
+      padding: 45px 15px;
+    }
+    .aurora-root .ws-paper {
+      padding: 24px;
+    }
+    .aurora-root .ws-dialog {
+      padding: 18px;
+    }
+  }
+  .aurora-root .ws-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 28px;
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 112px 32px 0;
+  }
+  .aurora-root .ws-layout .ws-shell {
+    max-width: none;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 40px;
+  }
+  .aurora-root .ws-sidebar {
+    position: sticky;
+    top: 28px;
+    align-self: start;
+    max-height: calc(100dvh - 55px);
+    overflow: auto;
+    padding: 20px 10px 25px 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--au-35273f) transparent;
+  }
+  .aurora-root .ws-sidebar > .ws-eyebrow {
+    padding-left: 12px;
+    margin-bottom: 20px;
+  }
+  .aurora-root .ws-tree-hint {
+    font-size: 12px;
+    line-height: 1.9;
+    color: var(--au-t-50465b);
+    padding: 26px 12px 0;
+  }
+  .aurora-root .tree-view {
+    border: 1px solid var(--au-ffffff0c);
+    background: var(--au-100d140f);
+    border-radius: 13px;
+    padding: 6px;
+  }
+  .aurora-root .tree-view ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .aurora-root .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 31px;
+    padding: 4px 5px;
+    border-radius: 7px;
+    cursor: pointer;
+    outline: 0;
+    user-select: none;
+    color: var(--au-t-97889f);
+    transition: background 0.15s, color 0.15s;
+  }
+  .aurora-root .tree-row:hover {
+    background: var(--au-ffffff05);
+    color: var(--au-t-d3c3df);
+  }
+  .aurora-root .tree-row:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--au-a67bc9);
+    background: var(--au-ac7dc911);
+  }
+  .aurora-root .tree-row.tree-selected {
+    background: var(--au-b281d212);
+    color: var(--au-t-e1c9f1);
+  }
+  .aurora-root .tree-caret {
+    display: flex;
+    width: 14px;
+    height: 16px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    color: var(--au-t-766481);
+  }
+  .aurora-root .tree-label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .aurora-root .tree-selected .tree-label {
+    font-weight: 550;
+  }
+  .aurora-root .tree-meta {
+    flex-shrink: 0;
+    font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--au-t-685674);
+  }
+  .aurora-root .tree-group {
+    overflow: hidden;
+  }
+  .aurora-root .tree-view .tree-branch {
+    margin-left: 11px;
+    border-left: 1px solid var(--au-ffffff14);
+    padding-left: 5px;
+  }
+  .aurora-root .ws-heading {
+    margin: 32px 0 28px;
+    align-items: center;
+  }
+  .aurora-root .ws-heading > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .aurora-root .ws-title-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 85px;
+  }
+  .aurora-root .ws-title-line h1 {
+    flex: 0 1 auto;
+    font-size: clamp(25px, 2.5vw, 35px);
+    margin: 0;
+    line-height: 1.3;
+    letter-spacing: -1.1px;
+  }
+  .aurora-root .ws-title-line h1 > span {
+    display: block;
+  }
+  .aurora-root .ws-heading > div > p:last-child {
+    margin-top: 8px;
+    line-height: 1.8;
+  }
+  .aurora-root .ws-companion {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    width: 110px;
+    height: 65px;
+    isolation: isolate;
+    border-radius: 16px;
+  }
+  .aurora-root .ws-companion canvas {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .aurora-root .ws-companion:focus-visible {
+    outline: 1px solid var(--au-886b9d);
+    outline-offset: 1px;
+  }
+  .aurora-root .ws-grid {
+    gap: 30px 20px;
+    padding-top: 28px;
+  }
+  .aurora-root .ws-party-type {
+    margin-bottom: 19px;
+  }
+  .aurora-root .ws-dialog[open] {
+    animation: aurora-ws-file-open 0.28s ease-out;
+  }
+  @keyframes aurora-ws-file-open {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @media (max-width: 1200px) {
+    .aurora-root .ws-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .aurora-root .ws-layout {
+      grid-template-columns: 200px minmax(0, 1fr);
+      gap: 22px;
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+    .aurora-root .ws-heading {
+      gap: 8px;
+    }
+    .aurora-root .ws-title-line h1 {
+      font-size: 29px;
+    }
+  }
+  @media (max-width: 850px) {
+    .aurora-root .ws-layout {
+      grid-template-columns: 170px minmax(0, 1fr);
+      gap: 18px;
+      padding-left: 18px;
+      padding-right: 18px;
+    }
+    .aurora-root .ws-grid {
+      grid-template-columns: 1fr;
+    }
+    .aurora-root .ws-title-line {
+      gap: 0;
+    }
+    .aurora-root .ws-companion {
+      width: 78px;
+    }
+    .aurora-root .ws-title-line h1 {
+      font-size: 26px;
+    }
+    .aurora-root .ws-profile {
+      grid-template-columns: 1fr;
+    }
+    .aurora-root .tree-label {
+      font-size: 12px;
+    }
+  }
+  @media (max-width: 600px) {
+    .aurora-root .ws-layout {
+      display: flex;
+      flex-direction: column;
+      padding: 112px 20px 0;
+      gap: 20px;
+    }
+    .aurora-root .ws-sidebar {
+      position: relative;
+      top: auto;
+      max-height: 230px;
+      width: 100%;
+      padding: 0;
+      order: 0;
+    }
+    .aurora-root .ws-sidebar > .ws-eyebrow {
+      margin-bottom: 10px;
+    }
+    .aurora-root .ws-tree-hint {
+      display: none;
+    }
+    .aurora-root .tree-view {
+      padding: 7px 10px;
+    }
+    .aurora-root .tree-label {
+      font-size: 12px;
+    }
+    .aurora-root .ws-heading {
+      margin-top: 25px;
+    }
+    .aurora-root .ws-title-line {
+      min-height: 85px;
+    }
+    .aurora-root .ws-title-line h1 {
+      font-size: 26px;
+    }
+    .aurora-root .ws-companion {
+      width: 85px;
+    }
+    .aurora-root .ws-profile {
+      padding: 19px;
+    }
+    .aurora-root .ws-layout .ws-shell {
+      padding: 0 0 32px;
+    }
+    .aurora-root .ws-grid {
+      padding-top: 15px;
+    }
+    .aurora-root .ws-heading > div > p:last-child {
+      font-size: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-root .ws-companion {
+      animation: none !important;
+    }
+    .aurora-root .ws-dialog[open] {
+      animation: none;
+    }
+  }
+  .aurora-root .ws-layout {
+    row-gap: 0;
+  }
+  .aurora-root .ws-layout .ws-shell {
+    display: contents;
+  }
+  .aurora-root .ws-breadcrumbs {
+    grid-column: 1/-1;
+    grid-row: 1;
+  }
+  .aurora-root .ws-heading {
+    grid-column: 1/-1;
+    grid-row: 2;
+    margin-top: 22px;
+  }
+  .aurora-root .ws-grid {
+    grid-column: 2;
+    grid-row: 5;
+  }
+  .aurora-root .ws-profile {
+    grid-column: 2;
+    grid-row: 6;
+  }
+  .aurora-root .ws-empty {
+    grid-column: 2;
+    grid-row: 5;
+  }
+  .aurora-root .ws-sidebar {
+    grid-column: 1;
+    grid-row: 5 / span 2;
+    margin-top: 28px;
+    top: 20px;
+    max-height: calc(100dvh - 45px);
+  }
+  .aurora-root .ws-heading .ws-companion {
+    margin-left: -12px;
+    margin-top: 0;
+    margin-bottom: 15px;
+    width: 96px;
+    height: 52px;
+  }
+  .aurora-root .ws-title-line {
+    min-height: 56px;
+  }
+  .aurora-root .ws-title-line h1 {
+    font-size: clamp(27px, 2.5vw, 35px);
+  }
+  .aurora-root .ws-heading .ws-eyebrow {
+    font-size: 12px;
+    margin-bottom: 11px;
+  }
+  .aurora-root .ws-heading {
+    align-items: flex-start;
+  }
+  .aurora-root .ws-heading > div > p:last-child {
+    margin-top: 8px;
+  }
+  @media (max-width: 600px) {
+    .aurora-root .ws-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      padding-top: 110px;
+      row-gap: 0;
+    }
+    .aurora-root .ws-breadcrumbs,
+    .aurora-root .ws-heading,
+    .aurora-root .ws-grid,
+    .aurora-root .ws-profile,
+    .aurora-root .ws-empty {
+      grid-column: 1;
+      grid-row: auto;
+    }
+    .aurora-root .ws-breadcrumbs {
+      grid-row: 1;
+    }
+    .aurora-root .ws-heading {
+      grid-row: 2;
+    }
+    .aurora-root .ws-sidebar {
+      grid-column: 1;
+      grid-row: 5;
+      margin-top: 12px;
+      margin-bottom: 22px;
+      top: auto;
+      max-height: 200px;
+    }
+    .aurora-root .ws-grid {
+      grid-row: 6;
+    }
+    .aurora-root .ws-profile {
+      grid-row: 7;
+    }
+    .aurora-root .ws-title-line {
+      min-height: 65px;
+    }
+    .aurora-root .ws-heading .ws-companion {
+      margin-bottom: 11px;
+    }
+  }
+  .aurora-root .ws-layout .ws-grid,
+  .aurora-root .ws-layout .ws-empty {
+    grid-row: 3;
+  }
+  .aurora-root .ws-layout .ws-grid {
+    padding-top: 16px;
+  }
+  .aurora-root .ws-layout .ws-sidebar {
+    grid-row: 3 / span 2;
+    margin-top: 16px;
+  }
+  .aurora-root .ws-layout .ws-profile {
+    grid-row: 4;
+  }
+  @media (max-width: 600px) {
+    .aurora-root .ws-layout .ws-sidebar {
+      grid-row: 3;
+      max-height: 200px;
+      margin-top: 4px;
+      margin-bottom: 18px;
+    }
+    .aurora-root .ws-layout .ws-grid,
+    .aurora-root .ws-layout .ws-empty {
+      grid-row: 4;
+    }
+    .aurora-root .ws-layout .ws-profile {
+      grid-row: 5;
+    }
+  }
+  .aurora-root .tree-row {
+    position: relative;
+    isolation: isolate;
+  }
+  .aurora-root .tree-row.tree-selected {
+    background: transparent;
+  }
+  .aurora-root .tree-selection-background {
+    position: absolute;
+    inset: 0;
+    border-radius: 7px;
+    background: var(--au-b281d212);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .aurora-root .ws-grid,
+  .aurora-root .ws-profile {
+    will-change: opacity;
+  }
+  .aurora-root .ws-folder-cell {
+    min-width: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-root .tree-selection-background,
+    .aurora-root .ws-folder-cell,
+    .aurora-root .ws-grid,
+    .aurora-root .ws-profile {
+      will-change: auto;
+    }
+  }
+  .aurora-root .tree-tone-new .tree-label {
+    color: var(--au-t-83bd99);
+  }
+  .aurora-root .tree-tone-duplicate .tree-label {
+    color: var(--au-t-bd936b);
+  }
+  .aurora-root .ws-layout .ws-grid {
+    grid-row: 6;
+  }
+  .aurora-root .ws-layout .ws-sidebar {
+    grid-row: 6 / span 2;
+  }
+  .aurora-root .ws-layout .ws-profile {
+    grid-row: 7;
+  }
+  @media (max-width: 600px) {
+    .aurora-root .ws-layout .ws-sidebar {
+      grid-row: 6;
+      margin-bottom: 20px;
+    }
+    .aurora-root .ws-layout .ws-grid {
+      grid-row: 7;
+    }
+    .aurora-root .ws-layout .ws-profile {
+      grid-row: 8;
+    }
+  }
+  .aurora-root .ws-eyebrow {
+    text-transform: uppercase;
+  }
+  .aurora-root .ws-crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .aurora-root .ws-breadcrumbs button {
+    color: inherit;
+  }
+  .aurora-root .ws-breadcrumbs button:hover {
+    color: var(--au-t-ddd2e8);
+  }
+  .aurora-root .ws-file-table > button {
+    width: 100%;
+    text-align: left;
+  }
+  .aurora-root .ws-file-empty {
+    margin: 18px 0 0;
+    font-size: 13px;
+    color: var(--au-t-8f8698);
+  }
+  .aurora-root .ws-folder-caption > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .aurora-root .ws-companion {
+    border-radius: 50%;
+  }
+  .aurora-root .ws-dialog-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .aurora-root .ws-companion .aurora-orb {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+}

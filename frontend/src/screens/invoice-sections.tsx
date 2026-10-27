@@ -10,7 +10,7 @@ import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { DateText, Hours, Money } from '@/components/values';
-import { fmt, useT, type Messages } from '@/i18n';
+import { LOCALES, fmt, useT, type Lang, type Messages } from '@/i18n';
 import { catalogFor, fieldLabel, findingDetail, ruleText, stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { FieldInfo, InvoiceDetail, InvoiceHistory } from '@/lib/api-types';
@@ -38,7 +38,7 @@ export function LinesTable({ invoice }: { invoice: InvoiceDetail }) {
       <table className='w-full border-collapse text-left text-[13px]'>
         <caption className='sr-only'>{t.sections.lines}</caption>
         <thead>
-          <tr className='border-b border-border bg-[#f2efe8]'>
+          <tr className='border-b border-border bg-table-head'>
             <th scope='col' className={head}>{t.lines.description}</th>
             <th scope='col' className={`${head} text-right`}>{t.lines.quantity}</th>
             <th scope='col' className={`${head} text-right`}>{t.lines.rate}</th>
@@ -51,7 +51,7 @@ export function LinesTable({ invoice }: { invoice: InvoiceDetail }) {
             const unit = field(l.campos, 'unidad_doc')?.valor;
             const imp = l.imputaciones.filter((i) => !i.retirada);
             return (
-              <tr key={l.id} className='border-b border-[#ebe7df] last:border-b-0'>
+              <tr key={l.id} className='border-b border-divider last:border-b-0'>
                 <td className={cell}>{String(field(l.campos, 'descripcion_doc')?.valor ?? '—')}</td>
                 <td className={`${cell} num text-right whitespace-nowrap`}>
                   {show(field(l.campos, 'cantidad_mil'))}
@@ -181,7 +181,7 @@ export function PlanningTable({ invoice }: { invoice: InvoiceDetail }) {
       <table className='w-full border-collapse text-left text-[13px]'>
         <caption className='sr-only'>{t.sections.planning}</caption>
         <thead>
-          <tr className='border-b border-border bg-[#f2efe8]'>
+          <tr className='border-b border-border bg-table-head'>
             <th scope='col' className={head}>{t.planning.date}</th>
             <th scope='col' className={head}>{t.planning.shift}</th>
             <th scope='col' className={head}>{t.planning.object}</th>
@@ -192,7 +192,7 @@ export function PlanningTable({ invoice }: { invoice: InvoiceDetail }) {
         </thead>
         <tbody>
           {shifts.map((s, i) => (
-            <tr key={`${s.id_externo}-${i}`} className='border-b border-[#ebe7df] last:border-b-0'>
+            <tr key={`${s.id_externo}-${i}`} className='border-b border-divider last:border-b-0'>
               <td className={cell}>
                 <DateText value={s.fecha} />
                 {s.hora_inicio && s.hora_fin && (
@@ -267,7 +267,7 @@ export function NoDataList({ invoice }: { invoice: InvoiceDetail }) {
         <li key={`${r.regla}-${r.clave}`}>
           <span className='font-medium'>{ruleText(lang, r.regla)?.title ?? r.regla}</span>{' '}
           <span className='font-mono text-[11px] text-muted-foreground'>{r.regla}</span>
-          <p className='text-[13px] text-[#45423c]'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</p>
+          <p className='text-[13px] text-soft-foreground'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</p>
         </li>
       ))}
     </ul>
@@ -284,7 +284,7 @@ interface HistoryEntry {
 }
 
 /** De la historia de la API, una lista de frases: cada cosa que paso, quien y por que. */
-export function historyEntries(h: InvoiceHistory, invoice: InvoiceDetail, t: Messages, lang: 'nl' | 'en'): HistoryEntry[] {
+export function historyEntries(h: InvoiceHistory, invoice: InvoiceDetail, t: Messages, lang: Lang): HistoryEntry[] {
   const out: HistoryEntry[] = [];
   if (h.documento?.recibido_en) out.push({ at: h.documento.recibido_en, text: t.history.received, who: null, note: null });
   for (const e of h.extracciones) {
@@ -294,7 +294,7 @@ export function historyEntries(h: InvoiceHistory, invoice: InvoiceDetail, t: Mes
     const title = ruleText(lang, finding.regla)?.title ?? finding.regla;
     for (const ev of finding.eventos) {
       const what = stateLabel(lang, 'evento_hallazgo', ev.tipo) ?? ev.tipo;
-      out.push({ at: ev.en, text: `${title}: ${what.toLocaleLowerCase(lang === 'nl' ? 'nl-NL' : 'en-GB')}`, who: ev.usuario, note: ev.nota });
+      out.push({ at: ev.en, text: `${title}: ${what.toLocaleLowerCase(LOCALES[lang])}`, who: ev.usuario, note: ev.nota });
     }
   }
   for (const r of h.revisiones) {
@@ -354,7 +354,7 @@ export function HistoryList({ invoice }: { invoice: InvoiceDetail }) {
           <span className='mr-2 whitespace-nowrap text-xs text-muted-foreground'>{formatDateTime(e.at)}</span>
           <span>{e.text}</span>
           {e.who && <span className='text-muted-foreground'> · {e.who}</span>}
-          {e.note && <span className='block whitespace-pre-wrap text-[#45423c]'>“{e.note}”</span>}
+          {e.note && <span className='block whitespace-pre-wrap text-soft-foreground'>“{e.note}”</span>}
         </li>
       ))}
     </ol>

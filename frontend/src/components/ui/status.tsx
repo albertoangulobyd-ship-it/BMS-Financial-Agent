@@ -16,11 +16,13 @@
  * - Movimiento: motion-reduce:before:animate-none en el punto, para que el latido se pare
  *   a quien pide menos movimiento. Que lata o no lo decide components/status-pill.tsx
  *   (solo lo que pide hacer algo ya); las pantallas no eligen variante ni latido.
- * - Las clases dark: se quedan, pero no hacen nada porque src/index.css ata la variante
- *   dark a una clase .dark que la app nunca pone (@custom-variant dark). Sin eso, Tailwind
- *   v4 las aplica con prefers-color-scheme: dark y, en un Windows en modo oscuro, el texto
- *   saldria en los tonos -400 sobre el fondo claro de la app (menos de 2:1). La app solo
- *   tiene tema claro; e2e/status.spec.ts mide las pastillas con el modo oscuro del sistema.
+ * - Las clases dark: valen desde el paso 16, con el tema oscuro de Aurora (el de por
+ *   defecto): src/index.css ata la variante dark a la clase .dark que lib/theme.tsx pone en
+ *   <html> (@custom-variant dark), nunca a prefers-color-scheme. Sin eso, Tailwind v4 las
+ *   aplicaria con un Windows en modo oscuro aunque la persona hubiera elegido el claro, y el
+ *   texto saldria en los tonos -400 sobre un fondo claro (menos de 2:1). En oscuro, el texto
+ *   -400 sobre su tinte en las tarjetas pasa de 4,5:1; e2e/status.spec.ts y
+ *   e2e/themes.spec.ts miden cada pastilla en los dos temas.
  * - radix-ui 1.6.7 (el Slot de asChild): sus @radix-ui/* son las mismas versiones que ya
  *   estaban en package-lock.json (react-slot 1.3.3, react-primitive 2.1.10...), asi que no
  *   duplica nada y el Slot es el mismo de @radix-ui/react-slot: lo construido no crece

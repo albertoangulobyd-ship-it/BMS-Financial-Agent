@@ -64,7 +64,7 @@ export function DataTable<Row>({
       <table className='w-full border-collapse text-left'>
         <caption className='sr-only'>{caption}</caption>
         <thead>
-          <tr className='border-b border-border bg-[#f2efe8]'>
+          <tr className='border-b border-border bg-table-head'>
             {columns.map((col) => (
               <th
                 key={col.key}
@@ -88,8 +88,8 @@ export function DataTable<Row>({
               key={rowKey(row)}
               onClick={onOpen ? () => onOpen(row) : undefined}
               className={cn(
-                'border-b border-[#ebe7df] last:border-b-0 align-top',
-                onOpen && 'cursor-pointer hover:bg-[#f4f1ea]'
+                'border-b border-divider last:border-b-0 align-top',
+                onOpen && 'cursor-pointer hover:bg-row-hover'
               )}
             >
               {columns.map((col) => (

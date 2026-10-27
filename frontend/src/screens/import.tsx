@@ -301,7 +301,7 @@ function Importer({ info }: { info: ImportsInfo }) {
       </div>
 
       {error !== null && (
-        <div role='alert' data-testid='import-error' className='flex flex-col gap-2 border-t border-border bg-[#fdf3e8] px-5 py-4 text-[#4a2205]'>
+        <div role='alert' data-testid='import-error' className='flex flex-col gap-2 border-t border-border bg-notice px-5 py-4 text-notice-foreground'>
           <p className='font-medium'>{errorMessage(error, t, lang)}</p>
           {candidates.length > 0 && (
             <div className='flex flex-wrap gap-2'>

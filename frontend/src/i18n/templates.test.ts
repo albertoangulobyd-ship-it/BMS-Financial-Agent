@@ -1,36 +1,36 @@
 // El renderizador de plantillas contra la referencia de Python: cada caso de
 // src/bms_agent/textos/casos.json (los bordes del lenguaje y un hallazgo de cada variante
-// de cada regla) tiene que dar exactamente el mismo texto, en neerlandes y en ingles, y
-// lo mismo en `faltan`.
+// de cada regla) tiene que dar exactamente el mismo texto en cada idioma que traiga el caso
+// (neerlandes e ingles; el castellano en cuanto casos.json lo traiga, con es.json), y lo
+// mismo en `faltan`.
 import { describe, expect, it } from 'vitest';
 import casos from '../../../src/bms_agent/textos/casos.json';
 import { catalogFor, errorText, findingDetail, templateCatalog, verdict } from './domain';
 import { chooseVariant, holds, integerOf, renderDetail, renderTemplate, type RuleTexts } from './templates';
-import type { Lang } from './index';
+import { LANGS as APP_LANGS, type Lang } from './index';
 
-const LANGS: Lang[] = ['nl', 'en'];
+type Texts = Partial<Record<Lang, string>>;
 
-interface TemplateCase {
+interface TemplateCase extends Texts {
   plantilla: string;
   valores: unknown;
-  nl: string;
-  en: string;
   faltan: string[];
 }
 
-interface DetailCase {
+interface DetailCase extends Texts {
   origen: string;
   regla: string;
   resultado: string;
   valores: unknown;
   variante: number;
-  nl: string;
-  en: string;
   faltan: string[];
 }
 
 const plantillas = casos.plantillas as unknown as TemplateCase[];
 const detalles = casos.detalles as unknown as DetailCase[];
+// Los idiomas que trae la referencia de Python (hoy nl y en: es.json aun no ha llegado, ver
+// DOMAIN_FALLBACK en domain.ts).
+const LANGS: Lang[] = APP_LANGS.filter((lang) => typeof plantillas[0]?.[lang] === 'string');
 
 describe('las plantillas, como bms_agent.textos.pintar', () => {
   it('hay casos', () => {
@@ -123,17 +123,16 @@ describe('las piezas', () => {
       state: 'limpia_sin_datos',
       text: 'No objections in what was checked; checks without data: 2',
     });
-    for (const lang of LANGS) {
+    for (const lang of APP_LANGS) {
       for (const text of Object.values(catalogFor(lang).veredicto)) {
-        expect(text).not.toMatch(/goedgekeurd|approved/i);
+        expect(text).not.toMatch(/goedgekeurd|approved|aprobad/i);
       }
     }
   });
 
-  it('cada codigo de error tiene su texto en los dos idiomas', () => {
+  it('cada codigo de error tiene su texto en cada idioma', () => {
     for (const code of Object.keys(catalogFor('nl').errores)) {
-      expect(errorText('nl', code)).toBeTruthy();
-      expect(errorText('en', code)).toBeTruthy();
+      for (const lang of APP_LANGS) expect(errorText(lang, code), `${lang} ${code}`).toBeTruthy();
     }
     expect(errorText('en', 'no_such_code')).toBeNull();
   });

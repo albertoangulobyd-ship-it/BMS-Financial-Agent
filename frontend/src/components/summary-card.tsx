@@ -50,7 +50,7 @@ export function SummaryCard({
         <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-[12.5px]'>
           {rows.slice(0, 3).map((row) => (
             <div key={row.label} className='contents'>
-              <dt className={row.status ? 'flex items-center' : 'text-[#45423c]'}>
+              <dt className={row.status ? 'flex items-center' : 'text-soft-foreground'}>
                 {row.status ? <StatusPill {...row.status} /> : row.label}
               </dt>
               <dd className={cn('m-0 self-center text-right num', row.status && 'font-medium')}>{row.value}</dd>

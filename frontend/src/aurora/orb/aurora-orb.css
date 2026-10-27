@@ -1,0 +1,45 @@
+/* El orbe de Aurora (aurora-orb.tsx). En la capa components: las utilidades de Tailwind siguen
+   mandando sobre el. Sin colores de tema: el orbe es luz sobre el fondo, igual en los dos. */
+@layer components {
+  .aurora-orb {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .aurora-orb__canvas {
+    display: block;
+    background: transparent;
+  }
+  /* Sin WebGL, o el segundo orbe de una pantalla: el degradado fijo con los colores de la
+     onda (oro arriba, cian en medio, violeta abajo). */
+  .aurora-orb__fallback {
+    position: absolute;
+    inset: 34% 8% 30%;
+    border-radius: 50%;
+    background:
+      radial-gradient(60% 55% at 50% 30%, rgb(255 236 200 / 0.95), rgb(255 236 200 / 0) 70%),
+      radial-gradient(70% 60% at 50% 55%, rgb(120 210 255 / 0.75), rgb(120 210 255 / 0) 72%),
+      radial-gradient(75% 70% at 50% 80%, rgb(150 96 240 / 0.85), rgb(150 96 240 / 0) 75%);
+    filter: blur(5px);
+  }
+  .aurora-orb--success .aurora-orb__fallback {
+    background: radial-gradient(70% 60% at 50% 50%, rgb(40 235 122 / 0.85), rgb(40 235 122 / 0) 72%);
+  }
+  /* La marca pequena: el degradado en un circulo. */
+  .aurora-orb--mark {
+    width: 28px;
+    height: 28px;
+  }
+  .aurora-orb--mark .aurora-orb__fallback {
+    inset: 22% 4% 18%;
+    filter: blur(2px);
+  }
+  /* En el tema claro la onda se ve con sus propios colores (el oro de arriba se pierde un poco
+     en el blanco): un poco mas de saturacion la sostiene, sin halo ni fondo. */
+  :root:not(.dark) .aurora-orb__canvas {
+    filter: saturate(1.35) contrast(1.1);
+  }
+}
