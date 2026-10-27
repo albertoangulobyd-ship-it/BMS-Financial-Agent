@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.1", ...}
+{"contrato": "2.2", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.1`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.2`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -339,6 +339,36 @@ columnas nuevas en las dos cachés de prioridad; las `razones` dicen lo mismo
 desde los hallazgos. Los `valores` de F2-F10 y K4 traen IBAN enteros: desde
 otro origen salen enmascarados como cualquier texto (abajo).
 
+**Lo que añadió el 2.2 (paso 16).** Para Cuentas por cobrar, Cuentas por pagar y
+el archivo de Documentos de la app. Claves y lecturas nuevas; ninguna cambia ni
+se quita:
+
+- seis lecturas: la cartera de un lado (`GET /api/v2/cartera`), los pagos que
+  el banco propuso y esperan a una persona (`GET /api/v2/pagos/propuestas`), las
+  líneas del banco sin casar (`GET /api/v2/movimientos`), los documentos de un
+  cliente o un proveedor (`GET /api/v2/clientes/N/documentos` y
+  `GET /api/v2/proveedores/N/documentos`) y la descarga auditada de cualquier
+  documento guardado (`GET /api/v2/documentos/N/original`). Abajo, «Cuentas por
+  cobrar y por pagar» y «El archivo de una parte»;
+- la vista de un proveedor y la de un cliente llevan `kvk`, `email_facturacion`
+  y `direccion` (lo que tenga el maestro: el de clientes no guarda correo ni
+  dirección, y van `null`), `contactos` (las personas de contacto del maestro,
+  las activas primero: `id`, `nombre`, `email`, `telefono`, `funcion`, `activo`),
+  `ordenes_compra` (sus PO, como cada fila de `GET /api/v2/ordenes`) y
+  `documentos` (cuántos tiene su carpeta); la de un cliente, además, `objetos`
+  (sus Objetos del maestro: `id`, `codigo`, `nombre`, `activo_desde`,
+  `activo_hasta`). El teléfono de un contacto no es el de verificar una cuenta:
+  ese es `telefono_verificacion`, el del maestro de proveedores;
+- cada fila de las listas de **proveedores** y **clientes** lleva `documentos`:
+  cuántos documentos tiene su carpeta;
+- la búsqueda admite el filtro `tipo` (`factura` o `nota_credito`).
+
+Y una corrección de este fichero, no del código: decía que `dinero_entra` («lo
+que se espera cobrar») llevaba los abonos de los proveedores. Nunca los ha
+llevado: solo cuentan las deudas (`reglas.pagos.vence`), y un abono, de quien
+sea, no es un cobro con fecha. Lo que queda de un abono sin enlazar lo da la
+cartera aparte (`abonos_sin_enlazar`), con su aviso R4.
+
 ### Cuatro reglas que valen para todo
 
 **Importes en enteros, con su texto al lado.** `_cent` son céntimos de euro
@@ -385,7 +415,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.1",
+  "contrato": "2.2",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -410,12 +440,14 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 "panel": {
   "contrato", "hoy", "estado_del", "al_dia",
   "fuentes_caducadas": [ {"fuente", "tipo", "exportado", "edad", "limite"} ],
-  "dinero_entra": {                   // lo que se espera cobrar: ventas y abonos de proveedores
+  "dinero_entra": {                   // lo que se espera cobrar: lo que queda de las ventas
+                                      // (solo deudas: un abono, tampoco el de un proveedor,
+                                      // no es un cobro con fecha; ver «La cartera»)
     "facturas", "vencidas",
     "pendiente_cent", "vencido_cent", "semana_cent", "mes_cent",
     "proximos_30_cent", "sin_fecha_cent"          // y cada uno sin _cent, como texto
   },
-  "dinero_sale": {                    // lo mismo, lo que se espera pagar
+  "dinero_sale": {                    // lo mismo, lo que se espera pagar de las compras
     "facturas", "vencidas",
     "pendiente_cent", "vencido_cent", "semana_cent", "mes_cent",
     "proximos_30_cent", "sin_fecha_cent"
@@ -497,9 +529,9 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
 
 ```
 "proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", ...} ],
+                  "razones", "documentos", ...} ],
 "clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", ...} ],
+                  "razones", "documentos", ...} ],
 "objetos": {
   "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel", "razones"} ],
   "sin_objeto": {"imputado", "sin_imputar", "total"},
@@ -572,6 +604,12 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/importaciones` | Las últimas 30 importaciones (qué, de cuándo, quién, cómo acabó), lo que se puede importar (`tipos`: cada `fuente` y `tipo`), el tamaño máximo de un fichero (`limite_bytes`) y de cuándo es cada fuente (`fuentes`, como `GET /api/v2/fuentes`) | — |
 | `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no) | — |
 | `GET /api/v2/empresa` | La identidad de BM Support BV que usan las reglas (`nombre`, `otros_nombres`, `btw_id`, `kvk`, `cuentas_propias`, `completa`). Se cambia con `empresa.bat`, no desde la app | — |
+| `GET /api/v2/cartera` | Lo que nos deben (`sentido=saliente`) o lo que debemos (`sentido=entrante`): los totales del panel, la antigüedad por tramos, cada empresa, lo retenido y lo que espera aparte (abajo, «La cartera») | `sentido` (obligatorio: sin él, o con otro valor, `400`) |
+| `GET /api/v2/pagos/propuestas` | Los pagos que el banco propuso y esperan a una persona, cada uno con su línea del banco, su factura y las tres coincidencias | `sentido` (de la factura) |
+| `GET /api/v2/movimientos` | Las líneas del banco, la más reciente primero: por defecto, solo las sin casar | `sin_casar` (`si` por defecto, o `no`), `signo` (`entrada` o `salida`), `desde`, `hasta`, `texto`, `limite` (de 1 a 1000, 200) |
+| `GET /api/v2/clientes/N/documentos` | La carpeta de un cliente: los documentos que el sistema ya le enlaza (abajo, «El archivo de una parte») | — |
+| `GET /api/v2/proveedores/N/documentos` | La carpeta de un proveedor | — |
+| `GET /api/v2/documentos/N/original` | Cualquier documento guardado, como fichero adjunto, con las mismas cabeceras que el original de una factura. Cada descarga queda en la auditoría (`documento_abierto`). Solo desde la app o la consola: desde otro origen, `403` y sin CORS | — |
 | `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien` y `estado`: `correcto`, `falla`, `sin_comprobar` o `caducada`, comprobado hace demasiado o con una fecha que no vale). No copia el texto de los problemas (sale de un fichero que se puede escribir): `estado` sale solo de cómo empieza cada problema | — |
 
 ### Los errores (`error` y `codigo`)
@@ -712,6 +750,7 @@ nunca en la consulta. `limite` va de 1 a 1000 (200 por defecto). `orden`:
 | `numero` | Invoice number | Parte del número, sin espacios, puntos, guiones ni barras |
 | `texto` | — | Parte del número o del nombre impreso de la contraparte, sin distinguir mayúsculas (tampoco en «Öztürk» o «Élan») |
 | `sentido` | — | `entrante` (compras) o `saliente` (ventas) |
+| `tipo` | — | `factura` o `nota_credito` (abono); el «Tipo de documento» del archivo |
 | `proveedor_id` | Provider | Del proveedor del maestro (un id de más de 19 cifras, `400`) |
 | `cliente_id` | Client | Sus ventas y las compras imputadas a un Objeto suyo |
 | `objeto_id` | Object | Con alguna línea imputada al Objeto |
@@ -736,6 +775,214 @@ nunca en la consulta. `limite` va de 1 a 1000 (200 por defecto). `orden`:
 Lo que depende del estado (pago, revisión, prioridad, calidad, ediciones) sale
 de la caché que rehace cada pasada del motor y la diaria: `estado_del` dice de
 qué día es, y `al_dia` si es el de hoy.
+
+### Cuentas por cobrar y por pagar (paso 16)
+
+Tres lecturas para las dos pantallas del dinero de la app. Solo leen: confirmar
+o retirar un pago propuesto y apuntar uno ya hecho son órdenes
+(`confirmar_pago`, `retirar_pago` y `marcar_pagada` en `POST /api/v2/acciones`,
+con el permiso `marcar_pagada`). Nada de esto paga, aprueba un pago ni prepara
+una transferencia o un fichero de pagos.
+
+#### La cartera (`GET /api/v2/cartera`)
+
+```
+GET /api/v2/cartera?sentido=saliente
+→ {"cartera": {
+    "sentido",                        // saliente: por cobrar (ventas); entrante: por pagar (compras)
+    "hoy", "estado_del", "al_dia",
+    "totales": {"facturas", "vencidas", "pendiente_cent", "vencido_cent", "semana_cent",
+                "mes_cent", "proximos_30_cent", "sin_fecha_cent"},
+                                      // = panel.dinero_entra (o dinero_sale), al céntimo
+    "fechas",                         // de qué día a qué día es cada ventana (= panel.caja.fechas)
+    "movido_mes_cent",                // lo cobrado (o pagado) que el banco movió este mes
+    "tramos": [ {"clave", "dias_desde", "dias_hasta", "vence_desde", "vence_hasta",
+                 "facturas", "importe_cent"} ],
+    "retenido": {"facturas", "importe_cent"},      // con algo que bloquea o retiene
+    "sin_retener": {"facturas", "importe_cent"},
+    "partes": [ {"id", "nombre", "facturas", "vencidas", "pendiente_cent", "vencido_cent",
+                 "retenido_cent", "mas_antigua_dias", "nivel", "puntos", "razones",
+                 "plazo_de_pago": {"pagadas", "media_dias", "tarde"}} ],
+    "por_confirmar": {"pagos", "importe_cent"},    // aparte: no suman
+    "sin_casar": {"movimientos", "importe_cent"},
+    "abonos_sin_enlazar": {"facturas", "importe_cent",
+                           "lista": [ {"id", "numero", "contraparte", "parte_id", "parte",
+                                       "fecha_factura", "pendiente_cent"} ]},
+    "sin_importe"                     // facturas en juego sin importe en euros (X1)
+  }}
+```
+
+`sentido` es obligatorio: sumar lo que nos deben con lo que debemos no es
+ninguna cifra. Cada `_cent` lleva su texto al lado, como en todo el contrato
+(`"pendiente": "36.270,36"`).
+
+**Una sola cuenta, repartida de tres formas.** La cartera sale de las mismas
+partidas que el panel (`flujo_caja.datos`: lo que queda de cada deuda en juego,
+por su vencimiento efectivo) y sus `totales` de la misma función
+(`consultas._bloque_dinero`): la tarjeta del inicio y la cabecera de la
+pantalla dicen los mismos céntimos, y un test lo comprueba. Los tramos y las
+empresas reparten esas mismas partidas, así que:
+
+- los seis tramos suman `totales.pendiente_cent` (y sus `facturas`, las de
+  `totales`);
+- los cuatro tramos de retraso (`1_30` a `mas_de_90`) suman `vencido_cent`, y
+  `sin_fecha` es `sin_fecha_cent`;
+- las empresas suman lo pendiente, lo vencido y las facturas; `retenido` más
+  `sin_retener` es el total, y las empresas suman lo retenido.
+
+**Los tramos** son los días de retraso desde el vencimiento efectivo, con los
+dos extremos incluidos, siempre en este orden: `al_corriente` (aún no ha
+vencido: vence hoy o después), `1_30`, `31_60`, `61_90`, `mas_de_90` y
+`sin_fecha` (sin vencimiento impreso ni plazo: no se adivina). `vence_desde` y
+`vence_hasta` son los vencimientos que caen en el tramo, listos para abrir la
+búsqueda filtrada
+(`/api/v2/buscar?sentido=saliente&pendiente=si&vence_desde=…&vence_hasta=…`);
+`null` es sin límite. La revisión de Aurora los quiere a la vista en cobrar y
+plegados en pagar: eso lo decide la pantalla; la lectura da los dos.
+
+**Las empresas** van en el orden de las listas (su prioridad; a igualdad, lo
+vencido, lo pendiente y el nombre). Las facturas sin cliente (o proveedor) del
+maestro van juntas en una fila con `id` y `nombre` `null`, al final, para que
+las empresas sumen el total. `mas_antigua_dias` son los días de retraso de su
+factura vencida más antigua (`null` si no tiene ninguna vencida);
+`plazo_de_pago` es lo de su vista («paga de media en `media_dias` días, `tarde`
+veces tarde»); `razones`, como en las listas.
+
+**Lo pendiente de una empresa aquí no es lo de su vista.** La vista de un
+cliente o un proveedor (y su fila en `GET /api/v2/clientes`) resta sus abonos
+sin enlazar: lo que la acredita es suyo aunque todavía no diga de qué factura
+(R4). La cartera, como el panel, solo cuenta deudas y los da aparte, en
+`abonos_sin_enlazar`. Las dos cifras se explican una con la otra: lo pendiente
+de la vista es lo de la cartera más sus abonos de esa lista (un test lo
+comprueba con cada empresa de la base de prueba).
+
+**Lo retenido** es lo de las facturas con algún hallazgo activo (ni aceptado ni
+cerrado) que bloquea o retiene (IBAN sin verificar, posible duplicado, horas
+que no cuadran…) o que están Bloqueadas (también si alguien las subió a mano).
+Un aviso, como K1 «vencida sin pagar», no retiene. Es lo que la revisión llama
+«Con objeciones o bloqueado» frente a «Sin objeciones del sistema»; nunca
+«aprobado».
+
+**Lo que va aparte, sin sumar:** `por_confirmar` son los pagos propuestos de las
+facturas de ese sentido que esperan a una persona (el detalle, abajo);
+`sin_casar`, lo que queda sin ninguna factura de las líneas del banco de ese
+lado (ingresos para cobrar, cargos para pagar; las mismas que
+`GET /api/v2/movimientos`); `abonos_sin_enlazar`, los abonos de ese sentido con
+algo por descontar (importes negativos); `sin_importe`, cuántas facturas en
+juego no tienen importe en euros (X1) y por eso no suman en ningún sitio.
+
+#### Los pagos que esperan a una persona (`GET /api/v2/pagos/propuestas`)
+
+```
+→ {"propuestas": [ {"id", "rev", "lado", "importe_cent", "fecha_pago", "regla",
+                    "coincidencias": {"referencia", "importe", "contraparte"},
+                    "factura": {"id", "numero", "sentido", "tipo", "contraparte",
+                                "proveedor_id", "cliente_id", "parte", "total_cent",
+                                "pendiente_cent", "vencimiento", "estado_pago"},
+                    "movimiento": {"id", "fecha", "importe_cent", "contraparte",
+                                   "contraparte_iban", "concepto", "referencia",
+                                   "referencia_e2e"}} ]}
+```
+
+Cada uno es un pago que el banco casó a medias con una factura (dos de las tres
+coincidencias, o las tres con el importe solo dentro de la tolerancia: ver
+`pagos.py`). `lado` es `cobro` o `pago` (por dónde va el dinero);
+`coincidencias` dice en qué coincidieron la línea del banco y la factura (lo
+que `pagos.casar` apuntó en `regla`); `factura.pendiente_cent` es lo que queda
+de la factura, que una propuesta aún no baja. Lo más antiguo primero; con
+`sentido`, solo los de las ventas o los de las compras.
+
+Una persona con el permiso `marcar_pagada` la confirma o la retira con su
+`rev` (si cambió desde que se leyó, `409 conflicto`):
+
+```js
+// Confirmar: el motivo es opcional
+{"accion": "confirmar_pago", "peticion_id": "…", "datos": {"aplicacion_id": 7, "rev": 0}}
+// No es este: el motivo es obligatorio. Lo que dice Exact no se retira aquí: se corrige en Exact
+{"accion": "retirar_pago", "peticion_id": "…", "datos": {"aplicacion_id": 7, "rev": 0,
+                                                         "motivo": "Es de la otra factura"}}
+// Apuntar un pago ya hecho, con motivo; opcional, la línea del banco sin casar y el justificante
+{"accion": "marcar_pagada", "peticion_id": "…", "datos": {"factura_id": 12, "rev": 3,
+  "motivo": "Pagado en efectivo, recibo en la carpeta", "movimiento_id": 41}}
+```
+
+Lo retirado no se vuelve a proponer. «Pagada» siempre con su fuente (el banco,
+Exact o lo apuntado por una persona: `pagos` en la ficha de la factura); manda
+el banco, luego Exact y luego lo apuntado a mano, y K3 avisa si el banco no trae
+lo apuntado.
+
+#### Las líneas del banco (`GET /api/v2/movimientos`)
+
+```
+GET /api/v2/movimientos?signo=entrada
+→ {"movimientos": {"hoy", "filtros", "limite", "total",
+                   "entradas": {"movimientos", "importe_cent", "sin_casar_cent"},
+                   "salidas": {"movimientos", "importe_cent", "sin_casar_cent"},
+                   "lista": [ {"id", "fecha", "fecha_valor", "importe_cent", "moneda",
+                               "importe_crudo", "abierto", "resto_cent", "propia",
+                               "contraparte", "contraparte_iban", "concepto",
+                               "referencia", "referencia_e2e", "cuenta_propia_iban",
+                               "confirmadas", "propuestas", "dias"} ]}}
+```
+
+Por defecto, solo las **sin casar**: lo que queda de ellas sin ninguna factura,
+propuesta ni confirmada (lo mismo que mira casar, con la tolerancia de la
+política). Es la lista de la que se elige una línea al apuntar un pago
+(`marcar_pagada` con su `movimiento_id`) y lo que K7 avisará a los pocos días.
+No salen los traspasos entre cuentas propias ni lo que va a un beneficiario
+conocido (no pagan facturas) ni lo que no está en euros (X1). Con
+`sin_casar=no` salen todas, cada una con lo que le queda (`resto_cent`), si
+cuenta como sin casar (`abierto`) y si es `propia`; una en otra moneda lleva
+`importe_cent` `null` y su literal en `importe_crudo`.
+
+Los importes llevan el signo del banco (un cargo es negativo). `dias` es la edad
+de la línea; `confirmadas` y `propuestas`, cuántos pagos de facturas tiene.
+`total` y las sumas son de todas las que cumplen los filtros, no solo de las que
+caben en `limite`. Filtros: `signo` (`entrada`: ingresos; `salida`: cargos),
+`desde` y `hasta` (fecha contable, incluidas), `texto` (en la contraparte o el
+concepto, sin mayúsculas) y `limite` (de 1 a 1000; 200 por defecto). La
+contraparte y el concepto son texto del banco: van al DOM con `textContent`.
+
+### El archivo de una parte (paso 16)
+
+```
+GET /api/v2/proveedores/3/documentos
+→ {"documentos": {"parte": {"tabla", "id", "nombre"}, "total",
+                  "documentos": [ {"id", "tipo", "fecha", "numero", "importe_cent",
+                                   "estado_pago", "nombre", "tipo_mime", "bytes",
+                                   "guardado", "sha256", "registrado_en",
+                                   "vinculo": {"tabla", "id", "factura_id",
+                                               "orden_compra_id", "estado", "fuente"}} ]}}
+```
+
+La carpeta de un cliente o un proveedor en el archivo de la app: los documentos
+que el sistema **ya** le enlaza, sin ninguna tabla nueva (decisión 7 de la
+revisión de Aurora: los contratos y lo que no es de ningún registro, más
+adelante). Cada `tipo`:
+
+| `tipo` | De dónde | `fecha`, `numero` e `importe_cent` |
+| --- | --- | --- |
+| `factura_compra`, `factura_venta`, `abono_compra`, `abono_venta` | El original de cada factura o abono de la parte (`factura.documento_id`; las de su vista) | Los de la factura (el total; un abono, negativo), y su `estado_pago` |
+| `justificante_pago` | El justificante de un pago apuntado de una factura suya (`aplicacion_pago.evidencia_documento_id`) | El día y el importe del pago, el número de la factura; en `vinculo`, el `estado` y la `fuente` del pago |
+| `orden_compra` | La hoja de una PO suya (`orden_compra.documento_id`) | La emisión, el número y el valor original |
+| `modificacion_po` | La hoja de una modificación de una PO suya | El día de la modificación, el número de la PO y el valor nuevo |
+
+En `vinculo` va solo lo que tiene cada enlace (`factura_id` en las facturas y los
+justificantes, `orden_compra_id` en las PO y sus modificaciones). Una fila por
+enlace: el mismo documento sale dos veces si lo enlazan dos registros. Lo más
+reciente primero; sin fecha, al final. `guardado` es `false` si el original
+nunca llegó (Q4): se ve en la lista, pero no se descarga. Una hoja de PO
+importada con varias PO dentro no va a ninguna carpeta: es de la importación
+(Importeren), no de una PO. `nombre` es el del fichero tal como llegó: texto de
+un tercero.
+
+Cada documento con `guardado` se descarga con `GET /api/v2/documentos/N/original`
+(`N` es su `id`): sus bytes tal cual, como adjunto, con las mismas cabeceras que
+el original de una factura (`Content-Disposition: attachment`,
+`Content-Security-Policy: default-src 'none'; sandbox`, `nosniff`, `no-store`),
+sin CORS y solo desde la app o la consola (desde otro origen, `403
+otro_origen`). Cada descarga, también la que falla porque el original no está,
+queda en la auditoría como `documento_abierto`, con la persona y el documento.
 
 ### Ejemplo, desde un sitio en `http://localhost:5173`
 

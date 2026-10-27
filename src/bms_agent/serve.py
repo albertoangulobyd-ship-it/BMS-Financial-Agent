@@ -67,6 +67,13 @@ COSAS QUE NO SON NEGOCIABLES EN ESTE FICHERO:
    respuesta para los estilos de las bibliotecas) y las mismas comprobaciones de
    Host y Origin. Las bandas de prueba y de aislamiento las pone el servidor, en
    neerlandes e ingles. /consola sigue como estaba: es la de reserva.
+
+8. Paso 16, Cuentas por cobrar y por pagar y el archivo de documentos: la cartera de
+   cada lado, los pagos que esperan a una persona, las lineas del banco sin casar y
+   los documentos de cada parte (_leer_paso_16). Solo leen, con ver_facturas, y desde
+   otro origen sin un IBAN entero, como todo /api/v2. Un documento guardado se
+   descarga como el original de una factura: auditado y solo desde la app o la
+   consola (_descarga).
 """
 
 from __future__ import annotations
@@ -145,6 +152,13 @@ LECTURAS_V2 = (
     ("/api/v2/lectura", ()),
     ("/api/v2/empresa", ()),
     ("/api/v2/aislamiento", ()),
+    # Paso 16: Cuentas por cobrar y por pagar, y el archivo de documentos de cada parte.
+    ("/api/v2/cartera", ("sentido",)),
+    ("/api/v2/pagos/propuestas", ("sentido",)),
+    ("/api/v2/movimientos", consultas.PARAMETROS_MOVIMIENTOS),
+    ("/api/v2/clientes/N/documentos", ()),
+    ("/api/v2/proveedores/N/documentos", ()),
+    ("/api/v2/documentos/N/original", ()),
 )
 _BUSCAR = "/api/v2/buscar"
 _PARAMETROS_V2 = {ruta: parametros for ruta, parametros in LECTURAS_V2}
@@ -786,6 +800,11 @@ class Manejador(BaseHTTPRequestHandler):
                 return
             partes = ruta.split("/")[3:]
             try:
+                # Un id mas grande que el mayor entero de SQLite no es un id de nada: sin esto,
+                # sqlite3 lo rechazaba con OverflowError y la peticion se quedaba sin respuesta.
+                if any(p.isascii() and p.isdigit() and int(p) > consultas.ENTERO_MAXIMO
+                       for p in partes):
+                    raise LookupError("no existe")
                 documentada = ruta_documentada(partes)
                 datos: dict[str, str] = {}
                 if documentada in _PARAMETROS_V2 and documentada != _BUSCAR:
@@ -801,6 +820,8 @@ class Manejador(BaseHTTPRequestHandler):
                                      "permisos": sorted(permisos.permisos_de(conn, usuario_id)),
                                      "roles": permisos.roles_de(conn, usuario_id)})
                 elif self._leer_paso_15(conn, partes):
+                    pass
+                elif self._leer_paso_16(conn, partes, datos):
                     pass
                 elif partes == ["facturas"]:
                     self._json(200, {"facturas": consultas.listado(
@@ -861,9 +882,10 @@ class Manejador(BaseHTTPRequestHandler):
                 self._json(400, {"error": str(exc), "codigo": "invalido"})
 
     def _descarga(self, almacen: Any, usuario_id: int, partes: list[str]) -> bool:
-        """Lo que se descarga como fichero: el original de una factura y la hoja del BTW.
+        """Lo que se descarga como fichero: el original de una factura, cualquier documento
+        guardado (paso 16: los de la carpeta de una parte) y la hoja del BTW.
 
-        Los dos llevan sus bytes tal cual (el original es la evidencia; la hoja,
+        Los tres llevan sus bytes tal cual (el original es la evidencia; la hoja,
         lo que se hashea y se anota al presentar), como adjunto y sin CORS:
         solo la consola, nunca un sitio de otro origen. Abrir un original
         queda en la auditoria (documento_abierto, documentos.abrir); hojearlo
@@ -873,8 +895,10 @@ class Manejador(BaseHTTPRequestHandler):
 
         original = (len(partes) == 3 and partes[0] == "facturas" and partes[1].isdigit()
                     and partes[2] == "original")
+        documento = (len(partes) == 3 and partes[0] == "documentos" and partes[1].isdigit()
+                     and partes[2] == "original")
         hoja = len(partes) == 3 and partes[0] == "btw" and partes[2] == "hoja.csv"
-        if not (original or hoja):
+        if not (original or documento or hoja):
             return False
         if self._de_otro_origen():
             self._json(403, {"error": "un fichero solo se descarga desde la consola",
@@ -887,16 +911,21 @@ class Manejador(BaseHTTPRequestHandler):
             contenido = btw.hoja(conn, ano, numero).en_bytes()
             nombre, tipo = f"btw-{btw.etiqueta(ano, numero)}.csv", "text/csv; charset=utf-8"
         else:
-            fila = conn.execute(
-                "SELECT d.id, d.nombre_original, d.tipo_mime, d.sha256 FROM factura AS f "
-                "JOIN documento AS d ON d.id = f.documento_id WHERE f.id = ?",
-                (int(partes[1]),)).fetchone()
-            if fila is None:
-                raise LookupError(f"la factura {partes[1]} no tiene documento (llego de otro "
-                                  "sistema)")
+            if documento:
+                fila = consultas.documento_de_descarga(conn, int(partes[1]))
+                motivo = f"descargado desde la consola (documento {partes[1]})"
+            else:
+                fila = conn.execute(
+                    "SELECT d.id, d.nombre_original, d.tipo_mime, d.sha256 FROM factura AS f "
+                    "JOIN documento AS d ON d.id = f.documento_id WHERE f.id = ?",
+                    (int(partes[1]),)).fetchone()
+                if fila is None:
+                    raise LookupError(f"la factura {partes[1]} no tiene documento (llego de "
+                                      "otro sistema)")
+                motivo = f"descargado desde la consola (factura {partes[1]})"
             try:
                 contenido = abrir(almacen, fila["id"], actor=usuario_id, usuario_id=usuario_id,
-                                  motivo=f"descargado desde la consola (factura {partes[1]})")
+                                  motivo=motivo)
             except DocumentoCorrupto as exc:
                 raise LookupError(str(exc)) from None
             nombre = _nombre_de_descarga(fila["nombre_original"], fila["sha256"])
@@ -976,6 +1005,29 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(200, {"empresa": consultas.empresa(conn)})
         elif partes == ["aislamiento"]:
             self._json(200, {"aislamiento": self._estado_aislamiento()})
+        else:
+            return False
+        return True
+
+    def _leer_paso_16(self, conn: Any, partes: list[str], datos: dict[str, str]) -> bool:
+        """Las lecturas de Cuentas por cobrar y por pagar y del archivo: la cartera de un lado,
+        los pagos que esperan a una persona, las lineas del banco y los documentos de una
+        parte (la descarga de uno va por _descarga). True si la ruta era una de ellas.
+
+        Solo leen: confirmar, retirar o apuntar un pago son ordenes (POST /api/v2/acciones).
+        Desde otro origen, cada IBAN sale enmascarado (_json), como el resto de /api/v2."""
+        if partes == ["cartera"]:
+            self._json(200, {"cartera": consultas.cartera(conn, datos.get("sentido", ""))})
+        elif partes == ["pagos", "propuestas"]:
+            self._json(200, {"propuestas": consultas.propuestas_pago(
+                conn, datos.get("sentido"))})
+        elif partes == ["movimientos"]:
+            self._json(200, {"movimientos": consultas.movimientos_banco(conn, datos)})
+        elif (len(partes) == 3 and partes[0] in ("clientes", "proveedores")
+              and partes[1].isdigit() and partes[2] == "documentos"):
+            tabla = "cliente" if partes[0] == "clientes" else "proveedor"
+            self._json(200, {"documentos": consultas.documentos_de_parte(
+                conn, tabla, int(partes[1]))})
         else:
             return False
         return True
@@ -1225,8 +1277,9 @@ def servir(
     print("  GET  /app             la app local (se entra con el token personal)")
     print("  GET  /consola         la consola de antes, de reserva (el mismo token)")
     print("  GET  /api/v2/...      panel, busqueda, facturas, ficha e historia, excepciones, "
-          "proveedores, clientes, ordenes de compra, Objetos, BTW, flujo de caja y el "
-          f"export entero (token personal; contrato {consultas.CONTRATO_V2}: /api/v2/contrato)")
+          "proveedores, clientes, ordenes de compra, Objetos, BTW, flujo de caja, cobrar y "
+          "pagar, documentos de cada parte y el export entero (token personal; contrato "
+          f"{consultas.CONTRATO_V2}: /api/v2/contrato)")
     print("  POST /api/v2/acciones las ordenes de las personas (token personal)")
     print("  POST /api/v2/importar importar un fichero desde la app (simular primero)")
     print(f"\n{CABECERA_TOKEN}: {manejador.token}")

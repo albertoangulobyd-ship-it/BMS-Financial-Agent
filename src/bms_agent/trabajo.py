@@ -332,8 +332,10 @@ def horas_objeto(instantanea: Instantanea, objeto_id: int,
     if not hay_planning:
         total["sin_facturar_mil"] = None
 
-    # Lo esperado es dinero: entra lo que se cobra (ventas, abonos de proveedores) y sale
-    # lo que se paga, como en el flujo de caja.
+    # Lo esperado es dinero: entra lo que queda por cobrar de las ventas y sale lo que queda
+    # por pagar de las compras, como en el flujo de caja. Solo deudas (reglas.pagos.vence):
+    # un abono sin enlazar no es un cobro con fecha (paso 16 corrige este comentario, que
+    # decia que entraban los abonos de los proveedores; el codigo nunca los conto).
     abierto = {"entrada": 0, "salida": 0}
     for factura_id, (propio, total_imputado) in _parte_del_objeto(instantanea,
                                                                   objeto_id).items():

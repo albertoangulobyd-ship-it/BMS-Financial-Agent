@@ -7899,3 +7899,150 @@ corriendo a la vez. El orbe en reposo: 0 cuadros pedidos en 3 s y 3 ms de trabaj
 principal en 5 s; moviéndose, unos 78 cuadros pedidos por segundo (los del orbe y los de la
 app mientras carga). Sin dependencias nuevas (`package.json` y `package-lock.json` sin
 cambios); `npm run build` vuelve a dar exactamente lo que va en git.
+
+## Paso 16 · lecturas nuevas del motor (Cobrar, Pagar y Documentos)
+
+La parte del motor del paso 16 (la R de «lecturas»): lo que la revisión de Aurora
+(`revision.md` §8.3 paso 2, §8.4 y §8.5) pide leer para que Cuentas por cobrar, Cuentas
+por pagar y Documentos funcionen con datos de verdad. Solo Python: ni la app (`frontend/`)
+ni los catálogos de textos (`src/bms_agent/textos/`, que otra parte hace en paralelo) se
+tocan. Ninguna orden nueva: confirmar, retirar o apuntar un pago ya existían
+(`confirmar_pago`, `retirar_pago`, `marcar_pagada`). El contrato sube a **2.2** (solo
+claves y lecturas nuevas).
+
+**Qué se construyó**
+
+- `GET /api/v2/cartera?sentido=saliente|entrante` (`consultas.cartera`): los totales
+  (pendiente, vencido, esta semana, este mes, próximos 30 días, sin fecha), la antigüedad
+  por tramos (`al_corriente`, `1_30`, `31_60`, `61_90`, `mas_de_90` y `sin_fecha`, cada uno
+  con `vence_desde` y `vence_hasta` para abrir la búsqueda filtrada), cada empresa
+  (pendiente, vencido, retenido, días de la vencida más antigua, cuántas, su prioridad, sus
+  `razones` y su `plazo_de_pago`), lo retenido y lo libre, y aparte, sin sumar: los pagos
+  propuestos por confirmar, lo del banco sin casar, los abonos sin enlazar (con su lista) y
+  las facturas en juego sin importe en euros. Todo en céntimos enteros con su texto al lado.
+  Los `totales` salen de la **misma función** que `panel.dinero_entra` y `dinero_sale`
+  (`_bloque_dinero`, sobre las mismas partidas de `flujo_caja.datos`): no hizo falta
+  refactorizar el panel, porque ya era una función de las partidas; la cartera llama a
+  `flujo_caja.calcular` (puro) en lugar de `flujo_caja.flujo`, que solo añade el estimado
+  del planning, que no entra en lo esperado.
+- `GET /api/v2/pagos/propuestas` (`consultas.propuestas_pago`): los pagos que el banco
+  propuso y esperan a una persona, cada uno con su `rev` (para `confirmar_pago` y
+  `retirar_pago`), su `lado` (cobro o pago), la línea del banco (fecha, importe,
+  contraparte, IBAN, concepto, referencias), la factura (número, parte, total, lo que queda,
+  vencimiento, estado) y las tres coincidencias con su sí o su no (de lo que `pagos.casar`
+  apuntó en `regla`). Antes solo existía en la CLI (`bms-agent pagos --propuestas`, y las
+  líneas sin casar con `--sin-casar`).
+- `GET /api/v2/movimientos` (`consultas.movimientos_banco`): las líneas del banco, por
+  defecto solo las sin casar (las mismas de `pagos.movimientos_abiertos`, con la tolerancia
+  de la política), con `signo`, `desde`, `hasta`, `texto` y `limite`, y `sin_casar=no` para
+  verlas todas con lo que les queda y si son `propia`. Es el selector de «Apuntar un pago»
+  (`marcar_pagada` con `movimiento_id`). `pagos.aplicado_por_movimiento` sale de
+  `movimientos_abiertos` (lo mismo, ahora con nombre) para que las dos cuenten igual.
+- `GET /api/v2/clientes/N/documentos` y `/proveedores/N/documentos`
+  (`consultas.documentos_de_parte`): lo que el sistema **ya** enlaza a la parte, sin tabla
+  nueva: los originales de sus facturas y abonos, los justificantes de sus pagos apuntados
+  (`evidencia_documento_id`) y las hojas de sus PO y de sus modificaciones, con id, tipo,
+  fecha, número, importe, estado de pago (de las facturas), tamaño, nombre, si el original
+  está guardado y el registro al que va unido.
+- `GET /api/v2/documentos/N/original`: la descarga de cualquier documento guardado, con lo
+  mismo que la del original de una factura (adjunto, `default-src 'none'; sandbox`,
+  `nosniff`, `no-store`, sin CORS, `403 otro_origen` desde otro origen) y su evento
+  `documento_abierto` (también cuando el original falta: `404` y el evento con `error`).
+- En la vista de un proveedor y la de un cliente: `kvk`, `email_facturacion` y
+  `direccion` del maestro, `contactos`, `ordenes_compra` (sus PO) y `documentos` (cuántos
+  tiene su carpeta); en la de un cliente, además, `objetos`. En las listas de proveedores y
+  clientes, `documentos`. En la búsqueda, el filtro `tipo` (`factura`, `nota_credito`), que
+  la revisión pide para el «Tipo de documento» del archivo.
+- `docs/integracion-web.md`: lo que añadió el 2.2, las lecturas en la tabla, el filtro
+  `tipo`, y dos apartados nuevos («Cuentas por cobrar y por pagar» y «El archivo de una
+  parte») con sus esqueletos, que `test_el_contrato_v2_es_el_que_dice_la_documentacion`
+  recorre como los demás. Y la **corrección** que pedía la revisión (decisión 10): el
+  fichero decía que `dinero_entra` llevaba los abonos de los proveedores; el código nunca los
+  contó (`reglas.pagos.vence`: solo deudas). Se corrigieron también los dos comentarios del
+  código que decían lo mismo (`consultas.py`, sobre el panel, y `trabajo.py`).
+
+**La puerta, test por test** (`tests/test_cartera.py`, 17 tests)
+
+| Lo que se pide | Test |
+| --- | --- |
+| La cartera dice lo mismo que el panel al céntimo; los tramos suman lo pendiente; las empresas suman el total; lo vencido son los tramos de retraso; retenido más libre es el total; sin floats y con su texto | `test_la_cartera_dice_lo_mismo_que_el_panel_al_centimo` (la base de prueba el 14-10-2026, el 20-11-2026 y el 31-01-2027, los dos sentidos) y `_comprobar_cartera`, que también corre en los tests del banco antes y después de confirmar un pago |
+| Cada tramo se llena con los días | `test_los_tramos_de_la_base_de_prueba_se_llenan_con_los_dias` |
+| Lo pendiente de una empresa en la cartera es lo de su vista menos sus abonos sin enlazar (y lo vencido, igual): la documentación de «por cobrar» estaba mal, el código bien | `test_una_empresa_es_su_vista_menos_sus_abonos_sin_enlazar` |
+| Los tramos cubren cada día sin huecos ni solapes, y sus `vence_desde`/`vence_hasta` son exactamente sus días | `test_los_tramos_cubren_cada_dia_y_abren_la_busqueda_que_les_toca` |
+| El sentido es obligatorio | `test_el_sentido_de_la_cartera_es_obligatorio` |
+| Los pagos por confirmar y lo sin casar de cada lado; la propuesta con su línea, su factura, su `rev` y sus tres coincidencias; confirmarla la saca y baja lo pendiente, y todo sigue cuadrando | `test_lo_que_espera_a_una_persona_y_lo_que_no_casa` |
+| Las líneas sin casar y cada filtro; un traspaso entre cuentas propias no sale (y con `sin_casar=no` sale marcado); lo propuesto no está sin casar | `test_las_lineas_del_banco_sin_casar_y_sus_filtros` |
+| Lo retenido es lo que bloquea o retiene, comprobado leyendo los hallazgos de las tablas | `test_lo_retenido_es_lo_que_bloquea_o_retiene` |
+| Por la API: las lecturas en `/api/v2/contrato`, la cabecera 2.2, la cartera igual que en Python y que el panel, los `400` y `404` con su `codigo`, `401` sin token y `403` sin ver_facturas (también la descarga); el rol consulta lee | `test_las_lecturas_nuevas_por_la_api` |
+| Desde un origen declarado, ningún IBAN entero en las lecturas nuevas; desde la app, enteros | `test_desde_otro_origen_las_lecturas_nuevas_no_llevan_un_iban` |
+| La carpeta: facturas, justificante de un pago a mano, hoja de la PO y de su modificación, con su vínculo y en orden; la lista dice cuántos | `test_la_carpeta_de_un_proveedor` |
+| La descarga: los bytes y su hash, las cabeceras, sin CORS, `403` desde otro origen, `404` sin original, y cada intento en la auditoría con su persona | `test_un_documento_se_descarga_auditado_y_solo_desde_la_app` |
+| KvK, correo, dirección y contactos del maestro (los de un cliente, `null` donde el maestro no tiene nada) | `test_la_ficha_de_una_parte_trae_lo_del_maestro` |
+| El filtro `tipo` | `test_la_busqueda_filtra_por_tipo` |
+| Cada lectura nueva rechaza un parámetro que no admite | `test_cada_lectura_nueva_esta_en_la_lista_y_rechaza_lo_que_no_admite` (y la de siempre, `test_cada_lectura_de_v2_rechaza_un_parametro_que_no_admite`, que recorre `LECTURAS_V2` entera) |
+
+**Desviaciones, y por qué**
+
+1. **Seis tramos, no cinco.** La revisión pide al corriente, 1-30, 31-60, 61-90 y más de 90;
+   lo que no tiene vencimiento no está en ninguno de ellos y sin él los tramos no sumarían
+   lo pendiente. Va en un sexto, `sin_fecha`, que es `totales.sin_fecha_cent`.
+2. **Una fila sin empresa.** Las facturas sin cliente (o proveedor) del maestro van juntas en
+   una fila con `id` `null`, al final: si no, las empresas no sumarían el total.
+3. **Lo pendiente de una empresa en la cartera no es lo de su vista.** La vista (y su fila en
+   las listas) resta los abonos sin enlazar desde la migración 0017, a propósito; la
+   cartera, como el panel, solo cuenta deudas. No se cambia ninguna de las dos: se da la
+   lista de abonos sin enlazar y un test comprueba que las dos cifras se explican una con la
+   otra, empresa a empresa.
+4. **Lo retenido** es lo que tiene un hallazgo activo que bloquea o retiene, o una factura
+   Bloqueada. No basta «tiene alguna objeción»: K1 (vencida sin pagar) es un aviso y dejaría
+   retenido todo lo vencido.
+5. **`por_confirmar` va por el sentido de la factura y `sin_casar` por el del dinero**
+   (ingresos para cobrar, cargos para pagar): un movimiento sin casar no tiene factura.
+6. **El sentido de la cartera es obligatorio** (`400` sin él): sumar lo que nos deben con lo
+   que debemos no es ninguna cifra.
+7. **Documentos, solo lo que ya está enlazado** (decisión 7 A). Una hoja de PO importada con
+   varias PO no va a la carpeta de ninguna (es de la importación); un extracto del banco solo
+   sale si alguien lo dio como justificante de un pago. Una fila por enlace.
+8. **El maestro de clientes no tiene correo de facturación ni dirección**: van `null`, sin
+   tocar el esquema. El teléfono de un contacto no es el de verificar un IBAN (ese sigue
+   siendo `telefono_verificacion`, solo del maestro de proveedores), y la documentación lo
+   dice.
+9. **Un poco más de lo pedido**, porque la app lo necesita sin hacer diez lecturas: las PO
+   y los Objetos en la vista de la parte (decisión 1: «dentro de cada cliente sus Objects y
+   sus PO»), cuántos documentos tiene cada carpeta en las listas (el árbol del archivo lleva
+   contadores), y en la cartera `fechas` y `movido_mes_cent` (la cabecera dice «cobrado este
+   mes»; las dos son las del panel, y el test lo comprueba).
+10. **Un id enorme en cualquier ruta de `/api/v2` es un `404`.** Antes,
+    `/api/v2/facturas/99999999999999999999999` hacía que sqlite3 lanzara `OverflowError` y la
+    petición se quedaba sin respuesta. Cambia a propósito para todas las rutas (comprobado
+    con esa y con `/api/v2/documentos/…/original`).
+11. **El export (`export --v2`) no cambia**: la cartera, las propuestas y los documentos son
+    lecturas; un sitio que lee el fichero tiene `panel` con los mismos totales.
+12. **Ningún código de error nuevo**: `invalido`, `no_existe`, `sin_permiso`, `otro_origen` y
+    `no_autenticado` cubren todo, así que los catálogos de textos no cambian por esto.
+
+**Lo que deben saber las partes siguientes**
+
+- Las pantallas de Cobrar y Pagar tienen todo lo de §8.4 de la revisión: la cabecera
+  (`cartera.totales`, `movido_mes_cent`, y `GET /api/v2/fuentes` para la frescura), la
+  antigüedad (`tramos`; cada uno abre `/api/v2/buscar` con su `vence_desde`/`vence_hasta`),
+  los avisos (`por_confirmar`, `sin_casar`; en pagar, los K4, K5 y K8 de `razones`), la
+  pestaña por empresa (`partes`) y lo retenido. Las tres órdenes van por `POST
+  /api/v2/acciones` con su `rev` y un `peticion_id`, y piden `marcar_pagada`.
+- Documentos: la lista de carpetas sale de `/api/v2/clientes` y `/proveedores` (con
+  `documentos`), la ficha de `/clientes/N` y `/proveedores/N`, los ficheros de
+  `/…/N/documentos` y la descarga de `/documentos/N/original`, con el token en la cabecera
+  (no se puede abrir con un enlace).
+- La app necesita sus textos para los valores nuevos que no son de dominio: los `tipo` de
+  documento (`consultas.TIPOS_DOCUMENTO`), las claves de los tramos (`consultas.TRAMOS` y
+  `sin_fecha`), `lado` (`cobro`, `pago`) y `coincidencias` (`referencia`, `importe`,
+  `contraparte`). No están en `textos/*.json` porque esa parte la lleva otro agente.
+- Lo que la revisión deja para después y aquí no está: el «Procesar» de verdad
+  (`solicitud_lectura`, `pasada_lectura`, `pedir_lectura`…) y `/api/v2/preguntar` y
+  `/api/v2/novedades` del asistente.
+
+**Resultado**: Python 3.11, **2532 pasan y 12 se saltan** (los 2515 de antes y los 17
+nuevos de `tests/test_cartera.py`; ninguno de antes cambia). Los nuevos y los que tocan
+lo mismo (`test_contrato_v2.py`, `test_pagos.py`, `test_codigos_error.py`) pasan también
+con Python 3.13. La app (`frontend/`) no se toca: su comprobación del contrato mira solo el
+número mayor, y 2.2 sigue siendo 2.

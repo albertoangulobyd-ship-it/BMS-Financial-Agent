@@ -241,21 +241,36 @@ def _resto_del_movimiento(conn: sqlite3.Connection, movimiento: sqlite3.Row) -> 
     return movimiento["importe_cent"] - aplicado
 
 
-def movimientos_abiertos(conn: sqlite3.Connection, tolerancia: int = 0) -> list[MovimientoAbierto]:
-    """Los movimientos en euros que no estan cubiertos por lo aplicado (propuesto o confirmado)."""
-    ajenas = _ajenas(conn)
+def aplicado_por_movimiento(conn: sqlite3.Connection) -> dict[int, int]:
+    """Lo aplicado (propuesto o confirmado) de cada movimiento, en el signo del movimiento.
+
+    Lo usan casar (lo que queda por casar) y la lista de movimientos de la app
+    (paso 16): las dos dicen lo mismo de un movimiento porque lo cuentan igual.
+    """
     sentidos = _sentidos(conn)
     aplicado: dict[int, int] = defaultdict(int)
     for a in leer_aplicaciones(conn):
         if a.movimiento_id is not None and a.estado != RETIRADA:
             aplicado[a.movimiento_id] += en_el_movimiento(a, sentidos.get(a.factura_id, ENTRANTE))
+    return aplicado
+
+
+def ajenas(conn: sqlite3.Connection) -> frozenset[str]:
+    """Las cuentas propias y los beneficiarios conocidos: lo que va a ellas no paga facturas."""
+    return _ajenas(conn)
+
+
+def movimientos_abiertos(conn: sqlite3.Connection, tolerancia: int = 0) -> list[MovimientoAbierto]:
+    """Los movimientos en euros que no estan cubiertos por lo aplicado (propuesto o confirmado)."""
+    ajenas_ = _ajenas(conn)
+    aplicado = aplicado_por_movimiento(conn)
     salida = []
     for id_, fecha, importe, contraparte, concepto, estructurada, e2e in _filas(
             conn, "SELECT id, fecha_contable, importe_cent, contraparte_iban, concepto_doc, "
                   "referencia_estructurada, referencia_e2e FROM movimiento_bancario "
                   "WHERE importe_cent IS NOT NULL AND importe_cent <> 0 "
                   "ORDER BY fecha_contable, id"):
-        if contraparte is not None and contraparte in ajenas:
+        if contraparte is not None and contraparte in ajenas_:
             continue
         resto = importe - aplicado.get(id_, 0)
         if abs(resto) <= tolerancia or (resto > 0) != (importe > 0):
