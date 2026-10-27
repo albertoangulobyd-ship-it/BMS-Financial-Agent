@@ -10,7 +10,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
@@ -18,11 +18,11 @@ import { paymentStateLabel, reviewStateLabel } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { twinMarks } from '@/lib/twins';
 import { whyOf } from '@/lib/why';
-import { recordRoute, type NavId } from './registry';
+import { recordRoute, type ViewId } from './registry';
 import { useLoad } from './use-load';
 import { InvoiceCell } from './work-queue';
 
@@ -36,11 +36,11 @@ export function invoiceFilter(filter: InvoiceFilter, r: Pick<InvoiceRow, 'estado
   return r.estado_pago === filter;
 }
 
-export function InvoiceListScreen({ navId, tabId }: { navId: Extract<NavId, 'invoices-in' | 'invoices-out'>; tabId: string }) {
+export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'invoices-in' | 'invoices-out'>; navKey: string }) {
   const { t, lang } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const direction = navId === 'invoices-in' ? 'entrante' : 'saliente';
   const [state, retry] = useLoad(
     () =>
@@ -49,9 +49,9 @@ export function InvoiceListScreen({ navId, tabId }: { navId: Extract<NavId, 'inv
         .then((r) => r.facturas.filter((f) => f.sentido === direction)),
     [session, version, direction]
   );
-  const [stored, setFilter] = useTabState<string>(tabId, `${navId}-filter`, 'all');
+  const [stored, setFilter] = useViewState<string>(navKey, `${navId}-filter`, 'all');
   const filter: InvoiceFilter = (INVOICE_FILTERS as readonly string[]).includes(stored) ? (stored as InvoiceFilter) : 'all';
-  const [query, setQuery] = useTabState<string>(tabId, `${navId}-query`, '');
+  const [query, setQuery] = useViewState<string>(navKey, `${navId}-query`, '');
   const nav = t.nav[navId];
   const twins = twinMarks(state.status === 'ready' ? state.data : []);
 
@@ -110,7 +110,7 @@ export function InvoiceListScreen({ navId, tabId }: { navId: Extract<NavId, 'inv
             total={state.data.length}
             columns={columns}
             caption={nav.description}
-            onOpen={(r) => openRoute(recordRoute('invoice', r.id, navId))}
+            onOpen={(r) => openRoute(recordRoute('invoice', r.id))}
           />
         </>
       )}

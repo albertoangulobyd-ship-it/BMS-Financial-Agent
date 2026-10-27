@@ -8,10 +8,31 @@
 // <idioma>-<pantalla>.png en CAPTURAS_DIR.
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
+import type { ViewId } from '../src/screens/sections';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
+import { crumbs, go, mainMenu, sectionMenu, setLang as switchLang } from './nav';
 
 type Lang = 'nl' | 'en';
-const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
+
+/** Las pantallas por el nombre que se ve (asi se leen las pruebas); desde el paso 16 se llega
+ *  a cada una por su entrada y su vista (e2e/nav.ts). */
+const VIEW: Record<string, ViewId> = {
+  Leveranciers: 'providers',
+  Providers: 'providers',
+  Klanten: 'clients',
+  Clients: 'clients',
+  Objecten: 'objects',
+  Objects: 'objects',
+  // Las PO de la base de prueba que se miran aqui son de clientes (PO-DEMO-4501).
+  Inkooporders: 'client-pos',
+  'Purchase orders': 'client-pos',
+  Kasstroom: 'cash-flow',
+  Btw: 'vat',
+  VAT: 'vat',
+  Importeren: 'import',
+  'Facturen lezen': 'read-invoices',
+  Instellingen: 'settings',
+};
 
 async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
   await page.goto(`${baseUrl}/app`);
@@ -19,17 +40,16 @@ async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
 }
 
 async function setLang(page: Page, lang: Lang) {
-  await page.getByRole('button', { name: lang === 'nl' ? 'Nederlands' : 'English' }).first().click();
-  await expect(page.locator('html')).toHaveAttribute('lang', lang);
-  // Los textos de la navegacion entran con un fundido: axe mide el contraste al final.
-  await settled(page);
+  await switchLang(page, lang);
 }
 
 async function nav(page: Page, label: string, lang: Lang = 'nl') {
-  await page.getByRole('navigation', { name: MENU[lang] }).getByRole('button', { name: new RegExp(`^${label}`) }).click();
-  await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
-  // Ir a una pestana ya abierta la vuelve a pintar con un fundido (150 ms).
-  await settled(page);
+  await go(page, VIEW[label]!, lang);
+}
+
+/** Lo ultimo de las migas: la ficha donde se esta. */
+async function here(page: Page): Promise<string> {
+  return (await crumbs(page)).at(-1) ?? '';
 }
 
 /** Lo que se mira en cada pantalla, y su captura. */
@@ -39,9 +59,9 @@ async function check(page: Page, lang: Lang, screen: string) {
   await capture(page, `${lang}-${screen}`);
 }
 
-/** Vuelve arriba en la pestana (la captura de una ficha empieza por lo que es). */
+/** Vuelve arriba (la captura de una ficha empieza por lo que es). */
 async function toTop(page: Page) {
-  await page.locator('#tab-panel').evaluate((el) => el.scrollTo(0, 0));
+  await page.evaluate(() => window.scrollTo(0, 0));
 }
 
 /** La tabla de la pantalla cabe en su caja: no hay que desplazarla de lado. */
@@ -64,7 +84,7 @@ test('de fiches: leverancier, klant, object, inkooporder en factuur, in NL en EN
   await check(page, 'nl', 'providers');
   await openRow(page, /J\. Voorbeeld Beveiliging/);
   await expect(page.getByRole('heading', { level: 1, name: 'J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
-  await expect(page.getByRole('tab', { selected: true })).toContainText('J. Voorbeeld');
+  expect(await here(page)).toContain('J. Voorbeeld');
   await expect(page.getByRole('heading', { level: 3, name: 'Factuurnummer dubbel' }).first()).toBeVisible();
   await check(page, 'nl', 'provider');
   await page.getByRole('button', { name: /^Bankrekeningen/ }).click();
@@ -77,9 +97,10 @@ test('de fiches: leverancier, klant, object, inkooporder en factuur, in NL en EN
   await check(page, 'en', 'provider-details');
   await toTop(page);
   await check(page, 'en', 'provider');
-  // Een melding opent haar factuur in een eigen tabblad.
+  // Een melding opent haar factuur, binnen Te betalen (de kruimels gaan door).
   await page.getByRole('button', { name: 'Open invoice JV-2026-006' }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: /JV-2026-006$/ })).toBeVisible();
+  expect(await crumbs(page, 'en')).toEqual(['Payables', 'Providers', 'J. Voorbeeld Beveiliging (zzp)', 'JV-2026-006']);
   await check(page, 'en', 'invoice');
   await setLang(page, 'nl');
   await check(page, 'nl', 'invoice');
@@ -101,7 +122,7 @@ test('de fiches: leverancier, klant, object, inkooporder en factuur, in NL en EN
   await check(page, 'nl', 'objects');
   await openRow(page, /HAVEN-NOORD/);
   await expect(page.getByRole('heading', { level: 1, name: 'Haventerrein Demo-Noord' })).toBeVisible();
-  await expect(page.getByRole('tab', { selected: true })).toContainText('HAVEN-NOORD');
+  expect(await here(page)).toContain('HAVEN-NOORD');
   await check(page, 'nl', 'object');
   await page.getByRole('button', { name: 'Dit jaar' }).click();
   await expect(page.getByRole('button', { name: 'Dit jaar' })).toHaveAttribute('aria-pressed', 'true');
@@ -164,7 +185,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await check(page, 'nl', 'vat');
   await openRow(page, /Q3 2026/);
   await expect(page.getByRole('heading', { level: 1, name: 'Btw Q3 2026' })).toBeVisible();
-  await expect(page.getByRole('tab', { selected: true })).toContainText('Btw Q3 2026');
+  expect(await here(page)).toBe('Btw Q3 2026');
   await check(page, 'nl', 'vat-quarter');
   // Dezelfde stappen in het Engels: elk dialoogvenster bekijken en annuleren.
   await setLang(page, 'en');
@@ -405,8 +426,11 @@ test('facturen lezen: wat het kost en hoe je het start, zonder knop die het star
   };
   expect(reading.lectura.documentos).toBeGreaterThan(1);
   await expect(page.getByText(new RegExp(`\\b${reading.lectura.documentos} documenten`))).toBeVisible();
-  // Geen knop die het lezen start: in de hoofdinhoud staan alleen de plooibare uitleg en tabellen.
-  await expect(page.getByRole('main').getByRole('button', { name: /lezen|lees|start|read/i })).toHaveCount(0);
+  // Geen knop die het lezen start: in het scherm staan alleen de plooibare uitleg en tabellen
+  // (boven het scherm, de pastillas van Verwerken: Facturen lezen is dit scherm zelf).
+  await expect(page.locator('#view').getByRole('button', { name: /lezen|lees|start|read/i })).toHaveCount(0);
+  await expect(page.getByRole('main').getByRole('button', { name: /lezen|lees|start|read/i })).toHaveCount(1);
+  await expect(sectionMenu(page, 'process').getByRole('button', { name: /^Facturen lezen/ })).toHaveAttribute('aria-current', 'page');
   await check(page, 'nl', 'read-invoices');
   await setLang(page, 'en');
   await expect(page.getByText('This app has no internet on purpose')).toBeVisible();
@@ -434,9 +458,9 @@ test('instellingen: wie je bent, het bedrijf, de afscherming en de personen (all
 
 test('wie alleen mag kijken: geen importeren, geen btw-knoppen, geen personenlijst', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'cas');
-  const menu = page.getByRole('navigation', { name: MENU.nl });
-  await expect(menu.getByRole('button', { name: /^Importeren/ })).toHaveCount(0);
-  await expect(menu.getByRole('button', { name: /^Facturen lezen/ })).toHaveCount(0);
+  // Verwerken (Facturen lezen en Importeren) no sale: cinco entradas.
+  await expect(mainMenu(page).getByRole('button')).toHaveCount(5);
+  await expect(mainMenu(page).getByRole('button', { name: 'Verwerken' })).toHaveCount(0);
   await nav(page, 'Btw');
   await openRow(page, /Q4 2026/);
   await expect(page.getByRole('heading', { level: 1, name: 'Btw Q4 2026' })).toBeVisible();

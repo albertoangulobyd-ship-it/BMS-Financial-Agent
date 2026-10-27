@@ -1,14 +1,16 @@
 // Inkooporders (Purchase orders): "hoeveel is er van elke PO over, en welke zijn bijna op?".
-// La mas urgente primero, con un buscador y seis columnas: prioridad, la PO (numero, de quien
-// o para quien y hasta cuando), waarde, verbruikt (con su porcentaje), over y por que. Una
-// fila abre su ficha en una pestana.
+// Desde el paso 16, una lista por lado: las PO de clientes (las que un cliente dio a BMS) en
+// Cuentas por cobrar y las de proveedores (las que BMS dio a un proveedor) en Cuentas por
+// pagar. La mas urgente primero, con un buscador y seis columnas: prioridad, la PO (numero, de
+// quien o para quien y hasta cuando), waarde, verbruikt (con su porcentaje), over y por que.
+// Una fila abre su ficha dentro de la seccion.
 import { DataTable, type Columns } from '@/components/data-table';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
@@ -18,35 +20,36 @@ import type { PoRow } from '@/lib/api-types';
 import { formatDate, formatPercentFromBasisPoints } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { whyOf } from '@/lib/why';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
 
-export function PurchaseOrdersScreen({ tabId }: { tabId: string }) {
+export function PurchaseOrdersScreen({ side, navKey }: { side: PoRow['lado']; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
   const [state, retry] = useLoad(
-    () => session!.api.get<{ ordenes: PoRow[] }>(paths.purchaseOrders).then((r) => r.ordenes),
-    [session, version]
+    () => session!.api.get<{ ordenes: PoRow[] }>(paths.purchaseOrders).then((r) => r.ordenes.filter((o) => o.lado === side)),
+    [session, version, side]
   );
-  const [query, setQuery] = useTabState<string>(tabId, 'pos-query', '');
-  const nav = t.nav['purchase-orders'];
+  const [query, setQuery] = useViewState<string>(navKey, 'pos-query', '');
+  const view = side === 'cliente' ? 'client-pos' : 'provider-pos';
+  const nav = t.nav[view];
   return (
     <Screen>
       <PageHeader title={nav.label} description={nav.description} meta={<HelpTip term='po' />} />
       {state.status === 'loading' && <Loading />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={retry} />}
-      {state.status === 'ready' && <PoTable rows={state.data} query={query} setQuery={setQuery} />}
+      {state.status === 'ready' && <PoTable rows={state.data} query={query} setQuery={setQuery} caption={nav.description} />}
     </Screen>
   );
 }
 
-function PoTable({ rows, query, setQuery }: { rows: PoRow[]; query: string; setQuery: (q: string) => void }) {
+function PoTable({ rows, query, setQuery, caption }: { rows: PoRow[]; query: string; setQuery: (q: string) => void; caption: string }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   if (rows.length === 0) return <EmptyState title={t.empty.nothingHere} text={t.pos.empty} />;
   const shown = rows.filter((r) => matches(query, r.numero, r.parte.nombre));
   const columns: Columns<PoRow> = [
@@ -90,8 +93,8 @@ function PoTable({ rows, query, setQuery }: { rows: PoRow[]; query: string; setQ
         columns={columns}
         rows={shown}
         rowKey={(r) => r.id}
-        caption={t.nav['purchase-orders'].description}
-        onOpen={(r) => openRoute(recordRoute('purchase-order', r.id, 'purchase-orders'))}
+        caption={caption}
+        onOpen={(r) => openRoute(recordRoute('purchase-order', r.id))}
         openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records['purchase-order'].label} ${r.numero}` })}
         empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
       />

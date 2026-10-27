@@ -8,7 +8,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
@@ -17,18 +17,18 @@ import type { ObjectRow, ObjectsList } from '@/lib/api-types';
 import { formatPercentFromBasisPoints } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { priorityRank, whyOf } from '@/lib/why';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
 
-export function ObjectsScreen({ tabId }: { tabId: string }) {
+export function ObjectsScreen({ navKey }: { navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
   const [state, retry] = useLoad(() => session!.api.get<ObjectsList>(paths.objects), [session, version]);
-  const [query, setQuery] = useTabState<string>(tabId, 'objects-query', '');
+  const [query, setQuery] = useViewState<string>(navKey, 'objects-query', '');
   const nav = t.nav.objects;
   return (
     <Screen>
@@ -42,7 +42,7 @@ export function ObjectsScreen({ tabId }: { tabId: string }) {
 
 function ObjectsTable({ list, query, setQuery }: { list: ObjectsList; query: string; setQuery: (q: string) => void }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   // Lo mas urgente primero, como todas las listas (la API los da por codigo).
   const rows = [...list.objetos].sort((a, b) => priorityRank(a.nivel) - priorityRank(b.nivel));
   if (rows.length === 0) return <EmptyState title={t.empty.nothingHere} text={t.objects.empty} />;
@@ -91,7 +91,7 @@ function ObjectsTable({ list, query, setQuery }: { list: ObjectsList; query: str
         rows={shown}
         rowKey={(r) => r.id}
         caption={t.nav.objects.description}
-        onOpen={(r) => openRoute(recordRoute('object', r.id, 'objects'))}
+        onOpen={(r) => openRoute(recordRoute('object', r.id))}
         openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records.object.label} ${r.codigo}` })}
         empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
       />

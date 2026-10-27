@@ -1,6 +1,6 @@
 // Los textos de la app en ingles. El tipo Messages (la forma de nl.ts) obliga a tener
 // las mismas claves que en neerlandes, ni una mas ni una menos.
-import type { Messages } from './index';
+import type { Messages } from './messages';
 
 export const en: Messages = {
   app: {
@@ -109,34 +109,47 @@ export const en: Messages = {
     chip: 'Test data',
     chipHelp: 'This is the test database. Everything you see is made up and nothing goes into the real data.',
   },
-  tabs: {
-    newTab: 'New tab',
-    closeTab: 'Close tab',
-    closeOtherTabs: 'Close other tabs',
-    closeTabsToRight: 'Close tabs to the right',
-    closeTabsToLeft: 'Close tabs to the left',
-    closeAllTabs: 'Close all tabs',
-    quickOpen: 'Quick open',
-    sidebarNavigation: 'Navigation',
-    collapseSidebar: 'Collapse sidebar',
-    expandSidebar: 'Expand sidebar',
-    moreTabOptions: 'More tab options',
-    openMenu: 'Open menu',
-    close: 'Close',
-    tabs: 'Tabs',
-    mainNavigation: 'Main menu',
+  areas: {
+    home: {
+      label: 'Home',
+      description: 'What needs your attention today, and where to start.',
+    },
+    receivables: {
+      label: 'Receivables',
+      description: 'What clients still owe us, and since when.',
+    },
+    payables: {
+      label: 'Payables',
+      description: 'What we still have to pay, and what is held back.',
+    },
+    documents: {
+      label: 'Documents',
+      description: 'The documents of every client and provider.',
+    },
+    process: {
+      label: 'Process',
+      description: 'Read invoices and import files.',
+    },
+    vat: {
+      label: 'VAT',
+      description: 'VAT per quarter, ready to check.',
+    },
   },
-  groups: {
-    daily: 'Daily',
-    invoices: 'Invoices',
-    parties: 'Parties',
-    money: 'Money',
-    data: 'Data',
-    settings: '',
+  shell: {
+    mainNavigation: 'Main menu',
+    sectionNavigation: 'Parts of {section}',
+    home: 'Go to Home',
+    back: 'Back',
+    backTo: 'Back to {what}',
+    breadcrumbs: 'Where you are',
+    search: 'Search',
+    searchShortcut: 'Ctrl K',
+    wheel: 'Choose where to start. The arrow keys, the scroll wheel or a swipe turn the wheel; Enter opens.',
+    skipToContent: 'Skip to content',
   },
   nav: {
-    overview: {
-      label: 'Overview',
+    home: {
+      label: 'Home',
       hint: '',
       description: 'What needs attention today and where the money stands.',
     },
@@ -156,13 +169,13 @@ export const en: Messages = {
       description: 'New or changed bank accounts, and what still has to be done.',
     },
     'invoices-in': {
-      label: 'In',
-      hint: 'purchase',
+      label: 'Purchase invoices',
+      hint: '',
       description: 'All invoices from providers and zzp’ers to BMS, and how they stand.',
     },
     'invoices-out': {
-      label: 'Out',
-      hint: 'sales',
+      label: 'Sales invoices',
+      hint: '',
       description: 'All invoices from BMS to clients, and how they stand.',
     },
     providers: {
@@ -180,15 +193,25 @@ export const en: Messages = {
       hint: '',
       description: 'Per client site: revenue, costs and margin.',
     },
-    'purchase-orders': {
+    'client-pos': {
       label: 'Purchase orders',
-      hint: '',
-      description: 'How much of each purchase order is left, and which are nearly used up.',
+      hint: 'from clients',
+      description: 'How much is left of each purchase order a client gave BMS, and which are nearly used up.',
+    },
+    'provider-pos': {
+      label: 'Purchase orders',
+      hint: 'to providers',
+      description: 'How much is left of each purchase order BMS gave a provider, and which are nearly used up.',
     },
     'cash-flow': {
       label: 'Cash flow',
       hint: '',
       description: 'What comes in and goes out in the coming weeks.',
+    },
+    documents: {
+      label: 'Documents',
+      hint: '',
+      description: 'The documents the system holds for each client and provider: originals, proof of payment and purchase order sheets.',
     },
     vat: {
       label: 'VAT',
@@ -218,6 +241,9 @@ export const en: Messages = {
     object: { label: 'Object', fallbackTitle: 'Object {id}' },
     'purchase-order': { label: 'Purchase order', fallbackTitle: 'Purchase order {id}' },
     'vat-quarter': { label: 'VAT quarter', fallbackTitle: 'VAT {id}' },
+    exception: { label: 'Exception', fallbackTitle: 'Exception {id}' },
+    'client-documents': { label: 'Client folder', fallbackTitle: 'Client folder {id}' },
+    'provider-documents': { label: 'Provider folder', fallbackTitle: 'Provider folder {id}' },
   },
   badges: {
     blocked: 'blocked',
@@ -273,9 +299,6 @@ export const en: Messages = {
     noMatch: 'Nothing found',
     noMatchText: 'Try another filter or another search.',
   },
-  footer: {
-    today: 'Today',
-  },
   workQueue: {
     caption: 'Invoices that need a person, most urgent first',
     filterLabel: 'Show',
@@ -300,8 +323,8 @@ export const en: Messages = {
       urgent: 'Urgent',
       exceptions: 'Open exceptions',
     },
-    moneyIn: { title: 'Money in' },
-    moneyOut: { title: 'Money out' },
+    moneyIn: { title: 'Receivables' },
+    moneyOut: { title: 'Payables' },
     money: {
       caption: 'outstanding in {n} invoices',
       overdue: 'Overdue',
@@ -331,6 +354,86 @@ export const en: Messages = {
       all: 'All {n} in the work queue',
       empty: 'All invoices are up to date.',
       sameNumber: '{n} invoices with this number',
+    },
+  },
+  home: {
+    greeting: 'Welcome, {name}',
+    intro: 'Search for what you need, or pick where to start.',
+    cardsLabel: 'Where things stand',
+    alsoHere: 'Also in Home',
+    waiting: '{n} waiting for someone',
+    waitingOne: '1 waiting for someone',
+    openCount: '{n} open',
+    comingWeeks: 'The coming weeks',
+    firstIntro: 'What cannot wait: blocked or urgent.',
+    updated: 'Updated at {time}',
+    overdueOut: 'Show overdue sales invoices',
+    overdueIn: 'Show overdue purchase invoices',
+    clientsOpen: 'Clients with a balance',
+    providersOpen: 'Providers with a balance',
+    showClients: 'Show clients with a balance',
+    showProviders: 'Show providers with a balance',
+  },
+  ask: {
+    placeholder: 'Search for an invoice, client, provider or screen…',
+    label: 'Search your data',
+    submit: 'Search',
+    notYet: 'I can’t answer questions yet: I search your data and take you to the screen.',
+    resultsFor: 'Found for “{q}”',
+    searching: 'Searching…',
+    nothing: 'Nothing found for “{q}”.',
+    nothingText: 'Try an invoice number, a name or a screen, such as “VAT” or “Receivables”.',
+    clear: 'Close search results',
+    moreInvoices: '{n} more invoices found',
+    groups: {
+      screens: 'Screens',
+      clients: 'Clients',
+      providers: 'Providers',
+      objects: 'Objects',
+      pos: 'Purchase orders',
+      invoices: 'Invoices',
+    },
+  },
+  palette: {
+    title: 'Quick open',
+    placeholder: 'Type a screen, name or number…',
+    hint: '↑ ↓ to choose, Enter to open, Esc to close',
+    empty: 'Type to search.',
+  },
+  documents: {
+    clients: 'Clients',
+    providers: 'Providers',
+    search: 'Search by name or code',
+    count: '{n} documents',
+    countOne: '1 document',
+    none: 'No documents yet',
+    outstanding: '{amount} outstanding',
+    nothingOpen: 'Nothing outstanding',
+    folderOf: 'Documents of {name}',
+    openFolder: 'Open the folder of {name}',
+    questionClient: 'The documents the system holds for this client. Every download is recorded.',
+    questionProvider: 'The documents the system holds for this provider. Every download is recorded.',
+    openCard: 'Open record',
+    type: 'Kind',
+    date: 'Date',
+    number: 'Number',
+    amount: 'Amount',
+    state: 'Status',
+    file: 'File',
+    download: 'Download',
+    downloadNamed: 'Download {name}',
+    notKept: 'Not kept',
+    empty: 'This folder has no documents yet.',
+    noFolders: 'There are no clients or providers yet.',
+    later: 'Contracts are not here yet; they come later.',
+    types: {
+      factura_compra: 'Purchase invoice',
+      factura_venta: 'Sales invoice',
+      abono_compra: 'Credit note from a provider',
+      abono_venta: 'Credit note to a client',
+      justificante_pago: 'Proof of payment',
+      orden_compra: 'Purchase order sheet',
+      modificacion_po: 'Change to a purchase order',
     },
   },
   invoices: {
@@ -473,6 +576,7 @@ export const en: Messages = {
     document: 'Document',
     audited: 'Every time someone opens the original, it is recorded.',
     download: 'Download original',
+    short: 'Original',
   },
   exceptions: {
     what: 'What',
@@ -501,6 +605,9 @@ export const en: Messages = {
     whatIsWrong: 'What is going on',
     openInvoice: 'Open invoice',
     empty: 'No exception is open.',
+    notOpen: 'This exception is no longer open',
+    notOpenText: 'It was resolved or no longer exists. Exceptions lists the open issues.',
+    backToList: 'Go to Exceptions',
   },
   iban: {
     rule: 'Nothing is ever paid to an IBAN that is only on an invoice. Call about a new or changed account on the phone number from the master data, never a number from the invoice, and type in the IBAN the provider reads out yourself.',
@@ -970,7 +1077,6 @@ export const en: Messages = {
   aurora: {
     name: 'Aurora',
     orb: 'Aurora, the assistant',
-    wheel: 'Sections. Use the arrow keys or the mouse wheel to move.',
     meerkat: 'A meerkat peeks out of its burrow and keeps watch',
     composer: {
       askPlaceholder: 'What would you like to sort out today?',

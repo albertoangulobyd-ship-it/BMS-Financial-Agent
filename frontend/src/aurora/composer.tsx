@@ -15,10 +15,25 @@ type Props = {
   mode?: 'chat' | 'search';
   disabled?: boolean;
   autoFocus?: boolean;
+  /** Los textos de la caja cuando no son los de por defecto (la busqueda del inicio). */
+  placeholder?: string;
+  label?: string;
+  submitLabel?: string;
   className?: string;
 };
 
-export function WorkspaceComposer({ value, onValueChange, onSubmit, mode = 'chat', disabled = false, autoFocus = false, className }: Props) {
+export function WorkspaceComposer({
+  value,
+  onValueChange,
+  onSubmit,
+  mode = 'chat',
+  disabled = false,
+  autoFocus = false,
+  placeholder,
+  label,
+  submitLabel,
+  className,
+}: Props) {
   const { t } = useT();
   const texts = t.aurora.composer;
   const searching = mode === 'search';
@@ -31,12 +46,12 @@ export function WorkspaceComposer({ value, onValueChange, onSubmit, mode = 'chat
             autoFocus={autoFocus}
             value={value}
             onChange={(e) => onValueChange(e.target.value)}
-            placeholder={searching ? texts.searchPlaceholder : texts.askPlaceholder}
-            aria-label={searching ? texts.searchLabel : texts.askLabel}
+            placeholder={placeholder ?? (searching ? texts.searchPlaceholder : texts.askPlaceholder)}
+            aria-label={label ?? (searching ? texts.searchLabel : texts.askLabel)}
             autoComplete='off'
             spellCheck={false}
           />
-          <button className='send' type='submit' disabled={disabled} aria-label={searching ? texts.search : texts.send}>
+          <button className='send' type='submit' disabled={disabled} aria-label={submitLabel ?? (searching ? texts.search : texts.send)}>
             <AnimatePresence initial={searching} mode='wait'>
               <motion.span
                 key={mode}

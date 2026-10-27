@@ -45,12 +45,24 @@ export function BmsMark({ className, title }: { className?: string; title?: stri
 }
 
 /** La marca de Aurora: "BMS //" y, separado por una linea fina, "finance". */
-export function BmsLogo({ className, compact = false }: { className?: string; compact?: boolean }) {
+/** `wordmark='wide'`: «finance» solo desde 640 px (en el movil la cabecera cabe en una fila). */
+export function BmsLogo({
+  className,
+  compact = false,
+  wordmark = 'always',
+}: {
+  className?: string;
+  compact?: boolean;
+  wordmark?: 'always' | 'wide';
+}) {
   return (
     <span className={cn('inline-flex items-center gap-3 text-foreground', className)} role='img' aria-label='BMS finance'>
       <BmsMark className={compact ? 'w-[64px]' : 'w-[96px]'} />
       {!compact && (
-        <span aria-hidden='true' className='border-l border-border pl-3 text-[14px] font-medium tracking-[-0.01em]'>
+        <span
+          aria-hidden='true'
+          className={cn('border-l border-border pl-3 text-[14px] font-medium tracking-[-0.01em]', wordmark === 'wide' && 'max-sm:hidden')}
+        >
           finance
         </span>
       )}

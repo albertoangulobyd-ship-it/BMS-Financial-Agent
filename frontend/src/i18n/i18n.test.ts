@@ -99,16 +99,12 @@ describe('idiomas', () => {
     }
   });
 
-  it('el castellano del dominio usa el ingles mientras no llega es.json (y lo dice)', () => {
-    // PENDIENTE: al llegar src/bms_agent/textos/es.json, DOMAIN_FALLBACK queda vacio y esta
-    // prueba pasa a pedir que el castellano tenga su propio catalogo.
-    if (DOMAIN_FALLBACK.es) {
-      expect(DOMAIN_FALLBACK.es).toBe('en');
-      expect(catalogFor('es')).toBe(catalogFor('en'));
-    } else {
-      expect(catalogFor('es')).not.toBe(catalogFor('en'));
-      expect(catalogFor('es').idioma).toBe('es');
-    }
+  it('cada idioma tiene su propio catalogo de dominio (es.json desde el paso 16)', () => {
+    expect(DOMAIN_FALLBACK).toEqual({});
+    expect(catalogFor('es')).not.toBe(catalogFor('en'));
+    expect(catalogFor('es').idioma).toBe('es');
+    expect(catalogFor('en').idioma).toBe('en');
+    expect(catalogFor('nl').idioma).toBe('nl');
     expect(DOMAIN_FALLBACK.nl).toBeUndefined();
     expect(DOMAIN_FALLBACK.en).toBeUndefined();
   });

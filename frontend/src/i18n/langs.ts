@@ -14,14 +14,9 @@ export function isLang(value: unknown): value is Lang {
 export const LOCALES: Record<Lang, string> = { nl: 'nl-NL', en: 'en-GB', es: 'es-ES' };
 
 /**
- * PENDIENTE (paso 16): el catalogo de dominio en castellano, src/bms_agent/textos/es.json, lo
- * prepara otro trabajo en paralelo y aun no esta en esta rama. Hasta que llegue, la app en
- * castellano dice lo del dominio (reglas, estados, prioridades, campos, errores) con el
- * catalogo en INGLES: es lo que dice DOMAIN_FALLBACK. Al llegar es.json: importarlo en
- * domain.ts y ponerlo en CATALOGS, anadirlo a frontend/build-inputs.json y a
- * tests/test_app_local.py (los catalogos que entran en la huella), quitar la entrada de aqui
- * (i18n.test.ts y e2e/fixtures.ts la leen para saber que restos en ingles se toleran en
- * castellano) y que templates.test.ts pruebe tambien el castellano (lo hace solo si
- * casos.json trae "es").
+ * Los idiomas que dicen lo del dominio con el catalogo de otro idioma. Vacio desde que llego
+ * src/bms_agent/textos/es.json (paso 16): cada idioma tiene su catalogo. Se queda la forma
+ * por si un idioma nuevo llegara antes que su catalogo: i18n.test.ts y e2e/fixtures.ts lo
+ * leen para saber que restos de otro idioma se toleran.
  */
-export const DOMAIN_FALLBACK: Readonly<Partial<Record<Lang, Lang>>> = { es: 'en' };
+export const DOMAIN_FALLBACK: Readonly<Partial<Record<Lang, Lang>>> = {};

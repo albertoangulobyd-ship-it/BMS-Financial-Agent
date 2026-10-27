@@ -17,7 +17,7 @@ import { Section } from '@/components/section';
 import { ErrorState, Loading, errorMessage } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
 import { actionText, ruleText } from '@/i18n/domain';
@@ -36,10 +36,10 @@ export function plainAmount(cents: number): string {
   return cents < 0 ? `-${text}` : text;
 }
 
-export function VatQuarterScreen({ id, tabId }: { id: number; tabId: string }) {
+export function VatQuarterScreen({ id, navKey }: { id: number; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
-  const { setTabTitle } = useTabs();
+  const { setTitle } = useNav();
   const { version } = useRefresh();
   const label = idToQuarter(id);
   const [state, retry] = useLoad(
@@ -48,8 +48,8 @@ export function VatQuarterScreen({ id, tabId }: { id: number; tabId: string }) {
   );
   const title = fmt(t.vat.title, { quarter: quarterLabel(label) });
   useEffect(() => {
-    setTabTitle(tabId, title);
-  }, [title, tabId, setTabTitle]);
+    setTitle(navKey, title);
+  }, [title, navKey, setTitle]);
   if (state.status !== 'ready') {
     return (
       <Screen>
@@ -138,8 +138,8 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
  *  cambio despues de dejarlo listo. Cada una abre su factura. */
 function QuarterAttention({ quarter: q }: { quarter: VatQuarter }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
-  const open = (id: number) => openRoute(recordRoute('invoice', id, 'vat'));
+  const { open: openRoute } = useNav();
+  const open = (id: number) => openRoute(recordRoute('invoice', id));
   const outside = [...(q.cifras.sin_clasificar ?? []), ...(q.cifras.fuera ?? [])];
   // Una factura que no entra en las cifras viene tambien en revisar, sin reglas: se dice una vez, abajo.
   const outsideIds = new Set(outside.map((r) => r.factura_id));

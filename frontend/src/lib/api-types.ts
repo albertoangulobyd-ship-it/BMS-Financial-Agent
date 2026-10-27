@@ -255,6 +255,8 @@ export interface PartyRow {
   nivel: string;
   /** Contrato 2.1: los hallazgos pendientes de sus facturas y los suyos. */
   razones?: Reason[];
+  /** Contrato 2.2 (paso 16): cuantos documentos tiene su carpeta. */
+  documentos?: number;
 }
 
 /** Un hallazgo de los `avisos` de un proveedor, un cliente o una PO. */
@@ -585,4 +587,29 @@ export interface Isolation {
 
 export interface PersonWithRoles extends Person {
   roles?: string[];
+}
+
+/** Un documento de la carpeta de una empresa (contrato 2.2, paso 16:
+ *  GET /api/v2/clientes/N/documentos y /proveedores/N/documentos). */
+export interface PartyDocument {
+  id: number;
+  tipo: 'factura_compra' | 'factura_venta' | 'abono_compra' | 'abono_venta' | 'justificante_pago' | 'orden_compra' | 'modificacion_po' | string;
+  fecha: string | null;
+  numero: string | null;
+  importe_cent: number | null;
+  estado_pago: string | null;
+  /** El nombre del fichero tal como llego: texto de un tercero. */
+  nombre: string | null;
+  tipo_mime: string | null;
+  bytes: number | null;
+  guardado: boolean;
+  sha256: string | null;
+  registrado_en: string | null;
+  vinculo: { tabla: string; id: number; factura_id?: number | null; orden_compra_id?: number | null; estado?: string | null; fuente?: string | null };
+}
+
+export interface PartyDocuments {
+  parte: { tabla: string; id: number; nombre: string | null };
+  total: number;
+  documentos: PartyDocument[];
 }

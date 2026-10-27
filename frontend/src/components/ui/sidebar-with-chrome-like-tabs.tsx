@@ -1,6 +1,10 @@
 'use client';
 
 /*
+ * PASO 16: ya no se monta. La navegacion es la de Aurora (la rueda en el inicio, las seis
+ * entradas en pequeno, las migas y Ctrl+K: src/shell y docs/app-local.md §4). El fichero se
+ * queda tal cual, sin importarlo, por si se quiere volver a mirar; no entra en lo construido.
+ *
  * El componente de navegacion del dueno (barra lateral + pestanas como las de Chrome),
  * con el mismo aspecto, el mismo movimiento, el menu contextual de cada pestana, el
  * "abrir rapido" del boton + y la hoja del movil. Lo que se cambio y por que (paso 15):

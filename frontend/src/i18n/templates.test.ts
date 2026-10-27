@@ -1,8 +1,7 @@
 // El renderizador de plantillas contra la referencia de Python: cada caso de
 // src/bms_agent/textos/casos.json (los bordes del lenguaje y un hallazgo de cada variante
 // de cada regla) tiene que dar exactamente el mismo texto en cada idioma que traiga el caso
-// (neerlandes e ingles; el castellano en cuanto casos.json lo traiga, con es.json), y lo
-// mismo en `faltan`.
+// (neerlandes, ingles y castellano: los tres idiomas de la app), y lo mismo en `faltan`.
 import { describe, expect, it } from 'vitest';
 import casos from '../../../src/bms_agent/textos/casos.json';
 import { catalogFor, errorText, findingDetail, templateCatalog, verdict } from './domain';
@@ -28,13 +27,13 @@ interface DetailCase extends Texts {
 
 const plantillas = casos.plantillas as unknown as TemplateCase[];
 const detalles = casos.detalles as unknown as DetailCase[];
-// Los idiomas que trae la referencia de Python (hoy nl y en: es.json aun no ha llegado, ver
-// DOMAIN_FALLBACK en domain.ts).
+// Los idiomas que trae la referencia de Python (nl, en y, desde el paso 16, es).
 const LANGS: Lang[] = APP_LANGS.filter((lang) => typeof plantillas[0]?.[lang] === 'string');
 
 describe('las plantillas, como bms_agent.textos.pintar', () => {
-  it('hay casos', () => {
+  it('hay casos, en cada idioma de la app', () => {
     expect(plantillas.length).toBeGreaterThan(50);
+    expect(LANGS).toEqual([...APP_LANGS]);
   });
   for (const [i, caso] of plantillas.entries()) {
     for (const lang of LANGS) {

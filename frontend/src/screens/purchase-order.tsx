@@ -12,7 +12,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
 import { ruleText } from '@/i18n/domain';
@@ -35,10 +35,10 @@ export function poSignal(open: ReadonlySet<string>, order: readonly string[]): s
   return order.find((code) => open.has(code)) ?? null;
 }
 
-export function PurchaseOrderScreen({ id, tabId }: { id: number; tabId: string }) {
+export function PurchaseOrderScreen({ id, navKey }: { id: number; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
-  const { setTabTitle } = useTabs();
+  const { setTitle } = useNav();
   const { version } = useRefresh();
   const [state, retry] = useLoad(
     () => session!.api.get<{ orden: PoView }>(paths.purchaseOrder(id)).then((r) => r.orden),
@@ -46,8 +46,8 @@ export function PurchaseOrderScreen({ id, tabId }: { id: number; tabId: string }
   );
   const number = state.status === 'ready' ? state.data.numero : null;
   useEffect(() => {
-    if (number) setTabTitle(tabId, number);
-  }, [number, tabId, setTabTitle]);
+    if (number) setTitle(navKey, number);
+  }, [number, navKey, setTitle]);
   if (state.status !== 'ready') {
     return (
       <Screen>
@@ -61,8 +61,8 @@ export function PurchaseOrderScreen({ id, tabId }: { id: number; tabId: string }
 
 function PoDetail({ po }: { po: PoView }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
-  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId, 'purchase-orders'));
+  const { open: openRoute } = useNav();
+  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId));
   const numbers = new Map(po.facturas.map((f) => [f.factura_id, f.numero]));
   const description = fmt(po.lado === 'cliente' ? t.pos.fromClient : t.pos.toProvider, {
     party: po.parte.nombre ?? '—',
@@ -181,7 +181,7 @@ function PoInvoices({ po, onOpen }: { po: PoView; onOpen: (id: number) => void }
 
 function PoObjects({ po }: { po: PoView }) {
   const { t } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   if (po.objetos.length === 0) return <p className='text-muted-foreground'>{t.pos.noObjects}</p>;
   return (
     <ul className='flex flex-wrap gap-2'>
@@ -189,7 +189,7 @@ function PoObjects({ po }: { po: PoView }) {
         <li key={o.id}>
           <button
             type='button'
-            onClick={() => openRoute(recordRoute('object', o.id, 'objects'))}
+            onClick={() => openRoute(recordRoute('object', o.id))}
             className='rounded-md border border-border bg-card px-3 py-2 text-left hover:bg-row-hover'
           >
             <span className='block font-mono text-[12.5px] text-primary'>{o.codigo}</span>

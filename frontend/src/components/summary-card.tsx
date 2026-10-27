@@ -10,6 +10,10 @@ export interface SummaryRow {
   /** Cuando pide atencion (algo bloqueado, vencido, un plazo cerca): el estado, que se ensena
    *  con su pastilla (components/status-pill) en lugar de la etiqueta. */
   status?: Pick<StatusPillProps, 'group' | 'state' | 'values'>;
+  /** La fila abre la lista que la explica (paso 16: "Vencido" abre las vencidas). */
+  onSelect?: () => void;
+  /** El nombre de ese boton ("Vervallen verkoopfacturen tonen"). */
+  selectLabel?: string;
 }
 
 export function SummaryCard({
@@ -53,7 +57,20 @@ export function SummaryCard({
               <dt className={row.status ? 'flex items-center' : 'text-soft-foreground'}>
                 {row.status ? <StatusPill {...row.status} /> : row.label}
               </dt>
-              <dd className={cn('m-0 self-center text-right num', row.status && 'font-medium')}>{row.value}</dd>
+              <dd className={cn('m-0 self-center text-right num', row.status && 'font-medium')}>
+                {row.onSelect ? (
+                  <button
+                    type='button'
+                    onClick={row.onSelect}
+                    aria-label={row.selectLabel}
+                    className='num rounded-sm underline decoration-border-strong underline-offset-4 hover:decoration-current'
+                  >
+                    {row.value}
+                  </button>
+                ) : (
+                  row.value
+                )}
+              </dd>
             </div>
           ))}
         </dl>

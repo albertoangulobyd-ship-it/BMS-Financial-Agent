@@ -10,14 +10,14 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
 import { paths, type InvoiceRow } from '@/lib/api';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { twinMarks, type TwinMark } from '@/lib/twins';
 import { needsPerson, whyOf } from '@/lib/why';
@@ -26,7 +26,7 @@ import { useLoad } from './use-load';
 
 type QueueFilter = 'all' | 'bloqueada' | 'urgente' | 'atencion';
 
-export function WorkQueueScreen({ tabId }: { tabId: string }) {
+export function WorkQueueScreen({ navKey }: { navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
@@ -34,8 +34,8 @@ export function WorkQueueScreen({ tabId }: { tabId: string }) {
     () => session!.api.get<{ facturas: InvoiceRow[] }>(paths.invoices).then((r) => r.facturas.filter(needsPerson)),
     [session, version]
   );
-  const [filter, setFilter] = useTabState<QueueFilter>(tabId, 'wq-filter', 'all');
-  const [query, setQuery] = useTabState<string>(tabId, 'wq-query', '');
+  const [filter, setFilter] = useViewState<QueueFilter>(navKey, 'wq-filter', 'all');
+  const [query, setQuery] = useViewState<string>(navKey, 'wq-query', '');
   const nav = t.nav['work-queue'];
 
   return (
@@ -64,7 +64,7 @@ function QueueTable({
   setQuery: (q: string) => void;
 }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const count = (level: QueueFilter) => (level === 'all' ? rows.length : rows.filter((r) => r.nivel === level).length);
   const shown = rows.filter((r) => (filter === 'all' || r.nivel === filter) && matches(query, r.numero, r.contraparte));
   const twins = twinMarks(rows);
@@ -108,7 +108,7 @@ function QueueTable({
           caption={t.workQueue.caption}
           // La lista donde se trabaja: late lo bloqueado, nada mas (lo urgente, quieto).
           ping='blocked'
-          onOpen={(r) => openRoute(recordRoute('invoice', r.id, 'work-queue'))}
+          onOpen={(r) => openRoute(recordRoute('invoice', r.id))}
           openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records.invoice.label} ${r.numero ?? r.id}` })}
           empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
         />

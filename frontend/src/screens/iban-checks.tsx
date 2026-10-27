@@ -12,7 +12,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { fmt, useT } from '@/i18n';
 import { findingDetail, ruleText, stateLabel, templateCatalog } from '@/i18n/domain';
 import { formatWith } from '@/i18n/templates';
@@ -151,7 +151,7 @@ export function IbanChecksScreen() {
 function CheckCard({ check: c, provider, onDone }: { check: Check; provider: ProviderAccounts | null; onDone: () => void }) {
   const { t, lang } = useT();
   const can = useCan();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const shown = formatWith('iban', c.iban, templateCatalog(lang));
   const phone = provider?.telefono_verificacion ?? null;
   const invoice = c.findings[0]?.invoice ?? null;
@@ -192,7 +192,7 @@ function CheckCard({ check: c, provider, onDone }: { check: Check; provider: Pro
                 variant='link'
                 size='sm'
                 className='h-auto px-0 py-0 font-mono text-[12.5px]'
-                onClick={() => openRoute(recordRoute('invoice', invoice.id, 'iban-checks'))}
+                onClick={() => openRoute(recordRoute('invoice', invoice.id))}
               >
                 {invoice.numero ?? `#${invoice.id}`}
               </Button>

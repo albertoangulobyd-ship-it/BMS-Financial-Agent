@@ -3,7 +3,7 @@
 // tu, como Aurora. Las cifras siguen en notacion neerlandesa (format.ts) en los tres idiomas.
 // Aqui si se pueden nombrar los accesos directos y los .bat de la instalacion: estan en
 // castellano, para el dueno.
-import type { Messages } from './index';
+import type { Messages } from './messages';
 
 export const es: Messages = {
   app: {
@@ -112,34 +112,47 @@ export const es: Messages = {
     chip: 'Datos de prueba',
     chipHelp: 'Esta es la base de prueba. Todo lo que ves es inventado y nada pasa a los datos de verdad.',
   },
-  tabs: {
-    newTab: 'Pestaña nueva',
-    closeTab: 'Cerrar pestaña',
-    closeOtherTabs: 'Cerrar las demás pestañas',
-    closeTabsToRight: 'Cerrar las pestañas de la derecha',
-    closeTabsToLeft: 'Cerrar las pestañas de la izquierda',
-    closeAllTabs: 'Cerrar todas las pestañas',
-    quickOpen: 'Abrir rápido',
-    sidebarNavigation: 'Navegación',
-    collapseSidebar: 'Plegar la barra lateral',
-    expandSidebar: 'Desplegar la barra lateral',
-    moreTabOptions: 'Más opciones de pestañas',
-    openMenu: 'Abrir el menú',
-    close: 'Cerrar',
-    tabs: 'Pestañas',
-    mainNavigation: 'Menú principal',
+  areas: {
+    home: {
+      label: 'Inicio',
+      description: 'Lo que necesita tu atención hoy, y por dónde empezar.',
+    },
+    receivables: {
+      label: 'Cuentas por cobrar',
+      description: 'Lo que nos deben, y desde cuándo.',
+    },
+    payables: {
+      label: 'Cuentas por pagar',
+      description: 'Lo que debemos, y qué está retenido.',
+    },
+    documents: {
+      label: 'Documentos',
+      description: 'Los documentos de cada cliente y proveedor.',
+    },
+    process: {
+      label: 'Procesar',
+      description: 'Leer facturas e importar ficheros.',
+    },
+    vat: {
+      label: 'IVA',
+      description: 'El IVA por trimestre, listo para revisar.',
+    },
   },
-  groups: {
-    daily: 'Cada día',
-    invoices: 'Facturas',
-    parties: 'Relaciones',
-    money: 'Dinero',
-    data: 'Datos',
-    settings: '',
+  shell: {
+    mainNavigation: 'Menú principal',
+    sectionNavigation: 'Apartados de {section}',
+    home: 'Ir a Inicio',
+    back: 'Volver',
+    backTo: 'Volver a {what}',
+    breadcrumbs: 'Dónde estás',
+    search: 'Buscar',
+    searchShortcut: 'Ctrl K',
+    wheel: 'Elige por dónde empezar. Las flechas, la rueda del ratón o deslizar el dedo giran la rueda; Intro abre.',
+    skipToContent: 'Ir al contenido',
   },
   nav: {
-    overview: {
-      label: 'Resumen',
+    home: {
+      label: 'Inicio',
       hint: '',
       description: 'Lo que necesita atención hoy y cómo está el dinero.',
     },
@@ -159,13 +172,13 @@ export const es: Messages = {
       description: 'Las cuentas nuevas o cambiadas, y lo que falta por hacer.',
     },
     'invoices-in': {
-      label: 'Recibidas',
-      hint: 'compras',
+      label: 'Facturas de compra',
+      hint: '',
       description: 'Todas las facturas de proveedores y zzp’ers a BMS, y cómo están.',
     },
     'invoices-out': {
-      label: 'Emitidas',
-      hint: 'ventas',
+      label: 'Facturas de venta',
+      hint: '',
       description: 'Todas las facturas de BMS a sus clientes, y cómo están.',
     },
     providers: {
@@ -183,15 +196,25 @@ export const es: Messages = {
       hint: '',
       description: 'Por cada sitio de un cliente: ingresos, costes y margen.',
     },
-    'purchase-orders': {
+    'client-pos': {
       label: 'Órdenes de compra',
-      hint: '',
-      description: 'Cuánto queda de cada orden de compra y cuáles se acaban.',
+      hint: 'de clientes',
+      description: 'Cuánto queda de cada orden de compra que un cliente dio a BMS, y cuáles se acaban.',
+    },
+    'provider-pos': {
+      label: 'Órdenes de compra',
+      hint: 'a proveedores',
+      description: 'Cuánto queda de cada orden de compra que BMS dio a un proveedor, y cuáles se acaban.',
     },
     'cash-flow': {
       label: 'Flujo de caja',
       hint: '',
       description: 'Lo que entra y sale en las próximas semanas.',
+    },
+    documents: {
+      label: 'Documentos',
+      hint: '',
+      description: 'Los documentos que el sistema tiene de cada cliente y proveedor: originales, justificantes de pago y hojas de órdenes de compra.',
     },
     vat: {
       label: 'IVA',
@@ -221,6 +244,9 @@ export const es: Messages = {
     object: { label: 'Object', fallbackTitle: 'Object {id}' },
     'purchase-order': { label: 'Orden de compra', fallbackTitle: 'Orden de compra {id}' },
     'vat-quarter': { label: 'Trimestre de IVA', fallbackTitle: 'IVA {id}' },
+    exception: { label: 'Excepción', fallbackTitle: 'Excepción {id}' },
+    'client-documents': { label: 'Carpeta de un cliente', fallbackTitle: 'Carpeta del cliente {id}' },
+    'provider-documents': { label: 'Carpeta de un proveedor', fallbackTitle: 'Carpeta del proveedor {id}' },
   },
   badges: {
     blocked: 'bloqueadas',
@@ -275,9 +301,6 @@ export const es: Messages = {
     nothingHere: 'Aún no hay nada',
     noMatch: 'No hay resultados',
     noMatchText: 'Prueba con otro filtro u otra búsqueda.',
-  },
-  footer: {
-    today: 'Hoy',
   },
   workQueue: {
     caption: 'Las facturas que necesitan a una persona, lo más urgente arriba',
@@ -334,6 +357,86 @@ export const es: Messages = {
       all: 'Las {n} de la cola de trabajo',
       empty: 'Todas las facturas están al día.',
       sameNumber: '{n} facturas con este número',
+    },
+  },
+  home: {
+    greeting: 'Hola, {name}',
+    intro: 'Busca lo que necesites o elige por dónde empezar.',
+    cardsLabel: 'Cómo está todo',
+    alsoHere: 'También en Inicio',
+    waiting: '{n} esperan a alguien',
+    waitingOne: '1 espera a alguien',
+    openCount: '{n} abiertas',
+    comingWeeks: 'Las próximas semanas',
+    firstIntro: 'Lo que no puede esperar: bloqueado o urgente.',
+    updated: 'Actualizado a las {time}',
+    overdueOut: 'Ver las facturas de venta vencidas',
+    overdueIn: 'Ver las facturas de compra vencidas',
+    clientsOpen: 'Clientes con saldo',
+    providersOpen: 'Proveedores con saldo',
+    showClients: 'Ver los clientes con saldo',
+    showProviders: 'Ver los proveedores con saldo',
+  },
+  ask: {
+    placeholder: 'Busca una factura, un cliente, un proveedor o una pantalla…',
+    label: 'Buscar en tus datos',
+    submit: 'Buscar',
+    notYet: 'Todavía no contesto preguntas: busco en tus datos y te llevo a la pantalla.',
+    resultsFor: 'Encontrado para «{q}»',
+    searching: 'Buscando…',
+    nothing: 'No encontré nada para «{q}».',
+    nothingText: 'Prueba con un número de factura, un nombre o una pantalla, como «IVA» o «Cuentas por cobrar».',
+    clear: 'Cerrar los resultados',
+    moreInvoices: 'Hay {n} facturas más',
+    groups: {
+      screens: 'Pantallas',
+      clients: 'Clientes',
+      providers: 'Proveedores',
+      objects: 'Objects',
+      pos: 'Órdenes de compra',
+      invoices: 'Facturas',
+    },
+  },
+  palette: {
+    title: 'Abrir rápido',
+    placeholder: 'Escribe una pantalla, un nombre o un número…',
+    hint: '↑ ↓ para elegir, Intro para abrir, Esc para cerrar',
+    empty: 'Escribe para buscar.',
+  },
+  documents: {
+    clients: 'Clientes',
+    providers: 'Proveedores',
+    search: 'Busca por nombre o código',
+    count: '{n} documentos',
+    countOne: '1 documento',
+    none: 'Aún sin documentos',
+    outstanding: '{amount} pendiente',
+    nothingOpen: 'Nada pendiente',
+    folderOf: 'Documentos de {name}',
+    openFolder: 'Abrir la carpeta de {name}',
+    questionClient: 'Los documentos que el sistema tiene de este cliente. Cada descarga queda anotada.',
+    questionProvider: 'Los documentos que el sistema tiene de este proveedor. Cada descarga queda anotada.',
+    openCard: 'Abrir la ficha',
+    type: 'Tipo',
+    date: 'Fecha',
+    number: 'Número',
+    amount: 'Importe',
+    state: 'Estado',
+    file: 'Fichero',
+    download: 'Descargar',
+    downloadNamed: 'Descargar {name}',
+    notKept: 'No se guardó',
+    empty: 'Esta carpeta aún no tiene documentos.',
+    noFolders: 'Aún no hay clientes ni proveedores.',
+    later: 'Los contratos todavía no están aquí: llegarán más adelante.',
+    types: {
+      factura_compra: 'Factura de compra',
+      factura_venta: 'Factura de venta',
+      abono_compra: 'Abono de un proveedor',
+      abono_venta: 'Abono a un cliente',
+      justificante_pago: 'Justificante de pago',
+      orden_compra: 'Hoja de orden de compra',
+      modificacion_po: 'Cambio de una orden de compra',
     },
   },
   invoices: {
@@ -476,6 +579,7 @@ export const es: Messages = {
     document: 'Documento',
     audited: 'Cada vez que alguien abre el original, queda anotado.',
     download: 'Descargar el original',
+    short: 'Original',
   },
   exceptions: {
     what: 'Qué',
@@ -504,6 +608,9 @@ export const es: Messages = {
     whatIsWrong: 'Qué pasa',
     openInvoice: 'Abrir la factura',
     empty: 'No hay ninguna excepción abierta.',
+    notOpen: 'Esta excepción ya no está abierta',
+    notOpenText: 'Se resolvió o ya no existe. En Excepciones están las que siguen abiertas.',
+    backToList: 'Ir a Excepciones',
   },
   iban: {
     rule: 'Nunca se paga a un IBAN que solo está en una factura. Por una cuenta nueva o cambiada se llama al teléfono de los datos maestros, nunca a un número de la factura, y el IBAN que lee el proveedor lo escribes tú.',
@@ -973,7 +1080,6 @@ export const es: Messages = {
   aurora: {
     name: 'Aurora',
     orb: 'Aurora, el asistente',
-    wheel: 'Secciones. Usa las flechas o la rueda del ratón para moverte.',
     meerkat: 'Una suricata asoma de su madriguera y vigila',
     composer: {
       askPlaceholder: '¿Qué te gustaría resolver hoy?',

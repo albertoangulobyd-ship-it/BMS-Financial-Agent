@@ -1,28 +1,45 @@
-// La base de la app: la entrada, el marco con todas las areas, NL | EN, las pestanas (una
-// fila abre su ficha; si ya esta abierta, se va a ella), que las pestanas se guardan al
-// recargar y que salir borra el token. Captura de cada pantalla en los dos idiomas.
-import type { Page } from '@playwright/test';
+// La base de la app (paso 16): la entrada; el inicio con la rueda de Aurora (las seis entradas a
+// la vista, un clic abre cualquiera, la rueda del raton, las flechas, el dedo, Tab e Intro, sin
+// tapar el saludo ni la caja); las seis entradas en pequeno en las demas pantallas; las fichas
+// dentro de su seccion con migas y "Volver"; Ctrl+K; el menu del nombre (Ajustes, idioma, tema y
+// Salir); que nada se guarda de las pestanas ni del token. Captura de cada pantalla en los tres
+// idiomas (los dos temas, en themes.spec.ts).
+import type { Locator, Page } from '@playwright/test';
+import { SECTION_IDS, SECTION_VIEWS, VIEW_IDS } from '../src/screens/sections';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
+import {
+  TEXTS,
+  back,
+  crumbs,
+  go,
+  mainMenu,
+  openSection,
+  readBadge,
+  sectionButton,
+  sectionMenu,
+  setLang,
+  signOut,
+  viewHeading,
+} from './nav';
 
-const NAV = [
-  ['overview', 'Overzicht', 'Overview'],
-  ['work-queue', 'Werklijst', 'Work queue'],
-  ['exceptions', 'Uitzonderingen', 'Exceptions'],
-  ['iban-checks', 'IBAN-controles', 'IBAN checks'],
-  ['invoices-in', 'Inkomend', 'In'],
-  ['invoices-out', 'Uitgaand', 'Out'],
-  ['providers', 'Leveranciers', 'Providers'],
-  ['clients', 'Klanten', 'Clients'],
-  ['objects', 'Objecten', 'Objects'],
-  ['purchase-orders', 'Inkooporders', 'Purchase orders'],
-  ['cash-flow', 'Kasstroom', 'Cash flow'],
-  ['vat', 'Btw', 'VAT'],
-  ['import', 'Importeren', 'Import'],
-  ['read-invoices', 'Facturen lezen', 'Read invoices'],
-  ['settings', 'Instellingen', 'Settings'],
-] as const;
+/** La caja de una cosa en la pagina. */
+async function box(locator: Locator) {
+  const b = await locator.boundingBox();
+  expect(b, 'se ve').not.toBeNull();
+  return b!;
+}
 
-test('la entrada, en neerlandes por defecto y en ingles', async ({ page, baseUrl, watch }) => {
+/** Que dos cajas no se pisan. */
+function apart(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+}
+
+/** La entrada de la rueda que esta en el centro (la activa). */
+async function activeWheelEntry(page: Page): Promise<string> {
+  return ((await page.locator('[data-wheel-entry][data-distance="0"]').textContent()) ?? '').trim();
+}
+
+test('la entrada, en neerlandes por defecto, en ingles y en castellano', async ({ page, baseUrl, watch }) => {
   watch.expectHttpErrors(401);
   await page.goto(`${baseUrl}/app`);
   // La banda de datos de prueba la pone el servidor, por encima de la app.
@@ -37,6 +54,11 @@ test('la entrada, en neerlandes por defecto y en ingles', async ({ page, baseUrl
   await expect(page.getByRole('heading', { level: 1, name: 'Log in' })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await capture(page, 'en-login');
+  await page.getByRole('button', { name: 'Español' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible();
+  await expectNoLeftovers(page, 'es', 'entrada es');
+  await capture(page, 'es-login');
+  await page.getByRole('button', { name: 'English' }).click();
 
   // Ni <form> ni campo de contrasena: Edge no ofrece guardar el token en su gestor de
   // contrasenas. Los caracteres van tapados igual.
@@ -60,55 +82,162 @@ test('la entrada, en neerlandes por defecto y en ingles', async ({ page, baseUrl
   await expect(page.getByRole('alert').filter({ hasText: 'Deze code is niet geldig' })).toBeVisible();
 });
 
-test('el marco con todas las areas, en los dos idiomas', async ({ page, baseUrl }) => {
+test('el inicio: el saludo con el nombre, la rueda con las seis entradas sin tapar nada y la caja', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
   await expect(page.getByTestId('test-data-chip')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Accountmenu van Ana Demo' })).toBeVisible();
-  const nav = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  // Insignias solo para lo que pide hacer algo: bloqueadas, excepciones, IBAN.
-  await expect(nav.getByRole('button', { name: /Werklijst/ })).toContainText('geblokkeerd');
-
-  for (const [lang, index] of [['nl', 1], ['en', 2]] as const) {
-    // El de la cabecera (Instellingen lleva otro igual).
-    if (lang === 'en') await page.getByRole('button', { name: 'English' }).first().click();
-    const menu = page.getByRole('navigation', { name: lang === 'nl' ? 'Hoofdmenu' : 'Main menu' });
-    for (const entry of NAV) {
-      const [id] = entry;
-      const label = entry[index];
-      await menu.getByRole('button', { name: new RegExp(`^${label}\\b`) }).click();
-      await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
-      await expect(page.getByRole('tab', { selected: true })).toContainText(label);
-      if (id === 'work-queue') await expect(page.getByRole('table')).toBeVisible();
-      await expectAccessible(page, `${lang} ${id}`);
-      await expectNoLeftovers(page, lang, `${lang} ${id}`);
-      await capture(page, `${lang}-${id}`);
-    }
+  // El nombre de quien entro (/api/v2/yo), no el "Alberto" del prototipo.
+  await expect(page.getByRole('heading', { level: 1, name: 'Welkom, Ana' })).toBeVisible();
+  const wheel = mainMenu(page);
+  const entries = wheel.getByRole('button');
+  await expect(entries).toHaveCount(6);
+  expect(await entries.allTextContents()).toEqual(SECTION_IDS.map((id) => TEXTS.nl.areas[id].label));
+  // La entrada del inicio dice que es donde se esta; la rueda dice como se usa.
+  await expect(sectionButton(page, 'home')).toHaveAttribute('aria-current', 'page');
+  await expect(wheel).toHaveAccessibleDescription(TEXTS.nl.shell.wheel);
+  // Las seis, enteras en la ventana, sin pisar el saludo ni la caja.
+  const greeting = await box(page.getByRole('heading', { level: 1 }));
+  const ask = await box(page.getByRole('textbox', { name: TEXTS.nl.ask.label }));
+  for (const entry of await entries.all()) {
+    const b = await box(entry);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.y + b.height).toBeLessThanOrEqual(900);
+    expect(apart(b, greeting), 'no pisa el saludo').toBe(true);
+    expect(apart(b, ask), 'no pisa la caja').toBe(true);
+    expect(await entry.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
   }
-  await page.getByRole('button', { name: 'Nederlands' }).first().click();
+  // Las cuatro tarjetas a la vista sin desplazar, a 1440 × 900.
+  await expect(page.getByTestId('summary-card')).toHaveCount(4);
+  const lastCard = await box(page.getByTestId('summary-card').last());
+  expect(lastCard.y + lastCard.height).toBeLessThanOrEqual(900);
+  // Lo que dice la caja: que todavia no contesta preguntas.
+  await expect(page.getByText(TEXTS.nl.ask.notYet)).toBeVisible();
+  await expectAccessible(page, 'inicio nl');
+  await expectNoLeftovers(page, 'nl', 'inicio nl');
+  await capture(page, 'nl-home');
 });
 
-test('una fila abre su ficha en una pestana, y otra vez la misma pestana', async ({ page, baseUrl }) => {
+test('la rueda: un clic abre cualquier entrada a la primera; la rueda del raton y las flechas giran', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  await menu.getByRole('button', { name: /^Werklijst/ }).click();
+  // Un clic normal en una entrada que NO es la del centro la abre (en el prototipo solo la
+  // centraba y el clic se perdia).
+  expect(await activeWheelEntry(page)).toBe('Start');
+  await sectionButton(page, 'vat').click();
+  await expect(viewHeading(page, 'vat')).toBeVisible();
+  // La marca de arriba vuelve al inicio.
+  await page.getByRole('button', { name: TEXTS.nl.shell.home }).click();
+  await expect(viewHeading(page, 'home')).toBeVisible();
+  for (const section of SECTION_IDS.filter((s) => s !== 'home')) {
+    await sectionButton(page, section).click();
+    await expect(viewHeading(page, SECTION_VIEWS[section][0]!)).toBeVisible();
+    await page.getByRole('button', { name: TEXTS.nl.shell.home }).click();
+    await expect(viewHeading(page, 'home')).toBeVisible();
+  }
+
+  // La rueda del raton gira (un paso por gesto) y la pagina no se desplaza mientras tanto.
+  const list = mainMenu(page).getByRole('list');
+  const centre = await box(list);
+  await page.mouse.move(centre.x + centre.width / 2, centre.y + centre.height / 2);
+  await page.mouse.wheel(0, 120);
+  await expect.poll(() => activeWheelEntry(page)).toBe('Te ontvangen');
+  await page.waitForTimeout(300);
+  await page.mouse.wheel(0, 120);
+  await expect.poll(() => activeWheelEntry(page)).toBe('Te betalen');
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await capture(page, 'nl-home-wheel-turned');
+  await page.waitForTimeout(300);
+  await page.mouse.wheel(0, -120);
+  await expect.poll(() => activeWheelEntry(page)).toBe('Te ontvangen');
+
+  // Tab llega a las entradas (gira la rueda hasta ella), las flechas mueven, Intro abre; el
+  // foco se ve.
+  await sectionButton(page, 'home').focus();
+  expect(await activeWheelEntry(page)).toBe('Start');
+  await page.keyboard.press('Tab');
+  await expect(sectionButton(page, 'receivables')).toBeFocused();
+  expect(await activeWheelEntry(page)).toBe('Te ontvangen');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(sectionButton(page, 'documents')).toBeFocused();
+  expect(await activeWheelEntry(page)).toBe('Documenten');
+  expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).not.toBe('none');
+  await page.keyboard.press('ArrowUp');
+  await expect(sectionButton(page, 'payables')).toBeFocused();
+  // De la ultima a la primera, como una rueda.
+  await page.keyboard.press('End');
+  await expect(sectionButton(page, 'vat')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(sectionButton(page, 'home')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(sectionButton(page, 'vat')).toBeFocused();
+  await capture(page, 'nl-home-wheel-focus');
+  await page.keyboard.press('Enter');
+  await expect(viewHeading(page, 'vat')).toBeVisible();
+  // Despues de cambiar de sitio, el foco va al contenido (no se queda en un boton que ya no esta).
+  await expect(page.locator('#contenido')).toBeFocused();
+});
+
+test('con "menos movimiento" la rueda gira sin animacion y el orbe no se mueve', async ({ page, baseUrl }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  const entry = sectionButton(page, 'payables');
+  // Sin transicion (la regla general de "menos movimiento" deja 0.01 ms: nada que se vea).
+  const instant = (el: Element) => getComputedStyle(el).transitionDuration.split(',').every((d) => parseFloat(d) < 0.001);
+  expect(await entry.evaluate(instant)).toBe(true);
+  expect(await entry.locator('.wheel-label').evaluate(instant)).toBe(true);
+  await entry.focus();
+  expect(await activeWheelEntry(page)).toBe('Te betalen');
+  expect(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length)).toBe(0);
+  await expect(page.locator('[data-orb]').first()).toHaveAttribute('data-moving', 'false');
+});
+
+test('las seis entradas siguen a un clic en todas las pantallas, y cada vista de cada seccion, en los tres idiomas', async ({
+  page,
+  baseUrl,
+}) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  // Insignias solo para lo que pide hacer algo: bloqueadas, excepciones, IBAN.
+  await go(page, 'work-queue');
+  await expect(sectionMenu(page, 'home').getByRole('button', { name: /^Werklijst/ })).toContainText('geblokkeerd');
+  await expect.poll(() => readBadge(page, 'exceptions')).toBeGreaterThan(0);
+  await go(page, 'invoices-in');
+  await expect.poll(() => readBadge(page, 'iban-checks')).toBeGreaterThan(0);
+
+  for (const lang of ['nl', 'en', 'es'] as const) {
+    await setLang(page, lang);
+    for (const view of VIEW_IDS) {
+      await go(page, view, lang);
+      if (view !== 'home') {
+        // La entrada de la seccion, marcada; las seis, a un clic.
+        await expect(mainMenu(page, lang).getByRole('button')).toHaveCount(6);
+      }
+      if (view === 'work-queue') await expect(page.getByRole('table')).toBeVisible();
+      await expectAccessible(page, `${lang} ${view}`);
+      await expectNoLeftovers(page, lang, `${lang} ${view}`);
+      await capture(page, `${lang}-${view}`);
+    }
+  }
+  await setLang(page, 'nl');
+});
+
+test('una fila abre su ficha dentro de su seccion, con migas y Volver; la lista sigue como estaba', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  await go(page, 'work-queue');
+  await page.getByRole('group', { name: 'Toon' }).getByRole('button', { name: /^Urgent/ }).click();
   const first = page.getByRole('table').getByRole('row').nth(1).getByRole('button');
-  // El boton de la fila lleva el numero (en mono) y la relacion debajo.
   const number = (await first.locator('.font-mono').textContent())!.trim();
   await first.click();
-  await expect(page.getByRole('heading', { level: 1, name: `Factuur ${number}` })).toBeVisible();
-  const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveCount(2);
-  await expect(page.getByRole('tab', { selected: true })).toContainText(number);
+  await expect(page.getByRole('heading', { level: 1, name: new RegExp(`${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })).toBeVisible();
+  // Donde se esta: Start › Werklijst › el numero; la entrada Start sigue marcada.
+  expect(await crumbs(page)).toEqual(['Start', 'Werklijst', number]);
+  await expect(sectionButton(page, 'home')).toHaveAttribute('aria-current', 'page');
   await expectAccessible(page, 'ficha de factura');
   await capture(page, 'nl-invoice');
-
-  // Volver a la lista y abrir la misma fila: se va a su pestana, no se abre otra.
-  await tabs.first().click();
-  await page.getByRole('table').getByRole('row').nth(1).getByRole('button').click();
-  await expect(tabs).toHaveCount(2);
-  await expect(page.getByRole('tab', { selected: true })).toContainText(number);
 
   // Los detalles van plegados; se abren con el teclado.
   const details = page.getByRole('button', { name: /^Velden/ });
@@ -116,64 +245,145 @@ test('una fila abre su ficha en una pestana, y otra vez la misma pestana', async
   await details.focus();
   await page.keyboard.press('Enter');
   await expect(details).toHaveAttribute('aria-expanded', 'true');
+
+  // Volver: la lista con el mismo filtro.
+  await back(page);
+  await expect(viewHeading(page, 'work-queue')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Toon' }).getByRole('button', { name: /^Urgent/ })).toHaveAttribute('aria-pressed', 'true');
+
+  // Una miga vuelve a ese paso: un cliente, su factura, y de vuelta al cliente por la miga.
+  await go(page, 'clients');
+  await page.getByRole('table').getByRole('button', { name: /Gemeente Demodorp/ }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Gemeente Demodorp' })).toBeVisible();
+  // La factura abierta sale en su seccion de la ficha y en la tabla: la primera vale.
+  await page.getByRole('button', { name: 'Factuur VD26-306 openen' }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: /VD26-306$/ })).toBeVisible();
+  expect(await crumbs(page)).toEqual(['Te ontvangen', 'Klanten', 'Gemeente Demodorp', 'VD26-306']);
+  await page.getByRole('navigation', { name: TEXTS.nl.shell.breadcrumbs }).getByRole('button', { name: 'Gemeente Demodorp' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Gemeente Demodorp' })).toBeVisible();
+  // Alt + flecha izquierda tambien vuelve, como en un navegador.
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(viewHeading(page, 'clients')).toBeVisible();
+  // Otra entrada empieza un camino nuevo: sin migas.
+  await openSection(page, 'vat');
+  await expect(page.getByRole('navigation', { name: TEXTS.nl.shell.breadcrumbs })).toHaveCount(0);
 });
 
-test('las pestanas vuelven al recargar; el token no', async ({ page, baseUrl }) => {
+test('Ctrl+K abre cualquier pantalla o ficha escribiendo', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  // Abrir rapido una pestana nueva con Kasstroom y dejar otra en Btw.
-  await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
-  await page.getByRole('menuitem', { name: 'Nieuw tabblad' }).click();
-  await menu.getByRole('button', { name: /^Kasstroom/ }).click();
-  await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
-  await page.getByRole('menuitem', { name: 'Nieuw tabblad' }).click();
-  await menu.getByRole('button', { name: /^Btw/ }).click();
-  const before = await page.getByRole('tab').allTextContents();
-  expect(before.length).toBeGreaterThanOrEqual(3);
-  await expect(page.getByRole('tab', { selected: true })).toContainText('Btw');
-  // La barra lateral plegada tambien se guarda.
-  await page.getByRole('button', { name: 'Zijbalk inklappen' }).click();
-  await expect(page.getByRole('button', { name: 'Zijbalk uitklappen' })).toBeVisible();
-  await capture(page, 'nl-sidebar-collapsed');
+  await go(page, 'vat');
+  await page.keyboard.press('Control+k');
+  const dialog = page.getByRole('dialog', { name: TEXTS.nl.palette.title });
+  await expect(dialog).toBeVisible();
+  const input = dialog.getByRole('combobox');
+  await expect(input).toBeFocused();
+  // Una pantalla por su nombre en cualquier idioma ("receivables" en neerlandes tambien).
+  await input.fill('receivables');
+  await expect(dialog.getByRole('option').first()).toContainText('Verkoopfacturen');
+  await input.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(viewHeading(page, 'invoices-out')).toBeVisible();
+  // Una ficha: un cliente por su nombre, dentro de su seccion.
+  await page.getByRole('button', { name: 'Zoeken' }).click();
+  await input.fill('demodorp');
+  await expect(dialog.getByRole('group', { name: 'Klanten' }).getByRole('option')).toContainText(['Gemeente Demodorp']);
+  await expectAccessible(page, 'ctrl+k');
+  await capture(page, 'nl-quick-open');
+  await dialog.getByRole('group', { name: 'Klanten' }).getByRole('option').first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Gemeente Demodorp' })).toBeVisible();
+  expect(await crumbs(page)).toEqual(['Te ontvangen', 'Klanten', 'Gemeente Demodorp']);
+  // Una factura por su numero, con las flechas; Esc cierra sin hacer nada.
+  await page.keyboard.press('Control+k');
+  await input.fill('KT-2026');
+  await expect(dialog.getByRole('group', { name: 'Facturen' }).getByRole('option').first()).toContainText('KT-202608');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press('Control+k');
+  await input.fill('KT-202608');
+  await expect(dialog.getByRole('group', { name: 'Facturen' }).getByRole('option').first()).toContainText('KT-202608');
+  for (let i = 0; i < 6 && (await dialog.getByRole('option', { selected: true }).textContent())?.includes('KT-202608') !== true; i += 1) {
+    await input.press('ArrowDown');
+  }
+  await input.press('Enter');
+  await expect(page.getByRole('heading', { level: 1, name: /KT-202608$/ })).toBeVisible();
+  expect(await crumbs(page)).toEqual(['Te betalen', 'Inkoopfacturen', 'KT-202608']);
+  // Nada que encontrar: lo dice.
+  await page.keyboard.press('Control+k');
+  await input.fill('zzzz-niets');
+  await expect(dialog).toContainText('Niets gevonden voor “zzzz-niets”.');
+});
 
+test('la caja del inicio busca y lo dice: todavia no contesta preguntas', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  const ask = page.getByRole('textbox', { name: TEXTS.nl.ask.label });
+  await ask.fill('Gemeente Demodorp');
+  await ask.press('Enter');
+  const results = page.locator('section[aria-labelledby="ask-results"]');
+  await expect(results).toContainText('Gevonden voor “Gemeente Demodorp”');
+  await expect(results.getByRole('button', { name: /^Gemeente Demodorp/ }).first()).toBeVisible();
+  await expect(results.getByRole('button', { name: /^VD26-306/ })).toBeVisible();
+  await expectAccessible(page, 'caja con resultados');
+  await capture(page, 'nl-home-ask');
+  await results.getByRole('button', { name: /^VD26-306/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: /VD26-306$/ })).toBeVisible();
+  expect(await crumbs(page)).toEqual(['Te ontvangen', 'Verkoopfacturen', 'VD26-306']);
+  // Una pregunta: no se inventa una respuesta.
+  await page.getByRole('button', { name: TEXTS.nl.shell.home }).click();
+  await ask.fill('Hoeveel moeten klanten ons nog betalen?');
+  await ask.press('Enter');
+  await expect(results).toContainText('Niets gevonden voor “Hoeveel moeten klanten ons nog betalen?”.');
+  await expect(page.getByText(TEXTS.nl.ask.notYet)).toBeVisible();
+  await expect(results).not.toContainText('€');
+  // Una pantalla por su nombre.
+  await ask.fill('btw');
+  await ask.press('Enter');
+  await results.getByRole('button', { name: /^Btw/ }).first().click();
+  await expect(viewHeading(page, 'vat')).toBeVisible();
+});
+
+test('al recargar se vuelve a entrar, en el inicio; el token y las pantallas no se guardan', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  await go(page, 'vat');
+  await page.getByRole('table').getByRole('button').first().click();
   await page.reload();
   // Recargar es empezar de nuevo: el token no estaba en ningun sitio del navegador.
   await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
   const stored = await page.evaluate(() => ({
     local: JSON.stringify({ ...localStorage }),
+    keys: Object.keys(localStorage),
     session: sessionStorage.length,
     cookie: document.cookie,
     url: location.href,
   }));
   expect(stored.local).not.toContain(token('ana'));
   expect(stored.local).not.toContain('bms_');
+  // Solo comodidades de cada persona: el idioma y el tema (ninguna pestana, ninguna ficha).
+  for (const key of stored.keys) expect(key).toMatch(/^bms-app:v1:((demo|real):\d+:)?(lang|theme)$/);
   expect(stored.session).toBe(0);
   expect(stored.cookie).toBe('');
   expect(stored.url).not.toContain(token('ana'));
-
   await login(page);
-  expect(await page.getByRole('tab').allTextContents()).toEqual(before);
-  await expect(page.getByRole('tab', { selected: true })).toContainText('Btw');
-  await expect(page.getByRole('button', { name: 'Zijbalk uitklappen' })).toBeVisible();
-  await page.getByRole('button', { name: 'Zijbalk uitklappen' }).click();
-
-  // Otra persona en el mismo ordenador no ve las pestanas de Ana.
-  await page.getByRole('button', { name: 'Accountmenu van Ana Demo' }).click();
-  await page.getByRole('menuitem', { name: 'Uitloggen' }).click();
-  await login(page, 'bram');
-  await expect(page.getByRole('tab')).toHaveCount(1);
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
+  await expect(viewHeading(page, 'home')).toBeVisible();
 });
 
-test('salir vuelve a la entrada y olvida el token', async ({ page, baseUrl }) => {
+test('el menu del nombre: quien eres, Ajustes, idioma, tema y salir (que olvida el token)', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
   await page.getByRole('button', { name: 'Accountmenu van Ana Demo' }).click();
-  await expect(page.getByRole('menu')).toContainText('Ingelogd als');
+  const menu = page.getByRole('menu');
+  await expect(menu).toContainText('Ingelogd als');
+  await expect(menu).toContainText('Beheerder');
+  await expect(menu.getByRole('group', { name: 'Taal' }).getByRole('menuitemradio')).toHaveText(['Nederlands', 'English', 'Español']);
+  await expect(menu.getByRole('group', { name: 'Thema' }).getByRole('menuitemradio')).toHaveText(['Donker', 'Licht', 'Volg Windows']);
   await capture(page, 'nl-account-menu');
-  await page.getByRole('menuitem', { name: 'Uitloggen' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Instellingen' }).click();
+  await expect(viewHeading(page, 'settings')).toBeVisible();
+  // Ajustes no es de ninguna entrada: ninguna marcada.
+  await expect(mainMenu(page).locator('[aria-current]')).toHaveCount(0);
+  await signOut(page);
   await expect(page.getByRole('status').filter({ hasText: 'Je bent uitgelogd.' })).toBeVisible();
   await expect(page.locator('#token')).toHaveValue('');
   const local = await page.evaluate(() => JSON.stringify({ ...localStorage }));
@@ -184,115 +394,42 @@ test('el idioma es de cada persona', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   // Ana entra en neerlandes (el de la entrada) y ese queda como el suyo.
   await login(page, 'ana');
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
-  await page.getByRole('button', { name: 'Accountmenu van Ana Demo' }).click();
-  await page.getByRole('menuitem', { name: 'Uitloggen' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Welkom, Ana' })).toBeVisible();
+  await signOut(page);
   // Bram elige ingles; al recargar, la entrada sale en el ultimo idioma usado, y el suyo vuelve.
   await login(page, 'bram');
-  await page.getByRole('button', { name: 'English' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  await setLang(page, 'en');
+  await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Bram' })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { level: 1, name: 'Log in' })).toBeVisible();
   await login(page, 'bram');
-  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
-  await page.getByRole('button', { name: 'Account menu for Bram Demo' }).click();
-  await page.getByRole('menuitem', { name: 'Log out' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Welcome, Bram' })).toBeVisible();
+  await signOut(page, 'en');
   // Ana vuelve a tener el suyo.
   await login(page, 'ana');
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Welkom, Ana' })).toBeVisible();
 });
 
 test('una sesion que caduca vuelve a la entrada con el aviso', async ({ page, baseUrl, watch }) => {
   watch.expectHttpErrors(401);
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // El Overzicht tambien lee las facturas: que termine antes de que el servidor "retire"
-  // el token, para que el 401 llegue al abrir la Werklijst.
+  // El inicio tambien lee las facturas: que termine antes de que el servidor "retire" el token,
+  // para que el 401 llegue al abrir la Werklijst.
   await expect(page.getByRole('heading', { level: 2, name: 'Als eerste' })).toBeVisible();
   // El servidor dice 401 (como si el token se hubiera retirado): la app sale sola.
   await page.route('**/api/v2/facturas', (route) =>
     route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"x"}' })
   );
-  await page.getByRole('navigation', { name: 'Hoofdmenu' }).getByRole('button', { name: /^Werklijst/ }).click();
+  await page.getByRole('navigation', { name: TEXTS.nl.home.alsoHere }).getByRole('button', { name: /^Werklijst/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Je sessie is beëindigd' })).toBeVisible();
 });
 
-test('a 1024 px se usa igual, y en estrecho el menu va en una hoja', async ({ page, baseUrl }) => {
-  await page.setViewportSize({ width: 1024, height: 768 });
-  await page.goto(`${baseUrl}/app`);
-  await login(page);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  await menu.getByRole('button', { name: /^Werklijst/ }).click();
-  await expect(page.getByRole('table')).toBeVisible();
-  // A 768 px de alto se ven todos los apartados de la barra lateral, Instellingen el ultimo.
-  for (const label of ['Facturen lezen', 'Instellingen']) {
-    const box = await menu.getByRole('button', { name: new RegExp(`^${label}`) }).boundingBox();
-    expect(box, label).not.toBeNull();
-    expect(box!.y + box!.height, label).toBeLessThanOrEqual(768);
-  }
-  await capture(page, 'nl-work-queue-1024');
-
-  // Con una ficha abierta, + y ... no se tapan; con muchas pestanas, un fundido dice que hay
-  // mas a un lado.
-  await menu.getByRole('button', { name: /^Leveranciers/ }).click();
-  await page.getByRole('table').getByRole('button').first().click();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  const plus = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
-  const more = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
-  expect(plus.x + plus.width, '+ antes de ...').toBeLessThanOrEqual(more.x);
-  for (const label of ['Klanten', 'Objecten', 'Inkooporders', 'Kasstroom', 'Btw', 'Importeren']) {
-    await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
-    await page.getByRole('menuitem', { name: 'Nieuw tabblad' }).click();
-    await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
-    await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
-  }
-  await expect(page.getByTestId('tabs-fade-left')).toBeVisible();
-  const plusAfter = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
-  const moreAfter = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
-  expect(plusAfter.x + plusAfter.width).toBeLessThanOrEqual(moreAfter.x);
-  // La pestana activa se ve entera.
-  const strip = (await page.getByRole('tablist').locator('xpath=..').boundingBox())!;
-  const active = (await page.getByRole('tab', { selected: true }).boundingBox())!;
-  expect(active.x).toBeGreaterThanOrEqual(strip.x - 1);
-  // (las curvas de la pestana de Chrome salen 1-2 px del borde: no tapan nada)
-  expect(active.x + active.width).toBeLessThanOrEqual(strip.x + strip.width + 4);
-  await capture(page, 'nl-tabs-1024');
-  await expectAccessible(page, '1024 con muchas pestanas');
-  await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
-  await page.getByRole('menuitem', { name: 'Alle tabbladen sluiten' }).click();
-
-  await page.setViewportSize({ width: 700, height: 900 });
-  await page.getByRole('button', { name: 'Menu openen' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Navigatie' });
-  await expect(sheet).toBeVisible();
-  await capture(page, 'nl-mobile-menu');
-  await sheet.getByRole('button', { name: /^Klanten/ }).click();
-  await expect(sheet).toBeHidden();
-  await expect(page.getByRole('heading', { level: 1, name: 'Klanten' })).toBeVisible();
-  await expectAccessible(page, 'estrecho');
-});
-
-test('el teclado llega a todo y se ve donde esta', async ({ page, baseUrl }) => {
-  await page.goto(`${baseUrl}/app`);
-  await login(page);
-  // La pestana activa: con el teclado se cierra (Supr) y se pasa de una a otra (flechas).
-  await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).click();
-  await page.getByRole('menuitem', { name: 'Nieuw tabblad' }).click();
-  await expect(page.getByRole('tab')).toHaveCount(2);
-  await page.getByRole('tab', { selected: true }).focus();
-  await page.keyboard.press('Delete');
-  await expect(page.getByRole('tab')).toHaveCount(1);
-  // El foco se ve: un contorno de 2 px en el elemento enfocado.
-  await page.getByRole('button', { name: 'Nederlands' }).focus();
-  const outline = await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle);
-  expect(outline).not.toBe('none');
-});
-
 /**
  * Lo que se sale de la ventana por los lados: cada elemento visible que pasa del borde y no
- * esta dentro de algo que se desplaza en horizontal (la tira de pestanas, una tabla en su
- * caja). Lo que recorta un overflow hidden no cuenta como desplazable: tambien es estar fuera.
+ * esta dentro de algo que se desplaza en horizontal (una tabla en su caja). Lo que recorta un
+ * overflow hidden no cuenta como desplazable: tambien es estar fuera.
  */
 async function outsideTheWindow(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -324,14 +461,32 @@ async function outsideTheWindow(page: Page): Promise<string[]> {
   });
 }
 
-/** El titulo de la ficha de una factura ("Factuur KT-202608"). */
-function invoiceTitle(number: string, word = 'Factuur'): RegExp {
-  return new RegExp(`^${word} ${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
-}
+test('a 1024 px las seis entradas caben en una fila y nada se sale de la ventana', async ({ page, baseUrl }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  expect(await outsideTheWindow(page), 'inicio').toEqual([]);
+  for (const lang of ['nl', 'es'] as const) {
+    await setLang(page, lang);
+    await go(page, 'work-queue', lang);
+    const entries = mainMenu(page, lang).getByRole('button');
+    await expect(entries).toHaveCount(6);
+    const tops = new Set<number>();
+    for (const e of await entries.all()) tops.add(Math.round((await box(e)).y));
+    expect(tops.size, `${lang}: una sola fila`).toBe(1);
+    expect(await outsideTheWindow(page), `${lang} werklijst`).toEqual([]);
+    await capture(page, `${lang}-work-queue-1024`);
+  }
+  await setLang(page, 'nl');
+  await go(page, 'providers');
+  await page.getByRole('table').getByRole('button').first().click();
+  expect(await outsideTheWindow(page), 'ficha').toEqual([]);
+  await capture(page, 'nl-provider-1024');
+  await expectAccessible(page, '1024');
+});
 
-// En el movil (de 360 a 430 px): la tira de pestanas se ve y se toca. Antes la cabecera (el
-// menu, las pestanas, + y ..., la marca de prueba, el idioma y la persona) iba en una fila y
-// a la tira le quedaba una rendija: las pestanas no se veian ni se podian tocar.
+// En el movil (de 360 a 430 px): el inicio con la rueda, que se mueve con el dedo, y las seis
+// entradas en dos filas en las demas pantallas, todo dentro de la ventana y a un toque.
 for (const size of [
   { width: 400, height: 860 },
   { width: 360, height: 740 },
@@ -339,93 +494,88 @@ for (const size of [
   test.describe(`${size.width} × ${size.height}`, () => {
     test.use({ viewport: size, hasTouch: true, isMobile: true });
 
-    test(`en el movil (${size.width} px) las pestanas se ven y se tocan`, async ({ page, baseUrl }) => {
+    test(`en el movil (${size.width} px) las seis entradas se ven y se tocan`, async ({ page, baseUrl }) => {
       await page.goto(`${baseUrl}/app`);
       await login(page);
-      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
-
-      await page.getByRole('button', { name: 'Menu openen' }).tap();
-      await page.getByRole('dialog', { name: 'Navigatie' }).getByRole('button', { name: /^Werklijst/ }).tap();
-      await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
-
-      // Dos facturas distintas, cada una en su pestana.
-      const rows = page.getByRole('table').getByRole('row');
-      const numbers: string[] = [];
-      for (let i = 1; numbers.length < 2; i += 1) {
-        const n = (await rows.nth(i).getByRole('button').locator('.font-mono').textContent())!.trim();
-        if (!numbers.includes(n)) numbers.push(n);
+      expect(await outsideTheWindow(page), 'inicio').toEqual([]);
+      const entries = mainMenu(page).getByRole('button');
+      await expect(entries).toHaveCount(6);
+      for (const e of await entries.all()) {
+        const b = await box(e);
+        expect(b.x).toBeGreaterThanOrEqual(0);
+        expect(b.x + b.width).toBeLessThanOrEqual(size.width);
+        // (WCAG 2.5.8 pide 24 px)
+        expect(b.height).toBeGreaterThanOrEqual(32);
       }
-      const tabs = page.getByRole('tab');
-      const tabOf = (n: string) => tabs.filter({ hasText: n });
-      for (const n of numbers) {
-        if (n === numbers[1]) await tabs.first().tap();
-        await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
-        await page.getByRole('table').getByRole('button', { name: `Factuur ${n} openen` }).first().tap();
-        await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(n) })).toBeVisible();
-      }
-      await expect(tabs).toHaveCount(3);
+      await capture(page, `nl-mobile-home-${size.width}`);
 
-      const strip = page.getByRole('tablist').locator('xpath=..');
-      // La pestana activa entera dentro de la tira, que deja ver mas de una.
-      // (la tira se desplaza con suavidad hasta la activa: se espera a que llegue)
-      const activeInStrip = async () => {
-        await settled(page);
-        await expect
-          .poll(async () => {
-            const s = (await strip.boundingBox())!;
-            const a = (await page.getByRole('tab', { selected: true }).boundingBox())!;
-            if (a.x < s.x - 1) return `empieza fuera: ${a.x} < ${s.x}`;
-            // (las curvas de la pestana de Chrome salen unos px del borde: no tapan nada)
-            if (a.x + a.width > s.x + s.width + 4) return `acaba fuera: ${a.x + a.width} > ${s.x + s.width}`;
-            return 'dentro';
-          }, { message: 'la pestana activa, entera dentro de la tira' })
-          .toBe('dentro');
-        return (await strip.boundingBox())!;
-      };
-      const s = await activeInStrip();
-      expect(s.width, 'la tira deja sitio para dos pestanas').toBeGreaterThanOrEqual(2 * 96);
-      expect(s.x + s.width).toBeLessThanOrEqual(size.width);
-      for (const tab of await tabs.all()) {
-        const box = (await tab.boundingBox())!;
-        expect(box.width, 'una pestana no es una rendija').toBeGreaterThanOrEqual(96);
-        // (WCAG 2.5.8 pide 24 px; la del dueno mide unos 40)
-        expect(box.height, 'una pestana se puede tocar').toBeGreaterThanOrEqual(36);
+      // Deslizar el dedo hacia arriba sobre la rueda la gira (sin abrir nada).
+      const list = await box(mainMenu(page).getByRole('list'));
+      const x = list.x + list.width / 2;
+      const y = list.y + list.height - 20;
+      const client = await page.context().newCDPSession(page);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let i = 1; i <= 8; i += 1) {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - i * 10 }] });
       }
-      // + y ... fuera de la tira, despues de ella y dentro de la ventana.
-      const plus = (await page.getByRole('button', { name: 'Nieuw tabblad' }).boundingBox())!;
-      const more = (await page.getByRole('button', { name: 'Meer opties voor tabbladen' }).boundingBox())!;
-      expect(plus.x).toBeGreaterThanOrEqual(s.x + s.width - 1);
-      expect(plus.x + plus.width).toBeLessThanOrEqual(more.x);
-      expect(more.x + more.width).toBeLessThanOrEqual(size.width);
-      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
-      await capture(page, `nl-mobile-tabs-${size.width}`);
+      // El dedo se para antes de soltar: si se suelta en marcha, Chromium sigue el gesto (un
+      // "fling") y el primer toque que llega justo despues solo lo para, sin clic, como en una
+      // lista que se desliza.
+      await page.waitForTimeout(200);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - 80 }] });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect.poll(() => activeWheelEntry(page)).not.toBe('Start');
+      await expect(viewHeading(page, 'home')).toBeVisible();
 
-      // De una a otra tocando la pestana; la que se toca se ve entera.
-      for (const n of [numbers[0]!, numbers[1]!, numbers[0]!]) {
-        const tab = tabOf(n);
-        await expect(tab).toBeVisible();
-        await tab.tap();
-        await expect(tab).toHaveAttribute('aria-selected', 'true');
-        await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(n) })).toBeVisible();
-        await activeInStrip();
+      // Un toque en una entrada la abre.
+      await sectionButton(page, 'payables').tap();
+      await expect(viewHeading(page, 'invoices-in')).toBeVisible();
+      // Fuera del inicio, las seis en pequeno, enteras en la ventana y a un toque.
+      const compact = mainMenu(page).getByRole('button');
+      await expect(compact).toHaveCount(6);
+      for (const e of await compact.all()) {
+        const b = await box(e);
+        expect(b.x).toBeGreaterThanOrEqual(0);
+        expect(b.x + b.width).toBeLessThanOrEqual(size.width);
+        expect(b.height).toBeGreaterThanOrEqual(24);
       }
-      // Tocar una pestana que no es la activa la abre, nunca la cierra (en el movil no hay
-      // raton que ensene antes la x).
-      await tabs.first().tap();
-      await expect(tabs).toHaveCount(3);
-      await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toBeVisible();
-      await activeInStrip();
-      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
+      expect(await outsideTheWindow(page), 'inkoopfacturen').toEqual([]);
+      await page.getByRole('table').getByRole('button').first().tap();
+      await expect(page.getByRole('button', { name: 'Terug', exact: true })).toBeVisible();
+      expect(await outsideTheWindow(page), 'factuur').toEqual([]);
       await expectAccessible(page, `movil ${size.width}`);
-      await capture(page, `nl-mobile-tabs-${size.width}-first`);
-
-      await page.getByRole('button', { name: 'English' }).tap();
-      await tabOf(numbers[1]!).tap();
-      await expect(page.getByRole('heading', { level: 1, name: invoiceTitle(numbers[1]!, 'Invoice') })).toBeVisible();
-      await activeInStrip();
-      expect(await outsideTheWindow(page), 'fuera de la ventana').toEqual([]);
-      await capture(page, `en-mobile-tabs-${size.width}`);
-      await page.getByRole('button', { name: 'Nederlands' }).tap();
+      await capture(page, `nl-mobile-invoice-${size.width}`);
+      await page.getByRole('button', { name: 'Terug', exact: true }).tap();
+      await expect(viewHeading(page, 'invoices-in')).toBeVisible();
+      await sectionButton(page, 'documents').tap();
+      await expect(viewHeading(page, 'documents')).toBeVisible();
+      await setLang(page, 'es');
+      expect(await outsideTheWindow(page), 'documentos es').toEqual([]);
+      await capture(page, `es-mobile-documents-${size.width}`);
+      await setLang(page, 'nl');
     });
   });
 }
+
+test('el teclado llega a todo y se ve donde esta', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  // El primer Tab ofrece saltar al contenido.
+  await page.keyboard.press('Tab');
+  await expect(page.getByText(TEXTS.nl.shell.skipToContent)).toBeFocused();
+  await go(page, 'invoices-out');
+  // Las entradas, las vistas de la seccion y el menu del nombre, todos con el foco a la vista.
+  for (const target of [
+    sectionButton(page, 'vat'),
+    sectionMenu(page, 'receivables').getByRole('button', { name: /^Klanten/ }),
+    page.getByRole('button', { name: 'Accountmenu van Ana Demo' }),
+    page.getByRole('button', { name: 'Zoeken' }),
+  ]) {
+    await target.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(target).toBeFocused();
+    expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).not.toBe('none');
+  }
+  await settled(page);
+});

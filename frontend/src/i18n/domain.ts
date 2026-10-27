@@ -1,15 +1,15 @@
 // Los textos de dominio (reglas, prioridades, estados, campos, fuentes, acciones, errores)
-// salen de los catalogos de Python, src/bms_agent/textos/nl.json y en.json (y es.json en
-// cuanto llegue: DOMAIN_FALLBACK, en langs.ts), que la app
-// importa al construirse: asi la app y lo que se prueba en Python dicen lo mismo y no hay
+// salen de los catalogos de Python, src/bms_agent/textos/nl.json, en.json y es.json (este,
+// desde el paso 16), que la app importa al construirse: asi la app y lo que se prueba en Python dicen lo mismo y no hay
 // una segunda traduccion escondida. Este es el UNICO modulo que los importa; las
-// pantallas usan estas funciones y no la forma del JSON. Los dos ficheros entran en la
+// pantallas usan estas funciones y no la forma del JSON. Los tres ficheros entran en la
 // huella de web/fuente.json (frontend/build-inputs.json).
 //
 // Lo que la API manda en castellano (titulo, detalle, etiqueta, fuente_texto, nota,
 // motivos, error) no se ensena nunca: se queda para la CLI y la auditoria.
 import nlCatalog from '../../../src/bms_agent/textos/nl.json';
 import enCatalog from '../../../src/bms_agent/textos/en.json';
+import esCatalog from '../../../src/bms_agent/textos/es.json';
 import type { Lang } from './index';
 import { DOMAIN_FALLBACK } from './langs';
 import { fmt } from './index';
@@ -20,13 +20,11 @@ export type Severity = 'bloqueo' | 'retencion' | 'aviso';
 
 type Catalog = typeof nlCatalog;
 
-// Mientras falte es.json, el castellano dice lo del dominio en ingles: DOMAIN_FALLBACK, con su
-// PENDIENTE, vive en langs.ts (lo leen tambien las pruebas en el navegador).
+// DOMAIN_FALLBACK (langs.ts) queda vacio: cada idioma tiene su catalogo.
 export { DOMAIN_FALLBACK };
 
 // Los catalogos tienen la misma forma (lo comprueban tests/test_textos.py y i18n.test.ts).
-// es: el ingles, marcado en DOMAIN_FALLBACK, hasta que llegue es.json.
-const CATALOGS: Record<Lang, Catalog> = { nl: nlCatalog, en: enCatalog as Catalog, es: enCatalog as Catalog };
+const CATALOGS: Record<Lang, Catalog> = { nl: nlCatalog, en: enCatalog as Catalog, es: esCatalog as Catalog };
 
 export const PRIORITIES: readonly Priority[] = ['normal', 'atencion', 'urgente', 'bloqueada'];
 

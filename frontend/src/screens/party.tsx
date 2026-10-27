@@ -12,7 +12,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Hours, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
 import { ruleText, stateLabel } from '@/i18n/domain';
@@ -26,10 +26,10 @@ import { recordRoute } from './registry';
 import { useLoad } from './use-load';
 import { twinMarks, type TwinMark } from '@/lib/twins';
 
-export function PartyScreen({ kind, id, tabId }: { kind: PartyKind; id: number; tabId: string }) {
+export function PartyScreen({ kind, id, navKey }: { kind: PartyKind; id: number; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
-  const { setTabTitle } = useTabs();
+  const { setTitle } = useNav();
   const { version } = useRefresh();
   const [state, retry] = useLoad(
     () =>
@@ -44,8 +44,8 @@ export function PartyScreen({ kind, id, tabId }: { kind: PartyKind; id: number; 
   // La pestana toma el nombre (texto del maestro: se pinta como texto).
   const name = state.status === 'ready' ? state.data[0].nombre : null;
   useEffect(() => {
-    if (name) setTabTitle(tabId, name);
-  }, [name, tabId, setTabTitle]);
+    if (name) setTitle(navKey, name);
+  }, [name, navKey, setTitle]);
 
   if (state.status !== 'ready') {
     return (
@@ -63,10 +63,9 @@ export function PartyScreen({ kind, id, tabId }: { kind: PartyKind; id: number; 
 
 function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: PartyView; relations: ProposedRelation[] }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
-  const navId = kind === 'provider' ? 'providers' : 'clients';
+  const { open: openRoute } = useNav();
   const numbers = useMemo(() => new Map(p.historial.map((f) => [f.id, f.numero])), [p.historial]);
-  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId, navId));
+  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId));
   const invoices = fmt(p.facturas === 1 ? t.parties.invoicesOne : t.parties.invoices, { n: p.facturas });
   const description = `${fmt(kind === 'provider' ? t.parties.isProvider : t.parties.isClient, { invoices })} ${
     p.pendiente_cent > 0 ? fmt(t.parties.openAmount, { amount: formatMoney(p.pendiente_cent) }) : t.parties.nothingOpen
@@ -121,7 +120,9 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
         )}
       </section>
 
-      <Section title={t.parties.sectionOpen} summary={String(p.abiertas_detalle.length)}>
+      {/* Lo que tiene abierto, a la vista: lo pendiente de una empresa y sus facturas en dos
+          clics desde el inicio (revision §5, fila 8). Lo demas, plegado. */}
+      <Section title={t.parties.sectionOpen} summary={String(p.abiertas_detalle.length)} defaultOpen={p.abiertas_detalle.length > 0}>
         <OpenInvoices party={p} onOpen={openInvoice} />
       </Section>
       <Section title={t.parties.sectionAll} summary={String(p.historial.length)}>
@@ -281,7 +282,7 @@ function Payments({ party: p, onOpen }: { party: PartyView; onOpen: (id: number)
 
 function PerObject({ party: p }: { party: PartyView }) {
   const { t } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   type Row = PartyView['por_objeto'][number];
   const columns: Columns<Row> = [
     {
@@ -306,7 +307,7 @@ function PerObject({ party: p }: { party: PartyView }) {
       rows={rows}
       rowKey={(r) => r.objeto_id ?? 0}
       caption={t.parties.sectionObjects}
-      onOpen={(r) => r.objeto_id && openRoute(recordRoute('object', r.objeto_id, 'objects'))}
+      onOpen={(r) => r.objeto_id && openRoute(recordRoute('object', r.objeto_id))}
       openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records.object.label} ${r.objeto ?? ''}` })}
       empty={<p className='text-muted-foreground'>{t.parties.noInvoices}</p>}
     />

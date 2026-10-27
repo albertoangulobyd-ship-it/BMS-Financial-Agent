@@ -1,21 +1,19 @@
 // Uitzonderingen / Exceptions: "welke zaken moet iemand nog oplossen, en wie is ermee
 // bezig?". Las abiertas, la mas urgente primero: que pasa (el hallazgo mas urgente, en
 // palabras normales), de que va (la factura, el cliente, la PO...), en que estado esta y
-// quien la lleva, y desde cuando. Una fila abre un panel con lo que hay que saber y las
-// ordenes (asignar, esperar a alguien de fuera, resolver), y desde ahi la factura.
+// quien la lleva, y desde cuando. Una fila abre la excepcion (paso 16: una ficha dentro de
+// Inicio, con sus migas y "Volver"; antes, un panel lateral) con lo que hay que saber, las
+// ordenes (asignar, esperar a alguien de fuera, resolver) y desde ahi la factura.
 import { CircleCheck } from 'lucide-react';
-import { useState } from 'react';
 import { DataTable, type Columns } from '@/components/data-table';
-import { ExceptionActions, ExceptionStatus } from '@/components/exception-block';
+import { ExceptionStatus } from '@/components/exception-block';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
-import { findingDetail, ruleText, stateLabel } from '@/i18n/domain';
+import { stateLabel } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
 import type { ExceptionRow, Person, PoRow } from '@/lib/api-types';
 import { useRefresh } from '@/lib/refresh';
@@ -33,18 +31,17 @@ interface Names {
   twins: Map<number, TwinMark>;
 }
 
-interface Loaded {
+export interface Loaded {
   rows: ExceptionRow[];
   people: Person[];
   names: Names;
 }
 
-export function ExceptionsScreen() {
-  const { t } = useT();
+/** Las excepciones abiertas con lo que hace falta para nombrarlas (la lista y la ficha). */
+export function useExceptions() {
   const { session } = useSession();
   const { version } = useRefresh();
-  const [selected, setSelected] = useState<number | null>(null);
-  const [state, retry] = useLoad<Loaded>(async () => {
+  return useLoad<Loaded>(async () => {
     const api = session!.api;
     const [rows, people, invoices, clients, orders] = await Promise.all([
       api.get<{ excepciones: ExceptionRow[] }>(paths.exceptions).then((r) => r.excepciones),
@@ -64,6 +61,12 @@ export function ExceptionsScreen() {
       },
     };
   }, [session, version]);
+}
+
+export function ExceptionsScreen() {
+  const { t } = useT();
+  const { open: openRoute } = useNav();
+  const [state, retry] = useExceptions();
   const nav = t.nav.exceptions;
 
   return (
@@ -76,22 +79,14 @@ export function ExceptionsScreen() {
       {state.status === 'loading' && <Loading />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={retry} />}
       {state.status === 'ready' && (
-        <>
-          <ExceptionsTable data={state.data} onOpen={(r) => setSelected(r.id)} />
-          <ExceptionSheet
-            data={state.data}
-            id={selected}
-            onClose={() => setSelected(null)}
-            onDone={retry}
-          />
-        </>
+        <ExceptionsTable data={state.data} onOpen={(r) => openRoute(recordRoute('exception', r.id))} />
       )}
     </Screen>
   );
 }
 
 /** De que va una excepcion: su factura (numero y relacion), o el cliente, la PO, la import. */
-function concerns(r: ExceptionRow, names: Names, t: Messages, lang: Lang): { main: string; sub: string | null; twin?: string } {
+export function concerns(r: ExceptionRow, names: Names, t: Messages, lang: Lang): { main: string; sub: string | null; twin?: string } {
   if (r.factura_id) {
     const f = names.invoices.get(r.factura_id);
     const twin = names.twins.get(r.factura_id);
@@ -156,87 +151,6 @@ function ExceptionsTable({ data, onOpen }: { data: Loaded; onOpen: (r: Exception
       />
       <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.exceptions.total, { n: data.rows.length })}</p>
     </>
-  );
-}
-
-function ExceptionSheet({
-  data,
-  id,
-  onClose,
-  onDone,
-}: {
-  data: Loaded;
-  id: number | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { t, lang } = useT();
-  const { openRoute } = useTabs();
-  const row = data.rows.find((r) => r.id === id) ?? null;
-  return (
-    <Sheet open={row !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side='right' closeLabel={t.common.close} className='flex w-full flex-col gap-5 overflow-y-auto sm:max-w-lg'>
-        {row && (
-          <>
-            <SheetHeader className='pr-6'>
-              {/* De que va (su aviso mas urgente, o el asunto que escribio una persona), no su id. */}
-              <SheetTitle>{exceptionSubject(row, lang, t)}</SheetTitle>
-              <SheetDescription>
-                {(() => {
-                  const c = concerns(row, data.names, t, lang);
-                  return c.sub ? `${c.main} · ${c.sub}` : c.main;
-                })()}
-              </SheetDescription>
-            </SheetHeader>
-            <div>
-              <StatusPill group='prioridad' state={row.nivel} />
-            </div>
-            <section className='flex flex-col gap-3'>
-              <h3 className='text-[14px] font-semibold'>{t.exceptions.whatIsWrong}</h3>
-              {row.razones.length ? (
-                <ul className='flex flex-col gap-3'>
-                  {row.razones.slice(0, 6).map((r) => (
-                    <li key={r.id} className='text-[13px]'>
-                      <span className='font-medium'>{ruleText(lang, r.regla)?.title ?? r.regla}</span>{' '}
-                      <span className='font-mono text-[11px] text-muted-foreground'>{r.regla}</span>
-                      <p className='leading-relaxed'>{findingDetail(lang, r.regla, r.resultado, r.valores)}</p>
-                      <p className='leading-relaxed text-soft-foreground'>
-                        <span className='font-medium text-foreground'>{t.invoice.whatToDo} </span>
-                        {ruleText(lang, r.regla)?.whatToDo}
-                      </p>
-                    </li>
-                  ))}
-                  {row.razones.length > 6 && (
-                    <li className='text-xs text-muted-foreground'>{fmt(t.why.more, { n: row.razones.length - 6 })}</li>
-                  )}
-                </ul>
-              ) : (
-                // Una excepcion abierta a mano: su asunto lo escribio una persona.
-                <p>{row.titulo}</p>
-              )}
-            </section>
-            <section className='flex flex-col gap-3'>
-              <h3 className='text-[14px] font-semibold'>{t.columns.status}</h3>
-              <ExceptionStatus exception={row} />
-              <ExceptionActions exception={row} people={data.people} onDone={onDone} />
-            </section>
-            {row.factura_id && (
-              <div>
-                <Button
-                  variant='outline'
-                  onClick={() => {
-                    onClose();
-                    openRoute(recordRoute('invoice', row.factura_id!, 'exceptions'));
-                  }}
-                >
-                  {t.exceptions.openInvoice}
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
 

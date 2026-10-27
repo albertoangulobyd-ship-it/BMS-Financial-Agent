@@ -1,83 +1,95 @@
-// Que pinta cada ruta: cada entrada de la navegacion y cada ficha tiene su pantalla (una
-// linea por pantalla). Una ruta que no se conoce vuelve al Overzicht.
+// Que pinta cada ruta: cada vista y cada ficha tiene su pantalla (una linea por pantalla). La
+// clave de la ruta (routeKey) es la de lo que recuerda (filtros) y la de su titulo en las
+// migas. Una ruta que no se conoce vuelve al inicio.
 import { ShieldOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState } from '@/components/states';
-import type { Tab, TabRoute } from '@/components/ui/sidebar-with-chrome-like-tabs';
 import { useT } from '@/i18n';
 import { useCan } from '@/lib/session';
 import { CashFlowScreen } from './cash-flow';
+import { DocumentsScreen, PartyDocumentsScreen } from './documents';
+import { ExceptionScreen } from './exception';
 import { ExceptionsScreen } from './exceptions';
+import { HomeScreen } from './home';
 import { IbanChecksScreen } from './iban-checks';
 import { ImportScreen } from './import';
 import { InvoiceScreen } from './invoice';
 import { InvoiceListScreen } from './invoice-list';
 import { ObjectScreen } from './object';
 import { ObjectsScreen } from './objects';
-import { OverviewScreen } from './overview';
 import { PartyScreen } from './party';
 import { PartyListScreen } from './party-list';
 import { PurchaseOrderScreen } from './purchase-order';
 import { PurchaseOrdersScreen } from './purchase-orders';
 import { ReadInvoicesScreen } from './read-invoices';
-import { NAV, isNavId, isRecordId, type NavId, type RecordId } from './registry';
+import { VIEWS, isRecordId, isViewId, routeKey, type RecordId, type Route, type ViewId } from './registry';
 import { SettingsScreen } from './settings';
 import { VatScreen } from './vat';
 import { VatQuarterScreen } from './vat-quarter';
 import { WorkQueueScreen } from './work-queue';
 
-function NavScreen({ id, tabId }: { id: NavId; tabId: string }): ReactNode {
+function ViewScreen({ id, navKey }: { id: ViewId; navKey: string }): ReactNode {
   switch (id) {
-    case 'overview':
-      return <OverviewScreen />;
+    case 'home':
+      return <HomeScreen />;
     case 'work-queue':
-      return <WorkQueueScreen tabId={tabId} />;
+      return <WorkQueueScreen navKey={navKey} />;
     case 'exceptions':
       return <ExceptionsScreen />;
-    case 'iban-checks':
-      return <IbanChecksScreen />;
-    case 'invoices-in':
-    case 'invoices-out':
-      return <InvoiceListScreen key={id} navId={id} tabId={tabId} />;
-    case 'providers':
-      return <PartyListScreen key={id} kind='provider' tabId={tabId} />;
-    case 'clients':
-      return <PartyListScreen key={id} kind='client' tabId={tabId} />;
-    case 'objects':
-      return <ObjectsScreen tabId={tabId} />;
-    case 'purchase-orders':
-      return <PurchaseOrdersScreen tabId={tabId} />;
     case 'cash-flow':
       return <CashFlowScreen />;
-    case 'vat':
-      return <VatScreen />;
-    case 'import':
-      return <ImportScreen />;
+    case 'invoices-in':
+    case 'invoices-out':
+      return <InvoiceListScreen key={id} navId={id} navKey={navKey} />;
+    case 'providers':
+      return <PartyListScreen key={id} kind='provider' navKey={navKey} />;
+    case 'clients':
+      return <PartyListScreen key={id} kind='client' navKey={navKey} />;
+    case 'objects':
+      return <ObjectsScreen navKey={navKey} />;
+    case 'client-pos':
+      return <PurchaseOrdersScreen key={id} side='cliente' navKey={navKey} />;
+    case 'provider-pos':
+      return <PurchaseOrdersScreen key={id} side='proveedor' navKey={navKey} />;
+    case 'iban-checks':
+      return <IbanChecksScreen />;
+    case 'documents':
+      return <DocumentsScreen navKey={navKey} />;
     case 'read-invoices':
       return <ReadInvoicesScreen />;
+    case 'import':
+      return <ImportScreen />;
+    case 'vat':
+      return <VatScreen />;
     case 'settings':
       return <SettingsScreen />;
   }
 }
 
-function RecordScreen({ screen, id, tabId }: { screen: RecordId; id: number; tabId: string }) {
+function RecordScreen({ screen, id, navKey }: { screen: RecordId; id: number; navKey: string }) {
   switch (screen) {
     case 'invoice':
-      return <InvoiceScreen id={id} tabId={tabId} />;
+      return <InvoiceScreen id={id} navKey={navKey} />;
     case 'provider':
     case 'client':
-      return <PartyScreen key={screen} kind={screen} id={id} tabId={tabId} />;
+      return <PartyScreen key={screen} kind={screen} id={id} navKey={navKey} />;
     case 'object':
-      return <ObjectScreen id={id} tabId={tabId} />;
+      return <ObjectScreen id={id} navKey={navKey} />;
     case 'purchase-order':
-      return <PurchaseOrderScreen id={id} tabId={tabId} />;
+      return <PurchaseOrderScreen id={id} navKey={navKey} />;
     case 'vat-quarter':
-      return <VatQuarterScreen id={id} tabId={tabId} />;
+      return <VatQuarterScreen id={id} navKey={navKey} />;
+    case 'exception':
+      return <ExceptionScreen id={id} navKey={navKey} />;
+    case 'client-documents':
+      return <PartyDocumentsScreen key={screen} kind='client' id={id} navKey={navKey} />;
+    case 'provider-documents':
+      return <PartyDocumentsScreen key={screen} kind='provider' id={id} navKey={navKey} />;
   }
 }
 
-function NoAccess({ id }: { id: NavId }) {
+function NoAccess({ id }: { id: ViewId }) {
   const { t } = useT();
   return (
     <Screen>
@@ -87,15 +99,16 @@ function NoAccess({ id }: { id: NavId }) {
   );
 }
 
-export function ScreenFor({ route, tab }: { route: TabRoute; tab: Tab }) {
+export function ScreenFor({ route }: { route: Route }) {
   const can = useCan();
-  if (isNavId(route.screen)) {
-    const def = NAV.find((n) => n.id === route.screen);
-    if (def?.requires && !can(def.requires)) return <NoAccess id={route.screen} />;
-    return <NavScreen id={route.screen} tabId={tab.id} />;
+  const navKey = routeKey(route);
+  if (isViewId(route.screen)) {
+    const def = VIEWS[route.screen];
+    if (def.requires && !can(def.requires)) return <NoAccess id={route.screen} />;
+    return <ViewScreen id={route.screen} navKey={navKey} />;
   }
   if (isRecordId(route.screen) && route.id !== undefined) {
-    return <RecordScreen screen={route.screen} id={route.id} tabId={tab.id} />;
+    return <RecordScreen screen={route.screen} id={route.id} navKey={navKey} />;
   }
-  return <OverviewScreen />;
+  return <HomeScreen />;
 }

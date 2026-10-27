@@ -13,7 +13,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Money } from '@/components/values';
 import { fmt, useT, type Lang } from '@/i18n';
 import { directionLabel, paymentStateLabel, ruleText, stateLabel, verdict } from '@/i18n/domain';
@@ -30,6 +30,7 @@ import {
   LinesTable,
   NoDataList,
   NotesList,
+  OriginalButton,
   OriginalDocument,
   PlanningTable,
   ReferencesList,
@@ -37,10 +38,10 @@ import {
 } from './invoice-sections';
 import { useLoad } from './use-load';
 
-export function InvoiceScreen({ id, tabId }: { id: number; tabId: string }) {
+export function InvoiceScreen({ id, navKey }: { id: number; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
-  const { setTabTitle } = useTabs();
+  const { setTitle } = useNav();
   const { version } = useRefresh();
   const [state, retry] = useLoad(
     () =>
@@ -54,8 +55,8 @@ export function InvoiceScreen({ id, tabId }: { id: number; tabId: string }) {
   // La pestana toma el numero de la factura (texto del documento: se pinta como texto).
   const numero = state.status === 'ready' ? state.data[0].numero : null;
   useEffect(() => {
-    if (numero) setTabTitle(tabId, numero);
-  }, [numero, tabId, setTabTitle]);
+    if (numero) setTitle(navKey, numero);
+  }, [numero, navKey, setTitle]);
 
   const fallback = fmt(t.records.invoice.fallbackTitle, { id });
   if (state.status !== 'ready') {
@@ -102,7 +103,7 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
 
   return (
     <Screen>
-      <PageHeader title={title} description={description} meta={direction ?? undefined} />
+      <PageHeader title={title} description={description} meta={direction ?? undefined} action={<OriginalButton invoice={f} />} />
 
       {/* Cinco datos en una fila a 1440 px; mas estrecho, la prioridad arriba y los demas
           de dos en dos, sin huecos. */}

@@ -82,11 +82,13 @@ export function token(who: Who = 'ana'): string {
   return value;
 }
 
-/** Entra con el token de una persona de prueba y espera al marco con las pestanas. */
+/** Entra con el token de una persona de prueba y espera al inicio (paso 16: el saludo y la
+ *  rueda; antes, el marco con las pestanas). */
 export async function login(page: Page, who: Who = 'ana'): Promise<void> {
   await page.locator('#token').fill(token(who));
   await page.locator('#login-submit').click();
-  await expect(page.getByRole('tablist')).toBeVisible();
+  await expect(page.locator('#contenido')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^(Welkom|Welcome|Hola), / })).toBeVisible();
 }
 
 /**
@@ -109,7 +111,8 @@ export async function settled(page: Page): Promise<void> {
             return typeof end === 'number' && Number.isFinite(end);
           });
           if (running.length > 0) return null;
-          const panels = Array.from(document.querySelectorAll<HTMLElement>('#tab-panel > div'));
+          // La pantalla que entra con un fundido al cambiar de sitio (shell/app-shell.tsx).
+          const panels = Array.from(document.querySelectorAll<HTMLElement>('#view > div'));
           if (panels.length > 1 || panels.some((el) => getComputedStyle(el).opacity !== '1')) return null;
           const fading = Array.from(document.querySelectorAll<HTMLElement>('[style*="opacity"]'))
             .map((el) => el.style.opacity)
@@ -212,11 +215,14 @@ export async function shownTheme(page: Page): Promise<'dark' | 'light'> {
   return (await page.evaluate(() => document.documentElement.classList.contains('dark'))) ? 'dark' : 'light';
 }
 
-/** Elige el tema en el menu de la cuenta (Donker / Licht / Volg Windows, en el orden de
+/** El menu del nombre, arriba a la derecha (en cualquier idioma). */
+export const ACCOUNT_MENU = /^(Accountmenu van|Account menu for|Menú de la cuenta de) /;
+
+/** Elige el tema en el menu del nombre (Donker / Licht / Volg Windows, en el orden de
  *  THEME_CHOICES, sea cual sea el idioma) y espera a que se vea. */
 export async function chooseTheme(page: Page, choice: ThemeChoice): Promise<void> {
-  await page.getByRole('button', { name: /^(Accountmenu van|Account menu for|Menú de la cuenta de) / }).click();
-  const items = page.getByRole('menuitemradio');
+  await page.getByRole('button', { name: ACCOUNT_MENU }).click();
+  const items = page.getByRole('menu').getByRole('group', { name: /^(Thema|Theme|Tema)$/ }).getByRole('menuitemradio');
   await expect(items).toHaveCount(THEME_CHOICES.length);
   await items.nth(THEME_CHOICES.indexOf(choice)).click();
   await expect(page.getByRole('menu')).toBeHidden();
@@ -239,10 +245,11 @@ export async function capture(page: Page, name: string): Promise<void> {
  * Ningun resto de otro idioma en lo que se ve (paso 16; antes solo "nada de castellano"): en
  * neerlandes, ninguna palabra que solo sea inglesa o castellana; en ingles, ninguna neerlandesa
  * o castellana; en castellano, ninguna neerlandesa ni inglesa. Las listas son las de
- * src/i18n/leftovers.ts, las mismas que miran los diccionarios. Mientras el castellano diga lo
- * del dominio en ingles (DOMAIN_FALLBACK, src/i18n/langs.ts), en castellano se toleran restos
- * en ingles y solo eso. Lo que no es de la app va con data-proper-name y no cuenta: un
- * fichero de la persona, o el texto libre de un campo tal como vino del documento.
+ * src/i18n/leftovers.ts, las mismas que miran los diccionarios. Si un idioma dijera lo del
+ * dominio con el catalogo de otro (DOMAIN_FALLBACK, src/i18n/langs.ts; desde que llego es.json,
+ * ninguno), se tolerarian los restos de ese otro. Lo que no es de la app va con
+ * data-proper-name y no cuenta: un nombre, un numero, un fichero de la persona, o el texto
+ * libre de un campo tal como vino del documento.
  */
 export async function expectNoLeftovers(page: Page, lang: Lang, what: string): Promise<void> {
   await expect(page.locator('html')).toHaveAttribute('lang', lang);

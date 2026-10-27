@@ -319,7 +319,7 @@ def test_lo_construido_es_lo_que_apunta_fuente_json() -> None:
     assert hay == fuente["salida"]
     # Los catalogos de textos que importa la app entran en la huella, y el sustituto
     # provisional de la base ya no esta.
-    for catalogo in ("nl.json", "en.json"):
+    for catalogo in ("nl.json", "en.json", "es.json"):
         assert f"src/bms_agent/textos/{catalogo}" in fuente["entradas"]
     assert "domain/placeholder" not in json.dumps(fuente["entradas"])
 
@@ -393,7 +393,9 @@ def test_el_paquete_lleva_la_app_y_los_textos() -> None:
 PROHIBIDO = ("dangerouslySetInnerHTML", "innerHTML", "outerHTML", "insertAdjacentHTML",
              "document.write", "eval(", "new Function", "Function(", "srcdoc", "javascript:",
              "sessionStorage", "document.cookie", "location.search", "location.hash",
-             "window.open(")
+             "window.open(",
+             # Paso 16: la navegacion es estado de la app; nada pasa a la direccion.
+             "pushState(", "replaceState(")
 
 
 def _fuentes_del_frontend() -> list[Path]:

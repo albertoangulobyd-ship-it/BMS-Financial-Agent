@@ -5,6 +5,16 @@ import { PingScope } from '@/components/status-pill';
 import { useT } from '@/i18n';
 import { useSession } from '@/lib/session';
 
+/** El titulo de la ventana dice donde se esta (y si son datos de prueba). */
+export function useDocumentTitle(title: string): void {
+  const { t } = useT();
+  const { session } = useSession();
+  const demo = session?.environment === 'demo';
+  useEffect(() => {
+    document.title = `${demo ? `${t.app.testDataTitle} · ` : ''}${title} · ${t.app.name}`;
+  }, [demo, title, t]);
+}
+
 export function PageHeader({
   title,
   description,
@@ -18,14 +28,7 @@ export function PageHeader({
   /** Algo pequeno y gris junto al titulo (un codigo de referencia). */
   meta?: ReactNode;
 }) {
-  const { t } = useT();
-  const { session } = useSession();
-  const demo = session?.environment === 'demo';
-
-  // El titulo de la ventana dice donde se esta (y si son datos de prueba).
-  useEffect(() => {
-    document.title = `${demo ? `${t.app.testDataTitle} · ` : ''}${title} · ${t.app.name}`;
-  }, [demo, title, t]);
+  useDocumentTitle(title);
 
   return (
     <header className='flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pb-5'>

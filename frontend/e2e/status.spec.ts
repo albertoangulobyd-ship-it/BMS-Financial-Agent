@@ -4,6 +4,7 @@
 // movimiento. Capturas de las pastillas en NL y EN, y las pastillas medidas en los dos temas.
 import type { Page } from '@playwright/test';
 import { capture, chooseTheme, expect, expectAccessible, login, test } from './fixtures';
+import { go, setLang, viewHeading } from './nav';
 
 interface Pill {
   variant: string;
@@ -32,9 +33,8 @@ async function pills(page: Page): Promise<Pill[]> {
 test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
 
-  await menu.getByRole('button', { name: /^Werklijst/ }).click();
+  await go(page, 'work-queue');
   await expect(page.getByRole('table')).toBeVisible();
   const queue = await pills(page);
   expect(queue.length).toBeGreaterThan(0);
@@ -49,10 +49,9 @@ test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', 
   await capture(page, 'nl-status-work-queue');
 
   // Una lista de facturas: el pago y el control quietos; solo laten las prioridades que piden algo.
-  await menu.getByRole('button', { name: /^Inkomend/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inkomend' })).toBeVisible();
+  await go(page, 'invoices-in');
   await expect(page.getByRole('table')).toBeVisible();
-  // Que la pantalla de antes ya no este (la animacion entre pestanas).
+  // Que la pantalla de antes ya no este (el fundido al cambiar de sitio).
   await expect(page.getByRole('heading', { level: 1, name: 'Werklijst' })).toHaveCount(0);
   const invoices = await pills(page);
   // Una lista de facturas no late: lo bloqueado tambien esta, pero quieto.
@@ -61,9 +60,8 @@ test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', 
 
   // Las cuentas por verificar laten (hay que llamar), en naranja; una ya verificada, no.
   // (Las otras pruebas usan la misma base: aqui puede haber una ya verificada por telefono.)
-  await menu.getByRole('button', { name: /^IBAN-controles/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'IBAN-controles' })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inkomend' })).toHaveCount(0);
+  await go(page, 'iban-checks');
+  await expect(page.getByRole('heading', { level: 1, name: 'Inkoopfacturen' })).toHaveCount(0);
   await expect(page.locator('article').first()).toBeVisible();
   const iban = await pills(page);
   expect(iban.length).toBeGreaterThan(1);
@@ -81,40 +79,40 @@ test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', 
   expect(await chip.evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-indicator"]')!, '::before').animationName)).toBe('none');
 
   // En ingles, el mismo estado con su texto.
-  await page.getByRole('button', { name: 'English' }).first().click();
-  await page.getByRole('navigation', { name: 'Main menu' }).getByRole('button', { name: /^Work queue/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Work queue' })).toBeVisible();
+  await setLang(page, 'en');
+  await go(page, 'work-queue', 'en');
   await expect(page.getByRole('heading', { level: 1, name: 'IBAN checks' })).toHaveCount(0);
   await expect(page.getByRole('table')).toBeVisible();
   const en = await pills(page);
   for (const p of en.filter((q) => q.pings)) expect(p.label).toBe('Blocked');
   await capture(page, 'en-status-work-queue');
-  await page.getByRole('button', { name: 'Nederlands' }).first().click();
+  await setLang(page, 'nl');
 });
 
 test('un solo sitio late por pantalla: ninguna lista ni tarjeta parpadea', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
-  // El Overzicht (tarjetas y "Als eerste") y cada lista: nada late.
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
+  // El inicio (tarjetas y "Als eerste") y cada lista: nada late.
+  await expect(viewHeading(page, 'home')).toBeVisible();
   await expect(page.getByTestId('summary-card').first()).toBeVisible();
-  expect((await pills(page)).filter((p) => p.pings), 'overzicht').toEqual([]);
-  for (const label of ['Uitzonderingen', 'Inkomend', 'Uitgaand', 'Leveranciers', 'Klanten', 'Objecten', 'Inkooporders']) {
-    await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
-    await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
+  await expect(page.locator('section[aria-labelledby="next-up"] [data-slot="status"]').first()).toBeVisible();
+  expect((await pills(page)).filter((p) => p.pings), 'inicio').toEqual([]);
+  for (const view of ['exceptions', 'invoices-in', 'invoices-out', 'providers', 'clients', 'objects', 'client-pos', 'provider-pos', 'documents'] as const) {
+    await go(page, view);
     await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
-    expect((await pills(page)).filter((p) => p.pings), label).toEqual([]);
+    expect((await pills(page)).filter((p) => p.pings), view).toEqual([]);
   }
   // La ficha de una relacion resume: quieta. La de una factura bloqueada: late su cabecera,
   // y solo ella.
-  await menu.getByRole('button', { name: /^Leveranciers/ }).click();
+  await go(page, 'providers');
   await page.getByRole('table').getByRole('button', { name: /J\. Voorbeeld Beveiliging/ }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: 'J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
   expect((await pills(page)).filter((p) => p.pings), 'leverancier').toEqual([]);
-  await menu.getByRole('button', { name: /^Werklijst/ }).click();
+  await go(page, 'work-queue');
   await page.getByRole('table').getByRole('row').filter({ hasText: 'Geblokkeerd' }).first().getByRole('button').first().click();
   await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
+  // La ficha ya cargada (mientras carga, el titulo es "Factuur <id>" y no hay pastillas).
+  await expect(page.getByRole('region', { name: 'Wat aandacht nodig heeft' })).toBeVisible();
   const record = (await pills(page)).filter((p) => p.pings);
   expect(record.map((p) => p.label)).toEqual(['Geblokkeerd']);
 });
@@ -123,7 +121,7 @@ test('quien pide menos movimiento no ve latir nada', async ({ page, baseUrl }) =
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  await page.getByRole('navigation', { name: 'Hoofdmenu' }).getByRole('button', { name: /^Werklijst/ }).click();
+  await go(page, 'work-queue');
   await expect(page.getByRole('table')).toBeVisible();
   const queue = await pills(page);
   expect(queue.some((p) => p.label === 'Geblokkeerd')).toBe(true);
@@ -151,8 +149,7 @@ test('la afscherming por papeles: lo que falla, falta o es viejo, en rojo y lati
   });
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  await page.getByRole('navigation', { name: 'Hoofdmenu' }).getByRole('button', { name: /^Instellingen/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Instellingen' })).toBeVisible();
+  await go(page, 'settings');
   await expect(page.getByText('Afscherming mislukt').first()).toBeVisible();
   const shown = await pills(page);
   const isolation = shown.filter((p) => p.label.startsWith('Afscherming') || p.label === 'Controle te oud');
@@ -166,11 +163,11 @@ test('la afscherming por papeles: lo que falla, falta o es viejo, en rojo y lati
   await expectAccessible(page, 'nl instellingen (afscherming)');
   await page.getByText('Afscherming', { exact: true }).scrollIntoViewIfNeeded();
   await capture(page, 'nl-status-isolation');
-  await page.getByRole('button', { name: 'English' }).first().click();
+  await setLang(page, 'en');
   await expect(page.getByText('Shielding failed').first()).toBeVisible();
   await page.getByText('Shielding', { exact: true }).scrollIntoViewIfNeeded();
   await capture(page, 'en-status-isolation');
-  await page.getByRole('button', { name: 'Nederlands' }).first().click();
+  await setLang(page, 'nl');
 });
 
 test('el tema es el que elige la persona, no el del sistema, y cada pastilla se lee en los dos', async ({
@@ -186,23 +183,21 @@ test('el tema es el que elige la persona, no el del sistema, y cada pastilla se 
   const ORANGE_400 = 'oklch(0.75 0.183 55.934)';
   const chipColor = () =>
     page.getByTestId('test-data-chip').evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-label"]') ?? el).color);
-  const menu = page.getByRole('navigation', { name: 'Hoofdmenu' });
   const visit = async (theme: string) => {
-    await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
+    await go(page, 'home');
     await expect(page.getByTestId('summary-card').first()).toBeVisible();
-    await expectAccessible(page, `${theme}: overzicht`);
-    for (const [label, check] of [['Werklijst', 'werklijst'], ['IBAN-controles', 'iban-controles']] as const) {
-      await menu.getByRole('button', { name: new RegExp(`^${label}`) }).click();
-      await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
+    await expectAccessible(page, `${theme}: inicio`);
+    for (const view of ['work-queue', 'iban-checks'] as const) {
+      await go(page, view);
       await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
-      await expectAccessible(page, `${theme}: ${check}`);
+      await expectAccessible(page, `${theme}: ${view}`);
     }
     // Una factura, con su veredicto, sus avisos y sus campos.
-    await menu.getByRole('button', { name: /^Werklijst/ }).click();
+    await go(page, 'work-queue');
     await page.getByRole('table').getByRole('button').first().click();
     await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
     await expectAccessible(page, `${theme}: factuur`);
-    await menu.getByRole('button', { name: /^Overzicht/ }).click();
+    await go(page, 'home');
   };
 
   await page.goto(`${baseUrl}/app`);
@@ -218,12 +213,12 @@ test('el tema es el que elige la persona, no el del sistema, y cada pastilla se 
   await visit('claro con Windows en oscuro');
   // En claro, el de siempre (orange-800), no el -400 del oscuro.
   expect(await chipColor()).not.toBe(ORANGE_400);
-  await menu.getByRole('button', { name: /^IBAN-controles/ }).click();
+  await go(page, 'iban-checks');
   await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
   await capture(page, 'nl-status-iban-checks');
 });
 
-test('un plazo del btw pasado sin aangifte se ve en el Overzicht, en rojo', async ({ page, baseUrl }) => {
+test('un plazo del btw pasado sin aangifte se ve en el inicio, en rojo', async ({ page, baseUrl }) => {
   // El panel de un dia despues del plazo del T3 sin la presentacion anotada: proximo_plazo
   // ya es el del T4, y el T3 va en por_presentar con los dias en negativo (lo que da
   // consultas._bloque_btw ese dia). Se cambia aqui porque la base de prueba es de hoy.
@@ -244,6 +239,6 @@ test('un plazo del btw pasado sin aangifte se ve en el Overzicht, en rojo', asyn
   await expect(card).toContainText('Q3 2026');
   // El proximo plazo sigue, debajo.
   await expect(card).toContainText('Aangifte Q4 2026 uiterlijk');
-  await expectAccessible(page, 'overzicht con un plazo pasado');
-  await capture(page, 'nl-overview-vat-overdue');
+  await expectAccessible(page, 'inicio con un plazo pasado');
+  await capture(page, 'nl-home-vat-overdue');
 });

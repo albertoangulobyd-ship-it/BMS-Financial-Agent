@@ -8,7 +8,7 @@ import { ActionButton } from '@/components/action-dialog';
 import { errorMessage, ErrorState, Loading, TechnicalDetail } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Hours, Money } from '@/components/values';
 import { LOCALES, fmt, useT, type Lang, type Messages } from '@/i18n';
 import { catalogFor, fieldLabel, findingDetail, ruleText, stateLabel } from '@/i18n/domain';
@@ -95,7 +95,7 @@ export function ReferencesList({ invoice }: { invoice: InvoiceDetail }) {
 export function RelationsList({ invoice, onDone }: { invoice: InvoiceDetail; onDone: () => void }) {
   const { t, lang } = useT();
   const can = useCan();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const relations = invoice.relaciones.filter((r) => !r.retirada);
   if (!relations.length) return <p className='text-muted-foreground'>{t.sections.noRelations}</p>;
   const codes = catalogFor(lang).codigos as Record<string, string>;
@@ -358,6 +358,41 @@ export function HistoryList({ invoice }: { invoice: InvoiceDetail }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** "Origineel" arriba en la ficha (paso 16, revision §5: el original de una factura en tres
+ *  clics). La misma descarga auditada que la de la seccion plegada; sin original guardado no
+ *  sale. Un error lo dice debajo del boton. */
+export function OriginalButton({ invoice }: { invoice: InvoiceDetail }) {
+  const { t, lang } = useT();
+  const { session } = useSession();
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  if (!invoice.original?.guardado) return null;
+  async function download() {
+    setBusy(true);
+    setError(null);
+    try {
+      await session!.api.download(paths.invoiceOriginal(invoice.id), `${invoice.numero ?? 'factuur'}.pdf`);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className='flex flex-col items-end gap-1'>
+      <Button variant='outline' size='sm' onClick={download} disabled={busy}>
+        <Download className='mr-2 h-4 w-4' aria-hidden='true' />
+        {t.original.short}
+      </Button>
+      {error !== null && (
+        <p role='alert' className='max-w-xs text-right text-xs text-late-foreground'>
+          {errorMessage(error, t, lang)}
+        </p>
+      )}
+    </div>
   );
 }
 

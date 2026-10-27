@@ -1,7 +1,7 @@
 // La tabla de todas las listas. Seis columnas como mucho (lo exige el tipo: una lista
 // mas ancha no se entiende), cifras alineadas a la derecha y una columna "principal" que
 // es un boton: con el raton se abre la fila entera, con el teclado ese boton (Tab y
-// Intro). Abrir una fila abre su ficha en una pestana (useTabs().openRoute).
+// Intro). Abrir una fila abre su ficha dentro de la seccion (useNav().open).
 import type { ReactNode } from 'react';
 import { PingScope, type PingScopeValue } from '@/components/status-pill';
 import { cn } from '@/lib/utils';

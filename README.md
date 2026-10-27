@@ -122,4 +122,8 @@ lanzadores abren en su propia ventana, con todas sus pantallas (el trabajo diari
 relaciones, el dinero, el BTW, importar un fichero con una prueba antes y lo que cuesta
 leer facturas): [docs/app-local.md](docs/app-local.md). El paso 16 trae dentro la base de
 Aurora, el prototipo del dueño (su tema oscuro, que es el de por defecto, su orbe y su logo,
-sin nada simulado), un tema claro y el castellano como tercer idioma.
+sin nada simulado), un tema claro y el castellano como tercer idioma; y Aurora pasa a ser la
+cara de la app: seis entradas (Inicio, Cuentas por cobrar, Cuentas por pagar, Documentos,
+Procesar e IVA) con la rueda en el inicio, migas y «Volver» dentro de cada una, Ctrl+K para
+abrir cualquier pantalla o ficha, y cada pantalla del paso 15 en su sitio (la barra con
+pestañas ya no es la navegación).

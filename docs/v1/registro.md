@@ -8046,3 +8046,173 @@ nuevos de `tests/test_cartera.py`; ninguno de antes cambia). Los nuevos y los qu
 lo mismo (`test_contrato_v2.py`, `test_pagos.py`, `test_codigos_error.py`) pasan también
 con Python 3.13. La app (`frontend/`) no se toca: su comprobación del contrato mira solo el
 número mayor, y 2.2 sigue siendo 2.
+
+## Paso 16 · la rueda con seis entradas, el inicio y las pantallas en su sitio
+
+El paso 1 del §8.3 de la revisión de Aurora y su decisión 1: **Aurora pasa a ser la cara de
+la app, sobre el motor de verdad.** Seis entradas (Inicio, Cuentas por cobrar, Cuentas por
+pagar, Documentos, Procesar e IVA), la rueda en el inicio, las seis en pequeño en las demás
+pantallas, migas y «Terug» dentro de cada sección, Ctrl+K, el menú del nombre, el inicio
+nuevo y cada pantalla del paso 15 en su sitio, sin perder ninguna función. Antes de empezar
+se juntaron aquí las dos partes paralelas del paso (las lecturas del motor y los textos en
+castellano) y se conectó `es.json` a la app. El detalle, en [app-local.md](../app-local.md)
+(§4 entero, §4.7, §5, §6 y §7).
+
+### Qué se construyó
+
+- **Las dos partes paralelas, juntas.** `git cherry-pick` de las lecturas del motor
+  (`paso16-lecturas`) y de los textos en castellano (`paso16-es`); el único conflicto, en este
+  registro (las dos secciones del paso 16, que se quedan las dos). La suite de Python entera
+  pasó antes de seguir.
+- **`es.json` en la app.** `i18n/domain.ts` lo importa como los otros dos, entra en la huella
+  (`frontend/build-inputs.json` y los catálogos de `tests/test_app_local.py`) y
+  `DOMAIN_FALLBACK` queda vacío: la app en castellano dice el dominio en castellano, y las
+  pruebas ya no le toleran restos en inglés. `templates.test.ts` exige ahora que
+  `casos.json` traiga los tres idiomas de la app, y los casos en castellano dan lo mismo que
+  Python.
+- **Las secciones** (`screens/sections.ts`, sin React, para que lo usen también las pruebas
+  en el navegador): las seis entradas, sus vistas en orden y el permiso de cada vista.
+  `registry.ts` les pone el icono y dice dónde vive cada ficha.
+- **La navegación** (`shell/navigation.tsx`): un sitio y su camino, sin pestañas ni
+  dirección. `nextTrail` (puro, con sus pruebas) decide el camino: ir a una vista lo empieza;
+  abrir una ficha la añade, o vuelve a ella si ya estaba; abrir desde fuera de la sección la
+  pone bajo su vista; «Terug» quita el último; una miga vuelve a su paso. Guarda dónde iba la
+  página de cada paso y lo devuelve al volver; lo que recuerda una lista (filtro, búsqueda)
+  vive en `lib/view-memory.ts` (antes `tab-memory.ts`), solo en memoria. Después de cada
+  movimiento el foco va al contenido.
+- **La rueda** (`aurora/wheel.tsx`, montada en el inicio): orden fijo (Inicio arriba, IVA
+  abajo), lo de la distancia en el texto y no en el botón (cada botón ocupa su fila, 46 px o
+  40 en el móvil), un clic o un toque en cualquiera abre, la rueda del ratón (un paso por
+  gesto, con un listener nativo no pasivo para que la página no se desplace), el dedo
+  (deslizar gira y no abre), Tab, flechas cíclicas, Inicio y Fin, Intro, `aria-current`, una
+  frase para el lector de pantalla y «menos movimiento» sin animación.
+- **El marco** (`shell/app-shell.tsx`): la cabecera con el logo (vuelve al inicio, con el
+  orbe pequeño fuera de él), las seis en pequeño (`compact-nav.tsx`; debajo de 1024 px en su
+  propia fila, en el móvil en varias), «Zoeken» con Ctrl K, la marca de prueba y el menú del
+  nombre (`account-menu.tsx`: Instellingen, idioma, tema y Uitloggen). Debajo, las vistas de
+  la entrada en pastillas con sus insignias (`section-nav.tsx`, `use-badges.ts`) o, en una
+  ficha, las migas y «Terug» (`crumbs.tsx`; también Alt+← y el botón de atrás del ratón). Un
+  enlace «Naar de inhoud» para el teclado. En el móvil la cabecera va en una fila (sin
+  «finance» ni la flecha del menú por debajo de 640 px) y las seis, debajo.
+- **Ctrl+K** (`command-palette.tsx`, `lib/quick-search.ts`): un *combobox* con su lista; las
+  pantallas por su nombre en los tres idiomas (ordenadas por cómo encajan: «btw» da Btw antes
+  que lo que lo contiene), las relaciones, Objects y PO de sus listas, y las facturas por
+  `GET /api/v2/buscar?texto=…`.
+- **El inicio** (`screens/home.tsx`, sustituye al Overzicht): el saludo con el nombre, la
+  rueda con el orbe, la caja que busca (lo mismo que Ctrl+K, por grupos) y dice siempre que
+  aún no contesta preguntas, las cuatro tarjetas de `/api/v2/panel` con filas que abren su
+  lista ya filtrada, «Als eerste» (cinco como mucho) solo con lo bloqueado o urgente, los
+  accesos a Werklijst, Uitzonderingen y Kasstroom, y la lectura cada minuto mientras se ve y
+  después de cada orden. Todo quieto (`PingScope`).
+- **Cada pantalla del paso 15 en su sitio**: Werklijst, Uitzonderingen y Kasstroom en Inicio;
+  Verkoopfacturen, Klanten, Objecten y las PO de los clientes en Cuentas por cobrar;
+  Inkoopfacturen, Leveranciers, las PO de los proveedores e IBAN-controles en Cuentas por
+  pagar; Importeren y Facturen lezen en Procesar; Btw en IVA; Instellingen en el menú del
+  nombre. Las fichas (factura, proveedor, cliente, Object, PO, trimestre) igual que antes,
+  dentro de su sección.
+- **Documentos, lo justo** (`screens/documents.tsx`): las carpetas de clientes y proveedores
+  en una página, con un buscador, y la carpeta de cada uno con sus documentos y la descarga,
+  sobre las lecturas nuevas del motor (`/api/v2/clientes/N/documentos`…,
+  `/api/v2/documentos/N/original`). El archivo de Aurora va encima en el paso de Documentos.
+- **La excepción como ficha** (`screens/exception.tsx`): lo que era el panel lateral, con
+  migas, «Factuur openen» y sus órdenes.
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | La barra lateral con pestañas como las de Chrome, en seis grupos y quince apartados | Seis entradas: la rueda en el inicio, las seis en pequeño en las demás pantallas, las vistas de cada una en pastillas; el componente del dueño se queda en el repositorio sin montar | Decisión 1 de la revisión: la navegación de Aurora es la de la app |
+| 2 | Una fila abría su ficha en una pestaña nueva; las pestañas y la barra plegada se guardaban por persona | La ficha se abre en su sección, con migas y «Terug»; no se guarda nada de la navegación (al entrar se borra la clave `…:tabs` del paso 15) y se empieza siempre en el inicio | Sin pestañas, lo que hay que poder es volver; el inicio es la puerta |
+| 3 | Overzicht: cuatro tarjetas y «Als eerste», las cinco primeras de la werklijst | El inicio: el saludo, la rueda, la caja de buscar, las cuatro tarjetas (Te ontvangen y Te betalen con lo vencido, lo próximo y cuántas relaciones con saldo, cada fila abre su lista filtrada) y «Als eerste» **solo con lo bloqueado o urgente** | Revisión §8.3: el inicio tranquilo; lo que puede esperar está en la werklijst |
+| 4 | Uitzonderingen: una fila abría un panel lateral | Abre la ficha de la excepción, dentro de Inicio | Las fichas, todas iguales: con migas y «Terug» |
+| 5 | Inkomend / Uitgaand (In / Out; Recibidas / Emitidas), con «inkoop» y «verkoop» en gris | Inkoopfacturen / Verkoopfacturen (Purchase invoices / Sales invoices; Facturas de compra / de venta) | Dentro de Te betalen y Te ontvangen, «entrantes» ya no dice nada |
+| 6 | Una sola lista de Inkooporders | La misma pantalla dos veces: las PO de los clientes en Te ontvangen y las de los proveedores en Te betalen (filtradas por `lado`) | Cada PO donde se trabaja con ella |
+| 7 | El original de una factura, al fondo de la ficha (plegado) | Además, el botón «Origineel» en la cabecera de la ficha | Revisión §5, fila 7: tres clics |
+| 8 | Las facturas abiertas de una relación, plegadas | Desplegadas cuando las hay | Revisión §5, fila 8: dos clics |
+| 9 | Procesar no existía; Importeren iba después de Facturen lezen en «Gegevens» | En Procesar, Importeren primero | Revisión §5, fila 20: un clic |
+| 10 | NL \| EN \| ES en la cabecera | En el menú del nombre (y en la entrada y en Instellingen, como antes) | La cabecera lleva las seis; el idioma se cambia poco |
+| 11 | «Snel openen» con el ratón sobre el + de las pestañas | Ctrl+K, o «Zoeken» en la cabecera, con las facturas de `/api/v2/buscar` | Revisión: Ctrl+K abre cualquier pantalla o ficha |
+| 12 | En castellano, el dominio en inglés (`DOMAIN_FALLBACK`) | En castellano, con `es.json`; `DOMAIN_FALLBACK` vacío | Llegó `es.json` |
+| 13 | — | Documentos: las carpetas y la de cada relación con la descarga | La entrada existe y funciona; el archivo de Aurora, después |
+| 14 | `tests/test_app_local.py` prohibía `location.hash`, `location.search` y `window.open(` | Prohíbe también `pushState(` y `replaceState(` | La navegación es estado de la app: nada pasa a la dirección |
+
+Los nombres de las entradas en neerlandés y en inglés son nuestros (la revisión las nombra en
+castellano): **Start, Te ontvangen, Te betalen, Documenten, Verwerken, Btw** y **Home,
+Receivables, Payables, Documents, Process, VAT**. «Verwerken» y «Process» en vez de
+«Procesar» tal cual: son el verbo de lo que se hace allí (importar y leer).
+
+### Las pruebas
+
+- **Vitest**: `screens/registry.test.ts` (rehecho: las seis entradas en su orden, cada vista
+  en una sola, cada ficha en su vista, los permisos, las rutas), `shell/navigation.test.ts`
+  (`nextTrail`: ir, abrir, volver a una ficha del camino, abrir desde fuera, «Terug», las
+  migas), `aurora/wheel.test.ts` (la distancia y el paso de las flechas),
+  `lib/quick-search.test.ts` (las pantallas en los tres idiomas y su orden, las relaciones,
+  las facturas), `screens/home.test.ts` (lo urgente primero, cinco como mucho, el nombre),
+  `lib/storage.test.ts` (no se guardan pestañas; la clave del paso 15 se borra sin tocar
+  otras), y `i18n.test.ts` y `templates.test.ts` con `es.json`.
+- **En el navegador**, todas las pruebas del paso 15 pasaron a la navegación nueva sin quitar
+  ninguna comprobación (`e2e/nav.ts`: moverse como una persona, con los nombres de los
+  diccionarios). `shell.spec.ts` se rehízo para la rueda, las seis, las migas, Ctrl+K, la
+  caja del inicio, el menú del nombre, el teclado, 1024 px y el móvil; `daily.spec.ts`,
+  `screens.spec.ts`, `status.spec.ts` y `themes.spec.ts` van por las entradas (la gira de
+  `themes.spec.ts` recorre cada vista de `sections.ts` y cada ficha, también la excepción y
+  la carpeta de un proveedor). Nuevo, `e2e/clicks.spec.ts`: cada tarea de la tabla de los 3
+  clics (revisión §5) en los clics de su «Objetivo», contados de verdad.
+
+### Desviaciones, y por qué
+
+1. **La rueda no da la vuelta.** En el prototipo la rueda giraba en círculo, y con seis
+   entradas Procesar quedaba encima de Inicio. Aquí el orden es fijo y lo que cambia es el
+   tamaño según la distancia; las flechas sí dan la vuelta (de IVA a Inicio).
+2. **La caja del inicio busca y no contesta.** Lo dice siempre debajo; el asistente local es
+   de otro paso. No hay ninguna llamada a un modelo.
+3. **Cinco filas de la tabla de los clics quedan como `test.fixme`**, con el paso que las
+   hace: 11, 12 y 13 (los pagos, Cuentas por cobrar y por pagar), 21 con la confirmación del
+   coste (Procesar de verdad) y 22 (la vista previa del archivo de Aurora). Las demás pasan.
+4. **El componente de la barra con pestañas no se borra**: se queda sin montar (no entra en
+   lo construido), con una nota arriba, por si el dueño quiere volver a mirarlo.
+5. **Dos comprobaciones nuevas se ajustaron a cómo es el navegador, no a la app**: con «menos
+   movimiento», la regla general de `index.css` deja las transiciones en 0,01 ms, así que la
+   prueba pide menos de 1 ms (no 0); y en el móvil, el dedo se para antes de soltar al girar
+   la rueda: soltado en marcha, Chromium sigue el gesto y el primer toque que llega justo
+   después solo lo para, sin clic (como en cualquier lista que se desliza). Al probarlo salió
+   un fallo de verdad, ya arreglado: un deslizamiento que no dejaba clic que tapar dejaba
+   tapado el del toque siguiente.
+6. **Tres pruebas del paso 15 tenían una carrera que la navegación nueva destapó**: leían
+   algo antes de que la ficha cargara (el título provisional «Factuur 17» ya encaja con
+   `/^Factuur /`), o decidían si había menú del nombre mientras un diálogo que se cerraba aún
+   tapaba el resto. Ahora esperan a lo que miden.
+
+### Lo que deben saber las partes siguientes
+
+- **Documentos** (el archivo de Aurora): se monta sobre `frontend/src/screens/documents.tsx`
+  (las carpetas y `PartyDocumentsScreen`), con las fichas `client-documents` y
+  `provider-documents` ya en `RECORDS`; las piezas están en `src/aurora/documents/`. La fila
+  22 de `e2e/clicks.spec.ts` espera su vista previa.
+- **Cuentas por cobrar y por pagar**: sus vistas están en `SECTION_VIEWS` de
+  `screens/sections.ts` (añadir una cartera es una vista más, delante si es la primera que se
+  usa); las lecturas de la cartera ya están en el motor. `tests/test_app_local.py` sigue sin
+  dejar que la app mande `marcar_pagada`: cambiarlo es de ese paso, con su motivo en el
+  registro. Las filas 11 a 13 de `e2e/clicks.spec.ts` esperan.
+- **Moverse en las pruebas**: `e2e/nav.ts` (`go`, `openSection`, `sectionMenu`, `crumbs`,
+  `back`, `setLang`, `signOut`, `readBadge`). Una vista nueva entra sola en la gira de
+  `themes.spec.ts` y en la de `shell.spec.ts` (recorren `VIEW_IDS`).
+- **Abrir algo** desde una pantalla: `useNav().open(recordRoute(...))`; desde fuera de su
+  sección, `openFrom(vista, ruta)`; el título de las migas, `setTitle(navKey, ...)`.
+
+### Resultado
+
+- Python 3.11: **2547 pasan y 12 se saltan** (los 2545 de después de juntar las dos partes
+  paralelas y los 2 nuevos de lo prohibido en el frontend; ninguno de antes cambia salvo
+  `test_app_local.py`, que mira también `es.json` en la huella).
+- Vitest: **1213 pasan** (16 ficheros).
+- Playwright (Chromium 1.56.1): **51 pasan y 5 quedan pendientes** (`test.fixme`: las filas 11,
+  12, 13, 21 con su coste y 22 de la tabla de los clics), en las dos últimas pasadas del
+  conjunto entero; capturas de cada pantalla, ficha y diálogo en neerlandés, inglés y
+  castellano y en los dos temas. Se miraron el inicio, las listas, las fichas, Documentos,
+  «Snel openen», el menú del nombre, 1024 px y el móvil, y de ahí salieron la cabecera del
+  móvil en una fila, la nota de Documentos más corta (repetía la frase de arriba) y que el
+  inicio salga arriba del todo en las capturas de la gira.
+- `npm run typecheck` sin errores y lo construido al día (`npm run fuente`).
+

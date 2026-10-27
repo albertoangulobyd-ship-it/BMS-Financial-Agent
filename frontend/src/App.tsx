@@ -8,6 +8,7 @@ import { SessionProvider, useSession, type Session } from '@/lib/session';
 import {
   DEVICE_LANG_KEY,
   DEVICE_THEME_KEY,
+  forgetSavedTabs,
   loadLang,
   loadTheme,
   personKey,
@@ -55,6 +56,7 @@ export function App({ nonce }: { nonce?: string }) {
 
   const onLogin = useCallback((s: Session) => {
     person.current = s;
+    forgetSavedTabs(s.environment, s.me.id);
     const langKey = personKey(s.environment, s.me.id, 'lang');
     const ownLang = loadLang(langKey);
     if (ownLang) setLangState(ownLang);

@@ -12,7 +12,8 @@ import type { Lang } from './langs';
 export { DEFAULT_LANG, LANGS, LOCALES, isLang } from './langs';
 export type { Lang } from './langs';
 
-export type Messages = typeof nl;
+export type { Messages } from './messages';
+import type { Messages } from './messages';
 
 export const MESSAGES: Record<Lang, Messages> = { nl, en, es };
 

@@ -14,7 +14,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { Section } from '@/components/section';
 import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText, Hours, Money } from '@/components/values';
 import { fmt, useT } from '@/i18n';
 import { stateLabel } from '@/i18n/domain';
@@ -23,7 +23,7 @@ import type { ObjectInvoice, ObjectView, PoRow, WeekHours } from '@/lib/api-type
 import { formatHours, formatPercentFromBasisPoints, todayIso } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { needsPerson } from '@/lib/why';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
@@ -50,12 +50,12 @@ export function periodRange(period: ObjectPeriod, today: string): { desde: strin
   return { desde: `${prevYear}-${pad(prevMonth)}-01`, hasta: `${prevYear}-${pad(prevMonth)}-${pad(lastDay)}` };
 }
 
-export function ObjectScreen({ id, tabId }: { id: number; tabId: string }) {
+export function ObjectScreen({ id, navKey }: { id: number; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
-  const { setTabTitle } = useTabs();
+  const { setTitle } = useNav();
   const { version } = useRefresh();
-  const [period, setPeriod] = useTabState<ObjectPeriod>(tabId, 'object-period', 'month');
+  const [period, setPeriod] = useViewState<ObjectPeriod>(navKey, 'object-period', 'month');
   const [today] = useState(() => todayIso());
   const [state, retry] = useLoad(
     () =>
@@ -67,8 +67,8 @@ export function ObjectScreen({ id, tabId }: { id: number; tabId: string }) {
   );
   const code = state.status === 'ready' ? state.data[0].codigo : null;
   useEffect(() => {
-    if (code) setTabTitle(tabId, code);
-  }, [code, tabId, setTabTitle]);
+    if (code) setTitle(navKey, code);
+  }, [code, navKey, setTitle]);
 
   if (state.status !== 'ready') {
     return (
@@ -93,8 +93,8 @@ function ObjectDetail({
   setPeriod: (p: ObjectPeriod) => void;
 }) {
   const { t } = useT();
-  const { openRoute } = useTabs();
-  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId, 'objects'));
+  const { open: openRoute } = useNav();
+  const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId));
   const ids = new Set([...o.facturas.entrantes, ...o.facturas.salientes].map((f) => f.id));
   const attention = invoices.filter((f) => ids.has(f.id) && needsPerson(f));
   const e = o.economia.periodo;
@@ -252,7 +252,7 @@ function ObjectInvoices({ rows, onOpen, caption }: { rows: ObjectInvoice[]; onOp
 
 function ObjectPos({ rows }: { rows: PoRow[] }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const columns: Columns<PoRow> = [
     {
       key: 'po',
@@ -275,7 +275,7 @@ function ObjectPos({ rows }: { rows: PoRow[] }) {
       rows={rows}
       rowKey={(r) => r.id}
       caption={t.objects.sectionPos}
-      onOpen={(r) => openRoute(recordRoute('purchase-order', r.id, 'purchase-orders'))}
+      onOpen={(r) => openRoute(recordRoute('purchase-order', r.id))}
       openLabel={(r) => fmt(t.common.openRecord, { what: `${t.records['purchase-order'].label} ${r.numero}` })}
       empty={<p className='text-muted-foreground'>{t.objects.noPos}</p>}
     />

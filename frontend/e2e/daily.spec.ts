@@ -1,33 +1,38 @@
-// Las pantallas del trabajo diario sobre la base de prueba: Overzicht, Werklijst, Inkomend,
-// Uitgaand, la ficha de una factura, Uitzonderingen e IBAN-controles, con datos y ordenes
-// de verdad. Las pruebas van en orden y cambian la base (aceptar, resolver, marcar), asi
-// que cada una mira lo que deja la anterior: lo que comprueban son cambios, no cifras
-// sueltas. Captura de cada pantalla en neerlandes y en ingles (CAPTURAS_DIR).
-import { capture, expect, expectAccessible, login, settled, test, token, type Who } from './fixtures';
+// Las pantallas del trabajo diario sobre la base de prueba: el inicio, la Werklijst, las
+// facturas de compra y de venta, la ficha de una factura, Uitzonderingen (con su ficha) e
+// IBAN-controles, con datos y ordenes de verdad. Las pruebas van en orden y cambian la base
+// (aceptar, resolver, marcar), asi que cada una mira lo que deja la anterior: lo que comprueban
+// son cambios, no cifras sueltas. Desde el paso 16 se llega a cada pantalla por su entrada (la
+// rueda o las seis en pequeno) y su vista, y a cada ficha desde una fila (e2e/nav.ts). Captura
+// de cada pantalla en neerlandes y en ingles (CAPTURAS_DIR).
+import { capture, expect, expectAccessible, login, test, token, type Who } from './fixtures';
 import type { Page } from '@playwright/test';
+import type { ViewId } from '../src/screens/sections';
+import { TEXTS, back, go, mainMenu, readBadge, setLang, signOut as signOutAs, viewHeading } from './nav';
 
-const MENU = { nl: 'Hoofdmenu', en: 'Main menu' } as const;
+/** Las pantallas por el nombre que se ve en neerlandes (asi se leen las pruebas). */
+const VIEW: Record<string, ViewId> = {
+  Werklijst: 'work-queue',
+  Uitzonderingen: 'exceptions',
+  'IBAN-controles': 'iban-checks',
+  Inkoopfacturen: 'invoices-in',
+  Verkoopfacturen: 'invoices-out',
+};
 
-async function nav(page: Page, label: string, lang: 'nl' | 'en' = 'nl') {
-  await page.getByRole('navigation', { name: MENU[lang] }).getByRole('button', { name: new RegExp(`^${label}`) }).click();
-  await expect(page.getByRole('heading', { level: 1, name: label, exact: true })).toBeVisible();
-  await settled(page);
+async function nav(page: Page, label: keyof typeof VIEW, lang: 'nl' | 'en' = 'nl') {
+  await go(page, VIEW[label]!, lang);
 }
 
 async function english(page: Page) {
-  await page.getByRole('button', { name: 'English' }).first().click();
-  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-  await settled(page);
+  await setLang(page, 'en');
 }
 
 async function dutch(page: Page) {
-  await page.getByRole('button', { name: 'Nederlands' }).first().click();
-  await expect(page.locator('html')).toHaveAttribute('lang', 'nl');
-  await settled(page);
+  await setLang(page, 'nl');
 }
 
-/** Abre una factura desde Inkomend o Uitgaand buscando su numero. */
-async function openInvoice(page: Page, number: string, list: 'Inkomend' | 'Uitgaand' = 'Inkomend') {
+/** Abre una factura desde las de compra o las de venta buscando su numero. */
+async function openInvoice(page: Page, number: string, list: 'Inkoopfacturen' | 'Verkoopfacturen' = 'Inkoopfacturen') {
   await nav(page, list);
   await page.getByRole('searchbox').fill(number);
   await page.getByRole('button', { name: `Factuur ${number} openen` }).first().click();
@@ -39,17 +44,13 @@ async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
   await login(page, who);
 }
 
-async function signOut(page: Page, name: string) {
-  await page.getByRole('button', { name: `Accountmenu van ${name}` }).click();
-  await page.getByRole('menuitem', { name: 'Uitloggen' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
+async function signOut(page: Page, _name: string) {
+  await signOutAs(page);
 }
 
-/** El numero de una insignia de la navegacion ("Uitzonderingen 13"). */
-async function badge(page: Page, label: string): Promise<number> {
-  const text = (await page.getByRole('navigation', { name: MENU.nl }).getByRole('button', { name: new RegExp(`^${label}`) }).textContent()) ?? '';
-  const m = /(\d+)/.exec(text);
-  return m ? Number(m[1]) : 0;
+/** El numero de la insignia de una vista ("Uitzonderingen 13"), en las vistas de su seccion. */
+async function badge(page: Page, label: keyof typeof VIEW): Promise<number> {
+  return readBadge(page, VIEW[label]!);
 }
 
 /**
@@ -66,26 +67,28 @@ async function twinNumber(page: Page): Promise<string> {
   return number;
 }
 
-/** La insignia cuando ya ha llegado del panel (al entrar, aun no hay ninguna). */
-async function loadedBadge(page: Page, label: string): Promise<number> {
+/** La insignia cuando ya ha llegado del panel (en la vista de su seccion). */
+async function loadedBadge(page: Page, label: keyof typeof VIEW): Promise<number> {
+  await nav(page, label);
   await expect.poll(() => badge(page, label)).toBeGreaterThan(0);
   return badge(page, label);
 }
 
-test('het overzicht: vier kaarten en wat als eerste moet, in NL en EN', async ({ page, baseUrl }) => {
+test('het begin: vier kaarten en wat als eerste moet, alleen het geblokkeerde en urgente, in NL en EN', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl);
-  await expect(page.getByRole('heading', { level: 1, name: 'Overzicht' })).toBeVisible();
-  // Vier kaarten, niet meer.
-  for (const title of ['Aandacht nodig', 'Geld binnen', 'Geld uit']) {
+  await expect(viewHeading(page, 'home')).toBeVisible();
+  // Vier kaarten, niet meer: Aandacht nodig, Te ontvangen, Te betalen en de btw.
+  for (const title of ['Aandacht nodig', 'Te ontvangen', 'Te betalen', 'Btw dit kwartaal']) {
     await expect(page.getByRole('heading', { level: 2, name: title })).toBeVisible();
   }
-  await expect(page.getByRole('heading', { level: 2, name: 'Btw dit kwartaal' })).toBeVisible();
   await expect(page.getByTestId('summary-card')).toHaveCount(4);
-  // Als eerste: vijf facturen, de geblokkeerde bovenaan, met een waarom in gewone woorden.
+  // Als eerste: vijf dingen, alleen geblokkeerd of urgent, de geblokkeerde bovenaan, met een
+  // waarom in gewone woorden.
   const next = page.locator('section[aria-labelledby="next-up"]').getByRole('listitem');
   await expect(next).toHaveCount(5);
   await expect(next.first()).toContainText('Geblokkeerd');
   await expect(next.first()).toContainText('Bedragen in USD: niet in euro');
+  for (const row of await next.all()) await expect(row).toContainText(/Geblokkeerd|Urgent/);
   // Vijf verschillende dingen: twee facturen met hetzelfde nummer staan in één rij.
   const numbers = await next.getByTestId('next-up-number').allTextContents();
   expect(new Set(numbers).size).toBe(5);
@@ -93,19 +96,31 @@ test('het overzicht: vier kaarten en wat als eerste moet, in NL en EN', async ({
   const twin = next.filter({ hasText: /JV-\d{4}-\d{3}/ });
   await expect(twin).toHaveCount(1);
   await expect(twin).toContainText('2 facturen met dit nummer');
-  // De kaarten van het geld zeggen welke facturen ze openen.
-  await expect(page.getByRole('main').getByRole('button', { name: 'Verkoopfacturen' })).toBeVisible();
-  await expect(page.getByRole('main').getByRole('button', { name: 'Inkoopfacturen' })).toBeVisible();
-  await expectAccessible(page, 'overzicht nl');
-  await capture(page, 'daily-nl-overview');
+  // De kaarten van het geld zeggen welke facturen ze openen; "Vervallen" opent de vervallen.
+  await expect(page.getByRole('main').getByRole('button', { name: 'Verkoopfacturen', exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Inkoopfacturen', exact: true })).toBeVisible();
+  // Wat in Start woont: de werklijst, de uitzonderingen en de kasstroom.
+  const also = page.getByRole('navigation', { name: TEXTS.nl.home.alsoHere });
+  await expect(also.getByRole('button')).toHaveCount(3);
+  await expect(also.getByRole('button', { name: /^Werklijst/ })).toContainText('geblokkeerd');
+  await expectAccessible(page, 'begin nl');
+  await capture(page, 'daily-nl-home');
   await english(page);
   await expect(page.getByRole('heading', { level: 2, name: 'Needs attention' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Receivables' })).toBeVisible();
   await expect(next.first()).toContainText('Amounts in USD: not in euros');
-  await capture(page, 'daily-en-overview');
+  await capture(page, 'daily-en-home');
   // Een kaart opent het scherm dat haar uitlegt.
   await page.getByRole('main').getByRole('button', { name: 'Work queue', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Work queue', exact: true })).toBeVisible();
+  await expect(viewHeading(page, 'work-queue', 'en')).toBeVisible();
   await dutch(page);
+  // "Vervallen" op de kaart Te ontvangen opent de vervallen verkoopfacturen (één klik).
+  await page.getByRole('button', { name: TEXTS.nl.shell.home }).click();
+  await page.getByRole('button', { name: TEXTS.nl.home.overdueOut }).click();
+  await expect(viewHeading(page, 'invoices-out')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Vervallen/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('table')).toContainText('VD26-306');
+  await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Alle/ }).click();
 });
 
 test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', async ({ page, baseUrl }) => {
@@ -204,6 +219,7 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
   await expect(accept).toBeHidden();
   await expect(page.getByRole('article', { name: 'Factuurnummer dubbel' })).toContainText('Geaccepteerd');
   await expect(page.getByTestId('verdict')).toContainText('Door een medewerker geaccepteerd: 1');
+  await nav(page, 'Werklijst');
   await expect.poll(() => badge(page, 'Werklijst')).toBeLessThan(blockedBefore);
   await capture(page, 'daily-nl-invoice-accepted');
 });
@@ -228,6 +244,7 @@ test('een melding accepteren en de uitzondering oplossen: de tellingen verandere
   await resolve.getByRole('button', { name: 'Uitzondering oplossen' }).click();
   await expect(resolve).toBeHidden();
   await expect(page.getByText('Er staat geen uitzondering open.')).toBeVisible();
+  await nav(page, 'Uitzonderingen');
   await expect.poll(() => badge(page, 'Uitzonderingen')).toBe(exceptionsBefore - 1);
 });
 
@@ -300,17 +317,18 @@ test('wie alleen mag kijken, ziet geen enkele knop voor een handeling', async ({
   await capture(page, 'daily-nl-invoice-read-only');
   await nav(page, 'Uitzonderingen');
   await page.getByRole('table').getByRole('row').nth(1).getByRole('button').click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByRole('dialog').getByRole('button', { name: actions })).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { level: 2, name: 'Wat is er aan de hand' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: actions })).toHaveCount(0);
+  await back(page);
   await nav(page, 'IBAN-controles');
   await expect(page.getByText('020-5550103')).toBeVisible();
   await expect(page.getByRole('main').getByRole('button', { name: actions })).toHaveCount(0);
-  // Importeren en Facturen lezen staan niet eens in het menu.
-  await expect(page.getByRole('navigation', { name: MENU.nl }).getByRole('button', { name: /^Importeren/ })).toHaveCount(0);
+  // Verwerken (Facturen lezen en Importeren) staat niet eens in het menu: vijf ingangen.
+  await expect(mainMenu(page).getByRole('button')).toHaveCount(5);
+  await expect(mainMenu(page).getByRole('button', { name: 'Verwerken' })).toHaveCount(0);
 });
 
-test('uitzonderingen: de lijst, het paneel en zelf oppakken', async ({ page, baseUrl }) => {
+test('uitzonderingen: de lijst, de uitzondering zelf en zelf oppakken', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'bram');
   await nav(page, 'Uitzonderingen');
   const table = page.getByRole('table');
@@ -320,19 +338,23 @@ test('uitzonderingen: de lijst, het paneel en zelf oppakken', async ({ page, bas
   await expectAccessible(page, 'uitzonderingen');
   await capture(page, 'daily-nl-exceptions');
   await page.getByRole('button', { name: /^Uitzondering \d+ openen$/ }).first().click();
-  const sheet = page.getByRole('dialog');
-  await expect(sheet.getByRole('heading', { name: 'Wat is er aan de hand' })).toBeVisible();
+  // De uitzondering is een fiche in Start (paso 16; antes, un panel lateral), met kruimels.
+  const main = page.getByRole('main');
+  await expect(main.getByRole('heading', { level: 2, name: 'Wat is er aan de hand' })).toBeVisible();
   // De titel zegt waar het om gaat, niet een intern nummer.
-  await expect(sheet.getByRole('heading', { level: 2 }).first()).not.toHaveText(/^Uitzondering \d+$/);
-  await expect(sheet.getByRole('heading', { level: 2 }).first()).not.toBeEmpty();
-  await sheet.getByRole('button', { name: 'Zelf oppakken' }).click();
+  await expect(main.getByRole('heading', { level: 1 })).not.toHaveText(/^Uitzondering \d+$/);
+  await expect(main.getByRole('heading', { level: 1 })).not.toBeEmpty();
+  await main.getByRole('button', { name: 'Zelf oppakken' }).click();
   await page.getByRole('dialog', { name: 'Zelf oppakken' }).getByRole('button', { name: 'Uitzondering toewijzen' }).click();
-  await expect(sheet).toContainText('Bij Bram Demo');
-  await expectAccessible(page, 'uitzondering paneel');
-  await capture(page, 'daily-nl-exception-sheet');
-  await sheet.getByRole('button', { name: 'Factuur openen' }).click();
+  await expect(main).toContainText('Bij Bram Demo');
+  await expectAccessible(page, 'uitzondering');
+  await capture(page, 'daily-nl-exception');
+  await main.getByRole('button', { name: 'Factuur openen' }).click();
   await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
-  await nav(page, 'Uitzonderingen');
+  // Terug naar de uitzondering en dan naar de lijst.
+  await back(page);
+  await expect(main.getByRole('heading', { level: 2, name: 'Wat is er aan de hand' })).toBeVisible();
+  await back(page);
   await english(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Exceptions' })).toBeVisible();
   await expect(page.getByRole('table')).toContainText('Currency other than euro');
@@ -405,9 +427,9 @@ test('IBAN-controles: bellen naar het nummer uit de stamgegevens, zelf typen, en
   await dutch(page);
 });
 
-test('inkomend en uitgaand: filters, zoeken en een rij opent de factuur', async ({ page, baseUrl }) => {
+test('inkoop- en verkoopfacturen: filters, zoeken en een rij opent de factuur', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'ana');
-  await nav(page, 'Inkomend');
+  await nav(page, 'Inkoopfacturen');
   // Fichas, como in de Werklijst; één gekleurde pastilla per rij (de prioriteit).
   const chips = page.getByRole('group', { name: 'Welke facturen' });
   await chips.getByRole('button', { name: /^Vervallen/ }).click();
@@ -422,9 +444,9 @@ test('inkomend en uitgaand: filters, zoeken en een rij opent de factuur', async 
   await expect(page.getByRole('table')).toContainText('J. Voorbeeld Beveiliging (zzp)');
   await expect(page.getByRole('table')).not.toContainText('Proefwacht');
   await page.getByRole('searchbox').fill('');
-  await expectAccessible(page, 'inkomend');
+  await expectAccessible(page, 'inkoopfacturen');
   await capture(page, 'daily-nl-invoices-in');
-  await nav(page, 'Uitgaand');
+  await nav(page, 'Verkoopfacturen');
   await expect(page.getByRole('table')).toContainText('Gemeente Demodorp');
   await expect(page.getByRole('table')).not.toContainText('Proefwacht');
   await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Controle nodig/ }).click();
@@ -433,20 +455,20 @@ test('inkomend en uitgaand: filters, zoeken en een rij opent de factuur', async 
   await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Alle/ }).click();
   await capture(page, 'daily-nl-invoices-out');
   await english(page);
-  await nav(page, 'Out', 'en');
+  await go(page, 'invoices-out', 'en');
   await capture(page, 'daily-en-invoices-out');
-  await nav(page, 'In', 'en');
+  await go(page, 'invoices-in', 'en');
   await capture(page, 'daily-en-invoices-in');
-  await nav(page, 'Work queue', 'en');
+  await go(page, 'work-queue', 'en');
   await capture(page, 'daily-en-work-queue');
   await dutch(page);
   await nav(page, 'Werklijst');
   await capture(page, 'daily-nl-work-queue');
-  // Een rij opent de factuur in een tabblad; terug naar de lijst houdt het filter.
+  // Een rij opent de factuur in haar sectie; terug naar de lijst houdt het filter.
   await page.getByRole('group', { name: 'Toon' }).getByRole('button', { name: /^Urgent/ }).click();
   await page.getByRole('table').getByRole('row').nth(1).getByRole('button').click();
   await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
-  await page.getByRole('tab').first().click();
+  await back(page);
   await expect(page.getByRole('group', { name: 'Toon' }).getByRole('button', { name: /^Urgent/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
@@ -476,6 +498,11 @@ test('de details van een factuur: velden, koppelingen, geschiedenis en het origi
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Origineel downloaden' }).click();
   expect((await download).suggestedFilename()).toBe('DBN-CR-2026-09.pdf');
+  // Het origineel staat ook bovenaan de fiche, zonder iets open te klappen (paso 16, §5: en
+  // tres clics).
+  const again = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Origineel', exact: true }).click();
+  expect((await again).suggestedFilename()).toBe('DBN-CR-2026-09.pdf');
   await english(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Credit note DBN-CR-2026-09' })).toBeVisible();
   await expect(page.getByText('Confirmed', { exact: true })).toBeVisible();

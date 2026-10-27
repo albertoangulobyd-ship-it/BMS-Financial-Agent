@@ -9,7 +9,7 @@ import { HelpTip } from '@/components/help-tip';
 import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { DateText } from '@/components/values';
 import { fmt, useT, type Messages } from '@/i18n';
 import { paths } from '@/lib/api';
@@ -91,7 +91,7 @@ export function VatScreen() {
 
 function VatList({ summary }: { summary: VatSummary }) {
   const { t } = useT();
-  const { openRoute } = useTabs();
+  const { open: openRoute } = useNav();
   const rows = quarterRows(summary);
   const columns: Columns<QuarterRow> = [
     {
@@ -125,7 +125,7 @@ function VatList({ summary }: { summary: VatSummary }) {
         caption={t.nav.vat.description}
         onOpen={(r) => {
           const id = quarterToId(r.etiqueta);
-          if (id) openRoute(recordRoute('vat-quarter', id, 'vat'));
+          if (id) openRoute(recordRoute('vat-quarter', id));
         }}
         openLabel={(r) => fmt(t.common.openRecord, { what: fmt(t.vat.title, { quarter: quarterLabel(r.etiqueta) }) })}
         empty={<EmptyState title={t.empty.nothingHere} text={t.vat.empty} />}

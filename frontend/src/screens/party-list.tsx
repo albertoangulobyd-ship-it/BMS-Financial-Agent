@@ -7,7 +7,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { StatusPill } from '@/components/status-pill';
 import { SearchBox } from '@/components/search-box';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
-import { useTabs } from '@/components/ui/sidebar-with-chrome-like-tabs';
+import { useNav } from '@/shell/navigation';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
@@ -16,7 +16,7 @@ import type { PartyRow } from '@/lib/api-types';
 import { NO_VALUE, formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useTabState } from '@/lib/tab-memory';
+import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { partyWhy } from '@/lib/why';
 import { recordRoute } from './registry';
@@ -24,7 +24,7 @@ import { useLoad } from './use-load';
 
 export type PartyKind = 'provider' | 'client';
 
-export function PartyListScreen({ kind, tabId }: { kind: PartyKind; tabId: string }) {
+export function PartyListScreen({ kind, navKey }: { kind: PartyKind; navKey: string }) {
   const { t } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
@@ -36,7 +36,7 @@ export function PartyListScreen({ kind, tabId }: { kind: PartyKind; tabId: strin
         : session!.api.get<{ clientes: PartyRow[] }>(paths.clients).then((r) => r.clientes),
     [session, version, kind]
   );
-  const [query, setQuery] = useTabState<string>(tabId, `${navId}-query`, '');
+  const [query, setQuery] = useViewState<string>(navKey, `${navId}-query`, '');
   const nav = t.nav[navId];
 
   return (
@@ -65,8 +65,7 @@ function PartyTable({
   caption: string;
 }) {
   const { t, lang } = useT();
-  const { openRoute } = useTabs();
-  const navId = kind === 'provider' ? 'providers' : 'clients';
+  const { open: openRoute } = useNav();
   if (rows.length === 0) {
     return <EmptyState title={t.empty.nothingHere} text={kind === 'provider' ? t.parties.emptyProviders : t.parties.emptyClients} />;
   }
@@ -123,7 +122,7 @@ function PartyTable({
         rows={shown}
         rowKey={(r) => r.id}
         caption={caption}
-        onOpen={(r) => openRoute(recordRoute(kind, r.id, navId))}
+        onOpen={(r) => openRoute(recordRoute(kind, r.id))}
         openLabel={(r) => fmt(t.common.openRecord, { what: `${label} ${r.nombre}` })}
         empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
       />

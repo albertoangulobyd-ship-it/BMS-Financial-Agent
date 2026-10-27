@@ -1,5 +1,5 @@
 {
-  "_note": "Lo que entra en la construccion de la app: la huella de src/bms_agent/web/fuente.json cubre estos ficheros (rutas desde la raiz del repositorio; una carpeta es todo lo que lleva dentro, salvo los nombres que empiezan por punto y lo que acaba en uno de 'exclude'). Lo leen scripts/fuente.mjs, que escribe la huella al construir, y tests/test_app_local.py, que la vuelve a calcular. Los catalogos de textos de Python (src/bms_agent/textos/nl.json y en.json) entran porque la app los importa.",
+  "_note": "Lo que entra en la construccion de la app: la huella de src/bms_agent/web/fuente.json cubre estos ficheros (rutas desde la raiz del repositorio; una carpeta es todo lo que lleva dentro, salvo los nombres que empiezan por punto y lo que acaba en uno de 'exclude'). Lo leen scripts/fuente.mjs, que escribe la huella al construir, y tests/test_app_local.py, que la vuelve a calcular. Los catalogos de textos de Python (src/bms_agent/textos/nl.json, en.json y es.json) entran porque la app los importa.",
   "include": [
     "frontend/index.html",
     "frontend/src",
@@ -12,6 +12,7 @@
     "frontend/components.json",
     "src/bms_agent/textos/nl.json",
     "src/bms_agent/textos/en.json",
+    "src/bms_agent/textos/es.json",
     "frontend/build-inputs.json",
     "frontend/scripts/fuente.mjs",
     "frontend/scripts/tailwind-fuentes.mjs"
