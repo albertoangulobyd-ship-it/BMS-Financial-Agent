@@ -1,12 +1,19 @@
-"""Los textos de la app local en neerlandes y en ingles (paso 15).
+"""Los textos de la app local en neerlandes, en ingles y en castellano (pasos 15 y 16).
 
 La app de la oficina (frontend/) no ensena nunca los textos en espanol que
 devuelve la API (`titulo`, `detalle`, `etiqueta`, `fuente_texto`, `motivos`):
-esos se quedan para la CLI y la auditoria. Lo que ensena sale de dos
-catalogos, nl.json y en.json, con las mismas claves: de cada regla, su
-titulo, lo que significa, lo que hay que hacer y una plantilla para su
+esos se quedan para la CLI y la auditoria. Lo que ensena sale de tres
+catalogos, nl.json, en.json y es.json, con las mismas claves: de cada regla,
+su titulo, lo que significa, lo que hay que hacer y una plantilla para su
 detalle; de cada categoria, campo, fuente, estado, prioridad, accion, rol y
 permiso, su nombre.
+
+El castellano de es.json (paso 16) tampoco es el de la API: la API habla
+para quien mantiene el sistema (claves, reglas, codigos); el catalogo habla
+para la oficina, con las mismas frases cortas que los otros dos idiomas, y
+el detalle sale de la misma plantilla y de los mismos valores. Asi una
+persona que cambia de idioma ve lo mismo dicho de otra manera, nunca dos
+textos que se escribieron por separado.
 
 El detalle de un hallazgo no se traduce del espanol: se escribe otra vez
 desde sus `valores` (los mismos enteros y textos que la regla comparo y que
@@ -30,7 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-IDIOMAS = ("nl", "en")
+IDIOMAS = ("nl", "en", "es")
 CARPETA = Path(__file__).resolve().parent
 
 # Lo que se pinta donde no hay nada: la raya. Un hueco en blanco se leeria como
@@ -70,7 +77,7 @@ class Pintado:
 
 @lru_cache(maxsize=len(IDIOMAS))
 def catalogo(idioma: str) -> dict[str, Any]:
-    """El catalogo de un idioma (nl o en), leido una vez."""
+    """El catalogo de un idioma (nl, en o es), leido una vez."""
     if idioma not in IDIOMAS:
         raise ValueError(f"idioma {idioma!r}: solo {', '.join(IDIOMAS)}")
     return json.loads((CARPETA / f"{idioma}.json").read_text(encoding="utf-8"))
@@ -164,7 +171,11 @@ def fecha(iso: str) -> str:
 
 def trimestre(etiqueta: str) -> str:
     """'2026-T3' (la etiqueta del BTW en la API, en espanol) es 'Q3 2026', que se lee igual en
-    neerlandes y en ingles; otra cosa, tal cual."""
+    neerlandes y en ingles; otra cosa, tal cual.
+
+    En castellano tambien es 'Q3 2026', no 'T3 2026': es como lo escriben el
+    Belastingdienst y Exact, que es lo que la oficina tiene delante, y asi un
+    formato no depende del idioma (ninguno depende: la app tampoco)."""
     partes = _TRIMESTRE.fullmatch(etiqueta)
     if partes is None:
         return etiqueta

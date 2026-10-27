@@ -1,11 +1,12 @@
-"""Escribe src/bms_agent/textos/casos.json: los casos de referencia de los textos NL/EN.
+"""Escribe src/bms_agent/textos/casos.json: los casos de referencia de los textos NL/EN/ES.
 
-La app (frontend/) escribe el detalle de cada hallazgo en neerlandes o en
-ingles desde sus `valores`, con las plantillas de nl.json y en.json y un
-renderizador propio en TypeScript. Para que diga lo mismo que la referencia
-en Python (bms_agent.textos), los dos se prueban contra este fichero: cada
-caso trae la plantilla (o la regla y su resultado), los valores y el texto que
-tiene que salir en cada idioma.
+La app (frontend/) escribe el detalle de cada hallazgo en neerlandes, en
+ingles o en castellano desde sus `valores`, con las plantillas de nl.json,
+en.json y es.json y un renderizador propio en TypeScript. Para que diga lo
+mismo que la referencia en Python (bms_agent.textos), los dos se prueban
+contra este fichero: cada caso trae la plantilla (o la regla y su resultado),
+los valores y el texto que tiene que salir en cada idioma (una clave por
+idioma de textos.IDIOMAS: un idioma nuevo entra solo al regenerar).
 
 De donde salen los casos de las reglas:
 
@@ -845,14 +846,22 @@ def _canonico(valores: Any) -> str:
     return json.dumps(valores, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
+def _iguales(pintados: dict[str, textos.Pintado], que: str) -> list[str]:
+    """Lo que falta, que tiene que ser lo mismo en todos los idiomas: las plantillas de una
+    regla piden las mismas claves en neerlandes, en ingles y en castellano."""
+    faltan = {idioma: p.faltan for idioma, p in pintados.items()}
+    if len(set(faltan.values())) != 1:
+        raise ValueError(f"{que}: los idiomas no piden lo mismo ({faltan})")
+    return list(next(iter(faltan.values())))
+
+
 def _pintado(regla: str, resultado: str, valores: dict[str, Any]) -> dict[str, Any]:
     variantes = textos.catalogo("nl")["reglas"][regla]["detalle"][resultado]
     variante, _ = textos.elegir(variantes, valores)
-    nl, en = (textos.detalle(regla, resultado, valores, i) for i in textos.IDIOMAS)
-    if nl.faltan != en.faltan:
-        raise ValueError(f"{regla} {resultado}: nl y en no piden lo mismo ({nl.faltan}, "
-                         f"{en.faltan})")
-    return {"variante": variante, "nl": nl.texto, "en": en.texto, "faltan": list(nl.faltan)}
+    pintados = {i: textos.detalle(regla, resultado, valores, i) for i in textos.IDIOMAS}
+    faltan = _iguales(pintados, f"{regla} {resultado}")
+    return {"variante": variante, **{i: p.texto for i, p in pintados.items()},
+            "faltan": faltan}
 
 
 def _detalles(fuentes: dict[str, list[tuple[str, str, dict[str, Any]]]]) -> list[dict]:
@@ -895,11 +904,10 @@ def _detalles(fuentes: dict[str, list[tuple[str, str, dict[str, Any]]]]) -> list
 def _plantillas() -> list[dict[str, Any]]:
     salida = []
     for plantilla, valores in PLANTILLAS:
-        nl, en = (textos.pintar(plantilla, valores, i) for i in textos.IDIOMAS)
-        if nl.faltan != en.faltan:
-            raise ValueError(f"{plantilla!r}: nl y en no piden lo mismo")
-        salida.append({"plantilla": plantilla, "valores": valores, "nl": nl.texto,
-                       "en": en.texto, "faltan": list(nl.faltan)})
+        pintados = {i: textos.pintar(plantilla, valores, i) for i in textos.IDIOMAS}
+        faltan = _iguales(pintados, repr(plantilla))
+        salida.append({"plantilla": plantilla, "valores": valores,
+                       **{i: p.texto for i, p in pintados.items()}, "faltan": faltan})
     return salida
 
 

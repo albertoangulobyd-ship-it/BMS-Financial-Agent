@@ -1,13 +1,16 @@
-"""Los textos de la app en neerlandes e ingles (paso 15): catalogos, plantillas, casos y API.
+"""Los textos de la app en neerlandes, ingles y castellano (pasos 15 y 16): catalogos,
+plantillas, casos y API.
 
 La app de la oficina no ensena nunca los textos en espanol de la API: escribe
 cada detalle desde los `valores` de su hallazgo con las plantillas de
 src/bms_agent/textos/. Aqui se comprueba:
 
-- que los dos catalogos tienen las mismas claves, que no hay ningun texto
-  vacio ni restos de espanol, y que cubren todo lo que la API devuelve: cada
-  regla del catalogo, cada accion, cada categoria, cada fuente, cada estado,
-  cada campo, cada rol y cada permiso;
+- que los tres catalogos tienen las mismas claves, las mismas condiciones y
+  los mismos marcadores en cada texto, que no hay ningun texto vacio ni restos
+  de espanol en nl y en (lo contrario, que no quede neerlandes ni ingles en
+  es, esta en test_textos_es.py), y que cubren todo lo que la API devuelve:
+  cada regla del catalogo, cada accion, cada categoria, cada fuente, cada
+  estado, cada campo, cada rol y cada permiso;
 - que cada plantilla esta bien escrita y solo pide claves que su regla da (en
   los casos de verdad y, donde se puede, leyendo el codigo de la regla);
 - el renderizador: formatos, claves que faltan, negativos, unicode, variantes;
@@ -34,8 +37,8 @@ from bms_agent.reglas.catalogo import CATALOGO
 
 RAIZ = Path(__file__).resolve().parent.parent
 REGLAS = RAIZ / "src" / "bms_agent" / "reglas"
-NL, EN = textos.catalogo("nl"), textos.catalogo("en")
-CATALOGOS = {"nl": NL, "en": EN}
+NL, EN, ES = textos.catalogo("nl"), textos.catalogo("en"), textos.catalogo("es")
+CATALOGOS = {"nl": NL, "en": EN, "es": ES}
 
 
 def _hojas(valor: Any, camino: str = "") -> Iterator[tuple[str, Any]]:
@@ -63,7 +66,7 @@ def _plantillas(catalogo: dict[str, Any]) -> Iterator[tuple[str, str, str, list[
                     yield regla, resultado, variante["texto"], variante["cuando"]
 
 
-# ============================================================ los dos catalogos
+# ============================================================ los tres catalogos
 
 def _forma(valor: Any) -> Any:
     """La estructura de un catalogo sin sus textos: las claves, las listas y las condiciones."""
@@ -75,9 +78,42 @@ def _forma(valor: Any) -> Any:
     return type(valor).__name__
 
 
-def test_neerlandes_e_ingles_tienen_las_mismas_claves_y_condiciones() -> None:
-    assert NL["idioma"] == "nl" and EN["idioma"] == "en"
-    assert _forma(NL) == _forma(EN)
+def test_los_idiomas_son_los_tres_catalogos() -> None:
+    assert textos.IDIOMAS == ("nl", "en", "es")
+    assert set(CATALOGOS) == set(textos.IDIOMAS)
+    for idioma, catalogo in CATALOGOS.items():
+        assert catalogo["idioma"] == idioma
+    ficheros = {f.stem for f in textos.CARPETA.glob("*.json")} - {"casos"}
+    assert ficheros == set(textos.IDIOMAS)
+
+
+def test_los_tres_tienen_las_mismas_claves_y_condiciones() -> None:
+    """Las mismas claves en el mismo orden, y las mismas condiciones en cada variante: una
+    variante que solo existe en un idioma diria cosas distintas segun quien mire."""
+    assert _forma(NL) == _forma(EN) == _forma(ES)
+
+
+def _marcadores(texto: str) -> list[str]:
+    return sorted(m.group(0) for m in _TROZO.finditer(texto) if m.group(0) not in ("{{", "}}"))
+
+
+def test_los_tres_piden_los_mismos_marcadores_en_cada_texto() -> None:
+    """Cada texto lleva en los tres idiomas los mismos marcadores con los mismos filtros (el
+    orden puede cambiar con la frase): un importe que falta en un idioma es un dato que esa
+    persona no ve."""
+    hojas = {idioma: dict(_hojas(c)) for idioma, c in CATALOGOS.items()}
+    for camino, valor in hojas["nl"].items():
+        if camino.endswith("cuando") or camino == "idioma":
+            continue
+        esperado = _marcadores(valor)
+        for idioma in ("en", "es"):
+            assert _marcadores(hojas[idioma][camino]) == esperado, (idioma, camino)
+
+
+def test_la_comprobacion_de_marcadores_ve_uno_que_falta() -> None:
+    assert _marcadores("{a|dinero} y {b}") != _marcadores("{a} en {b}")
+    assert _marcadores("{b} y {a|dinero}") == _marcadores("{a|dinero} en {b}")
+    assert _marcadores("{{literal}} {x}") == ["{x}"]
 
 
 def test_ningun_texto_vacio_y_todos_son_texto() -> None:
@@ -89,17 +125,22 @@ def test_ningun_texto_vacio_y_todos_son_texto() -> None:
             assert isinstance(valor, str) and valor.strip() == valor and valor, (idioma, camino)
 
 
-# Palabras que solo salen en espanol: un texto del catalogo que las lleva se quedo sin
-# traducir. Sin las que tambien son neerlandesas ("los", "las", "de", "en").
+# Palabras que solo salen en espanol: un texto de nl o en que las lleva se quedo sin
+# traducir. Sin las que tambien son neerlandesas o inglesas ("los", "las", "de", "en",
+# "nota", "is", "no").
 _ESPANOL = re.compile(
     r"\b(factura|facturas|proveedor|proveedores|cliente|clientes|importe|según|también|"
     r"está|línea|líneas|regla|reglas|hallazgo|excepción|cuenta|pagado|pagada|vencida|"
     r"periodo|trimestre|iva|anulada|ninguna|ningún|fecha|maestro|objeto|pendiente|"
-    r"revisada|objeción|del|una|para|que|el|sin|cuando|valores)\b", re.IGNORECASE)
+    r"revisada|objeción|del|una|para|que|el|sin|cuando|valores|datos|número|turno|tarifa|"
+    r"planificación|declaración|desglose|abonada|pedido|todavía|después)\b", re.IGNORECASE)
 
 
 def test_no_quedan_textos_en_espanol() -> None:
-    for idioma, catalogo in CATALOGOS.items():
+    """En nl y en: el castellano de es.json no se cuela (lo contrario esta en
+    test_textos_es.py)."""
+    for idioma in ("nl", "en"):
+        catalogo = CATALOGOS[idioma]
         for camino, valor in _hojas(catalogo):
             if camino.endswith("cuando") or not isinstance(valor, str):
                 continue
@@ -223,8 +264,8 @@ def test_las_acciones_que_mueven_dinero_piden_confirmacion() -> None:
     for idioma, catalogo in CATALOGOS.items():
         for nombre, texto in catalogo["acciones"].items():
             etiqueta = texto["etiqueta"].lower()
-            assert not re.search(r"goedkeur|approve|\bbetalen\b|\bpay\b|indienen|\bfile\b",
-                                 etiqueta), (idioma, nombre)
+            assert not re.search(r"goedkeur|approve|\bbetalen\b|\bpay\b|indienen|\bfile\b|"
+                                 r"aprob|\bpagar\b|\bpresentar\b", etiqueta), (idioma, nombre)
 
 
 _TABLAS_CAMPOS = ("factura", "factura_linea", "factura_imputacion", "proveedor", "cliente",
@@ -240,9 +281,12 @@ def test_cada_campo_que_devuelve_la_api_tiene_su_nombre() -> None:
 def test_el_veredicto_no_aprueba_nada() -> None:
     for idioma, catalogo in CATALOGOS.items():
         for clave, texto in catalogo["veredicto"].items():
-            assert not re.search(r"goedgekeurd|approved", texto, re.IGNORECASE), (idioma, clave)
+            assert not re.search(r"goedgekeurd|approved|aprobad", texto, re.IGNORECASE), (
+                idioma, clave)
     assert textos.renderizar(NL["veredicto"]["limpia_sin_datos"], {"sin_datos": 2}, "nl") == (
         "Geen bezwaren in wat is gecontroleerd; controles zonder gegevens: 2")
+    assert textos.renderizar(ES["veredicto"]["limpia_sin_datos"], {"sin_datos": 2}, "es") == (
+        "Sin objeciones en lo que se ha comprobado; controles sin datos: 2")
 
 
 # ============================================================ las plantillas
@@ -361,13 +405,20 @@ def test_variantes_y_partes() -> None:
                           "nl").texto.startswith("Binnengekomen nadat de btw-aangifte voor Q3 2026")
     assert textos.cumple("!x", {"x": []}) and not textos.cumple("x", {"x": None})
     assert textos.cumple("pasado=true", {"pasado": True})
+    assert textos.detalle("A2", "fallo", valores, "es").texto == (
+        "Número de BTW en la factura: NL001234567B02; en los datos maestros: NL001234567B01. "
+        "Número de KvK en la factura: 1; en los datos maestros: 2.")
+    assert textos.detalle("C4", "fallo", {"trimestre": "2026-T3", "motivo": "tarde"},
+                          "es").texto.startswith(
+        "Llegó después de presentar la declaración de BTW de Q3 2026")
 
 
 def test_un_idioma_que_no_existe() -> None:
-    with pytest.raises(ValueError):
-        textos.catalogo("es")
-    with pytest.raises(ValueError):
-        textos.pintar("{x}", {"x": 1}, "es")
+    for idioma in ("de", "ES", "es-ES", ""):
+        with pytest.raises(ValueError):
+            textos.catalogo(idioma)
+        with pytest.raises(ValueError):
+            textos.pintar("{x}", {"x": 1}, idioma)
 
 
 # ============================================================ los casos
@@ -384,6 +435,12 @@ def test_el_renderizador_da_lo_que_dicen_los_casos() -> None:
     """Lo que prueba la app en TypeScript, con la referencia en Python."""
     casos = textos.casos()
     assert casos["version"] == 1 and casos["plantillas"] and casos["detalles"]
+    # Cada caso trae el texto de cada idioma, y nada mas: la app (TypeScript) prueba los tres.
+    for caso in casos["plantillas"]:
+        assert set(caso) == {"plantilla", "valores", "faltan", *textos.IDIOMAS}, caso
+    for caso in casos["detalles"]:
+        assert set(caso) == {"origen", "regla", "resultado", "valores", "variante", "faltan",
+                             *textos.IDIOMAS}, caso
     for caso in casos["plantillas"]:
         for idioma in textos.IDIOMAS:
             pintado = textos.pintar(caso["plantilla"], caso["valores"], idioma)
@@ -469,6 +526,8 @@ def test_cada_hallazgo_de_la_ficha_trae_sus_valores_y_su_resultado(demo_conn) ->
     assert f3["valores"] == {"iban": "NL37DEMO0009990301", "registrada": False}
     assert textos.detalle("F3", "fallo", f3["valores"], "nl").texto == (
         "NL37 DEMO 0009 9903 01 is nieuw voor deze leverancier.")
+    assert textos.detalle("F3", "fallo", f3["valores"], "es").texto == (
+        "El IBAN NL37 DEMO 0009 9903 01 es nuevo para este proveedor.")
     # Lo que no se pudo mirar va aparte, con sus valores.
     for regla in ficha["reglas_sin_datos"]:
         assert regla["resultado"] == "sin_datos" and isinstance(regla["valores"], dict)
@@ -513,6 +572,8 @@ def test_desde_otro_origen_los_iban_de_los_valores_salen_enmascarados(demo_conn)
     # El texto que escribe la app con un IBAN enmascarado no se inventa cifras.
     assert textos.detalle("F3", "fallo", f3["valores"], "en").texto == (
         "NL..0301 is new for this provider.")
+    assert textos.detalle("F3", "fallo", f3["valores"], "es").texto == (
+        "El IBAN NL..0301 es nuevo para este proveedor.")
     # El export entero tampoco lleva ninguno, ni en las razones de las listas.
     datos = consultas.exportar_v2(demo_conn)
     assert consultas.comprobar_v2(datos) == []

@@ -1,19 +1,29 @@
-# Los textos de la app (neerlandés e inglés)
+# Los textos de la app (neerlandés, inglés y castellano)
 
-La app local de la oficina (`frontend/`, paso 15) habla neerlandés e inglés, y
+La app local de la oficina (`frontend/`, pasos 15 y 16) habla neerlandés,
+inglés y castellano (cada persona elige el suyo; por defecto, neerlandés), y
 nunca enseña los textos en español que también devuelve la API (`titulo`,
 `detalle`, `etiqueta`, `fuente_texto`, `nota`, `motivos`): esos se quedan para
 la CLI y la auditoría. Lo que enseña sale de esta carpeta:
 
 | Fichero | Qué es |
 | --- | --- |
-| `nl.json`, `en.json` | Los dos catálogos, con **las mismas claves** (lo comprueba `tests/test_textos.py`). Las claves están en español, como en el código; los valores, en el idioma del fichero |
+| `nl.json`, `en.json`, `es.json` | Los tres catálogos, con **las mismas claves, las mismas condiciones y los mismos marcadores** en cada texto (lo comprueba `tests/test_textos.py`). Las claves están en español, como en el código; los valores, en el idioma del fichero |
 | `casos.json` | Los casos de referencia del renderizador: lo escribe `scripts/generar_casos_textos.py` y no se edita a mano |
 | `__init__.py` | El renderizador de referencia en Python (`bms_agent.textos`) |
 
-La app importa los dos catálogos y `casos.json` al compilarse (`npm run
+La app importa los catálogos y `casos.json` al compilarse (`npm run
 build`): si se cambia un texto hay que volver a compilarla (`frontend/`,
-`fuente.json` lo vigila) y regenerar los casos.
+`fuente.json` lo vigila: cada catálogo que la app importa tiene que estar en
+`frontend/build-inputs.json`) y regenerar los casos.
+
+### El castellano no es el de la API
+
+`es.json` (paso 16) no copia las frases en español de la API. Esas hablan
+para quien mantiene el sistema (claves, reglas, códigos); el catálogo habla
+para la oficina, con las mismas frases cortas que los otros dos idiomas, y el
+detalle de un hallazgo sale de la misma plantilla y de los mismos `valores`.
+Así, quien cambia de idioma ve lo mismo dicho de otra manera.
 
 ## Qué hay en un catálogo
 
@@ -97,14 +107,15 @@ literales y una llave suelta se deja tal cual.
 - **una lista** se escribe elemento a elemento con el formato y separada por
   `, ` (`{tipos|pct}` con `[900, 2100]` es `9%, 21%`).
 - un **objeto** no se escribe: raya, y se apunta.
-- `true`/`false` se escriben `ja`/`nee` o `yes`/`no` (`comun.si`, `comun.no`).
+- `true`/`false` se escriben `ja`/`nee`, `yes`/`no` o `sí`/`no` (`comun.si`,
+  `comun.no`).
 
 Los **formatos** escriben un valor; van al final:
 
 | Filtro | De | Escribe |
 | --- | --- | --- |
 | (ninguno) o `texto` | lo que sea | el texto tal cual; un entero, sus cifras (`2026`) |
-| `dinero` | céntimos (`_cent`), entero | `€ 1.234,56`, `€ -1.234,56` (formato neerlandés en los dos idiomas) |
+| `dinero` | céntimos (`_cent`), entero | `€ 1.234,56`, `€ -1.234,56` (formato neerlandés en los tres idiomas) |
 | `tarifa` | diezmilésimas de euro (`_e4`) | `€ 42,50`; con más decimales, hasta cuatro: `€ 42,505` |
 | `horas` | milésimas (`_mil`, de hora o de una cantidad) | `37,5`, `8`, `1.234,25`: sin ceros de más |
 | `pct` | puntos básicos (`_pb`) | `21%`, `85,99%` |
@@ -148,19 +159,19 @@ devuelve lo mismo.
 ```
 {
   "version": 1, "nota": "...", "instante": "2026-10-16T08:00:00+00:00",
-  "plantillas": [ {"plantilla", "valores", "nl", "en", "faltan"} ],
-  "detalles":   [ {"origen", "regla", "resultado", "valores", "variante", "nl", "en", "faltan"} ]
+  "plantillas": [ {"plantilla", "valores", "nl", "en", "es", "faltan"} ],
+  "detalles":   [ {"origen", "regla", "resultado", "valores", "variante", "nl", "en", "es", "faltan"} ]
 }
 ```
 
 - `plantillas`: los bordes del lenguaje (formatos, negativos, unicode, claves
   que faltan, llaves literales). `pintar(plantilla, valores, idioma)` tiene
-  que dar `nl` (o `en`) y `faltan`.
+  que dar `nl` (o `en`, o `es`) y `faltan`.
 - `detalles`: hallazgos de verdad (`origen` `demo` o `fixtures_v1`: las reglas
   sobre la base de prueba hecha con un reloj fijo y sobre las fixtures v1) y,
   para cada variante que esos datos no alcanzan, un ejemplo con la forma que
   dan las reglas en los tests (`origen` `ejemplo`). `detalle(regla, resultado,
-  valores, idioma)` tiene que elegir `variante` y dar `nl` (o `en`), sin nada
+  valores, idioma)` tiene que elegir `variante` y dar `nl` (o `en`, o `es`), sin nada
   en `faltan`. Cada variante de cada plantilla tiene al menos un caso.
 
 Para regenerarlo, desde la raíz del repositorio:
@@ -175,16 +186,41 @@ Si el generador se queja de una variante sin caso, falta un ejemplo en
 
 ## Cómo se añade o se cambia un texto
 
-1. Cambia el valor en `nl.json` **y** en `en.json` (las dos claves, siempre).
-   Una regla nueva del catálogo necesita sus textos en los dos: el test falla
-   si falta uno.
+1. Cambia el valor en `nl.json`, en `en.json` **y** en `es.json` (las tres
+   claves, siempre). Una regla nueva del catálogo necesita sus textos en los
+   tres: el test falla si falta uno, si una variante o una condición solo
+   está en uno, o si un texto lleva en un idioma un marcador (o un filtro)
+   que no lleva en otro. El orden de los marcadores sí puede cambiar con la
+   frase.
 2. Una plantilla solo usa claves que su regla da en `valores` (míralo en el
    código de la regla) con el filtro de su unidad (`_cent` → `dinero`, `_mil`
    → `horas`, `_pb` → `pct`, `_e4` → `tarifa`).
 3. `python scripts/generar_casos_textos.py` y `python -m pytest
-   tests/test_textos.py`.
+   tests/test_textos.py tests/test_textos_es.py`.
 4. Vuelve a compilar la app (`cd frontend; npm run build`).
 
 El neerlandés tiene que leerse como lo escribiría un administrativo
 neerlandés: frases cortas, sin jerga, `btw` en minúsculas, `factuurregel` para
 una línea (una `regel` a secas es ambigua) y `controle` para una regla.
+
+El castellano, como lo leería cualquier administrativo hispanohablante, sin
+regionalismos (`archivo`, no `fichero`; nada de `vosotros`), tuteando como el
+resto del programa (`Comprueba el original`) y siempre con tildes. Las
+etiquetas de las acciones van en infinitivo (`Anotar pago`) y su descripción
+en imperativo (`Anota que una factura se pagó...`). Se dejan tal cual los
+términos de BMS: `zzp'er`, `BTW` (en mayúsculas y siempre BTW, nunca IVA,
+para no hacer pensar en dos impuestos), `Object` (`el Object`, `los
+Objects`), `PO` (`la PO`), `Exact`, `TRNSPRNT`, `IBAN`, `KvK` y `KOR`. El
+resto, en castellano llano: `datos maestros` (stamgegevens), `hallazgo`
+(bevinding), `control` (controle), `excepción`, `nota de crédito`,
+`autoliquidación` (BTW verlegd), `planificación` (el planning de TRNSPRNT),
+`casar` un movimiento con una factura, `retener` y `bloquear`. Los formatos
+no cambian con el idioma: el importe va en formato neerlandés con el euro
+delante y el trimestre es `Q3 2026` en los tres, como en el Belastingdienst
+y en Exact.
+
+`tests/test_textos_es.py` comprueba que en `es.json` no queda ninguna
+palabra que solo existe en neerlandés o en inglés, que ningún texto es igual
+al inglés salvo esos términos, las tildes de las palabras que siempre las
+llevan y que el impuesto se llama siempre BTW; `tests/test_textos.py`, que en
+`nl.json` y en `en.json` no se cuela el castellano.

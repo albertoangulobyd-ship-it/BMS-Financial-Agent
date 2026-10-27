@@ -10,6 +10,7 @@
    },
    "nl": "€ 0,00",
    "en": "€ 0,00",
+   "es": "€ 0,00",
    "faltan": []
   },
   {
@@ -19,6 +20,7 @@
    },
    "nl": "€ 0,05",
    "en": "€ 0,05",
+   "es": "€ 0,05",
    "faltan": []
   },
   {
@@ -28,6 +30,7 @@
    },
    "nl": "€ -0,05",
    "en": "€ -0,05",
+   "es": "€ -0,05",
    "faltan": []
   },
   {
@@ -37,6 +40,7 @@
    },
    "nl": "€ 1.234,56",
    "en": "€ 1.234,56",
+   "es": "€ 1.234,56",
    "faltan": []
   },
   {
@@ -46,6 +50,7 @@
    },
    "nl": "€ -1.234,56",
    "en": "€ -1.234,56",
+   "es": "€ -1.234,56",
    "faltan": []
   },
   {
@@ -55,6 +60,7 @@
    },
    "nl": "€ 1.234.567.890,12",
    "en": "€ 1.234.567.890,12",
+   "es": "€ 1.234.567.890,12",
    "faltan": []
   },
   {
@@ -64,6 +70,7 @@
    },
    "nl": "€ 1.813,50",
    "en": "€ 1.813,50",
+   "es": "€ 1.813,50",
    "faltan": []
   },
   {
@@ -73,6 +80,7 @@
    },
    "nl": "€ 906,76",
    "en": "€ 906,76",
+   "es": "€ 906,76",
    "faltan": []
   },
   {
@@ -82,6 +90,7 @@
    },
    "nl": "€ -0,06",
    "en": "€ -0,06",
+   "es": "€ -0,06",
    "faltan": []
   },
   {
@@ -91,6 +100,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": []
   },
   {
@@ -100,6 +110,7 @@
    },
    "nl": "geen bedrag",
    "en": "geen bedrag",
+   "es": "geen bedrag",
    "faltan": []
   },
   {
@@ -109,6 +120,7 @@
    },
    "nl": "€ 42,50",
    "en": "€ 42,50",
+   "es": "€ 42,50",
    "faltan": []
   },
   {
@@ -118,6 +130,7 @@
    },
    "nl": "€ 42,505",
    "en": "€ 42,505",
+   "es": "€ 42,505",
    "faltan": []
   },
   {
@@ -127,6 +140,7 @@
    },
    "nl": "€ 1.234,5678",
    "en": "€ 1.234,5678",
+   "es": "€ 1.234,5678",
    "faltan": []
   },
   {
@@ -136,6 +150,7 @@
    },
    "nl": "€ -0,425",
    "en": "€ -0,425",
+   "es": "€ -0,425",
    "faltan": []
   },
   {
@@ -145,6 +160,7 @@
    },
    "nl": "0",
    "en": "0",
+   "es": "0",
    "faltan": []
   },
   {
@@ -154,6 +170,7 @@
    },
    "nl": "8",
    "en": "8",
+   "es": "8",
    "faltan": []
   },
   {
@@ -163,6 +180,7 @@
    },
    "nl": "37,5",
    "en": "37,5",
+   "es": "37,5",
    "faltan": []
   },
   {
@@ -172,6 +190,7 @@
    },
    "nl": "0,25",
    "en": "0,25",
+   "es": "0,25",
    "faltan": []
   },
   {
@@ -181,6 +200,7 @@
    },
    "nl": "0,001",
    "en": "0,001",
+   "es": "0,001",
    "faltan": []
   },
   {
@@ -190,6 +210,7 @@
    },
    "nl": "1.234,5",
    "en": "1.234,5",
+   "es": "1.234,5",
    "faltan": []
   },
   {
@@ -199,6 +220,7 @@
    },
    "nl": "-2,5",
    "en": "-2,5",
+   "es": "-2,5",
    "faltan": []
   },
   {
@@ -208,6 +230,7 @@
    },
    "nl": "21%",
    "en": "21%",
+   "es": "21%",
    "faltan": []
   },
   {
@@ -217,6 +240,7 @@
    },
    "nl": "8,25%",
    "en": "8,25%",
+   "es": "8,25%",
    "faltan": []
   },
   {
@@ -226,6 +250,7 @@
    },
    "nl": "85,99%",
    "en": "85,99%",
+   "es": "85,99%",
    "faltan": []
   },
   {
@@ -235,6 +260,7 @@
    },
    "nl": "0,05%",
    "en": "0,05%",
+   "es": "0,05%",
    "faltan": []
   },
   {
@@ -244,6 +270,7 @@
    },
    "nl": "-0,5%",
    "en": "-0,5%",
+   "es": "-0,5%",
    "faltan": []
   },
   {
@@ -256,6 +283,7 @@
    },
    "nl": "9%, 21%",
    "en": "9%, 21%",
+   "es": "9%, 21%",
    "faltan": []
   },
   {
@@ -265,6 +293,7 @@
    },
    "nl": "16-10-2026",
    "en": "16-10-2026",
+   "es": "16-10-2026",
    "faltan": []
   },
   {
@@ -274,6 +303,7 @@
    },
    "nl": "16-10-2026",
    "en": "16-10-2026",
+   "es": "16-10-2026",
    "faltan": []
   },
   {
@@ -283,6 +313,7 @@
    },
    "nl": "16-10-2026",
    "en": "16-10-2026",
+   "es": "16-10-2026",
    "faltan": []
   },
   {
@@ -292,6 +323,7 @@
    },
    "nl": "Q3 2026",
    "en": "Q3 2026",
+   "es": "Q3 2026",
    "faltan": []
   },
   {
@@ -301,6 +333,7 @@
    },
    "nl": "2026-Q3",
    "en": "2026-Q3",
+   "es": "2026-Q3",
    "faltan": []
   },
   {
@@ -310,6 +343,7 @@
    },
    "nl": "NL91 ABNA 0417 1643 00",
    "en": "NL91 ABNA 0417 1643 00",
+   "es": "NL91 ABNA 0417 1643 00",
    "faltan": []
   },
   {
@@ -319,6 +353,7 @@
    },
    "nl": "NL91 ABNA 0417 1643 00",
    "en": "NL91 ABNA 0417 1643 00",
+   "es": "NL91 ABNA 0417 1643 00",
    "faltan": []
   },
   {
@@ -328,6 +363,7 @@
    },
    "nl": "NL..4300",
    "en": "NL..4300",
+   "es": "NL..4300",
    "faltan": []
   },
   {
@@ -340,6 +376,7 @@
    },
    "nl": "DE89 3704 0044 0532 0130 00, NL91 ABNA 0417 1643 00",
    "en": "DE89 3704 0044 0532 0130 00, NL91 ABNA 0417 1643 00",
+   "es": "DE89 3704 0044 0532 0130 00, NL91 ABNA 0417 1643 00",
    "faltan": []
   },
   {
@@ -349,6 +386,7 @@
    },
    "nl": "btw verlegd",
    "en": "reverse-charged VAT",
+   "es": "autoliquidación del BTW",
    "faltan": []
   },
   {
@@ -361,6 +399,7 @@
    },
    "nl": "de KOR (geen btw), vrijstelling",
    "en": "the KOR (no VAT), exemption",
+   "es": "la KOR (sin BTW), exención",
    "faltan": []
   },
   {
@@ -370,6 +409,7 @@
    },
    "nl": "geen_code",
    "en": "geen_code",
+   "es": "geen_code",
    "faltan": [
     "codigo:geen_code"
    ]
@@ -381,6 +421,7 @@
    },
    "nl": "ja",
    "en": "yes",
+   "es": "sí",
    "faltan": []
   },
   {
@@ -390,6 +431,7 @@
    },
    "nl": "nee",
    "en": "no",
+   "es": "no",
    "faltan": []
   },
   {
@@ -399,6 +441,7 @@
    },
    "nl": "2026",
    "en": "2026",
+   "es": "2026",
    "faltan": []
   },
   {
@@ -408,6 +451,7 @@
    },
    "nl": "-3",
    "en": "-3",
+   "es": "-3",
    "faltan": []
   },
   {
@@ -417,6 +461,7 @@
    },
    "nl": "Öztürk Élan Bouw — 北京 & <b>",
    "en": "Öztürk Élan Bouw — 北京 & <b>",
+   "es": "Öztürk Élan Bouw — 北京 & <b>",
    "faltan": []
   },
   {
@@ -430,6 +475,7 @@
    },
    "nl": "a, b, c",
    "en": "a, b, c",
+   "es": "a, b, c",
    "faltan": []
   },
   {
@@ -439,6 +485,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": []
   },
   {
@@ -448,6 +495,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": []
   },
   {
@@ -459,6 +507,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": [
     "x"
    ]
@@ -468,6 +517,7 @@
    "valores": {},
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": [
     "falta"
    ]
@@ -487,6 +537,7 @@
    },
    "nl": "2 — d",
    "en": "2 — d",
+   "es": "2 — d",
    "faltan": [
     "a.5"
    ]
@@ -501,6 +552,7 @@
    },
    "nl": "€ 3,50",
    "en": "€ 3,50",
+   "es": "€ 3,50",
    "faltan": []
   },
   {
@@ -513,6 +565,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": []
   },
   {
@@ -522,6 +575,7 @@
    },
    "nl": "€ 0,00",
    "en": "€ 0,00",
+   "es": "€ 0,00",
    "faltan": []
   },
   {
@@ -535,6 +589,7 @@
    },
    "nl": "3",
    "en": "3",
+   "es": "3",
    "faltan": []
   },
   {
@@ -547,6 +602,7 @@
    },
    "nl": "2",
    "en": "2",
+   "es": "2",
    "faltan": []
   },
   {
@@ -556,6 +612,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": []
   },
   {
@@ -565,6 +622,7 @@
    },
    "nl": "€ 5,00",
    "en": "€ 5,00",
+   "es": "€ 5,00",
    "faltan": []
   },
   {
@@ -577,6 +635,7 @@
    },
    "nl": "€ 1,00, € 2,00",
    "en": "€ 1,00, € 2,00",
+   "es": "€ 1,00, € 2,00",
    "faltan": []
   },
   {
@@ -586,6 +645,7 @@
    },
    "nl": "{literal} 1 } {",
    "en": "{literal} 1 } {",
+   "es": "{literal} 1 } {",
    "faltan": []
   },
   {
@@ -595,6 +655,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": [
     "filtro:raro"
    ]
@@ -606,6 +667,7 @@
    },
    "nl": "—",
    "en": "—",
+   "es": "—",
    "faltan": [
     "filtro:dinero"
    ]
@@ -615,6 +677,7 @@
    "valores": {},
    "nl": "Geen marker, wel { een } losse accolade",
    "en": "Geen marker, wel { een } losse accolade",
+   "es": "Geen marker, wel { een } losse accolade",
    "faltan": []
   },
   {
@@ -624,6 +687,7 @@
    },
    "nl": "100 en € 1,00 en —",
    "en": "100 en € 1,00 en —",
+   "es": "100 en € 1,00 en —",
    "faltan": [
     "y"
    ]
@@ -643,6 +707,7 @@
    "variante": 0,
    "nl": "Ontbreekt op het document: periode.",
    "en": "Missing on the document: period.",
+   "es": "Falta en el documento: periodo.",
    "faltan": []
   },
   {
@@ -653,6 +718,7 @@
    "variante": 1,
    "nl": "Er ontbreken verplichte gegevens op het document.",
    "en": "Required details are missing on the document.",
+   "es": "Faltan datos obligatorios en el documento.",
    "faltan": []
   },
   {
@@ -665,6 +731,7 @@
    "variante": 0,
    "nl": "Bij het inlezen is niet gevraagd naar: wederpartij. Dit kan daarom niet worden gecontroleerd.",
    "en": "This was not asked for when the document was read: other party. It cannot be checked.",
+   "es": "Al leer el documento no se pidió esto: otra parte. No se puede comprobar.",
    "faltan": []
   },
   {
@@ -675,6 +742,7 @@
    "variante": 1,
    "nl": "Bij het inlezen is niet naar alle verplichte gegevens gevraagd.",
    "en": "Not all required details were asked for when the document was read.",
+   "es": "Al leer el documento no se pidieron todos los datos obligatorios.",
    "faltan": []
   },
   {
@@ -690,6 +758,7 @@
    "variante": 0,
    "nl": "De velden totaalbedrag, factuurdatum zijn nog door niemand met het origineel vergeleken.",
    "en": "The fields total amount, invoice date have not been compared with the original by anyone yet.",
+   "es": "Nadie ha comparado todavía estos campos con el original: importe total, fecha de factura.",
    "faltan": []
   },
   {
@@ -704,6 +773,7 @@
    "variante": 1,
    "nl": "Het veld totaalbedrag is nog door niemand met het origineel vergeleken.",
    "en": "The field total amount has not been compared with the original by anyone yet.",
+   "es": "Nadie ha comparado todavía este campo con el original: importe total.",
    "faltan": []
   },
   {
@@ -714,6 +784,7 @@
    "variante": 2,
    "nl": "Een veld is nog door niemand met het origineel vergeleken.",
    "en": "A field has not been compared with the original by anyone yet.",
+   "es": "Nadie ha comparado todavía un campo con el original.",
    "faltan": []
   },
   {
@@ -732,6 +803,7 @@
    "variante": 0,
    "nl": "De notities bevatten: een IBAN, bankgegevens, een wijziging van gegevens, instructies aan het systeem, een verzoek om te bellen of te bevestigen. Dit wordt niet opgevolgd, alleen bekeken.",
    "en": "The notes contain: an IBAN, bank details, a change of details, instructions to the system, a request to call or confirm. This is not acted on, only reviewed.",
+   "es": "Las notas contienen: un IBAN, datos bancarios, un cambio de datos, instrucciones al sistema, una petición de llamar o confirmar. No se actúa sobre ello, solo se revisa.",
    "faltan": []
   },
   {
@@ -742,6 +814,7 @@
    "variante": 1,
    "nl": "De notities bevatten tekst die zich richt tot wie het document verwerkt.",
    "en": "The notes contain text aimed at whoever processes the document.",
+   "es": "Las notas llevan un texto dirigido a quien procesa el documento.",
    "faltan": []
   },
   {
@@ -754,6 +827,7 @@
    "variante": 0,
    "nl": "Het originele document is niet bewaard: alleen wat eruit gelezen is, is er nog.",
    "en": "The original document was not stored: only what was read from it is left.",
+   "es": "El documento original no se guardó: solo queda lo que se leyó de él.",
    "faltan": []
   },
   {
@@ -766,6 +840,7 @@
    "variante": 0,
    "nl": "Het originele document is niet bewaard: alleen wat eruit gelezen is, is er nog.",
    "en": "The original document was not stored: only what was read from it is left.",
+   "es": "El documento original no se guardó: solo queda lo que se leyó de él.",
    "faltan": []
   },
   {
@@ -783,6 +858,7 @@
    "variante": 0,
    "nl": "Importregels met bedragen die niet in euro zijn: 1. Ze zijn niet ingelezen.",
    "en": "Import rows with amounts not in euros: 1. They were not imported.",
+   "es": "Filas importadas con importes que no están en euros: 1. No se importaron.",
    "faltan": []
   },
   {
@@ -795,6 +871,7 @@
    "variante": 1,
    "nl": "Bedragen in USD: niet in euro, daarom buiten alle totalen.",
    "en": "Amounts in USD: not in euros, so left out of all totals.",
+   "es": "Importes en USD: no están en euros, así que quedan fuera de todos los totales.",
    "faltan": []
   },
   {
@@ -805,6 +882,7 @@
    "variante": 2,
    "nl": "Niet in euro, daarom buiten alle totalen.",
    "en": "Not in euros, so left out of all totals.",
+   "es": "No está en euros, así que queda fuera de todos los totales.",
    "faltan": []
   },
   {
@@ -815,6 +893,7 @@
    "variante": 0,
    "nl": "Er is geen bedrag leesbaar, dus de valuta is onbekend.",
    "en": "No amount can be read, so the currency is unknown.",
+   "es": "No se puede leer ningún importe, así que no se sabe la moneda.",
    "faltan": []
   },
   {
@@ -832,6 +911,7 @@
    "variante": 0,
    "nl": "Factuurregel 1 was uitgesloten en de nieuwe lezing bevat hem niet meer.",
    "en": "Invoice line 1 had been excluded and the new reading no longer contains it.",
+   "es": "La línea de factura 1 estaba excluida y la nueva lectura ya no la contiene.",
    "faltan": []
   },
   {
@@ -849,6 +929,7 @@
    "variante": 1,
    "nl": "Factuurregel 1 is door iemand aangepast en de nieuwe lezing bevat hem niet meer. Hij blijft zoals hij was.",
    "en": "Invoice line 1 was changed by a person and the new reading no longer contains it. It is kept as it was.",
+   "es": "Una persona cambió la línea de factura 1 y la nueva lectura ya no la contiene. Se mantiene como estaba.",
    "faltan": []
   },
   {
@@ -859,6 +940,7 @@
    "variante": 2,
    "nl": "Een aangepaste factuurregel komt niet meer voor in de nieuwe lezing.",
    "en": "A changed invoice line is not in the new reading.",
+   "es": "Una línea de factura cambiada no está en la nueva lectura.",
    "faltan": []
   },
   {
@@ -878,6 +960,7 @@
    "variante": 0,
    "nl": "De pdf heeft het nummer van een geboekte factuur, maar de klant is een andere of onbekend, dus ze zijn niet samengevoegd. Tot dan telt de verkoop dubbel.",
    "en": "The PDF has the number of a booked invoice, but the client is different or unknown, so they were not joined. Until then the sale counts twice.",
+   "es": "El PDF tiene el número de una factura contabilizada, pero el cliente es otro o no se conoce, así que no se unieron. Mientras tanto la venta cuenta dos veces.",
    "faltan": []
   },
   {
@@ -896,6 +979,7 @@
    "variante": 1,
    "nl": "De pdf heeft het nummer van een geboekte factuur en is er niet mee samengevoegd (de pdf heeft al geboekte betalingen). Tot dan telt de verkoop dubbel.",
    "en": "The PDF has the number of a booked invoice and was not joined to it (the PDF already has recorded payments). Until then the sale counts twice.",
+   "es": "El PDF tiene el número de una factura contabilizada y no se unió a ella (el PDF ya tiene pagos anotados). Mientras tanto la venta cuenta dos veces.",
    "faltan": []
   },
   {
@@ -915,6 +999,7 @@
    "variante": 2,
    "nl": "Totaal: geboekt € 411,40, pdf € 411,50.",
    "en": "Total: booked € 411,40, PDF € 411,50.",
+   "es": "Total: contabilizado € 411,40, PDF € 411,50.",
    "faltan": []
   },
   {
@@ -925,6 +1010,7 @@
    "variante": 3,
    "nl": "De pdf en de geboekte factuur zijn niet samengevoegd of zeggen niet hetzelfde. Tot dit is opgelost, kan de verkoop dubbel tellen.",
    "en": "The PDF and the booked invoice are not joined or do not say the same. Until this is sorted out, the sale may count twice.",
+   "es": "El PDF y la factura contabilizada no están unidos o no dicen lo mismo. Hasta que se aclare, la venta puede contar dos veces.",
    "faltan": []
   },
   {
@@ -940,6 +1026,7 @@
    "variante": 0,
    "nl": "De laatste gegevens van de bank zijn van 30-09-2026: 12 werkdagen oud, het maximum is 3.",
    "en": "The latest data from the bank is from 30-09-2026: 12 working days old, the limit is 3.",
+   "es": "Los últimos datos del banco son del 30-09-2026: tienen 12 días hábiles y el límite es 3.",
    "faltan": []
   },
   {
@@ -955,6 +1042,7 @@
    "variante": 1,
    "nl": "De laatste gegevens uit Exact zijn van 14-10-2026: 18 dagen oud, het maximum is 7.",
    "en": "The latest data from Exact is from 14-10-2026: 18 days old, the limit is 7.",
+   "es": "Los últimos datos de Exact son del 14-10-2026: tienen 18 días y el límite es 7.",
    "faltan": []
   },
   {
@@ -970,6 +1058,7 @@
    "variante": 2,
    "nl": "De laatste gegevens uit TRNSPRNT zijn van 14-10-2026: 18 dagen oud, het maximum is 7.",
    "en": "The latest data from TRNSPRNT is from 14-10-2026: 18 days old, the limit is 7.",
+   "es": "Los últimos datos de TRNSPRNT son del 14-10-2026: tienen 18 días y el límite es 7.",
    "faltan": []
   },
   {
@@ -980,6 +1069,7 @@
    "variante": 3,
    "nl": "De laatste gegevens van een bron zijn te oud.",
    "en": "The latest data from a source is too old.",
+   "es": "Los últimos datos de una fuente son demasiado antiguos.",
    "faltan": []
   },
   {
@@ -1000,6 +1090,7 @@
    "variante": 0,
    "nl": "De laatste import is helemaal geweigerd: er is niets ingelezen.",
    "en": "The latest import was rejected completely: nothing was imported.",
+   "es": "La última importación se rechazó entera: no se importó nada.",
    "faltan": []
   },
   {
@@ -1046,6 +1137,7 @@
    "variante": 1,
    "nl": "Geweigerde regels: 0. Verwijzingen die niet in de stamgegevens staan: 6.",
    "en": "Rejected rows: 0. References not in the master data: 6.",
+   "es": "Filas rechazadas: 0. Referencias que no están en los datos maestros: 6.",
    "faltan": []
   },
   {
@@ -1066,6 +1158,7 @@
    "variante": 2,
    "nl": "Geweigerde regels in de laatste import: 1.",
    "en": "Rejected rows in the latest import: 1.",
+   "es": "Filas rechazadas en la última importación: 1.",
    "faltan": []
   },
   {
@@ -1076,6 +1169,7 @@
    "variante": 3,
    "nl": "De laatste import heeft regels geweigerd.",
    "en": "The latest import rejected rows.",
+   "es": "La última importación rechazó filas.",
    "faltan": []
   },
   {
@@ -1091,6 +1185,7 @@
    "variante": 0,
    "nl": "Meerdere partijen in de stamgegevens (2) hebben hetzelfde btw-nummer of KvK-nummer; het is niet duidelijk welke het is.",
    "en": "Several parties in the master data (2) share this VAT ID or KvK number; it is not clear which one it is.",
+   "es": "Varias partes de los datos maestros (2) comparten este número de BTW o de KvK; no está claro cuál es.",
    "faltan": []
   },
   {
@@ -1105,6 +1200,7 @@
    "variante": 1,
    "nl": "Niemand in de stamgegevens past precies. Op de factuur: onbekend bv, btw-nummer NL008888888B01, KvK-nummer —.",
    "en": "Nobody in the master data matches exactly. On the invoice: onbekend bv, VAT ID NL008888888B01, KvK number —.",
+   "es": "Nadie en los datos maestros coincide exactamente. En la factura: onbekend bv, número de BTW NL008888888B01, número de KvK —.",
    "faltan": []
   },
   {
@@ -1115,6 +1211,7 @@
    "variante": 2,
    "nl": "Niemand in de stamgegevens past precies bij deze factuur.",
    "en": "Nobody in the master data matches this invoice exactly.",
+   "es": "Nadie en los datos maestros coincide exactamente con esta factura.",
    "faltan": []
   },
   {
@@ -1125,6 +1222,7 @@
    "variante": 0,
    "nl": "De stamgegevens zijn nog niet ingelezen, dus het is onbekend of deze partij bekend is.",
    "en": "The master data has not been imported yet, so it is unknown whether this party is known.",
+   "es": "Los datos maestros aún no se han importado, así que no se sabe si esta parte es conocida.",
    "faltan": []
   },
   {
@@ -1142,6 +1240,7 @@
    "variante": 0,
    "nl": "Naam op de factuur: parte vhaven; bekende namen: havenbedrijf rotterdam bv.",
    "en": "Name on the invoice: parte vhaven; known names: havenbedrijf rotterdam bv.",
+   "es": "Nombre en la factura: parte vhaven; nombres conocidos: havenbedrijf rotterdam bv.",
    "faltan": []
   },
   {
@@ -1152,6 +1251,7 @@
    "variante": 1,
    "nl": "Wat op de factuur staat, komt niet overeen met de stamgegevens.",
    "en": "What is printed on the invoice does not match the master data.",
+   "es": "Lo que pone en la factura no coincide con los datos maestros.",
    "faltan": []
   },
   {
@@ -1162,6 +1262,7 @@
    "variante": 0,
    "nl": "De stamgegevens uit Exact zijn te oud, daarom is er niet mee vergeleken.",
    "en": "The master data from Exact is out of date, so it was not compared.",
+   "es": "Los datos maestros de Exact están desactualizados, así que no se compararon.",
    "faltan": []
   },
   {
@@ -1174,6 +1275,7 @@
    "variante": 0,
    "nl": "Het btw-nummer NL12345B01 heeft niet de Nederlandse vorm (NL, negen cijfers, B, twee cijfers).",
    "en": "The VAT ID NL12345B01 does not have the Dutch format (NL, nine digits, B, two digits).",
+   "es": "El número de BTW NL12345B01 no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras).",
    "faltan": []
   },
   {
@@ -1184,6 +1286,7 @@
    "variante": 1,
    "nl": "De factuur heeft geen btw-nummer van de leverancier en noemt de KOR niet.",
    "en": "The invoice has no VAT ID of the provider and does not mention the KOR.",
+   "es": "La factura no lleva el número de BTW del proveedor y no menciona la KOR.",
    "faltan": []
   },
   {
@@ -1204,6 +1307,7 @@
    "variante": 0,
    "nl": "KvK-nummer van 76543210 naar 87654321. Adres van industrieweg 45 2802 ag gouda naar havenstraat 14 3011 xb rotterdam.",
    "en": "KvK number changed from 76543210 to 87654321. Address changed from industrieweg 45 2802 ag gouda to havenstraat 14 3011 xb rotterdam.",
+   "es": "El número de KvK cambió de 76543210 a 87654321. La dirección cambió de industrieweg 45 2802 ag gouda a havenstraat 14 3011 xb rotterdam.",
    "faltan": []
   },
   {
@@ -1214,6 +1318,7 @@
    "variante": 1,
    "nl": "De gegevens zijn anders dan op de vorige factuur.",
    "en": "The details differ from the previous invoice.",
+   "es": "Los datos son distintos de los de la factura anterior.",
    "faltan": []
   },
   {
@@ -1228,6 +1333,7 @@
    "variante": 0,
    "nl": "Binnengekomen als verkoopfactuur, zonder uitgever en gericht aan BM Support BV: waarschijnlijk een inkoopfactuur in de verkeerde map.",
    "en": "Came in as a sales invoice, without an issuer and addressed to BM Support BV: probably a purchase invoice in the wrong folder.",
+   "es": "Entró como factura de venta, sin emisor y dirigida a BM Support BV: seguramente es una factura de compra en la carpeta equivocada.",
    "faltan": []
   },
   {
@@ -1241,6 +1347,7 @@
    "variante": 1,
    "nl": "Binnengekomen als verkoopfactuur, maar uitgegeven door bouwtechniek van dijk bv, niet door BM Support BV: hij staat in de verkeerde map.",
    "en": "Came in as a sales invoice but issued by bouwtechniek van dijk bv, not by BM Support BV: it is in the wrong folder.",
+   "es": "Entró como factura de venta pero la emitió bouwtechniek van dijk bv, no BM Support BV: está en la carpeta equivocada.",
    "faltan": []
   },
   {
@@ -1253,6 +1360,7 @@
    "variante": 2,
    "nl": "Gericht aan bms support bv, niet aan BM Support BV.",
    "en": "Addressed to bms support bv, not to BM Support BV.",
+   "es": "Dirigida a bms support bv, no a BM Support BV.",
    "faltan": []
   },
   {
@@ -1263,6 +1371,7 @@
    "variante": 3,
    "nl": "De factuur is niet aan BM Support BV gericht.",
    "en": "The invoice is not addressed to BM Support BV.",
+   "es": "La factura no va dirigida a BM Support BV.",
    "faltan": []
   },
   {
@@ -1273,6 +1382,7 @@
    "variante": 0,
    "nl": "Het document zegt niet wie de factuur uitgeeft of aan wie hij gericht is (of dat is bij het inlezen niet gevraagd).",
    "en": "The document does not say who issued it or who it is addressed to (or this was not asked for when it was read).",
+   "es": "El documento no dice quién lo emitió ni a quién va dirigido (o no se pidió al leerlo).",
    "faltan": []
   },
   {
@@ -1289,6 +1399,7 @@
    "variante": 0,
    "nl": "Hetzelfde nummer (JV2026006) staat op 2 facturen van dezelfde wederpartij.",
    "en": "The same number (JV2026006) is on 2 invoices from the same party.",
+   "es": "El mismo número (JV2026006) está en 2 facturas de la misma parte.",
    "faltan": []
   },
   {
@@ -1299,6 +1410,7 @@
    "variante": 1,
    "nl": "Dit nummer komt meer dan één keer voor bij dezelfde wederpartij.",
    "en": "This number appears more than once for the same party.",
+   "es": "Este número aparece más de una vez para la misma parte.",
    "faltan": []
   },
   {
@@ -1309,6 +1421,7 @@
    "variante": 0,
    "nl": "Het document zegt niet van wie het is, dus dubbele facturen kunnen niet worden gezocht.",
    "en": "The document does not say who it is from, so duplicates cannot be checked.",
+   "es": "El documento no dice de quién es, así que no se pueden buscar duplicados.",
    "faltan": []
   },
   {
@@ -1343,6 +1456,7 @@
    "variante": 0,
    "nl": "Zelfde totaal (€ 1.781,12) als een andere factuur van dezelfde wederpartij; dagen ertussen: 0.",
    "en": "Same total (€ 1.781,12) as another invoice from the same party; days apart: 0.",
+   "es": "Mismo total (€ 1.781,12) que otra factura de la misma parte; días de diferencia: 0.",
    "faltan": []
   },
   {
@@ -1353,6 +1467,7 @@
    "variante": 1,
    "nl": "Zelfde totaal als een andere factuur van dezelfde wederpartij.",
    "en": "Same total as another invoice from the same party.",
+   "es": "Mismo total que otra factura de la misma parte.",
    "faltan": []
   },
   {
@@ -1363,6 +1478,7 @@
    "variante": 0,
    "nl": "Wederpartij, totaal of datum ontbreekt, dus er kan niet op bedrag naar dubbele facturen worden gezocht.",
    "en": "Party, total or date is missing, so duplicates by amount cannot be checked.",
+   "es": "Falta la parte, el total o la fecha, así que no se pueden buscar duplicados por importe.",
    "faltan": []
   },
   {
@@ -1389,6 +1505,7 @@
    "variante": 0,
    "nl": "De periode 05-10-2026 – 11-10-2026 overlapt met 05-10-2026 – 11-10-2026 van een andere factuur; dagen overlap: 7.",
    "en": "The period 05-10-2026 – 11-10-2026 overlaps 05-10-2026 – 11-10-2026 of another invoice; days of overlap: 7.",
+   "es": "El periodo 05-10-2026 – 11-10-2026 se solapa con 05-10-2026 – 11-10-2026 de otra factura; días solapados: 7.",
    "faltan": []
   },
   {
@@ -1399,6 +1516,7 @@
    "variante": 1,
    "nl": "De periode overlapt met een andere factuur van dezelfde wederpartij.",
    "en": "The period overlaps another invoice from the same party.",
+   "es": "El periodo se solapa con otra factura de la misma parte.",
    "faltan": []
   },
   {
@@ -1409,6 +1527,7 @@
    "variante": 0,
    "nl": "Wederpartij of volledige periode ontbreekt, dus overlap kan niet worden gecontroleerd.",
    "en": "Party or full period is missing, so overlap cannot be checked.",
+   "es": "Falta la parte o el periodo completo, así que no se puede comprobar el solapamiento.",
    "faltan": []
   },
   {
@@ -1428,6 +1547,7 @@
    "variante": 0,
    "nl": "Dienst BMS-DEMO-1188 heeft 11,5 uur, maar 2 facturen rekenen er samen 34,5 uur voor.",
    "en": "Shift BMS-DEMO-1188 has 11,5 h, but 2 invoices together charge 34,5 h for it.",
+   "es": "El turno BMS-DEMO-1188 tiene 11,5 h, pero 2 facturas juntas cobran 34,5 h por él.",
    "faltan": []
   },
   {
@@ -1438,6 +1558,7 @@
    "variante": 1,
    "nl": "Dezelfde uren uit de planning worden twee keer gefactureerd.",
    "en": "The same hours from the planning are invoiced twice.",
+   "es": "Las mismas horas de la planificación se facturan dos veces.",
    "faltan": []
   },
   {
@@ -1448,6 +1569,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -1465,6 +1587,7 @@
    "variante": 0,
    "nl": "Factuurnummer V4 is 2 keer naar deze klant gegaan.",
    "en": "Invoice number V4 was sent to this client 2 times.",
+   "es": "El número de factura V4 se envió a este cliente 2 veces.",
    "faltan": []
   },
   {
@@ -1500,6 +1623,7 @@
    "variante": 1,
    "nl": "Zelfde totaal (€ 542,68) als een andere verkoopfactuur aan deze klant; dagen ertussen: 1.",
    "en": "Same total (€ 542,68) as another sales invoice to this client; days apart: 1.",
+   "es": "Mismo total (€ 542,68) que otra factura de venta a este cliente; días de diferencia: 1.",
    "faltan": []
   },
   {
@@ -1521,6 +1645,7 @@
    "variante": 2,
    "nl": "Dienst D-1 heeft 8 uur, maar 4 verkoopfacturen rekenen er samen 31 uur voor.",
    "en": "Shift D-1 has 8 h, but 4 sales invoices together charge 31 h for it.",
+   "es": "El turno D-1 tiene 8 h, pero 4 facturas de venta juntas cobran 31 h por él.",
    "faltan": []
   },
   {
@@ -1531,6 +1656,7 @@
    "variante": 3,
    "nl": "Deze klant is mogelijk twee keer gefactureerd.",
    "en": "This client may have been billed twice.",
+   "es": "Puede que a este cliente se le haya facturado dos veces.",
    "faltan": []
   },
   {
@@ -1541,6 +1667,7 @@
    "variante": 0,
    "nl": "Het document zegt niet aan wie is gefactureerd, dus dubbele facturering kan niet worden gezocht.",
    "en": "The document does not say who was billed, so double billing cannot be checked.",
+   "es": "El documento no dice a quién se facturó, así que no se puede comprobar si se facturó dos veces.",
    "faltan": []
   },
   {
@@ -1556,6 +1683,7 @@
    "variante": 0,
    "nl": "Binnengekomen nadat de btw-aangifte voor Q3 2026 was ingediend: de btw zit niet in die aangifte.",
    "en": "Arrived after the VAT return for Q3 2026 was filed: its VAT is not in that return.",
+   "es": "Llegó después de presentar la declaración de BTW de Q3 2026: su BTW no está en esa declaración.",
    "faltan": []
   },
   {
@@ -1571,6 +1699,7 @@
    "variante": 1,
    "nl": "Gewijzigd nadat de btw-aangifte voor Q3 2026 was ingediend: hij klopt niet meer met wat is aangegeven.",
    "en": "Changed after the VAT return for Q3 2026 was filed: it no longer matches what was declared.",
+   "es": "Cambió después de presentar la declaración de BTW de Q3 2026: ya no coincide con lo declarado.",
    "faltan": []
   },
   {
@@ -1586,6 +1715,7 @@
    "variante": 2,
    "nl": "Aangegeven in Q3 2026, maar telt daar niet meer mee (geannuleerd, vervangen, andere valuta of een datum in een ander kwartaal).",
    "en": "Declared in Q3 2026, but no longer counts there (cancelled, replaced, another currency or a date in another quarter).",
+   "es": "Declarada en Q3 2026, pero ya no cuenta ahí (anulada, sustituida, en otra moneda o con una fecha de otro trimestre).",
    "faltan": []
   },
   {
@@ -1596,6 +1726,7 @@
    "variante": 3,
    "nl": "Klopt niet met de btw-aangifte die al is ingediend.",
    "en": "Does not match the VAT return that was already filed.",
+   "es": "No coincide con la declaración de BTW que ya se presentó.",
    "faltan": []
   },
   {
@@ -1610,6 +1741,7 @@
    "variante": 0,
    "nl": "Er ontbreken onderdelen van de specificatie; aantal: 1.",
    "en": "Parts of the breakdown are missing; count: 1.",
+   "es": "Faltan partes del desglose; cuántas: 1.",
    "faltan": []
   },
   {
@@ -1620,6 +1752,7 @@
    "variante": 1,
    "nl": "De specificatie is niet compleet.",
    "en": "The breakdown is not complete.",
+   "es": "El desglose no está completo.",
    "faltan": []
   },
   {
@@ -1636,6 +1769,7 @@
    "variante": 0,
    "nl": "De regels tellen op tot € 2.297,75; het bedrag excl. btw is € 2.399,00.",
    "en": "The lines add up to € 2.297,75; the amount excl. VAT is € 2.399,00.",
+   "es": "Las líneas suman € 2.297,75; el importe sin BTW es € 2.399,00.",
    "faltan": []
   },
   {
@@ -1646,6 +1780,7 @@
    "variante": 1,
    "nl": "De regels tellen niet op tot het bedrag excl. btw.",
    "en": "The lines do not add up to the amount excl. VAT.",
+   "es": "Las líneas no suman el importe sin BTW.",
    "faltan": []
   },
   {
@@ -1661,6 +1796,7 @@
    "variante": 0,
    "nl": "Er is geen leesbaar bedrag excl. btw.",
    "en": "There is no readable amount excl. VAT.",
+   "es": "No hay un importe sin BTW que se pueda leer.",
    "faltan": []
   },
   {
@@ -1678,6 +1814,7 @@
    "variante": 1,
    "nl": "Er zijn geen regels, of een regel heeft geen leesbaar bedrag.",
    "en": "There are no lines, or a line has no readable amount.",
+   "es": "No hay líneas, o una línea no tiene un importe que se pueda leer.",
    "faltan": []
   },
   {
@@ -1688,6 +1825,7 @@
    "variante": 0,
    "nl": "Op minstens één regel geeft aantal maal tarief niet het regelbedrag.",
    "en": "On at least one line, quantity times rate does not give the line amount.",
+   "es": "En al menos una línea, la cantidad por la tarifa no da el importe de la línea.",
    "faltan": []
   },
   {
@@ -1707,6 +1845,7 @@
    "variante": 0,
    "nl": "Geen enkele regel heeft aantal, tarief en bedrag tegelijk.",
    "en": "No line has quantity, rate and amount together.",
+   "es": "Ninguna línea tiene a la vez cantidad, tarifa e importe.",
    "faltan": []
   },
   {
@@ -1726,6 +1865,7 @@
    "variante": 0,
    "nl": "Geen enkele regel heeft aantal, tarief en bedrag tegelijk.",
    "en": "No line has quantity, rate and amount together.",
+   "es": "Ninguna línea tiene a la vez cantidad, tarifa e importe.",
    "faltan": []
   },
   {
@@ -1749,6 +1889,7 @@
    "variante": 0,
    "nl": "In de btw-specificatie klopt het btw-bedrag van een tarief niet bij het bedrag excl. btw.",
    "en": "In the VAT breakdown, the VAT amount of a rate does not match its amount excl. VAT.",
+   "es": "En el desglose del BTW, el importe del BTW de un porcentaje no cuadra con su importe sin BTW.",
    "faltan": []
   },
   {
@@ -1763,6 +1904,7 @@
    "variante": 1,
    "nl": "21% btw over € 1.000,00 geeft niet de € 250,00 op de factuur.",
    "en": "21% VAT on € 1.000,00 does not give the € 250,00 on the invoice.",
+   "es": "El 21% de BTW sobre € 1.000,00 no da los € 250,00 de la factura.",
    "faltan": []
   },
   {
@@ -1773,6 +1915,7 @@
    "variante": 2,
    "nl": "Het btw-bedrag klopt niet bij het tarief.",
    "en": "The VAT amount does not match the rate.",
+   "es": "El importe del BTW no cuadra con el porcentaje.",
    "faltan": []
   },
   {
@@ -1791,6 +1934,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw, btw-tarief of btw-bedrag ontbreekt.",
    "en": "Amount excl. VAT, VAT rate or VAT amount is missing.",
+   "es": "Falta el importe sin BTW, el porcentaje de BTW o el importe del BTW.",
    "faltan": []
   },
   {
@@ -1805,6 +1949,7 @@
    "variante": 0,
    "nl": "€ 2.399,00 excl. btw plus € 503,79 btw is niet het totaal van € 0,01.",
    "en": "€ 2.399,00 excl. VAT plus € 503,79 VAT is not the total of € 0,01.",
+   "es": "€ 2.399,00 sin BTW más € 503,79 de BTW no es el total de € 0,01.",
    "faltan": []
   },
   {
@@ -1815,6 +1960,7 @@
    "variante": 1,
    "nl": "Bedrag excl. btw plus btw is niet het totaal.",
    "en": "Amount excl. VAT plus VAT is not the total.",
+   "es": "El importe sin BTW más el BTW no es el total.",
    "faltan": []
   },
   {
@@ -1829,6 +1975,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw, btw of totaal ontbreekt.",
    "en": "Amount excl. VAT, VAT or total is missing.",
+   "es": "Falta el importe sin BTW, el BTW o el total.",
    "faltan": []
   },
   {
@@ -1852,6 +1999,7 @@
    "variante": 0,
    "nl": "De btw-specificatie telt niet op tot de kop (€ 2.399,00 excl. btw, € 503,79 btw).",
    "en": "The VAT breakdown does not add up to the header (€ 2.399,00 excl. VAT, € 503,79 VAT).",
+   "es": "El desglose del BTW no suma lo de la cabecera (€ 2.399,00 sin BTW, € 503,79 de BTW).",
    "faltan": []
   },
   {
@@ -1862,6 +2010,7 @@
    "variante": 1,
    "nl": "De btw-specificatie telt niet op tot de kop.",
    "en": "The VAT breakdown does not add up to the header.",
+   "es": "El desglose del BTW no suma lo de la cabecera.",
    "faltan": []
   },
   {
@@ -1881,6 +2030,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw of btw ontbreekt in de kop of in een rij van de specificatie.",
    "en": "Amount excl. VAT or VAT is missing in the header or in a breakdown row.",
+   "es": "Falta el importe sin BTW o el BTW en la cabecera o en una fila del desglose.",
    "faltan": []
   },
   {
@@ -1891,6 +2041,7 @@
    "variante": 0,
    "nl": "De verdeling van een regel over Objecten telt niet op tot het regelbedrag.",
    "en": "The split of a line over Objects does not add up to the line amount.",
+   "es": "El reparto de una línea entre Objects no suma el importe de la línea.",
    "faltan": []
   },
   {
@@ -1910,6 +2061,7 @@
    "variante": 0,
    "nl": "De verdeelde regels hebben geen bedrag.",
    "en": "The split lines have no amount.",
+   "es": "Las líneas repartidas no tienen importe.",
    "faltan": []
   },
   {
@@ -1929,6 +2081,7 @@
    "variante": 0,
    "nl": "De verdeelde regels hebben geen bedrag.",
    "en": "The split lines have no amount.",
+   "es": "Las líneas repartidas no tienen importe.",
    "faltan": []
   },
   {
@@ -1943,6 +2096,7 @@
    "variante": 0,
    "nl": "Gewone btw, maar dit ontbreekt: btw-bedrag.",
    "en": "Standard VAT, but this is missing: VAT amount.",
+   "es": "BTW normal, pero falta esto: importe del BTW.",
    "faltan": []
   },
   {
@@ -1961,6 +2115,7 @@
    "variante": 1,
    "nl": "Gewone btw, maar een rij van de btw-specificatie mist tarief, bedrag of btw.",
    "en": "Standard VAT, but a VAT breakdown row lacks rate, amount or VAT.",
+   "es": "BTW normal, pero a una fila del desglose del BTW le falta el porcentaje, el importe o el BTW.",
    "faltan": []
   },
   {
@@ -1971,6 +2126,7 @@
    "variante": 2,
    "nl": "Het is niet bekend hoe deze factuur met btw omgaat.",
    "en": "It is unknown how this invoice treats VAT.",
+   "es": "No se sabe cómo trata esta factura el BTW.",
    "faltan": []
   },
   {
@@ -1984,6 +2140,7 @@
    "variante": 0,
    "nl": "Op de factuur: btw verlegd; in de stamgegevens: 0% btw.",
    "en": "On the invoice: reverse-charged VAT; in the master data: 0% VAT.",
+   "es": "En la factura: autoliquidación del BTW; en los datos maestros: BTW al 0%.",
    "faltan": []
   },
   {
@@ -1994,6 +2151,7 @@
    "variante": 1,
    "nl": "De btw-regeling verschilt van de stamgegevens.",
    "en": "The VAT treatment differs from the master data.",
+   "es": "El tratamiento del BTW es distinto del de los datos maestros.",
    "faltan": []
   },
   {
@@ -2004,6 +2162,7 @@
    "variante": 0,
    "nl": "De stamgegevens uit Exact zijn te oud, daarom is er niet mee vergeleken.",
    "en": "The master data from Exact is out of date, so it was not compared.",
+   "es": "Los datos maestros de Exact están desactualizados, así que no se compararon.",
    "faltan": []
   },
   {
@@ -2018,6 +2177,7 @@
    "variante": 0,
    "nl": "Btw-regeling gewijzigd van btw verlegd naar gewone btw ten opzichte van de vorige factuur.",
    "en": "VAT treatment changed from reverse-charged VAT to standard VAT compared with the previous invoice.",
+   "es": "El tratamiento del BTW pasó de autoliquidación del BTW a BTW normal respecto a la factura anterior.",
    "faltan": []
   },
   {
@@ -2036,6 +2196,7 @@
    "variante": 1,
    "nl": "Nieuw btw-tarief 9%; eerdere facturen hadden 21%.",
    "en": "New VAT rate 9%; earlier invoices had 21%.",
+   "es": "Porcentaje de BTW nuevo: 9%; las facturas anteriores tenían 21%.",
    "faltan": []
   },
   {
@@ -2046,6 +2207,7 @@
    "variante": 2,
    "nl": "De btw-regeling of het tarief is gewijzigd.",
    "en": "The VAT treatment or rate has changed.",
+   "es": "Ha cambiado el tratamiento o el porcentaje del BTW.",
    "faltan": []
   },
   {
@@ -2061,6 +2223,7 @@
    "variante": 0,
    "nl": "Met de KOR hoort er geen btw op te staan, maar de factuur rekent € 71,40.",
    "en": "With the KOR there should be no VAT, but the invoice charges € 71,40.",
+   "es": "Con la KOR no debería haber BTW, pero la factura cobra € 71,40.",
    "faltan": []
   },
   {
@@ -2076,6 +2239,7 @@
    "variante": 1,
    "nl": "Met de KOR hoort er geen btw op te staan, maar het totaal (€ 411,40) is hoger dan het bedrag excl. btw (€ 340,00).",
    "en": "With the KOR there should be no VAT, but the total (€ 411,40) is higher than the amount excl. VAT (€ 340,00).",
+   "es": "Con la KOR no debería haber BTW, pero el total (€ 411,40) es mayor que el importe sin BTW (€ 340,00).",
    "faltan": []
   },
   {
@@ -2086,6 +2250,7 @@
    "variante": 2,
    "nl": "Met de KOR hoort er geen btw op te staan.",
    "en": "With the KOR there should be no VAT.",
+   "es": "Con la KOR no debería haber BTW.",
    "faltan": []
   },
   {
@@ -2096,6 +2261,7 @@
    "variante": 0,
    "nl": "Het btw-bedrag is niet zichtbaar en kan niet uit het totaal worden afgeleid.",
    "en": "The VAT amount is not visible and cannot be derived from the total.",
+   "es": "El importe del BTW no se ve y no se puede deducir del total.",
    "faltan": []
   },
   {
@@ -2111,6 +2277,7 @@
    "variante": 0,
    "nl": "Met verlegde btw hoort er geen btw op te staan, maar de factuur rekent € 105,00.",
    "en": "With reverse-charged VAT there should be no VAT, but the invoice charges € 105,00.",
+   "es": "Con autoliquidación no debería haber BTW, pero la factura cobra € 105,00.",
    "faltan": []
   },
   {
@@ -2126,6 +2293,7 @@
    "variante": 1,
    "nl": "Met verlegde btw hoort er geen btw op te staan, maar het totaal (€ 847,00) is hoger dan het bedrag excl. btw (€ 700,00).",
    "en": "With reverse-charged VAT there should be no VAT, but the total (€ 847,00) is higher than the amount excl. VAT (€ 700,00).",
+   "es": "Con autoliquidación no debería haber BTW, pero el total (€ 847,00) es mayor que el importe sin BTW (€ 700,00).",
    "faltan": []
   },
   {
@@ -2136,6 +2304,7 @@
    "variante": 2,
    "nl": "Met verlegde btw moet het btw-nummer van de ontvanger op de factuur staan, en dat ontbreekt.",
    "en": "With reverse-charged VAT the recipient's VAT ID must be on the invoice, and it is missing.",
+   "es": "Con autoliquidación la factura tiene que llevar el número de BTW del destinatario, y no lo lleva.",
    "faltan": []
   },
   {
@@ -2151,6 +2320,7 @@
    "variante": 0,
    "nl": "Het btw-bedrag is niet zichtbaar en kan niet uit het totaal worden afgeleid.",
    "en": "The VAT amount is not visible and cannot be derived from the total.",
+   "es": "El importe del BTW no se ve y no se puede deducir del total.",
    "faltan": []
   },
   {
@@ -2163,6 +2333,7 @@
    "variante": 1,
    "nl": "Bij het inlezen is niet gevraagd naar het btw-nummer van de ontvanger.",
    "en": "The recipient's VAT ID was not asked for when the document was read.",
+   "es": "Al leer el documento no se pidió el número de BTW del destinatario.",
    "faltan": []
   },
   {
@@ -2178,6 +2349,7 @@
    "variante": 0,
    "nl": "In 2026 heeft deze KOR-leverancier meer aan BM Support BV gefactureerd dan de KOR-grens van € 20.000,00. Hij moet waarschijnlijk btw gaan rekenen.",
    "en": "In 2026 this KOR provider has invoiced more to BM Support BV than the KOR threshold of € 20.000,00. They probably have to start charging VAT.",
+   "es": "En 2026 este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de € 20.000,00. Seguramente tiene que empezar a cobrar BTW.",
    "faltan": []
   },
   {
@@ -2193,6 +2365,7 @@
    "variante": 1,
    "nl": "In 2026 heeft deze KOR-leverancier al 90% of meer van de KOR-grens (€ 20.000,00) aan BM Support BV gefactureerd.",
    "en": "In 2026 this KOR provider has already invoiced 90% or more of the KOR threshold (€ 20.000,00) to BM Support BV.",
+   "es": "En 2026 este proveedor con KOR ya ha facturado a BM Support BV el 90% o más del umbral de la KOR (€ 20.000,00).",
    "faltan": []
   },
   {
@@ -2203,6 +2376,7 @@
    "variante": 2,
    "nl": "Deze KOR-leverancier nadert de KOR-grens.",
    "en": "This KOR provider is close to the KOR threshold.",
+   "es": "Este proveedor con KOR está cerca del umbral de la KOR.",
    "faltan": []
   },
   {
@@ -2217,6 +2391,7 @@
    "variante": 0,
    "nl": "Ongebruikelijk btw-tarief: 6%.",
    "en": "Unusual VAT rate: 6%.",
+   "es": "Porcentaje de BTW poco habitual: 6%.",
    "faltan": []
   },
   {
@@ -2230,6 +2405,7 @@
    "variante": 1,
    "nl": "Verkoop met btw verlegd aan een klant die daar in de stamgegevens niet voor is gemarkeerd.",
    "en": "Sale with reverse-charged VAT to a client not marked for that in the master data.",
+   "es": "Venta con autoliquidación del BTW a un cliente que no está marcado para ello en los datos maestros.",
    "faltan": []
   },
   {
@@ -2240,6 +2416,7 @@
    "variante": 2,
    "nl": "Ongebruikelijk btw-tarief of -regeling.",
    "en": "Unusual VAT rate or treatment.",
+   "es": "Porcentaje o tratamiento del BTW poco habitual.",
    "faltan": []
   },
   {
@@ -2252,6 +2429,7 @@
    "variante": 0,
    "nl": "Verkoop met btw verlegd aan een onbekende klant: het is niet bekend of dat mag.",
    "en": "Sale with reverse-charged VAT to an unknown client: it is unknown whether that is allowed.",
+   "es": "Venta con autoliquidación del BTW a un cliente desconocido: no se sabe si está permitido.",
    "faltan": []
   },
   {
@@ -2262,6 +2440,7 @@
    "variante": 1,
    "nl": "De klant is onbekend, dus de btw-regeling kan niet worden gecontroleerd.",
    "en": "The client is unknown, so the VAT treatment cannot be checked.",
+   "es": "El cliente es desconocido, así que no se puede comprobar el tratamiento del BTW.",
    "faltan": []
   },
   {
@@ -2281,6 +2460,7 @@
    "variante": 0,
    "nl": "Overgenomen rekeningen die nog niet zijn bevestigd: 6.",
    "en": "Inherited accounts not yet confirmed: 6.",
+   "es": "Cuentas heredadas aún sin confirmar: 6.",
    "faltan": []
   },
   {
@@ -2291,6 +2471,7 @@
    "variante": 1,
    "nl": "Er zijn overgenomen rekeningen die nog niet zijn bevestigd.",
    "en": "There are inherited accounts that are not yet confirmed.",
+   "es": "Hay cuentas heredadas que aún no se han confirmado.",
    "faltan": []
   },
   {
@@ -2303,6 +2484,7 @@
    "variante": 0,
    "nl": "NL17 RABO 2601 8159 09 doorstaat de controle niet: het is geen geldig IBAN.",
    "en": "NL17 RABO 2601 8159 09 fails the check: it is not a valid IBAN.",
+   "es": "El IBAN NL17 RABO 2601 8159 09 no pasa la prueba: no es un IBAN válido.",
    "faltan": []
   },
   {
@@ -2313,6 +2495,7 @@
    "variante": 1,
    "nl": "Het IBAN op de factuur is ongeldig.",
    "en": "The IBAN on the invoice is not valid.",
+   "es": "El IBAN de la factura no es válido.",
    "faltan": []
   },
   {
@@ -2325,6 +2508,7 @@
    "variante": 0,
    "nl": "Er staat geen IBAN op de factuur.",
    "en": "The invoice shows no IBAN.",
+   "es": "La factura no lleva ningún IBAN.",
    "faltan": []
   },
   {
@@ -2338,6 +2522,7 @@
    "variante": 0,
    "nl": "Zonder bekende leverancier is geen enkele rekening betaalbaar; NL02 ABNA 0123 4567 89 kan niet worden gecontroleerd.",
    "en": "Without a known provider no account is payable; NL02 ABNA 0123 4567 89 cannot be checked.",
+   "es": "Sin un proveedor conocido ninguna cuenta es de pago; no se puede comprobar el IBAN NL02 ABNA 0123 4567 89.",
    "faltan": []
   },
   {
@@ -2352,6 +2537,7 @@
    "variante": 1,
    "nl": "NL37 DEMO 0009 9903 01 staat niet in het rekeningregister van deze leverancier.",
    "en": "NL37 DEMO 0009 9903 01 is not in this provider's account register.",
+   "es": "La cuenta NL37 DEMO 0009 9903 01 no está en el registro de cuentas de este proveedor.",
    "faltan": []
   },
   {
@@ -2366,6 +2552,7 @@
    "variante": 2,
    "nl": "NL02 ABNA 0123 4567 89 is door een medewerker afgewezen.",
    "en": "NL02 ABNA 0123 4567 89 was rejected by a person.",
+   "es": "Una persona rechazó la cuenta NL02 ABNA 0123 4567 89.",
    "faltan": []
   },
   {
@@ -2380,6 +2567,7 @@
    "variante": 3,
    "nl": "NL02 ABNA 0123 4567 89 is overgenomen maar nog niet bevestigd of geverifieerd.",
    "en": "NL02 ABNA 0123 4567 89 is inherited but not yet confirmed or verified.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 es heredada, pero aún no se ha confirmado ni verificado.",
    "faltan": []
   },
   {
@@ -2394,6 +2582,7 @@
    "variante": 4,
    "nl": "NL02 ABNA 0123 4567 89 is geregistreerd maar nog niet geverifieerd.",
    "en": "NL02 ABNA 0123 4567 89 is registered but not yet verified.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 está registrada, pero aún no se ha verificado.",
    "faltan": []
   },
   {
@@ -2408,6 +2597,7 @@
    "variante": 5,
    "nl": "NL02 ABNA 0123 4567 89 heeft een open wijziging in de stamgegevens of staat niet in de laatste stamgegevens van Exact.",
    "en": "NL02 ABNA 0123 4567 89 has an open change in the master data or is not in the latest Exact master data.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 tiene un cambio abierto en los datos maestros o no está en los últimos datos maestros de Exact.",
    "faltan": []
   },
   {
@@ -2421,6 +2611,7 @@
    "variante": 6,
    "nl": "Het IBAN op de factuur is niet betaalbaar.",
    "en": "The IBAN on the invoice is not payable.",
+   "es": "No se puede pagar al IBAN de la factura.",
    "faltan": []
   },
   {
@@ -2431,6 +2622,7 @@
    "variante": 0,
    "nl": "Er zijn nog geen rekeningen uit Exact, of de stamgegevens uit Exact zijn te oud: het is niet bekend welke rekening betaalbaar is.",
    "en": "There are no accounts from Exact yet, or the Exact master data is out of date: it is unknown which account is payable.",
+   "es": "Aún no hay cuentas de Exact, o los datos maestros de Exact están desactualizados: no se sabe a qué cuenta se puede pagar.",
    "faltan": []
   },
   {
@@ -2444,6 +2636,7 @@
    "variante": 0,
    "nl": "NL02 ABNA 0123 4567 89 staat geregistreerd maar is afgewezen of nooit door een telefonische controle geaccepteerd.",
    "en": "NL02 ABNA 0123 4567 89 is on file but was rejected or never accepted by a phone check.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 consta, pero se rechazó o nunca se aceptó con una comprobación por teléfono.",
    "faltan": []
   },
   {
@@ -2457,6 +2650,7 @@
    "variante": 1,
    "nl": "NL37 DEMO 0009 9903 01 is nieuw voor deze leverancier.",
    "en": "NL37 DEMO 0009 9903 01 is new for this provider.",
+   "es": "El IBAN NL37 DEMO 0009 9903 01 es nuevo para este proveedor.",
    "faltan": []
   },
   {
@@ -2467,6 +2661,7 @@
    "variante": 2,
    "nl": "Het IBAN op de factuur is nieuw voor deze leverancier.",
    "en": "The IBAN on the invoice is new for this provider.",
+   "es": "El IBAN de la factura es nuevo para este proveedor.",
    "faltan": []
   },
   {
@@ -2477,6 +2672,7 @@
    "variante": 0,
    "nl": "De stamgegevens uit Exact zijn te oud, daarom is er niet mee vergeleken.",
    "en": "The master data from Exact is out of date, so it was not compared.",
+   "es": "Los datos maestros de Exact están desactualizados, así que no se compararon.",
    "faltan": []
   },
   {
@@ -2496,6 +2692,7 @@
    "variante": 0,
    "nl": "NL02 ABNA 0123 4567 89 staat geregistreerd op naam van een andere partij.",
    "en": "NL02 ABNA 0123 4567 89 is registered to another party.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 está registrada a nombre de otra parte.",
    "faltan": []
   },
   {
@@ -2506,6 +2703,7 @@
    "variante": 1,
    "nl": "De betaling zou naar een derde gaan.",
    "en": "The payment would go to a third party.",
+   "es": "El pago iría a un tercero.",
    "faltan": []
   },
   {
@@ -2526,6 +2724,7 @@
    "variante": 0,
    "nl": "Rekening NL44 RABO 0123 4567 89 is gewijzigd in de stamgegevens (verdwenen) en nog niet telefonisch geverifieerd.",
    "en": "Account NL44 RABO 0123 4567 89 changed in the master data (removed) and has not been verified by phone.",
+   "es": "La cuenta NL44 RABO 0123 4567 89 cambió en los datos maestros (quitada) y no se ha verificado por teléfono.",
    "faltan": []
   },
   {
@@ -2542,6 +2741,7 @@
    "variante": 1,
    "nl": "Deze leverancier heeft een niet-geverifieerde rekeningwijziging: NL44 RABO 0123 4567 89, NL91 ABNA 0417 1643 00.",
    "en": "This provider has an unverified account change: NL44 RABO 0123 4567 89, NL91 ABNA 0417 1643 00.",
+   "es": "Este proveedor tiene un cambio de cuenta sin verificar: NL44 RABO 0123 4567 89, NL91 ABNA 0417 1643 00.",
    "faltan": []
   },
   {
@@ -2552,6 +2752,7 @@
    "variante": 2,
    "nl": "Er is een niet-geverifieerde rekeningwijziging in de stamgegevens.",
    "en": "There is an unverified account change in the master data.",
+   "es": "Hay un cambio de cuenta sin verificar en los datos maestros.",
    "faltan": []
   },
   {
@@ -2570,6 +2771,7 @@
    "variante": 0,
    "nl": "Exact: NL02 ABNA 0123 4567 89, NL44 RABO 0123 4567 89. TRNSPRNT: NL02 ABNA 0123 4567 89.",
    "en": "Exact: NL02 ABNA 0123 4567 89, NL44 RABO 0123 4567 89. TRNSPRNT: NL02 ABNA 0123 4567 89.",
+   "es": "Exact: NL02 ABNA 0123 4567 89, NL44 RABO 0123 4567 89. TRNSPRNT: NL02 ABNA 0123 4567 89.",
    "faltan": []
   },
   {
@@ -2580,6 +2782,7 @@
    "variante": 1,
    "nl": "Exact en TRNSPRNT noemen verschillende rekeningen.",
    "en": "Exact and TRNSPRNT list different accounts.",
+   "es": "Exact y TRNSPRNT tienen cuentas distintas.",
    "faltan": []
   },
   {
@@ -2597,6 +2800,7 @@
    "variante": 0,
    "nl": "Een afschrijving naar NL03 RABO 0312 4567 89 is een betaling aan deze leverancier, maar die rekening is voor hem niet betaalbaar.",
    "en": "A payment to NL03 RABO 0312 4567 89 is a payment to this provider, but that account is not payable for them.",
+   "es": "Un pago a NL03 RABO 0312 4567 89 es un pago a este proveedor, pero esa cuenta no es de pago para él.",
    "faltan": []
   },
   {
@@ -2607,6 +2811,7 @@
    "variante": 1,
    "nl": "Een betaling ging naar een niet-betaalbare rekening.",
    "en": "A payment went to a non-payable account.",
+   "es": "Un pago fue a una cuenta que no es de pago.",
    "faltan": []
   },
   {
@@ -2617,6 +2822,7 @@
    "variante": 0,
    "nl": "Zonder actuele stamgegevens uit Exact is niet bekend welke rekeningen betaalbaar zijn.",
    "en": "Without up-to-date master data from Exact it is unknown which accounts are payable.",
+   "es": "Sin datos maestros de Exact al día no se sabe qué cuentas son de pago.",
    "faltan": []
   },
   {
@@ -2632,6 +2838,7 @@
    "variante": 0,
    "nl": "De telefonische controle van NL44 RABO 0123 4567 89 telt niet.",
    "en": "The phone check of NL44 RABO 0123 4567 89 does not count.",
+   "es": "La comprobación por teléfono de NL44 RABO 0123 4567 89 no cuenta.",
    "faltan": []
   },
   {
@@ -2642,6 +2849,7 @@
    "variante": 1,
    "nl": "Een telefonische controle telt niet.",
    "en": "A phone check does not count.",
+   "es": "Una comprobación por teléfono no cuenta.",
    "faltan": []
   },
   {
@@ -2656,6 +2864,7 @@
    "variante": 0,
    "nl": "Het verificatienummer is gewijzigd op 14-10-2026: tot 28-10-2026 telt geen telefonische controle van deze leverancier.",
    "en": "The verification number changed on 14-10-2026: until 28-10-2026 no phone check of this provider counts.",
+   "es": "El número de verificación cambió el 14-10-2026: hasta el 28-10-2026 no cuenta ninguna comprobación por teléfono de este proveedor.",
    "faltan": []
   },
   {
@@ -2666,6 +2875,7 @@
    "variante": 1,
    "nl": "Het verificatienummer is net gewijzigd.",
    "en": "The verification number has just changed.",
+   "es": "El número de verificación acaba de cambiar.",
    "faltan": []
   },
   {
@@ -2678,6 +2888,7 @@
    "variante": 0,
    "nl": "De verkoopfactuur noemt NL02 ABNA 0123 4567 89, geen rekening van BM Support BV.",
    "en": "The sales invoice shows NL02 ABNA 0123 4567 89, not a BM Support BV account.",
+   "es": "La factura de venta lleva NL02 ABNA 0123 4567 89, que no es una cuenta de BM Support BV.",
    "faltan": []
   },
   {
@@ -2688,6 +2899,7 @@
    "variante": 1,
    "nl": "De verkoopfactuur noemt een IBAN van een ander.",
    "en": "The sales invoice shows someone else's IBAN.",
+   "es": "La factura de venta lleva el IBAN de otro.",
    "faltan": []
   },
   {
@@ -2698,6 +2910,7 @@
    "variante": 0,
    "nl": "De eigen rekeningen van het bedrijf zijn nog niet ingesteld, dus het is onbekend of dit IBAN van BM Support BV is.",
    "en": "The company's own accounts are not set up yet, so it is unknown whether this IBAN belongs to BM Support BV.",
+   "es": "Las cuentas propias de la empresa aún no están configuradas, así que no se sabe si este IBAN es de BM Support BV.",
    "faltan": []
   },
   {
@@ -2712,6 +2925,7 @@
    "variante": 0,
    "nl": "Vervallen sinds 02-08-2026; nog open: € 7.343,49.",
    "en": "Overdue since 02-08-2026; still open: € 7.343,49.",
+   "es": "Vencida desde el 02-08-2026; queda pendiente: € 7.343,49.",
    "faltan": []
   },
   {
@@ -2726,6 +2940,7 @@
    "variante": 0,
    "nl": "Vervallen sinds 12-08-2026; nog open: € 4.072,86.",
    "en": "Overdue since 12-08-2026; still open: € 4.072,86.",
+   "es": "Vencida desde el 12-08-2026; queda pendiente: € 4.072,86.",
    "faltan": []
   },
   {
@@ -2736,6 +2951,7 @@
    "variante": 1,
    "nl": "Niet betaald na de vervaldatum.",
    "en": "Not paid after the due date.",
+   "es": "Sin pagar después del vencimiento.",
    "faltan": []
   },
   {
@@ -2746,6 +2962,7 @@
    "variante": 0,
    "nl": "Vervallen, maar geen actueel bankafschrift of Exact-export dekt de periode sinds de vervaldatum: het is onbekend of er is betaald.",
    "en": "Overdue, but no up-to-date bank statement or Exact export covers the period since the due date: it is unknown whether it was paid.",
+   "es": "Vencida, pero ningún extracto bancario ni exportación de Exact al día cubre el tiempo desde el vencimiento: no se sabe si se pagó.",
    "faltan": []
   },
   {
@@ -2762,6 +2979,7 @@
    "variante": 0,
    "nl": "Totaal € 8.654,83, betaald € 8.654,83 (volgens de bank), gecrediteerd € 239,58, nog open € -239,58.",
    "en": "Total € 8.654,83, paid € 8.654,83 (according to the bank), credited € 239,58, still open € -239,58.",
+   "es": "Total € 8.654,83, pagado € 8.654,83 (según el banco), abonado € 239,58, pendiente € -239,58.",
    "faltan": []
   },
   {
@@ -2777,6 +2995,7 @@
    "variante": 1,
    "nl": "Totaal € 2.902,79, betaald € 1.000,00 (handmatig vastgelegd), nog open € 1.902,79.",
    "en": "Total € 2.902,79, paid € 1.000,00 (recorded by hand), still open € 1.902,79.",
+   "es": "Total € 2.902,79, pagado € 1.000,00 (anotado a mano), pendiente € 1.902,79.",
    "faltan": []
   },
   {
@@ -2787,6 +3006,7 @@
    "variante": 2,
    "nl": "Het betaalde bedrag brengt het saldo niet op nul.",
    "en": "The amount paid does not bring the balance to zero.",
+   "es": "Lo pagado no deja el saldo a cero.",
    "faltan": []
   },
   {
@@ -2797,6 +3017,7 @@
    "variante": 0,
    "nl": "Er zijn betalingen, maar geen totaal in euro om ze mee te vergelijken.",
    "en": "There are payments, but no total in euros to compare them with.",
+   "es": "Hay pagos, pero ningún total en euros con el que compararlos.",
    "faltan": []
   },
   {
@@ -2812,6 +3033,7 @@
    "variante": 0,
    "nl": "Handmatig als betaald gemarkeerd op 01-10-2026, maar de bank toont die betaling niet.",
    "en": "Marked as paid by hand on 01-10-2026, but the bank does not show that payment.",
+   "es": "Marcada como pagada a mano el 01-10-2026, pero el banco no muestra ese pago.",
    "faltan": []
   },
   {
@@ -2822,6 +3044,7 @@
    "variante": 1,
    "nl": "Handmatig als betaald gemarkeerd, maar de bank toont die betaling niet.",
    "en": "Marked as paid by hand, but the bank does not show that payment.",
+   "es": "Marcada como pagada a mano, pero el banco no muestra ese pago.",
    "faltan": []
   },
   {
@@ -2832,6 +3055,7 @@
    "variante": 0,
    "nl": "Handmatig als betaald gemarkeerd, maar geen actueel bankafschrift dekt de dagen na de betaling.",
    "en": "Marked as paid by hand, but no up-to-date bank statement covers the days after the payment.",
+   "es": "Marcada como pagada a mano, pero ningún extracto bancario al día cubre los días posteriores al pago.",
    "faltan": []
   },
   {
@@ -2856,6 +3080,7 @@
    "variante": 0,
    "nl": "2 afschrijvingen van € 2.902,79 naar NL02 ABNA 0123 4567 89 met referentie 20264471, kort na elkaar: mogelijk dubbel betaald.",
    "en": "2 payments of € 2.902,79 to NL02 ABNA 0123 4567 89 with reference 20264471, shortly after each other: possibly paid twice.",
+   "es": "2 pagos de € 2.902,79 a NL02 ABNA 0123 4567 89 con la referencia 20264471, con poco tiempo entre ellos: puede que se haya pagado dos veces.",
    "faltan": []
   },
   {
@@ -2873,6 +3098,7 @@
    "variante": 1,
    "nl": "Twee keer betaald: de afschrijvingen samen zijn € 5.805,58 voor een totaal van € 2.902,79.",
    "en": "Paid twice: the payments together are € 5.805,58 for a total of € 2.902,79.",
+   "es": "Pagada dos veces: los pagos juntos suman € 5.805,58 para un total de € 2.902,79.",
    "faltan": []
   },
   {
@@ -2883,6 +3109,7 @@
    "variante": 2,
    "nl": "Er is mogelijk twee keer betaald.",
    "en": "It may have been paid twice.",
+   "es": "Puede que se haya pagado dos veces.",
    "faltan": []
   },
   {
@@ -2900,6 +3127,7 @@
    "variante": 0,
    "nl": "Betaald op 14-10-2026 terwijl de factuur geblokkeerd was.",
    "en": "Paid on 14-10-2026 while the invoice was blocked.",
+   "es": "Pagada el 14-10-2026 mientras la factura estaba bloqueada.",
    "faltan": []
   },
   {
@@ -2910,6 +3138,7 @@
    "variante": 1,
    "nl": "Betaald terwijl de factuur geblokkeerd was.",
    "en": "Paid while the invoice was blocked.",
+   "es": "Pagada mientras la factura estaba bloqueada.",
    "faltan": []
   },
   {
@@ -2924,6 +3153,7 @@
    "variante": 0,
    "nl": "De afschriften van rekening NL60 INGB 0009 9887 76 sluiten niet aan: er ontbreekt een afschrift of een saldo.",
    "en": "The statements of account NL60 INGB 0009 9887 76 do not connect: a statement or a balance is missing.",
+   "es": "Los extractos de la cuenta NL60 INGB 0009 9887 76 no enlazan: falta un extracto o un saldo.",
    "faltan": []
   },
   {
@@ -2938,6 +3168,7 @@
    "variante": 1,
    "nl": "Betaald met boekingen van afschriften na een onderbreking: de betaling telt nog niet.",
    "en": "Paid with transactions from statements after a break: the payment does not count yet.",
+   "es": "Pagada con movimientos de extractos posteriores a un hueco: el pago aún no cuenta.",
    "faltan": []
   },
   {
@@ -2948,6 +3179,7 @@
    "variante": 2,
    "nl": "De bankafschriften sluiten niet aan.",
    "en": "The bank statements do not connect.",
+   "es": "Los extractos bancarios no enlazan.",
    "faltan": []
   },
   {
@@ -2962,6 +3194,7 @@
    "variante": 0,
    "nl": "Boeking van € -12,50 op 05-09-2026; niet gekoppeld: € -12,50.",
    "en": "Transaction of € -12,50 on 05-09-2026; not matched: € -12,50.",
+   "es": "Movimiento de € -12,50 el 05-09-2026; sin casar: € -12,50.",
    "faltan": []
   },
   {
@@ -2972,6 +3205,7 @@
    "variante": 1,
    "nl": "Een bankboeking is aan geen enkele factuur gekoppeld.",
    "en": "A bank transaction is not matched with any invoice.",
+   "es": "Un movimiento del banco no está casado con ninguna factura.",
    "faltan": []
   },
   {
@@ -2985,6 +3219,7 @@
    "variante": 0,
    "nl": "De bank toont € 2.902,79 betaald, Exact € 500,00.",
    "en": "The bank shows € 2.902,79 paid, Exact € 500,00.",
+   "es": "El banco muestra € 2.902,79 pagados; Exact, € 500,00.",
    "faltan": []
   },
   {
@@ -2995,6 +3230,7 @@
    "variante": 1,
    "nl": "Bank en Exact noemen verschillende betaalde bedragen.",
    "en": "The bank and Exact show different amounts paid.",
+   "es": "El banco y Exact muestran importes pagados distintos.",
    "faltan": []
   },
   {
@@ -3011,6 +3247,7 @@
    "variante": 0,
    "nl": "Deze factuur telt niet meer mee, maar heeft € 411,40 aan bevestigde betalingen (volgens de bank).",
    "en": "This invoice no longer counts, but has € 411,40 in confirmed payments (according to the bank).",
+   "es": "Esta factura ya no cuenta, pero tiene € 411,40 en pagos confirmados (según el banco).",
    "faltan": []
   },
   {
@@ -3021,6 +3258,7 @@
    "variante": 1,
    "nl": "Deze factuur telt niet meer mee, maar heeft bevestigde betalingen.",
    "en": "This invoice no longer counts, but has confirmed payments.",
+   "es": "Esta factura ya no cuenta, pero tiene pagos confirmados.",
    "faltan": []
   },
   {
@@ -3036,6 +3274,7 @@
    "variante": 0,
    "nl": "Er is geen planning ingelezen. De planning is verplicht, dus deze inkoop gaat niet door zonder planning.",
    "en": "No planning has been imported. The planning is required, so this purchase cannot pass without it.",
+   "es": "No se ha importado ninguna planificación. La planificación es obligatoria, así que esta compra no puede pasar sin ella.",
    "faltan": []
   },
   {
@@ -3051,6 +3290,7 @@
    "variante": 1,
    "nl": "De planning is te oud. De planning is verplicht, dus deze inkoop gaat niet door zonder actuele planning.",
    "en": "The planning is out of date. The planning is required, so this purchase cannot pass without a current one.",
+   "es": "La planificación está desactualizada. La planificación es obligatoria, así que esta compra no puede pasar sin una al día.",
    "faltan": []
   },
   {
@@ -3066,6 +3306,7 @@
    "variante": 2,
    "nl": "De planning dekt 01-03-2027 – 01-03-2027 niet. De planning is verplicht, dus deze inkoop gaat niet door zonder.",
    "en": "The planning does not cover 01-03-2027 – 01-03-2027. The planning is required, so this purchase cannot pass without it.",
+   "es": "La planificación no cubre 01-03-2027 – 01-03-2027. La planificación es obligatoria, así que esta compra no puede pasar sin ella.",
    "faltan": []
   },
   {
@@ -3080,6 +3321,7 @@
    "variante": 3,
    "nl": "Geen dienst van de leverancier of zijn mensen in de planning van 17-09-2026 tot en met 23-09-2026.",
    "en": "No shift of the provider or their people in the planning from 17-09-2026 to 23-09-2026.",
+   "es": "Ningún turno del proveedor ni de su gente en la planificación del 17-09-2026 al 23-09-2026.",
    "faltan": []
   },
   {
@@ -3094,6 +3336,7 @@
    "variante": 3,
    "nl": "Geen dienst van de leverancier of zijn mensen in de planning van 07-10-2026 tot en met 07-10-2026.",
    "en": "No shift of the provider or their people in the planning from 07-10-2026 to 07-10-2026.",
+   "es": "Ningún turno del proveedor ni de su gente en la planificación del 07-10-2026 al 07-10-2026.",
    "faltan": []
   },
   {
@@ -3104,6 +3347,7 @@
    "variante": 4,
    "nl": "Geen dienst van de leverancier in de planning in de gefactureerde periode.",
    "en": "No shift of the provider in the planning in the invoiced period.",
+   "es": "Ningún turno del proveedor en la planificación en el periodo facturado.",
    "faltan": []
   },
   {
@@ -3114,6 +3358,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3139,6 +3384,7 @@
    "variante": 0,
    "nl": "Gefactureerd 99 uur (per persoon per week, 05-10-2026 – 11-10-2026); de planning heeft hoogstens 24 uur, met diensten die nog niet zijn gevalideerd: 1.",
    "en": "Invoiced 99 h (per person per week, 05-10-2026 – 11-10-2026); the planning has at most 24 h, with shifts not yet validated: 1.",
+   "es": "Facturadas 99 h (por persona y semana, 05-10-2026 – 11-10-2026); la planificación tiene como mucho 24 h, con turnos aún sin validar: 1.",
    "faltan": []
   },
   {
@@ -3159,6 +3405,7 @@
    "variante": 1,
    "nl": "Gefactureerd 10 uur, gevalideerd in de planning 0 uur (per Object per dag, 07-10-2026 – 07-10-2026). Verschil 10 uur, meer dan de speling van 0,25 uur.",
    "en": "Invoiced 10 h, validated in the planning 0 h (per Object per day, 07-10-2026 – 07-10-2026). Difference 10 h, more than the margin of 0,25 h.",
+   "es": "Facturadas 10 h, validadas en la planificación 0 h (por Object y día, 07-10-2026 – 07-10-2026). Diferencia de 10 h, más que el margen de 0,25 h.",
    "faltan": []
   },
   {
@@ -3169,6 +3416,7 @@
    "variante": 2,
    "nl": "De gefactureerde uren wijken af van de gevalideerde uren in de planning.",
    "en": "The invoiced hours differ from the validated hours in the planning.",
+   "es": "Las horas facturadas no coinciden con las validadas en la planificación.",
    "faltan": []
   },
   {
@@ -3179,6 +3427,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3199,6 +3448,7 @@
    "variante": 0,
    "nl": "Regeltarief € 42,50; afgesproken (per leverancier of klant): € 40,00. Verschil op deze regel: € 20,00.",
    "en": "Line rate € 42,50; agreed (per provider or client): € 40,00. Difference on this line: € 20,00.",
+   "es": "Tarifa de la línea € 42,50; pactada (por proveedor o cliente): € 40,00. Diferencia en esta línea: € 20,00.",
    "faltan": []
   },
   {
@@ -3215,6 +3465,7 @@
    "variante": 1,
    "nl": "Regeltarief € 42,50; tarief van de dienst in de planning: € 40,00 (geen afgesproken tarief).",
    "en": "Line rate € 42,50; shift rate in the planning: € 40,00 (no agreed rate).",
+   "es": "Tarifa de la línea € 42,50; tarifa del turno en la planificación: € 40,00 (no hay tarifa pactada).",
    "faltan": []
   },
   {
@@ -3236,6 +3487,7 @@
    "variante": 2,
    "nl": "Ander tarief voor hetzelfde werk (montagewerk, per uur): eerst € 44,00, daarna € 42,50.",
    "en": "Different rate for the same work (montagewerk, per hour): first € 44,00, later € 42,50.",
+   "es": "Tarifa distinta por el mismo trabajo (montagewerk, por hora): primero € 44,00, después € 42,50.",
    "faltan": []
   },
   {
@@ -3253,6 +3505,7 @@
    "variante": 3,
    "nl": "Factuurregels die niet met de afgesproken tarieven te vergelijken zijn (andere dienst, eenheid of dag, of afspraken met verschillende prijzen); aantal: 1.",
    "en": "Invoice lines that cannot be compared with the agreed rates (other shift, unit or day, or agreements with different prices); count: 1.",
+   "es": "Líneas de factura que no se pueden comparar con las tarifas pactadas (otro turno, otra unidad u otro día, o acuerdos con precios distintos); cuántas: 1.",
    "faltan": []
   },
   {
@@ -3263,6 +3516,7 @@
    "variante": 4,
    "nl": "Het tarief wijkt af van wat is afgesproken.",
    "en": "The rate differs from what was agreed.",
+   "es": "La tarifa no es la pactada.",
    "faltan": []
   },
   {
@@ -3281,6 +3535,7 @@
    "variante": 0,
    "nl": "De regel (eenheid uur, 07-09-2026) past bij geen van zijn afgesproken tarieven, dus er wordt niet met eerdere tarieven vergeleken.",
    "en": "The line (unit hour, 07-09-2026) matches none of its agreed rates, so it is not compared with earlier rates.",
+   "es": "La línea (unidad hora, 07-09-2026) no encaja con ninguna de sus tarifas pactadas, así que no se compara con las tarifas anteriores.",
    "faltan": []
   },
   {
@@ -3298,6 +3553,7 @@
    "variante": 1,
    "nl": "Er zijn even specifieke afspraken (per leverancier of klant) met verschillende prijzen: het is niet duidelijk welke geldt.",
    "en": "There are equally specific agreements (per provider or client) with different prices: it is unclear which applies.",
+   "es": "Hay acuerdos igual de concretos (por proveedor o cliente) con precios distintos: no está claro cuál se aplica.",
    "faltan": []
   },
   {
@@ -3308,6 +3564,7 @@
    "variante": 2,
    "nl": "Kon niet worden gecontroleerd: geen regel heeft een tarief, of er is geen afgesproken of eerder tarief om mee te vergelijken.",
    "en": "Could not be checked: no line has a rate, or there is no agreed or earlier rate to compare with.",
+   "es": "No se pudo comprobar: ninguna línea tiene tarifa, o no hay ninguna tarifa pactada ni anterior con la que comparar.",
    "faltan": []
   },
   {
@@ -3325,6 +3582,7 @@
    "variante": 0,
    "nl": "De regel noemt geen Object; de planning stelt er een voor (05-10-2026 – 05-10-2026). Bevestig het of kies een ander.",
    "en": "The line names no Object; the planning suggests one (05-10-2026 – 05-10-2026). Confirm it or choose another.",
+   "es": "La línea no nombra ningún Object; la planificación propone uno (05-10-2026 – 05-10-2026). Confírmalo o elige otro.",
    "faltan": []
   },
   {
@@ -3342,6 +3600,7 @@
    "variante": 1,
    "nl": "De regel noemt geen Object en de planning geeft er geen eenduidig voorstel voor.",
    "en": "The line names no Object and the planning gives no single suggestion.",
+   "es": "La línea no nombra ningún Object y la planificación no da una única propuesta.",
    "faltan": []
   },
   {
@@ -3359,6 +3618,7 @@
    "variante": 2,
    "nl": "In de planning heeft de persoon of leverancier van 05-10-2026 tot en met 05-10-2026 diensten op een ander Object.",
    "en": "In the planning, the person or provider has shifts on another Object from 05-10-2026 to 05-10-2026.",
+   "es": "En la planificación, la persona o el proveedor tiene turnos en otro Object del 05-10-2026 al 05-10-2026.",
    "faltan": []
   },
   {
@@ -3369,6 +3629,7 @@
    "variante": 3,
    "nl": "Het Object wijkt af van de planning.",
    "en": "The Object differs from the planning.",
+   "es": "El Object no coincide con la planificación.",
    "faltan": []
   },
   {
@@ -3379,6 +3640,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3392,6 +3654,7 @@
    "variante": 0,
    "nl": "De regel noemt week 40, maar de datums vallen in een andere week (13-10-2026).",
    "en": "The line says week 40, but its dates fall in another week (13-10-2026).",
+   "es": "La línea dice semana 40, pero sus fechas caen en otra semana (13-10-2026).",
    "faltan": []
   },
   {
@@ -3412,6 +3675,7 @@
    "variante": 1,
    "nl": "Gefactureerd 8 uur op 05-10-2026 – 05-10-2026 zonder diensten in de planning; het Object heeft niet-gefactureerd werk in 2026-W44.",
    "en": "Invoiced 8 h on 05-10-2026 – 05-10-2026 without shifts in the planning; the Object has uninvoiced work in 2026-W44.",
+   "es": "Facturadas 8 h del 05-10-2026 al 05-10-2026 sin turnos en la planificación; el Object tiene trabajo sin facturar en 2026-W44.",
    "faltan": []
   },
   {
@@ -3422,6 +3686,7 @@
    "variante": 2,
    "nl": "De periode wijkt af van de planning.",
    "en": "The period differs from the planning.",
+   "es": "El periodo no coincide con la planificación.",
    "faltan": []
   },
   {
@@ -3432,6 +3697,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3452,6 +3718,7 @@
    "variante": 0,
    "nl": "Regeltarief € 42,50; afgesproken toeslagtarief (per leverancier of klant): € 37,00. Verschil op deze regel: € 44,00.",
    "en": "Line rate € 42,50; agreed surcharge rate (per provider or client): € 37,00. Difference on this line: € 44,00.",
+   "es": "Tarifa de la línea € 42,50; tarifa pactada del recargo (por proveedor o cliente): € 37,00. Diferencia en esta línea: € 44,00.",
    "faltan": []
   },
   {
@@ -3470,6 +3737,7 @@
    "variante": 1,
    "nl": "Gefactureerd als nacht: 8 uur (19-10-2026 – 25-10-2026); de planning heeft 0 uur aan diensten met die toeslag.",
    "en": "Charged as nacht: 8 h (19-10-2026 – 25-10-2026); the planning has 0 h of shifts with that surcharge.",
+   "es": "Cobrado como nacht: 8 h (19-10-2026 – 25-10-2026); la planificación tiene 0 h de turnos con ese recargo.",
    "faltan": []
   },
   {
@@ -3487,6 +3755,7 @@
    "variante": 2,
    "nl": "Regels met een toeslag zonder eigen afgesproken tarief; aantal: 1. Iemand moet de toeslag bevestigen.",
    "en": "Lines with a surcharge but no agreed rate of their own; count: 1. Someone must confirm the surcharge.",
+   "es": "Líneas con recargo pero sin una tarifa pactada propia; cuántas: 1. Alguien tiene que confirmar el recargo.",
    "faltan": []
   },
   {
@@ -3497,6 +3766,7 @@
    "variante": 3,
    "nl": "De toeslag wordt tegen een ander tarief gerekend.",
    "en": "The surcharge is charged at another rate.",
+   "es": "El recargo se cobra a otra tarifa.",
    "faltan": []
   },
   {
@@ -3515,6 +3785,7 @@
    "variante": 0,
    "nl": "De regel (dienst x, eenheid uur, 07-09-2026) past bij geen van zijn afgesproken tarieven.",
    "en": "The line (shift x, unit hour, 07-09-2026) matches none of its agreed rates.",
+   "es": "La línea (turno x, unidad hora, 07-09-2026) no encaja con ninguna de sus tarifas pactadas.",
    "faltan": []
   },
   {
@@ -3525,6 +3796,7 @@
    "variante": 1,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3535,6 +3807,7 @@
    "variante": 0,
    "nl": "De planning is gewijzigd nadat deze factuur eraan was gekoppeld. Er is mogelijk een correctie of creditnota nodig.",
    "en": "The planning changed after this invoice was matched with it. A correction or credit note may be needed.",
+   "es": "La planificación cambió después de casar esta factura con ella. Puede hacer falta una corrección o una nota de crédito.",
    "faltan": []
   },
   {
@@ -3545,6 +3818,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3568,6 +3842,7 @@
    "variante": 0,
    "nl": "Gefactureerd 15 uur (per Object per week, 12-10-2026 – 18-10-2026); de planning heeft hoogstens 8 uur, met diensten die nog niet zijn gevalideerd: 1.",
    "en": "Billed 15 h (per Object per week, 12-10-2026 – 18-10-2026); the planning has at most 8 h, with shifts not yet validated: 1.",
+   "es": "Facturadas 15 h (por Object y semana, 12-10-2026 – 18-10-2026); la planificación tiene como mucho 8 h, con turnos aún sin validar: 1.",
    "faltan": []
   },
   {
@@ -3588,6 +3863,7 @@
    "variante": 1,
    "nl": "Gefactureerd 8 uur, gevalideerd in de planning 0 uur (per Object per dag, 14-10-2026 – 14-10-2026). Verschil 8 uur, meer dan de speling van 0,25 uur.",
    "en": "Billed 8 h, validated in the planning 0 h (per Object per day, 14-10-2026 – 14-10-2026). Difference 8 h, more than the margin of 0,25 h.",
+   "es": "Facturadas 8 h, validadas en la planificación 0 h (por Object y día, 14-10-2026 – 14-10-2026). Diferencia de 8 h, más que el margen de 0,25 h.",
    "faltan": []
   },
   {
@@ -3598,6 +3874,7 @@
    "variante": 2,
    "nl": "De gefactureerde uren wijken af van de planning.",
    "en": "The billed hours differ from the planning.",
+   "es": "Las horas facturadas no coinciden con la planificación.",
    "faltan": []
   },
   {
@@ -3608,6 +3885,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3625,6 +3903,7 @@
    "variante": 0,
    "nl": "De regel noemt geen Object; de planning stelt er een voor (05-10-2026 – 05-10-2026). Bevestig het of kies een ander.",
    "en": "The line names no Object; the planning suggests one (05-10-2026 – 05-10-2026). Confirm it or choose another.",
+   "es": "La línea no nombra ningún Object; la planificación propone uno (05-10-2026 – 05-10-2026). Confírmalo o elige otro.",
    "faltan": []
   },
   {
@@ -3638,6 +3917,7 @@
    "variante": 1,
    "nl": "Het Object van de regel hoort bij een andere klant.",
    "en": "The Object of the line belongs to another client.",
+   "es": "El Object de la línea es de otro cliente.",
    "faltan": []
   },
   {
@@ -3654,6 +3934,7 @@
    "variante": 2,
    "nl": "Het Object was niet actief van 05-10-2026 tot en met 05-10-2026 (actief van 01-11-2026 tot —).",
    "en": "The Object was not active from 05-10-2026 to 05-10-2026 (active from 01-11-2026 to —).",
+   "es": "El Object no estaba activo del 05-10-2026 al 05-10-2026 (activo del 01-11-2026 al —).",
    "faltan": []
   },
   {
@@ -3666,6 +3947,7 @@
    "variante": 3,
    "nl": "De regel noemt geen Object.",
    "en": "The line names no Object.",
+   "es": "La línea no nombra ningún Object.",
    "faltan": []
   },
   {
@@ -3678,6 +3960,7 @@
    "variante": 4,
    "nl": "Het Object van de regel klopt niet.",
    "en": "The Object of the line is not right.",
+   "es": "El Object de la línea no es correcto.",
    "faltan": []
   },
   {
@@ -3691,6 +3974,7 @@
    "variante": 0,
    "nl": "De regel noemt week 40, maar de datums vallen in een andere week (13-10-2026).",
    "en": "The line says week 40, but its dates fall in another week (13-10-2026).",
+   "es": "La línea dice semana 40, pero sus fechas caen en otra semana (13-10-2026).",
    "faltan": []
   },
   {
@@ -3714,6 +3998,7 @@
    "variante": 1,
    "nl": "Gefactureerd 8 uur op 14-10-2026 – 14-10-2026 zonder diensten in de planning; het Object heeft niet-gefactureerd werk in 2026-W42, 2026-W43.",
    "en": "Billed 8 h on 14-10-2026 – 14-10-2026 without shifts in the planning; the Object has unbilled work in 2026-W42, 2026-W43.",
+   "es": "Facturadas 8 h del 14-10-2026 al 14-10-2026 sin turnos en la planificación; el Object tiene trabajo sin facturar en 2026-W42, 2026-W43.",
    "faltan": []
   },
   {
@@ -3724,6 +4009,7 @@
    "variante": 2,
    "nl": "De periode wijkt af van de planning.",
    "en": "The period differs from the planning.",
+   "es": "El periodo no coincide con la planificación.",
    "faltan": []
   },
   {
@@ -3734,6 +4020,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3754,6 +4041,7 @@
    "variante": 0,
    "nl": "Regeltarief € 74,00; afgesproken verkooptarief (per Object): € 1.074,00. Verschil op deze regel: € 24.000,00.",
    "en": "Line rate € 74,00; agreed sales rate (per Object): € 1.074,00. Difference on this line: € 24.000,00.",
+   "es": "Tarifa de la línea € 74,00; tarifa de venta pactada (por Object): € 1.074,00. Diferencia en esta línea: € 24.000,00.",
    "faltan": []
   },
   {
@@ -3770,6 +4058,7 @@
    "variante": 1,
    "nl": "Regeltarief € 59,80; tarief van de dienst in de planning: € 52,00 (geen afgesproken tarief).",
    "en": "Line rate € 59,80; shift rate in the planning: € 52,00 (no agreed rate).",
+   "es": "Tarifa de la línea € 59,80; tarifa del turno en la planificación: € 52,00 (no hay tarifa pactada).",
    "faltan": []
   },
   {
@@ -3788,6 +4077,7 @@
    "variante": 2,
    "nl": "Afspraken met verschillende prijzen voor dezelfde regels (1): herstel de tarieventabel.",
    "en": "Agreements with different prices for the same lines (1): fix the rate table.",
+   "es": "Acuerdos con precios distintos para las mismas líneas (1): arregla la tabla de tarifas.",
    "faltan": []
   },
   {
@@ -3798,6 +4088,7 @@
    "variante": 3,
    "nl": "Het verkooptarief wijkt af van de afspraak.",
    "en": "The sales rate differs from the agreement.",
+   "es": "La tarifa de venta no es la del acuerdo.",
    "faltan": []
   },
   {
@@ -3815,6 +4106,7 @@
    "variante": 0,
    "nl": "Er zijn even specifieke afspraken (per Object) met verschillende prijzen: het is niet duidelijk welke geldt.",
    "en": "There are equally specific agreements (per Object) with different prices: it is unclear which applies.",
+   "es": "Hay acuerdos igual de concretos (por Object) con precios distintos: no está claro cuál se aplica.",
    "faltan": []
   },
   {
@@ -3825,6 +4117,7 @@
    "variante": 1,
    "nl": "Geen afgesproken verkooptarief voor de regel en geen tarief van de dienst in de planning.",
    "en": "No agreed sales rate for the line and no shift rate in the planning.",
+   "es": "No hay tarifa de venta pactada para la línea ni tarifa del turno en la planificación.",
    "faltan": []
   },
   {
@@ -3846,6 +4139,7 @@
    "variante": 0,
    "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, geschat op € 838,50.",
    "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, estimated at € 838,50.",
+   "es": "Del 12-10-2026 al 18-10-2026 la planificación tiene 15 horas facturables validadas para este Object que ninguna línea cubre; valor estimado: € 838,50.",
    "faltan": []
   },
   {
@@ -3867,6 +4161,7 @@
    "variante": 1,
    "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt, waarde € 838,50.",
    "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers, worth € 838,50.",
+   "es": "Del 12-10-2026 al 18-10-2026 la planificación tiene 15 horas facturables validadas para este Object que ninguna línea cubre; valor: € 838,50.",
    "faltan": []
   },
   {
@@ -3888,6 +4183,7 @@
    "variante": 2,
    "nl": "Van 12-10-2026 tot en met 18-10-2026 heeft de planning 15 gevalideerde, factureerbare uren voor dit Object die geen regel dekt.",
    "en": "From 12-10-2026 to 18-10-2026 the planning has 15 validated billable hours for this Object that no line covers.",
+   "es": "Del 12-10-2026 al 18-10-2026 la planificación tiene 15 horas facturables validadas para este Object que ninguna línea cubre.",
    "faltan": []
   },
   {
@@ -3898,6 +4194,7 @@
    "variante": 3,
    "nl": "Er zijn gevalideerde uren die deze factuur niet dekt.",
    "en": "There are validated hours this invoice does not cover.",
+   "es": "Hay horas validadas que esta factura no cubre.",
    "faltan": []
   },
   {
@@ -3908,6 +4205,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -3932,6 +4230,7 @@
    "variante": 0,
    "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Geschatte waarde: € 2.028,00.",
    "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Estimated value: € 2.028,00.",
+   "es": "Sin facturar: 39 h del 27-07-2026 al 02-08-2026, pasado el periodo y sus días de gracia (hasta el 09-08-2026). Valor estimado: € 2.028,00.",
    "faltan": []
   },
   {
@@ -3956,6 +4255,7 @@
    "variante": 1,
    "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026). Waarde: € 2.028,00.",
    "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026). Value: € 2.028,00.",
+   "es": "Sin facturar: 39 h del 27-07-2026 al 02-08-2026, pasado el periodo y sus días de gracia (hasta el 09-08-2026). Valor: € 2.028,00.",
    "faltan": []
   },
   {
@@ -3985,6 +4285,7 @@
    "variante": 1,
    "nl": "Niet gefactureerd: 77,5 uur van 03-08-2026 tot en met 09-08-2026, na de periode en de extra dagen (tot 16-08-2026). Waarde: € 4.030,00.",
    "en": "Not billed: 77,5 h from 03-08-2026 to 09-08-2026, past the period and its grace days (until 16-08-2026). Value: € 4.030,00.",
+   "es": "Sin facturar: 77,5 h del 03-08-2026 al 09-08-2026, pasado el periodo y sus días de gracia (hasta el 16-08-2026). Valor: € 4.030,00.",
    "faltan": []
   },
   {
@@ -4007,6 +4308,7 @@
    "variante": 2,
    "nl": "Niet gefactureerd: 39 uur van 27-07-2026 tot en met 02-08-2026, na de periode en de extra dagen (tot 09-08-2026).",
    "en": "Not billed: 39 h from 27-07-2026 to 02-08-2026, past the period and its grace days (until 09-08-2026).",
+   "es": "Sin facturar: 39 h del 27-07-2026 al 02-08-2026, pasado el periodo y sus días de gracia (hasta el 09-08-2026).",
    "faltan": []
   },
   {
@@ -4017,6 +4319,7 @@
    "variante": 3,
    "nl": "Er is gevalideerd werk dat niet is gefactureerd.",
    "en": "There is validated work that has not been billed.",
+   "es": "Hay trabajo validado que no se ha facturado.",
    "faltan": []
   },
   {
@@ -4027,6 +4330,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -4043,6 +4347,7 @@
    "variante": 0,
    "nl": "De factuurcyclus verwacht een factuur voor 03-08-2026 – 09-08-2026 en die is er niet. Diensten in de planning: 9.",
    "en": "The billing cycle expects an invoice for 03-08-2026 – 09-08-2026 and there is none. Shifts in the planning: 9.",
+   "es": "El ciclo de facturación espera una factura del 03-08-2026 al 09-08-2026 y no hay ninguna. Turnos en la planificación: 9.",
    "faltan": []
   },
   {
@@ -4059,6 +4364,7 @@
    "variante": 0,
    "nl": "De factuurcyclus verwacht een factuur voor 10-08-2026 – 16-08-2026 en die is er niet. Diensten in de planning: 9.",
    "en": "The billing cycle expects an invoice for 10-08-2026 – 16-08-2026 and there is none. Shifts in the planning: 9.",
+   "es": "El ciclo de facturación espera una factura del 10-08-2026 al 16-08-2026 y no hay ninguna. Turnos en la planificación: 9.",
    "faltan": []
   },
   {
@@ -4069,6 +4375,7 @@
    "variante": 1,
    "nl": "Een factuurperiode heeft geen factuur.",
    "en": "A billing period has no invoice.",
+   "es": "Un periodo de facturación no tiene factura.",
    "faltan": []
   },
   {
@@ -4079,6 +4386,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -4089,6 +4397,7 @@
    "variante": 0,
    "nl": "De planning is gewijzigd nadat deze factuur was verstuurd. Er is een correctie of creditnota nodig.",
    "en": "The planning changed after this invoice was sent. A correction or credit note is needed.",
+   "es": "La planificación cambió después de enviar esta factura. Hace falta una corrección o una nota de crédito.",
    "faltan": []
   },
   {
@@ -4099,6 +4408,7 @@
    "variante": 0,
    "nl": "Kon niet met de planning worden vergeleken: er is nog geen planning ingelezen, de planning dekt deze dagen niet, of de factuurregel zegt niet over welke dagen of welke persoon of welk Object het gaat.",
    "en": "Could not be compared with the planning: no planning has been imported yet, the planning does not cover these days, or the invoice line does not say which days or which person or Object it is for.",
+   "es": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es.",
    "faltan": []
   },
   {
@@ -4127,6 +4437,7 @@
    "variante": 0,
    "nl": "PO-nummer PO-4500123 is gesloten.",
    "en": "PO number PO-4500123 is closed.",
+   "es": "La PO número PO-4500123 está cerrada.",
    "faltan": []
   },
   {
@@ -4155,6 +4466,7 @@
    "variante": 1,
    "nl": "Werk buiten de looptijd van PO-nummer PO-4500123 (01-10-2026 – 01-11-2026).",
    "en": "Work outside the validity of PO number PO-4500123 (01-10-2026 – 01-11-2026).",
+   "es": "Trabajo fuera de la vigencia de la PO número PO-4500123 (01-10-2026 – 01-11-2026).",
    "faltan": []
   },
   {
@@ -4165,6 +4477,7 @@
    "variante": 2,
    "nl": "De PO is niet geldig voor dit werk.",
    "en": "The PO is not valid for this work.",
+   "es": "La PO no vale para este trabajo.",
    "faltan": []
   },
   {
@@ -4182,6 +4495,7 @@
    "variante": 0,
    "nl": "Het is niet bekend van welke dagen het werk op PO-nummer PO-1 is.",
    "en": "It is unknown which days the work charged to PO number PO-1 is from.",
+   "es": "No se sabe de qué días es el trabajo cargado a la PO número PO-1.",
    "faltan": []
   },
   {
@@ -4192,6 +4506,7 @@
    "variante": 1,
    "nl": "Het is niet bekend van welke dagen het werk op de PO is.",
    "en": "It is unknown which days the work charged to the PO is from.",
+   "es": "No se sabe de qué días es el trabajo cargado a la PO.",
    "faltan": []
   },
   {
@@ -4202,6 +4517,7 @@
    "variante": 0,
    "nl": "De klant of het Object vraagt een PO en deze factuur heeft er geen.",
    "en": "The client or Object requires a PO and this invoice has none.",
+   "es": "El cliente o el Object exige una PO y esta factura no la tiene.",
    "faltan": []
   },
   {
@@ -4218,6 +4534,7 @@
    "variante": 0,
    "nl": "Niet geregistreerd: 4500012.",
    "en": "Not registered: 4500012.",
+   "es": "Sin registrar: 4500012.",
    "faltan": []
   },
   {
@@ -4228,6 +4545,7 @@
    "variante": 1,
    "nl": "De PO op de factuur is onbekend of van een ander.",
    "en": "The PO on the invoice is unknown or someone else's.",
+   "es": "La PO de la factura es desconocida o de otro.",
    "faltan": []
   },
   {
@@ -4238,6 +4556,7 @@
    "variante": 0,
    "nl": "Er is nog geen PO geregistreerd om het nummer mee te vergelijken.",
    "en": "No PO has been registered yet to compare the number with.",
+   "es": "Aún no hay ninguna PO registrada con la que comparar el número.",
    "faltan": []
   },
   {
@@ -4255,6 +4574,7 @@
    "variante": 0,
    "nl": "Deze factuur boekt € 1.000,00 op PO-nummer PO-4500123 en gaat € 756,00 over wat er over was.",
    "en": "This invoice charges € 1.000,00 to PO number PO-4500123 and goes € 756,00 over what was left.",
+   "es": "Esta factura carga € 1.000,00 a la PO número PO-4500123 y se pasa € 756,00 de lo que quedaba.",
    "faltan": []
   },
   {
@@ -4265,6 +4585,7 @@
    "variante": 1,
    "nl": "Deze factuur boekt meer op de PO dan er over was.",
    "en": "This invoice charges more to the PO than was left.",
+   "es": "Esta factura carga a la PO más de lo que quedaba.",
    "faltan": []
   },
   {
@@ -4282,6 +4603,7 @@
    "variante": 0,
    "nl": "Zonder factuurdatum is niet bekend wat er vóór deze factuur over was op PO-nummer PO-1.",
    "en": "Without an invoice date it is unknown what was left on PO number PO-1 before this invoice.",
+   "es": "Sin fecha de factura no se sabe cuánto quedaba en la PO número PO-1 antes de esta factura.",
    "faltan": []
   },
   {
@@ -4292,6 +4614,7 @@
    "variante": 1,
    "nl": "Zonder factuurdatum is niet bekend wat er op de PO over was.",
    "en": "Without an invoice date it is unknown what was left on the PO.",
+   "es": "Sin fecha de factura no se sabe cuánto quedaba en la PO.",
    "faltan": []
   },
   {
@@ -4308,6 +4631,7 @@
    "variante": 0,
    "nl": "Deze PO is voor 85,99% verbruikt (€ 38.610,00 van € 44.900,00); over: € 6.290,00. Waarschuwing vanaf 80%.",
    "en": "This PO is 85,99% used (€ 38.610,00 of € 44.900,00); left: € 6.290,00. Warning from 80%.",
+   "es": "Esta PO está consumida al 85,99% (€ 38.610,00 de € 44.900,00); queda: € 6.290,00. Aviso a partir del 80%.",
    "faltan": []
   },
   {
@@ -4318,6 +4642,7 @@
    "variante": 1,
    "nl": "Deze PO is bijna op.",
    "en": "This PO is nearly used up.",
+   "es": "Esta PO está casi agotada.",
    "faltan": []
   },
   {
@@ -4334,6 +4659,7 @@
    "variante": 0,
    "nl": "PO-nummer PO-1 was al op; deze factuur boekt er nog € 50,00 op.",
    "en": "PO number PO-1 was already used up; this invoice charges another € 50,00 to it.",
+   "es": "La PO número PO-1 ya estaba agotada; esta factura le carga otros € 50,00.",
    "faltan": []
   },
   {
@@ -4344,6 +4670,7 @@
    "variante": 1,
    "nl": "De PO was al op en deze factuur boekt er nog op.",
    "en": "The PO was already used up and this invoice charges more to it.",
+   "es": "La PO ya estaba agotada y esta factura le carga más.",
    "faltan": []
   },
   {
@@ -4361,6 +4688,7 @@
    "variante": 0,
    "nl": "Zonder factuurdatum is niet bekend wat er vóór deze factuur over was op PO-nummer PO-1.",
    "en": "Without an invoice date it is unknown what was left on PO number PO-1 before this invoice.",
+   "es": "Sin fecha de factura no se sabe cuánto quedaba en la PO número PO-1 antes de esta factura.",
    "faltan": []
   },
   {
@@ -4371,6 +4699,7 @@
    "variante": 1,
    "nl": "Zonder factuurdatum is niet bekend wat er op de PO over was.",
    "en": "Without an invoice date it is unknown what was left on the PO.",
+   "es": "Sin fecha de factura no se sabe cuánto quedaba en la PO.",
    "faltan": []
   },
   {
@@ -4386,6 +4715,7 @@
    "variante": 0,
    "nl": "PO verlopen op 01-10-2026 met € 100,00 ongebruikt, en de planning heeft daarna nog 4 diensten die geen andere PO dekt.",
    "en": "PO expired on 01-10-2026 with € 100,00 unused, and the planning has 4 shifts after that date that no other PO covers.",
+   "es": "La PO caducó el 01-10-2026 con € 100,00 sin usar, y la planificación tiene 4 turnos después de esa fecha que no cubre ninguna otra PO.",
    "faltan": []
   },
   {
@@ -4400,6 +4730,7 @@
    "variante": 1,
    "nl": "PO verloopt op 06-11-2026; nog ongebruikt: € 15.968,00.",
    "en": "PO expires on 06-11-2026; still unused: € 15.968,00.",
+   "es": "La PO caduca el 06-11-2026; aún sin usar: € 15.968,00.",
    "faltan": []
   },
   {
@@ -4410,6 +4741,7 @@
    "variante": 2,
    "nl": "De PO verloopt bijna.",
    "en": "The PO is about to expire.",
+   "es": "La PO está a punto de caducar.",
    "faltan": []
   },
   {
@@ -4424,6 +4756,7 @@
    "variante": 0,
    "nl": "PO verlopen op 30-10-2026 met € 5.000,00 ongebruikt; zonder planning is niet bekend of er daarna nog werk is.",
    "en": "PO expired on 30-10-2026 with € 5.000,00 unused; without a planning it is unknown whether there is work after that date.",
+   "es": "La PO caducó el 30-10-2026 con € 5.000,00 sin usar; sin planificación no se sabe si hay trabajo después de esa fecha.",
    "faltan": []
   },
   {
@@ -4434,6 +4767,7 @@
    "variante": 1,
    "nl": "Zonder planning is niet bekend of er na het einde van de PO nog werk is.",
    "en": "Without a planning it is unknown whether there is work after the PO ends.",
+   "es": "Sin planificación no se sabe si hay trabajo después del fin de la PO.",
    "faltan": []
   },
   {
@@ -4447,6 +4781,7 @@
    "variante": 0,
    "nl": "Het geplande werk is meer waard dan de € 6.290,00 die er op deze PO over is.",
    "en": "The planned work is worth more than the € 6.290,00 left on this PO.",
+   "es": "El trabajo planificado vale más que los € 6.290,00 que quedan en esta PO.",
    "faltan": []
   },
   {
@@ -4457,6 +4792,7 @@
    "variante": 1,
    "nl": "Het geplande werk past niet in wat er op de PO over is.",
    "en": "The planned work does not fit in what is left on the PO.",
+   "es": "El trabajo planificado no cabe en lo que queda en la PO.",
    "faltan": []
   },
   {
@@ -4467,6 +4803,7 @@
    "variante": 0,
    "nl": "Het geplande werk komt uit de planning, en die is niet ingelezen of dekt deze dagen niet.",
    "en": "The planned work comes from the planning, which has not been imported or does not cover these days.",
+   "es": "El trabajo planificado sale de la planificación, que no se ha importado o no cubre estos días.",
    "faltan": []
   },
   {
@@ -4481,6 +4818,7 @@
    "variante": 0,
    "nl": "In het huidige tempo is deze PO meer dan 14 dagen vóór de einddatum (13-02-2027) op. Over: € 6.290,00.",
    "en": "At the current rate this PO runs out more than 14 days before its end date (13-02-2027). Left: € 6.290,00.",
+   "es": "Al ritmo actual esta PO se agota más de 14 días antes de su fecha de fin (13-02-2027). Queda: € 6.290,00.",
    "faltan": []
   },
   {
@@ -4491,6 +4829,7 @@
    "variante": 1,
    "nl": "Deze PO is eerder op dan gepland.",
    "en": "This PO will run out early.",
+   "es": "Esta PO se agotará antes de tiempo.",
    "faltan": []
   },
   {
@@ -4504,6 +4843,7 @@
    "variante": 0,
    "nl": "Gefactureerd, niet-gefactureerd en gepland werk samen (€ 55.042,00) is meer dan de waarde van de PO (€ 44.900,00).",
    "en": "Invoiced, unbilled and planned work together (€ 55.042,00) is more than the PO value (€ 44.900,00).",
+   "es": "Lo facturado, lo que falta por facturar y lo planificado suman juntos € 55.042,00, más que el valor de la PO (€ 44.900,00).",
    "faltan": []
   },
   {
@@ -4514,6 +4854,7 @@
    "variante": 1,
    "nl": "Het verwachte werk is meer dan de waarde van de PO.",
    "en": "The expected work is more than the PO value.",
+   "es": "El trabajo esperado supera el valor de la PO.",
    "faltan": []
   },
   {
@@ -4524,6 +4865,7 @@
    "variante": 0,
    "nl": "Het niet-gefactureerde en geplande werk komt uit de planning, en die is niet ingelezen of dekt deze dagen niet.",
    "en": "The unbilled and planned work comes from the planning, which has not been imported or does not cover these days.",
+   "es": "Lo que falta por facturar y lo planificado salen de la planificación, que no se ha importado o no cubre estos días.",
    "faltan": []
   },
   {
@@ -4542,6 +4884,7 @@
    "variante": 0,
    "nl": "Het document noemt factuur 2026999, maar dat nummer staat meer dan één keer in het systeem.",
    "en": "The document refers to invoice 2026999, but that number is in the system more than once.",
+   "es": "El documento se refiere a la factura 2026999, pero ese número está más de una vez en el sistema.",
    "faltan": []
   },
   {
@@ -4557,6 +4900,7 @@
    "variante": 1,
    "nl": "Het document noemt factuur 2026999 van dezelfde wederpartij, en die staat niet in het systeem.",
    "en": "The document refers to invoice 2026999 of the same party, which is not in the system.",
+   "es": "El documento se refiere a la factura 2026999 de la misma parte, que no está en el sistema.",
    "faltan": []
   },
   {
@@ -4567,6 +4911,7 @@
    "variante": 2,
    "nl": "De genoemde factuur staat niet in het systeem.",
    "en": "The referenced invoice is not in the system.",
+   "es": "La factura a la que se refiere no está en el sistema.",
    "faltan": []
   },
   {
@@ -4577,6 +4922,7 @@
    "variante": 0,
    "nl": "Het document noemt een andere factuur, maar het nummer is niet leesbaar of de wederpartij is onbekend.",
    "en": "The document refers to another invoice, but the number cannot be read or the party is unknown.",
+   "es": "El documento se refiere a otra factura, pero el número no se puede leer o la parte es desconocida.",
    "faltan": []
   },
   {
@@ -4594,6 +4940,7 @@
    "variante": 0,
    "nl": "De creditnota's halen € 511,40 van een factuur van € 411,40.",
    "en": "The credit notes take € 511,40 off an invoice of € 411,40.",
+   "es": "Las notas de crédito restan € 511,40 a una factura de € 411,40.",
    "faltan": []
   },
   {
@@ -4611,6 +4958,7 @@
    "variante": 1,
    "nl": "Deze creditnota van € 100,00 is gebruikt voor € 160,00.",
    "en": "This credit note of € 100,00 is applied for € 160,00.",
+   "es": "Esta nota de crédito de € 100,00 se aplica por € 160,00.",
    "faltan": []
   },
   {
@@ -4621,6 +4969,7 @@
    "variante": 2,
    "nl": "Er is meer gecrediteerd dan de factuur waard is.",
    "en": "More has been credited than the invoice is worth.",
+   "es": "Se ha abonado más de lo que vale la factura.",
    "faltan": []
   },
   {
@@ -4631,6 +4980,7 @@
    "variante": 0,
    "nl": "Er zijn creditnota's, maar geen totaal in euro om ze mee te vergelijken.",
    "en": "There are credit notes, but no total in euros to compare them with.",
+   "es": "Hay notas de crédito, pero ningún total en euros con el que compararlas.",
    "faltan": []
   },
   {
@@ -4653,6 +5003,7 @@
    "variante": 0,
    "nl": "Deze factuur vervangt een eerdere, en beide staan open of zijn beide betaald.",
    "en": "This invoice replaces an earlier one, and both are open or both are paid.",
+   "es": "Esta factura sustituye a una anterior, y las dos están abiertas o las dos pagadas.",
    "faltan": []
   },
   {
@@ -4675,6 +5026,7 @@
    "variante": 1,
    "nl": "Deze factuur corrigeert een eerdere, en beide staan open of zijn beide betaald.",
    "en": "This invoice corrects an earlier one, and both are open or both are paid.",
+   "es": "Esta factura corrige una anterior, y las dos están abiertas o las dos pagadas.",
    "faltan": []
   },
   {
@@ -4685,6 +5037,7 @@
    "variante": 2,
    "nl": "Het origineel en de vervanging staan allebei open of zijn allebei betaald.",
    "en": "The original and the replacement are both open or both paid.",
+   "es": "La original y la sustituta están las dos abiertas o las dos pagadas.",
    "faltan": []
   },
   {
@@ -4698,6 +5051,7 @@
    "variante": 0,
    "nl": "Creditnota van € 239,58 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
    "en": "Credit note of € 239,58 without a confirmed link: it does not reduce any open amount yet.",
+   "es": "Nota de crédito de € 239,58 sin un enlace confirmado: aún no reduce ningún importe pendiente.",
    "faltan": []
   },
   {
@@ -4711,6 +5065,7 @@
    "variante": 0,
    "nl": "Creditnota van € 362,03 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
    "en": "Credit note of € 362,03 without a confirmed link: it does not reduce any open amount yet.",
+   "es": "Nota de crédito de € 362,03 sin un enlace confirmado: aún no reduce ningún importe pendiente.",
    "faltan": []
   },
   {
@@ -4724,6 +5079,7 @@
    "variante": 0,
    "nl": "Creditnota van € 122,51 zonder bevestigde koppeling: ze verlaagt nog geen enkel openstaand bedrag.",
    "en": "Credit note of € 122,51 without a confirmed link: it does not reduce any open amount yet.",
+   "es": "Nota de crédito de € 122,51 sin un enlace confirmado: aún no reduce ningún importe pendiente.",
    "faltan": []
   },
   {
@@ -4734,6 +5090,7 @@
    "variante": 1,
    "nl": "Creditnota zonder bevestigde koppeling.",
    "en": "Credit note without a confirmed link.",
+   "es": "Nota de crédito sin un enlace confirmado.",
    "faltan": []
   },
   {
@@ -4750,6 +5107,7 @@
    "variante": 0,
    "nl": "Voorstel: deze factuur crediteert een andere factuur. Bevestig of wijs af.",
    "en": "Suggestion: this invoice credits another invoice. Confirm or reject it.",
+   "es": "Propuesta: esta factura abona otra factura. Confírmala o recházala.",
    "faltan": []
   },
   {
@@ -4766,6 +5124,7 @@
    "variante": 0,
    "nl": "Voorstel: deze factuur crediteert een andere factuur. Bevestig of wijs af.",
    "en": "Suggestion: this invoice credits another invoice. Confirm or reject it.",
+   "es": "Propuesta: esta factura abona otra factura. Confírmala o recházala.",
    "faltan": []
   },
   {
@@ -4776,6 +5135,7 @@
    "variante": 1,
    "nl": "Er is een voorgestelde koppeling om te bevestigen.",
    "en": "There is a suggested link to confirm.",
+   "es": "Hay un enlace propuesto por confirmar.",
    "faltan": []
   },
   {
@@ -4791,6 +5151,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 5).",
    "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 5).",
+   "es": "Importe sin BTW € 897,00; lo habitual es € 1.813,50 (la mediana de 5 facturas anteriores).",
    "faltan": []
   },
   {
@@ -4806,6 +5167,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 6).",
    "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 6).",
+   "es": "Importe sin BTW € 897,00; lo habitual es € 1.813,50 (la mediana de 6 facturas anteriores).",
    "faltan": []
   },
   {
@@ -4816,6 +5178,7 @@
    "variante": 1,
    "nl": "Het bedrag is ongebruikelijk voor deze wederpartij.",
    "en": "The amount is unusual for this party.",
+   "es": "El importe es poco habitual para esta parte.",
    "faltan": []
   },
   {
@@ -4828,6 +5191,7 @@
    "variante": 0,
    "nl": "Eerdere facturen van deze wederpartij: 0. Er zijn er minstens 3 nodig om te zeggen of een bedrag ongebruikelijk is.",
    "en": "Earlier invoices from this party: 0. At least 3 are needed to tell whether an amount is unusual.",
+   "es": "Facturas anteriores de esta parte: 0. Hacen falta al menos 3 para saber si un importe es poco habitual.",
    "faltan": []
   },
   {
@@ -4840,6 +5204,7 @@
    "variante": 0,
    "nl": "Eerdere facturen van deze wederpartij: 1. Er zijn er minstens 3 nodig om te zeggen of een bedrag ongebruikelijk is.",
    "en": "Earlier invoices from this party: 1. At least 3 are needed to tell whether an amount is unusual.",
+   "es": "Facturas anteriores de esta parte: 1. Hacen falta al menos 3 para saber si un importe es poco habitual.",
    "faltan": []
   },
   {
@@ -4850,6 +5215,7 @@
    "variante": 1,
    "nl": "Te weinig eerdere facturen om te zeggen of het bedrag ongebruikelijk is.",
    "en": "Too few earlier invoices to tell whether the amount is unusual.",
+   "es": "Hay muy pocas facturas anteriores para saber si el importe es poco habitual.",
    "faltan": []
   }
  ]

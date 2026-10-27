@@ -1,0 +1,3396 @@
+{
+  "idioma": "es",
+  "comun": {
+    "si": "sí",
+    "no": "no"
+  },
+  "veredicto": {
+    "limpia": "Sin objeciones del sistema",
+    "limpia_sin_datos": "Sin objeciones en lo que se ha comprobado; controles sin datos: {sin_datos}",
+    "objeciones": "Objeciones del sistema: {n}",
+    "aceptadas": "Aceptadas por una persona: {n}",
+    "campos": "Campos por verificar: {n}"
+  },
+  "reglas": {
+    "Q1": {
+      "titulo": "Faltan datos obligatorios",
+      "significa": "Al documento le falta algo que toda factura debe llevar, como el número, la otra parte, la fecha, el periodo, los importes o el BTW.",
+      "que_hacer": "Mira el original y completa los datos que faltan.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "Falta en el documento: {faltan|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "Faltan datos obligatorios en el documento."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "no_solicitado"
+            ],
+            "texto": "Al leer el documento no se pidió esto: {no_solicitado|codigo}. No se puede comprobar."
+          },
+          {
+            "cuando": [],
+            "texto": "Al leer el documento no se pidieron todos los datos obligatorios."
+          }
+        ]
+      }
+    },
+    "Q2": {
+      "titulo": "Leído con dudas",
+      "significa": "Un campo importante se leyó con dudas y nadie lo ha comprobado todavía.",
+      "que_hacer": "Compara el campo con el original y luego verifícalo o corrígelo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "campos.1"
+            ],
+            "texto": "Nadie ha comparado todavía estos campos con el original: {campos|codigo}."
+          },
+          {
+            "cuando": [
+              "campos"
+            ],
+            "texto": "Nadie ha comparado todavía este campo con el original: {campos|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "Nadie ha comparado todavía un campo con el original."
+          }
+        ]
+      }
+    },
+    "Q3": {
+      "titulo": "Texto sospechoso en el documento",
+      "significa": "Las notas del documento llevan un texto dirigido a quien lo procesa, como un IBAN nuevo o una petición de cambiar datos. Puede ser un intento de fraude.",
+      "que_hacer": "No hagas lo que dice el texto. Lee el original y avisa si algo no cuadra; los datos bancarios salen siempre de los datos maestros.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "marcas"
+            ],
+            "texto": "Las notas contienen: {marcas|codigo}. No se actúa sobre ello, solo se revisa."
+          },
+          {
+            "cuando": [],
+            "texto": "Las notas llevan un texto dirigido a quien procesa el documento."
+          }
+        ]
+      }
+    },
+    "Q4": {
+      "titulo": "Original no guardado",
+      "significa": "El documento original no está en el archivo; solo están los datos que se leyeron de él.",
+      "que_hacer": "Pide otra vez el original e impórtalo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "El documento original no se guardó: solo queda lo que se leyó de él."
+          }
+        ]
+      }
+    },
+    "X1": {
+      "titulo": "Moneda distinta del euro",
+      "significa": "La factura, el movimiento del banco o la fila importada no está en euros. Queda fuera de todos los totales.",
+      "que_hacer": "Comprueba la moneda y consigue una versión en euros, o trátala fuera del sistema.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "filas"
+            ],
+            "texto": "Filas importadas con importes que no están en euros: {filas|cuenta}. No se importaron."
+          },
+          {
+            "cuando": [
+              "moneda"
+            ],
+            "texto": "Importes en {moneda}: no están en euros, así que quedan fuera de todos los totales."
+          },
+          {
+            "cuando": [],
+            "texto": "No está en euros, así que queda fuera de todos los totales."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se puede leer ningún importe, así que no se sabe la moneda."
+          }
+        ]
+      }
+    },
+    "M2": {
+      "titulo": "Cambio manual que ya no encaja",
+      "significa": "Una línea de factura que una persona había cambiado o excluido no está en la nueva lectura del documento. La línea se mantiene como estaba.",
+      "que_hacer": "Decide si la línea se queda: exclúyela si ya no existe, o acepta el hallazgo con un motivo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "excluida=true"
+            ],
+            "texto": "La línea de factura {orden} estaba excluida y la nueva lectura ya no la contiene."
+          },
+          {
+            "cuando": [
+              "orden"
+            ],
+            "texto": "Una persona cambió la línea de factura {orden} y la nueva lectura ya no la contiene. Se mantiene como estaba."
+          },
+          {
+            "cuando": [],
+            "texto": "Una línea de factura cambiada no está en la nueva lectura."
+          }
+        ]
+      }
+    },
+    "M3": {
+      "titulo": "Exact y el documento no coinciden",
+      "significa": "Una factura de venta de Exact (o de TRNSPRNT) y su PDF no dicen lo mismo, o comparten número y no se pudieron unir. La factura contabilizada es la que cuenta.",
+      "que_hacer": "Mira la diferencia y corrige la factura en Exact, o une el PDF a la factura correcta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "distintos.parte"
+            ],
+            "texto": "El PDF tiene el número de una factura contabilizada, pero el cliente es otro o no se conoce, así que no se unieron. Mientras tanto la venta cuenta dos veces."
+          },
+          {
+            "cuando": [
+              "distintos.union"
+            ],
+            "texto": "El PDF tiene el número de una factura contabilizada y no se unió a ella ({distintos.union|codigo}). Mientras tanto la venta cuenta dos veces."
+          },
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "distintos.fecha_factura"
+                ],
+                "texto": "Fecha: contabilizada {distintos.fecha_factura.0|fecha}, PDF {distintos.fecha_factura.1|fecha}."
+              },
+              {
+                "cuando": [
+                  "distintos.base_cent"
+                ],
+                "texto": "Importe sin BTW: contabilizado {distintos.base_cent.0|dinero}, PDF {distintos.base_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.iva_cent"
+                ],
+                "texto": "BTW: contabilizado {distintos.iva_cent.0|dinero}, PDF {distintos.iva_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.total_cent"
+                ],
+                "texto": "Total: contabilizado {distintos.total_cent.0|dinero}, PDF {distintos.total_cent.1|dinero}."
+              },
+              {
+                "cuando": [
+                  "distintos.tipo"
+                ],
+                "texto": "Tipo: contabilizado {distintos.tipo.0|codigo}, PDF {distintos.tipo.1|codigo}."
+              },
+              {
+                "cuando": [
+                  "distintos.periodo_inicio"
+                ],
+                "texto": "Inicio del periodo: contabilizado {distintos.periodo_inicio.0|fecha}, PDF {distintos.periodo_inicio.1|fecha}."
+              },
+              {
+                "cuando": [
+                  "distintos.periodo_fin"
+                ],
+                "texto": "Fin del periodo: contabilizado {distintos.periodo_fin.0|fecha}, PDF {distintos.periodo_fin.1|fecha}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "El PDF y la factura contabilizada no están unidos o no dicen lo mismo. Hasta que se aclare, la venta puede contar dos veces."
+          }
+        ]
+      }
+    },
+    "Z1": {
+      "titulo": "Fuente desactualizada",
+      "significa": "Los últimos datos de una fuente (el banco, Exact o TRNSPRNT) son más antiguos de lo permitido. Los controles que dependen de ellos no se pueden hacer.",
+      "que_hacer": "Importa una exportación o un extracto bancario nuevo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fuente=banco"
+            ],
+            "texto": "Los últimos datos del banco son del {exportado|fecha}: tienen {edad} días hábiles y el límite es {limite}."
+          },
+          {
+            "cuando": [
+              "fuente=exact"
+            ],
+            "texto": "Los últimos datos de Exact son del {exportado|fecha}: tienen {edad} días y el límite es {limite}."
+          },
+          {
+            "cuando": [
+              "fuente=trnsprnt"
+            ],
+            "texto": "Los últimos datos de TRNSPRNT son del {exportado|fecha}: tienen {edad} días y el límite es {limite}."
+          },
+          {
+            "cuando": [],
+            "texto": "Los últimos datos de una fuente son demasiado antiguos."
+          }
+        ]
+      }
+    },
+    "Z2": {
+      "titulo": "Filas rechazadas al importar",
+      "significa": "La última importación de una fuente rechazó filas (o se rechazó entera), o nombra una parte, un Object o una persona que no está en los datos maestros. No se crea nada automáticamente.",
+      "que_hacer": "Arregla el archivo o los datos maestros e impórtalo otra vez.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "estado=rechazada"
+            ],
+            "texto": "La última importación se rechazó entera: no se importó nada."
+          },
+          {
+            "cuando": [
+              "sin_resolver"
+            ],
+            "texto": "Filas rechazadas: {rechazadas}. Referencias que no están en los datos maestros: {sin_resolver|cuenta}."
+          },
+          {
+            "cuando": [
+              "rechazadas"
+            ],
+            "texto": "Filas rechazadas en la última importación: {rechazadas}."
+          },
+          {
+            "cuando": [],
+            "texto": "La última importación rechazó filas."
+          }
+        ]
+      }
+    },
+    "A0": {
+      "titulo": "Parte desconocida",
+      "significa": "Ningún proveedor ni cliente de los datos maestros coincide exactamente con esta factura (número de BTW, número de KvK o alias confirmado), o coincide más de uno.",
+      "que_hacer": "Elige el proveedor o el cliente correcto, o añádelo antes a los datos maestros.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "candidatos"
+            ],
+            "texto": "Varias partes de los datos maestros ({candidatos}) comparten este número de BTW o de KvK; no está claro cuál es."
+          },
+          {
+            "cuando": [
+              "nombre"
+            ],
+            "texto": "Nadie en los datos maestros coincide exactamente. En la factura: {nombre}, número de BTW {btw}, número de KvK {kvk}."
+          },
+          {
+            "cuando": [],
+            "texto": "Nadie en los datos maestros coincide exactamente con esta factura."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Los datos maestros aún no se han importado, así que no se sabe si esta parte es conocida."
+          }
+        ]
+      }
+    },
+    "A2": {
+      "titulo": "Distinto de los datos maestros",
+      "significa": "El nombre, el número de KvK o el número de BTW de la factura no coincide con los datos maestros de esta parte.",
+      "que_hacer": "Comprueba que de verdad es la misma parte. Si es otro nombre comercial, confírmalo como alias.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "Número de BTW en la factura: {btw.0}; en los datos maestros: {btw.1}."
+              },
+              {
+                "cuando": [
+                  "kvk"
+                ],
+                "texto": "Número de KvK en la factura: {kvk.0}; en los datos maestros: {kvk.1}."
+              },
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "Nombre en la factura: {nombre.0}; nombres conocidos: {nombre.1}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "Lo que pone en la factura no coincide con los datos maestros."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Los datos maestros de Exact están desactualizados, así que no se compararon."
+          }
+        ]
+      }
+    },
+    "A5": {
+      "titulo": "Número de BTW",
+      "significa": "Una factura de compra sin el número de BTW del proveedor y que no menciona la KOR se bloquea. Un número de BTW neerlandés con un formato incorrecto se retiene.",
+      "que_hacer": "Pide al proveedor una factura con un número de BTW válido, o anota que se aplica la KOR.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "btw"
+            ],
+            "texto": "El número de BTW {btw} no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras)."
+          },
+          {
+            "cuando": [],
+            "texto": "La factura no lleva el número de BTW del proveedor y no menciona la KOR."
+          }
+        ]
+      }
+    },
+    "A7": {
+      "titulo": "Datos cambiados",
+      "significa": "Lo que pone un proveedor es distinto de su factura anterior. Un número de BTW o de KvK distinto retiene la factura; un nombre o una dirección distintos son un aviso.",
+      "que_hacer": "Comprueba con el proveedor (con los datos de contacto que ya tenemos) que el cambio es auténtico.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "El número de BTW cambió de {btw.0} a {btw.1}."
+              },
+              {
+                "cuando": [
+                  "kvk"
+                ],
+                "texto": "El número de KvK cambió de {kvk.0} a {kvk.1}."
+              },
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "El nombre cambió de {nombre.0} a {nombre.1}."
+              },
+              {
+                "cuando": [
+                  "direccion"
+                ],
+                "texto": "La dirección cambió de {direccion.0} a {direccion.1}."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "Los datos son distintos de los de la factura anterior."
+          }
+        ]
+      }
+    },
+    "A8": {
+      "titulo": "Destinatario",
+      "significa": "La factura no va dirigida a BM Support BV, o una factura que entró como venta no la emitió BM Support BV.",
+      "que_hacer": "Comprueba que la factura es para BM Support BV y que está en la carpeta correcta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "receptor"
+            ],
+            "texto": "Entró como factura de venta, sin emisor y dirigida a BM Support BV: seguramente es una factura de compra en la carpeta equivocada."
+          },
+          {
+            "cuando": [
+              "emisor"
+            ],
+            "texto": "Entró como factura de venta pero la emitió {emisor}, no BM Support BV: está en la carpeta equivocada."
+          },
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "nombre"
+                ],
+                "texto": "Dirigida a {nombre}, no a BM Support BV."
+              },
+              {
+                "cuando": [
+                  "btw"
+                ],
+                "texto": "Número de BTW del destinatario: {btw}, que no es el de BM Support BV."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "La factura no va dirigida a BM Support BV."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El documento no dice quién lo emitió ni a quién va dirigido (o no se pidió al leerlo)."
+          }
+        ]
+      }
+    },
+    "B2": {
+      "titulo": "Número de factura repetido",
+      "significa": "La misma parte tiene más de una factura con el mismo número, y no se han fusionado ni enlazado.",
+      "que_hacer": "Compara las facturas. Si es un reenvío, fusiónalas; si es una nota de crédito o una corrección, enlázalas.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "facturas"
+            ],
+            "texto": "El mismo número ({numero_norm}) está en {facturas|cuenta} facturas de la misma parte."
+          },
+          {
+            "cuando": [],
+            "texto": "Este número aparece más de una vez para la misma parte."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El documento no dice de quién es, así que no se pueden buscar duplicados."
+          }
+        ]
+      }
+    },
+    "B3": {
+      "titulo": "Posible duplicado (mismo importe)",
+      "significa": "Misma parte, mismo total, como mucho 14 días de diferencia, periodos compatibles y otro número.",
+      "que_hacer": "Compara las dos facturas. Si son la misma, fusiónalas; si las dos son auténticas, acepta el hallazgo con un motivo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "totales_cent"
+            ],
+            "texto": "Mismo total ({totales_cent.1|dinero}) que otra factura de la misma parte; días de diferencia: {dias}."
+          },
+          {
+            "cuando": [],
+            "texto": "Mismo total que otra factura de la misma parte."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Falta la parte, el total o la fecha, así que no se pueden buscar duplicados por importe."
+          }
+        ]
+      }
+    },
+    "B4": {
+      "titulo": "Periodo facturado dos veces",
+      "significa": "Los periodos facturados por la misma parte se solapan (por Object, cuando las líneas lo nombran), sin un enlace confirmado ni una nota de crédito.",
+      "que_hacer": "Comprueba si el mismo periodo se facturó dos veces y, si hace falta, enlaza las facturas o pide un abono.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "periodos"
+            ],
+            "texto": "El periodo {periodos.1.0|fecha} – {periodos.1.1|fecha} se solapa con {periodos.0.0|fecha} – {periodos.0.1|fecha} de otra factura; días solapados: {dias}."
+          },
+          {
+            "cuando": [],
+            "texto": "El periodo se solapa con otra factura de la misma parte."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Falta la parte o el periodo completo, así que no se puede comprobar el solapamiento."
+          }
+        ]
+      }
+    },
+    "B5": {
+      "titulo": "Horas facturadas dos veces",
+      "significa": "Un turno de la planificación está casado con más horas de compra de las que tiene, de dos o más facturas que no se explican entre sí.",
+      "que_hacer": "Compara las facturas y pide al proveedor una nota de crédito por las horas dobles.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "turno"
+            ],
+            "texto": "El turno {turno} tiene {horas_mil|horas} h, pero {facturas|cuenta} facturas juntas cobran {conciliadas_mil|horas} h por él."
+          },
+          {
+            "cuando": [],
+            "texto": "Las mismas horas de la planificación se facturan dos veces."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V7": {
+      "titulo": "Facturado dos veces",
+      "significa": "A un cliente se le facturó dos veces: el mismo número, el mismo importe con poco tiempo de diferencia o las mismas horas de un turno en dos facturas.",
+      "que_hacer": "Compara las facturas de venta y envía una nota de crédito si hace falta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "caso=numero"
+            ],
+            "texto": "El número de factura {numero_norm} se envió a este cliente {facturas|cuenta} veces."
+          },
+          {
+            "cuando": [
+              "caso=importe"
+            ],
+            "texto": "Mismo total ({totales_cent.1|dinero}) que otra factura de venta a este cliente; días de diferencia: {dias}."
+          },
+          {
+            "cuando": [
+              "caso=turno"
+            ],
+            "texto": "El turno {turno} tiene {horas_mil|horas} h, pero {facturas|cuenta} facturas de venta juntas cobran {conciliadas_mil|horas} h por él."
+          },
+          {
+            "cuando": [],
+            "texto": "Puede que a este cliente se le haya facturado dos veces."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El documento no dice a quién se facturó, así que no se puede comprobar si se facturó dos veces."
+          }
+        ]
+      }
+    },
+    "C4": {
+      "titulo": "Trimestre de BTW ya presentado",
+      "significa": "La factura cae en un trimestre de BTW que ya se presentó y no es lo que se declaró de ella: llegó después, cambió más tarde o ya no cuenta ahí.",
+      "que_hacer": "Pon la factura en la lista para el contable; la corrección va en una declaración posterior.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "motivo=tarde"
+            ],
+            "texto": "Llegó después de presentar la declaración de BTW de {trimestre|trimestre}: su BTW no está en esa declaración."
+          },
+          {
+            "cuando": [
+              "motivo=cambio"
+            ],
+            "texto": "Cambió después de presentar la declaración de BTW de {trimestre|trimestre}: ya no coincide con lo declarado."
+          },
+          {
+            "cuando": [
+              "motivo=fuera"
+            ],
+            "texto": "Declarada en {trimestre|trimestre}, pero ya no cuenta ahí (anulada, sustituida, en otra moneda o con una fecha de otro trimestre)."
+          },
+          {
+            "cuando": [],
+            "texto": "No coincide con la declaración de BTW que ya se presentó."
+          }
+        ]
+      }
+    },
+    "D1": {
+      "titulo": "Desglose",
+      "significa": "El desglose no está completo: líneas con cantidad, tarifa e importe, el importe sin BTW, el total y, cuando se cobra BTW, el porcentaje y el importe del BTW.",
+      "que_hacer": "Completa lo que falta con el original, o pide al proveedor una factura completa.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "Faltan partes del desglose; cuántas: {faltan|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "El desglose no está completo."
+          }
+        ]
+      }
+    },
+    "D2": {
+      "titulo": "Suma de las líneas",
+      "significa": "Las líneas juntas tienen que dar el importe sin BTW (1 céntimo por línea más 2 céntimos de margen).",
+      "que_hacer": "Compara las líneas con el original y corrige el importe que se leyó mal.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "lineas_cent"
+            ],
+            "texto": "Las líneas suman {lineas_cent|suma|dinero}; el importe sin BTW es {base_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Las líneas no suman el importe sin BTW."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "!base_cent"
+            ],
+            "texto": "No hay un importe sin BTW que se pueda leer."
+          },
+          {
+            "cuando": [],
+            "texto": "No hay líneas, o una línea no tiene un importe que se pueda leer."
+          }
+        ]
+      }
+    },
+    "D2b": {
+      "titulo": "Cálculo de una línea",
+      "significa": "La cantidad por la tarifa tiene que dar el importe de cada línea (1 céntimo de margen).",
+      "que_hacer": "Compara la cantidad, la tarifa y el importe de las líneas marcadas con el original.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "En al menos una línea, la cantidad por la tarifa no da el importe de la línea."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Ninguna línea tiene a la vez cantidad, tarifa e importe."
+          }
+        ]
+      }
+    },
+    "D3": {
+      "titulo": "Importe del BTW",
+      "significa": "El importe sin BTW por el porcentaje de BTW tiene que dar el importe del BTW, por cada porcentaje (2 céntimos de margen).",
+      "que_hacer": "Compara el porcentaje y el importe del BTW con el original.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tramos"
+            ],
+            "texto": "En el desglose del BTW, el importe del BTW de un porcentaje no cuadra con su importe sin BTW."
+          },
+          {
+            "cuando": [
+              "base_cent",
+              "tipo_iva_pb"
+            ],
+            "texto": "El {tipo_iva_pb|pct} de BTW sobre {base_cent|dinero} no da los {iva_cent|dinero} de la factura."
+          },
+          {
+            "cuando": [],
+            "texto": "El importe del BTW no cuadra con el porcentaje."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Falta el importe sin BTW, el porcentaje de BTW o el importe del BTW."
+          }
+        ]
+      }
+    },
+    "D4": {
+      "titulo": "Total",
+      "significa": "El importe sin BTW más el BTW tiene que dar el total (2 céntimos de margen).",
+      "que_hacer": "Compara los tres importes con el original y corrige lo que se leyó mal.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "iva_cent",
+              "total_cent"
+            ],
+            "texto": "{base_cent|dinero} sin BTW más {iva_cent|dinero} de BTW no es el total de {total_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "El importe sin BTW más el BTW no es el total."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Falta el importe sin BTW, el BTW o el total."
+          }
+        ]
+      }
+    },
+    "D6": {
+      "titulo": "Desglose del BTW y cabecera",
+      "significa": "Las filas del desglose del BTW tienen que sumar el importe sin BTW y el BTW de la cabecera. La declaración de BTW usa el desglose.",
+      "que_hacer": "Compara el desglose del BTW con el original y corrige la fila o la cabecera.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent",
+              "iva_cent"
+            ],
+            "texto": "El desglose del BTW no suma lo de la cabecera ({base_cent|dinero} sin BTW, {iva_cent|dinero} de BTW)."
+          },
+          {
+            "cuando": [],
+            "texto": "El desglose del BTW no suma lo de la cabecera."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Falta el importe sin BTW o el BTW en la cabecera o en una fila del desglose."
+          }
+        ]
+      }
+    },
+    "I1": {
+      "titulo": "Reparto de una línea",
+      "significa": "Cuando una línea de factura se reparte entre varios Objects, las partes tienen que sumar el importe de la línea. Si no, los costes por Object cuentan una línea distinta.",
+      "que_hacer": "Reparte otra vez la línea para que las partes sumen el importe de la línea.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "El reparto de una línea entre Objects no suma el importe de la línea."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Las líneas repartidas no tienen importe."
+          }
+        ]
+      }
+    },
+    "E0": {
+      "titulo": "Faltan datos del BTW",
+      "significa": "No se sabe cómo trata la factura el BTW o, con BTW normal, falta el porcentaje o el importe del BTW.",
+      "que_hacer": "Lee en el original el tratamiento y los importes del BTW y complétalos.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "faltan"
+            ],
+            "texto": "BTW normal, pero falta esto: {faltan|codigo}."
+          },
+          {
+            "cuando": [
+              "tramos"
+            ],
+            "texto": "BTW normal, pero a una fila del desglose del BTW le falta el porcentaje, el importe o el BTW."
+          },
+          {
+            "cuando": [],
+            "texto": "No se sabe cómo trata esta factura el BTW."
+          }
+        ]
+      }
+    },
+    "E1": {
+      "titulo": "Tratamiento del BTW distinto de los datos maestros",
+      "significa": "El tratamiento del BTW de la factura no es el que consta para el proveedor en los datos maestros.",
+      "que_hacer": "Comprueba qué tratamiento es el correcto y corrige la factura o los datos maestros.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "factura",
+              "maestro"
+            ],
+            "texto": "En la factura: {factura|codigo}; en los datos maestros: {maestro|codigo}."
+          },
+          {
+            "cuando": [],
+            "texto": "El tratamiento del BTW es distinto del de los datos maestros."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Los datos maestros de Exact están desactualizados, así que no se compararon."
+          }
+        ]
+      }
+    },
+    "E2": {
+      "titulo": "Cambio de tratamiento o de porcentaje del BTW",
+      "significa": "El tratamiento del BTW es distinto del de la factura anterior del proveedor, o lleva un porcentaje de BTW que no tenía ninguna de sus facturas anteriores.",
+      "que_hacer": "Comprueba con el proveedor que el cambio es correcto.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "antes"
+            ],
+            "texto": "El tratamiento del BTW pasó de {antes|codigo} a {ahora|codigo} respecto a la factura anterior."
+          },
+          {
+            "cuando": [
+              "tipos_nuevos"
+            ],
+            "texto": "Porcentaje de BTW nuevo: {tipos_nuevos|pct}; las facturas anteriores tenían {tipos_antes|pct}."
+          },
+          {
+            "cuando": [],
+            "texto": "Ha cambiado el tratamiento o el porcentaje del BTW."
+          }
+        ]
+      }
+    },
+    "E3": {
+      "titulo": "BTW con la KOR",
+      "significa": "Con la KOR (el régimen de pequeños empresarios) el proveedor no cobra BTW.",
+      "que_hacer": "Pide al proveedor una factura corregida sin BTW.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iva_cent"
+            ],
+            "texto": "Con la KOR no debería haber BTW, pero la factura cobra {iva_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "total_cent",
+              "base_cent"
+            ],
+            "texto": "Con la KOR no debería haber BTW, pero el total ({total_cent|dinero}) es mayor que el importe sin BTW ({base_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "Con la KOR no debería haber BTW."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El importe del BTW no se ve y no se puede deducir del total."
+          }
+        ]
+      }
+    },
+    "E4": {
+      "titulo": "BTW por autoliquidación",
+      "significa": "Con autoliquidación (BTW verlegd) la factura no cobra BTW y lleva el número de BTW del destinatario.",
+      "que_hacer": "Pide al proveedor una factura corregida.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tratamiento_iva",
+              "iva_cent"
+            ],
+            "texto": "Con autoliquidación no debería haber BTW, pero la factura cobra {iva_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "Con autoliquidación no debería haber BTW, pero el total ({total_cent|dinero}) es mayor que el importe sin BTW ({base_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "Con autoliquidación la factura tiene que llevar el número de BTW del destinatario, y no lo lleva."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "El importe del BTW no se ve y no se puede deducir del total."
+          },
+          {
+            "cuando": [],
+            "texto": "Al leer el documento no se pidió el número de BTW del destinatario."
+          }
+        ]
+      }
+    },
+    "E5": {
+      "titulo": "Cerca del umbral de la KOR",
+      "significa": "Lo que un proveedor con KOR ha facturado este año a BM Support BV se acerca al umbral de la KOR. Es solo una pista: el umbral cuenta todo lo que factura.",
+      "que_hacer": "Pregunta al proveedor si la KOR le sigue aplicando.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pasado=true"
+            ],
+            "texto": "En {ano} este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de {umbral_cent|dinero}. Seguramente tiene que empezar a cobrar BTW."
+          },
+          {
+            "cuando": [
+              "aviso_pct"
+            ],
+            "texto": "En {ano} este proveedor con KOR ya ha facturado a BM Support BV el {aviso_pct}% o más del umbral de la KOR ({umbral_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "Este proveedor con KOR está cerca del umbral de la KOR."
+          }
+        ]
+      }
+    },
+    "E7": {
+      "titulo": "Porcentaje o tratamiento del BTW poco habitual",
+      "significa": "Un porcentaje de BTW que no está en la lista (0, 9 y 21%), o una venta con autoliquidación o con el 0% de BTW a un cliente que no está marcado para ello en los datos maestros.",
+      "que_hacer": "Comprueba el porcentaje o el tratamiento, y cómo está el cliente en los datos maestros.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipos"
+            ],
+            "texto": "Porcentaje de BTW poco habitual: {tipos|pct}."
+          },
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "Venta con {tratamiento_iva|codigo} a un cliente que no está marcado para ello en los datos maestros."
+          },
+          {
+            "cuando": [],
+            "texto": "Porcentaje o tratamiento del BTW poco habitual."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "tratamiento_iva"
+            ],
+            "texto": "Venta con {tratamiento_iva|codigo} a un cliente desconocido: no se sabe si está permitido."
+          },
+          {
+            "cuando": [],
+            "texto": "El cliente es desconocido, así que no se puede comprobar el tratamiento del BTW."
+          }
+        ]
+      }
+    },
+    "F0": {
+      "titulo": "Cuentas heredadas sin confirmar",
+      "significa": "Las cuentas bancarias de los primeros datos maestros son el punto de partida, pero nadie las ha confirmado.",
+      "que_hacer": "Haz que alguien con el permiso adecuado confirme las cuentas.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cuentas"
+            ],
+            "texto": "Cuentas heredadas aún sin confirmar: {cuentas|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay cuentas heredadas que aún no se han confirmado."
+          }
+        ]
+      }
+    },
+    "F1": {
+      "titulo": "IBAN",
+      "significa": "El IBAN de la factura tiene que pasar la prueba de los dígitos de control (módulo 97).",
+      "que_hacer": "Comprueba el IBAN en el original. Nunca se paga al IBAN que pone una factura.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "El IBAN {iban|iban} no pasa la prueba: no es un IBAN válido."
+          },
+          {
+            "cuando": [],
+            "texto": "El IBAN de la factura no es válido."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "La factura no lleva ningún IBAN."
+          }
+        ]
+      }
+    },
+    "F2": {
+      "titulo": "IBAN al que no se puede pagar",
+      "significa": "El IBAN de la factura no es una cuenta de pago de este proveedor. Una cuenta de pago está verificada, confirmada o heredada, está en los últimos datos maestros de Exact y no tiene ningún cambio abierto.",
+      "que_hacer": "Solo se paga a una cuenta de los datos maestros. Si el IBAN es nuevo, haz que lo verifiquen antes por teléfono.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "!estado",
+              "!pagables"
+            ],
+            "texto": "Sin un proveedor conocido ninguna cuenta es de pago; no se puede comprobar el IBAN {iban|iban}."
+          },
+          {
+            "cuando": [
+              "!estado"
+            ],
+            "texto": "La cuenta {iban|iban} no está en el registro de cuentas de este proveedor."
+          },
+          {
+            "cuando": [
+              "estado=rechazada"
+            ],
+            "texto": "Una persona rechazó la cuenta {iban|iban}."
+          },
+          {
+            "cuando": [
+              "estado=heredada"
+            ],
+            "texto": "La cuenta {iban|iban} es heredada, pero aún no se ha confirmado ni verificado."
+          },
+          {
+            "cuando": [
+              "estado=registrada"
+            ],
+            "texto": "La cuenta {iban|iban} está registrada, pero aún no se ha verificado."
+          },
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "La cuenta {iban|iban} tiene un cambio abierto en los datos maestros o no está en los últimos datos maestros de Exact."
+          },
+          {
+            "cuando": [],
+            "texto": "No se puede pagar al IBAN de la factura."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Aún no hay cuentas de Exact, o los datos maestros de Exact están desactualizados: no se sabe a qué cuenta se puede pagar."
+          }
+        ]
+      }
+    },
+    "F3": {
+      "titulo": "IBAN nuevo o cambiado",
+      "significa": "El IBAN de la factura es nuevo para este proveedor, o se rechazó. Hace falta comprobarlo por teléfono.",
+      "que_hacer": "Llama al proveedor al teléfono que estaba en los datos maestros antes de esta factura, nunca a un número de la factura, y anota la llamada.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "registrada=true"
+            ],
+            "texto": "La cuenta {iban|iban} consta, pero se rechazó o nunca se aceptó con una comprobación por teléfono."
+          },
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "El IBAN {iban|iban} es nuevo para este proveedor."
+          },
+          {
+            "cuando": [],
+            "texto": "El IBAN de la factura es nuevo para este proveedor."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Los datos maestros de Exact están desactualizados, así que no se compararon."
+          }
+        ]
+      }
+    },
+    "F4": {
+      "titulo": "IBAN de un tercero o factoring",
+      "significa": "El IBAN está registrado a nombre de otro, o la factura menciona factoring, cesión o una cuenta G. La factura se bloquea y se escala.",
+      "que_hacer": "Escálalo a la persona responsable; no se paga hasta que se aclare.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "factoring=true"
+                ],
+                "texto": "La factura menciona factoring, cesión o una cuenta G: el pago iría a un tercero."
+              },
+              {
+                "cuando": [
+                  "ajenas"
+                ],
+                "texto": "La cuenta {iban|iban} está registrada a nombre de otra parte."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "El pago iría a un tercero."
+          }
+        ]
+      }
+    },
+    "F5": {
+      "titulo": "Cuenta cambiada en los datos maestros",
+      "significa": "En unos datos maestros posteriores se añadió, cambió o quitó una cuenta y no se ha verificado por teléfono.",
+      "que_hacer": "Llama al proveedor al número de antes del cambio y anota la comprobación.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban",
+              "cambios"
+            ],
+            "texto": "La cuenta {iban|iban} cambió en los datos maestros ({cambios.0.0|codigo}) y no se ha verificado por teléfono."
+          },
+          {
+            "cuando": [
+              "cuentas"
+            ],
+            "texto": "Este proveedor tiene un cambio de cuenta sin verificar: {cuentas|iban}."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay un cambio de cuenta sin verificar en los datos maestros."
+          }
+        ]
+      }
+    },
+    "F6": {
+      "titulo": "Exact y TRNSPRNT no coinciden",
+      "significa": "Exact y TRNSPRNT tienen cuentas distintas para el mismo proveedor.",
+      "que_hacer": "Averigua qué cuenta es la correcta y corrige el sistema que está mal.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "exact",
+              "trnsprnt"
+            ],
+            "texto": "Exact: {exact|iban}. TRNSPRNT: {trnsprnt|iban}."
+          },
+          {
+            "cuando": [],
+            "texto": "Exact y TRNSPRNT tienen cuentas distintas."
+          }
+        ]
+      }
+    },
+    "F7": {
+      "titulo": "Pago a una cuenta que no es de pago",
+      "significa": "Un pago del banco a un proveedor fue a una cuenta que no es de pago para él, y que no es un beneficiario conocido ni una cuenta propia de la empresa.",
+      "que_hacer": "Averigua enseguida adónde fue el dinero y escálalo a la persona responsable.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "Un pago a {iban|iban} es un pago a este proveedor, pero esa cuenta no es de pago para él."
+          },
+          {
+            "cuando": [],
+            "texto": "Un pago fue a una cuenta que no es de pago."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Sin datos maestros de Exact al día no se sabe qué cuentas son de pago."
+          }
+        ]
+      }
+    },
+    "F8": {
+      "titulo": "La verificación no cuenta",
+      "significa": "La comprobación por teléfono no cuenta: la llamada no se hizo al número de los datos maestros de antes del documento, el número cambió durante el periodo de espera o quien verificó no tenía el permiso.",
+      "que_hacer": "Haz que alguien con el permiso vuelva a verificar la cuenta, con el número correcto.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "La comprobación por teléfono de {iban|iban} no cuenta."
+          },
+          {
+            "cuando": [],
+            "texto": "Una comprobación por teléfono no cuenta."
+          }
+        ]
+      }
+    },
+    "F9": {
+      "titulo": "Teléfono de verificación cambiado",
+      "significa": "El teléfono de verificación de un proveedor acaba de cambiar: hay un periodo de espera.",
+      "que_hacer": "Comprueba que el cambio de número es auténtico; verifica solo después del periodo de espera.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "dia",
+              "hasta"
+            ],
+            "texto": "El número de verificación cambió el {dia|fecha}: hasta el {hasta|fecha} no cuenta ninguna comprobación por teléfono de este proveedor."
+          },
+          {
+            "cuando": [],
+            "texto": "El número de verificación acaba de cambiar."
+          }
+        ]
+      }
+    },
+    "F10": {
+      "titulo": "IBAN ajeno en una factura de venta",
+      "significa": "Una factura de venta lleva un IBAN que no es una cuenta de BM Support BV: el cliente pagaría a otra cuenta.",
+      "que_hacer": "Corrige la factura antes de que pague el cliente.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "iban"
+            ],
+            "texto": "La factura de venta lleva {iban|iban}, que no es una cuenta de BM Support BV."
+          },
+          {
+            "cuando": [],
+            "texto": "La factura de venta lleva el IBAN de otro."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Las cuentas propias de la empresa aún no están configuradas, así que no se sabe si este IBAN es de BM Support BV."
+          }
+        ]
+      }
+    },
+    "K1": {
+      "titulo": "Vencida",
+      "significa": "Sin pagar después del vencimiento: una factura de compra desde el día siguiente, una de venta después de los días que fija la política.",
+      "que_hacer": "Asegúrate de que la factura de compra se paga o averigua por qué no; si es de venta, reclama el pago al cliente.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "vencimiento"
+            ],
+            "texto": "Vencida desde el {vencimiento|fecha}; queda pendiente: {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Sin pagar después del vencimiento."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Vencida, pero ningún extracto bancario ni exportación de Exact al día cubre el tiempo desde el vencimiento: no se sabe si se pagó."
+          }
+        ]
+      }
+    },
+    "K2": {
+      "titulo": "Lo pagado no cuadra con el saldo",
+      "significa": "Lo confirmado como pagado no deja el saldo a cero: un pago parcial o un pago de más.",
+      "que_hacer": "Busca el resto del pago, o pide que devuelvan lo pagado de más.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "acreditado_cent"
+            ],
+            "texto": "Total {total_cent|dinero}, pagado {pagado_cent|dinero} ({fuente|codigo}), abonado {acreditado_cent|dinero}, pendiente {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "total_cent"
+            ],
+            "texto": "Total {total_cent|dinero}, pagado {pagado_cent|dinero} ({fuente|codigo}), pendiente {pendiente_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Lo pagado no deja el saldo a cero."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Hay pagos, pero ningún total en euros con el que compararlos."
+          }
+        ]
+      }
+    },
+    "K3": {
+      "titulo": "Marcada como pagada a mano, sin verse en el banco",
+      "significa": "Se marcó como pagada a mano y, pasados los días que fija la política, ningún extracto bancario muestra el pago.",
+      "que_hacer": "Comprueba que el pago se hizo de verdad y, si no, retira la marca.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fecha_pago"
+            ],
+            "texto": "Marcada como pagada a mano el {fecha_pago|fecha}, pero el banco no muestra ese pago."
+          },
+          {
+            "cuando": [],
+            "texto": "Marcada como pagada a mano, pero el banco no muestra ese pago."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Marcada como pagada a mano, pero ningún extracto bancario al día cubre los días posteriores al pago."
+          }
+        ]
+      }
+    },
+    "K4": {
+      "titulo": "Pagada dos veces",
+      "significa": "Dos pagos a la misma cuenta, por el mismo importe y con la misma referencia en pocos días, o una factura pagada de más con dos pagos.",
+      "que_hacer": "Pide a quien lo recibió que devuelva el pago doble.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "referencia"
+            ],
+            "texto": "{movimientos|cuenta} pagos de {importe_cent|abs|dinero} a {ibans|iban} con la referencia {referencia}, con poco tiempo entre ellos: puede que se haya pagado dos veces."
+          },
+          {
+            "cuando": [
+              "pagado_cent"
+            ],
+            "texto": "Pagada dos veces: los pagos juntos suman {pagado_cent|dinero} para un total de {total_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Puede que se haya pagado dos veces."
+          }
+        ]
+      }
+    },
+    "K5": {
+      "titulo": "Pagada estando bloqueada",
+      "significa": "Se pagó un día en que la factura tenía abierto un hallazgo que la bloqueaba.",
+      "que_hacer": "Averigua por qué se pagó de todos modos y si hay que recuperar el dinero.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fecha_pago"
+            ],
+            "texto": "Pagada el {fecha_pago|fecha} mientras la factura estaba bloqueada."
+          },
+          {
+            "cuando": [],
+            "texto": "Pagada mientras la factura estaba bloqueada."
+          }
+        ]
+      }
+    },
+    "K6": {
+      "titulo": "Los extractos bancarios no enlazan",
+      "significa": "El saldo inicial de un extracto no es el saldo final del anterior, o falta un número. Lo pagado desde entonces aún no cuenta.",
+      "que_hacer": "Importa el extracto que falta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cuenta"
+            ],
+            "texto": "Los extractos de la cuenta {cuenta|iban} no enlazan: falta un extracto o un saldo."
+          },
+          {
+            "cuando": [
+              "extractos"
+            ],
+            "texto": "Pagada con movimientos de extractos posteriores a un hueco: el pago aún no cuenta."
+          },
+          {
+            "cuando": [],
+            "texto": "Los extractos bancarios no enlazan."
+          }
+        ]
+      }
+    },
+    "K7": {
+      "titulo": "Movimiento del banco sin casar",
+      "significa": "Pasados los días que fija la política, un movimiento del banco sigue sin casar con ninguna factura.",
+      "que_hacer": "Casa el movimiento con la factura correcta, o anota qué es.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "importe_cent"
+            ],
+            "texto": "Movimiento de {importe_cent|dinero} el {fecha|fecha}; sin casar: {sin_casar_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Un movimiento del banco no está casado con ninguna factura."
+          }
+        ]
+      }
+    },
+    "K8": {
+      "titulo": "El banco y Exact no coinciden",
+      "significa": "El banco y Exact muestran importes pagados distintos para la misma factura.",
+      "que_hacer": "Averigua cuál es el correcto y corrige el asiento en Exact.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "banco_cent"
+            ],
+            "texto": "El banco muestra {banco_cent|dinero} pagados; Exact, {exact_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "El banco y Exact muestran importes pagados distintos."
+          }
+        ]
+      }
+    },
+    "K9": {
+      "titulo": "Pagos en una factura que no cuenta",
+      "significa": "Una factura anulada o fusionada tiene pagos confirmados: ese dinero no cuenta en ningún total hasta que alguien diga dónde va.",
+      "que_hacer": "Retira el pago y anótalo en la factura que paga, o recupera la factura.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pagado_cent"
+            ],
+            "texto": "Esta factura ya no cuenta, pero tiene {pagado_cent|dinero} en pagos confirmados ({fuente|codigo})."
+          },
+          {
+            "cuando": [],
+            "texto": "Esta factura ya no cuenta, pero tiene pagos confirmados."
+          }
+        ]
+      }
+    },
+    "G1": {
+      "titulo": "Sin turnos en la planificación",
+      "significa": "Una factura de compra sin ningún turno del proveedor ni de su gente en el periodo facturado.",
+      "que_hacer": "Pregunta dónde se hizo el trabajo y mira la planificación. Para aceptarlo hace falta una segunda firma.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "causa=sin_planning"
+            ],
+            "texto": "No se ha importado ninguna planificación. La planificación es obligatoria, así que esta compra no puede pasar sin ella."
+          },
+          {
+            "cuando": [
+              "causa=caducado"
+            ],
+            "texto": "La planificación está desactualizada. La planificación es obligatoria, así que esta compra no puede pasar sin una al día."
+          },
+          {
+            "cuando": [
+              "causa"
+            ],
+            "texto": "La planificación no cubre {desde|fecha} – {hasta|fecha}. La planificación es obligatoria, así que esta compra no puede pasar sin ella."
+          },
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "Ningún turno del proveedor ni de su gente en la planificación del {desde|fecha} al {hasta|fecha}."
+          },
+          {
+            "cuando": [],
+            "texto": "Ningún turno del proveedor en la planificación en el periodo facturado."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "G2": {
+      "titulo": "Horas distintas de las validadas",
+      "significa": "Las horas facturadas frente a las horas validadas en la planificación, comparadas con el mayor detalle posible (persona y día, Object y día, semana o periodo), con un margen de un cuarto de hora por día.",
+      "que_hacer": "Compara las horas con la planificación y, si hace falta, pide al proveedor una corrección.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tope_mil"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}); la planificación tiene como mucho {tope_mil|horas} h, con turnos aún sin validar: {sin_validar}."
+          },
+          {
+            "cuando": [
+              "facturadas_mil"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h, validadas en la planificación {validadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}). Diferencia de {diferencia_mil|horas} h, más que el margen de {tolerancia_mil|horas} h."
+          },
+          {
+            "cuando": [],
+            "texto": "Las horas facturadas no coinciden con las validadas en la planificación."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "G3": {
+      "titulo": "Tarifa distinta de la pactada",
+      "significa": "La tarifa de una línea de compra frente a la tarifa pactada o, si no la hay, la tarifa del turno en la planificación o las tarifas anteriores por el mismo trabajo. Por encima, retiene; muy por encima, bloquea.",
+      "que_hacer": "Compara la tarifa con lo pactado y, si hace falta, pide al proveedor una nota de crédito.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Tarifa de la línea {tarifa_e4|tarifa}; pactada ({nivel|codigo}): {pactada_e4|tarifa}. Diferencia en esta línea: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "turno_e4"
+            ],
+            "texto": "Tarifa de la línea {tarifa_e4|tarifa}; tarifa del turno en la planificación: {turno_e4|tarifa} (no hay tarifa pactada)."
+          },
+          {
+            "cuando": [
+              "anterior_e4"
+            ],
+            "texto": "Tarifa distinta por el mismo trabajo ({trabajo}, por {unidad|codigo}): primero {anterior_e4|tarifa}, después {posteriores_e4|tarifa}."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Líneas de factura que no se pueden comparar con las tarifas pactadas (otro turno, otra unidad u otro día, o acuerdos con precios distintos); cuántas: {imputaciones|cuenta}."
+          },
+          {
+            "cuando": [],
+            "texto": "La tarifa no es la pactada."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "dia"
+            ],
+            "texto": "La línea (unidad {unidad|codigo}, {dia|fecha}) no encaja con ninguna de sus tarifas pactadas, así que no se compara con las tarifas anteriores."
+          },
+          {
+            "cuando": [
+              "nivel"
+            ],
+            "texto": "Hay acuerdos igual de concretos ({nivel|codigo}) con precios distintos: no está claro cuál se aplica."
+          },
+          {
+            "cuando": [],
+            "texto": "No se pudo comprobar: ninguna línea tiene tarifa, o no hay ninguna tarifa pactada ni anterior con la que comparar."
+          }
+        ]
+      }
+    },
+    "G4": {
+      "titulo": "Object distinto del de la planificación",
+      "significa": "El Object de una línea de compra frente a la planificación: la persona o el proveedor tiene turnos en otro Object esos días. Una línea sin Object recibe la propuesta de la planificación.",
+      "que_hacer": "Comprueba el Object y cámbialo si hace falta, o confirma la propuesta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "propuesta"
+            ],
+            "texto": "La línea no nombra ningún Object; la planificación propone uno ({desde|fecha} – {hasta|fecha}). Confírmalo o elige otro."
+          },
+          {
+            "cuando": [
+              "candidatos"
+            ],
+            "texto": "La línea no nombra ningún Object y la planificación no da una única propuesta."
+          },
+          {
+            "cuando": [
+              "planning"
+            ],
+            "texto": "En la planificación, la persona o el proveedor tiene turnos en otro Object del {desde|fecha} al {hasta|fecha}."
+          },
+          {
+            "cuando": [],
+            "texto": "El Object no coincide con la planificación."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "G5": {
+      "titulo": "Periodo distinto del de la planificación",
+      "significa": "El periodo y la semana ISO de una factura de compra frente a la planificación: la semana que pone no cuadra con las fechas, o el trabajo cae en días sin turnos y aún no está facturado en otra semana.",
+      "que_hacer": "Comprueba las fechas y la semana con el proveedor y haz que las corrija si hace falta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "semana_doc"
+            ],
+            "texto": "La línea dice semana {semana_doc}, pero sus fechas caen en otra semana ({fecha|fecha})."
+          },
+          {
+            "cuando": [
+              "semanas"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h del {desde|fecha} al {hasta|fecha} sin turnos en la planificación; el Object tiene trabajo sin facturar en {semanas}."
+          },
+          {
+            "cuando": [],
+            "texto": "El periodo no coincide con la planificación."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "G6": {
+      "titulo": "Recargo a otra tarifa",
+      "significa": "Una línea de factura con recargo (noche, fin de semana, festivo) se tiene que cobrar a su propia tarifa pactada, y las horas de cada recargo tienen que encajar con los turnos que llevan ese recargo.",
+      "que_hacer": "Compara el recargo y la tarifa con lo pactado y con la planificación.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Tarifa de la línea {tarifa_e4|tarifa}; tarifa pactada del recargo ({nivel|codigo}): {pactada_e4|tarifa}. Diferencia en esta línea: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "planificadas_mil"
+            ],
+            "texto": "Cobrado como {turno}: {facturadas_mil|horas} h ({desde|fecha} – {hasta|fecha}); la planificación tiene {planificadas_mil|horas} h de turnos con ese recargo."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Líneas con recargo pero sin una tarifa pactada propia; cuántas: {imputaciones|cuenta}. Alguien tiene que confirmar el recargo."
+          },
+          {
+            "cuando": [],
+            "texto": "El recargo se cobra a otra tarifa."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "dia"
+            ],
+            "texto": "La línea (turno {turno}, unidad {unidad|codigo}, {dia|fecha}) no encaja con ninguna de sus tarifas pactadas."
+          },
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "G7": {
+      "titulo": "La planificación cambió después de casar",
+      "significa": "Una versión más nueva de la planificación cambia las horas ya casadas con una factura de compra (otras horas, turnos quitados o cancelados, turnos nuevos).",
+      "que_hacer": "Compara la factura con la nueva planificación; puede hacer falta una corrección o una nota de crédito.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "La planificación cambió después de casar esta factura con ella. Puede hacer falta una corrección o una nota de crédito."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V1": {
+      "titulo": "Horas facturadas distintas de las validadas",
+      "significa": "Las horas de una factura de venta frente a las horas facturables validadas en la planificación, comparadas con el mayor detalle posible.",
+      "que_hacer": "Compara la factura con la planificación y, si hace falta, envía una corrección o una nota de crédito.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tope_mil"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}); la planificación tiene como mucho {tope_mil|horas} h, con turnos aún sin validar: {sin_validar}."
+          },
+          {
+            "cuando": [
+              "facturadas_mil"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h, validadas en la planificación {validadas_mil|horas} h ({nivel|codigo}, {desde|fecha} – {hasta|fecha}). Diferencia de {diferencia_mil|horas} h, más que el margen de {tolerancia_mil|horas} h."
+          },
+          {
+            "cuando": [],
+            "texto": "Las horas facturadas no coinciden con la planificación."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V2": {
+      "titulo": "Object de la venta",
+      "significa": "El Object de cada línea de venta tiene que existir, ser del cliente facturado y estar activo. Una línea sin Object se retiene, con la propuesta de la planificación si la hay.",
+      "que_hacer": "Elige o corrige el Object de la línea.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "propuesta"
+            ],
+            "texto": "La línea no nombra ningún Object; la planificación propone uno ({desde|fecha} – {hasta|fecha}). Confírmalo o elige otro."
+          },
+          {
+            "cuando": [
+              "cliente_objeto"
+            ],
+            "texto": "El Object de la línea es de otro cliente."
+          },
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "El Object no estaba activo del {desde|fecha} al {hasta|fecha} (activo del {activo_desde|fecha} al {activo_hasta|fecha})."
+          },
+          {
+            "cuando": [
+              "!objeto"
+            ],
+            "texto": "La línea no nombra ningún Object."
+          },
+          {
+            "cuando": [],
+            "texto": "El Object de la línea no es correcto."
+          }
+        ]
+      }
+    },
+    "V3": {
+      "titulo": "Periodo de venta distinto del de la planificación",
+      "significa": "El periodo y la semana de lo facturado, frente a la planificación.",
+      "que_hacer": "Comprueba las fechas y la semana y corrige la factura si hace falta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "semana_doc"
+            ],
+            "texto": "La línea dice semana {semana_doc}, pero sus fechas caen en otra semana ({fecha|fecha})."
+          },
+          {
+            "cuando": [
+              "semanas"
+            ],
+            "texto": "Facturadas {facturadas_mil|horas} h del {desde|fecha} al {hasta|fecha} sin turnos en la planificación; el Object tiene trabajo sin facturar en {semanas}."
+          },
+          {
+            "cuando": [],
+            "texto": "El periodo no coincide con la planificación."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V4": {
+      "titulo": "Tarifa de venta distinta de la pactada",
+      "significa": "La tarifa de una línea de venta no es la tarifa de venta pactada (ni más alta ni más baja). Sin acuerdo, vale la tarifa del turno en la planificación.",
+      "que_hacer": "Corrige la factura o el acuerdo de tarifas.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "pactada_e4"
+            ],
+            "texto": "Tarifa de la línea {tarifa_e4|tarifa}; tarifa de venta pactada ({nivel|codigo}): {pactada_e4|tarifa}. Diferencia en esta línea: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "turno_e4"
+            ],
+            "texto": "Tarifa de la línea {tarifa_e4|tarifa}; tarifa del turno en la planificación: {turno_e4|tarifa} (no hay tarifa pactada)."
+          },
+          {
+            "cuando": [
+              "imputaciones"
+            ],
+            "texto": "Acuerdos con precios distintos para las mismas líneas ({imputaciones|cuenta}): arregla la tabla de tarifas."
+          },
+          {
+            "cuando": [],
+            "texto": "La tarifa de venta no es la del acuerdo."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "nivel"
+            ],
+            "texto": "Hay acuerdos igual de concretos ({nivel|codigo}) con precios distintos: no está claro cuál se aplica."
+          },
+          {
+            "cuando": [],
+            "texto": "No hay tarifa de venta pactada para la línea ni tarifa del turno en la planificación."
+          }
+        ]
+      }
+    },
+    "V5": {
+      "titulo": "Horas validadas sin facturar",
+      "significa": "Dentro del Object y del periodo de una factura de venta hay turnos facturables validados que ninguna línea cubre.",
+      "que_hacer": "Añádelos a la factura o envía una factura adicional.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "valor_cent",
+              "estimado=true"
+            ],
+            "texto": "Del {desde|fecha} al {hasta|fecha} la planificación tiene {horas_mil|horas} horas facturables validadas para este Object que ninguna línea cubre; valor estimado: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "valor_cent"
+            ],
+            "texto": "Del {desde|fecha} al {hasta|fecha} la planificación tiene {horas_mil|horas} horas facturables validadas para este Object que ninguna línea cubre; valor: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "horas_mil"
+            ],
+            "texto": "Del {desde|fecha} al {hasta|fecha} la planificación tiene {horas_mil|horas} horas facturables validadas para este Object que ninguna línea cubre."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay horas validadas que esta factura no cubre."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V6": {
+      "titulo": "Trabajo sin facturar",
+      "significa": "Turnos facturables validados que ninguna factura de venta cubre, pasado el final de su periodo de facturación más los días de gracia.",
+      "que_hacer": "Haz en Exact la factura de venta de este trabajo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "valor_cent",
+              "estimado=true"
+            ],
+            "texto": "Sin facturar: {horas_mil|horas} h del {desde|fecha} al {hasta|fecha}, pasado el periodo y sus días de gracia (hasta el {gracia_hasta|fecha}). Valor estimado: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "valor_cent"
+            ],
+            "texto": "Sin facturar: {horas_mil|horas} h del {desde|fecha} al {hasta|fecha}, pasado el periodo y sus días de gracia (hasta el {gracia_hasta|fecha}). Valor: {valor_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "horas_mil"
+            ],
+            "texto": "Sin facturar: {horas_mil|horas} h del {desde|fecha} al {hasta|fecha}, pasado el periodo y sus días de gracia (hasta el {gracia_hasta|fecha})."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay trabajo validado que no se ha facturado."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V8": {
+      "titulo": "Periodo de facturación sin factura",
+      "significa": "Un periodo del ciclo de facturación de un cliente o de un Object, con trabajo en la planificación, ya ha pasado (con sus días de gracia) y no tiene factura.",
+      "que_hacer": "Haz en Exact la factura de venta de este periodo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "desde"
+            ],
+            "texto": "El ciclo de facturación espera una factura del {desde|fecha} al {hasta|fecha} y no hay ninguna. Turnos en la planificación: {turnos}."
+          },
+          {
+            "cuando": [],
+            "texto": "Un periodo de facturación no tiene factura."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "V9": {
+      "titulo": "La planificación cambió después de facturar",
+      "significa": "Una versión más nueva de la planificación cambia lo que ya se facturó: hace falta una corrección o una nota de crédito.",
+      "que_hacer": "Compara la factura con la nueva planificación y envía una corrección o una nota de crédito.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "La planificación cambió después de enviar esta factura. Hace falta una corrección o una nota de crédito."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "No se pudo comparar con la planificación: aún no se ha importado ninguna, la planificación no cubre estos días o la línea de factura no dice qué días ni para qué persona u Object es."
+          }
+        ]
+      }
+    },
+    "P1": {
+      "titulo": "PO no válida",
+      "significa": "La PO a la que se carga la factura está cerrada, o el trabajo cae fuera de su vigencia.",
+      "que_hacer": "Elige una PO válida o pide al cliente una prórroga.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "cerrada=true"
+            ],
+            "texto": "La PO número {numero} está cerrada."
+          },
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Trabajo fuera de la vigencia de la PO número {numero} ({inicio|fecha} – {fin|fecha})."
+          },
+          {
+            "cuando": [],
+            "texto": "La PO no vale para este trabajo."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "No se sabe de qué días es el trabajo cargado a la PO número {numero}."
+          },
+          {
+            "cuando": [],
+            "texto": "No se sabe de qué días es el trabajo cargado a la PO."
+          }
+        ]
+      }
+    },
+    "P2": {
+      "titulo": "Falta la PO",
+      "significa": "Una factura de venta sin PO, cuando el Object (o, si no, el cliente) la exige. Una nota de crédito toma la PO de la factura que abona.",
+      "que_hacer": "Pide al cliente el número de PO y añádelo a la factura.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "texto": "El cliente o el Object exige una PO y esta factura no la tiene."
+          }
+        ]
+      }
+    },
+    "P3": {
+      "titulo": "PO desconocida o de otro",
+      "significa": "La PO de la factura no está registrada, es de otra parte o no cubre el Object de la línea; o la factura nombra varias PO y una línea no tiene ninguna.",
+      "que_hacer": "Registra la PO o elige la PO correcta para la línea.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [],
+            "partes": [
+              {
+                "cuando": [
+                  "desconocidas"
+                ],
+                "texto": "Sin registrar: {desconocidas}."
+              },
+              {
+                "cuando": [
+                  "de_otra_parte"
+                ],
+                "texto": "De otra parte: {de_otra_parte}."
+              },
+              {
+                "cuando": [
+                  "de_otro_objeto"
+                ],
+                "texto": "Una PO no cubre el Object de la línea."
+              },
+              {
+                "cuando": [
+                  "varias"
+                ],
+                "texto": "La factura nombra varias PO y una línea no tiene ninguna: elige una."
+              }
+            ]
+          },
+          {
+            "cuando": [],
+            "texto": "La PO de la factura es desconocida o de otro."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Aún no hay ninguna PO registrada con la que comparar el número."
+          }
+        ]
+      }
+    },
+    "P4": {
+      "titulo": "Factura por encima de lo que queda",
+      "significa": "La factura carga a la PO más de lo que quedaba antes de ella (sin BTW).",
+      "que_hacer": "Pide al cliente una PO mayor, o carga parte de la factura a otra PO.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "exceso_cent"
+            ],
+            "texto": "Esta factura carga {importe_cent|dinero} a la PO número {numero} y se pasa {exceso_cent|dinero} de lo que quedaba."
+          },
+          {
+            "cuando": [],
+            "texto": "Esta factura carga a la PO más de lo que quedaba."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Sin fecha de factura no se sabe cuánto quedaba en la PO número {numero} antes de esta factura."
+          },
+          {
+            "cuando": [],
+            "texto": "Sin fecha de factura no se sabe cuánto quedaba en la PO."
+          }
+        ]
+      }
+    },
+    "P5": {
+      "titulo": "PO casi agotada",
+      "significa": "La PO está consumida hasta el porcentaje que fija la política (80%) o más.",
+      "que_hacer": "Pide a tiempo al cliente una PO nueva o una ampliación.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "consumido_pb"
+            ],
+            "texto": "Esta PO está consumida al {consumido_pb|pct} ({consumido_cent|dinero} de {valor_cent|dinero}); queda: {restante_cent|dinero}. Aviso a partir del {umbral_pct}%."
+          },
+          {
+            "cuando": [],
+            "texto": "Esta PO está casi agotada."
+          }
+        ]
+      }
+    },
+    "P6": {
+      "titulo": "PO agotada y se sigue facturando",
+      "significa": "La PO ya estaba consumida del todo antes de esta factura, y la factura le carga más.",
+      "que_hacer": "Pide al cliente una PO nueva o una ampliación antes de seguir facturando.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "La PO número {numero} ya estaba agotada; esta factura le carga otros {importe_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "La PO ya estaba agotada y esta factura le carga más."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "numero"
+            ],
+            "texto": "Sin fecha de factura no se sabe cuánto quedaba en la PO número {numero} antes de esta factura."
+          },
+          {
+            "cuando": [],
+            "texto": "Sin fecha de factura no se sabe cuánto quedaba en la PO."
+          }
+        ]
+      }
+    },
+    "P7": {
+      "titulo": "PO a punto de caducar",
+      "significa": "La PO caduca dentro de los días que fija la política (30) y aún le queda valor. Ya caducada, se retiene si la planificación tiene trabajo después de su fin.",
+      "que_hacer": "Pide al cliente una prórroga o una PO nueva.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "turnos_despues"
+            ],
+            "texto": "La PO caducó el {fin|fecha} con {restante_cent|dinero} sin usar, y la planificación tiene {turnos_despues} turnos después de esa fecha que no cubre ninguna otra PO."
+          },
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "La PO caduca el {fin|fecha}; aún sin usar: {restante_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "La PO está a punto de caducar."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "La PO caducó el {fin|fecha} con {restante_cent|dinero} sin usar; sin planificación no se sabe si hay trabajo después de esa fecha."
+          },
+          {
+            "cuando": [],
+            "texto": "Sin planificación no se sabe si hay trabajo después del fin de la PO."
+          }
+        ]
+      }
+    },
+    "P8": {
+      "titulo": "Trabajo planificado por encima de lo que queda",
+      "significa": "El trabajo planificado (a partir de mañana), a la tarifa pactada o a la del turno, supera lo que queda en la PO.",
+      "que_hacer": "Pide a tiempo al cliente una ampliación o una PO nueva.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "restante_cent"
+            ],
+            "texto": "El trabajo planificado vale más que los {restante_cent|dinero} que quedan en esta PO."
+          },
+          {
+            "cuando": [],
+            "texto": "El trabajo planificado no cabe en lo que queda en la PO."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El trabajo planificado sale de la planificación, que no se ha importado o no cubre estos días."
+          }
+        ]
+      }
+    },
+    "P9": {
+      "titulo": "La PO se agota antes de tiempo",
+      "significa": "Al ritmo de las últimas 8 semanas, la PO se agota más de 14 días antes de su fecha de fin.",
+      "que_hacer": "Pide a tiempo al cliente una ampliación.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "fin"
+            ],
+            "texto": "Al ritmo actual esta PO se agota más de {margen_dias} días antes de su fecha de fin ({fin|fecha}). Queda: {restante_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Esta PO se agotará antes de tiempo."
+          }
+        ]
+      }
+    },
+    "P10": {
+      "titulo": "Se espera superar el valor de la PO",
+      "significa": "Lo facturado más lo que falta por facturar más lo planificado supera el valor de la PO; las facturas que se le carguen desde entonces se retienen.",
+      "que_hacer": "Pide al cliente una ampliación o una PO nueva.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "esperado_cent"
+            ],
+            "texto": "Lo facturado, lo que falta por facturar y lo planificado suman juntos {esperado_cent|dinero}, más que el valor de la PO ({valor_po_cent|dinero})."
+          },
+          {
+            "cuando": [],
+            "texto": "El trabajo esperado supera el valor de la PO."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Lo que falta por facturar y lo planificado salen de la planificación, que no se ha importado o no cubre estos días."
+          }
+        ]
+      }
+    },
+    "R1": {
+      "titulo": "Falta la factura a la que se refiere",
+      "significa": "Una nota de crédito o una corrección se refiere a una factura de la misma parte que no está en el sistema (o que está dos veces).",
+      "que_hacer": "Importa la factura a la que se refiere, o enlaza la factura correcta.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "encontradas"
+            ],
+            "texto": "El documento se refiere a la factura {numero_norm}, pero ese número está más de una vez en el sistema."
+          },
+          {
+            "cuando": [
+              "numero_norm"
+            ],
+            "texto": "El documento se refiere a la factura {numero_norm} de la misma parte, que no está en el sistema."
+          },
+          {
+            "cuando": [],
+            "texto": "La factura a la que se refiere no está en el sistema."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "El documento se refiere a otra factura, pero el número no se puede leer o la parte es desconocida."
+          }
+        ]
+      }
+    },
+    "R2": {
+      "titulo": "Abonos por encima del original",
+      "significa": "Las notas de crédito confirmadas restan a una factura más de lo que vale, o una nota de crédito se aplica por más de lo que vale.",
+      "que_hacer": "Comprueba los enlaces y el importe de cada nota de crédito.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "acreditado_cent"
+            ],
+            "texto": "Las notas de crédito restan {acreditado_cent|dinero} a una factura de {total_cent|dinero}."
+          },
+          {
+            "cuando": [
+              "aplicado_cent"
+            ],
+            "texto": "Esta nota de crédito de {total_cent|abs|dinero} se aplica por {aplicado_cent|dinero}."
+          },
+          {
+            "cuando": [],
+            "texto": "Se ha abonado más de lo que vale la factura."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [],
+            "texto": "Hay notas de crédito, pero ningún total en euros con el que compararlas."
+          }
+        ]
+      }
+    },
+    "R3": {
+      "titulo": "Original y sustituta a la vez",
+      "significa": "La factura original y la que la sustituye (o la corrige) están las dos abiertas, o las dos pagadas: así el mismo trabajo se paga dos veces.",
+      "que_hacer": "Anula o abona la factura original, o pide que devuelvan el pago doble.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipo=sustituye"
+            ],
+            "texto": "Esta factura sustituye a una anterior, y las dos están abiertas o las dos pagadas."
+          },
+          {
+            "cuando": [
+              "tipo=corrige"
+            ],
+            "texto": "Esta factura corrige una anterior, y las dos están abiertas o las dos pagadas."
+          },
+          {
+            "cuando": [],
+            "texto": "La original y la sustituta están las dos abiertas o las dos pagadas."
+          }
+        ]
+      }
+    },
+    "R4": {
+      "titulo": "Nota de crédito sin enlazar",
+      "significa": "Una nota de crédito sin un enlace confirmado que diga qué factura abona.",
+      "que_hacer": "Enlaza la nota de crédito con la factura que abona.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "total_cent"
+            ],
+            "texto": "Nota de crédito de {total_cent|abs|dinero} sin un enlace confirmado: aún no reduce ningún importe pendiente."
+          },
+          {
+            "cuando": [],
+            "texto": "Nota de crédito sin un enlace confirmado."
+          }
+        ]
+      }
+    },
+    "R5": {
+      "titulo": "Enlace por confirmar",
+      "significa": "La lectura o Exact proponen un enlace entre dos facturas. Hasta que alguien lo confirme, no cambia nada en saldos, BTW ni duplicados.",
+      "que_hacer": "Confirma o rechaza el enlace propuesto.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "tipo"
+            ],
+            "texto": "Propuesta: esta factura {tipo|codigo} otra factura. Confírmala o recházala."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay un enlace propuesto por confirmar."
+          }
+        ]
+      }
+    },
+    "U1": {
+      "titulo": "Importe poco habitual",
+      "significa": "El importe sin BTW es distinto de lo habitual para esta parte (la mediana de las facturas anteriores).",
+      "que_hacer": "Comprueba que el importe es correcto; si lo es, acepta el hallazgo con un motivo.",
+      "detalle": {
+        "fallo": [
+          {
+            "cuando": [
+              "base_cent"
+            ],
+            "texto": "Importe sin BTW {base_cent|dinero}; lo habitual es {mediana_cent|dinero} (la mediana de {anteriores} facturas anteriores)."
+          },
+          {
+            "cuando": [],
+            "texto": "El importe es poco habitual para esta parte."
+          }
+        ],
+        "sin_datos": [
+          {
+            "cuando": [
+              "anteriores"
+            ],
+            "texto": "Facturas anteriores de esta parte: {anteriores}. Hacen falta al menos 3 para saber si un importe es poco habitual."
+          },
+          {
+            "cuando": [],
+            "texto": "Hay muy pocas facturas anteriores para saber si el importe es poco habitual."
+          }
+        ]
+      }
+    }
+  },
+  "categorias": {
+    "iban": {
+      "etiqueta": "IBAN cambiado o sin verificar",
+      "significa": "Datos bancarios nuevos, cambiados o sin confirmar. Solo se paga a cuentas de los datos maestros."
+    },
+    "duplicados": {
+      "etiqueta": "Posibles duplicados",
+      "significa": "Facturas o pagos que parecen estar dos veces."
+    },
+    "iva": {
+      "etiqueta": "BTW",
+      "significa": "Importes, porcentajes o tratamientos del BTW que están mal o faltan."
+    },
+    "planning": {
+      "etiqueta": "Diferencias con la planificación",
+      "significa": "Horas, Objects, periodos o tarifas que no coinciden con la planificación."
+    },
+    "sin_facturar": {
+      "etiqueta": "Trabajo sin facturar y periodos sin factura",
+      "significa": "Trabajo de la planificación que aún no se ha facturado al cliente."
+    },
+    "ordenes_compra": {
+      "etiqueta": "Órdenes de compra (PO)",
+      "significa": "PO casi agotadas, a punto de caducar o que no encajan con la factura."
+    },
+    "vencidas": {
+      "etiqueta": "Vencidas sin pagar",
+      "significa": "Facturas que siguen abiertas después de su vencimiento."
+    },
+    "faltan_datos": {
+      "etiqueta": "Faltan datos",
+      "significa": "Datos que hacen falta para comprobar o contabilizar la factura."
+    },
+    "lecturas_dudosas": {
+      "etiqueta": "Lecturas dudosas",
+      "significa": "Campos leídos con dudas y aún sin verificar."
+    },
+    "otros": {
+      "etiqueta": "Otras diferencias y anomalías",
+      "significa": "Todo lo que no encaja en ninguno de los otros grupos."
+    }
+  },
+  "campos": {
+    "factura": {
+      "sentido": "Sentido",
+      "tipo": "Tipo",
+      "origen": "Origen",
+      "documento_id": "Documento",
+      "extraccion_vigente_id": "Lectura vigente",
+      "fuente_externa": "Sistema externo",
+      "id_externo": "ID externo",
+      "numero": "Número de factura",
+      "numero_norm": "Número de factura (normalizado)",
+      "proveedor_id": "Proveedor (datos maestros)",
+      "cliente_id": "Cliente (datos maestros)",
+      "contacto_id": "Contacto",
+      "emisor_nombre_doc": "Emisor (en el documento)",
+      "emisor_direccion_doc": "Dirección del emisor",
+      "emisor_kvk_doc": "Número de KvK del emisor",
+      "emisor_btw_doc": "Número de BTW del emisor",
+      "receptor_nombre_doc": "Destinatario (en el documento)",
+      "receptor_btw_doc": "Número de BTW del destinatario",
+      "contacto_nombre_doc": "Contacto (en el documento)",
+      "fecha_factura": "Fecha de factura",
+      "fecha_recepcion": "Recibida el",
+      "fecha_envio": "Enviada el",
+      "periodo_inicio": "Periodo desde",
+      "periodo_fin": "Periodo hasta",
+      "fecha_vencimiento": "Vencimiento (en el documento)",
+      "plazo_pago_dias": "Plazo de pago (días)",
+      "condiciones_pago_doc": "Condiciones de pago (en el documento)",
+      "base_cent": "Importe sin BTW",
+      "iva_cent": "BTW",
+      "total_cent": "Total",
+      "tipo_iva_pb": "Porcentaje de BTW",
+      "tratamiento_iva": "Tratamiento del BTW",
+      "kor_mencionada": "Menciona la KOR",
+      "autoliquidacion_mencionada": "Menciona la autoliquidación",
+      "referencia_pago": "Referencia de pago",
+      "iban_doc": "IBAN del documento (nunca se paga a él)",
+      "moneda_doc": "Moneda",
+      "notas_doc": "Notas del documento",
+      "anulada": "Anulada",
+      "fusionada_en_id": "Fusionada en"
+    },
+    "factura_linea": {
+      "factura_id": "Factura",
+      "orden": "Número de línea",
+      "huella_linea": "Huella de la línea",
+      "descripcion_doc": "Descripción",
+      "objeto_doc": "Object (en el documento)",
+      "recurso_doc": "Persona (en el documento)",
+      "unidad_doc": "Unidad (en el documento)",
+      "semana_doc": "Semana (en el documento)",
+      "tipo_turno_doc": "Tipo de turno (en el documento)",
+      "fecha_inicio": "Desde",
+      "fecha_fin": "Hasta",
+      "fecha_trabajo": "Día de trabajo",
+      "semana_iso": "Semana",
+      "unidad": "Unidad",
+      "cantidad_mil": "Cantidad",
+      "tarifa_e4": "Tarifa",
+      "importe_cent": "Importe",
+      "tipo_iva_pb": "Porcentaje de BTW",
+      "tipo_servicio": "Tipo de trabajo",
+      "retirada_en": "Excluida el"
+    },
+    "factura_imputacion": {
+      "factura_id": "Factura",
+      "linea_id": "Línea de factura",
+      "objeto_id": "Object",
+      "recurso_id": "Persona",
+      "orden_compra_id": "PO",
+      "descripcion": "Descripción",
+      "fecha_inicio": "Desde",
+      "fecha_fin": "Hasta",
+      "semana_iso": "Semana",
+      "horas_mil": "Horas",
+      "tarifa_e4": "Tarifa",
+      "importe_cent": "Importe",
+      "tipo_servicio": "Tipo de trabajo",
+      "tipo_turno": "Tipo de turno",
+      "facturable": "Facturable",
+      "retirada_en": "Retirada el"
+    },
+    "proveedor": {
+      "nombre": "Nombre",
+      "tipo": "Tipo",
+      "kvk": "Número de KvK",
+      "btw_id": "Número de BTW",
+      "regimen_iva": "Tratamiento del BTW",
+      "plazo_pago_dias": "Plazo de pago (días)",
+      "direccion": "Dirección",
+      "email_facturacion": "Correo de facturación",
+      "telefono_verificacion": "Teléfono de verificación",
+      "activo": "Activo",
+      "exact_id": "ID de Exact",
+      "trnsprnt_id": "ID de TRNSPRNT"
+    },
+    "cliente": {
+      "nombre": "Nombre",
+      "kvk": "Número de KvK",
+      "btw_id": "Número de BTW",
+      "plazo_pago_dias": "Plazo de pago (días)",
+      "requiere_po": "Exige una PO",
+      "tratamiento_iva_defecto": "Tratamiento del BTW por defecto",
+      "verlegd_elegible": "Admite autoliquidación",
+      "activo": "Activo",
+      "exact_id": "ID de Exact",
+      "trnsprnt_id": "ID de TRNSPRNT"
+    },
+    "contacto": {
+      "proveedor_id": "Proveedor",
+      "cliente_id": "Cliente",
+      "nombre": "Nombre",
+      "email": "Correo electrónico",
+      "telefono": "Teléfono",
+      "funcion": "Cargo",
+      "activo": "Activo"
+    },
+    "objeto": {
+      "codigo": "Código",
+      "nombre": "Nombre",
+      "cliente_id": "Cliente",
+      "requiere_po": "Exige una PO",
+      "activo_desde": "Activo desde",
+      "activo_hasta": "Activo hasta",
+      "trnsprnt_id": "ID de TRNSPRNT"
+    },
+    "recurso": {
+      "nombre": "Nombre",
+      "tipo": "Tipo",
+      "proveedor_id": "Proveedor",
+      "trnsprnt_id": "ID de TRNSPRNT",
+      "activo": "Activo"
+    },
+    "orden_compra": {
+      "numero": "Número de PO",
+      "numero_norm": "Número de PO (normalizado)",
+      "lado": "Lado",
+      "cliente_id": "Cliente",
+      "proveedor_id": "Proveedor",
+      "fecha_emision": "Emitida el",
+      "fecha_inicio": "Válida desde",
+      "fecha_fin": "Válida hasta",
+      "valor_original_cent": "Valor original",
+      "documento_id": "Documento",
+      "cerrada": "Cerrada",
+      "fuente": "Fuente"
+    }
+  },
+  "fuentes": {
+    "extraccion": {
+      "etiqueta": "Leído del documento",
+      "significa": "Leído automáticamente del PDF; ninguna persona lo ha confirmado todavía."
+    },
+    "importacion": {
+      "etiqueta": "Importado de otro sistema",
+      "significa": "De una exportación de Exact, de TRNSPRNT o del banco."
+    },
+    "planning": {
+      "etiqueta": "De la planificación",
+      "significa": "De la planificación de TRNSPRNT."
+    },
+    "maestro": {
+      "etiqueta": "De los datos maestros",
+      "significa": "De los datos maestros del proveedor o del cliente."
+    },
+    "manual_entrada": {
+      "etiqueta": "Introducido a mano",
+      "significa": "Una persona completó un valor que faltaba."
+    },
+    "manual_correccion": {
+      "etiqueta": "Corregido a mano",
+      "significa": "Una persona cambió el valor, con un motivo."
+    },
+    "calculado": {
+      "etiqueta": "Calculado por el sistema",
+      "significa": "Sale de otros datos; por ejemplo, el vencimiento sale de la fecha de factura y del plazo de pago."
+    }
+  },
+  "calidad": {
+    "faltante": {
+      "etiqueta": "Falta",
+      "significa": "El campo es obligatorio y no tiene valor."
+    },
+    "dudoso": {
+      "etiqueta": "Dudoso",
+      "significa": "Leído con dudas y aún sin verificar."
+    },
+    "discrepancia": {
+      "etiqueta": "Discrepancia",
+      "significa": "No coincide con otra fuente, como los datos maestros o la planificación."
+    },
+    "anomalia": {
+      "etiqueta": "Anomalía",
+      "significa": "Es distinto de lo habitual o de facturas anteriores."
+    },
+    "verificado": {
+      "etiqueta": "Verificado",
+      "significa": "Una persona ha comprobado el valor."
+    }
+  },
+  "estados": {
+    "sentido": {
+      "entrante": "Compra",
+      "saliente": "Venta"
+    },
+    "tipo_factura": {
+      "factura": "Factura",
+      "nota_credito": "Nota de crédito"
+    },
+    "origen_factura": {
+      "extraccion": "PDF leído",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "manual": "Manual"
+    },
+    "tratamiento_iva": {
+      "estandar": "BTW normal",
+      "autoliquidacion": "Autoliquidación (BTW verlegd)",
+      "kor": "KOR (sin BTW)",
+      "exento": "Exento de BTW",
+      "tipo_cero": "BTW al 0%",
+      "desconocido": "Desconocido"
+    },
+    "pago": {
+      "pendiente": "Pendiente",
+      "vencida": "Vencida",
+      "pagada": "Pagada",
+      "anulada": "Anulada",
+      "acreditada": "Abonada"
+    },
+    "revision": {
+      "sin_revisar": "Sin revisar",
+      "necesita_revision": "Necesita revisión",
+      "revisada": "Revisada"
+    },
+    "resultado_revision": {
+      "revisada": "Revisada",
+      "devuelta": "Hay que mirarla otra vez"
+    },
+    "excepcion": {
+      "abierta": "Abierta",
+      "asignada": "Asignada",
+      "esperando_externo": "Esperando a otros",
+      "resuelta": "Resuelta"
+    },
+    "esperando_a": {
+      "proveedor": "el proveedor",
+      "cliente": "el cliente",
+      "contable": "el contable",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "banco": "el banco",
+      "otro": "otra persona"
+    },
+    "resolucion": {
+      "corregido": "Corregido",
+      "aceptado": "Aceptado",
+      "anulado": "Anulado",
+      "no_procede": "No procede",
+      "condicion_desaparecida": "El problema ya no está"
+    },
+    "hallazgo": {
+      "abierto": "Abierto",
+      "aceptado": "Aceptado",
+      "desaparecido": "Ya no se ve, sin cerrar",
+      "cerrado": "Cerrado",
+      "resuelto": "Resuelto"
+    },
+    "evento_hallazgo": {
+      "detectado": "Detectado",
+      "cambio_evidencia": "Cambió la evidencia",
+      "desaparecido": "Ya no se ve",
+      "cerrado_automatico": "Cerrado automáticamente",
+      "resuelto": "Resuelto por una persona",
+      "aceptado": "Aceptado por una persona",
+      "reabierto": "Reabierto"
+    },
+    "resultado_regla": {
+      "ok": "Correcto",
+      "fallo": "Objeción",
+      "sin_datos": "Sin datos",
+      "no_aplica": "No se aplica"
+    },
+    "relacion": {
+      "propuesta": "Propuesto",
+      "confirmada": "Confirmado",
+      "rechazada": "Rechazado"
+    },
+    "tipo_relacion": {
+      "acredita": "Abona",
+      "anula": "Anula",
+      "corrige": "Corrige",
+      "sustituye": "Sustituye",
+      "relacionada": "Relacionada con"
+    },
+    "fuente_relacion": {
+      "extraccion": "PDF leído",
+      "exact": "Exact",
+      "manual": "Manual"
+    },
+    "relacion_citada": {
+      "credits": "Abona",
+      "corrects": "Corrige",
+      "replaces": "Sustituye",
+      "cancels": "Anula",
+      "refers_to": "Se refiere a",
+      "unknown": "Desconocida"
+    },
+    "clase_referencia": {
+      "po": "PO",
+      "orden": "Pedido",
+      "proyecto": "Proyecto",
+      "ref_cliente": "Referencia del cliente",
+      "otra": "Otra referencia"
+    },
+    "btw": {
+      "abierto": "Abierto",
+      "listo_revision": "Listo para revisar",
+      "presentado": "Presentado (anotado por una persona)"
+    },
+    "aplicacion": {
+      "propuesta": "Propuesto",
+      "confirmada": "Confirmado",
+      "retirada": "Retirado"
+    },
+    "fuente_aplicacion": {
+      "banco": "Banco",
+      "exact": "Exact",
+      "manual": "Manual"
+    },
+    "metodo_aplicacion": {
+      "automatica": "Automático",
+      "propuesta": "Propuesto",
+      "manual": "Manual"
+    },
+    "cuenta": {
+      "heredada": "Heredada, sin confirmar",
+      "registrada": "Registrada, sin verificar",
+      "verificada": "Verificada por teléfono",
+      "atestada": "Confirmada",
+      "rechazada": "Rechazada"
+    },
+    "cambio_cuenta": {
+      "anadida_al_maestro": "Añadida en los datos maestros",
+      "retirada_del_maestro": "Quitada de los datos maestros",
+      "vuelve_al_maestro": "De nuevo en los datos maestros"
+    },
+    "metodo_verificacion": {
+      "llamada": "Llamada",
+      "videollamada": "Videollamada",
+      "visita": "Visita"
+    },
+    "decision_facturas": {
+      "pagar_a_verificada": "Pagar a la cuenta verificada",
+      "anular": "Anular la factura"
+    },
+    "lado_po": {
+      "cliente": "De un cliente",
+      "proveedor": "A un proveedor"
+    },
+    "po": {
+      "activa": "Activa",
+      "cerrada": "Cerrada",
+      "caducada": "Caducada"
+    },
+    "fuente_po": {
+      "manual": "Manual",
+      "po_csv": "Archivo de PO",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT"
+    },
+    "turno": {
+      "planificado": "Planificado",
+      "realizado": "Realizado",
+      "validado": "Validado",
+      "cancelado": "Cancelado"
+    },
+    "importacion": {
+      "en_curso": "En curso",
+      "aceptada": "Importada",
+      "parcial": "Importada en parte",
+      "rechazada": "Rechazada"
+    },
+    "fuente_importacion": {
+      "extracciones": "Facturas leídas",
+      "exact": "Exact",
+      "trnsprnt": "TRNSPRNT",
+      "banco": "Banco",
+      "maestro_csv": "Archivo de datos maestros",
+      "po_csv": "Archivo de PO"
+    },
+    "tipo_importacion": {
+      "proveedores": "Proveedores",
+      "clientes": "Clientes",
+      "contactos": "Contactos",
+      "objetos": "Objects",
+      "recursos": "Personas",
+      "alias": "Alias",
+      "cuentas": "Cuentas bancarias",
+      "tarifas": "Tarifas",
+      "ordenes_compra": "Órdenes de compra",
+      "modificaciones_po": "Cambios de PO",
+      "ciclos": "Ciclos de facturación",
+      "facturas_venta": "Facturas de venta",
+      "facturas_compra": "Facturas de compra",
+      "pagos_exact": "Pagos de Exact",
+      "extracto": "Extracto bancario",
+      "planning": "Planificación"
+    },
+    "ambito": {
+      "factura": "Factura",
+      "proveedor": "Proveedor",
+      "cliente": "Cliente",
+      "orden_compra": "PO",
+      "trimestre": "Trimestre de BTW",
+      "movimiento": "Movimiento del banco",
+      "importacion": "Importación"
+    },
+    "entidad": {
+      "factura": "Factura",
+      "excepcion": "Excepción",
+      "proveedor": "Proveedor",
+      "cliente": "Cliente",
+      "objeto": "Object",
+      "orden_compra": "PO",
+      "trimestre": "Trimestre de BTW"
+    },
+    "tipo_proveedor": {
+      "zzp": "Autónomo (zzp'er)",
+      "empresa": "Empresa"
+    },
+    "tipo_recurso": {
+      "empleado": "Empleado",
+      "zzp": "Autónomo (zzp'er)",
+      "personal_proveedor": "Personal del proveedor"
+    },
+    "frecuencia": {
+      "semanal": "Semanal",
+      "cuatrisemanal": "Cada cuatro semanas",
+      "mensual": "Mensual"
+    }
+  },
+  "prioridad": {
+    "normal": {
+      "etiqueta": "Normal",
+      "significa": "Nada urgente; se atiende en el orden de siempre."
+    },
+    "atencion": {
+      "etiqueta": "Atención",
+      "significa": "Hay algo que mirar, pero todavía no corre prisa."
+    },
+    "urgente": {
+      "etiqueta": "Urgente",
+      "significa": "Míralo hoy: hay un plazo cerca o hay dinero en juego."
+    },
+    "bloqueada": {
+      "etiqueta": "Bloqueada",
+      "significa": "Hay una objeción que se tiene que resolver antes; se muestra el motivo."
+    }
+  },
+  "severidades": {
+    "bloqueo": {
+      "etiqueta": "Bloquea la factura",
+      "significa": "La factura no puede seguir hasta que esto se resuelva."
+    },
+    "retencion": {
+      "etiqueta": "Espera una comprobación",
+      "significa": "La factura espera hasta que alguien haya mirado esto."
+    },
+    "aviso": {
+      "etiqueta": "Solo un aviso",
+      "significa": "Un aviso; la factura sigue adelante."
+    }
+  },
+  "acciones": {
+    "fijar_campo": {
+      "etiqueta": "Completar o corregir un valor",
+      "descripcion": "Completa un valor que falta o corrige uno que se leyó mal.",
+      "confirmar": "Este valor se cambiará y quedará anotado con tu nombre y tu motivo."
+    },
+    "verificar_campo": {
+      "etiqueta": "Verificar valor",
+      "descripcion": "Confirma que el valor actual coincide con el original."
+    },
+    "revertir_campo": {
+      "etiqueta": "Deshacer cambio",
+      "descripcion": "Deshaz un cambio manual y vuelve al valor automático.",
+      "confirmar": "El valor manual volverá a ser el automático."
+    },
+    "anadir_nota": {
+      "etiqueta": "Añadir nota",
+      "descripcion": "Añade una nota interna a una factura o a una excepción."
+    },
+    "cambiar_objeto": {
+      "etiqueta": "Cambiar Object",
+      "descripcion": "Asigna una línea de factura a otro Object (y a otra persona).",
+      "confirmar": "El coste o el ingreso de esta línea pasa a otro Object."
+    },
+    "anadir_alias": {
+      "etiqueta": "Añadir alias",
+      "descripcion": "Anota otro nombre que usa un Object o una persona en los documentos."
+    },
+    "cambiar_po": {
+      "etiqueta": "Cambiar tipo de referencia",
+      "descripcion": "Indica si una referencia de la factura es un número de PO (u otra cosa)."
+    },
+    "anadir_referencia": {
+      "etiqueta": "Añadir referencia",
+      "descripcion": "Añade una referencia (PO, pedido, proyecto, del cliente) que no se leyó."
+    },
+    "registrar_po": {
+      "etiqueta": "Registrar PO",
+      "descripcion": "Registra una orden de compra de un cliente o a un proveedor, con valor, fechas y Objects.",
+      "confirmar": "Esta PO se registrará y las facturas se comprobarán con ella."
+    },
+    "modificar_po": {
+      "etiqueta": "Cambiar PO",
+      "descripcion": "Anota un cambio del valor o de la fecha de fin de una PO (a partir de una fecha).",
+      "confirmar": "Se cambiará el valor o la fecha de fin de esta PO."
+    },
+    "cerrar_po": {
+      "etiqueta": "Cerrar o reabrir PO",
+      "descripcion": "Cierra una PO (lo que se le cargue después se retiene) o vuelve a abrirla.",
+      "confirmar": "Se cambiará el estado de esta PO."
+    },
+    "objetos_po": {
+      "etiqueta": "Objects de una PO",
+      "descripcion": "Añade Objects a una PO o quítalos."
+    },
+    "corregir_po": {
+      "etiqueta": "Corregir datos de la PO",
+      "descripcion": "Corrige la fecha de emisión, la fecha de inicio o el documento de una PO."
+    },
+    "imputar_po": {
+      "etiqueta": "Cargar línea a una PO",
+      "descripcion": "Carga una línea de factura a una PO (o quítale la PO).",
+      "confirmar": "Desde ahora esta línea cuenta en lo consumido de esta PO."
+    },
+    "excluir_linea": {
+      "etiqueta": "Excluir línea",
+      "descripcion": "Excluye una línea de factura; se guarda, no se borra.",
+      "confirmar": "Esta línea dejará de contar en los importes de la factura."
+    },
+    "anadir_linea": {
+      "etiqueta": "Añadir línea",
+      "descripcion": "Añade una línea que está en el papel pero no se leyó.",
+      "confirmar": "Esta línea se añadirá a la factura."
+    },
+    "dividir_linea": {
+      "etiqueta": "Repartir línea",
+      "descripcion": "Reparte una línea entre varios Objects; las partes suman el importe de la línea.",
+      "confirmar": "La línea se repartirá entre los Objects elegidos."
+    },
+    "corregir_maestro": {
+      "etiqueta": "Corregir datos maestros",
+      "descripcion": "Corrige un proveedor, un cliente o un contacto que no viene de Exact ni de TRNSPRNT.",
+      "confirmar": "Se cambiarán los datos maestros."
+    },
+    "anular_factura": {
+      "etiqueta": "Anular factura",
+      "descripcion": "Anula una factura: no se paga y no cuenta (no se hace ninguna nota de crédito).",
+      "confirmar": "Esta factura dejará de contar en los totales, los pagos y el BTW."
+    },
+    "fusionar_factura": {
+      "etiqueta": "Fusionar duplicado",
+      "descripcion": "Fusiona una factura reenviada con la original.",
+      "confirmar": "Esta factura se fusionará con la elegida y dejará de contar por separado."
+    },
+    "deshacer_fusion": {
+      "etiqueta": "Deshacer fusión",
+      "descripcion": "Deshaz una fusión; la factura vuelve a contar por sí sola.",
+      "confirmar": "Esta factura volverá a contar por sí sola."
+    },
+    "enlazar_facturas": {
+      "etiqueta": "Enlazar facturas",
+      "descripcion": "Enlaza dos facturas: una nota de crédito, una corrección, una sustitución o solo relacionadas.",
+      "confirmar": "El enlace queda confirmado en el acto y cambia los saldos, el BTW y los duplicados."
+    },
+    "confirmar_relacion": {
+      "etiqueta": "Confirmar enlace",
+      "descripcion": "Confirma un enlace propuesto (si quieres, con otro tipo u otro importe).",
+      "confirmar": "Al confirmarlo, cambian los saldos, el BTW y los duplicados."
+    },
+    "rechazar_relacion": {
+      "etiqueta": "Rechazar enlace",
+      "descripcion": "Rechaza un enlace propuesto; no se volverá a proponer.",
+      "confirmar": "Este enlace se rechazará."
+    },
+    "retirar_relacion": {
+      "etiqueta": "Retirar enlace",
+      "descripcion": "Retira un enlace (también uno confirmado); se guarda, no se borra.",
+      "confirmar": "Este enlace dejará de cambiar los saldos y el BTW."
+    },
+    "marcar_revisada": {
+      "etiqueta": "Marcar como revisada",
+      "descripcion": "Marca una factura como revisada. Esto no aprueba ningún pago.",
+      "confirmar": "La factura quedará marcada como revisada con tu nombre. Esto no aprueba ningún pago."
+    },
+    "devolver_factura": {
+      "etiqueta": "Pedir que se mire otra vez",
+      "descripcion": "Devuelve una factura con una nota que diga por qué."
+    },
+    "crear_excepcion": {
+      "etiqueta": "Abrir excepción",
+      "descripcion": "Abre a mano una excepción en una factura."
+    },
+    "asignar_excepcion": {
+      "etiqueta": "Asignar excepción",
+      "descripcion": "Pon a una persona como responsable de una excepción."
+    },
+    "esperar_externo": {
+      "etiqueta": "Esperar a otros",
+      "descripcion": "Deja una excepción a la espera de alguien de fuera, con una fecha para volver a mirarla."
+    },
+    "resolver_excepcion": {
+      "etiqueta": "Resolver excepción",
+      "descripcion": "Cierra una excepción, con la resolución y una nota."
+    },
+    "cerrar_hallazgo": {
+      "etiqueta": "Cerrar hallazgo",
+      "descripcion": "Cierra un hallazgo cuyo problema ya ha desaparecido."
+    },
+    "anular_hallazgo": {
+      "etiqueta": "Aceptar hallazgo",
+      "descripcion": "Acepta un hallazgo (solo donde el control lo permite), con un motivo de al menos 10 caracteres.",
+      "confirmar": "El hallazgo quedará aceptado con tu nombre y tu motivo, y seguirá en el historial."
+    },
+    "firmar_anulacion": {
+      "etiqueta": "Dar la segunda firma",
+      "descripcion": "Da la segunda firma cuando un compañero acepta un hallazgo (vale poco tiempo y una sola vez).",
+      "confirmar": "Firmas como segunda persona la aceptación de este hallazgo."
+    },
+    "subir_prioridad": {
+      "etiqueta": "Subir prioridad",
+      "descripcion": "Sube la prioridad de algo (solo hacia arriba, nunca hasta bloqueada)."
+    },
+    "verificar_iban": {
+      "etiqueta": "Verificar IBAN por teléfono",
+      "descripcion": "Anota la cuenta de un proveedor después de llamar al número que ya estaba en los datos maestros. Escribe tú el IBAN; nunca lo copies de la factura.",
+      "confirmar": "Confirmas que llamaste al proveedor al número de los datos maestros y que te confirmó este IBAN."
+    },
+    "rechazar_iban": {
+      "etiqueta": "Rechazar IBAN",
+      "descripcion": "Rechaza una cuenta de un proveedor e indica qué pasa con la factura.",
+      "confirmar": "Esta cuenta se rechazará para este proveedor."
+    },
+    "atestar_iban": {
+      "etiqueta": "Confirmar cuenta heredada",
+      "descripcion": "Confirma una cuenta de los primeros datos maestros (o todas las que siguen abiertas).",
+      "confirmar": "Confirmas que estas cuentas de los datos maestros son correctas."
+    },
+    "fijar_telefono_verificacion": {
+      "etiqueta": "Poner teléfono de verificación",
+      "descripcion": "Pon el teléfono de verificación de un proveedor. Si lo cambias, empieza un periodo de espera.",
+      "confirmar": "Después de un cambio, durante un tiempo no cuenta ninguna verificación por teléfono de este proveedor."
+    },
+    "anadir_beneficiario": {
+      "etiqueta": "Añadir beneficiario",
+      "descripcion": "Anota un beneficiario que no es un proveedor (Hacienda, salarios, alquiler).",
+      "confirmar": "Los pagos a esta cuenta dejarán de tratarse como sospechosos."
+    },
+    "retirar_beneficiario": {
+      "etiqueta": "Retirar beneficiario",
+      "descripcion": "Retira un beneficiario conocido (se guarda, no se borra).",
+      "confirmar": "Los pagos a esta cuenta se volverán a comprobar."
+    },
+    "marcar_pagada": {
+      "etiqueta": "Anotar pago",
+      "descripcion": "Anota que una factura se pagó fuera del sistema, o enlaza un movimiento del banco. Esto no paga nada.",
+      "confirmar": "Anotas que esta factura ya se pagó. El sistema no paga nada."
+    },
+    "confirmar_pago": {
+      "etiqueta": "Confirmar pago",
+      "descripcion": "Confirma un pago que el sistema propuso a partir de un movimiento del banco.",
+      "confirmar": "Este pago contará en el saldo de la factura."
+    },
+    "retirar_pago": {
+      "etiqueta": "Retirar pago",
+      "descripcion": "Retira un pago propuesto, enlazado o manual que está mal (se guarda).",
+      "confirmar": "Este pago dejará de contar en el saldo."
+    },
+    "btw_lista_para_revision": {
+      "etiqueta": "Marcar trimestre listo para revisar",
+      "descripcion": "Marca un trimestre terminado como listo para revisar, con la hoja que miraste. No se presenta nada.",
+      "confirmar": "La hoja de este trimestre quedará guardada para la revisión. No se presenta nada."
+    },
+    "btw_reabrir": {
+      "etiqueta": "Reabrir trimestre",
+      "descripcion": "Vuelve a abrir un trimestre que estaba listo para revisar (la hoja deja de contar).",
+      "confirmar": "La hoja guardada dejará de contar."
+    },
+    "btw_anotar_presentacion": {
+      "etiqueta": "Anotar declaración presentada",
+      "descripcion": "Anota que el trimestre se presentó en el portal de Hacienda (Belastingdienst), con la referencia. El sistema no presenta nada por su cuenta.",
+      "confirmar": "Anotas que esta declaración ya se presentó a Hacienda. No se puede deshacer."
+    },
+    "recalcular": {
+      "etiqueta": "Volver a comprobar",
+      "descripcion": "Vuelve a pasar todos los controles (cada acción ya lo hace)."
+    }
+  },
+  "errores": {
+    "no_autenticado": "Tu sesión ha terminado o tu código no es válido. Vuelve a iniciar sesión.",
+    "sin_permiso": "No tienes permiso para esto. Pide acceso al administrador.",
+    "segunda_persona": "Esto lo tiene que hacer o confirmar otra persona: cambiaste tú algo aquí, o hace falta una segunda firma. Pídeselo a un compañero.",
+    "otro_origen": "Esto solo se puede hacer desde la app o la consola de este programa, no desde otra web.",
+    "origen_no_permitido": "Esta petición viene de una web que no está permitida.",
+    "host_no_permitido": "Esta petición no llegó por la dirección de este programa (127.0.0.1).",
+    "no_existe": "Esto no existe (o ya no existe). Vuelve a cargar la lista.",
+    "conflicto": "Otra persona acaba de cambiar esto. Vuelve a cargar para ver la última versión y prueba otra vez.",
+    "peticion_repetida": "Esta petición ya se usó para otra cosa. Vuelve a cargar y prueba otra vez.",
+    "no_anulable": "Este control no se puede aceptar. Corrige los datos o resuelve el caso.",
+    "no_revisable": "La factura aún no se puede marcar como revisada: primero resuelve lo que aparece arriba.",
+    "bloqueo_abierto": "Sigue abierto un hallazgo que bloquea. Resuélvelo antes o haz que lo acepten.",
+    "estado_no_valido": "Ahora mismo esto no se puede hacer, por cómo están las cosas. Vuelve a cargar para ver qué ha cambiado.",
+    "campo_no_editable": "Este valor lo pone el propio sistema; aquí no lo puedes cambiar.",
+    "campo_de_otro_sistema": "Este valor viene de Exact o de TRNSPRNT. Cámbialo allí; la próxima importación lo traerá.",
+    "falta_motivo": "Indica un motivo. Para aceptar una objeción tiene que tener al menos 10 caracteres.",
+    "iban_no_valido": "Este IBAN no es válido: los dígitos de control no cuadran. Revisa los caracteres.",
+    "orden_desconocida": "Esta acción no existe en este programa.",
+    "invalido": "Los datos no se aceptaron. Revisa lo que has rellenado.",
+    "tipo_no_admitido": "La petición no tenía la forma correcta.",
+    "demasiado_grande": "La petición es demasiado grande. Acorta el texto.",
+    "fichero_no_reconocido": "Este archivo no se reconoce como una exportación de Exact, de TRNSPRNT ni del banco. Elige tú qué tipo de archivo es, o revisa el archivo.",
+    "tipo_ambiguo": "Este archivo podría ser más de un tipo de exportación. Elige cuál es.",
+    "fichero_no_valido": "El archivo no corresponde a este tipo o no se puede leer. Revisa el archivo y el tipo que elegiste.",
+    "datos_de_prueba": "Los datos de prueba y los reales no se mezclan nunca: este archivo es de la otra base de datos.",
+    "pide_confirmacion": "Esta planificación quitaría gran parte de la planificación actual, o tiene semanas sin turnos. Confirma que está bien y prueba otra vez.",
+    "fichero_demasiado_grande": "El archivo es demasiado grande (más de 8 MB). Haz una exportación más pequeña, por ejemplo por meses."
+  },
+  "roles": {
+    "administrador": {
+      "etiqueta": "Administrador",
+      "descripcion": "Todo, también los usuarios, los roles y los ajustes."
+    },
+    "administracion": {
+      "etiqueta": "Administración",
+      "descripcion": "El trabajo diario: corregir, asignar, revisar, pagos, hallazgos, BTW e importaciones."
+    },
+    "consulta": {
+      "etiqueta": "Solo lectura",
+      "descripcion": "Ver las facturas y sus detalles."
+    }
+  },
+  "permisos": {
+    "ver_facturas": {
+      "etiqueta": "Ver facturas",
+      "descripcion": "Ver todo: facturas, partes, PO, BTW y flujo de caja."
+    },
+    "editar_extraccion": {
+      "etiqueta": "Corregir datos leídos",
+      "descripcion": "Corregir valores leídos de un documento."
+    },
+    "anadir_informacion": {
+      "etiqueta": "Añadir información",
+      "descripcion": "Completar valores que faltan y añadir notas."
+    },
+    "cambiar_objeto": {
+      "etiqueta": "Cambiar Object",
+      "descripcion": "Asignar líneas de factura a Objects y a personas."
+    },
+    "cambiar_po": {
+      "etiqueta": "Gestionar PO",
+      "descripcion": "Registrar y cambiar PO, y cargarles líneas."
+    },
+    "marcar_pagada": {
+      "etiqueta": "Anotar pagos",
+      "descripcion": "Anotar, confirmar o retirar pagos. Esto no paga nada."
+    },
+    "anular_acreditar": {
+      "etiqueta": "Anular y enlazar",
+      "descripcion": "Anular, fusionar y enlazar facturas."
+    },
+    "resolver_aviso": {
+      "etiqueta": "Tratar hallazgos",
+      "descripcion": "Abrir, asignar y resolver excepciones, y cerrar hallazgos."
+    },
+    "anular_aviso": {
+      "etiqueta": "Aceptar hallazgos",
+      "descripcion": "Aceptar hallazgos con un motivo y dar la segunda firma."
+    },
+    "confirmar_iban": {
+      "etiqueta": "Verificar datos bancarios",
+      "descripcion": "Verificar por teléfono, rechazar o confirmar IBAN."
+    },
+    "admin": {
+      "etiqueta": "Administración",
+      "descripcion": "Gestionar usuarios, roles, datos maestros y ajustes."
+    },
+    "revisar_factura": {
+      "etiqueta": "Revisar facturas",
+      "descripcion": "Marcar facturas como revisadas o devolverlas."
+    },
+    "gestionar_btw": {
+      "etiqueta": "Gestionar el BTW",
+      "descripcion": "Preparar trimestres y anotar una declaración presentada. El sistema no presenta nada por su cuenta."
+    },
+    "importar_datos": {
+      "etiqueta": "Importar datos",
+      "descripcion": "Importar exportaciones de Exact, de TRNSPRNT y del banco."
+    }
+  },
+  "codigos": {
+    "numero": "número de factura",
+    "contraparte": "otra parte",
+    "fecha": "fecha de factura",
+    "periodo": "periodo",
+    "base": "importe sin BTW",
+    "iva": "BTW o tratamiento del BTW",
+    "total": "importe total",
+    "proveedor_id": "proveedor",
+    "cliente_id": "cliente",
+    "emisor_nombre_doc": "nombre del emisor",
+    "fecha_factura": "fecha de factura",
+    "periodo_inicio": "inicio del periodo",
+    "periodo_fin": "fin del periodo",
+    "iva_cent": "importe del BTW",
+    "total_cent": "importe total",
+    "iban_doc": "IBAN",
+    "tipo_iva_pb": "porcentaje de BTW",
+    "un IBAN": "un IBAN",
+    "cuenta bancaria": "datos bancarios",
+    "un cambio de datos": "un cambio de datos",
+    "instrucciones al sistema": "instrucciones al sistema",
+    "llamar o confirmar": "una petición de llamar o confirmar",
+    "pagos": "el PDF ya tiene pagos anotados",
+    "relacion": "el PDF ya tiene un enlace confirmado",
+    "emisor": "el PDF no dice que lo emitiera BM Support BV",
+    "factura": "factura",
+    "nota_credito": "nota de crédito",
+    "estandar": "BTW normal",
+    "autoliquidacion": "autoliquidación del BTW",
+    "kor": "la KOR (sin BTW)",
+    "exento": "exención",
+    "tipo_cero": "BTW al 0%",
+    "desconocido": "tratamiento del BTW desconocido",
+    "anadida_al_maestro": "añadida",
+    "retirada_del_maestro": "quitada",
+    "vuelve_al_maestro": "añadida de nuevo",
+    "banco": "según el banco",
+    "exact": "según Exact",
+    "manual": "anotado a mano",
+    "recurso_dia": "por persona y día",
+    "objeto_dia": "por Object y día",
+    "recurso_semana": "por persona y semana",
+    "objeto_semana": "por Object y semana",
+    "recurso_periodo": "por persona en el periodo",
+    "objeto_periodo": "por Object en el periodo",
+    "recurso y Objeto": "por persona y Object",
+    "Objeto": "por Object",
+    "recurso": "por persona",
+    "parte": "por proveedor o cliente",
+    "general": "general",
+    "hora": "hora",
+    "dia": "día",
+    "stuk": "pieza",
+    "acredita": "abona",
+    "anula": "anula",
+    "corrige": "corrige",
+    "sustituye": "sustituye a",
+    "relacionada": "está relacionada con"
+  }
+}
