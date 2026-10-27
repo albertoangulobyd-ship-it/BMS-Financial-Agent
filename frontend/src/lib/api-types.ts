@@ -184,6 +184,24 @@ export interface InvoiceDetail {
   conciliacion: { imputacion_id: number; nivel: string; horas_mil: number | null; turnos: ShiftInfo[] }[];
   original: { documento_id: number; nombre: string | null; tipo: string | null; bytes: number | null; guardado: boolean } | null;
   vencimiento: { fecha: string | null; fuente: string | null; plazo_dias: number | null } | null;
+  /** Cada pago apuntado de la factura (propuesto, confirmado o retirado), con su fuente. */
+  pagos?: InvoicePayment[];
+}
+
+/** Un pago de una factura (GET /api/v2/facturas/N, `pagos`). El concepto y la contraparte
+ *  son texto del banco: se pintan como texto. */
+export interface InvoicePayment {
+  id: number;
+  rev: number;
+  estado: 'propuesta' | 'confirmada' | 'retirada' | string;
+  fuente: 'banco' | 'exact' | 'manual' | string;
+  metodo: string | null;
+  importe_cent: number;
+  fecha_pago: string | null;
+  movimiento_id: number | null;
+  regla: string | null;
+  concepto: string | null;
+  contraparte: string | null;
 }
 
 /** GET /api/v2/facturas/N/historial. */
@@ -316,6 +334,17 @@ export interface PartyView {
     valor_cent: number | null;
     estimado: boolean;
   };
+  // Contrato 2.2 (paso 16): lo que el maestro tiene para la ficha de la carpeta en Documentos.
+  kvk?: string | null;
+  email_facturacion?: string | null;
+  direccion?: string | null;
+  /** Las personas de contacto del maestro, las activas primero. Su telefono NO es el de
+   *  verificar una cuenta (ese es telefono_verificacion). */
+  contactos?: { id: number; nombre: string | null; email: string | null; telefono: string | null; funcion: string | null; activo: boolean }[];
+  ordenes_compra?: PoRow[];
+  documentos?: number;
+  /** De un cliente: sus Objetos del maestro. */
+  objetos?: { id: number; codigo: string; nombre: string | null; activo_desde: string | null; activo_hasta: string | null }[];
 }
 
 /** Ingresos, costes y margen (sin IVA) de un Objeto en un periodo. */

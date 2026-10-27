@@ -153,9 +153,9 @@ test('las fichas en claro, y una factura en castellano en los dos temas', async 
   await open('exceptions', /^Uitzondering \d+ openen$/, /./, 'exception');
   // Una carpeta de Documenten, con sus documentos.
   await go(page, 'documents');
-  await page.getByRole('button', { name: /^Map van J\. Voorbeeld Beveiliging/ }).click();
+  await page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Documenten van J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
-  await expect(page.getByRole('table')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /^Voorbeeld van / }).first()).toBeVisible();
   await expectAccessible(page, 'claro documenten van een leverancier');
   await capture(page, 'nl-provider-documents');
 

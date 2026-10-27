@@ -314,6 +314,22 @@
   .aurora-root .gf-front:has(.gf-hit:focus-visible) .gf-front-rim path {
     stroke-width: 5;
   }
+  /* La pastilla de la prioridad, arriba a la izquierda del frente (workspace-layout.css). */
+  .aurora-root .gf-statuses {
+    position: absolute;
+    top: 62px;
+    left: 28px;
+    right: 22px;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    pointer-events: none;
+  }
+  .aurora-root .gf-statuses:empty {
+    display: none;
+  }
   .aurora-root .gf-label {
     position: absolute;
     z-index: 2;
@@ -521,5 +537,19 @@
   }
   .aurora-root .gf-sheet--duplicate .gf-sheet-name {
     color: #dbb181 !important;
+  }
+  /* La carpeta se dibuja a 340 px y se escala a su ancho (--gf-k, 264/340 en la rejilla): lo
+     que se lee se agranda lo mismo, para que no quede por debajo de 12 px de verdad. */
+  .aurora-root .gf-statuses {
+    right: auto;
+    transform-origin: 0 0;
+    scale: calc(1 / var(--gf-k, 1));
+  }
+  .aurora-root .gf-meta,
+  .aurora-root .gf-sheet-meta {
+    font-size: calc(12px / var(--gf-k, 1));
+  }
+  .aurora-root .gf-sheet-name {
+    font-size: calc(12.5px / var(--gf-k, 1));
   }
 }

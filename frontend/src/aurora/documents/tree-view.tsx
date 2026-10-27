@@ -26,6 +26,8 @@ export type TreeNode = {
   meta?: string;
   /** Un tono para lo que pide atencion (lo nuevo de una lectura, un posible duplicado). */
   tone?: "new" | "duplicate";
+  /** La etiqueta viene de los datos (un nombre, un numero): no es texto de la app. */
+  proper?: boolean;
   children?: TreeNode[];
 };
 export type TreeRow = {
@@ -294,7 +296,7 @@ export function TreeView({
             ) : (
               <span className="tree-caret" />
             )}
-            <span className="tree-label">{node.label}</span>
+            <span className="tree-label" title={node.label} data-proper-name={node.proper ? "" : undefined}>{node.label}</span>
             {node.meta ? <span className="tree-meta">{node.meta}</span> : null}
           </div>
           {row.branch ? (

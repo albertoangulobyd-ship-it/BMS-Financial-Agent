@@ -8216,3 +8216,136 @@ Receivables, Payables, Documents, Process, VAT**. «Verwerken» y «Process» en
   inicio salga arriba del todo en las capturas de la gira.
 - `npm run typecheck` sin errores y lo construido al día (`npm run fuente`).
 
+
+## Paso 16 · documentos con datos reales
+
+El paso 3 del §8.3 de la revisión de Aurora y la parte de Documentos de su §8.5 (no la
+lectura de PDF, que es de otro paso): **el archivo de Aurora, tal como lo diseñó el dueño,
+sobre los datos de verdad del motor.** «Los documentos ya está hecho, solo es que la
+información se procese»: la pantalla es la suya (la cabecera con el orbe, el árbol
+«Explorar», las carpetas de cristal con su abanico, la ficha al lado de «Documentos de la
+carpeta» y la hoja clara de la vista previa) y lo que enseña sale de `/api/v2/clientes`,
+`/proveedores`, `/…/N`, `/…/N/documentos`, `/facturas/N` y `/documentos/N/original`. El
+detalle, en [app-local.md](../app-local.md) §4.7.
+
+### Qué se construyó
+
+- **La rejilla** (`screens/documents.tsx`, con su lógica pura en
+  `screens/documents-model.ts`): una carpeta de cristal por cliente y por proveedor, primero
+  lo vencido, luego lo pendiente, luego el orden de la API; las doce primeras y «Ver las N
+  carpetas» (la abierta se ve siempre); pestañas Todas / Clientes / Proveedores con su
+  cuenta; el buscador de carpetas (nombre o código de Exact), con la pista de los 12 s del
+  prototipo como su texto; la pastilla de la prioridad solo cuando pide algo; lo pendiente en
+  euros debajo y «Abrir la ficha».
+- **El árbol «Explorar»** (`aurora/documents/tree-view.tsx`, el del prototipo): Inicio,
+  Documentos con Clientes y Proveedores, cada carpeta con su cuenta y sus documentos, que se
+  leen al abrirla (por partes); entero con el teclado; un grupo, una carpeta o un documento
+  abren lo suyo.
+- **La carpeta abierta** (las fichas `client-documents` y `provider-documents`, con migas y
+  «Terug»): la carpeta de cristal con el abanico de sus cuatro documentos más recientes y,
+  arriba, la ficha de solo lectura (código de Exact, IVA, KvK, plazo, pendiente, vencido, cómo
+  paga, la prioridad con su porqué; de un proveedor, cada cuenta del registro con su estado y
+  el teléfono de verificación de los maestros, con «Ir a Controles de IBAN»; de un cliente, sus
+  Objects, sus PO y lo que falta por facturar) y sus documentos: tipo y número, fecha, importe,
+  la pastilla del pago, «1 van 2» si dos facturas comparten número, el filtro de tipo con los
+  que hay y la descarga al lado de cada fila. Al pasar el ratón por una carpeta cerrada se
+  leen sus documentos y asoman sus hojas.
+- **La vista previa** (`DocumentPreview`, un `<dialog>` nativo): la hoja dibujada desde el
+  registro. De una factura o un abono, sus importes, su vencimiento, el estado del pago con su
+  fuente (`paidSource`: manda el banco, luego Exact, luego lo apuntado a mano, con K3), sus
+  pagos, sus avisos y el fichero; de un justificante, su pago y su factura; de una hoja de PO,
+  su número, fecha y valor. «Descargar el original» (auditado como `documento_abierto`) y
+  «Abrir la factura» o «Abrir la orden de compra». Se cierra con la X, Escape o un clic
+  fuera, y el foco vuelve a lo que la abrió.
+- **Los vacíos con la suricata** (`aurora/meerkat`): un archivo sin clientes ni proveedores y
+  una carpeta sin documentos; los errores, con el `ErrorState` de la app y su reintento.
+- **Lo que se lee, en memoria**: los documentos de cada carpeta se guardan para la sesión
+  (un `WeakMap` por sesión: se olvidan al salir) y se vuelven a leer cuando sube la versión
+  tras una orden; la pestaña, la búsqueda, «Ver todas» y lo abierto del árbol, en
+  `lib/view-memory.ts`. Nada va al navegador.
+- **Los tipos de la API**: `PartyView` con lo del contrato 2.2 (`kvk`, `email_facturacion`,
+  `direccion`, `contactos`, `ordenes_compra`, `documentos`, `objetos`) e `InvoiceDetail` con
+  sus `pagos`, que el motor ya mandaba.
+- **Textos** nuevos en los tres idiomas (`documents.*`, y `aurora.archive.openProfileNamed` y
+  `viewProfileNamed`); los de los tipos, con la autofactura y el extracto para cuando el motor
+  los enlace.
+
+### Cambios de comportamiento
+
+| # | Antes (el paso 16 de la rueda) | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Documentos: dos grupos de tarjetas (Klanten, Leveranciers) con un buscador | El archivo de Aurora: carpetas de cristal en el orden de la atención, pestañas, buscador, las doce primeras y «Ver todas», el árbol | Revisión §2 y §8.5: el archivo del dueño, tal cual, con los datos de verdad |
+| 2 | La carpeta de una relación: una tabla con «Downloaden» en cada fila | La ficha de solo lectura y sus documentos; cada fila abre la vista previa y lleva al lado su descarga | Revisión §8.5: la ficha y la vista previa dibujada desde el registro |
+| 3 | Cada carpeta llevaba la pastilla de su prioridad, también «Normaal» | Solo si pide algo (Geblokkeerd, Urgent, Aandacht) | Una carpeta tranquila no necesita una etiqueta: la rejilla se lee mejor |
+| 4 | `e2e/clicks.spec.ts`: la fila 22 (la vista previa), `test.fixme` | Pasa: Documentos, la carpeta y la fila, tres clics; bajar el original, también tres | La vista previa existe |
+| 5 | La hoja de la vista previa (sin montar) tomaba los colores de la paleta: oscura con texto gris en el tema claro (4:1) y gris sobre clara en el oscuro (3,7:1) | Clara en los dos temas, con su propio texto (12,9:1; lo gris, 5,4:1) | AA, y «la hoja clara» que pidió el dueño |
+| 6 | El texto dentro de la carpeta de cristal se escalaba con ella (12 px se veían a 9) | Se agranda lo mismo que se achica la carpeta: 12 px de verdad | La regla de la app: nada por debajo de 12 px |
+
+### Las pruebas
+
+- **Vitest**: `screens/documents-model.test.ts` (el orden de las carpetas, las pestañas y la
+  búsqueda, las doce primeras y la abierta más abajo, una fila por enlace, los tipos que hay,
+  la factura de un justificante y la PO de una hoja, el abanico, de dónde sale «pagada» y el
+  árbol que carga por partes y qué abre cada nodo).
+- **En el navegador**, `e2e/documents.spec.ts` sobre la base de prueba: cada interacción de
+  las filas de Documentos de la revisión (§1b, 36 a 48) hace lo que dice (las carpetas contra
+  la API, pestañas, buscador, hojas que asoman, la carpeta de cristal, «Abrir la ficha» y «Ver
+  la ficha», la ficha de verdad, el filtro de tipo, un cliente sin documentos con sus Objects y
+  PO, la ficha completa en su sección, el orbe; la vista previa desde el abanico y desde la
+  fila, cerrada de tres formas con el foco de vuelta, «pagada según el banco», el PDF de verdad
+  al descargar desde la vista previa y desde la fila, «Abrir la factura» y «Terug»; el árbol
+  con el teclado; «Ver todas», el archivo vacío y una carpeta que no se pudo leer con
+  `page.route`), con axe y sin restos de otro idioma, y las capturas en los tres idiomas, los
+  dos temas y el móvil. `clicks.spec.ts` (fila 22) y `themes.spec.ts` (la carpeta de un
+  proveedor) pasaron a la carpeta de cristal.
+
+### Desviaciones, y por qué
+
+1. **La ficha va arriba de la rejilla**, no debajo: en el prototipo, abrirla obligaba a
+   desplazar (revisión §1b, fila 38) y con doce carpetas quedaría a 1.500 px. En el móvil va
+   justo debajo de la cabecera, antes del árbol.
+2. **Una pestaña «Todas»** junto a Clientes y Proveedores: en el prototipo la raíz de
+   Documentos enseñaba todas y el árbol filtraba; así cualquier carpeta de las doce primeras
+   sigue a un clic de la entrada.
+3. **El título es «Documentos»** y «Tu archivo financiero» va encima, pequeño; «Todo tiene su
+   lugar.» no se usa como título: cada pantalla se llama como su entrada (la navegación, las
+   migas y el lector de pantalla lo esperan).
+4. **Las migas son las de la app**, no las del prototipo (`Breadcrumbs` se queda sin montar):
+   habría dos.
+5. **La autofactura y el extracto** están en los textos, pero el motor no los enlaza hoy a
+   ninguna relación (el extracto es de la empresa, en Importeren; las autofacturas de TRNSPRNT,
+   cuando se conozca el formato). El filtro de tipo solo enseña los que hay, así que no salen.
+6. **El teléfono de un contacto no sale en la ficha**: solo el de verificación de los
+   maestros, para que nadie llame al que no es para verificar una cuenta.
+7. **Los clientes de la base de prueba no tienen documentos** (sus ventas llegan de Exact sin
+   el PDF): sus carpetas dicen que están vacías, con la suricata. No se añadió nada a la base
+   de prueba: los demás pasos cuentan con ella como está.
+
+### Lo que deben saber los pasos siguientes
+
+- **Cuentas por cobrar y por pagar**: la vista previa ya enseña los pagos de una factura y de
+  dónde sale «pagada» (`paidSource` en `screens/documents-model.ts`, con sus pruebas); la ficha
+  de la factura puede usar lo mismo. Las órdenes de pago no están en Documentos, a propósito.
+- **Procesar de verdad**: el resultado de una lectura puede marcar lo nuevo y los posibles
+  duplicados en las carpetas (`FolderFile.analysisStatus`, «Nieuw · » y «Mogelijk dubbel · »
+  en el abanico, y `TreeNode.tone` en el árbol), como en el prototipo; hoy no se usa.
+- **Los contratos** (decisión 7B): una fila más en `consultas._documentos` y su tipo en
+  `DOC_TYPES` y en los tres diccionarios; la pantalla no cambia.
+
+### Resultado
+
+- Python 3.11: **2547 pasan y 12 se saltan** (ninguno cambia: el paso no toca el motor; la
+  huella de lo construido, al día). `tests/test_app_local.py` también con Python 3.13.
+- Vitest: **1227 pasan** (17 ficheros; los 14 nuevos de `documents-model.test.ts`).
+- Playwright (Chromium 1.56.1): **56 pasan y 4 quedan pendientes** (`test.fixme`: las filas 11,
+  12, 13 y 21 con su coste de la tabla de los clics; la 22 ya pasa), en las dos últimas pasadas
+  del conjunto entero, la última sobre lo construido final. Las capturas del archivo, en
+  castellano, neerlandés e inglés, en los dos temas y en el móvil (la rejilla, la carpeta de un
+  proveedor, la de un cliente sin documentos y la vista previa). Al mirarlas salieron: la ficha
+  arriba también en el móvil (estaba después del árbol), los nombres de los documentos en dos
+  líneas en el móvil, la hoja de la vista previa más compacta con sus botones siempre a la
+  vista, «1 van 2» en las dos facturas con el mismo número, el orbe que en pantallas
+  estrechas se salía 14 px por la izquierda y tres textos grises del archivo que en el tema
+  claro no llegaban a 4,5:1 (el puesto de la carpeta, la cuenta del árbol y la frase de debajo
+  del árbol).
+- `npm run typecheck` sin errores y lo construido al día (`npm run fuente`).

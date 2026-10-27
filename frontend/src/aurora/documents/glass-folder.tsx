@@ -9,7 +9,8 @@
 // - sin imagenes ni enlaces hechos con un dato (los props image y href): un documento se abre
 //   con onFileSelect, por su id, y lo pinta quien lo sabe;
 // - los textos (nombres accesibles, "N documentos", "Nueva", "Posible duplicado") salen de los
-//   diccionarios, y el tono (claro u oscuro) sigue al tema si no se da otro.
+//   diccionarios, y el tono (claro u oscuro) sigue al tema si no se da otro;
+// - "N documentos" puede venir dado (total): una carpeta cerrada aun no ha leido los suyos.
 import * as React from "react";
 import { fmt, useT } from "@/i18n";
 import { useTheme } from "@/lib/theme";
@@ -31,6 +32,8 @@ export type FolderFile = {
   id: string;
   name: string;
   meta?: string;
+  /** El nombre accesible de la hoja (lo que abre: su vista previa). */
+  label?: string;
   /** Lo que pide atencion tras una lectura: nuevo, o posible duplicado (avisos B2-B5). */
   analysisStatus?: "new" | "duplicate";
   art?: ArtPreset | ArtRecipe;
@@ -48,6 +51,9 @@ export type GlassFolderProps = {
   art?: FolderArt;
   seed?: number;
   files?: FolderFile[];
+  /** Cuantos documentos tiene la carpeta, si no son los de `files` (una carpeta cerrada aun
+   *  no ha leido los suyos: se leen al abrirla o al pasar por encima). */
+  total?: number;
   /** El boton "..." con el menu de la carpeta (sin el, la carpeta solo se abre). */
   moreButton?: boolean;
   menu?: FolderMenuItem[];
@@ -464,6 +470,7 @@ export function GlassFolder({
   art = "aurora",
   seed = 3,
   files = [],
+  total,
   moreButton = false,
   menu = [],
   labelPlacement = "bottom-left",
@@ -607,7 +614,8 @@ export function GlassFolder({
   // En el abanico caben cuatro hojas: las ultimas.
   const start = Math.max(0, files.length - 4),
     visible = files.slice(start),
-    count = files.length === 1 ? texts.documentsOne : fmt(texts.documents, { n: files.length }),
+    n = total ?? files.length,
+    count = n === 1 ? texts.documentsOne : fmt(texts.documents, { n }),
     metaLine = meta ?? count;
   return (
     <div className="aurora-root">
@@ -618,7 +626,7 @@ export function GlassFolder({
         data-open={open || undefined}
         data-entered={entered || undefined}
         data-place={labelPlacement}
-        style={{ width, height: 326 * k, ...style }}
+        style={{ width, height: 326 * k, '--gf-k': k, ...style } as React.CSSProperties}
       >
         <div className="gf-stage" style={{ transform: `translateY(${54 * k}px) scale(${k})` }}>
           <div className="gf-tilt">
@@ -661,7 +669,7 @@ export function GlassFolder({
                 {frontAccessory}
               </div>
               <div className="gf-label">
-                <span className="gf-title">{label}</span>
+                <span className="gf-title" title={label} data-proper-name="">{label}</span>
                 <span className="gf-meta" key={metaLine}>
                   {metaLine}
                 </span>
@@ -691,6 +699,7 @@ export function GlassFolder({
                           zIndex: v + 1,
                         } as React.CSSProperties
                       }
+                      aria-label={file.label}
                       onClick={() => onFileSelect?.(file, start + v)}
                     >
                       {file.art ? (
@@ -715,7 +724,7 @@ export function GlassFolder({
                         {(file.meta || status) && (
                           <span className="gf-sheet-meta">
                             {status}
-                            {file.meta}
+                            <span data-proper-name="">{file.meta}</span>
                           </span>
                         )}
                       </span>

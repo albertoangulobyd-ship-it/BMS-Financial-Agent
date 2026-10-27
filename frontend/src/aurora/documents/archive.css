@@ -2,61 +2,211 @@
    Traido de Aurora (paso 16) con una herramienta de una sola vez: solo las reglas que usan sus
    componentes, bajo .aurora-root, en la capa components (las utilidades de Tailwind mandan),
    los colores como variables de aurora/palette.css (oscuro el de Aurora, claro su pareja), nada
-   por debajo de 12 px y los @keyframes con "aurora-". */
+   por debajo de 12 px y los @keyframes con "aurora-".
+   Paso 16, Documentos con datos reales: el marco se rehizo para la app (su cabecera y sus
+   migas ya estan arriba: fuera los 112 px de margen del prototipo y las reglas que se pisaban),
+   y se anadieron las pestanas, el buscador, "Ver todas", la fila con su descarga y el filtro de
+   tipo. Lo nuevo usa los colores del tema de la app (--foreground, --muted-foreground...), que
+   ya pasan AA en los dos temas. La hoja de la vista previa es clara en los dos temas, como la
+   penso el dueno, con sus propios colores de texto (AA sobre ella). */
 @layer components {
-  .aurora-root .ws-shell {
-    max-width: 1120px;
-    margin: auto;
-    padding: 122px 40px 45px;
-  }
-  .aurora-root .ws-breadcrumbs {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    font-size: 12px;
-    color: var(--au-t-716878);
-    line-height: 2;
-  }
-  .aurora-root .ws-breadcrumbs button:hover {
-    color: var(--au-t-ded1ed);
-  }
-  .aurora-root .ws-breadcrumbs [aria-current="page"] {
-    color: var(--au-t-c9b4da);
+  /* ---- el marco: la cabecera arriba; el arbol a la izquierda; lo demas a la derecha */
+  .aurora-root .ws-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-areas: 'head head' 'side top' 'side main';
+    grid-template-rows: auto auto 1fr;
+    column-gap: 28px;
+    align-items: start;
   }
   .aurora-root .ws-heading {
+    grid-area: head;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    margin: 45px 0 40px;
     gap: 20px;
+    margin: 4px 0 22px;
   }
+  .aurora-root .ws-heading > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .aurora-root .ws-sidebar {
+    grid-area: side;
+    position: sticky;
+    top: 76px;
+    max-height: calc(100dvh - 92px);
+    overflow: auto;
+    padding: 6px 10px 25px 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--au-35273f) transparent;
+  }
+  .aurora-root .ws-sidebar > .ws-eyebrow {
+    padding-left: 12px;
+    margin-bottom: 16px;
+  }
+  .aurora-root .ws-top {
+    grid-area: top;
+    min-width: 0;
+  }
+  .aurora-root .ws-main {
+    grid-area: main;
+    min-width: 0;
+  }
+
+  /* ---- la cabecera */
   .aurora-root .ws-eyebrow {
     font-size: 12px;
     letter-spacing: 2px;
+    text-transform: uppercase;
     color: var(--au-t-8d779f);
     margin: 0 0 14px;
   }
-  .aurora-root .ws-heading h1 {
-    font-size: 38px;
+  .aurora-root .ws-heading .ws-eyebrow {
+    margin-bottom: 11px;
+  }
+  .aurora-root .ws-title-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+  }
+  .aurora-root .ws-title-line h1 {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: clamp(27px, 2.5vw, 35px);
     font-weight: 400;
-    letter-spacing: -1.6px;
-    margin: 0 0 12px;
+    line-height: 1.3;
+    letter-spacing: -1.1px;
+    overflow-wrap: anywhere;
   }
   .aurora-root .ws-heading > div > p:last-child {
-    font-size: 12px;
+    margin: 8px 0 0;
+    max-width: 62rem;
+    font-size: 13px;
+    line-height: 1.7;
     color: var(--au-t-81778d);
-    margin: 0;
   }
+  .aurora-root .ws-companion {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    width: 96px;
+    height: 52px;
+    margin: 0 0 15px -12px;
+    isolation: isolate;
+    border-radius: 50%;
+  }
+  .aurora-root .ws-companion canvas,
+  .aurora-root .ws-companion .aurora-orb {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  /* El orbe dibuja mas ancho que su caja (140 px en 96): con el margen de la pantalla mas
+     estrecho (por debajo de 1280 px) no se sale por la izquierda. */
+  @media (max-width: 1279px) {
+    .aurora-root .ws-companion {
+      margin-left: 10px;
+    }
+  }
+  .aurora-root .ws-companion:focus-visible {
+    outline: 2px solid var(--au-886b9d);
+    outline-offset: 2px;
+  }
+
+  /* ---- las pestanas y el buscador, encima de la rejilla */
+  .aurora-root .ws-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+  }
+  .aurora-root .ws-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .aurora-root .ws-tabs button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--soft-foreground);
+    transition: background 0.15s, color 0.15s;
+  }
+  .aurora-root .ws-tabs button:hover {
+    color: var(--foreground);
+  }
+  .aurora-root .ws-tabs button[aria-pressed='true'] {
+    background: var(--secondary);
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .aurora-root .ws-tabs button:focus-visible,
+  .aurora-root .ws-more:focus-visible,
+  .aurora-root .ws-type-filter button:focus-visible,
+  .aurora-root .ws-empty button:focus-visible,
+  .aurora-root .ws-folder-caption > button:focus-visible,
+  .aurora-root .ws-file-open:focus-visible,
+  .aurora-root .ws-link:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .aurora-root .ws-tab-count {
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .aurora-root .ws-search {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: min(100%, 360px);
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    transition: border-color 0.2s;
+  }
+  .aurora-root .ws-search:focus-within {
+    border-color: var(--ring);
+  }
+  .aurora-root .ws-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: none;
+    padding: 8px 0;
+    font-size: 13px;
+    color: var(--foreground);
+  }
+  .aurora-root .ws-search input::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  /* ---- la rejilla de carpetas */
   .aurora-root .ws-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 36px 40px;
-    padding: 40px 0 25px;
+    gap: 30px 20px;
+    padding: 22px 0 18px;
   }
   .aurora-root .ws-folder-cell {
-    min-width: 0;
     position: relative;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -71,46 +221,85 @@
   }
   .aurora-root .ws-party-type {
     width: 264px;
-    font-size: 12px;
-    color: var(--au-t-706078);
-    letter-spacing: 1.5px;
+    max-width: 100%;
     display: flex;
     justify-content: space-between;
-    margin-bottom: 24px;
+    margin-bottom: 19px;
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--au-t-706078);
   }
   .aurora-root .ws-party-type > span {
-    color: var(--au-t-494050);
+    color: var(--muted-foreground);
   }
   .aurora-root .ws-folder-caption {
     width: 264px;
+    max-width: 100%;
     margin-top: 18px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
     font-size: 12px;
     color: var(--au-t-85748f);
   }
   .aurora-root .ws-folder-caption > button {
-    display: flex;
-    gap: 6px;
+    display: inline-flex;
     align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    border-radius: 4px;
     color: var(--au-t-b39bc6);
   }
+  .aurora-root .ws-folder-caption > button:hover {
+    color: var(--au-t-ddd2e8);
+  }
+  .aurora-root .ws-more {
+    display: block;
+    margin: 4px auto 0;
+    padding: 9px 18px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--soft-foreground);
+  }
+  .aurora-root .ws-more:hover {
+    color: var(--foreground);
+    border-color: var(--border-strong);
+  }
+  .aurora-root .ws-footnote {
+    margin: 36px 0 0;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--muted-foreground);
+  }
+
+  /* ---- la ficha de la carpeta, con sus documentos al lado */
   .aurora-root .ws-profile {
     display: grid;
-    grid-template-columns: 1fr 1.4fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
     gap: 45px;
     border: 1px solid var(--au-ffffff10);
     border-radius: 16px;
     padding: 30px;
-    margin-top: 40px;
-    animation: appear 0.4s ease;
+    margin: 0 0 30px;
+    animation: aurora-ws-appear 0.4s ease;
+  }
+  @keyframes aurora-ws-appear {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
   .aurora-root .ws-profile h2 {
-    font-size: 24px;
-    letter-spacing: -0.7px;
-    font-weight: 450;
     margin: 0 0 12px;
+    font-size: 24px;
+    font-weight: 450;
+    letter-spacing: -0.7px;
+    overflow-wrap: anywhere;
+    outline: none;
   }
   .aurora-root .ws-tax {
     font-size: 12px;
@@ -118,96 +307,214 @@
   }
   .aurora-root .ws-profile dl {
     display: grid;
-    grid-template-columns: 1fr 1.8fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
     gap: 12px 10px;
+    margin: 22px 0 0;
     font-size: 12px;
     line-height: 1.6;
-    margin: 26px 0 0;
   }
   .aurora-root .ws-profile dt {
     color: var(--au-t-75657f);
   }
   .aurora-root .ws-profile dd {
     margin: 0;
+    min-width: 0;
     color: var(--au-t-bcafc7);
     overflow-wrap: anywhere;
+  }
+  .aurora-root .ws-profile dd small {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .aurora-root .ws-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .aurora-root .ws-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 4px;
+    color: var(--au-t-b39bc6);
+    text-align: left;
+  }
+  .aurora-root .ws-link:hover {
+    color: var(--au-t-ddd2e8);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .aurora-root .ws-chips .ws-link {
+    padding: 2px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .aurora-root .ws-chips .ws-link:hover {
+    text-decoration: none;
+    border-color: var(--border-strong);
+  }
+  .aurora-root .ws-profile-footer {
+    margin-top: 22px;
+    font-size: 13px;
   }
   .aurora-root .ws-table-head {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    font-size: 12px;
+    align-items: baseline;
     gap: 10px;
+    padding-bottom: 12px;
+  }
+  .aurora-root .ws-table-head h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--au-t-b09bc1);
-    padding-bottom: 14px;
   }
-  .aurora-root .ws-table-head button {
-    display: flex;
-    gap: 5px;
-    align-items: center;
+  .aurora-root .ws-count {
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
     font-size: 12px;
-    color: var(--au-t-9d83b3);
+    color: var(--muted-foreground);
   }
-  .aurora-root .ws-file-table > button {
+  .aurora-root .ws-type-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-bottom: 12px;
+  }
+  .aurora-root .ws-type-filter button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 2px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--soft-foreground);
+  }
+  .aurora-root .ws-type-filter button[aria-pressed='true'] {
+    background: var(--secondary);
+    border-color: var(--border-strong);
+    color: var(--foreground);
+  }
+  .aurora-root .ws-file-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .aurora-root .ws-file-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    border-top: 1px solid var(--au-ffffff0c);
+  }
+  .aurora-root .ws-file-open {
+    flex: 1;
+    min-width: 0;
     display: flex;
     gap: 12px;
     align-items: center;
-    padding: 15px 0;
-    border-top: 1px solid var(--au-ffffff0c);
+    padding: 14px 4px 14px 0;
+    border-radius: 6px;
+    text-align: left;
     color: var(--au-t-927c9f);
   }
-  .aurora-root .ws-file-table > button > span {
-    flex: 1;
+  .aurora-root .ws-file-open:hover strong {
+    color: var(--foreground);
   }
-  .aurora-root .ws-file-table strong {
-    font-size: 12px;
+  .aurora-root .ws-file-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .aurora-root .ws-file-text strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
     font-weight: 450;
     color: var(--au-t-d0c2dc);
   }
-  .aurora-root .ws-file-table small {
+  .aurora-root .ws-file-text small {
     display: block;
+    margin-top: 4px;
     font-size: 12px;
     color: var(--au-t-786982);
-    margin-top: 5px;
   }
+  .aurora-root .ws-file-empty {
+    margin: 14px 0 0;
+    font-size: 13px;
+    color: var(--au-t-8f8698);
+  }
+
+  /* ---- los vacios, con la suricata o la carpeta */
   .aurora-root .ws-empty {
-    padding: 70px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 46px 20px;
     text-align: center;
     color: var(--au-t-7c688e);
   }
-  .aurora-root .ws-empty svg {
-    margin: auto;
-  }
   .aurora-root .ws-empty h2 {
+    margin: 8px 0 0;
     font-size: 20px;
-    color: var(--au-t-c5b2d3);
     font-weight: 400;
+    color: var(--au-t-c5b2d3);
+  }
+  .aurora-root .ws-file-table .ws-empty {
+    padding: 26px 10px 10px;
+  }
+  .aurora-root .ws-file-table .ws-empty h2 {
+    font-size: 15px;
   }
   .aurora-root .ws-empty p {
-    font-size: 12px;
+    margin: 0;
+    max-width: 30rem;
+    font-size: 13px;
   }
   .aurora-root .ws-empty button {
-    font-size: 12px;
+    margin-top: 12px;
+    border-radius: 4px;
+    font-size: 13px;
     color: var(--au-t-caa7e0);
-    margin-top: 14px;
   }
+
+  /* ---- la vista previa */
   .aurora-root .ws-dialog {
     position: fixed;
     inset: 0;
-    border: 1px solid var(--au-84718d44);
-    border-radius: 20px;
     margin: auto;
-    background: var(--au-111015);
-    color: var(--au-t-d7cce2);
-    padding: 24px;
     width: min(560px, calc(100% - 32px));
     max-height: 90dvh;
-    box-shadow: 0 30px 100px var(--au-00000099);
+    padding: 24px;
     overflow: auto;
+    border: 1px solid var(--au-84718d44);
+    border-radius: 20px;
+    background: var(--au-111015);
+    color: var(--au-t-d7cce2);
+    box-shadow: 0 30px 100px var(--au-00000099);
   }
   .aurora-root .ws-dialog::backdrop {
     background: var(--au-030206c9);
     backdrop-filter: blur(12px);
+  }
+  .aurora-root .ws-dialog[open] {
+    animation: aurora-ws-file-open 0.28s ease-out;
+  }
+  @keyframes aurora-ws-file-open {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
   .aurora-root .ws-dialog-top {
     display: flex;
@@ -216,135 +523,119 @@
     gap: 12px;
     font-size: 12px;
     letter-spacing: 1.3px;
+    text-transform: uppercase;
     color: var(--au-t-9b84ab);
   }
+  .aurora-root .ws-dialog-top button {
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .aurora-root .ws-dialog-top button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* La hoja: clara en los dos temas, con su texto oscuro (12,9:1; lo gris, 5,4:1). */
   .aurora-root .ws-paper {
     position: relative;
-    background: var(--au-edeaf1);
-    color: var(--au-t-28232e);
-    border-radius: 9px;
-    padding: 32px;
+    margin: 18px 0 0;
+    padding: 26px 28px;
     overflow: hidden;
-    margin: 22px 0;
+    border-radius: 9px;
+    background: #edeaf1;
+    color: #28232e;
+    box-shadow: 0 0 0 1px #28232e1f;
   }
   .aurora-root .ws-paper-brand {
     display: block;
+    margin-bottom: 16px;
     font-size: 18px;
     font-weight: 800;
-    margin-bottom: 35px;
   }
   .aurora-root .ws-paper-brand small {
+    margin-left: 5px;
     font-size: 12px;
     font-weight: 400;
-    margin-left: 5px;
   }
   .aurora-root .ws-paper h2 {
-    font-size: 24px;
-    letter-spacing: -0.7px;
-    font-weight: 500;
     position: relative;
-    margin: 15px 0;
+    margin: 10px 0 4px;
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.7px;
+    overflow-wrap: anywhere;
   }
   .aurora-root .ws-paper > p {
-    font-size: 12px;
-    color: var(--au-t-68616f);
+    margin: 0;
+    font-size: 13px;
+    color: #5a5263;
   }
   .aurora-root .ws-paper hr {
+    margin: 16px 0;
     border: 0;
-    border-top: 1px solid var(--au-d0c9d7);
-    margin: 26px 0;
+    border-top: 1px solid #d0c9d7;
   }
   .aurora-root .ws-paper dl {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    font-size: 12px;
-    line-height: 1.7;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 7px 14px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
   }
   .aurora-root .ws-paper dt {
-    color: var(--au-t-82758e);
+    color: #645b6e;
   }
   .aurora-root .ws-paper dd {
     margin: 0;
-  }
-  @media (max-width: 1000px) {
-    .aurora-root .ws-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 24px;
-    }
-    .aurora-root .ws-profile {
-      grid-template-columns: 1fr 1.2fr;
-      gap: 24px;
-    }
-  }
-  @media (max-width: 650px) {
-    .aurora-root .ws-shell {
-      padding: 100px 22px 35px;
-    }
-    .aurora-root .ws-heading {
-      margin-top: 34px;
-      display: block;
-    }
-    .aurora-root .ws-heading h1 {
-      font-size: 29px;
-    }
-    .aurora-root .ws-heading > div > p:last-child {
-      font-size: 12px;
-      line-height: 1.8;
-    }
-    .aurora-root .ws-grid {
-      grid-template-columns: 1fr;
-      gap: 35px;
-      padding-top: 25px;
-    }
-    .aurora-root .ws-profile {
-      grid-template-columns: 1fr;
-      padding: 22px;
-    }
-    .aurora-root .ws-empty {
-      padding: 45px 15px;
-    }
-    .aurora-root .ws-paper {
-      padding: 24px;
-    }
-    .aurora-root .ws-dialog {
-      padding: 18px;
-    }
-  }
-  .aurora-root .ws-layout {
-    display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    gap: 28px;
-    max-width: 1480px;
-    margin: 0 auto;
-    padding: 112px 32px 0;
-  }
-  .aurora-root .ws-layout .ws-shell {
-    max-width: none;
-    width: 100%;
     min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .aurora-root .ws-paper dd small {
+    display: block;
+    font-size: 12px;
+    color: #5a5263;
+  }
+  .aurora-root .ws-paper-list {
+    list-style: none;
     margin: 0;
-    padding: 0 0 40px;
+    padding: 0;
   }
-  .aurora-root .ws-sidebar {
+  .aurora-root .ws-paper-list li + li {
+    margin-top: 4px;
+  }
+  .aurora-root .ws-paper-note {
+    margin: 16px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #5a5263;
+  }
+  /* Las acciones, siempre a la vista al pie del dialogo aunque la hoja sea larga. */
+  .aurora-root .ws-dialog-actions {
     position: sticky;
-    top: 28px;
-    align-self: start;
-    max-height: calc(100dvh - 55px);
-    overflow: auto;
-    padding: 20px 10px 25px 0;
-    scrollbar-width: thin;
-    scrollbar-color: var(--au-35273f) transparent;
+    bottom: -24px;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin: 0 -24px -24px;
+    padding: 16px 24px 24px;
+    background: var(--au-111015);
   }
-  .aurora-root .ws-sidebar > .ws-eyebrow {
-    padding-left: 12px;
-    margin-bottom: 20px;
+  .aurora-root .ws-dialog-actions > * {
+    flex: 1 1 12rem;
   }
+  .aurora-root .ws-dialog-error {
+    flex-basis: 100%;
+    font-size: 13px;
+  }
+
+  /* ---- el arbol "EXPLORAR" */
   .aurora-root .ws-tree-hint {
     font-size: 12px;
     line-height: 1.9;
-    color: var(--au-t-50465b);
-    padding: 26px 12px 0;
+    color: var(--muted-foreground);
+    padding: 22px 12px 0;
   }
   .aurora-root .tree-view {
     border: 1px solid var(--au-ffffff0c);
@@ -358,6 +649,8 @@
     margin: 0;
   }
   .aurora-root .tree-row {
+    position: relative;
+    isolation: isolate;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -379,8 +672,16 @@
     background: var(--au-ac7dc911);
   }
   .aurora-root .tree-row.tree-selected {
-    background: var(--au-b281d212);
+    background: transparent;
     color: var(--au-t-e1c9f1);
+  }
+  .aurora-root .tree-selection-background {
+    position: absolute;
+    inset: 0;
+    border-radius: 7px;
+    background: var(--au-b281d212);
+    z-index: -1;
+    pointer-events: none;
   }
   .aurora-root .tree-caret {
     display: flex;
@@ -405,10 +706,10 @@
   }
   .aurora-root .tree-meta {
     flex-shrink: 0;
-    font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
     font-size: 12px;
     font-variant-numeric: tabular-nums;
-    color: var(--au-t-685674);
+    color: var(--muted-foreground);
   }
   .aurora-root .tree-group {
     overflow: hidden;
@@ -418,364 +719,22 @@
     border-left: 1px solid var(--au-ffffff14);
     padding-left: 5px;
   }
-  .aurora-root .ws-heading {
-    margin: 32px 0 28px;
-    align-items: center;
-  }
-  .aurora-root .ws-heading > div {
-    flex: 1;
-    min-width: 0;
-  }
-  .aurora-root .ws-title-line {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 85px;
-  }
-  .aurora-root .ws-title-line h1 {
-    flex: 0 1 auto;
-    font-size: clamp(25px, 2.5vw, 35px);
-    margin: 0;
-    line-height: 1.3;
-    letter-spacing: -1.1px;
-  }
-  .aurora-root .ws-title-line h1 > span {
-    display: block;
-  }
-  .aurora-root .ws-heading > div > p:last-child {
-    margin-top: 8px;
-    line-height: 1.8;
-  }
-  .aurora-root .ws-companion {
-    position: relative;
-    display: block;
-    flex-shrink: 0;
-    width: 110px;
-    height: 65px;
-    isolation: isolate;
-    border-radius: 16px;
-  }
-  .aurora-root .ws-companion canvas {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-  .aurora-root .ws-companion:focus-visible {
-    outline: 1px solid var(--au-886b9d);
-    outline-offset: 1px;
-  }
-  .aurora-root .ws-grid {
-    gap: 30px 20px;
-    padding-top: 28px;
-  }
-  .aurora-root .ws-party-type {
-    margin-bottom: 19px;
-  }
-  .aurora-root .ws-dialog[open] {
-    animation: aurora-ws-file-open 0.28s ease-out;
-  }
-  @keyframes aurora-ws-file-open {
-    from {
-      opacity: 0;
-      transform: translateY(12px) scale(0.98);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-  @media (max-width: 1200px) {
-    .aurora-root .ws-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .aurora-root .ws-layout {
-      grid-template-columns: 200px minmax(0, 1fr);
-      gap: 22px;
-      padding-left: 24px;
-      padding-right: 24px;
-    }
-    .aurora-root .ws-heading {
-      gap: 8px;
-    }
-    .aurora-root .ws-title-line h1 {
-      font-size: 29px;
-    }
-  }
-  @media (max-width: 850px) {
-    .aurora-root .ws-layout {
-      grid-template-columns: 170px minmax(0, 1fr);
-      gap: 18px;
-      padding-left: 18px;
-      padding-right: 18px;
-    }
-    .aurora-root .ws-grid {
-      grid-template-columns: 1fr;
-    }
-    .aurora-root .ws-title-line {
-      gap: 0;
-    }
-    .aurora-root .ws-companion {
-      width: 78px;
-    }
-    .aurora-root .ws-title-line h1 {
-      font-size: 26px;
-    }
-    .aurora-root .ws-profile {
-      grid-template-columns: 1fr;
-    }
-    .aurora-root .tree-label {
-      font-size: 12px;
-    }
-  }
-  @media (max-width: 600px) {
-    .aurora-root .ws-layout {
-      display: flex;
-      flex-direction: column;
-      padding: 112px 20px 0;
-      gap: 20px;
-    }
-    .aurora-root .ws-sidebar {
-      position: relative;
-      top: auto;
-      max-height: 230px;
-      width: 100%;
-      padding: 0;
-      order: 0;
-    }
-    .aurora-root .ws-sidebar > .ws-eyebrow {
-      margin-bottom: 10px;
-    }
-    .aurora-root .ws-tree-hint {
-      display: none;
-    }
-    .aurora-root .tree-view {
-      padding: 7px 10px;
-    }
-    .aurora-root .tree-label {
-      font-size: 12px;
-    }
-    .aurora-root .ws-heading {
-      margin-top: 25px;
-    }
-    .aurora-root .ws-title-line {
-      min-height: 85px;
-    }
-    .aurora-root .ws-title-line h1 {
-      font-size: 26px;
-    }
-    .aurora-root .ws-companion {
-      width: 85px;
-    }
-    .aurora-root .ws-profile {
-      padding: 19px;
-    }
-    .aurora-root .ws-layout .ws-shell {
-      padding: 0 0 32px;
-    }
-    .aurora-root .ws-grid {
-      padding-top: 15px;
-    }
-    .aurora-root .ws-heading > div > p:last-child {
-      font-size: 12px;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .aurora-root .ws-companion {
-      animation: none !important;
-    }
-    .aurora-root .ws-dialog[open] {
-      animation: none;
-    }
-  }
-  .aurora-root .ws-layout {
-    row-gap: 0;
-  }
-  .aurora-root .ws-layout .ws-shell {
-    display: contents;
-  }
-  .aurora-root .ws-breadcrumbs {
-    grid-column: 1/-1;
-    grid-row: 1;
-  }
-  .aurora-root .ws-heading {
-    grid-column: 1/-1;
-    grid-row: 2;
-    margin-top: 22px;
-  }
-  .aurora-root .ws-grid {
-    grid-column: 2;
-    grid-row: 5;
-  }
-  .aurora-root .ws-profile {
-    grid-column: 2;
-    grid-row: 6;
-  }
-  .aurora-root .ws-empty {
-    grid-column: 2;
-    grid-row: 5;
-  }
-  .aurora-root .ws-sidebar {
-    grid-column: 1;
-    grid-row: 5 / span 2;
-    margin-top: 28px;
-    top: 20px;
-    max-height: calc(100dvh - 45px);
-  }
-  .aurora-root .ws-heading .ws-companion {
-    margin-left: -12px;
-    margin-top: 0;
-    margin-bottom: 15px;
-    width: 96px;
-    height: 52px;
-  }
-  .aurora-root .ws-title-line {
-    min-height: 56px;
-  }
-  .aurora-root .ws-title-line h1 {
-    font-size: clamp(27px, 2.5vw, 35px);
-  }
-  .aurora-root .ws-heading .ws-eyebrow {
-    font-size: 12px;
-    margin-bottom: 11px;
-  }
-  .aurora-root .ws-heading {
-    align-items: flex-start;
-  }
-  .aurora-root .ws-heading > div > p:last-child {
-    margin-top: 8px;
-  }
-  @media (max-width: 600px) {
-    .aurora-root .ws-layout {
-      display: grid;
-      grid-template-columns: 1fr;
-      padding-top: 110px;
-      row-gap: 0;
-    }
-    .aurora-root .ws-breadcrumbs,
-    .aurora-root .ws-heading,
-    .aurora-root .ws-grid,
-    .aurora-root .ws-profile,
-    .aurora-root .ws-empty {
-      grid-column: 1;
-      grid-row: auto;
-    }
-    .aurora-root .ws-breadcrumbs {
-      grid-row: 1;
-    }
-    .aurora-root .ws-heading {
-      grid-row: 2;
-    }
-    .aurora-root .ws-sidebar {
-      grid-column: 1;
-      grid-row: 5;
-      margin-top: 12px;
-      margin-bottom: 22px;
-      top: auto;
-      max-height: 200px;
-    }
-    .aurora-root .ws-grid {
-      grid-row: 6;
-    }
-    .aurora-root .ws-profile {
-      grid-row: 7;
-    }
-    .aurora-root .ws-title-line {
-      min-height: 65px;
-    }
-    .aurora-root .ws-heading .ws-companion {
-      margin-bottom: 11px;
-    }
-  }
-  .aurora-root .ws-layout .ws-grid,
-  .aurora-root .ws-layout .ws-empty {
-    grid-row: 3;
-  }
-  .aurora-root .ws-layout .ws-grid {
-    padding-top: 16px;
-  }
-  .aurora-root .ws-layout .ws-sidebar {
-    grid-row: 3 / span 2;
-    margin-top: 16px;
-  }
-  .aurora-root .ws-layout .ws-profile {
-    grid-row: 4;
-  }
-  @media (max-width: 600px) {
-    .aurora-root .ws-layout .ws-sidebar {
-      grid-row: 3;
-      max-height: 200px;
-      margin-top: 4px;
-      margin-bottom: 18px;
-    }
-    .aurora-root .ws-layout .ws-grid,
-    .aurora-root .ws-layout .ws-empty {
-      grid-row: 4;
-    }
-    .aurora-root .ws-layout .ws-profile {
-      grid-row: 5;
-    }
-  }
-  .aurora-root .tree-row {
-    position: relative;
-    isolation: isolate;
-  }
-  .aurora-root .tree-row.tree-selected {
-    background: transparent;
-  }
-  .aurora-root .tree-selection-background {
-    position: absolute;
-    inset: 0;
-    border-radius: 7px;
-    background: var(--au-b281d212);
-    z-index: -1;
-    pointer-events: none;
-  }
-  .aurora-root .ws-grid,
-  .aurora-root .ws-profile {
-    will-change: opacity;
-  }
-  .aurora-root .ws-folder-cell {
-    min-width: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .aurora-root .tree-selection-background,
-    .aurora-root .ws-folder-cell,
-    .aurora-root .ws-grid,
-    .aurora-root .ws-profile {
-      will-change: auto;
-    }
-  }
   .aurora-root .tree-tone-new .tree-label {
     color: var(--au-t-83bd99);
   }
   .aurora-root .tree-tone-duplicate .tree-label {
     color: var(--au-t-bd936b);
   }
-  .aurora-root .ws-layout .ws-grid {
-    grid-row: 6;
-  }
-  .aurora-root .ws-layout .ws-sidebar {
-    grid-row: 6 / span 2;
-  }
-  .aurora-root .ws-layout .ws-profile {
-    grid-row: 7;
-  }
-  @media (max-width: 600px) {
-    .aurora-root .ws-layout .ws-sidebar {
-      grid-row: 6;
-      margin-bottom: 20px;
-    }
-    .aurora-root .ws-layout .ws-grid {
-      grid-row: 7;
-    }
-    .aurora-root .ws-layout .ws-profile {
-      grid-row: 8;
-    }
-  }
-  .aurora-root .ws-eyebrow {
-    text-transform: uppercase;
+
+  /* ---- las migas del prototipo (sin montar: las de la app van en el marco) */
+  .aurora-root .ws-breadcrumbs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--au-t-716878);
+    line-height: 2;
   }
   .aurora-root .ws-crumb {
     display: inline-flex;
@@ -788,33 +747,84 @@
   .aurora-root .ws-breadcrumbs button:hover {
     color: var(--au-t-ddd2e8);
   }
-  .aurora-root .ws-file-table > button {
-    width: 100%;
-    text-align: left;
+  .aurora-root .ws-breadcrumbs [aria-current='page'] {
+    color: var(--au-t-c9b4da);
   }
-  .aurora-root .ws-file-empty {
-    margin: 18px 0 0;
-    font-size: 13px;
-    color: var(--au-t-8f8698);
+
+  /* ---- anchos: dos columnas de carpetas, luego una; en el movil, el arbol encima */
+  @media (max-width: 1200px) {
+    .aurora-root .ws-layout {
+      grid-template-columns: 200px minmax(0, 1fr);
+      column-gap: 22px;
+    }
+    .aurora-root .ws-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .aurora-root .ws-profile {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 26px;
+    }
   }
-  .aurora-root .ws-folder-caption > button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  @media (max-width: 1023px) {
+    .aurora-root .ws-sidebar {
+      top: 128px;
+      max-height: calc(100dvh - 144px);
+    }
   }
-  .aurora-root .ws-companion {
-    border-radius: 50%;
+  @media (max-width: 850px) {
+    .aurora-root .ws-layout {
+      grid-template-columns: 170px minmax(0, 1fr);
+      column-gap: 18px;
+    }
+    .aurora-root .ws-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .aurora-root .ws-title-line h1 {
+      font-size: 26px;
+    }
   }
-  .aurora-root .ws-dialog-actions {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 18px;
+  @media (max-width: 600px) {
+    .aurora-root .ws-layout {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'head' 'top' 'side' 'main';
+      grid-template-rows: auto;
+    }
+    .aurora-root .ws-sidebar {
+      position: relative;
+      top: auto;
+      max-height: 220px;
+      padding: 0;
+      margin-bottom: 18px;
+    }
+    .aurora-root .ws-tree-hint {
+      display: none;
+    }
+    .aurora-root .ws-profile {
+      padding: 19px;
+    }
+    .aurora-root .ws-paper {
+      padding: 22px;
+    }
+    .aurora-root .ws-dialog {
+      padding: 18px;
+    }
+    .aurora-root .ws-dialog-actions {
+      bottom: -18px;
+      margin: 0 -18px -18px;
+      padding: 14px 18px 18px;
+    }
+    .aurora-root .ws-search {
+      width: 100%;
+    }
+    .aurora-root .ws-file-text strong {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
-  .aurora-root .ws-companion .aurora-orb {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-root .ws-dialog[open],
+    .aurora-root .ws-profile {
+      animation: none;
+    }
   }
 }

@@ -126,4 +126,6 @@ sin nada simulado), un tema claro y el castellano como tercer idioma; y Aurora p
 cara de la app: seis entradas (Inicio, Cuentas por cobrar, Cuentas por pagar, Documentos,
 Procesar e IVA) con la rueda en el inicio, migas y «Volver» dentro de cada una, Ctrl+K para
 abrir cualquier pantalla o ficha, y cada pantalla del paso 15 en su sitio (la barra con
-pestañas ya no es la navegación).
+pestañas ya no es la navegación). Documentos es el archivo de Aurora con los datos de verdad:
+una carpeta por cliente y proveedor, su ficha de solo lectura, sus documentos y una vista
+previa dibujada desde el registro con la descarga auditada del original.

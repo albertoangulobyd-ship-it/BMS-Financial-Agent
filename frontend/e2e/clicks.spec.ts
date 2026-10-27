@@ -1,8 +1,9 @@
 // Los 3 clics (revision de Aurora, §5): cada tarea de la tabla, desde el inicio, con como mucho
 // los clics de su columna "Objetivo". Se cuentan los clics de verdad (escribir no es un clic; el
 // boton que abre un dialogo de confirmacion cuenta como "+ dialogo", como en la tabla). Las tres
-// filas de los pagos (11, 12 y 13), la vista previa de Documentos (22) y la lectura de PDF con su
-// coste (21) son de pasos siguientes del paso 16: van como pendientes, con quien las hace.
+// filas de los pagos (11, 12 y 13) y la lectura de PDF con su coste (21) son de pasos siguientes
+// del paso 16: van como pendientes, con quien las hace. La vista previa de Documentos (22) ya
+// esta: la hizo el paso de Documentos con datos reales.
 import type { Locator, Page } from '@playwright/test';
 import { expect, login, test } from './fixtures';
 import { TEXTS, crumbs, mainMenu, sectionButton, sectionMenu, viewHeading } from './nav';
@@ -203,16 +204,28 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
     expect(c.n).toBeLessThanOrEqual(2);
   });
 
-  await test.step('22 · Documentos de una empresa (y descargar uno): 3', async () => {
+  await test.step('22 · Documentos de una empresa y su vista previa: 3', async () => {
     await c.fromHome();
     await c.click(sectionButton(page, 'documents'));
-    await c.click(page.getByRole('button', { name: /^Map van J\. Voorbeeld Beveiliging/ }));
+    // La carpeta de cristal (paso 16, el archivo de Aurora con los datos de verdad).
+    await c.click(page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }));
     await expect(page.getByRole('heading', { level: 1, name: 'Documenten van J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
+    expect(await crumbs(page)).toEqual(['Documenten', 'J. Voorbeeld Beveiliging (zzp)']);
+    await c.click(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /^Voorbeeld van Inkoopfactuur / }).first());
+    await expect(page.getByRole('dialog')).toContainText('Inkoopfactuur JV-2026-007');
+    expect(c.n).toBeLessThanOrEqual(3);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
+
+  await test.step('22 · …y bajar el original de uno: 3', async () => {
+    await c.fromHome();
+    await c.click(sectionButton(page, 'documents'));
+    await c.click(page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }));
     const download = page.waitForEvent('download');
-    await c.click(page.getByRole('table').getByRole('button', { name: /downloaden$/ }).first());
+    await c.click(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /downloaden$/ }).first());
     expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
     expect(c.n).toBeLessThanOrEqual(3);
-    expect(await crumbs(page)).toEqual(['Documenten', 'J. Voorbeeld Beveiliging (zzp)']);
   });
 
   await test.step('23 · Hacer una pregunta: 0 (y dice que aún no contesta)', async () => {
@@ -246,4 +259,3 @@ test.fixme('11 · Confirmar un cobro que propuso el banco: 3 + diálogo (Cuentas
 test.fixme('12 · Apuntar un pago ya hecho, con motivo: 3 + diálogo (Cuentas por cobrar y pagar, §8.4)', async () => {});
 test.fixme('13 · Ver las líneas del banco sin casar: 2 (Cuentas por cobrar y pagar, §8.4)', async () => {});
 test.fixme('21 · Leer PDF con la confirmación del coste: 2 + confirmación (Procesar de verdad, §8.5)', async () => {});
-test.fixme('22 · La vista previa de un documento: 3 (el archivo de Aurora en Documentos, §8.5)', async () => {});
