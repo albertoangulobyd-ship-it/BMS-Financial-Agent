@@ -15,8 +15,9 @@ Puertas del paso 16 que viven aqui:
   y las lineas del banco sin casar, con sus filtros;
 - la carpeta de un cliente o un proveedor: los documentos que el sistema ya le
   enlaza (originales de facturas y abonos, justificantes de pagos, hojas de PO
-  y de sus modificaciones), y la descarga auditada de cualquiera
-  (documento_abierto), solo desde la app o la consola;
+  y de sus modificaciones), y la descarga auditada de cualquiera de ellos
+  (documento_abierto), solo desde la app o la consola, y de nada mas: un fichero
+  de importacion no se baja por ahi (revision del paso 16);
 - en la ficha de una parte, su KvK, su correo de facturacion y sus contactos;
   en la busqueda, el filtro `tipo`;
 - todo pide ver_facturas, y desde un origen declarado sale sin un IBAN entero.
@@ -207,6 +208,74 @@ def test_una_empresa_es_su_vista_menos_sus_abonos_sin_enlazar(base_demo) -> None
         ids = {a["id"] for a in entrante["lista"]}
         assert not ids & {p.factura_id for p in flujo_caja.datos(conn)[0]}
         assert saliente["totales"] == consultas.panel(conn)["dinero_entra"]
+
+
+@pytest.mark.parametrize("fecha", ["2026-10-14", "2026-11-20", "2027-01-31"])
+def test_lo_pendiente_de_una_empresa_es_una_sola_cifra(base_demo, fecha) -> None:  # noqa: F811
+    """Revision del paso 16: la misma empresa decia dos "Openstaand" (el resumen de Te
+    betalen, de la cartera, y su fila en Leveranciers, su carpeta y su ficha, de la vista,
+    que resta el abono sin enlazar). Ahora la lista y la vista llevan la cifra de la cartera
+    (`deuda_cent`, de la misma funcion) y el abono aparte; `pendiente_cent` sigue siendo la
+    suma de las dos. Tambien con el reloj adelantado y la cache sin rehacer."""
+    ruta, _resumen = base_demo
+    con_abono = 0
+    with _abrir(ruta, fecha) as almacen:
+        conn = almacen.conn
+        for sentido, tabla, lista in (("saliente", "cliente", consultas.clientes(conn)),
+                                      ("entrante", "proveedor", consultas.proveedores(conn))):
+            c = consultas.cartera(conn, sentido)
+            por_id = {p["id"]: p for p in c["partes"]}
+            abonos: dict[int, int] = {}
+            for a in c["abonos_sin_enlazar"]["lista"]:
+                abonos[a["parte_id"]] = abonos.get(a["parte_id"], 0) + a["pendiente_cent"]
+            for fila in lista:
+                deuda = por_id.get(fila["id"], {"pendiente_cent": 0})["pendiente_cent"]
+                vista = (consultas.proveedor if tabla == "proveedor" else consultas.cliente)(
+                    conn, fila["id"])
+                for donde in (fila, vista):
+                    assert donde["deuda_cent"] == deuda, (fila["nombre"], donde is vista)
+                    assert donde["abonos_sin_enlazar_cent"] == abonos.get(fila["id"], 0)
+                    assert donde["pendiente_cent"] == deuda + donde["abonos_sin_enlazar_cent"]
+                    assert donde["deuda"] == consultas._euros(deuda)
+                con_abono += fila["abonos_sin_enlazar_cent"] < 0
+            assert sum(f["deuda_cent"] for f in lista) == c["totales"]["pendiente_cent"] - sum(
+                p["pendiente_cent"] for p in c["partes"] if p["id"] is None)
+    # La base de prueba lleva el abono sin enlazar de Beveiligingsdiensten Noord.
+    assert con_abono >= 1
+
+
+@pytest.mark.parametrize("fecha", ["2026-10-14", "2026-11-20", "2027-01-31"])
+def test_lo_vencido_de_las_listas_es_lo_de_la_cartera_con_la_cache_vieja(base_demo,  # noqa: F811
+                                                                         fecha) -> None:
+    """Revision del paso 16: `estado_pago` de las listas es la cache de la ultima pasada; la
+    cartera cuenta con el reloj. Con el reloj adelantado y sin rehacer la cache, la ficha
+    "Vervallen" de la app (una deuda de la cartera con vencimiento antes de hoy, como los
+    tramos) suma lo vencido de la cartera, y "pendiente" en la cache ya no basta."""
+    ruta, _resumen = base_demo
+    with _abrir(ruta, fecha) as almacen:
+        conn = almacen.conn
+        filas = consultas.listado(conn)
+        for sentido in ("saliente", "entrante"):
+            c = consultas.cartera(conn, sentido)
+            en_cartera = [f for f in filas if f["sentido"] == sentido and f["cuenta"]
+                          and (f["total_cent"] or 0) > 0 and (f["pendiente_cent"] or 0) > 0
+                          and f["estado_pago"] in ("pendiente", "vencida")]
+            vencidas = [f for f in en_cartera if f["vencimiento"] and f["vencimiento"] < c["hoy"]]
+            assert sum(f["pendiente_cent"] for f in vencidas) == c["totales"]["vencido_cent"]
+            assert len(vencidas) == c["totales"]["vencidas"]
+
+
+def test_cada_factura_de_las_listas_dice_de_donde_sale_lo_pagado(archivo) -> None:
+    """Contrato 2.4: `fuente_pago` en cada fila (la fuente que manda: banco, exact o manual;
+    null sin pagos confirmados), para que "pagada" lleve su fuente tambien en las listas."""
+    _puerto, _tokens, db, ids = archivo
+    with preparar(db) as almacen:
+        filas = {f["id"]: f for f in consultas.listado(almacen.conn)}
+        saldos = dict(almacen.conn.execute("SELECT factura_id, fuente_pago FROM v_factura_saldo"))
+    assert filas[ids["f018"]]["fuente_pago"] == "manual"
+    assert filas[ids["f018"]]["estado_pago"] == "pagada"
+    assert all(f["fuente_pago"] == saldos[i] for i, f in filas.items())
+    assert {f["fuente_pago"] for f in filas.values()} >= {None, "manual"}
 
 
 def test_los_tramos_cubren_cada_dia_y_abren_la_busqueda_que_les_toca() -> None:
@@ -504,7 +573,7 @@ def test_las_lecturas_nuevas_por_la_api(archivo) -> None:
     puerto, tokens, db, ids = archivo
     dora = tokens["dora"]
     estado, cabeceras, contrato = _leer(puerto, "/api/v2/contrato", dora)
-    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.3"
+    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.4"
     rutas = {r["ruta"] for r in contrato["lecturas"]}
     assert {"/api/v2/cartera", "/api/v2/pagos/propuestas", "/api/v2/movimientos",
             "/api/v2/clientes/N/documentos", "/api/v2/proveedores/N/documentos",
@@ -613,7 +682,8 @@ def test_un_documento_se_descarga_auditado_y_solo_desde_la_app(archivo) -> None:
         guardados = almacen.conn.execute(
             "SELECT id, sha256 FROM documento WHERE ruta_cas IS NOT NULL ORDER BY id").fetchall()
         sin_original = almacen.conn.execute(
-            "SELECT id FROM documento WHERE ruta_cas IS NULL ORDER BY id LIMIT 1").fetchone()[0]
+            "SELECT d.id FROM documento AS d JOIN factura AS f ON f.documento_id = d.id "
+            "WHERE d.ruta_cas IS NULL ORDER BY d.id LIMIT 1").fetchone()[0]
     assert {ids["extracto"], *ids["hojas"]} <= {g["id"] for g in guardados}
     for documento in (ids["extracto"], ids["hojas"][0]):
         ruta = f"/api/v2/documentos/{documento}/original"
@@ -642,6 +712,50 @@ def test_un_documento_se_descarga_auditado_y_solo_desde_la_app(archivo) -> None:
         (dora, ids["extracto"], "ok"), (dora, ids["hojas"][0], "ok"),
         (dora, sin_original, "error")]
     assert abiertos[0]["motivo"] == f"descargado desde la consola (documento {ids['extracto']})"
+
+
+def test_solo_se_descarga_lo_que_un_registro_enlaza(archivo) -> None:
+    """Revision del paso 16: la ruta de la carpeta no baja los ficheros de una importacion.
+    Los ids son correlativos: con ver_facturas (el rol consulta) se contaban hacia arriba y
+    salian el maestro de proveedores con sus IBAN, el de clientes y los de contactos. Ni
+    siquiera un administrador los baja por aqui, y no queda evento (como un id que no
+    existe). El extracto sigue bajando porque es el justificante de un pago."""
+    puerto, tokens, db, ids = archivo
+    with preparar(db) as almacen:
+        conn = almacen.conn
+        # Un segundo extracto que nadie da como justificante: tampoco baja.
+        importar_camt(almacen, usuario_por_nombre(conn, "Ana"), camt053(
+            apunte("120.00", "2026-10-14", iban=DESCONOCIDA, nombre="Iemand Anders",
+                   concepto="Storting 2"),
+            identificador="STMT-2", secuencia=2, desde="2026-10-14", hasta="2026-10-14"),
+            nombre="extracto-2.xml")
+        importados = [r[0] for r in conn.execute(
+            "SELECT DISTINCT documento_id FROM importacion WHERE documento_id IS NOT NULL "
+            "AND fuente IN ('exact', 'maestro_csv', 'banco') AND documento_id <> ? "
+            "ORDER BY documento_id", (ids["extracto"],))]
+        antes = conn.execute("SELECT COUNT(*) FROM evento WHERE tipo = 'documento_abierto'"
+                             ).fetchone()[0]
+        nombres = {r[0]: r[1] for r in conn.execute("SELECT id, nombre_original FROM documento")}
+    # Los dos maestros de Exact, los contactos y el segundo extracto.
+    assert len(importados) == 4, [nombres[i] for i in importados]
+    assert any("proveedores" in nombres[i] for i in importados)
+    assert any(nombres[i] == "extracto-2.xml" for i in importados)
+    for documento in importados:
+        for quien in ("dora", "ana"):
+            estado, cabeceras, cuerpo = _pedir(puerto, "GET",
+                                               f"/api/v2/documentos/{documento}/original",
+                                               {CABECERA_TOKEN: tokens[quien]})
+            assert estado == 404, (documento, nombres[documento], quien)
+            assert json.loads(cuerpo)["codigo"] == "no_existe"
+            assert "content-disposition" not in cabeceras
+    with preparar(db) as almacen:
+        assert almacen.conn.execute("SELECT COUNT(*) FROM evento WHERE tipo = 'documento_abierto'"
+                                    ).fetchone()[0] == antes
+    # Lo que si enlaza un registro baja: el extracto (justificante) y las dos hojas de PO.
+    for documento in (ids["extracto"], *ids["hojas"]):
+        estado, _c, _cuerpo = _pedir(puerto, "GET", f"/api/v2/documentos/{documento}/original",
+                                     {CABECERA_TOKEN: tokens["dora"]})
+        assert estado == 200, documento
 
 
 def test_la_ficha_de_una_parte_trae_lo_del_maestro(archivo) -> None:

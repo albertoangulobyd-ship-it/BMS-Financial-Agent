@@ -882,8 +882,9 @@ class Manejador(BaseHTTPRequestHandler):
                 self._json(400, {"error": str(exc), "codigo": "invalido"})
 
     def _descarga(self, almacen: Any, usuario_id: int, partes: list[str]) -> bool:
-        """Lo que se descarga como fichero: el original de una factura, cualquier documento
-        guardado (paso 16: los de la carpeta de una parte) y la hoja del BTW.
+        """Lo que se descarga como fichero: el original de una factura, un documento que
+        algun registro enlaza (paso 16: los de la carpeta de una parte; nunca el fichero de
+        una importacion, ver consultas.documento_de_descarga) y la hoja del BTW.
 
         Los tres llevan sus bytes tal cual (el original es la evidencia; la hoja,
         lo que se hashea y se anota al presentar), como adjunto y sin CORS:

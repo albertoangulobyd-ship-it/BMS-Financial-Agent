@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.3", ...}
+{"contrato": "2.4", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.3`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.4`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -347,8 +347,8 @@ se quita:
   el banco propuso y esperan a una persona (`GET /api/v2/pagos/propuestas`), las
   líneas del banco sin casar (`GET /api/v2/movimientos`), los documentos de un
   cliente o un proveedor (`GET /api/v2/clientes/N/documentos` y
-  `GET /api/v2/proveedores/N/documentos`) y la descarga auditada de cualquier
-  documento guardado (`GET /api/v2/documentos/N/original`). Abajo, «Cuentas por
+  `GET /api/v2/proveedores/N/documentos`) y la descarga auditada de un
+  documento que un registro enlaza (`GET /api/v2/documentos/N/original`). Abajo, «Cuentas por
   cobrar y por pagar» y «El archivo de una parte»;
 - la vista de un proveedor y la de un cliente llevan `kvk`, `email_facturacion`
   y `direccion` (lo que tenga el maestro: el de clientes no guarda correo ni
@@ -387,6 +387,22 @@ nuevas; ninguna cambia ni se quita:
   con por qué; en `retenido.lista`, cada factura retenida con su razón (también las que
   vencen después); y `avisos_pago`, las facturas de ese sentido con un aviso de pago raro
   activo (K2, K3, K4, K5, K8 o K9). Abajo, «La cartera».
+
+**Lo que añadió el 2.4 (revisión del paso 16).** Claves nuevas; ninguna cambia ni se
+quita:
+
+- cada factura de las listas y de la búsqueda lleva `fuente_pago`: la fuente que manda
+  en lo pagado (`banco`, `exact` o `manual`, en ese orden; `null` sin ningún pago
+  confirmado), para que «pagada» vaya siempre con su fuente también en una lista (lo
+  apuntado a mano, con el aviso K3 de sus `razones` mientras el banco no lo trae);
+- cada proveedor y cada cliente, en su lista y en su vista, lleva `deuda_cent` (y su
+  texto, `deuda`): lo que queda de sus facturas, **la misma cifra que la cartera** da a esa
+  empresa (`partes[].pendiente_cent`, de la misma función), y aparte lo que acreditan sus
+  abonos sin enlazar (`abonos_sin_enlazar_cent`, cero o negativo, su texto y cuántos,
+  `abonos_sin_enlazar_facturas`). `pendiente_cent` no cambia: es la suma de las dos (la
+  vista resta esos abonos desde la migración 0017). La app enseña `deuda_cent` como
+  «Openstaand» en todos los sitios, y el abono debajo, para que una empresa no tenga dos
+  cifras de lo pendiente.
 
 ### Cuatro reglas que valen para todo
 
@@ -434,7 +450,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.3",
+  "contrato": "2.4",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -538,9 +554,10 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
   "cuenta",                           // false: anulada, fusionada o sustituida
   "objetos",                          // los códigos de sus Objetos
   "etiqueta",                         // «Sin objeciones del sistema»... nunca «aprobada»
-  "razones"                           // 2.1: sus hallazgos pendientes, lo más urgente
+  "razones",                          // 2.1: sus hallazgos pendientes, lo más urgente
                                       // primero: {"id", "regla", "severidad", "estado",
                                       // "resultado", "valores"}
+  "fuente_pago"                       // 2.4: banco | exact | manual | null (sin pagos)
 } ]
 ```
 
@@ -548,9 +565,11 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
 
 ```
 "proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", "documentos", ...} ],
+                  "razones", "documentos",
+                  "deuda_cent", "abonos_sin_enlazar_cent", ...} ],   // 2.4: arriba
 "clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", "documentos", ...} ],
+                  "razones", "documentos",
+                  "deuda_cent", "abonos_sin_enlazar_cent", ...} ],
 "objetos": {
   "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel", "razones"} ],
   "sin_objeto": {"imputado", "sin_imputar", "total"},
@@ -628,7 +647,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/movimientos` | Las líneas del banco, la más reciente primero: por defecto, solo las sin casar | `sin_casar` (`si` por defecto, o `no`), `signo` (`entrada` o `salida`), `desde`, `hasta`, `texto`, `limite` (de 1 a 1000, 200) |
 | `GET /api/v2/clientes/N/documentos` | La carpeta de un cliente: los documentos que el sistema ya le enlaza (abajo, «El archivo de una parte») | — |
 | `GET /api/v2/proveedores/N/documentos` | La carpeta de un proveedor | — |
-| `GET /api/v2/documentos/N/original` | Cualquier documento guardado, como fichero adjunto, con las mismas cabeceras que el original de una factura. Cada descarga queda en la auditoría (`documento_abierto`). Solo desde la app o la consola: desde otro origen, `403` y sin CORS | — |
+| `GET /api/v2/documentos/N/original` | Un documento guardado que algún registro enlaza (el original de una factura o un abono, el justificante de un pago, la hoja de una PO o de su modificación: lo que sale en la carpeta de una parte), como fichero adjunto, con las mismas cabeceras que el original de una factura. Cada descarga queda en la auditoría (`documento_abierto`). Solo desde la app o la consola: desde otro origen, `403` y sin CORS | — |
 | `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien` y `estado`: `correcto`, `falla`, `sin_comprobar` o `caducada`, comprobado hace demasiado o con una fecha que no vale). No copia el texto de los problemas (sale de un fichero que se puede escribir): `estado` sale solo de cómo empieza cada problema | — |
 
 ### Los errores (`error` y `codigo`)
@@ -1013,6 +1032,14 @@ el original de una factura (`Content-Disposition: attachment`,
 sin CORS y solo desde la app o la consola (desde otro origen, `403
 otro_origen`). Cada descarga, también la que falla porque el original no está,
 queda en la auditoría como `documento_abierto`, con la persona y el documento.
+
+Solo baja lo que algún registro enlaza: lo que sale en alguna carpeta. Los ficheros
+de una importación (los maestros de Exact con sus IBAN y teléfonos de verificación,
+la lista del personal, la planificación de TRNSPRNT, cada extracto del banco)
+contestan `404 no_existe`, como un id que no existe y sin evento, aunque quien pida
+sea administrador: los ids son correlativos y bastaría contar hacia arriba. Un
+extracto baja solo si alguien lo dio como justificante de un pago (revisión del
+paso 16).
 
 ### Ejemplo, desde un sitio en `http://localhost:5173`
 
