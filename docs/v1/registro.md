@@ -8349,3 +8349,155 @@ detalle, en [app-local.md](../app-local.md) §4.7.
   claro no llegaban a 4,5:1 (el puesto de la carpeta, la cuenta del árbol y la frase de debajo
   del árbol).
 - `npm run typecheck` sin errores y lo construido al día (`npm run fuente`).
+
+## Paso 16 · cuentas por cobrar y por pagar con datos reales
+
+El paso 4 del §8.3 de la revisión de Aurora y su §8.4 entero: **Te ontvangen y Te betalen
+enseñan la cartera del motor y dejan hacer, de verdad, lo que el banco pide a una
+persona.** Las dos pantallas con la misma forma (cuatro cifras arriba con «Saldos
+pendientes · No es efectivo disponible», la antigüedad, cada empresa con lo vencido arriba),
+el banco de cada lado (los pagos que propone y las líneas sin casar), los pagos de cada
+factura con sus tres órdenes (confirmar un pago propuesto, retirarlo y apuntar uno ya hecho,
+con motivo obligatorio y justificante si se quiere), y el inicio alimentado por la misma
+cartera, que cuadra al céntimo. Nada de esto paga, aprueba un pago ni prepara una
+transferencia: dice qué dinero **ya se movió**. El detalle, en
+[app-local.md](../app-local.md) §4 y §4.1 («Cobrar y pagar»), y el contrato 2.3 en
+[integracion-web.md](../integracion-web.md).
+
+### Qué se construyó
+
+- **El resumen** (`screens/money-overview.tsx`, la primera vista de Te ontvangen y de Te
+  betalen), de `GET /api/v2/cartera`: las cuatro cifras (Openstaand, Vervallen, Deze week,
+  Komende 30 dagen), cada una un botón que abre la lista con esa ficha; debajo, siempre,
+  «Openstaande saldi · Geen beschikbaar geld», de cuándo son los datos y el extracto del
+  banco (con la pastilla de caducado si toca) y lo movido este mes según el banco. «Wat op
+  iemand wacht» (pagos por confirmar y líneas sin casar, que abren el banco; abonos sin
+  enlazar, que abren el abono; X1; los avisos de pago K2–K5, K8 y K9 con sus facturas). La
+  barra de antigüedad con sus seis tramos, cada uno abre su lista: **a la vista en cobrar y
+  plegada en pagar**. En pagar, «Tot en met zondag …»: lo vencido y lo de esta semana en dos
+  columnas, sin objeciones y retenido o bloqueado, cada factura con su razón, y lo retenido
+  que vence después. Por empresa: lo vencido primero, con lo pendiente, lo vencido, la más
+  antigua («65 dagen te laat»), cuánto tarda en pagar y la razón de lo retenido; la fila abre
+  su ficha y «Map» su carpeta en Documentos.
+- **El banco de cada lado** (`screens/bank.tsx`, Bankontvangsten y Bankbetalingen): las
+  propuestas de `GET /api/v2/pagos/propuestas` con la línea del banco al lado de la factura y
+  las tres coincidencias, «Bevestigen», «Niet deze» y «Factuur openen»; las líneas sin casar
+  de `GET /api/v2/movimientos?signo=`, cada una con «Aan een factuur koppelen».
+- **Betalingen en la ficha de una factura** (`screens/invoice-payments.tsx`): cada pago con
+  su estado (pastilla nueva `aplicacion`: Voorgesteld, Bevestigd, Ingetrokken), fecha,
+  importe, fuente, quién, su línea del banco, el motivo, el justificante y, de uno retirado,
+  quién y por qué. «Betaald» va siempre con su fuente (banco, Exact o a mano por quién, con
+  K3). En la cabecera, «Betaling vastleggen» mientras quede algo, y el vencimiento dice
+  «65 dagen te laat» u «over 4 dagen».
+- **Las tres órdenes** (`screens/payment-actions.tsx`, el único sitio que las manda):
+  `confirmar_pago` (con una nota si se quiere), `retirar_pago` (motivo obligatorio) y
+  `marcar_pagada` (importe, por defecto lo que queda y nunca más; fecha, nunca futura; la
+  línea del banco sin casar si la hay, y entonces manda su fecha; **el motivo, obligatorio**; un
+  justificante de la carpeta de la empresa). Las pide el permiso `marcar_pagada`.
+- **Las listas de facturas** con las fichas de la cartera (`screens/money-model.ts`, sin
+  React): Openstaand, Vervallen, Deze week, 30 dagen, Te bevestigen y el tramo que se pulsó,
+  por vencimiento y con lo que suman; la columna Openstaand («van € 9.163,94») y el
+  vencimiento en días.
+- **El inicio**: las tarjetas Te ontvangen y Te betalen leen la misma cartera (lo pendiente
+  con cuántas facturas y empresas, Vervallen, Komende 30 dagen o Deze week, y Te bevestigen
+  cuando hay) y abren su resumen. Las insignias de los dos bancos cuentan las propuestas.
+- **El motor** (contrato 2.3, sin cambiar ni quitar nada): cada pago de la ficha dice quién,
+  cuándo, el motivo, el justificante, su línea del banco y, de uno retirado, quién y por qué
+  (de su evento `pago_retirado`); las filas de las listas llevan su `rev`; la cartera lleva
+  `esta_semana`, `retenido.lista` y `avisos_pago`.
+- **La base de las pruebas en el navegador** (`scripts/crear_demo_e2e.py`): un extracto del
+  banco de hoy, por el importador de siempre, con cuatro cobros y dos pagos que el banco casa
+  a medias, un ingreso de un desconocido y la comisión de siempre sin casar. `bms-agent demo
+  crear` no cambia.
+
+### Cambios de comportamiento
+
+| # | Antes (el paso 16 de Documentos) | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Te ontvangen y Te betalen abrían con la lista de facturas | Abren con su resumen (Overzicht); las facturas son la segunda vista y el banco la tercera | Revisión §8.4: la misma forma en las dos, las cifras arriba |
+| 2 | La ficha «Openstaand» de las listas eran las de estado `pendiente` (sin lo vencido) | Toda la deuda abierta de la cartera, también lo vencido, y suma lo mismo que la cifra «Openstaand» del resumen | Una cifra y la lista que abre dicen lo mismo |
+| 3 | Las listas tenían cinco fichas y la columna «Bedrag» (el total) | Ocho fichas (y el tramo que se pulsó); la columna «Openstaand» con el total debajo si es otro; las fichas de pago van por vencimiento y dicen lo que suman | Revisión §8.4: lo que queda y desde cuándo |
+| 4 | Las tarjetas de dinero del inicio, de `/api/v2/panel`, con «Klanten met saldo» / «Leveranciers met saldo» | De `/api/v2/cartera`, con cuántas facturas y empresas en el subtítulo, «Komende 30 dagen» o «Deze week» (abren la lista) y «Te bevestigen» (abre el banco); la tarjeta abre el resumen | El inicio y el resumen leen lo mismo; las empresas ya están en el resumen |
+| 5 | La app no nombraba `marcar_pagada` (`tests/test_app_local.py` lo prohibía junto a pagar, aprobar, presentar y crear una factura) | `confirmar_pago`, `retirar_pago` y `marcar_pagada` están en la app, solo en `payment-actions.tsx` (el test lo comprueba); siguen prohibidos pagar, aprobar, presentar y crear una factura | Revisión §8.4: el pago ya hecho se apunta donde se ve. Apuntar no paga |
+| 6 | `e2e/clicks.spec.ts`: las filas 11, 12 y 13, `test.fixme` | Pasan: confirmar un cobro y apuntar un pago, tres clics más el diálogo; ver las líneas sin casar, dos | Las pantallas existen |
+| 7 | Los caminos de las filas 6 a 9 y 16 de la tabla de los clics pasaban por las listas | Por la tarjeta del inicio («Vervallen» y la fila), por el resumen (la empresa) o escribiendo el número en la caja (16) | Te ontvangen y Te betalen abren con su resumen; los clics siguen en su objetivo |
+| 8 | Un `409 estado_no_valido` de un pago salía con el texto genérico | «Dit kan zo niet: de bank of Exact laat deze betaling al zien, er staat niets meer open, of de bankregel is al gebruikt…» | Dice qué pasó y qué hacer |
+| 9 | `DataTable`: las cabeceras `sr-only` se salían de su caja y ensanchaban la página en el móvil (512 px) | La caja de la tabla es `relative`: nada se sale | Visto en las capturas del móvil |
+| 10 | El código de la app iba en un fichero de 740 kB con los tres catálogos del dominio dentro (aviso de Vite) | Los catálogos en su propio fichero (`textos-*.js`, 267 kB), como las dependencias en `vendor`: el de la app, 473 kB | Cambia solo al cambiar un texto, y git no repite los catálogos en cada cambio de una pantalla |
+
+### Las pruebas
+
+- **Python**: `tests/test_cartera.py` (contrato 2.3; `esta_semana` suma lo vencido más la
+  semana y sus facturas; `retenido.lista` suma lo retenido; los avisos en su orden;
+  `test_cada_pago_de_la_ficha_dice_quien_por_que_y_su_linea_del_banco`, también el motivo y
+  quién de uno retirado; `test_un_aviso_de_pago_sale_en_la_cartera_de_su_lado`);
+  `tests/test_app_local.py` (las tres órdenes de los pagos, solo desde `payment-actions.tsx`).
+- **Vitest**: `screens/money-model.test.ts` (qué fila cae en cada ficha y tramo, con los
+  extremos de las ventanas; el orden por vencimiento; los días de retraso, también con el
+  cambio de hora; el orden de las empresas; la barra; el orden de los pagos y qué se puede
+  retirar; las propuestas por lado y las insignias; leer un importe tecleado y mandarlo a la
+  API).
+- **En el navegador**, `e2e/payments.spec.ts` sobre la base de prueba, en serie: las cifras
+  al céntimo (la tarjeta del inicio = el resumen = `GET /api/v2/cartera` = el panel; cada cifra
+  y cada tramo, contra lo que suma su lista; la semana de pagar; el orden de las empresas; la
+  ficha y la carpeta); confirmar un cobro (baja lo pendiente, la factura dice «volgens de bank»
+  y por quién, la insignia baja) y retirar otro con su motivo obligatorio; enlazar una línea
+  del banco desde el banco y desde la factura; retirar una propuesta de pago y apuntar el pago
+  a mano con las validaciones (más de lo que queda, fecha futura), el justificante y su
+  descarga; el 409 (Bram confirma antes por la API: «Iemand anders…» y «Opnieuw laden»);
+  quien solo mira (Cas) ve todo y ningún botón; después de las órdenes, todo sigue cuadrando;
+  y las capturas. `clicks.spec.ts` (filas 6 a 9, 11 a 13 y 16), `daily.spec.ts` (las
+  tarjetas), `shell.spec.ts` (Ctrl+K y el móvil) y `status.spec.ts` (el latido en los dos
+  resúmenes) pasaron a la navegación nueva sin perder lo que comprobaban.
+
+### Desviaciones, y por qué
+
+1. **El banco es una vista de cada sección**, no una lista dentro del resumen: el resumen
+   dice cuánto espera y lleva allí; con cuatro propuestas y su comparación, el resumen pasaba
+   de dos pantallas.
+2. **El justificante se elige de la carpeta de la empresa**; subir uno nuevo desde el diálogo
+   queda para cuando se pueda subir un documento suelto (decisión 7B de la revisión).
+3. **Al enlazar una línea del banco desde el banco, el importe no se pregunta**: lo pone el
+   motor (lo menor entre lo que queda de la línea y lo que queda de la factura). Si sobra, la
+   línea sigue en «Zonder factuur» con lo que queda y se enlaza a otra; un importe distinto se
+   apunta desde la ficha de la factura («Betaling vastleggen», con la línea elegida).
+4. **El orden de las empresas lo pone la pantalla** (lo vencido, lo más antiguo, lo
+   pendiente), no la prioridad de la API: es lo que pide la revisión para esta lista, y las
+   demás listas de relaciones siguen con el orden de la API.
+5. **Te ontvangen dice «Komende 30 dagen» y Te betalen «Deze week»** en la tarjeta del inicio,
+   como en el paso de la rueda: cobrar mira el mes; pagar, la semana.
+6. **La captura del diálogo de un pago a mano** se hace con la fecha futura todavía escrita y
+   su aviso: el aviso de un diálogo se queda hasta el siguiente envío (como en todos los
+   diálogos de la app) y, con la fecha ya borrada, la captura parecía contradecirse.
+
+### Lo que deben saber los pasos siguientes
+
+- **Procesar de verdad**: lo leído entra como siempre; si trae un pago (un justificante), la
+  ficha de la factura ya lo enseña en Betalingen.
+- **Las cifras de dinero** salen de una sola lectura (`consultas.cartera`, con las partidas
+  del panel): una pantalla nueva que diga lo pendiente debe leer de ahí, y `e2e/payments.spec.ts`
+  muestra cómo comprobar que cuadra.
+- **El aviso de un diálogo** (`ActionDialog`) se queda hasta el siguiente envío; si se quiere
+  que se borre al cambiar un campo, es un cambio para todos los diálogos y sus pruebas.
+
+### Resultado
+
+- Python 3.11: **2549 pasan y 12 se saltan** (los dos nuevos de `test_cartera.py`; el de
+  `test_app_local.py` cambió a propósito: cambio 5). `tests/test_app_local.py` también con
+  Python 3.13 (55 pasan).
+- Vitest: **1245 pasan** (18 ficheros; los 18 nuevos de `money-model.test.ts`).
+- Playwright (Chromium 1.56.1): **64 pasan y 1 queda pendiente** (`test.fixme`: la fila 21 con
+  su coste de la tabla de los clics; las 11, 12 y 13 ya pasan), en las dos últimas pasadas del
+  conjunto entero sobre lo construido final. En una pasada anterior, la insignia del banco se
+  leía antes de que llegara su nueva lectura: la prueba espera ahora a que llegue
+  (`expect.poll`), con el mismo número esperado. Las capturas de Cobrar y Pagar, en
+  castellano, neerlandés e inglés, en los dos temas y en el móvil (los dos resúmenes, las
+  listas, los dos bancos, una factura, el diálogo de apuntar un pago, el 409, la factura
+  pagada según el banco y a mano, el tramo, enlazar una línea y quien solo mira). Al mirarlas,
+  y con la prueba de lo que se sale de la ventana en el móvil, salieron: la página del móvil 112 px más ancha por las cabeceras ocultas de las tablas
+  (cambio 9), los enlaces de los abonos que no se partían en el móvil, el pago retirado sin
+  quién ni por qué (lo añadió el motor: `retirada_por`, `motivo_retirada`), el vencimiento de
+  la ficha sin «65 dagen te laat» y la captura del diálogo con un aviso que ya no se veía
+  causado (desviación 6).
+- `npm run typecheck` sin errores, `npm run build` sin el aviso del tamaño y lo construido al
+  día (`npm run fuente`).

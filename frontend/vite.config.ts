@@ -32,11 +32,14 @@ export default defineConfig({
     reportCompressedSize: false,
     target: 'es2022',
     // Las dependencias en su propio fichero: cambia solo al cambiar una dependencia, asi
-    // que lo construido en git no repite medio mega en cada cambio de una pantalla.
+    // que lo construido en git no repite medio mega en cada cambio de una pantalla. Los
+    // catalogos de textos del dominio (nl, en, es: casi 400 kB) en otro, por lo mismo: solo
+    // cambia al cambiar un texto (paso 16).
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
-        manualChunks: (id) => (id.includes('/node_modules/') ? 'vendor' : undefined),
+        manualChunks: (id) =>
+          id.includes('/node_modules/') ? 'vendor' : id.includes('/src/bms_agent/textos/') ? 'textos' : undefined,
       },
     },
   },

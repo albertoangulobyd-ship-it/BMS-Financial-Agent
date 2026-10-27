@@ -4,7 +4,9 @@
 //
 // No hay, ni habra, una orden que cree facturas, pague, apruebe un pago o presente el
 // btw: no existen en servicios.py y la app no las inventa. btw_anotar_presentacion solo
-// anota que una persona ya presento la aangifte en el portal (con su referencia).
+// anota que una persona ya presento la aangifte en el portal (con su referencia). Las tres
+// de pagos (paso 16) tampoco pagan: confirman o retiran lo que el banco propuso, o apuntan
+// un pago que ya se hizo fuera, con su motivo.
 
 export const ACTION_PERMISSION = {
   anular_hallazgo: 'anular_aviso',
@@ -27,6 +29,11 @@ export const ACTION_PERMISSION = {
   btw_lista_para_revision: 'gestionar_btw',
   btw_reabrir: 'gestionar_btw',
   btw_anotar_presentacion: 'gestionar_btw',
+  // Cuentas por cobrar y por pagar (paso 16): lo que el banco caso a medias y lo que una
+  // persona apunta que ya se pago (con motivo). El banco y Exact mandan sobre lo apuntado.
+  confirmar_pago: 'marcar_pagada',
+  retirar_pago: 'marcar_pagada',
+  marcar_pagada: 'marcar_pagada',
 } as const;
 
 export type ActionName = keyof typeof ACTION_PERMISSION | 'fijar_campo' | 'verificar_campo' | 'revertir_campo';

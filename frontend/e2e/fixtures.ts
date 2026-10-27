@@ -274,3 +274,39 @@ export async function expectNoLeftovers(page: Page, lang: Lang, what: string): P
   });
   expect(found, `restos de otro idioma en ${what}`).toEqual([]);
 }
+
+/**
+ * Lo que se sale de la ventana por los lados: cada elemento visible que pasa del borde y no
+ * esta dentro de algo que se desplaza en horizontal (una tabla en su caja). Lo que recorta un
+ * overflow hidden no cuenta como desplazable: tambien es estar fuera. Lo usan el marco
+ * (shell.spec.ts) y las pantallas de cobrar y pagar (payments.spec.ts).
+ */
+export async function outsideTheWindow(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const width = window.innerWidth;
+    const out: string[] = [];
+    if (document.documentElement.scrollWidth > width) out.push(`html ${document.documentElement.scrollWidth}`);
+    if (document.body.scrollWidth > width) out.push(`body ${document.body.scrollWidth}`);
+    const scrolls = (el: Element) => {
+      const x = getComputedStyle(el).overflowX;
+      return x === 'auto' || x === 'scroll';
+    };
+    for (const el of Array.from(document.body.querySelectorAll('*'))) {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (box.right <= width + 1 && box.left >= -1) continue;
+      let inside = false;
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        if (scrolls(a)) {
+          inside = true;
+          break;
+        }
+      }
+      if (!inside) {
+        const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? '';
+        out.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(box.left)}-${Math.round(box.right)}`);
+      }
+    }
+    return out;
+  });
+}

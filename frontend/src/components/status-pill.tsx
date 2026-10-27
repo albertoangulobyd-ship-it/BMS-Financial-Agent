@@ -76,6 +76,13 @@ export const STATUS_RULES = {
     anulada: quieto('default'),
     acreditada: quieto('default'),
   },
+  /** Un pago de una factura (catalogo: estados.aplicacion, paso 16): lo que el banco propuso
+   *  espera a una persona; lo confirmado cuenta; lo retirado se guarda y no cuenta. */
+  aplicacion: {
+    propuesta: quieto('warning'),
+    confirmada: quieto('success'),
+    retirada: quieto('default'),
+  },
   /** El control de una persona (catalogo: estados.revision). */
   revision: {
     necesita_revision: quieto('warning'),
@@ -284,6 +291,7 @@ export function statusLabel(
     case 'datos_prueba':
       return state === 'demo' ? t.testData.chip : null;
     case 'pago':
+    case 'aplicacion':
     case 'revision':
     case 'hallazgo':
     case 'cuenta':

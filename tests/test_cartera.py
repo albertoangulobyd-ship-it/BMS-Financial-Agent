@@ -111,9 +111,38 @@ def _comprobar_cartera(conn, sentido: str) -> dict:
     assert c["retenido"]["importe_cent"] + c["sin_retener"]["importe_cent"] == t["pendiente_cent"]
     assert c["retenido"]["facturas"] + c["sin_retener"]["facturas"] == t["facturas"]
     assert sum(p["retenido_cent"] for p in partes) == c["retenido"]["importe_cent"]
+    # Contrato 2.3: lo retenido, factura a factura.
+    assert sum(f["pendiente_cent"] for f in c["retenido"]["lista"]) == c["retenido"][
+        "importe_cent"]
+    assert len(c["retenido"]["lista"]) == c["retenido"]["facturas"]
+    assert all(f["retenida"] for f in c["retenido"]["lista"])
     for p in partes:
         assert (p["mas_antigua_dias"] is None) == (p["vencido_cent"] == 0 and p["vencidas"] == 0)
         assert p["pendiente"] == consultas._euros(p["pendiente_cent"])
+    # Lo que toca hasta el domingo (contrato 2.3): lo vencido mas lo de esta semana, al
+    # centimo, repartido en lo retenido y lo que no; cada factura una vez, con sus dias.
+    semana = c["esta_semana"]
+    assert semana["hasta"] == c["fechas"]["semana"][1]
+    assert (semana["retenido"]["importe_cent"] + semana["sin_retener"]["importe_cent"]
+            == t["vencido_cent"] + t["semana_cent"])
+    assert sum(f["pendiente_cent"] for f in semana["facturas"]) == (
+        t["vencido_cent"] + t["semana_cent"])
+    assert len(semana["facturas"]) == semana["retenido"]["facturas"] + semana[
+        "sin_retener"]["facturas"]
+    assert len({f["id"] for f in semana["facturas"]}) == len(semana["facturas"])
+    assert sum(f["pendiente_cent"] for f in semana["facturas"] if f["retenida"]) == semana[
+        "retenido"]["importe_cent"]
+    hoy = date.fromisoformat(c["hoy"])
+    for f in semana["facturas"]:
+        assert f["vencimiento"] <= semana["hasta"]
+        assert f["dias"] == (hoy - date.fromisoformat(f["vencimiento"])).days
+        assert all(r["estado"] != "aceptado" for r in f["razones"])
+    assert [f["vencimiento"] for f in semana["facturas"]] == sorted(
+        f["vencimiento"] for f in semana["facturas"])
+    # Los avisos de pago, en su orden y solo los que tienen alguna factura.
+    reglas = [a["regla"] for a in c["avisos_pago"]]
+    assert reglas == [r for r in consultas.AVISOS_PAGO if r in reglas]
+    assert all(a["facturas"] for a in c["avisos_pago"])
     # Cada importe en enteros, con su texto al lado.
     assert _sin_floats(c) == []
     for r in c["tramos"]:
@@ -262,6 +291,77 @@ def test_lo_que_espera_a_una_persona_y_lo_que_no_casa(banco) -> None:  # noqa: F
     assert consultas.propuestas_pago(conn) == []
 
 
+def test_cada_pago_de_la_ficha_dice_quien_por_que_y_su_linea_del_banco(banco) -> None:  # noqa: F811
+    """Contrato 2.3: la app dice "apuntado a mano por Ana" y ensena la linea del banco al
+    lado del pago; lo que caso el banco solo no lleva nombre; un aviso de pago (K3) sale en
+    la cartera de su lado."""
+    conn = banco.conn
+    _con_banco(banco)
+    [p] = consultas.propuestas_pago(conn)
+    smit = p["factura"]["id"]
+    [propuesto] = consultas.detalle(conn, smit)["pagos"]
+    assert (propuesto["estado"], propuesto["persona"], propuesto["motivo"]) == (
+        "propuesta", None, None)
+    assert (propuesto["movimiento_fecha"], propuesto["movimiento_importe_cent"],
+            propuesto["movimiento_importe"]) == ("2026-10-13", -65340, "-653,40")
+    ana = usuario_por_nombre(conn, "Ana")
+    servicios.ejecutar(conn, "confirmar_pago", {"aplicacion_id": p["id"], "rev": p["rev"],
+                                               "motivo": "Lo he visto en el banco"},
+                       usuario_id=ana)
+    [confirmado] = consultas.detalle(conn, smit)["pagos"]
+    assert (confirmado["estado"], confirmado["persona"]) == ("confirmada", "Ana")
+    assert confirmado["confirmada_en"] is not None and confirmado["retirada_en"] is None
+    # Uno apuntado a mano: quien, por que y el documento que lo prueba.
+    abierta = next(f for f in consultas.buscar(conn, {"sentido": "entrante",
+                                                      "pendiente": "si"})["facturas"]
+                   if f["id"] != smit and (f["total_cent"] or 0) > 0
+                   and (f["pendiente_cent"] or 0) > 0)
+    rev = conn.execute("SELECT rev FROM factura WHERE id = ?", (abierta["id"],)).fetchone()[0]
+    documento = conn.execute("SELECT min(id) FROM documento").fetchone()[0]
+    servicios.ejecutar(conn, "marcar_pagada", {"factura_id": abierta["id"], "rev": rev,
+                                               "motivo": MOTIVO,
+                                               "evidencia_documento_id": documento},
+                       usuario_id=ana)
+    [manual] = [a for a in consultas.detalle(conn, abierta["id"])["pagos"]
+                if a["fuente"] == "manual"]
+    assert (manual["persona"], manual["motivo"], manual["evidencia_documento_id"],
+            manual["movimiento_fecha"], manual["movimiento_importe_cent"]) == (
+        "Ana", MOTIVO, documento, None, None)
+    assert _sin_floats(consultas.detalle(conn, abierta["id"])["pagos"]) == []
+    # Uno retirado: quien y por que (el motivo va en su evento, no en la fila).
+    servicios.ejecutar(conn, "retirar_pago", {"aplicacion_id": manual["id"], "rev": manual["rev"],
+                                              "motivo": "Era de otra factura"},
+                       usuario_id=ana)
+    [retirado] = [a for a in consultas.detalle(conn, abierta["id"])["pagos"]
+                  if a["id"] == manual["id"]]
+    assert (retirado["estado"], retirado["retirada_por"], retirado["motivo_retirada"]) == (
+        "retirada", "Ana", "Era de otra factura")
+    assert retirado["retirada_en"] is not None
+    assert confirmado.get("motivo_retirada") is None
+
+
+def test_un_aviso_de_pago_sale_en_la_cartera_de_su_lado(banco) -> None:  # noqa: F811
+    """Un pago a mano que el banco no trae pasados los dias de K3 sale en avisos_pago del
+    lado de su factura, y en el otro no."""
+    conn = banco.conn
+    _con_banco(banco)
+    sentidos = {}
+    for regla in consultas.AVISOS_PAGO:
+        for (factura_id,) in conn.execute(
+                "SELECT factura_id FROM hallazgo WHERE regla = ? AND estado = 'abierto' "
+                "AND factura_id IS NOT NULL", (regla,)):
+            sentidos.setdefault(regla, set()).add(conn.execute(
+                "SELECT sentido FROM factura WHERE id = ?", (factura_id,)).fetchone()[0])
+    for sentido in ("entrante", "saliente"):
+        c = consultas.cartera(conn, sentido)
+        dichas = {a["regla"]: {f["id"] for f in a["facturas"]} for a in c["avisos_pago"]}
+        esperadas = {r for r, lados in sentidos.items() if sentido in lados}
+        assert set(dichas) == esperadas
+        for regla, ids in dichas.items():
+            assert {conn.execute("SELECT sentido FROM factura WHERE id = ?", (i,)).fetchone()[0]
+                    for i in ids} == {sentido}
+
+
 def test_las_lineas_del_banco_sin_casar_y_sus_filtros(banco) -> None:  # noqa: F811
     conn = banco.conn
     _con_banco(banco)
@@ -404,7 +504,7 @@ def test_las_lecturas_nuevas_por_la_api(archivo) -> None:
     puerto, tokens, db, ids = archivo
     dora = tokens["dora"]
     estado, cabeceras, contrato = _leer(puerto, "/api/v2/contrato", dora)
-    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.2"
+    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.3"
     rutas = {r["ruta"] for r in contrato["lecturas"]}
     assert {"/api/v2/cartera", "/api/v2/pagos/propuestas", "/api/v2/movimientos",
             "/api/v2/clientes/N/documentos", "/api/v2/proveedores/N/documentos",

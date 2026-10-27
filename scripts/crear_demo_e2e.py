@@ -19,13 +19,25 @@ Y deja en la carpeta, junto a la base, los ficheros que la prueba de Importeren 
 el navegador (paso 15): la exportacion de clientes de Exact con un cliente nuevo, con la
 marca de los datos de prueba (en la base de prueba solo entra lo de la prueba), y un fichero
 que no es ninguna exportacion. Van en "ficheros" del JSON.
+
+Paso 16 (Cuentas por cobrar y por pagar): ademas importa un extracto del banco de hoy que
+sigue la cadena de los de la base de prueba, con lo que esas pantallas tienen que saber
+ensenar y las pruebas hacer de verdad: cobros que el banco casa a medias (propuestas que
+esperan a una persona: confirmar, retirar y el conflicto de dos personas a la vez), pagos a
+proveedores sin la referencia y un ingreso que no es de ninguna factura (sin casar, para
+apuntar un pago con su linea). Entra por el importador de siempre, como desde Importeren.
+Solo en la base de las pruebas: `bms-agent demo crear` no cambia, y sus pruebas en Python
+tampoco. Lo que entro va en "banco" del JSON.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -61,9 +73,122 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     tokens = {**resumen.tokens, CONSULTA: _persona_de_consulta(ruta)}
     ficheros = _ficheros_de_importar(Path(args.carpeta))
+    banco = _extracto_de_pagos(ruta, Path(args.carpeta))
     print(json.dumps({"db": str(ruta), "tokens": tokens, "cifras": resumen.cifras,
-                      "ficheros": ficheros}, ensure_ascii=False))
+                      "ficheros": ficheros, "banco": banco}, ensure_ascii=False))
     return 0
+
+
+def _camt(apuntes: list[tuple], inicial: Decimal, secuencia: int, dia: date) -> bytes:
+    """Un CAMT.053 de un dia de la cuenta propia de la base de prueba, con su marca."""
+    from bms_agent import demo
+
+    identificador = f"{demo.MARCA_TEXTO}-{dia:%Y%m%d}-PAGOS"
+    final = inicial + sum((a[0] for a in apuntes), Decimal(0))
+
+    def saldo(codigo: str, valor: Decimal) -> str:
+        return (f"<Bal><Tp><CdOrPrtry><Cd>{codigo}</Cd></CdOrPrtry></Tp>"
+                f'<Amt Ccy="EUR">{abs(valor):.2f}</Amt>'
+                f"<CdtDbtInd>{'DBIT' if valor < 0 else 'CRDT'}</CdtDbtInd>"
+                f"<Dt><Dt>{dia.isoformat()}</Dt></Dt></Bal>")
+
+    entradas = []
+    for i, (importe, iban, nombre, concepto) in enumerate(apuntes, start=1):
+        cargo = importe < 0
+        parte, cuenta = ("Cdtr", "CdtrAcct") if cargo else ("Dbtr", "DbtrAcct")
+        entradas.append(
+            f'<Ntry><Amt Ccy="EUR">{abs(importe):.2f}</Amt>'
+            f"<CdtDbtInd>{'DBIT' if cargo else 'CRDT'}</CdtDbtInd><Sts>BOOK</Sts>"
+            f"<BookgDt><Dt>{dia.isoformat()}</Dt></BookgDt>"
+            f"<AcctSvcrRef>{identificador}-{i}</AcctSvcrRef>"
+            f"<NtryDtls><TxDtls><RltdPties><{parte}><Nm>{nombre}</Nm></{parte}>"
+            f"<{cuenta}><Id><IBAN>{iban}</IBAN></Id></{cuenta}></RltdPties>"
+            f"<RmtInf><Ustrd>{concepto}</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>")
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f"<!-- {demo.MARCA_TEXTO}: extracto ficticio de las pruebas de la app -->\n"
+        '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>'
+        f"<GrpHdr><MsgId>{identificador}</MsgId>"
+        f"<CreDtTm>{dia.isoformat()}T18:00:00</CreDtTm></GrpHdr>"
+        f"<Stmt><Id>{identificador}</Id><ElctrncSeqNb>{secuencia}</ElctrncSeqNb>"
+        f"<FrToDt><FrDtTm>{dia.isoformat()}T00:00:00</FrDtTm>"
+        f"<ToDtTm>{dia.isoformat()}T23:59:59</ToDtTm></FrToDt>"
+        f"<Acct><Id><IBAN>{demo.CUENTA_PROPIA}</IBAN></Id><Ccy>EUR</Ccy></Acct>"
+        f"{saldo('OPBD', inicial)}{saldo('CLBD', final)}"
+        f"{''.join(entradas)}</Stmt></BkToCstmrStmt></Document>").encode("utf-8")
+
+
+def _extracto_de_pagos(ruta: Path, carpeta: Path) -> dict[str, int]:
+    """El extracto de hoy de las pruebas de Cuentas por cobrar y por pagar.
+
+    Las facturas se buscan por su cliente o proveedor (sus numeros cambian con el dia en que
+    se crea la base). Las propuestas salen de un IBAN que el maestro no tiene (referencia e
+    importe: dos de tres) o sin la referencia (importe y cuenta): el banco casa a medias y
+    una persona decide. El ingreso sin casar trae el importe de una factura, sin referencia
+    y de una cuenta desconocida (uno de tres). Sigue la cadena: el saldo de apertura es el
+    ultimo de cierre y el numero el siguiente, asi que no abre K6.
+    """
+    from bms_agent import demo, permisos
+    from bms_agent.almacen import preparar
+    from bms_agent.importadores.registrar import importar_fichero
+
+    with preparar(ruta) as almacen:
+        conn = almacen.conn
+        hoy = date.fromisoformat(conn.execute("SELECT max(hasta) FROM extracto_bancario")
+                                 .fetchone()[0])
+
+        def abiertas(sentido: str, tabla: str, codigo: str) -> list[sqlite3.Row]:
+            columna = "cliente_id" if tabla == "cliente" else "proveedor_id"
+            return conn.execute(
+                f"SELECT f.numero, e.pendiente_cent, e.estado_pago FROM factura AS f "
+                f"JOIN factura_estado AS e ON e.factura_id = f.id "
+                f"JOIN {tabla} AS p ON p.id = f.{columna} WHERE f.sentido = ? "
+                f"AND p.exact_id = ? AND e.estado_pago IN ('pendiente', 'vencida') "
+                f"AND f.total_cent > 0 ORDER BY e.vencimiento, f.id",
+                (sentido, codigo)).fetchall()
+
+        def euros(cent: int) -> Decimal:
+            return Decimal(cent) / 100
+
+        haven = abiertas("saliente", "cliente", "10001")
+        [stichting] = abiertas("saliente", "cliente", "10002")[-1:]
+        [gemeente] = [f for f in abiertas("saliente", "cliente", "10003")
+                      if f["estado_pago"] == "pendiente"][-1:]
+        [oost] = abiertas("entrante", "proveedor", "30004")[-1:]
+        [voorbeeld] = abiertas("entrante", "proveedor", "30002")[:1]
+        proveedor = {p.codigo: p for p in demo.PROVEEDORES}
+        apuntes = [
+            # Cobros con la referencia y el importe, desde una cuenta que no es la del maestro.
+            (euros(stichting["pendiente_cent"]), demo.iban_demo(7000101),
+             "Stichting Voorbeeld Zorggroep", f"Betaling factuur {stichting['numero']}"),
+            (euros(haven[0]["pendiente_cent"]), demo.iban_demo(7000201), "Demo Havenbedrijf BV",
+             f"Betaling factuur {haven[0]['numero']}"),
+            (euros(gemeente["pendiente_cent"]), demo.iban_demo(7000301), "Gemeente Demodorp",
+             f"Betaling factuur {gemeente['numero']}"),
+            (euros(haven[-1]["pendiente_cent"]), demo.iban_demo(7000202),
+             "Demo Havenbedrijf BV", f"Betaling factuur {haven[-1]['numero']}"),
+            # Un ingreso que no dice de que factura es ni viene de una cuenta conocida.
+            (euros(haven[1]["pendiente_cent"]), demo.iban_demo(7000401),
+             "Fictief Evenementen BV", "Overboeking"),
+            # Pagos a la cuenta del maestro por lo que queda, sin el numero de la factura.
+            (-euros(oost["pendiente_cent"]), proveedor["30004"].iban, proveedor["30004"].nombre,
+             "Betaling oktober"),
+            (-euros(voorbeeld["pendiente_cent"]), proveedor["30002"].iban,
+             proveedor["30002"].nombre, "Betaling diensten"),
+        ]
+        ultimo = conn.execute("SELECT secuencia, saldo_final_cent FROM extracto_bancario "
+                              "ORDER BY hasta DESC, secuencia DESC LIMIT 1").fetchone()
+        xml = _camt(apuntes, euros(ultimo["saldo_final_cent"]), ultimo["secuencia"] + 1, hoy)
+        fichero = carpeta / f"camt053-{hoy:%Y%m%d}-betalingen.xml"
+        fichero.write_bytes(xml)
+        ana = permisos.usuario_por_nombre(conn, "Ana Demo")
+        resultado = importar_fichero(almacen, "banco", "extracto", fichero, lanzado_por=ana,
+                                     exportado_en=datetime.now(timezone.utc))
+        if any(lote.estado != "aceptada" or lote.rechazos for lote in resultado.lotes):
+            raise SystemExit(f"el extracto de las pruebas no entro: {resultado.lotes}")
+        propuestas = conn.execute("SELECT count(*) FROM aplicacion_pago WHERE estado = "
+                                  "'propuesta'").fetchone()[0]
+        return {"movimientos": len(apuntes), "propuestas": propuestas}
 
 
 def _ficheros_de_importar(carpeta: Path) -> dict[str, str]:

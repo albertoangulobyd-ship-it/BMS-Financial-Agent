@@ -10,11 +10,15 @@ export const VIEW_IDS = [
   'work-queue',
   'exceptions',
   'cash-flow',
+  'receivables',
   'invoices-out',
+  'bank-in',
   'clients',
   'objects',
   'client-pos',
+  'payables',
   'invoices-in',
+  'bank-out',
   'providers',
   'provider-pos',
   'iban-checks',
@@ -43,8 +47,10 @@ export type RecordId = (typeof RECORD_IDS)[number];
  *  Ajustes no es de ninguna: se abre desde el menu del nombre. */
 export const SECTION_VIEWS: Readonly<Record<SectionId, readonly ViewId[]>> = {
   home: ['home', 'work-queue', 'exceptions', 'cash-flow'],
-  receivables: ['invoices-out', 'clients', 'objects', 'client-pos'],
-  payables: ['invoices-in', 'providers', 'provider-pos', 'iban-checks'],
+  // Paso 16 (Cuentas por cobrar y por pagar): el resumen de la cartera abre la entrada, y el
+  // banco (lo propuesto por confirmar y lo que no casa) va despues de las facturas.
+  receivables: ['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos'],
+  payables: ['payables', 'invoices-in', 'bank-out', 'providers', 'provider-pos', 'iban-checks'],
   documents: ['documents'],
   // Importar primero: llegar a importar es un clic (revision §5, fila 20); leer PDF, dos.
   process: ['import', 'read-invoices'],
@@ -61,4 +67,13 @@ export const VIEW_REQUIRES: Readonly<Partial<Record<ViewId, string>>> = {
 export function sectionOfView(view: ViewId): SectionId | null {
   for (const id of SECTION_IDS) if (SECTION_VIEWS[id].includes(view)) return id;
   return null;
+}
+
+/** Los resumenes de Cuentas por cobrar y por pagar: su pastilla dice "Resumen" y su titulo
+ *  es el de la entrada ("Cuentas por cobrar"). */
+export const OVERVIEW_VIEWS = ['receivables', 'payables'] as const satisfies readonly ViewId[];
+export type OverviewView = (typeof OVERVIEW_VIEWS)[number];
+
+export function isOverviewView(view: ViewId): view is OverviewView {
+  return (OVERVIEW_VIEWS as readonly ViewId[]).includes(view);
 }

@@ -97,7 +97,7 @@ test('un solo sitio late por pantalla: ninguna lista ni tarjeta parpadea', async
   await expect(page.getByTestId('summary-card').first()).toBeVisible();
   await expect(page.locator('section[aria-labelledby="next-up"] [data-slot="status"]').first()).toBeVisible();
   expect((await pills(page)).filter((p) => p.pings), 'inicio').toEqual([]);
-  for (const view of ['exceptions', 'invoices-in', 'invoices-out', 'providers', 'clients', 'objects', 'client-pos', 'provider-pos', 'documents'] as const) {
+  for (const view of ['exceptions', 'receivables', 'payables', 'invoices-in', 'invoices-out', 'providers', 'clients', 'objects', 'client-pos', 'provider-pos', 'documents'] as const) {
     await go(page, view);
     await expect(page.locator('[data-slot="status"]').first()).toBeVisible();
     expect((await pills(page)).filter((p) => p.pings), view).toEqual([]);

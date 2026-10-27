@@ -1,6 +1,6 @@
 # La app local de BMS
 
-Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales) · 27 de octubre de 2026
+Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales; Cuentas por cobrar y por pagar con datos reales) · 27 de octubre de 2026
 
 La ventana con la que trabaja administración: facturas, avisos, relaciones, dinero y
 datos, en **neerlandés, inglés o castellano**, sin salir del ordenador. La pidió el dueño así:
@@ -33,7 +33,12 @@ nombre (Instellingen, idioma, tema y salir). **La barra lateral con pestañas co
 Chrome ya no es la navegación** (§4, «Lo que se quitó»). Y **Documentos es el archivo de
 Aurora** con los datos de verdad: las carpetas de cristal, el árbol «Explorar», la ficha de
 cada relación y la vista previa dibujada desde el registro, con la descarga del original
-(§4.7).
+(§4.7). Y **Cuentas por cobrar y por pagar** con la cartera del motor: un resumen con
+cuatro cifras («Saldos pendientes · No es efectivo disponible»), la antigüedad, cada
+empresa con lo que debe o se le debe, y lo que hay que pagar esta semana con lo retenido y
+por qué; el banco de cada lado (los pagos que propone y las líneas sin casar); y en la
+ficha de cada factura sus **pagos** con las tres órdenes: confirmar un pago propuesto,
+retirarlo y apuntar uno ya hecho, con motivo (§4.1, «Cobrar y pagar»). Nada de eso paga.
 
 ---
 
@@ -129,8 +134,8 @@ que contestan a su pregunta; ninguna función se perdió por el camino.
 | Entrada | NL | EN | Sus vistas, en este orden |
 | --- | --- | --- | --- |
 | **Inicio** | Start | Home | El inicio (abajo); Werklijst, Uitzonderingen y Kasstroom |
-| **Cuentas por cobrar** | Te ontvangen | Receivables | Verkoopfacturen, Klanten, Objecten e Inkooporders (las de los clientes) |
-| **Cuentas por pagar** | Te betalen | Payables | Inkoopfacturen, Leveranciers, Inkooporders (las de los proveedores) e IBAN-controles |
+| **Cuentas por cobrar** | Te ontvangen | Receivables | Overzicht (el resumen), Verkoopfacturen, Bankontvangsten, Klanten, Objecten e Inkooporders (las de los clientes) |
+| **Cuentas por pagar** | Te betalen | Payables | Overzicht (el resumen), Inkoopfacturen, Bankbetalingen, Leveranciers, Inkooporders (las de los proveedores) e IBAN-controles |
 | **Documentos** | Documenten | Documents | Las carpetas de cada cliente y cada proveedor (§4.7) |
 | **Procesar** | Verwerken | Process | Importeren y Facturen lezen (las dos piden `importar_datos`; sin ese permiso la entrada no sale) |
 | **IVA** | Btw | VAT | Los trimestres del BTW |
@@ -144,11 +149,15 @@ una frase debajo de su título:
 | | Werklijst · Work queue · Cola de trabajo | Las facturas que necesitan a una persona, lo más urgente arriba |
 | | Uitzonderingen · Exceptions · Excepciones | Lo que alguien tiene que resolver, y quién está en ello |
 | | Kasstroom · Cash flow · Flujo de caja | Lo que entra y sale las próximas semanas |
-| Cuentas por cobrar | Verkoopfacturen · Sales invoices · Facturas de venta | Todas las facturas de BMS a sus clientes, y cómo están |
+| Cuentas por cobrar | Overzicht · Overview · Resumen | Lo que nos deben, y desde cuándo |
+| | Verkoopfacturen · Sales invoices · Facturas de venta | Todas las facturas de BMS a sus clientes, y cómo están |
+| | Bankontvangsten · Bank receipts · Cobros del banco | Los ingresos del banco que piden a una persona: cobros propuestos que confirmar y líneas sin factura |
 | | Klanten · Clients · Clientes | Clientes: lo que deben y lo que falta facturar |
 | | Objecten · Objects | Por cada sitio de un cliente: ingresos, costes y margen |
 | | Inkooporders van klanten · from clients · de clientes | Cuánto queda de cada PO de un cliente y cuáles se acaban |
-| Cuentas por pagar | Inkoopfacturen · Purchase invoices · Facturas de compra | Todas las facturas de proveedores y zzp'ers, y cómo están |
+| Cuentas por pagar | Overzicht · Overview · Resumen | Lo que debemos, y qué está retenido |
+| | Inkoopfacturen · Purchase invoices · Facturas de compra | Todas las facturas de proveedores y zzp'ers, y cómo están |
+| | Bankbetalingen · Bank payments · Pagos del banco | Los cargos del banco que piden a una persona: pagos propuestos que confirmar y líneas sin factura |
 | | Leveranciers · Providers · Proveedores | Proveedores: lo pendiente y lo que destaca |
 | | Inkooporders aan leveranciers · to providers · a proveedores | Lo mismo para las PO con un proveedor |
 | | IBAN-controles · IBAN checks · Controles de IBAN | Las cuentas que faltan por verificar por teléfono |
@@ -181,9 +190,11 @@ cliente o de un proveedor.
   actual marcada; el logo, con el orbe pequeño delante, vuelve al inicio.
 - **Dentro de una entrada**, sus vistas van como pastillas encima de la pantalla («Onderdelen
   van Te betalen»), con su insignia solo cuando piden hacer algo (las facturas bloqueadas en
-  la Werklijst, las excepciones abiertas, las cuentas por verificar), de `/api/v2/panel`; si
-  no se puede leer, no se pinta. La primera vista de cada entrada es la que más se usa: las
-  facturas de venta y de compra, Importeren. En el inicio, sus tres vistas salen además al
+  la Werklijst, las excepciones abiertas, las cuentas por verificar, de `/api/v2/panel`; los
+  pagos que propuso el banco en Bankontvangsten y Bankbetalingen, de
+  `/api/v2/pagos/propuestas`); la lectura que falla no pinta la suya. La primera vista de
+  cada entrada es la que más se usa: el resumen de Te ontvangen y de Te betalen,
+  Importeren. En el inicio, sus tres vistas salen además al
   pie («Ook in Start»), con lo que esperan.
 - **Las fichas se abren dentro de su sección**, en el mismo sitio, con **migas** encima
   («Te ontvangen › Klanten › Gemeente Demodorp › VD26-306»; cada una vuelve a ese paso) y
@@ -213,15 +224,18 @@ cliente o de un proveedor.
   (pantallas, clientes, proveedores, Objects, PO, facturas); cada resultado abre su sitio.
   Una pregunta no recibe una respuesta inventada: sin nada que encontrar, dice «Niets
   gevonden voor …». El orbe se mueve solo mientras carga o busca.
-- **Cuatro tarjetas** de `GET /api/v2/panel`: **Aandacht nodig** (cuántas facturas esperan
-  a alguien, con las bloqueadas, las urgentes y las excepciones abiertas), **Te ontvangen**
-  (lo pendiente; lo vencido, lo de los próximos 30 días y cuántos clientes tienen saldo),
-  **Te betalen** (lo pendiente; lo vencido, lo de esta semana y cuántos proveedores tienen
-  saldo) y **Btw dit kwartaal** (el saldo, un plazo ya pasado sin la aangifte anotada y el
-  próximo plazo con los días que quedan). Cada tarjeta abre la pantalla que la explica, y
-  sus filas abren la lista ya filtrada: «Vervallen» en Te ontvangen abre las
-  Verkoopfacturen vencidas (un clic); «Klanten met saldo», los clientes. Debajo, «Bijgewerkt
-  om 18:04».
+- **Cuatro tarjetas**: **Aandacht nodig** (de `GET /api/v2/panel`: cuántas facturas
+  esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas), **Te
+  ontvangen** y **Te betalen** (de `GET /api/v2/cartera`, la misma lectura que sus
+  resúmenes: lo pendiente, «openstaand in 6 facturen bij 3 klanten», lo vencido, lo de los
+  próximos 30 días o lo de esta semana, y «Te bevestigen» cuando el banco propuso pagos) y
+  **Btw dit kwartaal** (el saldo, un plazo ya pasado sin la aangifte anotada y el próximo
+  plazo con los días que quedan). Cada tarjeta abre la pantalla que la explica (Te
+  ontvangen y Te betalen, su resumen), y sus filas abren la lista ya filtrada: «Vervallen»
+  en Te ontvangen abre las Verkoopfacturen vencidas (un clic), «Komende 30 dagen» las que
+  vencen en esos días, «Te bevestigen» los Bankontvangsten. **Cuadran al céntimo** con el
+  resumen, con la lista que abren y con el panel (lo comprueba `e2e/payments.spec.ts`).
+  Debajo, «Bijgewerkt om 18:04».
 - **«Als eerste»**, solo si hay algo **bloqueado o urgente**: como mucho cinco cosas
   distintas (dos facturas con el mismo número y relación van en una fila: «2 facturen met
   dit nummer»), con su prioridad, número, relación, importe y por qué. Si no hay nada que no
@@ -264,20 +278,24 @@ uno (escribir no cuenta; un diálogo de confirmación va aparte, como en la tabl
   escribe en la caja o con Ctrl+K); hacer una pregunta (y dice que aún no contesta).
 - **1**: abrir la factura más urgente, la lista de ventas vencidas, el flujo de caja, llegar
   a Importeren.
-- **2**: una factura por cobrar con su pago, lo pendiente de un cliente y sus facturas (las
-  abiertas van desplegadas en su ficha), la ficha de un proveedor, el margen de un Object o
-  lo que queda de una PO, llegar a Facturen lezen; verificar un IBAN por teléfono, más su
-  diálogo; cambiar el idioma o el tema (1 o 2, en el menú del nombre).
-- **3**: el PDF original de una factura (el botón «Origineel» va arriba, en la cabecera de
-  la ficha), marcar una factura como revisada, el BTW de un trimestre con su hoja, los
-  documentos de una empresa con la vista previa de uno (Documentos, la carpeta de cristal y
-  la fila; o la hoja del abanico) y bajar su original (la descarga va al lado de la fila);
-  resolver una excepción, más su diálogo.
+- **2**: una factura por cobrar con sus pagos («Vervallen» en la tarjeta y la fila), lo
+  pendiente de un cliente y sus facturas (Te ontvangen, cuyo resumen lista los clientes con
+  lo vencido arriba, y la fila; las abiertas van desplegadas en su ficha), la ficha de un
+  proveedor (igual, en Te betalen), ver las líneas del banco sin casar (Te betalen y
+  Bankbetalingen), el margen de un Object o lo que queda de una PO, llegar a Facturen lezen;
+  verificar un IBAN por teléfono, más su diálogo; cambiar el idioma o el tema (1 o 2, en el
+  menú del nombre).
+- **3**: el PDF original de una factura (se busca escribiendo en la caja y el botón
+  «Origineel» va arriba, en la cabecera de la ficha), marcar una factura como revisada, el
+  BTW de un trimestre con su hoja, los documentos de una empresa con la vista previa de uno
+  (Documentos, la carpeta de cristal y la fila; o la hoja del abanico) y bajar su original
+  (la descarga va al lado de la fila); confirmar un cobro que propuso el banco («Te
+  bevestigen» en la tarjeta y «Bevestigen» en la propuesta), apuntar un pago ya hecho con su
+  motivo («Vervallen», la fila y «Betaling vastleggen») y resolver una excepción, más su
+  diálogo.
 
-Quedan pendientes en la prueba (`test.fixme`), con el paso que los hace: confirmar un cobro
-que propuso el banco, apuntar un pago ya hecho y ver las líneas del banco sin casar (filas
-11 a 13, Cuentas por cobrar y por pagar) y leer un PDF con la confirmación de su coste (21,
-Procesar de verdad).
+Queda pendiente en la prueba (`test.fixme`), con el paso que lo hace: leer un PDF con la
+confirmación de su coste (21, Procesar de verdad).
 
 ### 4.1 El trabajo diario
 
@@ -295,8 +313,8 @@ ficha, las listas, las insignias de las vistas y el inicio, sin que la pantalla 
 | --- | --- | --- |
 | **Start** (el inicio) | Las cuatro tarjetas, «Als eerste» solo con lo bloqueado o urgente, y los accesos a la Werklijst, las Uitzonderingen y la Kasstroom (§4, «El inicio») | —, salvo abrir: cada tarjeta, cada fila de una tarjeta y cada fila de «Als eerste» abre lo suyo |
 | **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura (Start › Werklijst › su número) |
-| **Inkoopfacturen / Verkoopfacturen** (las primeras vistas de Te betalen y de Te ontvangen) | Todas las de un sentido, con fichas como las de la Werklijst (Alle, Vervallen, Openstaand, Controle nodig, Betaald, con su cuenta) y el buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Bedrag, Vervaldatum, Stand (pago y revisión, en texto gris) y Waarom | Una fila abre la factura |
-| **Ficha de factura** | Arriba, qué es (con el botón **Origineel**, que baja el PDF): el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el pago y la revisión. Después **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; descargar el original |
+| **Inkoopfacturen / Verkoopfacturen** (en Te betalen y en Te ontvangen, después del resumen) | Todas las de un sentido, con fichas y su cuenta: Alle, Openstaand (toda la deuda abierta, también lo vencido), Vervallen, Deze week, 30 dagen, Te bevestigen (con un pago propuesto por el banco), Betaald y Controle nodig; un tramo de antigüedad sale como una ficha más cuando se llega desde la barra del resumen. Las fichas de pago son las de la cartera: van por vencimiento (lo más antiguo arriba) y debajo dicen lo que suman, lo mismo que la cifra que se pulsó. El buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Openstaand (lo que queda; «van € 9.163,94» si no es el total), Vervaldatum («65 dagen te laat», «over 4 dagen»), Stand (pago, «Betaling te bevestigen» y revisión, en texto gris) y Waarom | Una fila abre la factura |
+| **Ficha de factura** | Arriba, qué es (con el botón **Origineel**, que baja el PDF, y **Betaling vastleggen** mientras quede algo por cobrar o pagar): el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el vencimiento («65 dagen te laat»), el pago («Betaald» siempre con su fuente: «volgens de bank», «volgens Exact» o «met de hand … door Ana», con K3 si el banco no lo trae) y la revisión. Después **Betalingen** (abajo, «Cobrar y pagar») y **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; confirmar o retirar un pago y apuntar uno ya hecho (`confirmar_pago`, `retirar_pago`, `marcar_pagada`); descargar el original |
 | **Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va (la factura con su relación, el cliente, la PO o la importación), en qué estado está, quién la lleva y desde cuándo. Una fila abre **la ficha de la excepción** (Start › Uitzonderingen › su asunto; antes, un panel lateral): qué pasa, de qué va, su estado y qué hacer. Una que ya se cerró lo dice y vuelve a la lista | Zelf oppakken, toewijzen, wachten op anderen (a quién y hasta cuándo), oplossen (cómo acabó y qué se hizo); desde la ficha, «Factuur openen» |
 | **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd» solo si aún no se llamó), **lo que falta en una frase** cuando ya se verificó por teléfono (con un F2 abierto: «nog niet in de stamgegevens van Exact: zet de rekening in Exact en importeer de leveranciers opnieuw»; ya no se ofrece volver a llamar), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
 
@@ -311,6 +329,23 @@ proveedores, así que no puede verificar con ellos una cuenta (lo hace Bram), y 
 número de factura repetido (B2, que bloquea) pide que otra persona dé antes la segunda
 firma.
 
+**Cobrar y pagar** (paso 16; revisión de Aurora §8.3 paso 4 y §8.4). Te ontvangen y Te
+betalen tienen la misma forma, de `GET /api/v2/cartera` (la misma lectura que el panel:
+las cifras cuadran al céntimo con el inicio y con las listas):
+
+| Vista | Qué hay | Órdenes |
+| --- | --- | --- |
+| **Overzicht** (el resumen, la primera vista) | **Cuatro cifras**: Openstaand (en N facturas), Vervallen, Deze week (hasta el domingo) y Komende 30 dagen (hasta su último día); cada una abre la lista con esa ficha. Debajo, siempre, «Openstaande saldi · Geen beschikbaar geld», la fecha de los datos y la del último extracto del banco (con la pastilla de la fuente caducada si los datos o el extracto son viejos) y lo cobrado o pagado este mes según el banco. **Wat op iemand wacht**: los pagos propuestos por confirmar y las líneas del banco sin casar (abren el banco), los abonos sin enlazar, X1 (facturas sin importe en euros) y los avisos de pago raros (K2–K5, K8, K9) con sus facturas. **Hoe lang het al openstaat**: la barra de antigüedad y sus seis tramos (al corriente, 1–30, 31–60, 61–90, más de 90 días, sin fecha), cada uno abre su lista; **visible en Te ontvangen, plegada en Te betalen**. En Te betalen, **«Tot en met zondag …»**: lo vencido y lo que vence esta semana, en dos columnas, sin objeciones del sistema y retenido o bloqueado (cada factura con su razón), y debajo lo retenido que vence después. **Por empresa** (Klanten o Leveranciers): lo vencido primero; prioridad, la empresa (facturas abiertas, cuánto tarda en pagar o en pagarle, la razón de lo retenido), Openstaand, Vervallen y la más antigua («65 dagen te laat») | La fila abre la ficha de la empresa; «Map» abre su carpeta en Documentos |
+| **Bankontvangsten / Bankbetalingen** | **Te bevestigen**: cada pago que el banco casó a medias (`GET /api/v2/pagos/propuestas`), la línea del banco al lado de la factura (día, importe, quién, concepto; número, relación, lo que queda) y las tres coincidencias (referencia, importe, cuenta) en verde o en rojo. **Zonder factuur**: las líneas del banco de ese signo que no casan con nada (`GET /api/v2/movimientos?signo=`), con su día, lo que queda, quién y el concepto, y desde cuándo | **Bevestigen** (`confirmar_pago`, con una nota si se quiere), **Niet deze** (`retirar_pago`, con motivo obligatorio) y «Factuur openen»; cada línea sin casar, **Aan een factuur koppelen** (`marcar_pagada` con su `movimiento_id`: se elige una factura pendiente de ese lado) |
+| **Betalingen** (en la ficha de cada factura) | Cada pago con su estado (Voorgesteld, Bevestigd, Ingetrokken), la fecha, el importe, la fuente (Bank, Exact, Handmatig; «vanzelf gekoppeld» si lo casó el banco solo), quién lo confirmó o lo apuntó, su línea del banco («Bankregel van 27-10-2026: € −496,10 · quién · concepto»), el motivo, el justificante («Bewijs downloaden») y, de uno retirado, quién y por qué. Lo que espera arriba, lo retirado al final. Lo de Exact se corrige en Exact (lo dice) | Bevestigen y Niet deze en lo propuesto; **Intrekken** (con motivo) en lo que no es de Exact; **Betaling vastleggen** en la cabecera: el importe (por defecto lo que queda; no más), la fecha (no futura; con una línea del banco manda la del banco), la línea del banco sin casar si la hay, **el motivo, obligatorio**, y un justificante de su carpeta si se quiere. El diálogo dice «Er wordt niets betaald» |
+
+Todas piden el permiso `marcar_pagada`: quien solo mira (rol `consulta`) ve los pagos y no
+ve ningún botón. El servidor decide lo demás: un pago que el banco o Exact ya traen, una
+factura sin nada pendiente o una línea ya usada contestan `409 estado_no_valido`, y el
+diálogo lo dice en palabras normales; dos personas a la vez, `409 conflicto` (abajo). En la
+base de prueba, un extracto del banco de hoy trae cuatro cobros y dos pagos por confirmar,
+un ingreso de un desconocido y una comisión sin casar (`scripts/crear_demo_e2e.py`).
+
 **Concurrencia.** Cada orden lleva la `rev` de la fila (o la huella de la factura o
 del hallazgo) que la persona vio. Si otra persona la cambió antes, el servidor contesta
 `409` con el código `conflicto`; el diálogo dice «Iemand anders heeft dit net
@@ -318,7 +353,9 @@ gewijzigd. Laad opnieuw…» y ofrece **Opnieuw laden**, que vuelve a leer y no 
 
 **Lo que no hay, a propósito.** Ningún botón crea una factura, paga, aprueba un pago o
 presenta el BTW: esas órdenes no existen (un test comprueba que la app solo manda
-órdenes de `servicios.ACCIONES` y ninguna de esas). El IBAN del documento se enseña en
+órdenes de `servicios.ACCIONES` y ninguna de esas; y que las tres de los pagos solo salen
+de `src/screens/payment-actions.tsx`). Confirmar un pago o apuntar uno ya hecho dice qué
+dinero **ya se movió**; no mueve ninguno ni prepara una transferencia. El IBAN del documento se enseña en
 los campos («er wordt niet naar betaald») pero no se cambia ni se verifica desde ahí:
 los datos bancarios van por IBAN-controles.
 
@@ -463,8 +500,8 @@ los colores sueltos y los puntos de antes se quitaron.
   vez en la Werklijst y seis en el Overzicht (hoy, el inicio). Quien pide menos movimiento en el sistema
   (`prefers-reduced-motion`) no ve latir nada.
 - **Una pastilla de color por fila** en Inkoopfacturen y Verkoopfacturen: la prioridad. El pago y el
-  control van en texto gris debajo («Openstaand · Controle nodig»), y lo vencido lo dice
-  «Waarom»; antes eran tres pastillas por fila (49 en una pantalla).
+  control van en texto gris debajo («Openstaand · Controle nodig»), y lo vencido lo dicen
+  el vencimiento («65 dagen te laat», desde el paso 16) y «Waarom»; antes eran tres pastillas por fila (49 en una pantalla).
 - **Cada pastilla dice una cosa, y la misma cosa tiene un solo color.** La prioridad dice
   cuánto corre una factura; el pago, si está pagada; la gravedad de un aviso, qué hace con
   la factura. Por eso KT-202608 puede ser «Urgent» (naranja) con el pago «Vervallen»
@@ -547,6 +584,9 @@ completo en verde, nada late).
 |  | `pagada` | Betaald | Paid | success | no |  |
 |  | `anulada` | Geannuleerd | Cancelled | default | no |  |
 |  | `acreditada` | Gecrediteerd | Credited | default | no |  |
+| `aplicacion` | `propuesta` | Voorgesteld | Suggested | warning | no | Betalingen, en la ficha de una factura (paso 16) |
+|  | `confirmada` | Bevestigd | Confirmed | success | no |  |
+|  | `retirada` | Ingetrokken | Withdrawn | default | no |  |
 | `revision` | `necesita_revision` | Controle nodig | Needs review | warning | no | Ficha de factura; en Inkoopfacturen y Verkoopfacturen, en texto gris |
 |  | `sin_revisar` | Niet gecontroleerd | Unreviewed | default | no |  |
 |  | `revisada` | Gecontroleerd | Reviewed | success | no |  |
@@ -860,12 +900,12 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | --- | --- |
 | `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y los dos del dueño: la navegación del paso 15 (`sidebar-with-chrome-like-tabs.tsx`, **sin montar desde el paso 16**: §4, «Lo que se quitó») y las alertas (`status.tsx`); arriba de cada uno, lo que se le cambió y por qué |
 | `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
-| `src/screens/` | Las pantallas (`home`, el inicio; `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions` y `exception`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` (las de los clientes o las de los proveedores) y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `documents` (el archivo de Aurora: las carpetas, la de cada relación y la vista previa) y `documents-model.ts` (su orden, sus tipos y su árbol, sin React), `import`, `read-invoices`, `settings`); `sections.ts` (las seis entradas, sus vistas en orden y el permiso de cada vista, sin React: lo usan también las pruebas en el navegador), `registry.ts` (los iconos, las fichas y su vista, qué se ve con cada permiso, las rutas) y `render.tsx` (qué pinta cada ruta) |
+| `src/screens/` | Las pantallas (`home`, el inicio; `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions` y `exception`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` (las de los clientes o las de los proveedores) y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `documents` (el archivo de Aurora: las carpetas, la de cada relación y la vista previa) y `documents-model.ts` (su orden, sus tipos y su árbol, sin React), `money-overview` (el resumen de Te ontvangen y Te betalen), `bank` (Bankontvangsten y Bankbetalingen), `invoice-payments` (los Betalingen de una factura), `payment-actions` (las tres órdenes de los pagos: el único sitio que las manda) y `money-model.ts` (qué factura cae en cada ficha y tramo como en la cartera, cuánto falta o va tarde, el orden de las empresas y de los pagos, leer un importe tecleado; sin React), `import`, `read-invoices`, `settings`); `sections.ts` (las seis entradas, sus vistas en orden y el permiso de cada vista, sin React: lo usan también las pruebas en el navegador), `registry.ts` (los iconos, las fichas y su vista, qué se ve con cada permiso, las rutas) y `render.tsx` (qué pinta cada ruta) |
 | `src/shell/` | El marco (`app-shell.tsx`: la cabecera, el contenido y los atajos), dónde se está y el camino (`navigation.tsx`: `nextTrail`, puro, y `useNav`), las seis en pequeño (`compact-nav.tsx`), las vistas de una entrada (`section-nav.tsx`) con sus insignias (`use-badges.ts`), las migas y «Terug» (`crumbs.tsx`), «Snel openen» (`command-palette.tsx` y `use-quick-search.ts`), el menú del nombre (`account-menu.tsx`: Instellingen, idioma, tema, salir), el idioma y el tema de la entrada y de Instellingen (`language-switch.tsx`, `theme-switch.tsx`) y la marca de datos de prueba |
 | `src/aurora/` | Las piezas de Aurora (paso 16), cada una con su hoja de estilos: abajo, «Aurora dentro de la app» |
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una vista al volver de una ficha (`view-memory.ts`, solo en memoria), lo que encuentra Ctrl+K y la caja del inicio (`quick-search.ts`) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`) y las listas de restos de otro idioma (`leftovers.ts`) |
-| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, las seis, las vistas, las migas, el menú del nombre) con los nombres de los diccionarios |
+| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, las seis, las vistas, las migas, el menú del nombre) con los nombres de los diccionarios; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
 
 **Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
 respuestas inventados. Se trajo a `src/aurora/` lo que la revisión quiere conservar, con
@@ -1009,19 +1049,22 @@ en `CAPTURAS_DIR/dark/` o `CAPTURAS_DIR/light/` según el tema que se ve (por de
 
 En la ficha de factura quedan para la consola las órdenes menos de cada día (imputar una
 línea a otro Objeto o a una PO, dividir o añadir líneas, anular o fusionar una factura,
-enlazar dos a mano, marcar un pago, subir la prioridad), y de las fichas de relaciones lo
+enlazar dos a mano, subir la prioridad; los pagos ya están en la app desde el paso 16:
+confirmar, retirar y apuntar uno ya hecho, §4.1), y de las fichas de relaciones lo
 que no se hace cada semana: registrar, modificar, corregir o cerrar una PO a mano y sus
 Objects (`registrar_po`, `modificar_po`, `corregir_po`, `cerrar_po`, `objetos_po`),
 corregir un dato maestro, poner el teléfono de verificación de un proveedor, añadir un
 alias o un beneficiario. Las fichas lo enseñan todo y esas órdenes siguen en `/consola` y
 en la CLI. Leer los PDF se sigue empezando con su acceso directo, a propósito.
 
+En Cobrar y pagar quedan dos cosas: subir un justificante nuevo al apuntar un pago (hoy se
+elige uno que ya está en la carpeta de la empresa) y enlazar un abono a su factura (se ve en
+«Wat op iemand wacht» y abre el abono; enlazarlo sigue en la consola).
+
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
 natural, y mirar en el ordenador del dueño que Edge abre la ventana `--app`.
 
-Del paso 16, lo que hacen los pasos siguientes sobre esta navegación: **Cuentas por cobrar y por pagar** con la cartera, los pagos que
-propone el banco, apuntar un pago ya hecho y las líneas del banco sin casar (las filas 11 a
-13 de la tabla de los clics, hoy `test.fixme` en `e2e/clicks.spec.ts`); **Procesar** de
+Del paso 16, lo que hacen los pasos siguientes sobre esta navegación: **Procesar** de
 verdad (leer los PDF con la confirmación de su coste, fila 21) y, más adelante, el
 asistente local detrás de la caja del inicio, que hoy busca y dice que aún no contesta. Las
 demás piezas de `src/aurora/` esperan a la pantalla que las use. En Documentos, cuando el

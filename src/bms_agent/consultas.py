@@ -316,6 +316,9 @@ def _filas_listado(conn: sqlite3.Connection, donde: str = "",
         "AND estado <> 'resuelta'")}
     objetos_ = _objetos_por_factura(conn)
     razones = _razones_por_factura(conn)
+    # Contrato 2.3: la rev de cada factura, para que una orden desde una lista (apuntar un pago
+    # con su linea del banco) lleve la que la persona vio.
+    revs = dict(conn.execute("SELECT id, rev FROM factura").fetchall())
     total = campos.campo("factura", "total_cent")
     filas = []
     for f in conn.execute(f"SELECT * FROM v_factura_listado{' WHERE ' + donde if donde else ''}",
@@ -323,7 +326,8 @@ def _filas_listado(conn: sqlite3.Connection, donde: str = "",
         n_pendientes, aceptados = pendientes.get(f["id"], (0, 0))
         excepcion = excepciones_.get(f["id"])
         filas.append({
-            "id": f["id"], "numero": f["numero"], "sentido": f["sentido"], "tipo": f["tipo"],
+            "id": f["id"], "rev": revs.get(f["id"]), "numero": f["numero"],
+            "sentido": f["sentido"], "tipo": f["tipo"],
             "contraparte": f["contraparte"],
             "proveedor_id": f["proveedor_id"], "cliente_id": f["cliente_id"],
             "fecha_factura": f["fecha_factura"], "vencimiento": f["vencimiento"],
@@ -636,14 +640,37 @@ def detalle(conn: sqlite3.Connection, factura_id: int) -> dict[str, Any]:
 
 
 def _pagos_de_factura(conn: sqlite3.Connection, factura_id: int) -> list[dict[str, Any]]:
-    """Cada pago apuntado de una factura (propuesto, confirmado o retirado), con su rev."""
+    """Cada pago apuntado de una factura (propuesto, confirmado o retirado), con su rev.
+
+    Contrato 2.3 (paso 16): tambien quien lo confirmo o lo apunto (`persona`, solo si fue
+    una persona: lo que caso el banco solo no lleva nombre) y cuando, su `motivo` (lo que
+    escribio esa persona: texto), el documento que lo prueba (`evidencia_documento_id`), el
+    dia y el importe de su linea del banco, y de uno retirado, quien y por que
+    (`retirada_por`, `motivo_retirada`). Asi la ficha dice "apuntado a mano por Ana" y
+    ensena la linea al lado del pago.
+    """
     from . import pagos
 
+    personas = dict(conn.execute("SELECT id, nombre FROM usuario WHERE es_sistema = 0")
+                    .fetchall())
+    # Quien retiro un pago y por que: el motivo va en su evento (retirar no lo escribe en la
+    # fila), el ultimo de cada pago.
+    retiradas = {e["fila_id"]: (personas.get(e["usuario_id"]), e["motivo"]) for e in conn.execute(
+        "SELECT fila_id, usuario_id, motivo FROM evento WHERE tabla = 'aplicacion_pago' "
+        "AND tipo = 'pago_retirado' AND factura_id = ? ORDER BY id", (factura_id,))}
     return [{"id": a["id"], "rev": a["rev"], "estado": a["estado"], "fuente": a["fuente"],
              "metodo": a["metodo"], "importe_cent": a["importe_cent"],
              "importe": _euros(a["importe_cent"]), "fecha_pago": a["fecha_pago"],
              "movimiento_id": a["movimiento_id"], "regla": a["regla"],
-             "concepto": a["concepto_doc"], "contraparte": a["contraparte_nombre_doc"]}
+             "concepto": a["concepto_doc"], "contraparte": a["contraparte_nombre_doc"],
+             "persona": personas.get(a["confirmada_por"]),
+             "confirmada_en": a["confirmada_en"], "retirada_en": a["retirada_en"],
+             "motivo": a["motivo"], "evidencia_documento_id": a["evidencia_documento_id"],
+             "movimiento_fecha": a["fecha_contable"],
+             "movimiento_importe_cent": a["importe_movimiento"],
+             "movimiento_importe": _euros(a["importe_movimiento"]),
+             "retirada_por": retiradas.get(a["id"], (None, None))[0],
+             "motivo_retirada": retiradas.get(a["id"], (None, None))[1]}
             for a in pagos.de_factura(conn, factura_id)["aplicaciones"]]
 
 
@@ -1618,8 +1645,10 @@ def _horas_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any) -> dict[s
 # app escribe los textos en neerlandes o en ingles (bms_agent.textos). El 2.2 (paso
 # 16) anade las lecturas de Cuentas por cobrar y por pagar (la cartera, los pagos
 # propuestos, las lineas del banco) y del archivo (los documentos de una parte y la
-# descarga de cualquiera), lo del maestro en la vista de una parte y el filtro `tipo`.
-CONTRATO_V2 = "2.2"
+# descarga de cualquiera), lo del maestro en la vista de una parte y el filtro `tipo`. El
+# 2.3 (paso 16) anade a cada pago de una factura quien y por que, y su linea del banco, y a
+# la cartera lo que toca hasta el domingo (`esta_semana`) y los avisos de pago.
+CONTRATO_V2 = "2.3"
 
 
 def _pb(parte: int, todo: int) -> int | None:
@@ -2631,15 +2660,45 @@ def _suma(partidas: list[Any]) -> dict[str, Any]:
     return {"facturas": len(partidas), "importe_cent": importe, "importe": _euros(importe)}
 
 
-def _retenidas(conn: sqlite3.Connection) -> set[int]:
+def _retenidas(conn: sqlite3.Connection,
+               razones_por_factura: dict[int, list[dict[str, Any]]] | None = None) -> set[int]:
     """Las facturas retenidas: con un hallazgo activo que bloquea o retiene, o Bloqueadas
     (tambien si alguien la subio a mano)."""
-    salida = {factura_id for factura_id, razones in _razones_por_factura(conn).items()
+    if razones_por_factura is None:
+        razones_por_factura = _razones_por_factura(conn)
+    salida = {factura_id for factura_id, razones in razones_por_factura.items()
               if any(r["estado"] != "aceptado" and r["severidad"] in _RETIENEN
                      for r in razones)}
     salida.update(f[0] for f in conn.execute(
         "SELECT factura_id FROM factura_estado WHERE nivel = ?", (Prioridad.BLOQUEADA.value,)))
     return salida
+
+
+# Los avisos de pagos raros que la pantalla de cobrar o pagar ensena aparte (revision de
+# Aurora §8.4 c): pago distinto del saldo (K2), apuntado a mano sin rastro en el banco (K3),
+# pagada dos veces (K4), pagada estando Bloqueada (K5), banco y Exact no coinciden (K8) y
+# pagos en una factura que no cuenta (K9). K1 (vencida) ya es lo vencido, K6 es de un
+# extracto y K7 de una linea del banco (sin_casar): no son de una factura.
+AVISOS_PAGO = ("K2", "K3", "K4", "K5", "K8", "K9")
+
+
+def _avisos_pago(lectura: _Lectura, sentido: str, razones: dict[int, list[dict[str, Any]]],
+                 nombres: dict[int, str], columna: str) -> list[dict[str, Any]]:
+    """Por regla, las facturas de un sentido con ese aviso de pago activo (ni aceptado ni
+    cerrado), en el orden de AVISOS_PAGO; las reglas sin ninguna, fuera."""
+    por_regla: dict[str, list[Any]] = defaultdict(list)
+    for f in sorted(lectura.facturas, key=lambda f: f.id):
+        if f.sentido != sentido:
+            continue
+        reglas = {r["regla"] for r in razones.get(f.id, ()) if r["estado"] != "aceptado"}
+        for regla in AVISOS_PAGO:
+            if regla in reglas:
+                por_regla[regla].append(f)
+    return [{"regla": regla, "facturas": [
+                {"id": f.id, "numero": f.numero, "parte_id": getattr(f, columna),
+                 "parte": nombres.get(getattr(f, columna)) or f.parte}
+                for f in por_regla[regla]]}
+            for regla in AVISOS_PAGO if por_regla[regla]]
 
 
 def _plazo_corto(plazos: dict[str, Any]) -> dict[str, Any]:
@@ -2676,7 +2735,8 @@ def cartera(conn: sqlite3.Connection, sentido: str) -> dict[str, Any]:
     caja = flujo_caja.calcular(partidas, movidos, hoy)
     propias = [p for p in partidas if p.direccion == direccion]
     por_id = {f.id: f for f in lectura.facturas}
-    retenidas = _retenidas(conn)
+    razones_f = _razones_por_factura(conn)
+    retenidas = _retenidas(conn, razones_f)
 
     por_tramo: dict[str, list[Any]] = {clave: [] for clave, _d, _h in TRAMOS}
     por_tramo[SIN_FECHA] = []
@@ -2745,6 +2805,13 @@ def cartera(conn: sqlite3.Connection, sentido: str) -> dict[str, Any]:
     abonado = sum(f.pendiente_cent for f in abonos)
     movido = caja["real"]["cobrado" if entra else "pagado"]["mes"]
     del_dia = estado_del(conn)
+    # Lo que toca hasta el domingo: lo vencido y lo que vence esta semana (la ventana
+    # `semana` del panel), cada factura con si esta retenida y por que. En "Por pagar" es
+    # lo limpio y lo retenido de la semana (revision §8.4); suma lo vencido mas la semana.
+    domingo = date.fromisoformat(caja["ventanas"]["semana"][1])
+    semana = sorted((p for p in propias if p.fecha is not None and p.fecha <= domingo),
+                    key=lambda p: (p.fecha, p.factura_id))
+    niveles = dict(conn.execute("SELECT factura_id, nivel FROM factura_estado").fetchall())
     return {
         "sentido": sentido, "hoy": hoy.isoformat(),
         "estado_del": del_dia, "al_dia": del_dia == hoy.isoformat(),
@@ -2752,7 +2819,14 @@ def cartera(conn: sqlite3.Connection, sentido: str) -> dict[str, Any]:
         "fechas": caja["ventanas"],
         "movido_mes_cent": movido, "movido_mes": _euros(movido),
         "tramos": tramos,
-        "retenido": _suma([p for p in propias if p.factura_id in retenidas]),
+        # Contrato 2.3: lo retenido tambien factura a factura, con por que (en "Por pagar",
+        # lo que esta parado y no vence esta semana tambien se ve).
+        "retenido": {**_suma([p for p in propias if p.factura_id in retenidas]),
+                     "lista": [_fila_semana(p, por_id.get(p.factura_id), hoy, columna, nombres,
+                                            True, niveles, razones_f.get(p.factura_id, []))
+                               for p in sorted((p for p in propias if p.factura_id in retenidas),
+                                               key=lambda p: (p.fecha or date.max,
+                                                              p.factura_id))]},
         "sin_retener": _suma([p for p in propias if p.factura_id not in retenidas]),
         "partes": partes,
         "por_confirmar": {"pagos": len(propuestas),
@@ -2771,7 +2845,32 @@ def cartera(conn: sqlite3.Connection, sentido: str) -> dict[str, Any]:
         "sin_importe": sum(1 for f in lectura.facturas
                            if f.sentido == sentido and _cuenta(f) and f.pendiente_cent is None
                            and f.estado(hoy) in EN_JUEGO),
+        "esta_semana": {
+            "hasta": domingo.isoformat(),
+            "retenido": _suma([p for p in semana if p.factura_id in retenidas]),
+            "sin_retener": _suma([p for p in semana if p.factura_id not in retenidas]),
+            "facturas": [_fila_semana(p, por_id.get(p.factura_id), hoy, columna, nombres,
+                                      p.factura_id in retenidas, niveles,
+                                      razones_f.get(p.factura_id, []))
+                         for p in semana]},
+        "avisos_pago": _avisos_pago(lectura, sentido, razones_f, nombres, columna),
     }
+
+
+def _fila_semana(p: Any, factura: Any, hoy: date, columna: str, nombres: dict[int, str],
+                 retenida: bool, niveles: dict[int, str],
+                 razones: list[dict[str, Any]]) -> dict[str, Any]:
+    """Una factura de lo que toca hasta el domingo: lo que queda, su vencimiento, los dias
+    de retraso (negativos: los que faltan), si esta retenida y sus hallazgos pendientes."""
+    parte_id = getattr(factura, columna) if factura is not None else None
+    return {"id": p.factura_id, "numero": factura.numero if factura is not None else None,
+            "parte_id": parte_id,
+            "parte": (nombres.get(parte_id) if parte_id is not None else None)
+            or (factura.parte if factura is not None else None),
+            "pendiente_cent": p.importe_cent, "pendiente": _euros(p.importe_cent),
+            "vencimiento": _iso(p.fecha), "dias": None if p.fecha is None else (hoy - p.fecha).days,
+            "retenida": retenida, "nivel": niveles.get(p.factura_id),
+            "razones": [r for r in razones if r["estado"] != "aceptado"]}
 
 
 def _coincidencias(regla: str | None) -> dict[str, bool]:

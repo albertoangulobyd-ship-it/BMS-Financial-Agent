@@ -7,7 +7,7 @@ import { en } from '../src/i18n/en';
 import { es } from '../src/i18n/es';
 import type { Lang } from '../src/i18n/langs';
 import { nl } from '../src/i18n/nl';
-import { SECTION_VIEWS, sectionOfView, type SectionId, type ViewId } from '../src/screens/sections';
+import { SECTION_VIEWS, isOverviewView, sectionOfView, type SectionId, type ViewId } from '../src/screens/sections';
 import { ACCOUNT_MENU, settled } from './fixtures';
 
 export const TEXTS = { nl, en, es } as const;
@@ -47,7 +47,9 @@ export function viewHeading(page: Page, view: ViewId, lang: Lang = 'nl'): Locato
     const before = t.home.greeting.split('{name}')[0]!;
     return page.getByRole('heading', { level: 1, name: new RegExp(`^${escapeRegExp(before)}`) });
   }
-  return page.getByRole('heading', { level: 1, name: t.nav[view].label, exact: true });
+  // Los resumenes de Cuentas por cobrar y por pagar llevan el titulo de su entrada.
+  const name = isOverviewView(view) ? t.areas[view].label : t.nav[view].label;
+  return page.getByRole('heading', { level: 1, name, exact: true });
 }
 
 /** Abre una entrada (un clic: en la rueda o en la navegacion compacta). */

@@ -1,9 +1,11 @@
 // Las cuentas de la navegacion que piden hacer algo: facturas bloqueadas (Werklijst),
-// excepciones abiertas y cuentas por verificar (IBAN-controles). Salen del panel; si no se
-// pueden leer, no hay insignias (no se inventa un cero). Las ensenan las vistas de cada
-// seccion (shell/section-nav.tsx) y el inicio.
+// excepciones abiertas, cuentas por verificar (IBAN-controles) y, desde el paso 16, los pagos
+// que el banco propuso y esperan a una persona (el banco de cobrar y el de pagar). Salen del
+// panel y de las propuestas; si no se pueden leer, no hay insignias (no se inventa un cero).
+// Las ensenan las vistas de cada seccion (shell/section-nav.tsx) y el inicio.
 import { useCallback, useEffect, useState } from 'react';
 import { paths, type Panel } from '@/lib/api';
+import type { PaymentProposal } from '@/lib/api-types';
 import type { Session } from '@/lib/session';
 import type { ViewId } from '@/screens/registry';
 
@@ -25,16 +27,32 @@ export function countsFromPanel(panel: Panel): BadgeCounts {
   };
 }
 
+/** Los pagos propuestos que esperan, por lado: los cobros en el banco de cobrar y los pagos
+ *  en el de pagar. */
+export function countsFromProposals(proposals: readonly PaymentProposal[]): BadgeCounts {
+  return {
+    'bank-in': proposals.filter((p) => p.factura.sentido === 'saliente').length,
+    'bank-out': proposals.filter((p) => p.factura.sentido === 'entrante').length,
+  };
+}
+
 export function useBadgeCounts(session: Session | null, version = 0): [BadgeCounts, () => void] {
   const [counts, setCounts] = useState<BadgeCounts>({});
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!session) return;
     let alive = true;
-    session.api.get<{ panel: Panel }>(paths.panel).then(
-      (r) => alive && setCounts(countsFromPanel(r.panel)),
-      () => alive && setCounts({})
-    );
+    // Cada lectura da sus insignias; la que falla no pone ninguna (ni un cero inventado).
+    void Promise.allSettled([
+      session.api.get<{ panel: Panel }>(paths.panel),
+      session.api.get<{ propuestas: PaymentProposal[] }>(paths.proposals),
+    ]).then(([panel, proposals]) => {
+      if (!alive) return;
+      setCounts({
+        ...(panel.status === 'fulfilled' ? countsFromPanel(panel.value.panel) : {}),
+        ...(proposals.status === 'fulfilled' ? countsFromProposals(proposals.value.propuestas) : {}),
+      });
+    });
     return () => {
       alive = false;
     };

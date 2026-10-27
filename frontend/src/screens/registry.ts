@@ -5,6 +5,7 @@
 // de la seccion donde se esta, con sus migas y "Volver" (shell/navigation.tsx). Una ruta que
 // no esta aqui no se abre (isValidRoute).
 import {
+  Banknote,
   Building2,
   ClipboardList,
   FileInput,
@@ -13,6 +14,7 @@ import {
   FolderOpen,
   House,
   Landmark,
+  LayoutGrid,
   ListChecks,
   MapPin,
   Percent,
@@ -86,11 +88,15 @@ const VIEW_ICONS: Readonly<Record<ViewId, LucideIcon>> = {
   'work-queue': ListChecks,
   exceptions: TriangleAlert,
   'cash-flow': Wallet,
+  receivables: LayoutGrid,
   'invoices-out': FileOutput,
+  'bank-in': Banknote,
   clients: Users,
   objects: MapPin,
   'client-pos': ClipboardList,
+  payables: LayoutGrid,
   'invoices-in': FileInput,
+  'bank-out': Banknote,
   providers: Truck,
   'provider-pos': ClipboardList,
   'iban-checks': Landmark,

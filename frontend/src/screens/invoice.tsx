@@ -19,7 +19,7 @@ import { fmt, useT, type Lang } from '@/i18n';
 import { directionLabel, paymentStateLabel, ruleText, stateLabel, verdict } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { InvoiceDetail, Person } from '@/lib/api-types';
-import { formatDateProse, formatMoney } from '@/lib/format';
+import { formatDateProse, formatMoney, todayIso } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
 import { FieldsTable } from './invoice-fields';
@@ -36,6 +36,9 @@ import {
   ReferencesList,
   RelationsList,
 } from './invoice-sections';
+import { InvoicePayments, PaidSourceLine } from './invoice-payments';
+import { DueText } from './money-overview';
+import { RecordPaymentButton, type RecordTarget } from './payment-actions';
 import { useLoad } from './use-load';
 
 export function InvoiceScreen({ id, navKey }: { id: number; navKey: string }) {
@@ -100,10 +103,36 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
   });
   const openFindings = findings.filter((h) => h.estado !== 'aceptado');
   const reason = priorityReason(f, lang);
+  // Apuntar un pago ya hecho (paso 16): en la cabecera, junto al original, si algo queda.
+  const providerId = value('proveedor_id') as number | null;
+  const clientId = value('cliente_id') as number | null;
+  const left = e?.pendiente_cent ?? null;
+  const record: RecordTarget | null =
+    !f.anulada && total !== null && left !== null && left !== 0 && (e?.estado_pago === 'pendiente' || e?.estado_pago === 'vencida')
+      ? {
+          id: f.id,
+          rev: f.rev,
+          sentido: f.sentido,
+          numero: f.numero,
+          pendiente_cent: left,
+          total_cent: total,
+          party: f.sentido === 'saliente' ? (clientId ? { kind: 'client', id: clientId } : null) : providerId ? { kind: 'provider', id: providerId } : null,
+        }
+      : null;
 
   return (
     <Screen>
-      <PageHeader title={title} description={description} meta={direction ?? undefined} action={<OriginalButton invoice={f} />} />
+      <PageHeader
+        title={title}
+        description={description}
+        meta={direction ?? undefined}
+        action={
+          <div className='flex flex-wrap items-center gap-2'>
+            <OriginalButton invoice={f} />
+            {record && <RecordPaymentButton target={record} onDone={reload} />}
+          </div>
+        }
+      />
 
       {/* Cinco datos en una fila a 1440 px; mas estrecho, la prioridad arriba y los demas
           de dos en dos, sin huecos. */}
@@ -119,6 +148,12 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
         </Fact>
         <Fact label={t.invoice.dueLabel}>
           <DateText value={f.vencimiento?.fecha} prose />
+          {/* "12 dagen te laat" o "over 4 dagen" mientras quede algo por cobrar o pagar. */}
+          {(e?.estado_pago === 'pendiente' || e?.estado_pago === 'vencida') && f.vencimiento?.fecha && (
+            <span className='mt-1 block'>
+              <DueText due={f.vencimiento.fecha} today={todayIso()} />
+            </span>
+          )}
         </Fact>
         <Fact label={t.invoice.paymentLabel}>
           <StatusPill group='pago' state={e?.estado_pago} />
@@ -127,6 +162,8 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
               {fmt(t.invoice.outstanding, { amount: formatMoney(e.pendiente_cent) })}
             </span>
           )}
+          {/* "Pagada" siempre con su fuente: el banco, Exact o una persona (y K3). */}
+          <PaidSourceLine invoice={f} className='mt-1' />
         </Fact>
         <Fact label={t.invoice.reviewLabel}>
           <StatusPill group='revision' state={e?.estado_revision} />
@@ -134,6 +171,8 @@ function InvoiceView({ invoice: f, people, reload }: { invoice: InvoiceDetail; p
       </dl>
 
       {f.anulada && <p className='mb-6 rounded-md border border-border bg-muted px-4 py-3'>{t.invoice.cancelled}</p>}
+
+      <InvoicePayments invoice={f} onDone={reload} />
 
       <section aria-labelledby='attention' className='mb-8'>
         {/* Lo que dice el sistema va con lo que necesita atencion: la parte mas seria en su

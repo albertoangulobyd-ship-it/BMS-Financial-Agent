@@ -96,9 +96,10 @@ test('het begin: vier kaarten en wat als eerste moet, alleen het geblokkeerde en
   const twin = next.filter({ hasText: /JV-\d{4}-\d{3}/ });
   await expect(twin).toHaveCount(1);
   await expect(twin).toContainText('2 facturen met dit nummer');
-  // De kaarten van het geld zeggen welke facturen ze openen; "Vervallen" opent de vervallen.
-  await expect(page.getByRole('main').getByRole('button', { name: 'Verkoopfacturen', exact: true })).toBeVisible();
-  await expect(page.getByRole('main').getByRole('button', { name: 'Inkoopfacturen', exact: true })).toBeVisible();
+  // De kaarten van het geld openen hun overzicht (paso 16: Te ontvangen en Te betalen, met
+  // dezelfde cijfers); "Vervallen" opent de vervallen.
+  await expect(page.getByRole('main').getByRole('button', { name: 'Te ontvangen · Overzicht', exact: true })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: 'Te betalen · Overzicht', exact: true })).toBeVisible();
   // Wat in Start woont: de werklijst, de uitzonderingen en de kasstroom.
   const also = page.getByRole('navigation', { name: TEXTS.nl.home.alsoHere });
   await expect(also.getByRole('button')).toHaveCount(3);

@@ -10,7 +10,9 @@ describe('buscar y abrir (la caja del inicio y Ctrl+K)', () => {
   it('una pantalla por su nombre en cualquiera de los tres idiomas, dicha en el de la app', () => {
     const vat = screenResults('iva', nl, everyone);
     expect(vat[0]).toMatchObject({ kind: 'screens', label: 'Btw', view: 'vat', route: { screen: 'vat' } });
-    expect(screenResults('receivables', nl, everyone).map((r) => r.view)).toEqual(['invoices-out', 'clients', 'objects', 'client-pos']);
+    // Las seis de Te ontvangen (su nombre en ingles); la primera, el resumen ("Receivables"
+    // es tambien su titulo).
+    expect(screenResults('receivables', nl, everyone).map((r) => r.view)).toEqual(['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos']);
     expect(screenResults('werklijst', MESSAGES.es, everyone)[0]!.label).toBe('Cola de trabajo');
     expect(screenResults('', nl, everyone)).toEqual([]);
   });

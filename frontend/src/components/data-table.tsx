@@ -60,7 +60,9 @@ export function DataTable<Row>({
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
     <PingScope scope={ping}>
-    <div className='overflow-x-auto rounded-md border border-border bg-card'>
+    {/* relative: lo que va oculto para el lector de pantalla (sr-only, absoluto) se queda en la
+        caja que se desplaza; si no, una tabla ancha en el movil ensanchaba la pagina. */}
+    <div className='relative overflow-x-auto rounded-md border border-border bg-card'>
       <table className='w-full border-collapse text-left'>
         <caption className='sr-only'>{caption}</caption>
         <thead>

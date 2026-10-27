@@ -36,10 +36,11 @@ describe('las seis entradas (paso 16)', () => {
     expect(sectionOf('settings')).toBeNull();
     // Donde decidio el dueno: Inicio con la cola, las excepciones y el flujo; cobrar con las
     // ventas, los clientes, los Objects y las PO de clientes; pagar con las compras, los
-    // proveedores, sus PO y los IBAN; Procesar con leer facturas e importar.
+    // proveedores, sus PO y los IBAN; Procesar con leer facturas e importar. Paso 16 (Cuentas
+    // por cobrar y por pagar): cada una abre con su resumen y lleva su banco tras las facturas.
     expect(SECTIONS.find((s) => s.id === 'home')!.views).toEqual(['home', 'work-queue', 'exceptions', 'cash-flow']);
-    expect(SECTIONS.find((s) => s.id === 'receivables')!.views).toEqual(['invoices-out', 'clients', 'objects', 'client-pos']);
-    expect(SECTIONS.find((s) => s.id === 'payables')!.views).toEqual(['invoices-in', 'providers', 'provider-pos', 'iban-checks']);
+    expect(SECTIONS.find((s) => s.id === 'receivables')!.views).toEqual(['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos']);
+    expect(SECTIONS.find((s) => s.id === 'payables')!.views).toEqual(['payables', 'invoices-in', 'bank-out', 'providers', 'provider-pos', 'iban-checks']);
     expect(SECTIONS.find((s) => s.id === 'process')!.views).toEqual(['import', 'read-invoices']);
   });
 
@@ -62,7 +63,7 @@ describe('las seis entradas (paso 16)', () => {
     expect(visibleSections(everyone)).toEqual([...SECTION_IDS]);
     expect(visibleSections(readOnly)).toEqual(['home', 'receivables', 'payables', 'documents', 'vat']);
     expect(visibleViews('process', readOnly)).toEqual([]);
-    expect(visibleViews('receivables', readOnly)).toEqual(['invoices-out', 'clients', 'objects', 'client-pos']);
+    expect(visibleViews('receivables', readOnly)).toEqual(['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos']);
   });
 
   it('cada ficha se abre en una vista que existe', () => {

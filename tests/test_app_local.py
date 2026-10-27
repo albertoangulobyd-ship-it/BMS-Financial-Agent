@@ -453,10 +453,18 @@ def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> No
             "btw_lista_para_revision"} <= usadas
     assert usadas <= set(servicios.ACCIONES), usadas - set(servicios.ACCIONES)
     # Pagar, aprobar un pago, presentar el btw o crear una factura no existen en
-    # servicios.py, y la app no los nombra (marcar_pagada apunta lo pagado fuera: tampoco
-    # es una orden de estas pantallas).
-    for prohibida in ("pagar", "aprobar", "presentar", "crear_factura", "marcar_pagada"):
+    # servicios.py, y la app no los nombra.
+    for prohibida in ("pagar", "aprobar", "presentar", "crear_factura"):
         assert not any(prohibida in u for u in usadas), prohibida
+    # Paso 16 (Cuentas por cobrar y por pagar, revision de Aurora §8.4 y decision 9B): la
+    # app confirma o retira lo que el banco propuso y apunta un pago que YA se hizo, con su
+    # motivo (marcar_pagada; hasta el paso 16 solo estaba en la consola). Ninguna paga ni
+    # aprueba nada, y las tres salen de un solo sitio, el de sus dialogos.
+    pagos = {"confirmar_pago", "retirar_pago", "marcar_pagada"}
+    assert pagos <= usadas
+    donde = {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
+             if any(f"action='{a}'" in f.read_text(encoding="utf-8") for a in pagos)}
+    assert donde == {"src/screens/payment-actions.tsx"}, donde
     # Paso 15 (B2): anotar la aangifte que una persona ya presento en el portal de la
     # Belastingdienst (con su referencia) es una orden de estado, y solo la da la ficha del
     # trimestre: el programa no presenta nada.

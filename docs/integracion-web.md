@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.2", ...}
+{"contrato": "2.3", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.2`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.3`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -369,6 +369,25 @@ llevado: solo cuentan las deudas (`reglas.pagos.vence`), y un abono, de quien
 sea, no es un cobro con fecha. Lo que queda de un abono sin enlazar lo da la
 cartera aparte (`abonos_sin_enlazar`), con su aviso R4.
 
+**Lo que añadió el 2.3 (paso 16, Cuentas por cobrar y por pagar en la app).** Claves
+nuevas; ninguna cambia ni se quita:
+
+- cada pago de la ficha de una factura (`pagos`) lleva quién lo confirmó o lo apuntó
+  (`persona`: solo si fue una persona; lo que casó el banco solo va con `null`) y
+  cuándo (`confirmada_en`), cuándo se retiró (`retirada_en`), lo que escribió esa
+  persona (`motivo`: texto), el documento que lo prueba (`evidencia_documento_id`) y
+  el día y el importe de su línea del banco (`movimiento_fecha`,
+  `movimiento_importe_cent`) y, de uno retirado, quién y por qué (`retirada_por`,
+  `motivo_retirada`, de su evento). Con eso la app dice «apuntado a mano por Ana» y enseña
+  la línea del banco al lado de cada pago;
+- cada factura de las listas y de la búsqueda lleva su `rev`, para que una orden dada
+  desde una lista (apuntar un pago enlazando una línea del banco) lleve la que se vio;
+- la cartera (`GET /api/v2/cartera`) lleva `esta_semana`, lo que toca hasta el domingo
+  (lo vencido y lo que vence esta semana), con lo retenido y lo que no y cada factura
+  con por qué; en `retenido.lista`, cada factura retenida con su razón (también las que
+  vencen después); y `avisos_pago`, las facturas de ese sentido con un aviso de pago raro
+  activo (K2, K3, K4, K5, K8 o K9). Abajo, «La cartera».
+
 ### Cuatro reglas que valen para todo
 
 **Importes en enteros, con su texto al lado.** `_cent` son céntimos de euro
@@ -415,7 +434,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.2",
+  "contrato": "2.3",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -798,7 +817,10 @@ GET /api/v2/cartera?sentido=saliente
     "movido_mes_cent",                // lo cobrado (o pagado) que el banco movió este mes
     "tramos": [ {"clave", "dias_desde", "dias_hasta", "vence_desde", "vence_hasta",
                  "facturas", "importe_cent"} ],
-    "retenido": {"facturas", "importe_cent"},      // con algo que bloquea o retiene
+    "retenido": {"facturas", "importe_cent",       // con algo que bloquea o retiene
+                 "lista": [ {"id", "numero", "parte_id", "parte", "pendiente_cent",
+                             "vencimiento", "dias", "retenida", "nivel", "razones"} ]},
+                                      // 2.3: cada una, la que vence antes primero
     "sin_retener": {"facturas", "importe_cent"},
     "partes": [ {"id", "nombre", "facturas", "vencidas", "pendiente_cent", "vencido_cent",
                  "retenido_cent", "mas_antigua_dias", "nivel", "puntos", "razones",
@@ -808,7 +830,15 @@ GET /api/v2/cartera?sentido=saliente
     "abonos_sin_enlazar": {"facturas", "importe_cent",
                            "lista": [ {"id", "numero", "contraparte", "parte_id", "parte",
                                        "fecha_factura", "pendiente_cent"} ]},
-    "sin_importe"                     // facturas en juego sin importe en euros (X1)
+    "sin_importe",                    // facturas en juego sin importe en euros (X1)
+    "esta_semana": {"hasta",          // 2.3: el domingo (= fechas.semana[1])
+                    "retenido": {"facturas", "importe_cent"},
+                    "sin_retener": {"facturas", "importe_cent"},
+                    "facturas": [ {…como retenido.lista} ]},
+                                      // lo vencido y lo que vence hasta el domingo:
+                                      // suma vencido_cent + semana_cent
+    "avisos_pago": [ {"regla",        // 2.3: K2, K3, K4, K5, K8, K9, en ese orden
+                      "facturas": [ {"id", "numero", "parte_id", "parte"} ]} ]
   }}
 ```
 

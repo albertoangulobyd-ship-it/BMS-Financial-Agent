@@ -6,7 +6,7 @@
 // idiomas (los dos temas, en themes.spec.ts).
 import type { Locator, Page } from '@playwright/test';
 import { SECTION_IDS, SECTION_VIEWS, VIEW_IDS } from '../src/screens/sections';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, outsideTheWindow } from './fixtures';
 import {
   TEXTS,
   back,
@@ -278,12 +278,14 @@ test('Ctrl+K abre cualquier pantalla o ficha escribiendo', async ({ page, baseUr
   await expect(dialog).toBeVisible();
   const input = dialog.getByRole('combobox');
   await expect(input).toBeFocused();
-  // Una pantalla por su nombre en cualquier idioma ("receivables" en neerlandes tambien).
+  // Una pantalla por su nombre en cualquier idioma ("receivables" en neerlandes tambien): la
+  // primera, el resumen de Te ontvangen (paso 16).
   await input.fill('receivables');
-  await expect(dialog.getByRole('option').first()).toContainText('Verkoopfacturen');
+  await expect(dialog.getByRole('option').first()).toContainText('Overzicht');
+  await expect(dialog.getByRole('option').first()).toContainText('Te ontvangen');
   await input.press('Enter');
   await expect(dialog).toBeHidden();
-  await expect(viewHeading(page, 'invoices-out')).toBeVisible();
+  await expect(viewHeading(page, 'receivables')).toBeVisible();
   // Una ficha: un cliente por su nombre, dentro de su seccion.
   await page.getByRole('button', { name: 'Zoeken' }).click();
   await input.fill('demodorp');
@@ -426,41 +428,6 @@ test('una sesion que caduca vuelve a la entrada con el aviso', async ({ page, ba
   await expect(page.getByRole('status').filter({ hasText: 'Je sessie is beëindigd' })).toBeVisible();
 });
 
-/**
- * Lo que se sale de la ventana por los lados: cada elemento visible que pasa del borde y no
- * esta dentro de algo que se desplaza en horizontal (una tabla en su caja). Lo que recorta un
- * overflow hidden no cuenta como desplazable: tambien es estar fuera.
- */
-async function outsideTheWindow(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const width = window.innerWidth;
-    const out: string[] = [];
-    if (document.documentElement.scrollWidth > width) out.push(`html ${document.documentElement.scrollWidth}`);
-    if (document.body.scrollWidth > width) out.push(`body ${document.body.scrollWidth}`);
-    const scrolls = (el: Element) => {
-      const x = getComputedStyle(el).overflowX;
-      return x === 'auto' || x === 'scroll';
-    };
-    for (const el of Array.from(document.body.querySelectorAll('*'))) {
-      const box = el.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) continue;
-      if (box.right <= width + 1 && box.left >= -1) continue;
-      let inside = false;
-      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
-        if (scrolls(a)) {
-          inside = true;
-          break;
-        }
-      }
-      if (!inside) {
-        const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 30) ?? '';
-        out.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(box.left)}-${Math.round(box.right)}`);
-      }
-    }
-    return out;
-  });
-}
-
 test('a 1024 px las seis entradas caben en una fila y nada se sale de la ventana', async ({ page, baseUrl }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto(`${baseUrl}/app`);
@@ -527,9 +494,9 @@ for (const size of [
       await expect.poll(() => activeWheelEntry(page)).not.toBe('Start');
       await expect(viewHeading(page, 'home')).toBeVisible();
 
-      // Un toque en una entrada la abre.
+      // Un toque en una entrada la abre (Te betalen, con su resumen: paso 16).
       await sectionButton(page, 'payables').tap();
-      await expect(viewHeading(page, 'invoices-in')).toBeVisible();
+      await expect(viewHeading(page, 'payables')).toBeVisible();
       // Fuera del inicio, las seis en pequeno, enteras en la ventana y a un toque.
       const compact = mainMenu(page).getByRole('button');
       await expect(compact).toHaveCount(6);
@@ -539,14 +506,14 @@ for (const size of [
         expect(b.x + b.width).toBeLessThanOrEqual(size.width);
         expect(b.height).toBeGreaterThanOrEqual(24);
       }
-      expect(await outsideTheWindow(page), 'inkoopfacturen').toEqual([]);
-      await page.getByRole('table').getByRole('button').first().tap();
+      expect(await outsideTheWindow(page), 'te betalen').toEqual([]);
+      await page.getByTestId('week-clean').getByRole('button').first().tap();
       await expect(page.getByRole('button', { name: 'Terug', exact: true })).toBeVisible();
       expect(await outsideTheWindow(page), 'factuur').toEqual([]);
       await expectAccessible(page, `movil ${size.width}`);
       await capture(page, `nl-mobile-invoice-${size.width}`);
       await page.getByRole('button', { name: 'Terug', exact: true }).tap();
-      await expect(viewHeading(page, 'invoices-in')).toBeVisible();
+      await expect(viewHeading(page, 'payables')).toBeVisible();
       await sectionButton(page, 'documents').tap();
       await expect(viewHeading(page, 'documents')).toBeVisible();
       await setLang(page, 'es');

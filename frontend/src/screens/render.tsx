@@ -7,6 +7,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState } from '@/components/states';
 import { useT } from '@/i18n';
 import { useCan } from '@/lib/session';
+import { BankScreen } from './bank';
 import { CashFlowScreen } from './cash-flow';
 import { DocumentsScreen, PartyDocumentsScreen } from './documents';
 import { ExceptionScreen } from './exception';
@@ -16,6 +17,7 @@ import { IbanChecksScreen } from './iban-checks';
 import { ImportScreen } from './import';
 import { InvoiceScreen } from './invoice';
 import { InvoiceListScreen } from './invoice-list';
+import { MoneyOverviewScreen } from './money-overview';
 import { ObjectScreen } from './object';
 import { ObjectsScreen } from './objects';
 import { PartyScreen } from './party';
@@ -39,6 +41,14 @@ function ViewScreen({ id, navKey }: { id: ViewId; navKey: string }): ReactNode {
       return <ExceptionsScreen />;
     case 'cash-flow':
       return <CashFlowScreen />;
+    case 'receivables':
+      return <MoneyOverviewScreen key={id} side='saliente' navKey={navKey} />;
+    case 'payables':
+      return <MoneyOverviewScreen key={id} side='entrante' navKey={navKey} />;
+    case 'bank-in':
+      return <BankScreen key={id} side='saliente' />;
+    case 'bank-out':
+      return <BankScreen key={id} side='entrante' />;
     case 'invoices-in':
     case 'invoices-out':
       return <InvoiceListScreen key={id} navId={id} navKey={navKey} />;

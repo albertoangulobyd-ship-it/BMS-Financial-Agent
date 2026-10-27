@@ -1,11 +1,12 @@
 // Inicio (paso 16): la cara de Aurora sobre el motor de verdad. Arriba, el saludo con el nombre
 // de quien entro (/api/v2/yo), el orbe y la rueda con las seis entradas, y la caja que busca
 // (/api/v2/buscar y las listas: abre pantallas y fichas; todavia no contesta preguntas, y lo
-// dice). Debajo, cuatro tarjetas tranquilas del panel (Atencion, Por cobrar, Por pagar, el IVA
-// del trimestre), "Lo primero" solo cuando algo esta bloqueado o es urgente (cinco filas como
-// mucho) y la entrada a lo que vive en Inicio: la cola de trabajo, las excepciones y el flujo
-// de caja. Se vuelve a leer cada minuto mientras la ventana esta a la vista, y despues de cada
-// orden, sin saltar a "Laden…".
+// dice). Debajo, cuatro tarjetas tranquilas (Atencion y el IVA del trimestre, del panel; Por
+// cobrar y Por pagar, de la cartera: la misma lectura que la cabecera de su pantalla, asi que
+// dicen los mismos centimos), "Lo primero" solo cuando algo esta bloqueado o es urgente (cinco
+// filas como mucho) y la entrada a lo que vive en Inicio: la cola de trabajo, las excepciones y
+// el flujo de caja. Se vuelve a leer cada minuto mientras la ventana esta a la vista, y despues
+// de cada orden, sin saltar a "Laden…".
 import { ArrowRight, CircleCheck, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { WorkspaceComposer } from '@/aurora/composer';
@@ -21,6 +22,7 @@ import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
 import { paths, type InvoiceRow, type Panel } from '@/lib/api';
+import type { Cartera } from '@/lib/api-types';
 import { formatDate, formatDateProse, quarterLabel } from '@/lib/format';
 import { RESULT_KINDS, type QuickResult } from '@/lib/quick-search';
 import { useRefresh } from '@/lib/refresh';
@@ -32,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { useNav } from '@/shell/navigation';
 import { badgeFor, countsFromPanel } from '@/shell/use-badges';
 import { useQuickSearch } from '@/shell/use-quick-search';
+import type { InvoiceFilter } from './money-model';
 import { recordRoute, visibleSections, visibleViews, type SectionId, type ViewId } from './registry';
 import { useLoad } from './use-load';
 import { deadlineState, overdueQuarters } from './vat';
@@ -100,6 +103,8 @@ export function HomeScreen() {
       Promise.all([
         session!.api.get<{ panel: Panel }>(paths.panel).then((r) => r.panel),
         session!.api.get<{ facturas: InvoiceRow[] }>(paths.invoices).then((r) => r.facturas),
+        session!.api.get<{ cartera: Cartera }>(paths.cartera, { sentido: 'saliente' }).then((r) => r.cartera),
+        session!.api.get<{ cartera: Cartera }>(paths.cartera, { sentido: 'entrante' }).then((r) => r.cartera),
       ]).then((data) => {
         setLoadedAt(Date.now());
         return data;
@@ -202,7 +207,14 @@ export function HomeScreen() {
         {/* Un resumen: nada late aqui (lo que late esta en la Werklijst y en la ficha). */}
         {state.status === 'ready' && (
           <PingScope scope='none'>
-            <HomeContent panel={state.data[0]} invoices={state.data[1]} loadedAt={loadedAt} sections={sections} />
+            <HomeContent
+              panel={state.data[0]}
+              invoices={state.data[1]}
+              receivable={state.data[2]}
+              payable={state.data[3]}
+              loadedAt={loadedAt}
+              sections={sections}
+            />
           </PingScope>
         )}
       </section>
@@ -294,11 +306,16 @@ function AskResults({
 function HomeContent({
   panel,
   invoices,
+  receivable,
+  payable,
   loadedAt,
   sections,
 }: {
   panel: Panel;
   invoices: InvoiceRow[];
+  /** Las carteras de cobrar y de pagar (las mismas que las cabeceras de sus pantallas). */
+  receivable: Cartera;
+  payable: Cartera;
   loadedAt: number | null;
   sections: SectionId[];
 }) {
@@ -313,29 +330,26 @@ function HomeContent({
   const overdue = overdueQuarters(vat);
   const counts = countsFromPanel(panel);
 
-  const link = (view: ViewId, label: string) => (
-    <Button variant='link' size='sm' className='h-auto px-0 py-0 text-xs' onClick={() => nav.go(view)}>
+  const link = (view: ViewId, label: string, ariaLabel?: string) => (
+    <Button variant='link' size='sm' className='h-auto px-0 py-0 text-xs' aria-label={ariaLabel} onClick={() => nav.go(view)}>
       {label}
       <ArrowRight className='ml-1 h-3.5 w-3.5' aria-hidden='true' />
     </Button>
   );
-  // "Vencido" abre la lista de su sentido con el filtro de vencidas ya puesto.
-  const overdueList = (view: 'invoices-in' | 'invoices-out') => () => {
-    rememberView(view, `${view}-filter`, 'vencida');
+  // Una fila de una tarjeta abre la lista de su sentido con su ficha puesta (la misma suma).
+  const listWith = (view: 'invoices-in' | 'invoices-out', filter: InvoiceFilter) => () => {
+    rememberView(view, `${view}-filter`, filter);
+    rememberView(view, `${view}-query`, '');
     nav.go(view);
   };
   const showIn = sections.includes('payables');
   const showOut = sections.includes('receivables');
-  // A cuantas empresas les queda algo (de las facturas que ya lee el inicio): lleva a su lista.
-  const owing = (direction: InvoiceRow['sentido'], key: 'cliente_id' | 'proveedor_id') =>
-    new Set(
-      invoices
-        .filter((f) => f.sentido === direction && f.cuenta && (f.estado_pago === 'pendiente' || f.estado_pago === 'vencida'))
-        .map((f) => f[key])
-        .filter((id) => id !== null)
-    ).size;
-  const clientsOwing = owing('saliente', 'cliente_id');
-  const providersOwed = owing('entrante', 'proveedor_id');
+  // Cuantas empresas tienen algo pendiente: las de la cartera (la fila sin empresa no cuenta).
+  const owing = (c: Cartera) => c.partes.filter((p) => p.id !== null).length;
+  const toConfirm = (c: Cartera, view: 'bank-in' | 'bank-out', label: string) =>
+    c.por_confirmar.pagos > 0
+      ? [{ label: t.home.toConfirm, value: c.por_confirmar.pagos, onSelect: () => nav.go(view), selectLabel: label }]
+      : [];
 
   return (
     <div className='flex flex-col gap-8'>
@@ -364,47 +378,47 @@ function HomeContent({
           />
           <SummaryCard
             title={t.overview.moneyIn.title}
-            value={<Money cents={panel.dinero_entra.pendiente_cent} />}
-            caption={fmt(t.overview.money.caption, { n: panel.dinero_entra.facturas })}
+            value={<Money cents={receivable.totales.pendiente_cent} />}
+            caption={fmt(t.home.captionIn, { n: receivable.totales.facturas, k: owing(receivable) })}
             rows={[
               {
                 label: t.overview.money.overdue,
-                value: <Money cents={panel.dinero_entra.vencido_cent} />,
-                status: panel.dinero_entra.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
-                onSelect: showOut ? overdueList('invoices-out') : undefined,
+                value: <Money cents={receivable.totales.vencido_cent} />,
+                status: receivable.totales.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
+                onSelect: showOut ? listWith('invoices-out', 'vencida') : undefined,
                 selectLabel: t.home.overdueOut,
               },
-              { label: t.overview.money.next30, value: <Money cents={panel.dinero_entra.proximos_30_cent} /> },
               {
-                label: t.home.clientsOpen,
-                value: clientsOwing,
-                onSelect: showOut ? () => nav.go('clients') : undefined,
-                selectLabel: t.home.showClients,
+                label: t.overview.money.next30,
+                value: <Money cents={receivable.totales.proximos_30_cent} />,
+                onSelect: showOut ? listWith('invoices-out', 'next30') : undefined,
+                selectLabel: t.home.showNext30Out,
               },
+              ...toConfirm(receivable, 'bank-in', t.home.showToConfirmIn),
             ]}
-            action={showOut ? link('invoices-out', t.overview.open.invoicesOut) : undefined}
+            action={showOut ? link('receivables', t.nav.receivables.label, `${t.areas.receivables.label} · ${t.nav.receivables.label}`) : undefined}
           />
           <SummaryCard
             title={t.overview.moneyOut.title}
-            value={<Money cents={panel.dinero_sale.pendiente_cent} />}
-            caption={fmt(t.overview.money.caption, { n: panel.dinero_sale.facturas })}
+            value={<Money cents={payable.totales.pendiente_cent} />}
+            caption={fmt(t.home.captionOut, { n: payable.totales.facturas, k: owing(payable) })}
             rows={[
               {
                 label: t.overview.money.overdue,
-                value: <Money cents={panel.dinero_sale.vencido_cent} />,
-                status: panel.dinero_sale.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
-                onSelect: showIn ? overdueList('invoices-in') : undefined,
+                value: <Money cents={payable.totales.vencido_cent} />,
+                status: payable.totales.vencido_cent > 0 ? { group: 'pago', state: 'vencida' } : undefined,
+                onSelect: showIn ? listWith('invoices-in', 'vencida') : undefined,
                 selectLabel: t.home.overdueIn,
               },
-              { label: t.overview.money.thisWeek, value: <Money cents={panel.dinero_sale.semana_cent} /> },
               {
-                label: t.home.providersOpen,
-                value: providersOwed,
-                onSelect: showIn ? () => nav.go('providers') : undefined,
-                selectLabel: t.home.showProviders,
+                label: t.overview.money.thisWeek,
+                value: <Money cents={payable.totales.semana_cent} />,
+                onSelect: showIn ? listWith('invoices-in', 'week') : undefined,
+                selectLabel: t.home.showThisWeekIn,
               },
+              ...toConfirm(payable, 'bank-out', t.home.showToConfirmOut),
             ]}
-            action={showIn ? link('invoices-in', t.overview.open.invoicesIn) : undefined}
+            action={showIn ? link('payables', t.nav.payables.label, `${t.areas.payables.label} · ${t.nav.payables.label}`) : undefined}
           />
           <SummaryCard
             title={t.overview.vat.title}

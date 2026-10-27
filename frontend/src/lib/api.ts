@@ -109,6 +109,10 @@ export const paths = {
   clientDocuments: (id: number) => `/api/v2/clientes/${checkId(id)}/documentos`,
   providerDocuments: (id: number) => `/api/v2/proveedores/${checkId(id)}/documentos`,
   documentOriginal: (id: number) => `/api/v2/documentos/${checkId(id)}/original`,
+  // Paso 16: Cuentas por cobrar y por pagar (con ?sentido= o ?signo=).
+  cartera: '/api/v2/cartera',
+  proposals: '/api/v2/pagos/propuestas',
+  bankLines: '/api/v2/movimientos',
   objects: '/api/v2/objetos',
   object: (id: number) => `/api/v2/objetos/${checkId(id)}`,
   purchaseOrders: '/api/v2/ordenes',
@@ -275,6 +279,8 @@ export interface Panel {
 /** Una fila de GET /api/v2/facturas (la lista y la busqueda). */
 export interface InvoiceRow {
   id: number;
+  /** Contrato 2.3: la rev de la factura (para una orden dada desde una lista). */
+  rev?: number;
   numero: string | null;
   sentido: 'entrante' | 'saliente';
   tipo: string;

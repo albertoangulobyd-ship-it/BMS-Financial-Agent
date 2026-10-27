@@ -1,9 +1,10 @@
 // Los 3 clics (revision de Aurora, §5): cada tarea de la tabla, desde el inicio, con como mucho
 // los clics de su columna "Objetivo". Se cuentan los clics de verdad (escribir no es un clic; el
-// boton que abre un dialogo de confirmacion cuenta como "+ dialogo", como en la tabla). Las tres
-// filas de los pagos (11, 12 y 13) y la lectura de PDF con su coste (21) son de pasos siguientes
-// del paso 16: van como pendientes, con quien las hace. La vista previa de Documentos (22) ya
-// esta: la hizo el paso de Documentos con datos reales.
+// boton que abre un dialogo de confirmacion cuenta como "+ dialogo", como en la tabla). La
+// lectura de PDF con su coste (21) es de un paso siguiente del paso 16: va como pendiente. La
+// vista previa de Documentos (22) la hizo el paso de Documentos, y los pagos (11, 12 y 13) el
+// de Cuentas por cobrar y por pagar, que tambien cambio los caminos de 6 a 9 y 16: Te ontvangen
+// y Te betalen abren con su resumen.
 import type { Locator, Page } from '@playwright/test';
 import { expect, login, test } from './fixtures';
 import { TEXTS, crumbs, mainMenu, sectionButton, sectionMenu, viewHeading } from './nav';
@@ -28,6 +29,15 @@ class Clicks {
 }
 
 const card = (page: Page, title: string) => page.getByTestId('summary-card').filter({ has: page.getByRole('heading', { level: 2, name: title }) });
+const askResults = (page: Page) => page.locator('section[aria-labelledby="ask-results"]');
+
+/** Escribe en la caja del inicio e Intro (escribir no es un clic). */
+async function ask(page: Page, text: string): Promise<void> {
+  const box = page.getByRole('textbox', { name: t.ask.label });
+  await box.fill(text);
+  await box.press('Enter');
+  await expect(askResults(page)).toBeVisible();
+}
 
 test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
@@ -73,20 +83,23 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
     await page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Alle/ }).click();
   });
 
-  await test.step('6 · Una factura por cobrar (con su pago): 2', async () => {
+  await test.step('6 · Una factura por cobrar (con sus pagos): 2', async () => {
+    // Paso 16: "Vervallen" en la tarjeta Te ontvangen abre la lista; la fila, la factura, con
+    // la seccion "Betalingen".
     await c.fromHome();
-    await c.click(sectionButton(page, 'receivables'));
+    await c.click(page.getByRole('button', { name: t.home.overdueOut }));
     await c.click(page.getByRole('table').getByRole('row').nth(1).getByRole('button'));
     await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
     await expect(page.getByText('Betaling', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /^Betalingen/ })).toBeVisible();
     expect(c.n).toBeLessThanOrEqual(2);
   });
 
   await test.step('7 · El PDF original de una factura: 3', async () => {
+    // Paso 16: Te betalen abre con su resumen; la factura se busca escribiendo (no es un clic).
     await c.fromHome();
-    await c.click(sectionButton(page, 'payables'));
-    await page.getByRole('searchbox').fill('JV-2026-004');
-    await c.click(page.getByRole('button', { name: 'Factuur JV-2026-004 openen' }).first());
+    await ask(page, 'JV-2026-004');
+    await c.click(askResults(page).getByRole('button', { name: /^JV-2026-004/ }).first());
     const download = page.waitForEvent('download');
     await c.click(page.getByRole('button', { name: 'Origineel', exact: true }));
     expect((await download).suggestedFilename()).toBe('JV-2026-004.pdf');
@@ -94,9 +107,10 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
   });
 
   await test.step('8 · Lo pendiente de un cliente y sus facturas: 2', async () => {
+    // Paso 16: en el resumen de Te ontvangen, cada cliente con lo que debe (lo vencido arriba).
     await c.fromHome();
-    await c.click(page.getByRole('button', { name: t.home.showClients }));
-    await c.click(page.getByRole('table').getByRole('button', { name: /Gemeente Demodorp/ }).first());
+    await c.click(sectionButton(page, 'receivables'));
+    await c.click(page.getByRole('table', { name: t.money.parties.titleIn }).getByRole('button', { name: /Gemeente Demodorp/ }).first());
     await expect(page.getByRole('heading', { level: 1, name: 'Gemeente Demodorp' })).toBeVisible();
     await expect(page.getByText('staat nog open')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Openstaande facturen/ })).toHaveAttribute('aria-expanded', 'true');
@@ -106,9 +120,41 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
 
   await test.step('9 · Ficha de un proveedor: 2', async () => {
     await c.fromHome();
-    await c.click(page.getByRole('button', { name: t.home.showProviders }));
-    await c.click(page.getByRole('table').getByRole('button', { name: /J\. Voorbeeld Beveiliging/ }).first());
+    await c.click(sectionButton(page, 'payables'));
+    await c.click(page.getByRole('table', { name: t.money.parties.titleOut }).getByRole('button', { name: /J\. Voorbeeld Beveiliging/ }).first());
     await expect(page.getByRole('heading', { level: 1, name: 'J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
+    expect(c.n).toBeLessThanOrEqual(2);
+  });
+
+  await test.step('11 · Confirmar un cobro que propuso el banco: 3 + diálogo', async () => {
+    // "Te bevestigen" en la tarjeta del inicio (1) y "Bevestigen" en la propuesta (2), con su
+    // dialogo, que dice que no se paga nada. Se cancela: la prueba de pagos lo hace de verdad.
+    await c.fromHome();
+    await c.click(card(page, 'Te ontvangen').getByRole('button', { name: t.home.showToConfirmIn }));
+    await expect(viewHeading(page, 'bank-in')).toBeVisible();
+    await c.click(page.getByRole('article').first().getByRole('button', { name: t.bank.confirm }));
+    await expect(page.getByRole('dialog')).toContainText(t.payments.confirmIntro);
+    expect(c.n).toBeLessThanOrEqual(3);
+    await page.getByRole('dialog').getByRole('button', { name: 'Annuleren' }).click();
+  });
+
+  await test.step('12 · Apuntar un pago ya hecho, con motivo: 3 + diálogo', async () => {
+    await c.fromHome();
+    await c.click(page.getByRole('button', { name: t.home.overdueOut }));
+    await c.click(page.getByRole('table').getByRole('row').nth(1).getByRole('button'));
+    await c.click(page.getByRole('button', { name: t.payments.record }));
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Er wordt niets betaald');
+    await expect(dialog.getByLabel(t.payments.reasonField)).toBeVisible();
+    expect(c.n).toBeLessThanOrEqual(3);
+    await dialog.getByRole('button', { name: 'Annuleren' }).click();
+  });
+
+  await test.step('13 · Ver las líneas del banco sin casar: 2', async () => {
+    await c.fromHome();
+    await c.click(sectionButton(page, 'payables'));
+    await c.click(sectionMenu(page, 'payables').getByRole('button', { name: /^Bankbetalingen/ }));
+    await expect(page.getByRole('table', { name: t.bank.unmatchedTitle })).toContainText('Kosten zakelijk betalen');
     expect(c.n).toBeLessThanOrEqual(2);
   });
 
@@ -147,9 +193,8 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
 
   await test.step('16 · Marcar una factura como revisada: 3', async () => {
     await c.fromHome();
-    await c.click(sectionButton(page, 'payables'));
-    await page.getByRole('searchbox').fill('JV-2026-004');
-    await c.click(page.getByRole('button', { name: 'Factuur JV-2026-004 openen' }).first());
+    await ask(page, 'JV-2026-004');
+    await c.click(askResults(page).getByRole('button', { name: /^JV-2026-004/ }).first());
     await expect(page.getByRole('heading', { level: 1, name: /JV-2026-004$/ })).toBeVisible();
     // En la base de prueba esta factura esta sin revisar: el boton esta en "Afronden".
     await c.click(page.getByRole('region', { name: 'Afronden' }).getByRole('button', { name: 'Markeren als gecontroleerd' }));
@@ -253,9 +298,6 @@ test('cada tarea de la tabla de los 3 clics, en los clics de su objetivo', async
   await expect(mainMenu(page).getByRole('button')).toHaveCount(6);
 });
 
-// Lo que llega en los pasos siguientes del paso 16 (revision §8.4 y §8.5): al construirlo, quien
-// lo haga cambia fixme por test y escribe el camino, con su objetivo.
-test.fixme('11 · Confirmar un cobro que propuso el banco: 3 + diálogo (Cuentas por cobrar y pagar, §8.4)', async () => {});
-test.fixme('12 · Apuntar un pago ya hecho, con motivo: 3 + diálogo (Cuentas por cobrar y pagar, §8.4)', async () => {});
-test.fixme('13 · Ver las líneas del banco sin casar: 2 (Cuentas por cobrar y pagar, §8.4)', async () => {});
+// Lo que llega en un paso siguiente del paso 16 (revision §8.5): al construirlo, quien lo haga
+// cambia fixme por test y escribe el camino, con su objetivo.
 test.fixme('21 · Leer PDF con la confirmación del coste: 2 + confirmación (Procesar de verdad, §8.5)', async () => {});

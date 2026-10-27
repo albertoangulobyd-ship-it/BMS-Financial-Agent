@@ -4,7 +4,7 @@ import { CircleQuestionMark } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { fmt, useT } from '@/i18n';
 
-export type HelpTerm = 'object' | 'po' | 'btw' | 'exception';
+export type HelpTerm = 'object' | 'po' | 'btw' | 'exception' | 'receivables' | 'payables' | 'proposal';
 
 export function HelpTip({ term }: { term: HelpTerm }) {
   const { t } = useT();

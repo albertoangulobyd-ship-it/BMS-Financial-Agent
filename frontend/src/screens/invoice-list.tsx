@@ -1,9 +1,11 @@
-// Inkomend / Uitgaand (In / Out): "welke facturen van leveranciers (of aan klanten) zijn
-// er, en hoe staan ze ervoor?". Todas las de un sentido, la mas urgente primero, con fichas
-// para filtrar (como la Werklijst: Alle, Vervallen, Openstaand, Controle nodig, Betaald) y un
-// buscador. Seis columnas: prioridad, factura, importe, vencimiento, estado (pago y control,
-// en texto gris: una sola pastilla de color por fila, la prioridad) y por que. Una fila abre
-// su factura en una pestana.
+// Verkoopfacturen / Inkoopfacturen: "welke facturen aan klanten (of van leveranciers) zijn
+// er, en hoe staan ze ervoor?". Todas las de un sentido, con fichas para filtrar y un
+// buscador. Paso 16 (Cuentas por cobrar y por pagar): las fichas de pago son las de la
+// cartera del motor (lo que esta abierto, lo vencido, esta semana, 30 dias, un tramo de
+// antiguedad) y suman lo mismo que la cifra que se pulso en el resumen; "Por confirmar" son
+// las que tienen un pago propuesto por el banco. Seis columnas: prioridad (la unica pastilla
+// de color de la fila), factura, lo que queda, vencimiento ("12 dias tarde", "en 4 dias"),
+// estado (pago y control, en texto gris) y por que. Una fila abre su factura.
 import { DataTable, type Columns } from '@/components/data-table';
 import { FilterChips } from '@/components/filter-chips';
 import { PageHeader, Screen } from '@/components/page-header';
@@ -16,44 +18,58 @@ import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
 import { paymentStateLabel, reviewStateLabel } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
+import type { Cartera, PaymentProposal } from '@/lib/api-types';
+import { formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { useViewState } from '@/lib/view-memory';
 import { matches } from '@/lib/text';
 import { twinMarks } from '@/lib/twins';
 import { whyOf } from '@/lib/why';
+import {
+  INVOICE_FILTERS,
+  byDue,
+  isInvoiceFilter,
+  matchesFilter,
+  pendingSum,
+  proposalsOf,
+  sortsByDue,
+  waitingInvoices,
+  windowsOf,
+  type InvoiceFilter,
+  type Side,
+} from './money-model';
+import { DueText } from './money-overview';
 import { recordRoute, type ViewId } from './registry';
 import { useLoad } from './use-load';
 import { InvoiceCell } from './work-queue';
-
-/** Las fichas de la lista: una vista cada una (el pago o el control). */
-export const INVOICE_FILTERS = ['all', 'vencida', 'pendiente', 'necesita_revision', 'pagada'] as const;
-export type InvoiceFilter = (typeof INVOICE_FILTERS)[number];
-
-export function invoiceFilter(filter: InvoiceFilter, r: Pick<InvoiceRow, 'estado_pago' | 'estado_revision'>): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'necesita_revision') return r.estado_revision === 'necesita_revision';
-  return r.estado_pago === filter;
-}
 
 export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'invoices-in' | 'invoices-out'>; navKey: string }) {
   const { t, lang } = useT();
   const { session } = useSession();
   const { version } = useRefresh();
   const { open: openRoute } = useNav();
-  const direction = navId === 'invoices-in' ? 'entrante' : 'saliente';
+  const side: Side = navId === 'invoices-in' ? 'entrante' : 'saliente';
   const [state, retry] = useLoad(
     () =>
-      session!.api
-        .get<{ facturas: InvoiceRow[] }>(paths.invoices)
-        .then((r) => r.facturas.filter((f) => f.sentido === direction)),
-    [session, version, direction]
+      Promise.all([
+        session!.api.get<{ facturas: InvoiceRow[] }>(paths.invoices).then((r) => r.facturas.filter((f) => f.sentido === side)),
+        // Las ventanas de la cartera (esta semana, 30 dias, los tramos) y el hoy del motor.
+        session!.api.get<{ cartera: Cartera }>(paths.cartera, { sentido: side }).then((r) => r.cartera),
+        session!.api.get<{ propuestas: PaymentProposal[] }>(paths.proposals, { sentido: side }).then((r) => proposalsOf(r.propuestas, side)),
+      ]),
+    [session, version, side]
   );
   const [stored, setFilter] = useViewState<string>(navKey, `${navId}-filter`, 'all');
-  const filter: InvoiceFilter = (INVOICE_FILTERS as readonly string[]).includes(stored) ? (stored as InvoiceFilter) : 'all';
+  const filter: InvoiceFilter = isInvoiceFilter(stored) ? stored : 'all';
   const [query, setQuery] = useViewState<string>(navKey, `${navId}-query`, '');
   const nav = t.nav[navId];
-  const twins = twinMarks(state.status === 'ready' ? state.data : []);
+  const rows = state.status === 'ready' ? state.data[0] : [];
+  const cartera = state.status === 'ready' ? state.data[1] : null;
+  const windows = cartera ? windowsOf(cartera) : null;
+  const waiting = waitingInvoices(state.status === 'ready' ? state.data[2] : []);
+  const twins = twinMarks(rows);
+  const today = cartera?.hoy ?? null;
 
   const columns: Columns<InvoiceRow> = [
     { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => <StatusPill group='prioridad' state={r.nivel} /> },
@@ -63,22 +79,74 @@ export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'i
       primary: true,
       cell: (r) => <InvoiceCell numero={r.numero} party={r.contraparte} twin={twins.get(r.id)} />,
     },
-    { key: 'amount', header: t.columns.amount, align: 'right', width: '7.5rem', cell: (r) => <Money cents={r.total_cent} /> },
-    { key: 'due', header: t.columns.due, width: '7rem', cell: (r) => <DateText value={r.vencimiento} /> },
+    {
+      key: 'amount',
+      header: t.columns.outstanding,
+      align: 'right',
+      width: '8rem',
+      // Lo que queda; si no es el total, el total debajo.
+      cell: (r) => (
+        <span className='flex flex-col items-end'>
+          <Money cents={r.estado_pago === 'pagada' ? 0 : r.pendiente_cent} />
+          {r.total_cent !== null && r.pendiente_cent !== r.total_cent && (
+            <span className='text-xs text-muted-foreground'>{fmt(t.money.ofTotal, { amount: formatMoney(r.total_cent) })}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'due',
+      header: t.columns.due,
+      width: '9rem',
+      cell: (r) => (
+        <span className='flex flex-col'>
+          <DateText value={r.vencimiento} />
+          {(r.estado_pago === 'pendiente' || r.estado_pago === 'vencida') && <DueText due={r.vencimiento} today={today} />}
+        </span>
+      ),
+    },
     {
       key: 'status',
       header: t.columns.status,
       width: '11rem',
-      // En texto: el color de la fila lo lleva la prioridad (lo vencido lo dice "Waarom").
+      // En texto: el color de la fila lo lleva la prioridad (lo vencido lo dice el vencimiento).
       cell: (r) => (
         <span className='flex flex-col items-start text-[13px] leading-snug'>
           <span>{paymentStateLabel(lang, r.estado_pago ?? '') ?? '—'}</span>
+          {waiting.has(r.id) && <span className='font-medium text-soft-foreground'>{t.money.waitingProposal}</span>}
           <span className='text-muted-foreground'>{reviewStateLabel(lang, r.estado_revision ?? '') ?? '—'}</span>
         </span>
       ),
     },
     { key: 'why', header: t.columns.why, cell: (r) => <WhyCell why={whyOf(r, lang, t)} /> },
   ];
+
+  const chipLabel = (key: InvoiceFilter): string => {
+    switch (key) {
+      case 'all':
+        return t.invoices.any;
+      case 'open':
+        return t.money.outstanding;
+      case 'vencida':
+      case 'pagada':
+        return paymentStateLabel(lang, key) ?? key;
+      case 'necesita_revision':
+        return reviewStateLabel(lang, key) ?? key;
+      case 'week':
+        return t.money.chips.week;
+      case 'next30':
+        return t.money.chips.next30;
+      case 'por_confirmar':
+        return t.money.chips.toConfirm;
+      default:
+        return t.money.ageing.buckets[key.slice(6) as keyof typeof t.money.ageing.buckets];
+    }
+  };
+  // Un tramo de antiguedad (se llega desde la barra del resumen) sale como una ficha mas.
+  const keys: InvoiceFilter[] = [...INVOICE_FILTERS, ...(filter.startsWith('tramo:') ? [filter] : [])];
+  const count = (key: InvoiceFilter) => rows.filter((r) => matchesFilter(key, r, side, windows, waiting)).length;
+  const filtered = rows.filter((r) => matchesFilter(filter, r, side, windows, waiting) && matches(query, r.numero, r.contraparte));
+  const shown = sortsByDue(filter) ? byDue(filtered) : filtered;
 
   return (
     <Screen>
@@ -92,24 +160,16 @@ export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'i
               label={t.invoices.filterLabel}
               value={filter}
               onChange={setFilter}
-              chips={INVOICE_FILTERS.map((key) => ({
-                key,
-                label:
-                  key === 'all'
-                    ? t.invoices.any
-                    : key === 'necesita_revision'
-                      ? (reviewStateLabel(lang, key) ?? key)
-                      : (paymentStateLabel(lang, key) ?? key),
-                count: state.data.filter((r) => invoiceFilter(key, r)).length,
-              }))}
+              chips={keys.map((key) => ({ key, label: chipLabel(key), count: count(key) }))}
             />
             <SearchBox value={query} onChange={setQuery} placeholder={t.workQueue.search} />
           </div>
           <ListBody
-            rows={state.data.filter((r) => invoiceFilter(filter, r) && matches(query, r.numero, r.contraparte))}
-            total={state.data.length}
+            rows={shown}
+            total={rows.length}
             columns={columns}
             caption={nav.description}
+            sum={sortsByDue(filter) && filter !== 'por_confirmar' ? pendingSum(shown) : null}
             onOpen={(r) => openRoute(recordRoute('invoice', r.id))}
           />
         </>
@@ -123,12 +183,15 @@ function ListBody({
   total,
   columns,
   caption,
+  sum,
   onOpen,
 }: {
   rows: InvoiceRow[];
   total: number;
   columns: Columns<InvoiceRow>;
   caption: string;
+  /** Lo que suman las filas de una ficha de pago (lo mismo que su cifra del resumen). */
+  sum: number | null;
   onOpen: (r: InvoiceRow) => void;
 }) {
   const { t } = useT();
@@ -145,7 +208,10 @@ function ListBody({
         empty={<EmptyState title={t.empty.noMatch} text={t.empty.noMatchText} />}
       />
       {rows.length > 0 && (
-        <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.workQueue.total, { shown: rows.length, all: total })}</p>
+        <p className='mt-2 flex flex-wrap gap-x-3 text-xs text-muted-foreground'>
+          <span>{fmt(t.workQueue.total, { shown: rows.length, all: total })}</span>
+          {sum !== null && <span data-testid='list-sum'>{fmt(t.money.listSum, { amount: formatMoney(sum) })}</span>}
+        </p>
       )}
     </>
   );

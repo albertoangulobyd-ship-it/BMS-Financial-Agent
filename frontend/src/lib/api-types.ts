@@ -202,6 +202,19 @@ export interface InvoicePayment {
   regla: string | null;
   concepto: string | null;
   contraparte: string | null;
+  /** Contrato 2.3: quien lo confirmo o lo apunto (null: lo caso el banco solo). */
+  persona?: string | null;
+  confirmada_en?: string | null;
+  retirada_en?: string | null;
+  /** Lo que escribio esa persona: texto. */
+  motivo?: string | null;
+  evidencia_documento_id?: number | null;
+  /** El dia y el importe de su linea del banco (con el signo del banco). */
+  movimiento_fecha?: string | null;
+  movimiento_importe_cent?: number | null;
+  /** De uno retirado: quien y por que (texto de una persona). */
+  retirada_por?: string | null;
+  motivo_retirada?: string | null;
 }
 
 /** GET /api/v2/facturas/N/historial. */
@@ -641,4 +654,151 @@ export interface PartyDocuments {
   parte: { tabla: string; id: number; nombre: string | null };
   total: number;
   documentos: PartyDocument[];
+}
+
+// ---- Cuentas por cobrar y por pagar (paso 16; contrato 2.2 y 2.3)
+
+/** Un tramo de antiguedad de la cartera (dias de retraso desde el vencimiento). */
+export interface AgeingBucket {
+  clave: 'al_corriente' | '1_30' | '31_60' | '61_90' | 'mas_de_90' | 'sin_fecha';
+  dias_desde: number | null;
+  dias_hasta: number | null;
+  vence_desde: string | null;
+  vence_hasta: string | null;
+  facturas: number;
+  importe_cent: number;
+}
+
+/** Lo que una factura pendiente tiene en la cartera: lo que queda, su vencimiento, los dias
+ *  de retraso (negativos: los que faltan) y si esta retenida y por que. */
+export interface CarteraInvoice {
+  id: number;
+  numero: string | null;
+  parte_id: number | null;
+  parte: string | null;
+  pendiente_cent: number;
+  vencimiento: string | null;
+  dias: number | null;
+  retenida: boolean;
+  nivel: string | null;
+  razones: Reason[];
+}
+
+export interface CarteraParty {
+  /** null: las facturas sin cliente (o proveedor) del maestro, juntas, al final. */
+  id: number | null;
+  nombre: string | null;
+  facturas: number;
+  vencidas: number;
+  pendiente_cent: number;
+  vencido_cent: number;
+  retenido_cent: number;
+  mas_antigua_dias: number | null;
+  nivel: string | null;
+  puntos: number | null;
+  razones: Reason[];
+  plazo_de_pago: { pagadas: number; media_dias: number | null; tarde: number } | null;
+}
+
+export interface CarteraSum {
+  facturas: number;
+  importe_cent: number;
+}
+
+/** GET /api/v2/cartera?sentido=saliente|entrante (`cartera`). */
+export interface Cartera {
+  sentido: 'saliente' | 'entrante';
+  hoy: string;
+  estado_del: string | null;
+  al_dia: boolean;
+  totales: {
+    facturas: number;
+    vencidas: number;
+    pendiente_cent: number;
+    vencido_cent: number;
+    semana_cent: number;
+    mes_cent: number;
+    proximos_30_cent: number;
+    sin_fecha_cent: number;
+  };
+  fechas: Record<string, [string, string] | null>;
+  movido_mes_cent: number | null;
+  tramos: AgeingBucket[];
+  retenido: CarteraSum & { lista?: CarteraInvoice[] };
+  sin_retener: CarteraSum;
+  partes: CarteraParty[];
+  por_confirmar: { pagos: number; importe_cent: number };
+  sin_casar: { movimientos: number; importe_cent: number };
+  abonos_sin_enlazar: CarteraSum & {
+    lista: { id: number; numero: string | null; contraparte: string | null; parte_id: number | null; parte: string | null; fecha_factura: string | null; pendiente_cent: number }[];
+  };
+  sin_importe: number;
+  /** Contrato 2.3: lo vencido y lo que vence hasta el domingo, retenido o no. */
+  esta_semana?: { hasta: string; retenido: CarteraSum; sin_retener: CarteraSum; facturas: CarteraInvoice[] };
+  /** Contrato 2.3: las facturas de este lado con un aviso de pago raro activo. */
+  avisos_pago?: { regla: string; facturas: { id: number; numero: string | null; parte_id: number | null; parte: string | null }[] }[];
+}
+
+/** Un pago que el banco propuso y espera a una persona (GET /api/v2/pagos/propuestas). El
+ *  texto del banco (contraparte, concepto) es de un tercero: va como texto. */
+export interface PaymentProposal {
+  id: number;
+  rev: number;
+  lado: 'cobro' | 'pago';
+  importe_cent: number;
+  fecha_pago: string | null;
+  regla: string | null;
+  coincidencias: { referencia: boolean; importe: boolean; contraparte: boolean };
+  factura: {
+    id: number;
+    numero: string | null;
+    sentido: 'entrante' | 'saliente';
+    tipo: string;
+    contraparte: string | null;
+    proveedor_id: number | null;
+    cliente_id: number | null;
+    parte: string | null;
+    total_cent: number | null;
+    pendiente_cent: number | null;
+    vencimiento: string | null;
+    estado_pago: string | null;
+  };
+  movimiento: {
+    id: number;
+    fecha: string | null;
+    importe_cent: number | null;
+    contraparte: string | null;
+    contraparte_iban: string | null;
+    concepto: string | null;
+    referencia: string | null;
+    referencia_e2e: string | null;
+  } | null;
+}
+
+/** Una linea del banco (GET /api/v2/movimientos). Importes con el signo del banco. */
+export interface BankLine {
+  id: number;
+  fecha: string;
+  fecha_valor: string | null;
+  importe_cent: number | null;
+  moneda: string | null;
+  abierto: boolean;
+  resto_cent: number | null;
+  propia: boolean;
+  contraparte: string | null;
+  contraparte_iban: string | null;
+  concepto: string | null;
+  referencia: string | null;
+  confirmadas: number;
+  propuestas: number;
+  dias: number;
+}
+
+export interface BankLines {
+  hoy: string;
+  total: number;
+  limite: number;
+  entradas: { movimientos: number; importe_cent: number; sin_casar_cent: number };
+  salidas: { movimientos: number; importe_cent: number; sin_casar_cent: number };
+  lista: BankLine[];
 }

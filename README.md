@@ -128,4 +128,8 @@ Procesar e IVA) con la rueda en el inicio, migas y «Volver» dentro de cada una
 abrir cualquier pantalla o ficha, y cada pantalla del paso 15 en su sitio (la barra con
 pestañas ya no es la navegación). Documentos es el archivo de Aurora con los datos de verdad:
 una carpeta por cliente y proveedor, su ficha de solo lectura, sus documentos y una vista
-previa dibujada desde el registro con la descarga auditada del original.
+previa dibujada desde el registro con la descarga auditada del original. Cuentas por
+cobrar y por pagar enseñan la cartera del motor (cuatro cifras que cuadran al céntimo con
+el inicio, la antigüedad, cada empresa y lo que toca pagar esta semana con lo retenido), el
+banco de cada lado y los pagos de cada factura, que se confirman, se retiran o se apuntan
+con su motivo: nada de eso paga.

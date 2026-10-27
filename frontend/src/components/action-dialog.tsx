@@ -259,8 +259,13 @@ export function actionErrorMessage(action: ActionName, error: unknown, t: Messag
     const specific = (t.errors.secondPerson as Partial<Record<string, string>>)[action];
     if (specific) return specific;
   }
+  // Un pago que el motor no deja apuntar, confirmar o retirar asi (el banco o Exact ya lo
+  // traen, no queda nada, la linea ya esta usada): la frase general no dice que mirar.
+  if (error instanceof ApiError && error.code === 'estado_no_valido' && PAYMENT_ACTIONS.has(action)) return t.payments.stateError;
   return errorMessage(error, t, lang);
 }
+
+const PAYMENT_ACTIONS = new Set<ActionName>(['marcar_pagada', 'confirmar_pago', 'retirar_pago']);
 
 function initialValues(fields: ActionField[]): Values {
   // Una fecha se escribe dd-mm-aaaa (lo que llega de la API es AAAA-MM-DD).
@@ -345,21 +350,32 @@ export function ActionButton({
   variant = 'outline',
   size = 'sm',
   icon,
+  ariaLabel,
+  onToggle,
   ...dialog
 }: Omit<Parameters<typeof ActionDialog>[0], 'open' | 'onOpenChange'> & {
   label: string;
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
   icon?: ReactNode;
+  /** El nombre del boton para el lector de pantalla, si el visible no basta ("Niet deze"
+   *  en una lista de varias propuestas). */
+  ariaLabel?: string;
+  /** Avisa al abrir y al cerrar (para leer lo que el dialogo ofrece solo cuando se abre). */
+  onToggle?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    onToggle?.(next);
+  };
   return (
     <>
-      <Button type='button' variant={variant} size={size} onClick={() => setOpen(true)}>
+      <Button type='button' variant={variant} size={size} aria-label={ariaLabel} onClick={() => toggle(true)}>
         {icon}
         {label}
       </Button>
-      {open && <ActionDialog {...dialog} open={open} onOpenChange={setOpen} />}
+      {open && <ActionDialog {...dialog} open={open} onOpenChange={toggle} />}
     </>
   );
 }
