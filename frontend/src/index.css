@@ -285,22 +285,26 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html,
-  body {
+  html {
     height: 100%;
   }
-  /* Las bandas que pone el servidor van encima de la app y la app ocupa el resto, sin
-     que la pagina entera se desplace. */
+  /* Se desplaza la pagina entera (la rueda del raton, las teclas y el dedo; tambien las
+     capturas de pagina completa y la memoria de lo desplazado al volver, que miran la
+     ventana). Antes el cuerpo era overflow: hidden y el paso 15 tenia su propio panel con
+     scroll; el marco del paso 16 no lo tiene, y nada debajo de la ventana se alcanzaba
+     (revision del paso 16). Las bandas del servidor se quedan arriba: son sticky, una
+     debajo de otra (lib/server-bands.ts), y la cabecera de la app va debajo de ellas. */
   body {
     @apply bg-sidebar text-foreground font-sans text-sm antialiased;
     margin: 0;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
   }
   #root {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled),
@@ -316,6 +320,9 @@
 /* Las bandas del servidor (paso 13 y 14): se ven aunque el script no cargue. */
 .bms-banda {
   flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 40;
   margin: 0;
   padding: 0.3rem 1rem;
   text-align: center;

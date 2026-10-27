@@ -62,7 +62,9 @@ export function formatHours(value: number | bigint | string | null | undefined):
   return `${negative ? MINUS : ''}${whole}${fraction ? `,${fraction}` : ''}`;
 }
 
-/** Puntos basicos -> "21 %" / "8,75 %". */
+/** Puntos basicos -> "21%" / "8,75%": sin espacio, como el renderizador de los textos de
+ *  dominio (templates.ts y bms_agent.textos, `pct`), para que un porcentaje se escriba igual
+ *  en toda la pantalla (revision del paso 16: salian "85,95 %" y "85,95%" juntos). */
 export function formatPercentFromBasisPoints(value: number | bigint | string | null | undefined): string {
   const pb = toBigInt(value);
   if (pb === null) return NO_VALUE;
@@ -70,7 +72,7 @@ export function formatPercentFromBasisPoints(value: number | bigint | string | n
   const abs = negative ? -pb : pb;
   const whole = groupThousands((abs / 100n).toString());
   const fraction = (abs % 100n).toString().padStart(2, '0').replace(/0+$/, '');
-  return `${negative ? MINUS : ''}${whole}${fraction ? `,${fraction}` : ''}${NBSP}%`;
+  return `${negative ? MINUS : ''}${whole}${fraction ? `,${fraction}` : ''}%`;
 }
 
 interface IsoDate {

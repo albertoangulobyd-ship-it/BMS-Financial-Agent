@@ -18,6 +18,7 @@ import type { BankLine, BankLines, PaymentProposal } from '@/lib/api-types';
 import { formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
+import { twinMarks } from '@/lib/twins';
 import { useNav } from '@/shell/navigation';
 import { BANK_OF, SIGN_OF, proposalsOf, type Side } from './money-model';
 import { ConfirmProposalButton, LinkLineButton, ProposalCompare, WithdrawPaymentButton } from './payment-actions';
@@ -59,6 +60,9 @@ export function BankScreen({ side }: { side: Side }) {
 function Proposals({ proposals, onDone }: { proposals: PaymentProposal[]; onDone: () => void }) {
   const { t } = useT();
   const nav = useNav();
+  // "1 van 2" en dos facturas con el mismo numero y la misma relacion (cada factura, una vez).
+  const invoices = [...new Map(proposals.map((p) => [p.factura.id, { id: p.factura.id, numero: p.factura.numero, contraparte: p.factura.parte ?? p.factura.contraparte }])).values()];
+  const twins = twinMarks(invoices);
   return (
     <section aria-labelledby='bank-proposals'>
       <h2 id='bank-proposals' className='flex items-center gap-1.5 text-[16px] font-semibold'>
@@ -72,11 +76,12 @@ function Proposals({ proposals, onDone }: { proposals: PaymentProposal[]; onDone
       ) : (
         <ul className='flex flex-col gap-3'>
           {proposals.map((p) => {
-            const name = `${p.factura.numero ?? p.factura.id} · ${formatMoney(p.importe_cent)}`;
+            const twin = twins.get(p.factura.id);
+            const name = `${p.factura.numero ?? p.factura.id}${twin ? ` (${fmt(t.common.twin, { n: twin.n, of: twin.of })})` : ''} · ${formatMoney(p.importe_cent)}`;
             return (
               <li key={p.id}>
                 <article aria-label={name} data-testid='proposal' className='flex flex-col gap-3 rounded-md border border-border bg-card px-4 py-3'>
-                  <ProposalCompare proposal={p} />
+                  <ProposalCompare proposal={p} twin={twin} />
                   <div className='flex flex-wrap items-center gap-2'>
                     <ConfirmProposalButton proposal={p} onDone={onDone} />
                     <WithdrawPaymentButton paymentId={p.id} rev={p.rev} label={t.bank.notThis} context={<ProposalCompare proposal={p} />} onDone={onDone} />

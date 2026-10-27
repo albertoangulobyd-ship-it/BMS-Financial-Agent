@@ -208,13 +208,20 @@ regionalismos (`archivo`, no `fichero`; nada de `vosotros`), tuteando como el
 resto del programa (`Comprueba el original`) y siempre con tildes. Las
 etiquetas de las acciones van en infinitivo (`Anotar pago`) y su descripción
 en imperativo (`Anota que una factura se pagó...`). Se dejan tal cual los
-términos de BMS: `zzp'er`, `BTW` (en mayúsculas y siempre BTW, nunca IVA,
-para no hacer pensar en dos impuestos), `Object` (`el Object`, `los
-Objects`), `PO` (`la PO`), `Exact`, `TRNSPRNT`, `IBAN`, `KvK` y `KOR`. El
-resto, en castellano llano: `datos maestros` (stamgegevens), `hallazgo`
-(bevinding), `control` (controle), `excepción`, `nota de crédito`,
-`autoliquidación` (BTW verlegd), `planificación` (el planning de TRNSPRNT),
-`casar` un movimiento con una factura, `retener` y `bloquear`. Los formatos
+términos de BMS: `zzp'er`, `Object` (`el Object`, `los Objects`), `PO` (`la
+PO`), `Exact`, `TRNSPRNT`, `IBAN`, `KvK` y `KOR`. El impuesto es el `IVA`
+(siempre IVA, nunca BTW, para no hacer pensar en dos impuestos; la entrada de
+la app se llama IVA): BTW solo queda en `BTW verlegd`, el nombre del régimen
+tal como lo imprime la factura (revisión del paso 16; antes el catálogo decía
+BTW y la app IVA en la misma pantalla). El resto, en castellano llano: `datos
+maestros` (stamgegevens), `hallazgo` (bevinding; `aviso` es solo la gravedad
+de un hallazgo), `control` (controle), `excepción`, `nota de crédito` (nunca
+`abono`), `archivo` (nunca `fichero`), `empresa` para un cliente o un
+proveedor (nunca `parte`), `autoliquidación` (BTW verlegd), `planificación`
+(el planning de TRNSPRNT), `anotar` un pago (no `apuntar`), `casar` un
+movimiento con una factura, `retener` y `bloquear`. Ese glosario vale para
+`es.json` y para los textos de la app (`frontend/src/i18n/es.ts`), y lo
+comprueban `tests/test_textos_es.py` y `frontend/src/i18n/i18n.test.ts`. Los formatos
 no cambian con el idioma: el importe va en formato neerlandés con el euro
 delante y el trimestre es `Q3 2026` en los tres, como en el Belastingdienst
 y en Exact.
@@ -222,5 +229,5 @@ y en Exact.
 `tests/test_textos_es.py` comprueba que en `es.json` no queda ninguna
 palabra que solo existe en neerlandés o en inglés, que ningún texto es igual
 al inglés salvo esos términos, las tildes de las palabras que siempre las
-llevan y que el impuesto se llama siempre BTW; `tests/test_textos.py`, que en
+llevan, que el impuesto se llama siempre IVA y el glosario; `tests/test_textos.py`, que en
 `nl.json` y en `en.json` no se cuela el castellano.

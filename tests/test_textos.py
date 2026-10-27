@@ -406,11 +406,11 @@ def test_variantes_y_partes() -> None:
     assert textos.cumple("!x", {"x": []}) and not textos.cumple("x", {"x": None})
     assert textos.cumple("pasado=true", {"pasado": True})
     assert textos.detalle("A2", "fallo", valores, "es").texto == (
-        "Número de BTW en la factura: NL001234567B02; en los datos maestros: NL001234567B01. "
+        "Número de IVA en la factura: NL001234567B02; en los datos maestros: NL001234567B01. "
         "Número de KvK en la factura: 1; en los datos maestros: 2.")
     assert textos.detalle("C4", "fallo", {"trimestre": "2026-T3", "motivo": "tarde"},
                           "es").texto.startswith(
-        "Llegó después de presentar la declaración de BTW de Q3 2026")
+        "Llegó después de presentar la declaración de IVA de Q3 2026")
 
 
 def test_un_idioma_que_no_existe() -> None:

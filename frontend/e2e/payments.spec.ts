@@ -233,11 +233,28 @@ test('enlazar una linea del banco a su factura: desde el banco y desde la factur
   await row.getByRole('button', { name: t.bank.link }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(t.payments.recordIntro);
-  await dialog.getByLabel(t.payments.invoiceField).selectOption(String(target.id));
+  // Ninguna factura viene elegida (revision del paso 16: se elegia la primera de la lista, que
+  // no tenia nada que ver con la linea); sin elegir, no se manda nada.
+  const choice = dialog.getByLabel(t.payments.invoiceField);
+  await expect(choice).toHaveValue('');
+  await expect(choice.locator('option').first()).toHaveText(t.payments.chooseInvoice);
+  // La que nombra el concepto de la linea va marcada, entre las primeras (sin elegirla).
+  const mark = t.payments.likelyMark.split(' · ').at(-1)!;
+  await expect(choice.locator(`option[value="${target.id}"]`)).toHaveText(new RegExp(`^${escapeRegExp(target.numero)}.* · ${escapeRegExp(mark)}$`));
+  await expect(choice.locator('option').nth(1)).toHaveText(new RegExp(`${escapeRegExp(mark)}$`));
+  const sent: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/api/v2/acciones')) sent.push(r.url());
+  });
   await dialog.getByLabel(t.payments.reasonField).fill('Toch deze factuur: de klant betaalde vanaf een nieuwe rekening');
+  await dialog.getByRole('button', { name: 'Betaling vastleggen' }).click();
+  await expect(dialog.getByRole('alert')).toContainText(fill(t.action.required, { field: t.payments.invoiceField }));
+  expect(sent).toEqual([]);
+  await choice.selectOption(String(target.id));
   await capture(page, 'nl-bank-link');
   await dialog.getByRole('button', { name: 'Betaling vastleggen' }).click();
   await expect(dialog).toBeHidden();
+  expect(sent).toHaveLength(1);
   await expect(row).toHaveCount(0);
   await openInvoice(page, target.numero);
   await expect(page.getByTestId('paid-source')).toContainText('Betaald volgens de bank op');
@@ -313,6 +330,17 @@ test('apuntar un pago ya hecho, con motivo y justificante, y retirar una propues
   await capture(page, 'nl-invoice-paid-manual');
   // Y la propuesta retirada sigue ahi, como "Ingetrokken".
   await expect(page.getByTestId('payment').filter({ hasText: 'Ingetrokken' })).toContainText('Dit was een voorschot');
+  // En la lista, "Betaald" tambien dice de donde sale (decision 5): aqui, a mano y aun sin el
+  // banco; lo que trajo el banco, "volgens de bank".
+  await go(page, 'invoices-in');
+  await page.getByRole('group', { name: t.invoices.filterLabel }).getByRole('button', { name: /^Betaald/ }).click();
+  const paidRow = page.getByRole('table').getByRole('row').filter({ hasText: oost.factura.numero! });
+  await expect(paidRow.getByTestId('payment-state')).toHaveText('Betaald');
+  await expect(paidRow.getByTestId('paid-source-short')).toHaveText(t.payments.listManual);
+  await capture(page, 'nl-invoices-paid-source');
+  await go(page, 'invoices-out');
+  await page.getByRole('group', { name: t.invoices.filterLabel }).getByRole('button', { name: /^Betaald/ }).click();
+  await expect(page.getByTestId('paid-source-short').filter({ hasText: t.payments.listBank }).first()).toBeVisible();
 });
 
 test('si otra persona confirma antes, el dialogo lo dice y vuelve a leer (409)', async ({ page, baseUrl, request, watch }) => {

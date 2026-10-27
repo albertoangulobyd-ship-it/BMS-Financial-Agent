@@ -40,6 +40,9 @@ export const RECORD_IDS = [
   'exception',
   'client-documents',
   'provider-documents',
+  // La busqueda con filtros (revision del paso 16): un paso mas del camino donde se este, para
+  // que "Terug" (y "Cerrar") vuelva alli; solo hay una, con el id 1 (SEARCH_ROUTE).
+  'search',
 ] as const;
 export type RecordId = (typeof RECORD_IDS)[number];
 

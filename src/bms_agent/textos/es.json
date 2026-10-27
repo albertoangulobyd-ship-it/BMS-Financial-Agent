@@ -14,7 +14,7 @@
   "reglas": {
     "Q1": {
       "titulo": "Faltan datos obligatorios",
-      "significa": "Al documento le falta algo que toda factura debe llevar, como el número, la otra parte, la fecha, el periodo, los importes o el BTW.",
+      "significa": "Al documento le falta algo que toda factura debe llevar, como el número, la otra empresa, la fecha, el periodo, los importes o el IVA.",
       "que_hacer": "Mira el original y completa los datos que faltan.",
       "detalle": {
         "fallo": [
@@ -187,13 +187,13 @@
                 "cuando": [
                   "distintos.base_cent"
                 ],
-                "texto": "Importe sin BTW: contabilizado {distintos.base_cent.0|dinero}, PDF {distintos.base_cent.1|dinero}."
+                "texto": "Importe sin IVA: contabilizado {distintos.base_cent.0|dinero}, PDF {distintos.base_cent.1|dinero}."
               },
               {
                 "cuando": [
                   "distintos.iva_cent"
                 ],
-                "texto": "BTW: contabilizado {distintos.iva_cent.0|dinero}, PDF {distintos.iva_cent.1|dinero}."
+                "texto": "IVA: contabilizado {distintos.iva_cent.0|dinero}, PDF {distintos.iva_cent.1|dinero}."
               },
               {
                 "cuando": [
@@ -261,7 +261,7 @@
     },
     "Z2": {
       "titulo": "Filas rechazadas al importar",
-      "significa": "La última importación de una fuente rechazó filas (o se rechazó entera), o nombra una parte, un Object o una persona que no está en los datos maestros. No se crea nada automáticamente.",
+      "significa": "La última importación de una fuente rechazó filas (o se rechazó entera), o nombra una empresa, un Object o una persona que no está en los datos maestros. No se crea nada automáticamente.",
       "que_hacer": "Arregla el archivo o los datos maestros e impórtalo otra vez.",
       "detalle": {
         "fallo": [
@@ -291,8 +291,8 @@
       }
     },
     "A0": {
-      "titulo": "Parte desconocida",
-      "significa": "Ningún proveedor ni cliente de los datos maestros coincide exactamente con esta factura (número de BTW, número de KvK o alias confirmado), o coincide más de uno.",
+      "titulo": "Empresa desconocida",
+      "significa": "Ningún proveedor ni cliente de los datos maestros coincide exactamente con esta factura (número de IVA, número de KvK o alias confirmado), o coincide más de uno.",
       "que_hacer": "Elige el proveedor o el cliente correcto, o añádelo antes a los datos maestros.",
       "detalle": {
         "fallo": [
@@ -300,13 +300,13 @@
             "cuando": [
               "candidatos"
             ],
-            "texto": "Varias partes de los datos maestros ({candidatos}) comparten este número de BTW o de KvK; no está claro cuál es."
+            "texto": "Varias empresas de los datos maestros ({candidatos}) comparten este número de IVA o de KvK; no está claro cuál es."
           },
           {
             "cuando": [
               "nombre"
             ],
-            "texto": "Nadie en los datos maestros coincide exactamente. En la factura: {nombre}, número de BTW {btw}, número de KvK {kvk}."
+            "texto": "Nadie en los datos maestros coincide exactamente. En la factura: {nombre}, número de IVA {btw}, número de KvK {kvk}."
           },
           {
             "cuando": [],
@@ -316,15 +316,15 @@
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Los datos maestros aún no se han importado, así que no se sabe si esta parte es conocida."
+            "texto": "Los datos maestros aún no se han importado, así que no se sabe si esta empresa es conocida."
           }
         ]
       }
     },
     "A2": {
       "titulo": "Distinto de los datos maestros",
-      "significa": "El nombre, el número de KvK o el número de BTW de la factura no coincide con los datos maestros de esta parte.",
-      "que_hacer": "Comprueba que de verdad es la misma parte. Si es otro nombre comercial, confírmalo como alias.",
+      "significa": "El nombre, el número de KvK o el número de IVA de la factura no coincide con los datos maestros de esta empresa.",
+      "que_hacer": "Comprueba que de verdad es la misma empresa. Si es otro nombre comercial, confírmalo como alias.",
       "detalle": {
         "fallo": [
           {
@@ -334,7 +334,7 @@
                 "cuando": [
                   "btw"
                 ],
-                "texto": "Número de BTW en la factura: {btw.0}; en los datos maestros: {btw.1}."
+                "texto": "Número de IVA en la factura: {btw.0}; en los datos maestros: {btw.1}."
               },
               {
                 "cuando": [
@@ -364,27 +364,27 @@
       }
     },
     "A5": {
-      "titulo": "Número de BTW",
-      "significa": "Una factura de compra sin el número de BTW del proveedor y que no menciona la KOR se bloquea. Un número de BTW neerlandés con un formato incorrecto se retiene.",
-      "que_hacer": "Pide al proveedor una factura con un número de BTW válido, o anota que se aplica la KOR.",
+      "titulo": "Número de IVA",
+      "significa": "Una factura de compra sin el número de IVA del proveedor y que no menciona la KOR se bloquea. Un número de IVA neerlandés con un formato incorrecto se retiene.",
+      "que_hacer": "Pide al proveedor una factura con un número de IVA válido, o anota que se aplica la KOR.",
       "detalle": {
         "fallo": [
           {
             "cuando": [
               "btw"
             ],
-            "texto": "El número de BTW {btw} no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras)."
+            "texto": "El número de IVA {btw} no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras)."
           },
           {
             "cuando": [],
-            "texto": "La factura no lleva el número de BTW del proveedor y no menciona la KOR."
+            "texto": "La factura no lleva el número de IVA del proveedor y no menciona la KOR."
           }
         ]
       }
     },
     "A7": {
       "titulo": "Datos cambiados",
-      "significa": "Lo que pone un proveedor es distinto de su factura anterior. Un número de BTW o de KvK distinto retiene la factura; un nombre o una dirección distintos son un aviso.",
+      "significa": "Lo que pone un proveedor es distinto de su factura anterior. Un número de IVA o de KvK distinto retiene la factura; un nombre o una dirección distintos son un aviso.",
       "que_hacer": "Comprueba con el proveedor (con los datos de contacto que ya tenemos) que el cambio es auténtico.",
       "detalle": {
         "fallo": [
@@ -395,7 +395,7 @@
                 "cuando": [
                   "btw"
                 ],
-                "texto": "El número de BTW cambió de {btw.0} a {btw.1}."
+                "texto": "El número de IVA cambió de {btw.0} a {btw.1}."
               },
               {
                 "cuando": [
@@ -455,7 +455,7 @@
                 "cuando": [
                   "btw"
                 ],
-                "texto": "Número de BTW del destinatario: {btw}, que no es el de BM Support BV."
+                "texto": "Número de IVA del destinatario: {btw}, que no es el de BM Support BV."
               }
             ]
           },
@@ -474,7 +474,7 @@
     },
     "B2": {
       "titulo": "Número de factura repetido",
-      "significa": "La misma parte tiene más de una factura con el mismo número, y no se han fusionado ni enlazado.",
+      "significa": "La misma empresa tiene más de una factura con el mismo número, y no se han fusionado ni enlazado.",
       "que_hacer": "Compara las facturas. Si es un reenvío, fusiónalas; si es una nota de crédito o una corrección, enlázalas.",
       "detalle": {
         "fallo": [
@@ -482,11 +482,11 @@
             "cuando": [
               "facturas"
             ],
-            "texto": "El mismo número ({numero_norm}) está en {facturas|cuenta} facturas de la misma parte."
+            "texto": "El mismo número ({numero_norm}) está en {facturas|cuenta} facturas de la misma empresa."
           },
           {
             "cuando": [],
-            "texto": "Este número aparece más de una vez para la misma parte."
+            "texto": "Este número aparece más de una vez para la misma empresa."
           }
         ],
         "sin_datos": [
@@ -499,7 +499,7 @@
     },
     "B3": {
       "titulo": "Posible duplicado (mismo importe)",
-      "significa": "Misma parte, mismo total, como mucho 14 días de diferencia, periodos compatibles y otro número.",
+      "significa": "Misma empresa, mismo total, como mucho 14 días de diferencia, periodos compatibles y otro número.",
       "que_hacer": "Compara las dos facturas. Si son la misma, fusiónalas; si las dos son auténticas, acepta el hallazgo con un motivo.",
       "detalle": {
         "fallo": [
@@ -507,25 +507,25 @@
             "cuando": [
               "totales_cent"
             ],
-            "texto": "Mismo total ({totales_cent.1|dinero}) que otra factura de la misma parte; días de diferencia: {dias}."
+            "texto": "Mismo total ({totales_cent.1|dinero}) que otra factura de la misma empresa; días de diferencia: {dias}."
           },
           {
             "cuando": [],
-            "texto": "Mismo total que otra factura de la misma parte."
+            "texto": "Mismo total que otra factura de la misma empresa."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Falta la parte, el total o la fecha, así que no se pueden buscar duplicados por importe."
+            "texto": "Falta la empresa, el total o la fecha, así que no se pueden buscar duplicados por importe."
           }
         ]
       }
     },
     "B4": {
       "titulo": "Periodo facturado dos veces",
-      "significa": "Los periodos facturados por la misma parte se solapan (por Object, cuando las líneas lo nombran), sin un enlace confirmado ni una nota de crédito.",
-      "que_hacer": "Comprueba si el mismo periodo se facturó dos veces y, si hace falta, enlaza las facturas o pide un abono.",
+      "significa": "Los periodos facturados por la misma empresa se solapan (por Object, cuando las líneas lo nombran), sin un enlace confirmado ni una nota de crédito.",
+      "que_hacer": "Comprueba si el mismo periodo se facturó dos veces y, si hace falta, enlaza las facturas o pide una nota de crédito.",
       "detalle": {
         "fallo": [
           {
@@ -536,13 +536,13 @@
           },
           {
             "cuando": [],
-            "texto": "El periodo se solapa con otra factura de la misma parte."
+            "texto": "El periodo se solapa con otra factura de la misma empresa."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Falta la parte o el periodo completo, así que no se puede comprobar el solapamiento."
+            "texto": "Falta la empresa o el periodo completo, así que no se puede comprobar el solapamiento."
           }
         ]
       }
@@ -610,8 +610,8 @@
       }
     },
     "C4": {
-      "titulo": "Trimestre de BTW ya presentado",
-      "significa": "La factura cae en un trimestre de BTW que ya se presentó y no es lo que se declaró de ella: llegó después, cambió más tarde o ya no cuenta ahí.",
+      "titulo": "Trimestre de IVA ya presentado",
+      "significa": "La factura cae en un trimestre de IVA que ya se presentó y no es lo que se declaró de ella: llegó después, cambió más tarde o ya no cuenta ahí.",
       "que_hacer": "Pon la factura en la lista para el contable; la corrección va en una declaración posterior.",
       "detalle": {
         "fallo": [
@@ -619,13 +619,13 @@
             "cuando": [
               "motivo=tarde"
             ],
-            "texto": "Llegó después de presentar la declaración de BTW de {trimestre|trimestre}: su BTW no está en esa declaración."
+            "texto": "Llegó después de presentar la declaración de IVA de {trimestre|trimestre}: su IVA no está en esa declaración."
           },
           {
             "cuando": [
               "motivo=cambio"
             ],
-            "texto": "Cambió después de presentar la declaración de BTW de {trimestre|trimestre}: ya no coincide con lo declarado."
+            "texto": "Cambió después de presentar la declaración de IVA de {trimestre|trimestre}: ya no coincide con lo declarado."
           },
           {
             "cuando": [
@@ -635,14 +635,14 @@
           },
           {
             "cuando": [],
-            "texto": "No coincide con la declaración de BTW que ya se presentó."
+            "texto": "No coincide con la declaración de IVA que ya se presentó."
           }
         ]
       }
     },
     "D1": {
       "titulo": "Desglose",
-      "significa": "El desglose no está completo: líneas con cantidad, tarifa e importe, el importe sin BTW, el total y, cuando se cobra BTW, el porcentaje y el importe del BTW.",
+      "significa": "El desglose no está completo: líneas con cantidad, tarifa e importe, el importe sin IVA, el total y, cuando se cobra IVA, el porcentaje y el importe del IVA.",
       "que_hacer": "Completa lo que falta con el original, o pide al proveedor una factura completa.",
       "detalle": {
         "fallo": [
@@ -661,7 +661,7 @@
     },
     "D2": {
       "titulo": "Suma de las líneas",
-      "significa": "Las líneas juntas tienen que dar el importe sin BTW (1 céntimo por línea más 2 céntimos de margen).",
+      "significa": "Las líneas juntas tienen que dar el importe sin IVA (1 céntimo por línea más 2 céntimos de margen).",
       "que_hacer": "Compara las líneas con el original y corrige el importe que se leyó mal.",
       "detalle": {
         "fallo": [
@@ -670,11 +670,11 @@
               "base_cent",
               "lineas_cent"
             ],
-            "texto": "Las líneas suman {lineas_cent|suma|dinero}; el importe sin BTW es {base_cent|dinero}."
+            "texto": "Las líneas suman {lineas_cent|suma|dinero}; el importe sin IVA es {base_cent|dinero}."
           },
           {
             "cuando": [],
-            "texto": "Las líneas no suman el importe sin BTW."
+            "texto": "Las líneas no suman el importe sin IVA."
           }
         ],
         "sin_datos": [
@@ -682,7 +682,7 @@
             "cuando": [
               "!base_cent"
             ],
-            "texto": "No hay un importe sin BTW que se pueda leer."
+            "texto": "No hay un importe sin IVA que se pueda leer."
           },
           {
             "cuando": [],
@@ -711,40 +711,40 @@
       }
     },
     "D3": {
-      "titulo": "Importe del BTW",
-      "significa": "El importe sin BTW por el porcentaje de BTW tiene que dar el importe del BTW, por cada porcentaje (2 céntimos de margen).",
-      "que_hacer": "Compara el porcentaje y el importe del BTW con el original.",
+      "titulo": "Importe del IVA",
+      "significa": "El importe sin IVA por el porcentaje de IVA tiene que dar el importe del IVA, por cada porcentaje (2 céntimos de margen).",
+      "que_hacer": "Compara el porcentaje y el importe del IVA con el original.",
       "detalle": {
         "fallo": [
           {
             "cuando": [
               "tramos"
             ],
-            "texto": "En el desglose del BTW, el importe del BTW de un porcentaje no cuadra con su importe sin BTW."
+            "texto": "En el desglose del IVA, el importe del IVA de un porcentaje no cuadra con su importe sin IVA."
           },
           {
             "cuando": [
               "base_cent",
               "tipo_iva_pb"
             ],
-            "texto": "El {tipo_iva_pb|pct} de BTW sobre {base_cent|dinero} no da los {iva_cent|dinero} de la factura."
+            "texto": "El {tipo_iva_pb|pct} de IVA sobre {base_cent|dinero} no da los {iva_cent|dinero} de la factura."
           },
           {
             "cuando": [],
-            "texto": "El importe del BTW no cuadra con el porcentaje."
+            "texto": "El importe del IVA no cuadra con el porcentaje."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Falta el importe sin BTW, el porcentaje de BTW o el importe del BTW."
+            "texto": "Falta el importe sin IVA, el porcentaje de IVA o el importe del IVA."
           }
         ]
       }
     },
     "D4": {
       "titulo": "Total",
-      "significa": "El importe sin BTW más el BTW tiene que dar el total (2 céntimos de margen).",
+      "significa": "El importe sin IVA más el IVA tiene que dar el total (2 céntimos de margen).",
       "que_hacer": "Compara los tres importes con el original y corrige lo que se leyó mal.",
       "detalle": {
         "fallo": [
@@ -754,25 +754,25 @@
               "iva_cent",
               "total_cent"
             ],
-            "texto": "{base_cent|dinero} sin BTW más {iva_cent|dinero} de BTW no es el total de {total_cent|dinero}."
+            "texto": "{base_cent|dinero} sin IVA más {iva_cent|dinero} de IVA no es el total de {total_cent|dinero}."
           },
           {
             "cuando": [],
-            "texto": "El importe sin BTW más el BTW no es el total."
+            "texto": "El importe sin IVA más el IVA no es el total."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Falta el importe sin BTW, el BTW o el total."
+            "texto": "Falta el importe sin IVA, el IVA o el total."
           }
         ]
       }
     },
     "D6": {
-      "titulo": "Desglose del BTW y cabecera",
-      "significa": "Las filas del desglose del BTW tienen que sumar el importe sin BTW y el BTW de la cabecera. La declaración de BTW usa el desglose.",
-      "que_hacer": "Compara el desglose del BTW con el original y corrige la fila o la cabecera.",
+      "titulo": "Desglose del IVA y cabecera",
+      "significa": "Las filas del desglose del IVA tienen que sumar el importe sin IVA y el IVA de la cabecera. La declaración de IVA usa el desglose.",
+      "que_hacer": "Compara el desglose del IVA con el original y corrige la fila o la cabecera.",
       "detalle": {
         "fallo": [
           {
@@ -780,17 +780,17 @@
               "base_cent",
               "iva_cent"
             ],
-            "texto": "El desglose del BTW no suma lo de la cabecera ({base_cent|dinero} sin BTW, {iva_cent|dinero} de BTW)."
+            "texto": "El desglose del IVA no suma lo de la cabecera ({base_cent|dinero} sin IVA, {iva_cent|dinero} de IVA)."
           },
           {
             "cuando": [],
-            "texto": "El desglose del BTW no suma lo de la cabecera."
+            "texto": "El desglose del IVA no suma lo de la cabecera."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "Falta el importe sin BTW o el BTW en la cabecera o en una fila del desglose."
+            "texto": "Falta el importe sin IVA o el IVA en la cabecera o en una fila del desglose."
           }
         ]
       }
@@ -815,33 +815,33 @@
       }
     },
     "E0": {
-      "titulo": "Faltan datos del BTW",
-      "significa": "No se sabe cómo trata la factura el BTW o, con BTW normal, falta el porcentaje o el importe del BTW.",
-      "que_hacer": "Lee en el original el tratamiento y los importes del BTW y complétalos.",
+      "titulo": "Faltan datos del IVA",
+      "significa": "No se sabe cómo trata la factura el IVA o, con IVA normal, falta el porcentaje o el importe del IVA.",
+      "que_hacer": "Lee en el original el tratamiento y los importes del IVA y complétalos.",
       "detalle": {
         "fallo": [
           {
             "cuando": [
               "faltan"
             ],
-            "texto": "BTW normal, pero falta esto: {faltan|codigo}."
+            "texto": "IVA normal, pero falta esto: {faltan|codigo}."
           },
           {
             "cuando": [
               "tramos"
             ],
-            "texto": "BTW normal, pero a una fila del desglose del BTW le falta el porcentaje, el importe o el BTW."
+            "texto": "IVA normal, pero a una fila del desglose del IVA le falta el porcentaje, el importe o el IVA."
           },
           {
             "cuando": [],
-            "texto": "No se sabe cómo trata esta factura el BTW."
+            "texto": "No se sabe cómo trata esta factura el IVA."
           }
         ]
       }
     },
     "E1": {
-      "titulo": "Tratamiento del BTW distinto de los datos maestros",
-      "significa": "El tratamiento del BTW de la factura no es el que consta para el proveedor en los datos maestros.",
+      "titulo": "Tratamiento del IVA distinto de los datos maestros",
+      "significa": "El tratamiento del IVA de la factura no es el que consta para el proveedor en los datos maestros.",
       "que_hacer": "Comprueba qué tratamiento es el correcto y corrige la factura o los datos maestros.",
       "detalle": {
         "fallo": [
@@ -854,7 +854,7 @@
           },
           {
             "cuando": [],
-            "texto": "El tratamiento del BTW es distinto del de los datos maestros."
+            "texto": "El tratamiento del IVA es distinto del de los datos maestros."
           }
         ],
         "sin_datos": [
@@ -866,8 +866,8 @@
       }
     },
     "E2": {
-      "titulo": "Cambio de tratamiento o de porcentaje del BTW",
-      "significa": "El tratamiento del BTW es distinto del de la factura anterior del proveedor, o lleva un porcentaje de BTW que no tenía ninguna de sus facturas anteriores.",
+      "titulo": "Cambio de tratamiento o de porcentaje del IVA",
+      "significa": "El tratamiento del IVA es distinto del de la factura anterior del proveedor, o lleva un porcentaje de IVA que no tenía ninguna de sus facturas anteriores.",
       "que_hacer": "Comprueba con el proveedor que el cambio es correcto.",
       "detalle": {
         "fallo": [
@@ -875,56 +875,56 @@
             "cuando": [
               "antes"
             ],
-            "texto": "El tratamiento del BTW pasó de {antes|codigo} a {ahora|codigo} respecto a la factura anterior."
+            "texto": "El tratamiento del IVA pasó de {antes|codigo} a {ahora|codigo} respecto a la factura anterior."
           },
           {
             "cuando": [
               "tipos_nuevos"
             ],
-            "texto": "Porcentaje de BTW nuevo: {tipos_nuevos|pct}; las facturas anteriores tenían {tipos_antes|pct}."
+            "texto": "Porcentaje de IVA nuevo: {tipos_nuevos|pct}; las facturas anteriores tenían {tipos_antes|pct}."
           },
           {
             "cuando": [],
-            "texto": "Ha cambiado el tratamiento o el porcentaje del BTW."
+            "texto": "Ha cambiado el tratamiento o el porcentaje del IVA."
           }
         ]
       }
     },
     "E3": {
-      "titulo": "BTW con la KOR",
-      "significa": "Con la KOR (el régimen de pequeños empresarios) el proveedor no cobra BTW.",
-      "que_hacer": "Pide al proveedor una factura corregida sin BTW.",
+      "titulo": "IVA con la KOR",
+      "significa": "Con la KOR (el régimen de pequeños empresarios) el proveedor no cobra IVA.",
+      "que_hacer": "Pide al proveedor una factura corregida sin IVA.",
       "detalle": {
         "fallo": [
           {
             "cuando": [
               "iva_cent"
             ],
-            "texto": "Con la KOR no debería haber BTW, pero la factura cobra {iva_cent|dinero}."
+            "texto": "Con la KOR no debería haber IVA, pero la factura cobra {iva_cent|dinero}."
           },
           {
             "cuando": [
               "total_cent",
               "base_cent"
             ],
-            "texto": "Con la KOR no debería haber BTW, pero el total ({total_cent|dinero}) es mayor que el importe sin BTW ({base_cent|dinero})."
+            "texto": "Con la KOR no debería haber IVA, pero el total ({total_cent|dinero}) es mayor que el importe sin IVA ({base_cent|dinero})."
           },
           {
             "cuando": [],
-            "texto": "Con la KOR no debería haber BTW."
+            "texto": "Con la KOR no debería haber IVA."
           }
         ],
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "El importe del BTW no se ve y no se puede deducir del total."
+            "texto": "El importe del IVA no se ve y no se puede deducir del total."
           }
         ]
       }
     },
     "E4": {
-      "titulo": "BTW por autoliquidación",
-      "significa": "Con autoliquidación (BTW verlegd) la factura no cobra BTW y lleva el número de BTW del destinatario.",
+      "titulo": "IVA por autoliquidación",
+      "significa": "Con autoliquidación (BTW verlegd) la factura no cobra IVA y lleva el número de IVA del destinatario.",
       "que_hacer": "Pide al proveedor una factura corregida.",
       "detalle": {
         "fallo": [
@@ -933,17 +933,17 @@
               "tratamiento_iva",
               "iva_cent"
             ],
-            "texto": "Con autoliquidación no debería haber BTW, pero la factura cobra {iva_cent|dinero}."
+            "texto": "Con autoliquidación no debería haber IVA, pero la factura cobra {iva_cent|dinero}."
           },
           {
             "cuando": [
               "tratamiento_iva"
             ],
-            "texto": "Con autoliquidación no debería haber BTW, pero el total ({total_cent|dinero}) es mayor que el importe sin BTW ({base_cent|dinero})."
+            "texto": "Con autoliquidación no debería haber IVA, pero el total ({total_cent|dinero}) es mayor que el importe sin IVA ({base_cent|dinero})."
           },
           {
             "cuando": [],
-            "texto": "Con autoliquidación la factura tiene que llevar el número de BTW del destinatario, y no lo lleva."
+            "texto": "Con autoliquidación la factura tiene que llevar el número de IVA del destinatario, y no lo lleva."
           }
         ],
         "sin_datos": [
@@ -951,11 +951,11 @@
             "cuando": [
               "tratamiento_iva"
             ],
-            "texto": "El importe del BTW no se ve y no se puede deducir del total."
+            "texto": "El importe del IVA no se ve y no se puede deducir del total."
           },
           {
             "cuando": [],
-            "texto": "Al leer el documento no se pidió el número de BTW del destinatario."
+            "texto": "Al leer el documento no se pidió el número de IVA del destinatario."
           }
         ]
       }
@@ -970,7 +970,7 @@
             "cuando": [
               "pasado=true"
             ],
-            "texto": "En {ano} este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de {umbral_cent|dinero}. Seguramente tiene que empezar a cobrar BTW."
+            "texto": "En {ano} este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de {umbral_cent|dinero}. Seguramente tiene que empezar a cobrar IVA."
           },
           {
             "cuando": [
@@ -986,8 +986,8 @@
       }
     },
     "E7": {
-      "titulo": "Porcentaje o tratamiento del BTW poco habitual",
-      "significa": "Un porcentaje de BTW que no está en la lista (0, 9 y 21%), o una venta con autoliquidación o con el 0% de BTW a un cliente que no está marcado para ello en los datos maestros.",
+      "titulo": "Porcentaje o tratamiento del IVA poco habitual",
+      "significa": "Un porcentaje de IVA que no está en la lista (0, 9 y 21%), o una venta con autoliquidación o con el 0% de IVA a un cliente que no está marcado para ello en los datos maestros.",
       "que_hacer": "Comprueba el porcentaje o el tratamiento, y cómo está el cliente en los datos maestros.",
       "detalle": {
         "fallo": [
@@ -995,7 +995,7 @@
             "cuando": [
               "tipos"
             ],
-            "texto": "Porcentaje de BTW poco habitual: {tipos|pct}."
+            "texto": "Porcentaje de IVA poco habitual: {tipos|pct}."
           },
           {
             "cuando": [
@@ -1005,7 +1005,7 @@
           },
           {
             "cuando": [],
-            "texto": "Porcentaje o tratamiento del BTW poco habitual."
+            "texto": "Porcentaje o tratamiento del IVA poco habitual."
           }
         ],
         "sin_datos": [
@@ -1017,7 +1017,7 @@
           },
           {
             "cuando": [],
-            "texto": "El cliente es desconocido, así que no se puede comprobar el tratamiento del BTW."
+            "texto": "El cliente es desconocido, así que no se puede comprobar el tratamiento del IVA."
           }
         ]
       }
@@ -1172,7 +1172,7 @@
                 "cuando": [
                   "ajenas"
                 ],
-                "texto": "La cuenta {iban|iban} está registrada a nombre de otra parte."
+                "texto": "La cuenta {iban|iban} está registrada a nombre de otra empresa."
               }
             ]
           },
@@ -2098,7 +2098,7 @@
     },
     "P3": {
       "titulo": "PO desconocida o de otro",
-      "significa": "La PO de la factura no está registrada, es de otra parte o no cubre el Object de la línea; o la factura nombra varias PO y una línea no tiene ninguna.",
+      "significa": "La PO de la factura no está registrada, es de otra empresa o no cubre el Object de la línea; o la factura nombra varias PO y una línea no tiene ninguna.",
       "que_hacer": "Registra la PO o elige la PO correcta para la línea.",
       "detalle": {
         "fallo": [
@@ -2115,7 +2115,7 @@
                 "cuando": [
                   "de_otra_parte"
                 ],
-                "texto": "De otra parte: {de_otra_parte}."
+                "texto": "De otra empresa: {de_otra_parte}."
               },
               {
                 "cuando": [
@@ -2146,7 +2146,7 @@
     },
     "P4": {
       "titulo": "Factura por encima de lo que queda",
-      "significa": "La factura carga a la PO más de lo que quedaba antes de ella (sin BTW).",
+      "significa": "La factura carga a la PO más de lo que quedaba antes de ella (sin IVA).",
       "que_hacer": "Pide al cliente una PO mayor, o carga parte de la factura a otra PO.",
       "detalle": {
         "fallo": [
@@ -2333,7 +2333,7 @@
     },
     "R1": {
       "titulo": "Falta la factura a la que se refiere",
-      "significa": "Una nota de crédito o una corrección se refiere a una factura de la misma parte que no está en el sistema (o que está dos veces).",
+      "significa": "Una nota de crédito o una corrección se refiere a una factura de la misma empresa que no está en el sistema (o que está dos veces).",
       "que_hacer": "Importa la factura a la que se refiere, o enlaza la factura correcta.",
       "detalle": {
         "fallo": [
@@ -2347,7 +2347,7 @@
             "cuando": [
               "numero_norm"
             ],
-            "texto": "El documento se refiere a la factura {numero_norm} de la misma parte, que no está en el sistema."
+            "texto": "El documento se refiere a la factura {numero_norm} de la misma empresa, que no está en el sistema."
           },
           {
             "cuando": [],
@@ -2357,13 +2357,13 @@
         "sin_datos": [
           {
             "cuando": [],
-            "texto": "El documento se refiere a otra factura, pero el número no se puede leer o la parte es desconocida."
+            "texto": "El documento se refiere a otra factura, pero el número no se puede leer o la empresa es desconocida."
           }
         ]
       }
     },
     "R2": {
-      "titulo": "Abonos por encima del original",
+      "titulo": "Notas de crédito por encima del original",
       "significa": "Las notas de crédito confirmadas restan a una factura más de lo que vale, o una nota de crédito se aplica por más de lo que vale.",
       "que_hacer": "Comprueba los enlaces y el importe de cada nota de crédito.",
       "detalle": {
@@ -2439,7 +2439,7 @@
     },
     "R5": {
       "titulo": "Enlace por confirmar",
-      "significa": "La lectura o Exact proponen un enlace entre dos facturas. Hasta que alguien lo confirme, no cambia nada en saldos, BTW ni duplicados.",
+      "significa": "La lectura o Exact proponen un enlace entre dos facturas. Hasta que alguien lo confirme, no cambia nada en saldos, IVA ni duplicados.",
       "que_hacer": "Confirma o rechaza el enlace propuesto.",
       "detalle": {
         "fallo": [
@@ -2458,7 +2458,7 @@
     },
     "U1": {
       "titulo": "Importe poco habitual",
-      "significa": "El importe sin BTW es distinto de lo habitual para esta parte (la mediana de las facturas anteriores).",
+      "significa": "El importe sin IVA es distinto de lo habitual para esta empresa (la mediana de las facturas anteriores).",
       "que_hacer": "Comprueba que el importe es correcto; si lo es, acepta el hallazgo con un motivo.",
       "detalle": {
         "fallo": [
@@ -2466,11 +2466,11 @@
             "cuando": [
               "base_cent"
             ],
-            "texto": "Importe sin BTW {base_cent|dinero}; lo habitual es {mediana_cent|dinero} (la mediana de {anteriores} facturas anteriores)."
+            "texto": "Importe sin IVA {base_cent|dinero}; lo habitual es {mediana_cent|dinero} (la mediana de {anteriores} facturas anteriores)."
           },
           {
             "cuando": [],
-            "texto": "El importe es poco habitual para esta parte."
+            "texto": "El importe es poco habitual para esta empresa."
           }
         ],
         "sin_datos": [
@@ -2478,7 +2478,7 @@
             "cuando": [
               "anteriores"
             ],
-            "texto": "Facturas anteriores de esta parte: {anteriores}. Hacen falta al menos 3 para saber si un importe es poco habitual."
+            "texto": "Facturas anteriores de esta empresa: {anteriores}. Hacen falta al menos 3 para saber si un importe es poco habitual."
           },
           {
             "cuando": [],
@@ -2498,8 +2498,8 @@
       "significa": "Facturas o pagos que parecen estar dos veces."
     },
     "iva": {
-      "etiqueta": "BTW",
-      "significa": "Importes, porcentajes o tratamientos del BTW que están mal o faltan."
+      "etiqueta": "IVA",
+      "significa": "Importes, porcentajes o tratamientos del IVA que están mal o faltan."
     },
     "planning": {
       "etiqueta": "Diferencias con la planificación",
@@ -2547,9 +2547,9 @@
       "emisor_nombre_doc": "Emisor (en el documento)",
       "emisor_direccion_doc": "Dirección del emisor",
       "emisor_kvk_doc": "Número de KvK del emisor",
-      "emisor_btw_doc": "Número de BTW del emisor",
+      "emisor_btw_doc": "Número de IVA del emisor",
       "receptor_nombre_doc": "Destinatario (en el documento)",
-      "receptor_btw_doc": "Número de BTW del destinatario",
+      "receptor_btw_doc": "Número de IVA del destinatario",
       "contacto_nombre_doc": "Contacto (en el documento)",
       "fecha_factura": "Fecha de factura",
       "fecha_recepcion": "Recibida el",
@@ -2559,11 +2559,11 @@
       "fecha_vencimiento": "Vencimiento (en el documento)",
       "plazo_pago_dias": "Plazo de pago (días)",
       "condiciones_pago_doc": "Condiciones de pago (en el documento)",
-      "base_cent": "Importe sin BTW",
-      "iva_cent": "BTW",
+      "base_cent": "Importe sin IVA",
+      "iva_cent": "IVA",
       "total_cent": "Total",
-      "tipo_iva_pb": "Porcentaje de BTW",
-      "tratamiento_iva": "Tratamiento del BTW",
+      "tipo_iva_pb": "Porcentaje de IVA",
+      "tratamiento_iva": "Tratamiento del IVA",
       "kor_mencionada": "Menciona la KOR",
       "autoliquidacion_mencionada": "Menciona la autoliquidación",
       "referencia_pago": "Referencia de pago",
@@ -2591,7 +2591,7 @@
       "cantidad_mil": "Cantidad",
       "tarifa_e4": "Tarifa",
       "importe_cent": "Importe",
-      "tipo_iva_pb": "Porcentaje de BTW",
+      "tipo_iva_pb": "Porcentaje de IVA",
       "tipo_servicio": "Tipo de trabajo",
       "retirada_en": "Excluida el"
     },
@@ -2617,8 +2617,8 @@
       "nombre": "Nombre",
       "tipo": "Tipo",
       "kvk": "Número de KvK",
-      "btw_id": "Número de BTW",
-      "regimen_iva": "Tratamiento del BTW",
+      "btw_id": "Número de IVA",
+      "regimen_iva": "Tratamiento del IVA",
       "plazo_pago_dias": "Plazo de pago (días)",
       "direccion": "Dirección",
       "email_facturacion": "Correo de facturación",
@@ -2630,10 +2630,10 @@
     "cliente": {
       "nombre": "Nombre",
       "kvk": "Número de KvK",
-      "btw_id": "Número de BTW",
+      "btw_id": "Número de IVA",
       "plazo_pago_dias": "Plazo de pago (días)",
       "requiere_po": "Exige una PO",
-      "tratamiento_iva_defecto": "Tratamiento del BTW por defecto",
+      "tratamiento_iva_defecto": "Tratamiento del IVA por defecto",
       "verlegd_elegible": "Admite autoliquidación",
       "activo": "Activo",
       "exact_id": "ID de Exact",
@@ -2747,11 +2747,11 @@
       "manual": "Manual"
     },
     "tratamiento_iva": {
-      "estandar": "BTW normal",
+      "estandar": "IVA normal",
       "autoliquidacion": "Autoliquidación (BTW verlegd)",
-      "kor": "KOR (sin BTW)",
-      "exento": "Exento de BTW",
-      "tipo_cero": "BTW al 0%",
+      "kor": "KOR (sin IVA)",
+      "exento": "Exento de IVA",
+      "tipo_cero": "IVA al 0%",
       "desconocido": "Desconocido"
     },
     "pago": {
@@ -2777,13 +2777,13 @@
       "resuelta": "Resuelta"
     },
     "esperando_a": {
-      "proveedor": "el proveedor",
-      "cliente": "el cliente",
-      "contable": "el contable",
-      "exact": "Exact",
-      "trnsprnt": "TRNSPRNT",
-      "banco": "el banco",
-      "otro": "otra persona"
+      "proveedor": "al proveedor",
+      "cliente": "al cliente",
+      "contable": "al contable",
+      "exact": "a Exact",
+      "trnsprnt": "a TRNSPRNT",
+      "banco": "al banco",
+      "otro": "a otra persona"
     },
     "resolucion": {
       "corregido": "Corregido",
@@ -2945,7 +2945,7 @@
       "proveedor": "Proveedor",
       "cliente": "Cliente",
       "orden_compra": "PO",
-      "trimestre": "Trimestre de BTW",
+      "trimestre": "Trimestre de IVA",
       "movimiento": "Movimiento del banco",
       "importacion": "Importación"
     },
@@ -2956,7 +2956,7 @@
       "cliente": "Cliente",
       "objeto": "Object",
       "orden_compra": "PO",
-      "trimestre": "Trimestre de BTW"
+      "trimestre": "Trimestre de IVA"
     },
     "tipo_proveedor": {
       "zzp": "Autónomo (zzp'er)",
@@ -3092,7 +3092,7 @@
     "anular_factura": {
       "etiqueta": "Anular factura",
       "descripcion": "Anula una factura: no se paga y no cuenta (no se hace ninguna nota de crédito).",
-      "confirmar": "Esta factura dejará de contar en los totales, los pagos y el BTW."
+      "confirmar": "Esta factura dejará de contar en los totales, los pagos y el IVA."
     },
     "fusionar_factura": {
       "etiqueta": "Fusionar duplicado",
@@ -3107,12 +3107,12 @@
     "enlazar_facturas": {
       "etiqueta": "Enlazar facturas",
       "descripcion": "Enlaza dos facturas: una nota de crédito, una corrección, una sustitución o solo relacionadas.",
-      "confirmar": "El enlace queda confirmado en el acto y cambia los saldos, el BTW y los duplicados."
+      "confirmar": "El enlace queda confirmado en el acto y cambia los saldos, el IVA y los duplicados."
     },
     "confirmar_relacion": {
       "etiqueta": "Confirmar enlace",
       "descripcion": "Confirma un enlace propuesto (si quieres, con otro tipo u otro importe).",
-      "confirmar": "Al confirmarlo, cambian los saldos, el BTW y los duplicados."
+      "confirmar": "Al confirmarlo, cambian los saldos, el IVA y los duplicados."
     },
     "rechazar_relacion": {
       "etiqueta": "Rechazar enlace",
@@ -3122,7 +3122,7 @@
     "retirar_relacion": {
       "etiqueta": "Retirar enlace",
       "descripcion": "Retira un enlace (también uno confirmado); se guarda, no se borra.",
-      "confirmar": "Este enlace dejará de cambiar los saldos y el BTW."
+      "confirmar": "Este enlace dejará de cambiar los saldos y el IVA."
     },
     "marcar_revisada": {
       "etiqueta": "Marcar como revisada",
@@ -3268,7 +3268,7 @@
     },
     "administracion": {
       "etiqueta": "Administración",
-      "descripcion": "El trabajo diario: corregir, asignar, revisar, pagos, hallazgos, BTW e importaciones."
+      "descripcion": "El trabajo diario: corregir, asignar, revisar, pagos, hallazgos, IVA e importaciones."
     },
     "consulta": {
       "etiqueta": "Solo lectura",
@@ -3278,7 +3278,7 @@
   "permisos": {
     "ver_facturas": {
       "etiqueta": "Ver facturas",
-      "descripcion": "Ver todo: facturas, partes, PO, BTW y flujo de caja."
+      "descripcion": "Ver todo: facturas, empresas, PO, IVA y flujo de caja."
     },
     "editar_extraccion": {
       "etiqueta": "Corregir datos leídos",
@@ -3325,7 +3325,7 @@
       "descripcion": "Marcar facturas como revisadas o devolverlas."
     },
     "gestionar_btw": {
-      "etiqueta": "Gestionar el BTW",
+      "etiqueta": "Gestionar el IVA",
       "descripcion": "Preparar trimestres y anotar una declaración presentada. El sistema no presenta nada por su cuenta."
     },
     "importar_datos": {
@@ -3335,11 +3335,11 @@
   },
   "codigos": {
     "numero": "número de factura",
-    "contraparte": "otra parte",
+    "contraparte": "otra empresa",
     "fecha": "fecha de factura",
     "periodo": "periodo",
-    "base": "importe sin BTW",
-    "iva": "BTW o tratamiento del BTW",
+    "base": "importe sin IVA",
+    "iva": "IVA o tratamiento del IVA",
     "total": "importe total",
     "proveedor_id": "proveedor",
     "cliente_id": "cliente",
@@ -3347,10 +3347,10 @@
     "fecha_factura": "fecha de factura",
     "periodo_inicio": "inicio del periodo",
     "periodo_fin": "fin del periodo",
-    "iva_cent": "importe del BTW",
+    "iva_cent": "importe del IVA",
     "total_cent": "importe total",
     "iban_doc": "IBAN",
-    "tipo_iva_pb": "porcentaje de BTW",
+    "tipo_iva_pb": "porcentaje de IVA",
     "un IBAN": "un IBAN",
     "cuenta bancaria": "datos bancarios",
     "un cambio de datos": "un cambio de datos",
@@ -3361,12 +3361,12 @@
     "emisor": "el PDF no dice que lo emitiera BM Support BV",
     "factura": "factura",
     "nota_credito": "nota de crédito",
-    "estandar": "BTW normal",
-    "autoliquidacion": "autoliquidación del BTW",
-    "kor": "la KOR (sin BTW)",
+    "estandar": "IVA normal",
+    "autoliquidacion": "autoliquidación del IVA",
+    "kor": "la KOR (sin IVA)",
     "exento": "exención",
-    "tipo_cero": "BTW al 0%",
-    "desconocido": "tratamiento del BTW desconocido",
+    "tipo_cero": "IVA al 0%",
+    "desconocido": "tratamiento del IVA desconocido",
     "anadida_al_maestro": "añadida",
     "retirada_del_maestro": "quitada",
     "vuelve_al_maestro": "añadida de nuevo",

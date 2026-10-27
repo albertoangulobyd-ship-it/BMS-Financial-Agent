@@ -292,6 +292,8 @@ export interface InvoiceRow {
   total_cent: number | null;
   pendiente_cent: number | null;
   estado_pago: string | null;
+  /** Contrato 2.4: la fuente que manda en lo pagado (banco, exact o manual), o null. */
+  fuente_pago?: 'banco' | 'exact' | 'manual' | null;
   estado_revision: string | null;
   nivel: string;
   cuenta: boolean;

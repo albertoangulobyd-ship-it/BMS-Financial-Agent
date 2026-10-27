@@ -114,31 +114,41 @@ export function SearchResults({ heading, note, children }: { heading: string; no
   );
 }
 
+/** Un dato de una fila: texto de la app, o de un documento (un numero, un nombre impreso), que
+ *  se marca como tal (no cuenta como resto de otro idioma). */
+export type ResultDetail = string | { text: string; proper: true };
+
 /** Una fila de resultado: que es, de quien y cuando, y su importe (ya formateado). */
 export function SearchResult({
   title,
+  properTitle = false,
   details,
   amount,
+  label,
   onOpen,
 }: {
   title: string;
-  details: string[];
+  /** El titulo viene de un documento (el numero de la factura). */
+  properTitle?: boolean;
+  details: ResultDetail[];
   amount?: string | null;
+  /** El nombre del boton para el lector de pantalla ("Factuur VD26-306 openen"). */
+  label?: string;
   onOpen: () => void;
 }) {
   const { t } = useT();
   return (
-    <button type='button' className='search-result' onClick={onOpen}>
+    <button type='button' className='search-result' onClick={onOpen} aria-label={label}>
       <span className='result-file-icon' aria-hidden='true'>
         <FileText size={19} />
       </span>
       <div className='result-info'>
-        <strong>{title}</strong>
+        <strong data-proper-name={properTitle ? '' : undefined}>{title}</strong>
         <span>
           {details.map((d, i) => (
-            <span key={i}>
+            <span key={i} data-proper-name={typeof d === 'string' ? undefined : ''}>
               {i > 0 && <i aria-hidden='true' />}
-              {d}
+              {typeof d === 'string' ? d : d.text}
             </span>
           ))}
         </span>

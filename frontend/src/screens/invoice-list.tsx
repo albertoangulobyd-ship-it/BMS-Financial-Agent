@@ -16,7 +16,7 @@ import { useNav } from '@/shell/navigation';
 import { DateText, Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
 import { fmt, useT } from '@/i18n';
-import { paymentStateLabel, reviewStateLabel } from '@/i18n/domain';
+import { paymentStateLabel, reviewStateLabel, ruleText } from '@/i18n/domain';
 import { paths, type InvoiceRow } from '@/lib/api';
 import type { Cartera, PaymentProposal } from '@/lib/api-types';
 import { formatMoney } from '@/lib/format';
@@ -30,6 +30,7 @@ import {
   INVOICE_FILTERS,
   byDue,
   isInvoiceFilter,
+  livePaymentState,
   matchesFilter,
   pendingSum,
   proposalsOf,
@@ -110,13 +111,19 @@ export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'i
       header: t.columns.status,
       width: '11rem',
       // En texto: el color de la fila lo lleva la prioridad (lo vencido lo dice el vencimiento).
-      cell: (r) => (
-        <span className='flex flex-col items-start text-[13px] leading-snug'>
-          <span>{paymentStateLabel(lang, r.estado_pago ?? '') ?? '—'}</span>
-          {waiting.has(r.id) && <span className='font-medium text-soft-foreground'>{t.money.waitingProposal}</span>}
-          <span className='text-muted-foreground'>{reviewStateLabel(lang, r.estado_revision ?? '') ?? '—'}</span>
-        </span>
-      ),
+      // El estado de pago con el hoy del motor (la cache puede ser de otro dia) y "pagada"
+      // siempre con su fuente (decision 5: el banco, Exact o a mano, con K3).
+      cell: (r) => {
+        const state = livePaymentState(r, today);
+        return (
+          <span className='flex flex-col items-start text-[13px] leading-snug'>
+            <span data-testid='payment-state'>{paymentStateLabel(lang, state ?? '') ?? '—'}</span>
+            {state === 'pagada' && <PaidSourceShort row={r} />}
+            {waiting.has(r.id) && <span className='font-medium text-soft-foreground'>{t.money.waitingProposal}</span>}
+            <span className='text-muted-foreground'>{reviewStateLabel(lang, r.estado_revision ?? '') ?? '—'}</span>
+          </span>
+        );
+      },
     },
     { key: 'why', header: t.columns.why, cell: (r) => <WhyCell why={whyOf(r, lang, t)} /> },
   ];
@@ -175,6 +182,22 @@ export function InvoiceListScreen({ navId, navKey }: { navId: Extract<ViewId, 'i
         </>
       )}
     </Screen>
+  );
+}
+
+/** De donde sale "pagada" en una fila: "volgens de bank", "volgens Exact" o "met de hand,
+ *  nog niet in de bank" (y el aviso K3 mientras siga abierto). */
+function PaidSourceShort({ row }: { row: InvoiceRow }) {
+  const { t, lang } = useT();
+  const source = row.fuente_pago;
+  if (!source) return null;
+  const k3 = (row.razones ?? []).some((h) => h.regla === 'K3' && h.estado === 'abierto');
+  const text = source === 'banco' ? t.payments.listBank : source === 'exact' ? t.payments.listExact : t.payments.listManual;
+  return (
+    <span data-testid='paid-source-short' className='text-xs text-soft-foreground'>
+      {text}
+      {k3 && <span className='block font-medium text-late-foreground'>{ruleText(lang, 'K3')?.title ?? 'K3'}</span>}
+    </span>
   );
 }
 

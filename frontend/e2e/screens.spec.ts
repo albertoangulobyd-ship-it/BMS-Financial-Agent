@@ -10,9 +10,9 @@ import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import type { ViewId } from '../src/screens/sections';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
-import { crumbs, go, mainMenu, sectionMenu, setLang as switchLang } from './nav';
+import { TEXTS, crumbs, fill, go, mainMenu, sectionMenu, setLang as switchLang } from './nav';
 
-type Lang = 'nl' | 'en';
+type Lang = 'nl' | 'en' | 'es';
 
 /** Las pantallas por el nombre que se ve (asi se leen las pruebas); desde el paso 16 se llega
  *  a cada una por su entrada y su vista (e2e/nav.ts). */
@@ -153,6 +153,71 @@ test('de fiches: leverancier, klant, object, inkooporder en factuur, in NL en EN
   await check(page, 'en', 'objects');
   await nav(page, 'Purchase orders', 'en');
   await check(page, 'en', 'purchase-orders');
+});
+
+test('las fichas en castellano: proveedor, cliente, Object, PO, trimestre del IVA, factura y excepcion', async ({
+  page,
+  baseUrl,
+  request,
+}) => {
+  // Revision del paso 16: las fichas solo se miraban en NL y EN, y en castellano salian IVA y
+  // BTW, abono y nota de credito, aviso y hallazgo, fichero y archivo y "Esperando a el
+  // proveedor" con la prueba en verde. check() mira ahora tambien el glosario (fixtures.ts).
+  const t = TEXTS.es;
+  const response = await request.get(`${baseUrl}/api/v2/excepciones`, { headers: { 'X-BMS-Token': token('ana') } });
+  const waiting = ((await response.json()) as { excepciones: { id: number; esperando_a: string | null }[] }).excepciones.find(
+    (e) => e.esperando_a === 'proveedor'
+  )!;
+  expect(waiting, 'la base de prueba lleva una excepcion esperando al proveedor').toBeTruthy();
+  await signIn(page, baseUrl);
+  await setLang(page, 'es');
+
+  await go(page, 'providers', 'es');
+  await check(page, 'es', 'providers');
+  await openRow(page, /J\. Voorbeeld Beveiliging/);
+  await expect(page.getByRole('heading', { level: 1, name: 'J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
+  await check(page, 'es', 'provider');
+
+  await go(page, 'clients', 'es');
+  await check(page, 'es', 'clients');
+  await openRow(page, /Demo Havenbedrijf/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Demo Havenbedrijf BV' })).toBeVisible();
+  await check(page, 'es', 'client');
+
+  await go(page, 'objects', 'es');
+  await check(page, 'es', 'objects');
+  await openRow(page, /HAVEN-NOORD/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Haventerrein Demo-Noord' })).toBeVisible();
+  await check(page, 'es', 'object');
+
+  await go(page, 'client-pos', 'es');
+  await check(page, 'es', 'purchase-orders');
+  await openRow(page, /PO-DEMO-4501/);
+  await expect(page.getByRole('heading', { level: 1, name: 'PO-DEMO-4501' })).toBeVisible();
+  // Un porcentaje, una sola forma (sin espacio, como los textos del motor: "85,95%").
+  await expect(page.getByRole('main')).not.toContainText(/\d[\u00a0 ]%/);
+  await expect(page.getByRole('main')).toContainText(/\d%/);
+  await check(page, 'es', 'purchase-order');
+
+  await go(page, 'vat', 'es');
+  await check(page, 'es', 'vat');
+  await openRow(page, /Q3 2026/);
+  await expect(page.getByRole('heading', { level: 1, name: fill(t.vat.title, { quarter: 'Q3 2026' }) })).toBeVisible();
+  await check(page, 'es', 'vat-quarter');
+
+  // Una factura de venta con sus campos abiertos (IVA en las cifras de la app y del motor).
+  await go(page, 'invoices-out', 'es');
+  await page.getByRole('table').getByRole('button').first().click();
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(`^${t.sections.fields}`) }).click();
+  await expect(page.getByRole('main')).toContainText('IVA');
+  await check(page, 'es', 'invoice');
+
+  // La excepcion que espera al proveedor: "Esperando al proveedor", no "a el".
+  await go(page, 'exceptions', 'es');
+  await page.getByRole('button', { name: fill(t.exceptions.openLabel, { id: waiting.id }) }).click();
+  await expect(page.getByText('Esperando al proveedor').first()).toBeVisible();
+  await check(page, 'es', 'exception');
 });
 
 test('kasstroom: één tabel en de schatting uit de planning apart', async ({ page, baseUrl }) => {
@@ -415,9 +480,12 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
 test('facturen lezen: wat het kost en hoe je het start, zonder knop die het start', async ({ page, baseUrl, request }) => {
   await signIn(page, baseUrl);
   await nav(page, 'Facturen lezen');
-  // Hoe je het start, zonder de (Spaanse) naam van de snelkoppeling of het .bat-bestand.
-  await expect(page.getByText('met de snelkoppeling op het bureaublad voor het lezen van facturen')).toBeVisible();
-  await expect(page.getByText(/Finanzas|\.bat\b/)).toHaveCount(0);
+  // Como se empieza: con el nombre de verdad del acceso directo y del .bat (revision del paso
+  // 16: solo el castellano los nombraba, y la oficina en neerlandes es la que mas los necesita).
+  // En el disco se llaman asi, en castellano: van marcados como nombre propio, no son restos.
+  await expect(page.getByText(/met de snelkoppeling «BMS Finanzas - Leer facturas» op het bureaublad/)).toBeVisible();
+  await expect(page.locator('[data-proper-name]').filter({ hasText: 'BMS Finanzas - Leer facturas' })).toHaveCount(1);
+  await expect(page.locator('[data-proper-name]').filter({ hasText: 'leer-facturas.bat' })).toHaveCount(1);
   await expect(page.getByText('Deze app heeft bewust geen internet')).toBeVisible();
   // Cuantos se han leido depende del dia en que se crea la base de prueba (16 el 19-10-2026, 17
   // el 27-10-2026): lo que diga la API, tal cual.

@@ -328,14 +328,18 @@ export interface StatusPillProps extends Omit<React.ComponentProps<'div'>, 'chil
   state: string | null | undefined;
   /** Las cifras o nombres que lleva el texto (el veredicto, "Wacht op de leverancier"). */
   values?: StatusValues;
+  /** El texto de la fila en lugar del del estado (la pastilla pone solo el tono): en una
+   *  tarjeta, "Bloqueadas 4" y "Vencido" concuerdan con la fila; el estado diria "Bloqueada"
+   *  y "Vencida", que son de una factura (revision del paso 16). */
+  label?: string;
 }
 
 /** Un estado del dominio, como lo quiere el dueno: pastilla, punto y texto. */
-export function StatusPill({ group, state, values, ...props }: StatusPillProps) {
+export function StatusPill({ group, state, values, label: own, ...props }: StatusPillProps) {
   const { lang, t } = useT();
   const scope = useContext(PingContext);
   const rule = statusRule(group, state);
-  const label = statusLabel(lang, t, group, state, values) ?? t.common.unknown;
+  const label = own ?? statusLabel(lang, t, group, state, values) ?? t.common.unknown;
   // La gravedad de un aviso dice ademas, al pasar el raton, que hace con la factura.
   const hint = group === 'severidad' ? severityMeaning(lang, state) : null;
   return (

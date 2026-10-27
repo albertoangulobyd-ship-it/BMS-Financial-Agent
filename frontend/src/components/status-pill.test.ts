@@ -221,6 +221,28 @@ describe('status-pill: la tabla de estados', () => {
     expect(Object.keys(STATUS_RULES.aislamiento).sort()).toEqual(['caducada', 'correcto', 'falla', 'sin_comprobar']);
   });
 
+  it('esperando a alguien: "Esperando al proveedor" en castellano, no "a el"', () => {
+    // Revision del paso 16: la plantilla era "Esperando a {who}" y el catalogo "el proveedor".
+    const said = (lang: Lang, who: string) => statusLabel(lang, MESSAGES[lang], 'excepcion', 'esperando_externo', { esperando_a: who });
+    expect(said('es', 'proveedor')).toBe('Esperando al proveedor');
+    expect(said('es', 'banco')).toBe('Esperando al banco');
+    expect(said('es', 'exact')).toBe('Esperando a Exact');
+    expect(said('es', 'otro')).toBe('Esperando a otra persona');
+    expect(said('nl', 'proveedor')).toBe('Wacht op de leverancier');
+    expect(said('en', 'cliente')).toBe('Waiting on the client');
+    for (const who of ['proveedor', 'cliente', 'contable', 'exact', 'trnsprnt', 'banco', 'otro']) expect(said('es', who)).not.toMatch(/\ba el\b/);
+    // La pastilla dentro de una tarjeta lleva el texto de su fila (concuerda en castellano).
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, {
+        lang: 'es',
+        setLang: () => {},
+        children: createElement(StatusPill, { group: 'prioridad', state: 'bloqueada', label: 'Bloqueadas' }),
+      })
+    );
+    expect(html).toContain('Bloqueadas');
+    expect(html).not.toContain('>Bloqueada<');
+  });
+
   it('la pastilla es la del dueno: variante, punto y texto; el punto late solo donde toca', () => {
     for (const [group, state] of all()) {
       const html = render('nl', group, state);

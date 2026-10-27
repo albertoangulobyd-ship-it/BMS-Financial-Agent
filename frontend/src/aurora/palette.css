@@ -75,7 +75,9 @@
   --au-t-6f5d80: #7c688e;
   --au-t-70557d: #846792;
   --au-t-705580: #836694;
-  --au-t-706078: #7a6983;
+  /* va sobre el fondo de la pagina (la carpeta abierta del archivo), no sobre una tarjeta:
+     4,6:1 alli (revision del paso 16: antes de desplazarse la pagina, axe no lo veia) */
+  --au-t-706078: #776680;
   --au-t-715a80: #806890;
   --au-t-716878: #716778;
   --au-t-74617e: #796584;

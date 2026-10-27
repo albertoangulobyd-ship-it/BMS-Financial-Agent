@@ -32,6 +32,7 @@ import { rememberView } from '@/lib/view-memory';
 import { needsPerson, whyOf } from '@/lib/why';
 import { cn } from '@/lib/utils';
 import { useNav } from '@/shell/navigation';
+import { openSearch } from './search';
 import { badgeFor, countsFromPanel } from '@/shell/use-badges';
 import { useQuickSearch } from '@/shell/use-quick-search';
 import type { InvoiceFilter } from './money-model';
@@ -297,6 +298,10 @@ function AskResults({
         ))}
         {loading && <Loading className='py-3' label={t.ask.searching} />}
         {more > 0 && <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.ask.moreInvoices, { n: more })}</p>}
+        {/* Con filtros (el tipo, la empresa, las fechas, el importe): la busqueda entera. */}
+        <Button variant='link' size='sm' className='mt-2 h-auto px-2' onClick={() => openSearch(nav, query)}>
+          {t.finder.withFilters}
+        </Button>
         {error !== null && !loading && <p className='mt-2 text-xs text-late-foreground'>{t.errors.unexpected}</p>}
       </div>
     </section>
@@ -448,7 +453,7 @@ function HomeContent({
                       ? {
                           label: t.overview.vat.left,
                           value: '',
-                          status: { group: 'btw', state: 'plazo_cerca', values: { n: deadline.dias_para_limite ?? 0 } } as const,
+                          status: { group: 'btw', state: 'plazo_cerca', values: { n: deadline.dias_para_limite ?? 0 }, ownText: true } as const,
                         }
                       : {
                           label: t.overview.vat.left,

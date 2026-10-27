@@ -30,15 +30,16 @@ export function tabOf(side: Side): ArchiveTab {
   return side === 'client' ? 'clients' : 'providers';
 }
 
-/** Primero lo que pide atencion: lo vencido (mas, antes), despues lo pendiente (mas, antes) y,
- *  a igualdad, el orden de la API (que ya es el de la prioridad). */
-export function byAttention<T extends { row: Pick<PartyRow, 'vencido_cent' | 'pendiente_cent'> }>(list: readonly T[]): T[] {
+/** Primero lo que pide atencion: lo vencido (mas, antes), despues lo pendiente (mas, antes: la
+ *  cifra de la cartera, la que dice la carpeta) y, a igualdad, el orden de la API (que ya es el
+ *  de la prioridad). */
+export function byAttention<T extends { row: Pick<PartyRow, 'vencido_cent' | 'deuda_cent'> }>(list: readonly T[]): T[] {
   return list
     .map((item, index) => ({ item, index }))
     .sort(
       (a, b) =>
         Math.max(0, b.item.row.vencido_cent) - Math.max(0, a.item.row.vencido_cent) ||
-        Math.max(0, b.item.row.pendiente_cent) - Math.max(0, a.item.row.pendiente_cent) ||
+        Math.max(0, b.item.row.deuda_cent) - Math.max(0, a.item.row.deuda_cent) ||
         a.index - b.index
     )
     .map((x) => x.item);

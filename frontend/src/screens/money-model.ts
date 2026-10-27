@@ -5,7 +5,7 @@
 // en el navegador contra la API.
 // Rutas relativas: lo importan tambien las pruebas en el navegador (e2e), sin el alias @.
 import type { InvoiceRow } from '../lib/api';
-import type { AgeingBucket, Cartera, CarteraParty, InvoicePayment, PaymentProposal } from '../lib/api-types';
+import type { AgeingBucket, BankLine, Cartera, CarteraParty, InvoicePayment, PaymentProposal } from '../lib/api-types';
 
 export type Side = 'saliente' | 'entrante';
 
@@ -79,7 +79,11 @@ export function matchesFilter(
     case 'open':
       return inCartera(row, side);
     case 'vencida':
-      return inCartera(row, side) && row.estado_pago === 'vencida';
+      // Como la cartera y sus tramos: con el hoy del motor, no con `estado_pago`, que es la
+      // cache de la ultima pasada (con la cache de otro dia, la lista se quedaba corta de lo
+      // que decia la cifra que la abrio: revision del paso 16). Sin la cartera aun, la cache.
+      if (!windows) return inCartera(row, side) && row.estado_pago === 'vencida';
+      return inCartera(row, side) && isOverdue(row.vencimiento, windows.today);
     case 'pagada':
       return row.estado_pago === 'pagada';
     case 'por_confirmar':
@@ -96,6 +100,29 @@ export function matchesFilter(
       return dueBetween(row.vencimiento, bucket.vence_desde, bucket.vence_hasta);
     }
   }
+}
+
+/** Vencida: el vencimiento es de antes de hoy (lo de hoy aun no; como el motor y el panel). */
+export function isOverdue(due: string | null | undefined, today: string): boolean {
+  return Boolean(due) && due!.slice(0, 10) < today;
+}
+
+/**
+ * El estado de pago que se ensena en una fila de una lista, con el hoy del motor: una deuda en
+ * juego (pendiente o vencida) es vencida si su vencimiento es de antes de hoy, como dice la
+ * regla del motor (estados.estado_pago). Lo demas (pagada, anulada, acreditada) es lo que dice
+ * la fila. Con la cache de otro dia la fila decia "pendiente" al lado de "10 dagen te laat".
+ */
+export function livePaymentState(
+  row: Pick<InvoiceRow, 'estado_pago' | 'vencimiento' | 'total_cent' | 'pendiente_cent'>,
+  today: string | null
+): string | null {
+  const state = row.estado_pago ?? null;
+  if (today === null || (state !== 'pendiente' && state !== 'vencida')) return state;
+  // Solo vence una deuda (reglas.pagos.vence): un abono sin enlazar sigue "pendiente".
+  const debt = (row.total_cent ?? 0) > 0 && (row.pendiente_cent ?? 0) > 0;
+  if (!debt) return state;
+  return isOverdue(row.vencimiento, today) ? 'vencida' : 'pendiente';
 }
 
 /** Las fichas de pago van por vencimiento (lo mas antiguo primero); las demas, en el orden
@@ -185,6 +212,30 @@ export function waitingInvoices(proposals: readonly PaymentProposal[]): Set<numb
 }
 
 // ------------------------------------------------------------ apuntar un pago
+
+/**
+ * Las facturas que se ofrecen para enlazar una linea del banco: primero las que parecen suyas
+ * (lo que queda es lo que queda de la linea, o su numero sale en el concepto o la referencia),
+ * luego las demas en su orden. Ninguna se elige sola (revision del paso 16: se elegia la
+ * primera de la lista, la de mas prioridad, y confirmar sin mirar enlazaba el dinero a otra
+ * factura, que quedaba "pagada segun el banco" sin aviso K3).
+ */
+export function linkCandidates<T extends Pick<InvoiceRow, 'id' | 'numero' | 'pendiente_cent'>>(
+  line: Pick<BankLine, 'resto_cent' | 'importe_cent' | 'concepto' | 'referencia'>,
+  invoices: readonly T[]
+): { likely: T[]; others: T[] } {
+  const rest = Math.abs(line.resto_cent ?? line.importe_cent ?? 0);
+  const text = `${line.concepto ?? ''} ${line.referencia ?? ''}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const likely: T[] = [];
+  const others: T[] = [];
+  for (const f of invoices) {
+    const number = (f.numero ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const sameAmount = rest > 0 && Math.abs(f.pendiente_cent ?? 0) === rest;
+    const named = number.length >= 3 && text.includes(number);
+    (sameAmount || named ? likely : others).push(f);
+  }
+  return { likely, others };
+}
 
 /**
  * Un importe tecleado en euros, en centimos (enteros): "4.970,68", "4970,68", "4970.68" o

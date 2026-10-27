@@ -470,7 +470,7 @@ function Folders({
                 total={entry?.status === 'ready' ? entry.docs.length : (f.row.documentos ?? 0)}
                 art={f.side === 'client' ? CLIENT_ART : PROVIDER_ART}
                 seed={hashString(f.key) % 997}
-                balance={f.row.pendiente_cent > 0 ? fmt(t.documents.outstanding, { amount: formatMoney(f.row.pendiente_cent) }) : t.documents.nothingOpen}
+                balance={f.row.deuda_cent > 0 ? fmt(t.documents.outstanding, { amount: formatMoney(f.row.deuda_cent) }) : t.documents.nothingOpen}
                 active={f.key === activeKey}
                 accessory={f.row.nivel !== 'normal' ? <StatusPill group='prioridad' state={f.row.nivel} /> : undefined}
                 onOpenChange={(open) => (open ? onOpen(f.side, f.row.id) : onClose())}
@@ -587,8 +587,15 @@ function profileFacts(side: Side, p: PartyView, row: PartyRow | undefined, { t, 
       label: t.parties.outstanding,
       value: (
         <>
-          <Money cents={p.pendiente_cent} />
+          <Money cents={p.deuda_cent} />
           <small>{fmt(p.abiertas === 1 ? t.parties.openInvoicesCountOne : t.parties.openInvoicesCount, { n: p.abiertas })}</small>
+          {p.abonos_sin_enlazar_cent !== 0 && (
+            <small data-testid='unlinked-credit'>
+              {p.abonos_sin_enlazar_facturas > 1
+                ? fmt(t.parties.unlinkedCreditMany, { n: p.abonos_sin_enlazar_facturas, amount: formatMoney(p.abonos_sin_enlazar_cent) })
+                : fmt(t.parties.unlinkedCredit, { amount: formatMoney(p.abonos_sin_enlazar_cent) })}
+            </small>
+          )}
         </>
       ),
     },

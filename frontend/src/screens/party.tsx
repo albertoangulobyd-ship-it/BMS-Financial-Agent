@@ -21,7 +21,7 @@ import type { PartyInvoice, PartyView, ProposedRelation } from '@/lib/api-types'
 import { formatHours, formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import type { PartyKind } from './party-list';
+import { UnlinkedCredit, type PartyKind } from './party-list';
 import { recordRoute } from './registry';
 import { useLoad } from './use-load';
 import { twinMarks, type TwinMark } from '@/lib/twins';
@@ -68,7 +68,7 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
   const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId));
   const invoices = fmt(p.facturas === 1 ? t.parties.invoicesOne : t.parties.invoices, { n: p.facturas });
   const description = `${fmt(kind === 'provider' ? t.parties.isProvider : t.parties.isClient, { invoices })} ${
-    p.pendiente_cent > 0 ? fmt(t.parties.openAmount, { amount: formatMoney(p.pendiente_cent) }) : t.parties.nothingOpen
+    p.deuda_cent > 0 ? fmt(t.parties.openAmount, { amount: formatMoney(p.deuda_cent) }) : t.parties.nothingOpen
   }`;
   const first = p.avisos.hallazgos.find((h) => h.estado === 'abierto');
   const reason = first ? ruleText(lang, first.regla)?.title : null;
@@ -86,7 +86,9 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
           label={t.parties.outstanding}
           note={fmt(p.abiertas === 1 ? t.parties.openInvoicesCountOne : t.parties.openInvoicesCount, { n: p.abiertas })}
         >
-          <Money cents={p.pendiente_cent} className='text-[15px] font-semibold' />
+          {/* La cifra de la cartera; los abonos sin enlazar, aparte (revision del paso 16). */}
+          <Money cents={p.deuda_cent} className='text-[15px] font-semibold' />
+          <UnlinkedCredit party={p} />
         </Fact>
         <Fact
           label={t.parties.overdueColumn}

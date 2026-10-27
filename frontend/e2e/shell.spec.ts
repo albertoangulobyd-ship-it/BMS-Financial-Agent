@@ -179,6 +179,109 @@ test('la rueda: un clic abre cualquier entrada a la primera; la rueda del raton 
   await expect(page.locator('#contenido')).toBeFocused();
 });
 
+/** Lo desplazada que esta la pagina. */
+const scrolled = (page: Page) => page.evaluate(() => window.scrollY);
+
+/** Que una cosa esta dentro de la ventana (no solo en la pagina). */
+async function inWindow(page: Page, locator: Locator): Promise<boolean> {
+  const b = await locator.boundingBox();
+  const h = page.viewportSize()!.height;
+  return b !== null && b.y >= 0 && b.y + Math.min(b.height, 20) <= h;
+}
+
+test('la pagina se desplaza con la rueda del raton y con las teclas, y las bandas siguen arriba', async ({ page, baseUrl }) => {
+  // Revision del paso 16: el cuerpo era overflow: hidden y el marco nuevo no tenia su propio
+  // panel con scroll, asi que nada por debajo de la ventana se alcanzaba (solo con Tab:
+  // Playwright desplaza con scrollIntoView y no lo veia). Aqui se mueve la pagina como una
+  // persona: la rueda del raton, PageDown, Espacio, Fin y las flechas.
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  await settled(page);
+  const t = TEXTS.nl;
+  const first = page.getByRole('navigation', { name: t.home.alsoHere });
+  expect(await inWindow(page, first)).toBe(false);
+  // La rueda del raton fuera de la rueda de Aurora (sobre el saludo).
+  const greeting = await box(viewHeading(page, 'home'));
+  await page.mouse.move(greeting.x + 10, greeting.y + greeting.height / 2);
+  await page.mouse.wheel(0, 2400);
+  await expect.poll(() => scrolled(page)).toBeGreaterThan(0);
+  await expect.poll(() => inWindow(page, first)).toBe(true);
+  // La banda de datos de prueba se queda arriba, y la cabecera, justo debajo.
+  const band = await box(page.locator('#datos-de-prueba'));
+  expect(band.y).toBe(0);
+  const header = await box(page.locator('header').first());
+  expect(Math.abs(header.y - band.height)).toBeLessThanOrEqual(1);
+  await capture(page, 'nl-home-scrolled');
+
+  // Las teclas, sin nada con el foco, y con el foco en el contenido.
+  for (const key of ['PageDown', 'Space', 'End', 'ArrowDown']) {
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    await page.keyboard.press(key);
+    await expect.poll(() => scrolled(page), key).toBeGreaterThan(0);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('#contenido').focus();
+  await page.keyboard.press('PageDown');
+  await expect.poll(() => scrolled(page)).toBeGreaterThan(0);
+
+  // Te betalen: lo de abajo del todo ("Alle inkoopfacturen") se alcanza con la rueda.
+  await openSection(page, 'payables');
+  await expect(viewHeading(page, 'payables')).toBeVisible();
+  await settled(page);
+  const all = page.getByRole('button', { name: t.money.allInvoicesIn });
+  expect(await inWindow(page, all)).toBe(false);
+  const heading = await box(viewHeading(page, 'payables'));
+  await page.mouse.move(heading.x + heading.width / 2, heading.y + heading.height + 40);
+  await page.mouse.wheel(0, 6000);
+  await expect.poll(() => inWindow(page, all)).toBe(true);
+  // Volver a una pantalla la deja donde estaba; ir a otra empieza arriba. Una empresa de
+  // "Per leverancier", abajo, abre su ficha sin que Playwright tenga que desplazar nada.
+  const party = page.getByRole('table', { name: t.money.parties.titleOut }).getByRole('row').last().getByRole('button').first();
+  await party.scrollIntoViewIfNeeded();
+  const where = await scrolled(page);
+  expect(where).toBeGreaterThan(0);
+  const name = (await party.getAttribute('aria-label')) ?? (await party.innerText());
+  await party.click();
+  await expect(page.getByRole('button', { name: 'Terug', exact: true })).toBeVisible();
+  expect(await scrolled(page)).toBe(0);
+  // De vuelta, lo que se veia: la misma fila a la vista (y la pagina, desplazada).
+  await back(page);
+  await expect.poll(() => scrolled(page)).toBeGreaterThan(0);
+  await expect.poll(() => inWindow(page, page.getByRole('button', { name, exact: true }))).toBe(true);
+});
+
+test('la rueda del raton gira el menu hasta Btw y despues baja la pagina', async ({ page, baseUrl }) => {
+  // Revision del paso 16: daba la vuelta de Btw a Start y, con el raton en el centro del
+  // inicio, la pagina no bajaba nunca a las tarjetas.
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  await settled(page);
+  const list = await box(mainMenu(page).getByRole('list'));
+  await page.mouse.move(list.x + list.width / 2, list.y + list.height / 2);
+  // Hacia arriba en Start: nada gira y la pagina (ya arriba) sigue igual.
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(300);
+  expect(await activeWheelEntry(page)).toBe('Start');
+  const seen: string[] = [];
+  for (let i = 0; i < 5; i += 1) {
+    await page.mouse.wheel(0, 120);
+    await expect.poll(() => activeWheelEntry(page)).not.toBe(seen.at(-1) ?? 'Start');
+    seen.push(await activeWheelEntry(page));
+    expect(await scrolled(page)).toBe(0);
+    await page.waitForTimeout(300);
+  }
+  expect(seen).toEqual(['Te ontvangen', 'Te betalen', 'Documenten', 'Verwerken', 'Btw']);
+  // En Btw, la rueda del raton ya es de la pagina: baja, y el menu no vuelve a Start.
+  await page.mouse.wheel(0, 240);
+  await expect.poll(() => scrolled(page)).toBeGreaterThan(0);
+  expect(await activeWheelEntry(page)).toBe('Btw');
+});
+
 test('con "menos movimiento" la rueda gira sin animacion y el orbe no se mueve', async ({ page, baseUrl }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`${baseUrl}/app`);
@@ -493,6 +596,20 @@ for (const size of [
       await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await expect.poll(() => activeWheelEntry(page)).not.toBe('Start');
       await expect(viewHeading(page, 'home')).toBeVisible();
+
+      // El dedo desplaza la pagina fuera de la rueda (revision del paso 16: no se movia nada).
+      // En el margen de la izquierda, abajo: fuera de la rueda (que gira con el dedo).
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const start = size.height - 160;
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 10, y: start }] });
+      for (let i = 1; i <= 10; i += 1) {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 10, y: start - i * 40 }] });
+      }
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      // Que el gesto acabe (Chromium lo sigue un poco despues de soltar) antes de volver arriba.
+      await page.waitForTimeout(400);
+      await page.evaluate(() => window.scrollTo(0, 0));
 
       // Un toque en una entrada la abre (Te betalen, con su resumen: paso 16).
       await sectionButton(page, 'payables').tap();

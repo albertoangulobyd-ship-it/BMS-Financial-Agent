@@ -32,6 +32,9 @@ function party(id: number, nombre: string, vencido = 0, pendiente = 0, extra: Pa
     activo: true,
     facturas: 1,
     pendiente_cent: pendiente,
+    deuda_cent: pendiente,
+    abonos_sin_enlazar_cent: 0,
+    abonos_sin_enlazar_facturas: 0,
     vencido_cent: vencido,
     ano_facturado_cent: 0,
     nivel: 'normal',
@@ -72,6 +75,10 @@ describe('las carpetas', () => {
     ]);
     // Un saldo a favor (negativo) no pasa delante de nadie.
     expect(byAttention([{ row: party(9, 'X', 0, -500) }, { row: party(8, 'Y') }]).map((r) => r.row.id)).toEqual([9, 8]);
+    // Lo pendiente es la cifra de la cartera (sin restar el abono sin enlazar), la que dice la
+    // carpeta: la de 1.000 de deuda y 600 de abono va delante de la de 700.
+    const credited = party(5, 'Z', 0, 400, { deuda_cent: 1_000, abonos_sin_enlazar_cent: -600, abonos_sin_enlazar_facturas: 1 });
+    expect(byAttention([{ row: party(4, 'W', 0, 700) }, { row: credited }]).map((r) => r.row.id)).toEqual([5, 4]);
   });
 
   it('la pestana y la busqueda (nombre o codigo, sin mayusculas ni acentos)', () => {

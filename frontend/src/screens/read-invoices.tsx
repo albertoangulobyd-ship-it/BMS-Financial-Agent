@@ -4,6 +4,7 @@
 // escritorio, que dice antes lo que costara. Despues cuanto se ha leido y gastado, lo que
 // costaria la siguiente factura (de lo medido) y las ultimas pasadas. No hay ningun boton que
 // lo lance.
+import { WithScriptNames } from '@/components/script-names';
 import { Info } from 'lucide-react';
 import { DataTable, type Columns } from '@/components/data-table';
 import { Fact, FactStrip } from '@/components/fact-strip';
@@ -56,10 +57,14 @@ function HowToStart() {
       <ul className='flex list-disc flex-col gap-1.5 pl-5 text-[13.5px] leading-relaxed'>
         <li>{t.reading.how1}</li>
         <li>{t.reading.how2}</li>
-        {/* Sin el nombre del acceso directo ni del .bat (estan en castellano, como la
-            instalacion): la app no ensena castellano. */}
-        <li>{t.reading.how3}</li>
-        <li className='text-soft-foreground'>{t.reading.how4}</li>
+        {/* El acceso directo y el .bat por su nombre en el disco (en castellano, como la
+            instalacion), en los tres idiomas: components/script-names.tsx. */}
+        <li>
+          <WithScriptNames text={t.reading.how3} />
+        </li>
+        <li className='text-soft-foreground'>
+          <WithScriptNames text={t.reading.how4} />
+        </li>
       </ul>
     </section>
   );

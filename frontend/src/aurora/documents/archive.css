@@ -34,8 +34,8 @@
   .aurora-root .ws-sidebar {
     grid-area: side;
     position: sticky;
-    top: 76px;
-    max-height: calc(100dvh - 92px);
+    top: calc(76px + var(--bms-bandas, 0px));
+    max-height: calc(100dvh - 92px - var(--bms-bandas, 0px));
     overflow: auto;
     padding: 6px 10px 25px 0;
     scrollbar-width: thin;
@@ -767,8 +767,8 @@
   }
   @media (max-width: 1023px) {
     .aurora-root .ws-sidebar {
-      top: 128px;
-      max-height: calc(100dvh - 144px);
+      top: calc(128px + var(--bms-bandas, 0px));
+      max-height: calc(100dvh - 144px - var(--bms-bandas, 0px));
     }
   }
   @media (max-width: 850px) {

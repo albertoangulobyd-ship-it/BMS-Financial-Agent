@@ -74,9 +74,9 @@ describe('horas desde milesimas', () => {
   });
 
   it('escribe los porcentajes desde puntos basicos', () => {
-    expect(formatPercentFromBasisPoints(2100)).toBe('21\u00a0%');
-    expect(formatPercentFromBasisPoints(875)).toBe('8,75\u00a0%');
-    expect(formatPercentFromBasisPoints(1050)).toBe('10,5\u00a0%');
+    expect(formatPercentFromBasisPoints(2100)).toBe('21%');
+    expect(formatPercentFromBasisPoints(875)).toBe('8,75%');
+    expect(formatPercentFromBasisPoints(1050)).toBe('10,5%');
   });
 });
 

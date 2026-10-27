@@ -83,7 +83,7 @@ export function LoginScreen() {
     notice === 'sessionEnded' ? t.login.sessionEnded : notice === 'loggedOut' ? t.login.loggedOut : null;
 
   return (
-    <div className='flex h-full items-center justify-center overflow-auto bg-background px-4 py-10'>
+    <div className='flex flex-1 items-center justify-center bg-background px-4 py-10'>
       <main className='w-full max-w-[26rem]'>
         <div className='mb-8 flex items-center justify-between gap-4'>
           <div className='flex flex-col gap-1.5'>

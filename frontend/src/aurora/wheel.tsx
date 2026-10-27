@@ -8,7 +8,8 @@
 // - un clic o un toque en cualquier entrada la abre (en el prototipo, el primer clic solo la
 //   centraba: al recibir el foco giraba, la entrada se iba de debajo del raton y el clic se
 //   perdia). Aqui el foco con el raton o el dedo no gira nada;
-// - la rueda del raton y las flechas giran; deslizar el dedo arriba o abajo tambien;
+// - la rueda del raton y las flechas giran; deslizar el dedo arriba o abajo tambien. Las
+//   flechas dan la vuelta; la rueda del raton no: al llegar a un extremo, desplaza la pagina;
 // - Tab llega a cada entrada (gira para ponerla en el centro), Intro la abre, el foco se ve;
 // - nombres de verdad (la entrada es un boton con su nombre; la rueda, una navegacion con el
 //   suyo y una frase que dice como se usa);
@@ -47,9 +48,16 @@ export function wheelDistance(index: number, active: number): number {
   return Math.min(Math.abs(index - active), 3);
 }
 
-/** Un paso de la rueda, dando la vuelta (de la ultima a la primera). */
+/** Un paso de la rueda, dando la vuelta (de la ultima a la primera): las flechas y el dedo. */
 export function wheelStep(active: number, step: number, count: number): number {
   return (((active + step) % count) + count) % count;
+}
+
+/** Un paso de la rueda del raton, sin dar la vuelta: null en la primera hacia arriba o en la
+ *  ultima hacia abajo, y entonces el gesto es de la pagina (se desplaza hasta las tarjetas). */
+export function wheelScrollStep(active: number, direction: number, count: number): number | null {
+  const next = active + Math.sign(direction);
+  return next < 0 || next >= count || direction === 0 ? null : next;
 }
 
 export function Wheel({ entries, active, onActive, onOpen, label, description, row = WHEEL_ROW, className }: Props) {
@@ -66,14 +74,21 @@ export function Wheel({ entries, active, onActive, onOpen, label, description, r
   const live = useRef({ active, count, onActive });
   live.current = { active, count, onActive };
 
-  // La rueda del raton: un paso por gesto. El listener es nativo y no pasivo, para que la
-  // pagina no se desplace mientras el raton esta sobre la rueda.
+  // La rueda del raton: un paso por gesto, sin dar la vuelta. El listener es nativo y no
+  // pasivo, para que la pagina no se desplace mientras la rueda gira; en la primera entrada
+  // hacia arriba o en la ultima hacia abajo el gesto pasa a la pagina (revision del paso 16:
+  // con el raton en el centro del inicio, la pagina no bajaba nunca a las tarjetas).
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
     let acc = 0;
     let last = 0;
     const onWheel = (event: WheelEvent) => {
+      const { active: current, count: n, onActive: set } = live.current;
+      if (event.deltaY === 0 || wheelScrollStep(current, event.deltaY, n) === null) {
+        acc = 0;
+        return;
+      }
       event.preventDefault();
       const now = performance.now();
       const delta = event.deltaMode === 1 ? event.deltaY * 40 : event.deltaY;
@@ -81,9 +96,9 @@ export function Wheel({ entries, active, onActive, onOpen, label, description, r
       acc += delta;
       if (Math.abs(acc) < 30 || now - last < 160) return;
       last = now;
-      const { active: current, count: n, onActive: set } = live.current;
-      const next = wheelStep(current, Math.sign(acc), n);
+      const next = wheelScrollStep(current, acc, n);
       acc = 0;
+      if (next === null) return;
       set(next);
       // Si el foco estaba en la rueda, va con la entrada del centro (Intro abre lo que se ve).
       if (nav.contains(document.activeElement)) buttons.current[next]?.focus({ preventScroll: true });

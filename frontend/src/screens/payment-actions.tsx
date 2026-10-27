@@ -14,8 +14,9 @@ import { paths, type InvoiceRow } from '@/lib/api';
 import type { BankLine, BankLines, PartyDocuments, PaymentProposal } from '@/lib/api-types';
 import { formatDate, formatMoney } from '@/lib/format';
 import { useCan, useSession } from '@/lib/session';
+import { twinMarks, type TwinMark } from '@/lib/twins';
 import { cn } from '@/lib/utils';
-import { SIGN_OF, centsToApi, centsToInput, inCartera, parseEuros, type Side } from './money-model';
+import { SIGN_OF, centsToApi, centsToInput, inCartera, linkCandidates, parseEuros, type Side } from './money-model';
 
 /** El dia de hoy en el ordenador (AAAA-MM-DD): un pago apuntado no puede ser de despues. */
 function localToday(): string {
@@ -23,8 +24,9 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** La linea del banco y la factura una al lado de la otra, con las tres coincidencias. */
-export function ProposalCompare({ proposal: p }: { proposal: PaymentProposal }) {
+/** La linea del banco y la factura una al lado de la otra, con las tres coincidencias. `twin`:
+ *  el "1 van 2" de una factura que comparte numero y relacion con otra de la lista. */
+export function ProposalCompare({ proposal: p, twin }: { proposal: PaymentProposal; twin?: TwinMark | undefined }) {
   const { t } = useT();
   const m = p.movimiento;
   return (
@@ -52,6 +54,7 @@ export function ProposalCompare({ proposal: p }: { proposal: PaymentProposal }) 
           <span className='font-mono text-[12.5px] font-medium' data-proper-name=''>
             {p.factura.numero ?? '—'}
           </span>
+          {twin && <span className='text-xs text-muted-foreground'>{fmt(t.common.twin, { n: twin.n, of: twin.of })}</span>}
           <Money cents={p.factura.total_cent} className='font-semibold' />
         </p>
         <p className='mt-0.5 break-words' data-proper-name=''>
@@ -275,6 +278,9 @@ export function RecordPaymentButton({
       variant={variant}
       size={size}
       title={t.payments.record}
+      // El boton, el titulo y el envio dicen lo mismo (en castellano salian "Apuntar un pago ya
+      // hecho" y "Anotar pago": revision del paso 16).
+      submitLabel={t.payments.record}
       intro={<p>{t.payments.recordIntro}</p>}
       fields={fields}
       onToggle={setOpen}
@@ -310,7 +316,8 @@ export function RecordPaymentButton({
 /**
  * Desde una linea del banco sin factura: elegir la factura (las pendientes de ese lado) y
  * apuntar el pago con esa linea (marcar_pagada con movimiento_id; el importe, por defecto lo
- * que queda de la linea o de la factura, lo pone el motor). La rev es la de la lista.
+ * que queda de la linea o de la factura, lo pone el motor). La rev es la de la lista. Ninguna
+ * factura viene elegida: la persona elige (las que parecen de esta linea, primero y marcadas).
  */
 export function LinkLineButton({ line, side, invoices, onDone }: { line: BankLine; side: Side; invoices: readonly InvoiceRow[]; onDone?: () => void }) {
   const { t } = useT();
@@ -319,11 +326,20 @@ export function LinkLineButton({ line, side, invoices, onDone }: { line: BankLin
   const open = invoices.filter((f) => inCartera(f, side) && f.rev !== undefined);
   if (open.length === 0) return null;
   const amount = formatMoney(line.resto_cent ?? line.importe_cent);
+  const { likely, others } = linkCandidates(line, open);
+  const twins = twinMarks(open);
+  const option = (f: InvoiceRow, mark: boolean) => {
+    const twin = twins.get(f.id);
+    const number = `${f.numero ?? String(f.id)}${twin ? ` (${fmt(t.common.twin, { n: twin.n, of: twin.of })})` : ''}`;
+    const label = fmt(t.payments.invoiceOption, { number, party: f.contraparte ?? '—', amount: formatMoney(f.pendiente_cent) });
+    return { value: String(f.id), label: mark ? fmt(t.payments.likelyMark, { label }) : label };
+  };
   return (
     <ActionButton
       action='marcar_pagada'
       label={t.bank.link}
       title={t.payments.record}
+      submitLabel={t.payments.record}
       intro={
         <div className='flex flex-col gap-2'>
           <p>{t.payments.recordIntro}</p>
@@ -351,14 +367,12 @@ export function LinkLineButton({ line, side, invoices, onDone }: { line: BankLin
           kind: 'select',
           required: true,
           hideOptional: true,
-          initial: String(open[0]!.id),
-          options: open.map((f) => ({
-            value: String(f.id),
-            label: fmt(t.payments.invoiceOption, { number: f.numero ?? String(f.id), party: f.contraparte ?? '—', amount: formatMoney(f.pendiente_cent) }),
-          })),
+          initial: '',
+          options: [{ value: '', label: t.payments.chooseInvoice }, ...likely.map((f) => option(f, true)), ...others.map((f) => option(f, false))],
         },
         { name: 'motivo', label: t.payments.reasonField, kind: 'textarea', required: true, help: t.payments.reasonHelp },
       ]}
+      validate={(v) => (open.some((x) => String(x.id) === v.factura_id) ? null : fmt(t.action.required, { field: t.payments.invoiceField }))}
       data={(v) => {
         const f = open.find((x) => String(x.id) === v.factura_id)!;
         return { factura_id: f.id, rev: f.rev, motivo: v.motivo, movimiento_id: line.id };

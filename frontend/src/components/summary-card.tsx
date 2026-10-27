@@ -7,9 +7,10 @@ import { cn } from '@/lib/utils';
 export interface SummaryRow {
   label: string;
   value: ReactNode;
-  /** Cuando pide atencion (algo bloqueado, vencido, un plazo cerca): el estado, que se ensena
-   *  con su pastilla (components/status-pill) en lugar de la etiqueta. */
-  status?: Pick<StatusPillProps, 'group' | 'state' | 'values'>;
+  /** Cuando pide atencion (algo bloqueado, vencido, un plazo cerca): el estado, que pone el
+   *  tono de la pastilla (components/status-pill). El texto es el de la fila (`label`), salvo
+   *  que el estado lleve el suyo con cifras (`ownText`: "Nog 5 dagen"). */
+  status?: Pick<StatusPillProps, 'group' | 'state' | 'values'> & { ownText?: boolean };
   /** La fila abre la lista que la explica (paso 16: "Vencido" abre las vencidas). */
   onSelect?: () => void;
   /** El nombre de ese boton ("Vervallen verkoopfacturen tonen"). */
@@ -55,7 +56,11 @@ export function SummaryCard({
           {rows.slice(0, 3).map((row) => (
             <div key={row.label} className='contents'>
               <dt className={row.status ? 'flex items-center' : 'text-soft-foreground'}>
-                {row.status ? <StatusPill {...row.status} /> : row.label}
+                {row.status ? (
+                  <StatusPill group={row.status.group} state={row.status.state} values={row.status.values} label={row.status.ownText ? undefined : row.label} />
+                ) : (
+                  row.label
+                )}
               </dt>
               <dd className={cn('m-0 self-center text-right num', row.status && 'font-medium')}>
                 {row.onSelect ? (

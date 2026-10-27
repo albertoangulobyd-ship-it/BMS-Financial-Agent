@@ -3,8 +3,9 @@
 // afscherming este programa (la comprobacion del aislamiento que el servidor ya lee, por
 // partes), las personas (solo para quien administra) y donde se hacen las copias, en una
 // frase. Lo unico que se ajusta aqui es el idioma y el tema: lo demas lo hace quien
-// administra el programa, fuera de la app (sus .bat estan en castellano: solo los nombra la
-// app en castellano).
+// administra el programa, fuera de la app (sus .bat se llaman en castellano y la app los nombra
+// asi en los tres idiomas: components/script-names.tsx).
+import { WithScriptNames } from '@/components/script-names';
 import { LogOut } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DataTable, type Columns } from '@/components/data-table';
@@ -145,7 +146,9 @@ function CompanyRow({ company: c }: { company: Company }) {
   const missing = <span className='text-muted-foreground'>{t.settings.notFilled}</span>;
   return (
     <Row title={t.settings.companyTitle}>
-      <p className='text-muted-foreground'>{t.settings.companyHelp}</p>
+      <p className='text-muted-foreground'>
+        <WithScriptNames text={t.settings.companyHelp} />
+      </p>
       <dl className='mt-3 grid grid-cols-[12rem_1fr] gap-x-4 gap-y-1.5 text-[13px]'>
         <dt className='text-soft-foreground'>{t.parties.name}</dt>
         <dd className='m-0 font-medium'>{c.nombre}</dd>
@@ -193,7 +196,7 @@ function IsolationRow({ isolation: i }: { isolation: Isolation }) {
         <>
           <p className='mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]'>
             <StatusPill group='aislamiento' state={i.correcto ? 'correcto' : worstIsolation(i)} />
-            <span>{i.correcto ? t.settings.isolationOk : t.settings.isolationProblem}</span>
+            <span>{i.correcto ? t.settings.isolationOk : <WithScriptNames text={t.settings.isolationProblem} />}</span>
           </p>
           <ul className='mt-3 grid grid-cols-1 gap-x-8 gap-y-1.5 text-[13px] sm:grid-cols-2'>
             {i.papeles.map((p) => (
@@ -223,7 +226,9 @@ function PeopleRow({ people }: { people: PersonWithRoles[] }) {
   ];
   return (
     <Row title={t.settings.peopleTitle}>
-      <p className='mb-3 text-muted-foreground'>{t.settings.peopleHelp}</p>
+      <p className='mb-3 text-muted-foreground'>
+        <WithScriptNames text={t.settings.peopleHelp} />
+      </p>
       <DataTable columns={columns} rows={people} rowKey={(p) => p.id} caption={t.settings.peopleTitle} />
     </Row>
   );
@@ -233,7 +238,9 @@ function BackupsRow() {
   const { t } = useT();
   return (
     <Row title={t.settings.backupsTitle}>
-      <p className='text-muted-foreground'>{t.settings.backupsText}</p>
+      <p className='text-muted-foreground'>
+        <WithScriptNames text={t.settings.backupsText} />
+      </p>
     </Row>
   );
 }

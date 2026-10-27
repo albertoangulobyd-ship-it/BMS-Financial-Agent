@@ -10,6 +10,7 @@ import { Loading } from '@/components/states';
 import { fmt, useT } from '@/i18n';
 import { RESULT_KINDS, type QuickResult } from '@/lib/quick-search';
 import { cn } from '@/lib/utils';
+import { openSearch } from '@/screens/search';
 import { useNav } from './navigation';
 import { useQuickSearch } from './use-quick-search';
 
@@ -144,7 +145,20 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           <p className='px-3 py-2 text-xs text-muted-foreground'>{fmt(t.ask.moreInvoices, { n: search.moreInvoices })}</p>
         )}
       </div>
-      <p className='border-t border-border px-4 py-2 text-xs text-muted-foreground'>{t.palette.hint}</p>
+      <div className='flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2'>
+        <p className='text-xs text-muted-foreground'>{t.palette.hint}</p>
+        {/* La busqueda con filtros (revision del paso 16): lo escrito pasa con ella. */}
+        <button
+          type='button'
+          onClick={() => {
+            onClose();
+            openSearch(nav, query);
+          }}
+          className='rounded-sm text-xs font-medium text-primary underline-offset-4 hover:underline'
+        >
+          {t.finder.withFilters}
+        </button>
+      </div>
     </div>
   );
 }

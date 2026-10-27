@@ -17,6 +17,8 @@ interface Row {
   id: number;
   nombre: string;
   pendiente_cent: number;
+  /** Contrato 2.4: la cifra de la cartera, la que dice la carpeta (revision del paso 16). */
+  deuda_cent: number;
   vencido_cent: number;
   nivel: string;
   documentos?: number;
@@ -35,7 +37,7 @@ function euro(cents: number): string {
 function expectedOrder(clients: Row[], providers: Row[]): string[] {
   return [...clients, ...providers]
     .map((row, index) => ({ row, index }))
-    .sort((a, b) => b.row.vencido_cent - a.row.vencido_cent || b.row.pendiente_cent - a.row.pendiente_cent || a.index - b.index)
+    .sort((a, b) => b.row.vencido_cent - a.row.vencido_cent || Math.max(0, b.row.deuda_cent) - Math.max(0, a.row.deuda_cent) || a.index - b.index)
     .map((x) => x.row.nombre);
 }
 
@@ -93,11 +95,12 @@ test('el archivo: carpetas en su orden, pestanas, buscador y la ficha de verdad'
   // solo cuando pide algo.
   const jv = providers.find((p) => p.nombre.startsWith('J. Voorbeeld'))!;
   const jvCell = grid(page).getByRole('listitem', { name: jv.nombre, exact: true });
-  await expect(jvCell).toContainText(fill(t.documents.outstanding, { amount: euro(jv.pendiente_cent) }));
+  await expect(jvCell).toContainText(fill(t.documents.outstanding, { amount: euro(jv.deuda_cent) }));
   for (const party of [...clients, ...providers]) {
     const cell = grid(page).getByRole('listitem', { name: party.nombre, exact: true });
     await expect(cell.locator('[data-slot="status"]')).toHaveCount(party.nivel === 'normal' ? 0 : 1);
-    if (party.pendiente_cent === 0) await expect(cell).toContainText(t.documents.nothingOpen);
+    if (party.deuda_cent === 0) await expect(cell).toContainText(t.documents.nothingOpen);
+    else await expect(cell).toContainText(fill(t.documents.outstanding, { amount: euro(party.deuda_cent) }));
   }
   await expectAccessible(page, 'documenten');
   await expectNoLeftovers(page, 'nl', 'documenten');
@@ -357,6 +360,9 @@ test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se 
       nombre: `Proefmap ${String(i + 1).padStart(2, '0')}`,
       exact_id: null,
       pendiente_cent: 0,
+      deuda_cent: 0,
+      abonos_sin_enlazar_cent: 0,
+      abonos_sin_enlazar_facturas: 0,
       vencido_cent: 0,
       nivel: 'normal',
       razones: [],

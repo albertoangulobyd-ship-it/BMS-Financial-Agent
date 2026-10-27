@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test as base, type Page } from '@playwright/test';
 import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
+import { glossaryMisses } from '../src/i18n/glossary';
 import { leftoversIn } from '../src/i18n/leftovers';
 import { THEME_CHOICES, type ThemeChoice } from '../src/lib/theme-choice';
 
@@ -273,6 +274,9 @@ export async function expectNoLeftovers(page: Page, lang: Lang, what: string): P
     return at < 0 ? hit : `${hit} («${text.slice(Math.max(0, at - 30), at + word.length + 30).replace(/\s+/g, ' ')}»)`;
   });
   expect(found, `restos de otro idioma en ${what}`).toEqual([]);
+  // En castellano, ademas, un solo glosario (i18n/glossary.ts): la app y el catalogo del motor
+  // decian IVA y BTW, abono y nota de credito... en la misma pantalla (revision del paso 16).
+  if (lang === 'es') expect(glossaryMisses(text), `glosario del castellano en ${what}`).toEqual([]);
 }
 
 /**

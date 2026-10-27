@@ -10,6 +10,7 @@ import { setNonce } from 'get-nonce';
 // utilities) antes que las hojas de Aurora que importan los componentes.
 import './index.css';
 import { App } from './App';
+import { stickServerBands } from './lib/server-bands';
 import { DEVICE_THEME_KEY, loadTheme } from './lib/storage';
 import { DEFAULT_THEME, applyInitialTheme } from './lib/theme';
 
@@ -23,6 +24,8 @@ if (nonce) setNonce(nonce);
 
 // El tema antes de la primera pintura (index.html ya trae el oscuro, el de por defecto).
 applyInitialTheme(loadTheme(DEVICE_THEME_KEY) ?? DEFAULT_THEME);
+// Las bandas del servidor, a la vista al desplazar la pagina (y la cabecera, debajo).
+stickServerBands();
 
 const root = document.getElementById('root');
 if (root) {

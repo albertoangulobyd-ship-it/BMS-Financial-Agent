@@ -101,7 +101,8 @@ function Shell() {
   const current = nav.current;
 
   return (
-    <div className='flex min-h-full flex-col bg-background'>
+    // Se desplaza la pagina (index.css): la cabecera es sticky debajo de las bandas del servidor.
+    <div className='flex flex-1 flex-col bg-background'>
       <a
         href='#contenido'
         className='sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:left-3 focus:top-3'
@@ -114,7 +115,7 @@ function Shell() {
       </a>
       <header
         className={cn(
-          'sticky top-0 z-30',
+          'sticky top-[var(--bms-bandas,0px)] z-30',
           atHome ? 'bg-background' : 'border-b border-border bg-background/95 backdrop-blur-md'
         )}
       >

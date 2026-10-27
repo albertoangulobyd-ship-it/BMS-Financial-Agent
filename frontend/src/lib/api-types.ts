@@ -288,6 +288,11 @@ export interface PartyRow {
   razones?: Reason[];
   /** Contrato 2.2 (paso 16): cuantos documentos tiene su carpeta. */
   documentos?: number;
+  /** Contrato 2.4: lo que queda de sus facturas, la cifra de la cartera ("Openstaand"). */
+  deuda_cent: number;
+  /** Contrato 2.4: lo que acreditan sus abonos sin enlazar (cero o negativo), aparte. */
+  abonos_sin_enlazar_cent: number;
+  abonos_sin_enlazar_facturas: number;
 }
 
 /** Un hallazgo de los `avisos` de un proveedor, un cliente o una PO. */
@@ -325,6 +330,10 @@ export interface PartyView {
   hoy: string;
   facturas: number;
   pendiente_cent: number;
+  /** Contrato 2.4: como en PartyRow (la cifra de la cartera y los abonos sin enlazar). */
+  deuda_cent: number;
+  abonos_sin_enlazar_cent: number;
+  abonos_sin_enlazar_facturas: number;
   abiertas: number;
   vencido_cent: number;
   vencidas: number;

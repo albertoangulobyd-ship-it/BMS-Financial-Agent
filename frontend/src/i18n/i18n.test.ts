@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LANGS, MESSAGES, fmt, isLang, type Lang } from './index';
 import { DOMAIN_FALLBACK, catalogFor } from './domain';
+import { ES_GLOSSARY, glossaryMisses } from './glossary';
 import { leftoversIn, sharedWords } from './leftovers';
 
 type Tree = { [key: string]: Tree | string | string[] };
@@ -72,6 +73,53 @@ describe('los textos de la app', () => {
       if (value === dictionaries.en.get(key) || value === dictionaries.nl.get(key)) untranslated.push(`${key}: ${value}`);
     }
     expect(untranslated).toEqual([]);
+  });
+});
+
+// El glosario del castellano (revision del paso 16): i18n/glossary.ts.
+const GLOSSARY = ES_GLOSSARY;
+
+function catalogTexts(tree: unknown, path = ''): [string, string][] {
+  if (typeof tree === 'string') return [[path, tree]];
+  if (Array.isArray(tree)) return tree.flatMap((v, i) => catalogTexts(v, `${path}[${i}]`));
+  if (tree && typeof tree === 'object') return Object.entries(tree).flatMap(([k, v]) => catalogTexts(v, path ? `${path}.${k}` : k));
+  return [];
+}
+
+describe('el glosario del castellano', () => {
+  // BTW solo como nombre neerlandes entre parentesis ("Número de IVA (BTW)"), en "BTW
+  // verlegd" y como pista de la entrada IVA (nav.vat.hint): quien busca "BTW" la encuentra.
+  const allowed = new Set(['nav.vat.hint']);
+  it('es.ts no usa las palabras que se dejaron', () => {
+    const found: string[] = [];
+    for (const [key, value] of dictionaries.es) {
+      if (allowed.has(key)) continue;
+      for (const text of Array.isArray(value) ? value : [value]) {
+        for (const [word, rejected] of Object.entries(GLOSSARY)) if (rejected.test(text)) found.push(`${word} <- ${key}: ${text}`);
+      }
+    }
+    expect(found).toEqual([]);
+  });
+
+  it('es.json tampoco: la app y el catalogo dicen lo mismo', () => {
+    const found: string[] = [];
+    for (const [key, text] of catalogTexts(catalogFor('es'))) {
+      for (const [word, rejected] of Object.entries(GLOSSARY)) if (rejected.test(text)) found.push(`${word} <- ${key}: ${text}`);
+    }
+    expect(found).toEqual([]);
+  });
+
+  it('las expresiones ven lo que tienen que ver', () => {
+    expect(GLOSSARY.IVA!.test('Importe sin BTW')).toBe(true);
+    expect(GLOSSARY.IVA!.test('Número de IVA (BTW)')).toBe(false);
+    expect(GLOSSARY.IVA!.test('Autoliquidación (BTW verlegd)')).toBe(false);
+    expect(GLOSSARY['nota de crédito']!.test('1 abono aún sin enlazar')).toBe(true);
+    expect(GLOSSARY.archivo!.test('Elegir fichero')).toBe(true);
+    expect(GLOSSARY.empresa!.test('facturas de la misma parte')).toBe(true);
+    expect(GLOSSARY.empresa!.test('Importada en parte')).toBe(false);
+    expect(GLOSSARY.anotar!.test('Apuntar un pago ya hecho')).toBe(true);
+    expect(glossaryMisses('Esperando a el proveedor')).toEqual(['al (a + el) <- a el']);
+    expect(glossaryMisses('Esperando al proveedor')).toEqual([]);
   });
 });
 

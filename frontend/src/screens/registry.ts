@@ -19,6 +19,7 @@ import {
   MapPin,
   Percent,
   ScanText,
+  Search,
   Settings,
   TriangleAlert,
   Truck,
@@ -124,7 +125,12 @@ export const RECORDS: Readonly<Record<RecordId, { icon: LucideIcon; view: ViewId
   // La carpeta de una empresa en Documentos (su id es el de la empresa).
   'client-documents': { icon: FolderOpen, view: 'documents' },
   'provider-documents': { icon: FolderOpen, view: 'documents' },
+  // La busqueda con filtros: encima de donde se este; sin camino, desde el inicio.
+  search: { icon: Search, view: 'home' },
 };
+
+/** La busqueda con filtros (screens/search.tsx): un paso del camino, siempre el mismo. */
+export const SEARCH_ROUTE: Route = { screen: 'search', id: 1 };
 
 export const HOME: ViewId = 'home';
 

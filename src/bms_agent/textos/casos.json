@@ -386,7 +386,7 @@
    },
    "nl": "btw verlegd",
    "en": "reverse-charged VAT",
-   "es": "autoliquidación del BTW",
+   "es": "autoliquidación del IVA",
    "faltan": []
   },
   {
@@ -399,7 +399,7 @@
    },
    "nl": "de KOR (geen btw), vrijstelling",
    "en": "the KOR (no VAT), exemption",
-   "es": "la KOR (sin BTW), exención",
+   "es": "la KOR (sin IVA), exención",
    "faltan": []
   },
   {
@@ -731,7 +731,7 @@
    "variante": 0,
    "nl": "Bij het inlezen is niet gevraagd naar: wederpartij. Dit kan daarom niet worden gecontroleerd.",
    "en": "This was not asked for when the document was read: other party. It cannot be checked.",
-   "es": "Al leer el documento no se pidió esto: otra parte. No se puede comprobar.",
+   "es": "Al leer el documento no se pidió esto: otra empresa. No se puede comprobar.",
    "faltan": []
   },
   {
@@ -1185,7 +1185,7 @@
    "variante": 0,
    "nl": "Meerdere partijen in de stamgegevens (2) hebben hetzelfde btw-nummer of KvK-nummer; het is niet duidelijk welke het is.",
    "en": "Several parties in the master data (2) share this VAT ID or KvK number; it is not clear which one it is.",
-   "es": "Varias partes de los datos maestros (2) comparten este número de BTW o de KvK; no está claro cuál es.",
+   "es": "Varias empresas de los datos maestros (2) comparten este número de IVA o de KvK; no está claro cuál es.",
    "faltan": []
   },
   {
@@ -1200,7 +1200,7 @@
    "variante": 1,
    "nl": "Niemand in de stamgegevens past precies. Op de factuur: onbekend bv, btw-nummer NL008888888B01, KvK-nummer —.",
    "en": "Nobody in the master data matches exactly. On the invoice: onbekend bv, VAT ID NL008888888B01, KvK number —.",
-   "es": "Nadie en los datos maestros coincide exactamente. En la factura: onbekend bv, número de BTW NL008888888B01, número de KvK —.",
+   "es": "Nadie en los datos maestros coincide exactamente. En la factura: onbekend bv, número de IVA NL008888888B01, número de KvK —.",
    "faltan": []
   },
   {
@@ -1222,7 +1222,7 @@
    "variante": 0,
    "nl": "De stamgegevens zijn nog niet ingelezen, dus het is onbekend of deze partij bekend is.",
    "en": "The master data has not been imported yet, so it is unknown whether this party is known.",
-   "es": "Los datos maestros aún no se han importado, así que no se sabe si esta parte es conocida.",
+   "es": "Los datos maestros aún no se han importado, así que no se sabe si esta empresa es conocida.",
    "faltan": []
   },
   {
@@ -1275,7 +1275,7 @@
    "variante": 0,
    "nl": "Het btw-nummer NL12345B01 heeft niet de Nederlandse vorm (NL, negen cijfers, B, twee cijfers).",
    "en": "The VAT ID NL12345B01 does not have the Dutch format (NL, nine digits, B, two digits).",
-   "es": "El número de BTW NL12345B01 no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras).",
+   "es": "El número de IVA NL12345B01 no tiene el formato neerlandés (NL, nueve cifras, B, dos cifras).",
    "faltan": []
   },
   {
@@ -1286,7 +1286,7 @@
    "variante": 1,
    "nl": "De factuur heeft geen btw-nummer van de leverancier en noemt de KOR niet.",
    "en": "The invoice has no VAT ID of the provider and does not mention the KOR.",
-   "es": "La factura no lleva el número de BTW del proveedor y no menciona la KOR.",
+   "es": "La factura no lleva el número de IVA del proveedor y no menciona la KOR.",
    "faltan": []
   },
   {
@@ -1399,7 +1399,7 @@
    "variante": 0,
    "nl": "Hetzelfde nummer (JV2026006) staat op 2 facturen van dezelfde wederpartij.",
    "en": "The same number (JV2026006) is on 2 invoices from the same party.",
-   "es": "El mismo número (JV2026006) está en 2 facturas de la misma parte.",
+   "es": "El mismo número (JV2026006) está en 2 facturas de la misma empresa.",
    "faltan": []
   },
   {
@@ -1410,7 +1410,7 @@
    "variante": 1,
    "nl": "Dit nummer komt meer dan één keer voor bij dezelfde wederpartij.",
    "en": "This number appears more than once for the same party.",
-   "es": "Este número aparece más de una vez para la misma parte.",
+   "es": "Este número aparece más de una vez para la misma empresa.",
    "faltan": []
   },
   {
@@ -1456,7 +1456,7 @@
    "variante": 0,
    "nl": "Zelfde totaal (€ 1.781,12) als een andere factuur van dezelfde wederpartij; dagen ertussen: 0.",
    "en": "Same total (€ 1.781,12) as another invoice from the same party; days apart: 0.",
-   "es": "Mismo total (€ 1.781,12) que otra factura de la misma parte; días de diferencia: 0.",
+   "es": "Mismo total (€ 1.781,12) que otra factura de la misma empresa; días de diferencia: 0.",
    "faltan": []
   },
   {
@@ -1467,7 +1467,7 @@
    "variante": 1,
    "nl": "Zelfde totaal als een andere factuur van dezelfde wederpartij.",
    "en": "Same total as another invoice from the same party.",
-   "es": "Mismo total que otra factura de la misma parte.",
+   "es": "Mismo total que otra factura de la misma empresa.",
    "faltan": []
   },
   {
@@ -1478,7 +1478,7 @@
    "variante": 0,
    "nl": "Wederpartij, totaal of datum ontbreekt, dus er kan niet op bedrag naar dubbele facturen worden gezocht.",
    "en": "Party, total or date is missing, so duplicates by amount cannot be checked.",
-   "es": "Falta la parte, el total o la fecha, así que no se pueden buscar duplicados por importe.",
+   "es": "Falta la empresa, el total o la fecha, así que no se pueden buscar duplicados por importe.",
    "faltan": []
   },
   {
@@ -1516,7 +1516,7 @@
    "variante": 1,
    "nl": "De periode overlapt met een andere factuur van dezelfde wederpartij.",
    "en": "The period overlaps another invoice from the same party.",
-   "es": "El periodo se solapa con otra factura de la misma parte.",
+   "es": "El periodo se solapa con otra factura de la misma empresa.",
    "faltan": []
   },
   {
@@ -1527,7 +1527,7 @@
    "variante": 0,
    "nl": "Wederpartij of volledige periode ontbreekt, dus overlap kan niet worden gecontroleerd.",
    "en": "Party or full period is missing, so overlap cannot be checked.",
-   "es": "Falta la parte o el periodo completo, así que no se puede comprobar el solapamiento.",
+   "es": "Falta la empresa o el periodo completo, así que no se puede comprobar el solapamiento.",
    "faltan": []
   },
   {
@@ -1683,7 +1683,7 @@
    "variante": 0,
    "nl": "Binnengekomen nadat de btw-aangifte voor Q3 2026 was ingediend: de btw zit niet in die aangifte.",
    "en": "Arrived after the VAT return for Q3 2026 was filed: its VAT is not in that return.",
-   "es": "Llegó después de presentar la declaración de BTW de Q3 2026: su BTW no está en esa declaración.",
+   "es": "Llegó después de presentar la declaración de IVA de Q3 2026: su IVA no está en esa declaración.",
    "faltan": []
   },
   {
@@ -1699,7 +1699,7 @@
    "variante": 1,
    "nl": "Gewijzigd nadat de btw-aangifte voor Q3 2026 was ingediend: hij klopt niet meer met wat is aangegeven.",
    "en": "Changed after the VAT return for Q3 2026 was filed: it no longer matches what was declared.",
-   "es": "Cambió después de presentar la declaración de BTW de Q3 2026: ya no coincide con lo declarado.",
+   "es": "Cambió después de presentar la declaración de IVA de Q3 2026: ya no coincide con lo declarado.",
    "faltan": []
   },
   {
@@ -1726,7 +1726,7 @@
    "variante": 3,
    "nl": "Klopt niet met de btw-aangifte die al is ingediend.",
    "en": "Does not match the VAT return that was already filed.",
-   "es": "No coincide con la declaración de BTW que ya se presentó.",
+   "es": "No coincide con la declaración de IVA que ya se presentó.",
    "faltan": []
   },
   {
@@ -1769,7 +1769,7 @@
    "variante": 0,
    "nl": "De regels tellen op tot € 2.297,75; het bedrag excl. btw is € 2.399,00.",
    "en": "The lines add up to € 2.297,75; the amount excl. VAT is € 2.399,00.",
-   "es": "Las líneas suman € 2.297,75; el importe sin BTW es € 2.399,00.",
+   "es": "Las líneas suman € 2.297,75; el importe sin IVA es € 2.399,00.",
    "faltan": []
   },
   {
@@ -1780,7 +1780,7 @@
    "variante": 1,
    "nl": "De regels tellen niet op tot het bedrag excl. btw.",
    "en": "The lines do not add up to the amount excl. VAT.",
-   "es": "Las líneas no suman el importe sin BTW.",
+   "es": "Las líneas no suman el importe sin IVA.",
    "faltan": []
   },
   {
@@ -1796,7 +1796,7 @@
    "variante": 0,
    "nl": "Er is geen leesbaar bedrag excl. btw.",
    "en": "There is no readable amount excl. VAT.",
-   "es": "No hay un importe sin BTW que se pueda leer.",
+   "es": "No hay un importe sin IVA que se pueda leer.",
    "faltan": []
   },
   {
@@ -1889,7 +1889,7 @@
    "variante": 0,
    "nl": "In de btw-specificatie klopt het btw-bedrag van een tarief niet bij het bedrag excl. btw.",
    "en": "In the VAT breakdown, the VAT amount of a rate does not match its amount excl. VAT.",
-   "es": "En el desglose del BTW, el importe del BTW de un porcentaje no cuadra con su importe sin BTW.",
+   "es": "En el desglose del IVA, el importe del IVA de un porcentaje no cuadra con su importe sin IVA.",
    "faltan": []
   },
   {
@@ -1904,7 +1904,7 @@
    "variante": 1,
    "nl": "21% btw over € 1.000,00 geeft niet de € 250,00 op de factuur.",
    "en": "21% VAT on € 1.000,00 does not give the € 250,00 on the invoice.",
-   "es": "El 21% de BTW sobre € 1.000,00 no da los € 250,00 de la factura.",
+   "es": "El 21% de IVA sobre € 1.000,00 no da los € 250,00 de la factura.",
    "faltan": []
   },
   {
@@ -1915,7 +1915,7 @@
    "variante": 2,
    "nl": "Het btw-bedrag klopt niet bij het tarief.",
    "en": "The VAT amount does not match the rate.",
-   "es": "El importe del BTW no cuadra con el porcentaje.",
+   "es": "El importe del IVA no cuadra con el porcentaje.",
    "faltan": []
   },
   {
@@ -1934,7 +1934,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw, btw-tarief of btw-bedrag ontbreekt.",
    "en": "Amount excl. VAT, VAT rate or VAT amount is missing.",
-   "es": "Falta el importe sin BTW, el porcentaje de BTW o el importe del BTW.",
+   "es": "Falta el importe sin IVA, el porcentaje de IVA o el importe del IVA.",
    "faltan": []
   },
   {
@@ -1949,7 +1949,7 @@
    "variante": 0,
    "nl": "€ 2.399,00 excl. btw plus € 503,79 btw is niet het totaal van € 0,01.",
    "en": "€ 2.399,00 excl. VAT plus € 503,79 VAT is not the total of € 0,01.",
-   "es": "€ 2.399,00 sin BTW más € 503,79 de BTW no es el total de € 0,01.",
+   "es": "€ 2.399,00 sin IVA más € 503,79 de IVA no es el total de € 0,01.",
    "faltan": []
   },
   {
@@ -1960,7 +1960,7 @@
    "variante": 1,
    "nl": "Bedrag excl. btw plus btw is niet het totaal.",
    "en": "Amount excl. VAT plus VAT is not the total.",
-   "es": "El importe sin BTW más el BTW no es el total.",
+   "es": "El importe sin IVA más el IVA no es el total.",
    "faltan": []
   },
   {
@@ -1975,7 +1975,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw, btw of totaal ontbreekt.",
    "en": "Amount excl. VAT, VAT or total is missing.",
-   "es": "Falta el importe sin BTW, el BTW o el total.",
+   "es": "Falta el importe sin IVA, el IVA o el total.",
    "faltan": []
   },
   {
@@ -1999,7 +1999,7 @@
    "variante": 0,
    "nl": "De btw-specificatie telt niet op tot de kop (€ 2.399,00 excl. btw, € 503,79 btw).",
    "en": "The VAT breakdown does not add up to the header (€ 2.399,00 excl. VAT, € 503,79 VAT).",
-   "es": "El desglose del BTW no suma lo de la cabecera (€ 2.399,00 sin BTW, € 503,79 de BTW).",
+   "es": "El desglose del IVA no suma lo de la cabecera (€ 2.399,00 sin IVA, € 503,79 de IVA).",
    "faltan": []
   },
   {
@@ -2010,7 +2010,7 @@
    "variante": 1,
    "nl": "De btw-specificatie telt niet op tot de kop.",
    "en": "The VAT breakdown does not add up to the header.",
-   "es": "El desglose del BTW no suma lo de la cabecera.",
+   "es": "El desglose del IVA no suma lo de la cabecera.",
    "faltan": []
   },
   {
@@ -2030,7 +2030,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw of btw ontbreekt in de kop of in een rij van de specificatie.",
    "en": "Amount excl. VAT or VAT is missing in the header or in a breakdown row.",
-   "es": "Falta el importe sin BTW o el BTW en la cabecera o en una fila del desglose.",
+   "es": "Falta el importe sin IVA o el IVA en la cabecera o en una fila del desglose.",
    "faltan": []
   },
   {
@@ -2096,7 +2096,7 @@
    "variante": 0,
    "nl": "Gewone btw, maar dit ontbreekt: btw-bedrag.",
    "en": "Standard VAT, but this is missing: VAT amount.",
-   "es": "BTW normal, pero falta esto: importe del BTW.",
+   "es": "IVA normal, pero falta esto: importe del IVA.",
    "faltan": []
   },
   {
@@ -2115,7 +2115,7 @@
    "variante": 1,
    "nl": "Gewone btw, maar een rij van de btw-specificatie mist tarief, bedrag of btw.",
    "en": "Standard VAT, but a VAT breakdown row lacks rate, amount or VAT.",
-   "es": "BTW normal, pero a una fila del desglose del BTW le falta el porcentaje, el importe o el BTW.",
+   "es": "IVA normal, pero a una fila del desglose del IVA le falta el porcentaje, el importe o el IVA.",
    "faltan": []
   },
   {
@@ -2126,7 +2126,7 @@
    "variante": 2,
    "nl": "Het is niet bekend hoe deze factuur met btw omgaat.",
    "en": "It is unknown how this invoice treats VAT.",
-   "es": "No se sabe cómo trata esta factura el BTW.",
+   "es": "No se sabe cómo trata esta factura el IVA.",
    "faltan": []
   },
   {
@@ -2140,7 +2140,7 @@
    "variante": 0,
    "nl": "Op de factuur: btw verlegd; in de stamgegevens: 0% btw.",
    "en": "On the invoice: reverse-charged VAT; in the master data: 0% VAT.",
-   "es": "En la factura: autoliquidación del BTW; en los datos maestros: BTW al 0%.",
+   "es": "En la factura: autoliquidación del IVA; en los datos maestros: IVA al 0%.",
    "faltan": []
   },
   {
@@ -2151,7 +2151,7 @@
    "variante": 1,
    "nl": "De btw-regeling verschilt van de stamgegevens.",
    "en": "The VAT treatment differs from the master data.",
-   "es": "El tratamiento del BTW es distinto del de los datos maestros.",
+   "es": "El tratamiento del IVA es distinto del de los datos maestros.",
    "faltan": []
   },
   {
@@ -2177,7 +2177,7 @@
    "variante": 0,
    "nl": "Btw-regeling gewijzigd van btw verlegd naar gewone btw ten opzichte van de vorige factuur.",
    "en": "VAT treatment changed from reverse-charged VAT to standard VAT compared with the previous invoice.",
-   "es": "El tratamiento del BTW pasó de autoliquidación del BTW a BTW normal respecto a la factura anterior.",
+   "es": "El tratamiento del IVA pasó de autoliquidación del IVA a IVA normal respecto a la factura anterior.",
    "faltan": []
   },
   {
@@ -2196,7 +2196,7 @@
    "variante": 1,
    "nl": "Nieuw btw-tarief 9%; eerdere facturen hadden 21%.",
    "en": "New VAT rate 9%; earlier invoices had 21%.",
-   "es": "Porcentaje de BTW nuevo: 9%; las facturas anteriores tenían 21%.",
+   "es": "Porcentaje de IVA nuevo: 9%; las facturas anteriores tenían 21%.",
    "faltan": []
   },
   {
@@ -2207,7 +2207,7 @@
    "variante": 2,
    "nl": "De btw-regeling of het tarief is gewijzigd.",
    "en": "The VAT treatment or rate has changed.",
-   "es": "Ha cambiado el tratamiento o el porcentaje del BTW.",
+   "es": "Ha cambiado el tratamiento o el porcentaje del IVA.",
    "faltan": []
   },
   {
@@ -2223,7 +2223,7 @@
    "variante": 0,
    "nl": "Met de KOR hoort er geen btw op te staan, maar de factuur rekent € 71,40.",
    "en": "With the KOR there should be no VAT, but the invoice charges € 71,40.",
-   "es": "Con la KOR no debería haber BTW, pero la factura cobra € 71,40.",
+   "es": "Con la KOR no debería haber IVA, pero la factura cobra € 71,40.",
    "faltan": []
   },
   {
@@ -2239,7 +2239,7 @@
    "variante": 1,
    "nl": "Met de KOR hoort er geen btw op te staan, maar het totaal (€ 411,40) is hoger dan het bedrag excl. btw (€ 340,00).",
    "en": "With the KOR there should be no VAT, but the total (€ 411,40) is higher than the amount excl. VAT (€ 340,00).",
-   "es": "Con la KOR no debería haber BTW, pero el total (€ 411,40) es mayor que el importe sin BTW (€ 340,00).",
+   "es": "Con la KOR no debería haber IVA, pero el total (€ 411,40) es mayor que el importe sin IVA (€ 340,00).",
    "faltan": []
   },
   {
@@ -2250,7 +2250,7 @@
    "variante": 2,
    "nl": "Met de KOR hoort er geen btw op te staan.",
    "en": "With the KOR there should be no VAT.",
-   "es": "Con la KOR no debería haber BTW.",
+   "es": "Con la KOR no debería haber IVA.",
    "faltan": []
   },
   {
@@ -2261,7 +2261,7 @@
    "variante": 0,
    "nl": "Het btw-bedrag is niet zichtbaar en kan niet uit het totaal worden afgeleid.",
    "en": "The VAT amount is not visible and cannot be derived from the total.",
-   "es": "El importe del BTW no se ve y no se puede deducir del total.",
+   "es": "El importe del IVA no se ve y no se puede deducir del total.",
    "faltan": []
   },
   {
@@ -2277,7 +2277,7 @@
    "variante": 0,
    "nl": "Met verlegde btw hoort er geen btw op te staan, maar de factuur rekent € 105,00.",
    "en": "With reverse-charged VAT there should be no VAT, but the invoice charges € 105,00.",
-   "es": "Con autoliquidación no debería haber BTW, pero la factura cobra € 105,00.",
+   "es": "Con autoliquidación no debería haber IVA, pero la factura cobra € 105,00.",
    "faltan": []
   },
   {
@@ -2293,7 +2293,7 @@
    "variante": 1,
    "nl": "Met verlegde btw hoort er geen btw op te staan, maar het totaal (€ 847,00) is hoger dan het bedrag excl. btw (€ 700,00).",
    "en": "With reverse-charged VAT there should be no VAT, but the total (€ 847,00) is higher than the amount excl. VAT (€ 700,00).",
-   "es": "Con autoliquidación no debería haber BTW, pero el total (€ 847,00) es mayor que el importe sin BTW (€ 700,00).",
+   "es": "Con autoliquidación no debería haber IVA, pero el total (€ 847,00) es mayor que el importe sin IVA (€ 700,00).",
    "faltan": []
   },
   {
@@ -2304,7 +2304,7 @@
    "variante": 2,
    "nl": "Met verlegde btw moet het btw-nummer van de ontvanger op de factuur staan, en dat ontbreekt.",
    "en": "With reverse-charged VAT the recipient's VAT ID must be on the invoice, and it is missing.",
-   "es": "Con autoliquidación la factura tiene que llevar el número de BTW del destinatario, y no lo lleva.",
+   "es": "Con autoliquidación la factura tiene que llevar el número de IVA del destinatario, y no lo lleva.",
    "faltan": []
   },
   {
@@ -2320,7 +2320,7 @@
    "variante": 0,
    "nl": "Het btw-bedrag is niet zichtbaar en kan niet uit het totaal worden afgeleid.",
    "en": "The VAT amount is not visible and cannot be derived from the total.",
-   "es": "El importe del BTW no se ve y no se puede deducir del total.",
+   "es": "El importe del IVA no se ve y no se puede deducir del total.",
    "faltan": []
   },
   {
@@ -2333,7 +2333,7 @@
    "variante": 1,
    "nl": "Bij het inlezen is niet gevraagd naar het btw-nummer van de ontvanger.",
    "en": "The recipient's VAT ID was not asked for when the document was read.",
-   "es": "Al leer el documento no se pidió el número de BTW del destinatario.",
+   "es": "Al leer el documento no se pidió el número de IVA del destinatario.",
    "faltan": []
   },
   {
@@ -2349,7 +2349,7 @@
    "variante": 0,
    "nl": "In 2026 heeft deze KOR-leverancier meer aan BM Support BV gefactureerd dan de KOR-grens van € 20.000,00. Hij moet waarschijnlijk btw gaan rekenen.",
    "en": "In 2026 this KOR provider has invoiced more to BM Support BV than the KOR threshold of € 20.000,00. They probably have to start charging VAT.",
-   "es": "En 2026 este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de € 20.000,00. Seguramente tiene que empezar a cobrar BTW.",
+   "es": "En 2026 este proveedor con KOR ha facturado a BM Support BV más que el umbral de la KOR de € 20.000,00. Seguramente tiene que empezar a cobrar IVA.",
    "faltan": []
   },
   {
@@ -2391,7 +2391,7 @@
    "variante": 0,
    "nl": "Ongebruikelijk btw-tarief: 6%.",
    "en": "Unusual VAT rate: 6%.",
-   "es": "Porcentaje de BTW poco habitual: 6%.",
+   "es": "Porcentaje de IVA poco habitual: 6%.",
    "faltan": []
   },
   {
@@ -2405,7 +2405,7 @@
    "variante": 1,
    "nl": "Verkoop met btw verlegd aan een klant die daar in de stamgegevens niet voor is gemarkeerd.",
    "en": "Sale with reverse-charged VAT to a client not marked for that in the master data.",
-   "es": "Venta con autoliquidación del BTW a un cliente que no está marcado para ello en los datos maestros.",
+   "es": "Venta con autoliquidación del IVA a un cliente que no está marcado para ello en los datos maestros.",
    "faltan": []
   },
   {
@@ -2416,7 +2416,7 @@
    "variante": 2,
    "nl": "Ongebruikelijk btw-tarief of -regeling.",
    "en": "Unusual VAT rate or treatment.",
-   "es": "Porcentaje o tratamiento del BTW poco habitual.",
+   "es": "Porcentaje o tratamiento del IVA poco habitual.",
    "faltan": []
   },
   {
@@ -2429,7 +2429,7 @@
    "variante": 0,
    "nl": "Verkoop met btw verlegd aan een onbekende klant: het is niet bekend of dat mag.",
    "en": "Sale with reverse-charged VAT to an unknown client: it is unknown whether that is allowed.",
-   "es": "Venta con autoliquidación del BTW a un cliente desconocido: no se sabe si está permitido.",
+   "es": "Venta con autoliquidación del IVA a un cliente desconocido: no se sabe si está permitido.",
    "faltan": []
   },
   {
@@ -2440,7 +2440,7 @@
    "variante": 1,
    "nl": "De klant is onbekend, dus de btw-regeling kan niet worden gecontroleerd.",
    "en": "The client is unknown, so the VAT treatment cannot be checked.",
-   "es": "El cliente es desconocido, así que no se puede comprobar el tratamiento del BTW.",
+   "es": "El cliente es desconocido, así que no se puede comprobar el tratamiento del IVA.",
    "faltan": []
   },
   {
@@ -2692,7 +2692,7 @@
    "variante": 0,
    "nl": "NL02 ABNA 0123 4567 89 staat geregistreerd op naam van een andere partij.",
    "en": "NL02 ABNA 0123 4567 89 is registered to another party.",
-   "es": "La cuenta NL02 ABNA 0123 4567 89 está registrada a nombre de otra parte.",
+   "es": "La cuenta NL02 ABNA 0123 4567 89 está registrada a nombre de otra empresa.",
    "faltan": []
   },
   {
@@ -4900,7 +4900,7 @@
    "variante": 1,
    "nl": "Het document noemt factuur 2026999 van dezelfde wederpartij, en die staat niet in het systeem.",
    "en": "The document refers to invoice 2026999 of the same party, which is not in the system.",
-   "es": "El documento se refiere a la factura 2026999 de la misma parte, que no está en el sistema.",
+   "es": "El documento se refiere a la factura 2026999 de la misma empresa, que no está en el sistema.",
    "faltan": []
   },
   {
@@ -4922,7 +4922,7 @@
    "variante": 0,
    "nl": "Het document noemt een andere factuur, maar het nummer is niet leesbaar of de wederpartij is onbekend.",
    "en": "The document refers to another invoice, but the number cannot be read or the party is unknown.",
-   "es": "El documento se refiere a otra factura, pero el número no se puede leer o la parte es desconocida.",
+   "es": "El documento se refiere a otra factura, pero el número no se puede leer o la empresa es desconocida.",
    "faltan": []
   },
   {
@@ -5151,7 +5151,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 5).",
    "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 5).",
-   "es": "Importe sin BTW € 897,00; lo habitual es € 1.813,50 (la mediana de 5 facturas anteriores).",
+   "es": "Importe sin IVA € 897,00; lo habitual es € 1.813,50 (la mediana de 5 facturas anteriores).",
    "faltan": []
   },
   {
@@ -5167,7 +5167,7 @@
    "variante": 0,
    "nl": "Bedrag excl. btw € 897,00; gebruikelijk is € 1.813,50 (mediaan van eerdere facturen: 6).",
    "en": "Amount excl. VAT € 897,00; usual is € 1.813,50 (median of earlier invoices: 6).",
-   "es": "Importe sin BTW € 897,00; lo habitual es € 1.813,50 (la mediana de 6 facturas anteriores).",
+   "es": "Importe sin IVA € 897,00; lo habitual es € 1.813,50 (la mediana de 6 facturas anteriores).",
    "faltan": []
   },
   {
@@ -5178,7 +5178,7 @@
    "variante": 1,
    "nl": "Het bedrag is ongebruikelijk voor deze wederpartij.",
    "en": "The amount is unusual for this party.",
-   "es": "El importe es poco habitual para esta parte.",
+   "es": "El importe es poco habitual para esta empresa.",
    "faltan": []
   },
   {
@@ -5191,7 +5191,7 @@
    "variante": 0,
    "nl": "Eerdere facturen van deze wederpartij: 0. Er zijn er minstens 3 nodig om te zeggen of een bedrag ongebruikelijk is.",
    "en": "Earlier invoices from this party: 0. At least 3 are needed to tell whether an amount is unusual.",
-   "es": "Facturas anteriores de esta parte: 0. Hacen falta al menos 3 para saber si un importe es poco habitual.",
+   "es": "Facturas anteriores de esta empresa: 0. Hacen falta al menos 3 para saber si un importe es poco habitual.",
    "faltan": []
   },
   {
@@ -5204,7 +5204,7 @@
    "variante": 0,
    "nl": "Eerdere facturen van deze wederpartij: 1. Er zijn er minstens 3 nodig om te zeggen of een bedrag ongebruikelijk is.",
    "en": "Earlier invoices from this party: 1. At least 3 are needed to tell whether an amount is unusual.",
-   "es": "Facturas anteriores de esta parte: 1. Hacen falta al menos 3 para saber si un importe es poco habitual.",
+   "es": "Facturas anteriores de esta empresa: 1. Hacen falta al menos 3 para saber si un importe es poco habitual.",
    "faltan": []
   },
   {

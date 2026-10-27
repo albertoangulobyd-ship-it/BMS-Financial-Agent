@@ -6,11 +6,16 @@ lo que solo tiene sentido para el castellano:
 
 - que no queda ningun texto en neerlandes ni en ingles (una lista de palabras
   que solo existen en esos idiomas), salvo los terminos de BMS que se dejan
-  tal cual: zzp'er, BTW, Object, PO, Exact, TRNSPRNT, IBAN, KvK, KOR, PDF;
+  tal cual: zzp'er, Object, PO, Exact, TRNSPRNT, IBAN, KvK, KOR, PDF (y BTW solo en
+  "BTW verlegd", el nombre neerlandes del regimen tal como lo imprime la factura);
 - que un texto igual al ingles solo puede ser uno de esos terminos (Total,
   Manual, PO): una frase copiada sin traducir no pasa;
 - que se escribe con tildes (numero sin tilde es una errata, no un estilo);
-- que el impuesto se llama siempre BTW, como en la empresa, y nunca IVA;
+- que el impuesto se llama siempre IVA, como la entrada IVA de la app (revision del
+  paso 16: la app decia IVA y el catalogo BTW en la misma pantalla), y BTW solo en
+  "BTW verlegd";
+- el glosario de la app y del catalogo: nota de credito (no abono), hallazgo (aviso es la
+  gravedad), archivo (no fichero) y empresa (no parte) para un cliente o un proveedor;
 - que el importe, la fecha, el trimestre y el IBAN salen igual que en
   neerlandes: el formato no depende del idioma;
 - que ninguna etiqueta promete lo que el sistema no hace (aprobar, pagar,
@@ -87,7 +92,7 @@ def test_las_listas_de_palabras_ven_un_texto_sin_traducir() -> None:
     assert _NEERLANDES.search("De factuur is vervallen; het btw-bedrag ontbreekt")
     assert _INGLES.search("The invoice is overdue; the VAT amount is missing")
     assert _INGLES.search("Ver factura: invoice number")
-    for bien in ("La factura está vencida; falta el importe del BTW",
+    for bien in ("La factura está vencida; falta el importe del IVA",
                  "Autónomo (zzp'er)", "Autoliquidación (BTW verlegd)",
                  "Revisa lo que has rellenado. No se paga nada.",
                  "Anota que el trimestre se presentó en el portal de Hacienda (Belastingdienst).",
@@ -130,12 +135,38 @@ def test_la_comprobacion_de_tildes_ve_una_errata() -> None:
     assert not _SIN_TILDE.search("el número de días hábiles; esta factura aún no está")
 
 
-def test_el_impuesto_es_siempre_btw() -> None:
-    """La empresa dice BTW (un termino de BMS, como Object o PO): un catalogo que mezcla
-    IVA y BTW hace pensar que son dos impuestos."""
+def test_el_impuesto_es_siempre_iva() -> None:
+    """La entrada de la app se llama IVA (decision 1 del dueno) y es.ts dice IVA: un catalogo
+    que dice BTW en la misma pantalla hace pensar que son dos impuestos (revision del paso
+    16). BTW solo queda en "BTW verlegd", el nombre del regimen tal como sale en la factura."""
     for camino, valor in _textos(ES):
-        assert not re.search(r"\bIVA\b|\bVAT\b|\bbtw\b", _sin_marcadores(valor)), camino
-    assert ES["categorias"]["iva"]["etiqueta"] == "BTW"
+        texto = _sin_marcadores(valor).replace("BTW verlegd", "")
+        assert not re.search(r"\bBTW\b|\bVAT\b|\bbtw\b", texto), camino
+    assert ES["categorias"]["iva"]["etiqueta"] == "IVA"
+
+
+# El glosario (revision del paso 16): la palabra que se usa y las que no, en el catalogo y en
+# los textos de la app (frontend/src/i18n/es.ts lo comprueba igual en vitest).
+GLOSARIO_RECHAZADO = {
+    "nota de crédito": r"\babonos?\b",
+    "hallazgo": r"\bavisos? (?:que bloquea|tal como|para esta factura)",
+    "archivo": r"\bficheros?\b",
+    "empresa": r"\b(?:la|una|otra|esta|misma) parte\b|\bpartes de los datos maestros\b",
+}
+
+
+def test_el_glosario_es_uno_solo() -> None:
+    for palabra, rechazada in GLOSARIO_RECHAZADO.items():
+        for camino, valor in _textos(ES):
+            assert not re.search(rechazada, _sin_marcadores(valor), re.I), (palabra, camino)
+
+
+def test_esperando_a_lleva_su_preposicion_contraida() -> None:
+    """"Esperando a el proveedor" no es castellano: el catalogo trae "al proveedor" y la app
+    escribe "Esperando {who}"."""
+    esperando = ES["estados"]["esperando_a"]
+    assert esperando["proveedor"] == "al proveedor" and esperando["banco"] == "al banco"
+    assert all(v.startswith(("al ", "a ")) for v in esperando.values()), esperando
 
 
 def test_ninguna_etiqueta_promete_lo_que_el_sistema_no_hace() -> None:
@@ -162,7 +193,7 @@ def test_los_formatos_no_dependen_del_idioma() -> None:
 def test_si_y_no_y_los_codigos_en_castellano() -> None:
     assert textos.renderizar("{a} {b}", {"a": True, "b": False}, "es") == "sí no"
     assert textos.renderizar("{x|codigo}", {"x": ["kor", "autoliquidacion"]}, "es") == (
-        "la KOR (sin BTW), autoliquidación del BTW")
+        "la KOR (sin IVA), autoliquidación del IVA")
     pintado = textos.pintar("{x|codigo}", {"x": "otro"}, "es")
     assert pintado.texto == "otro" and pintado.faltan == ("codigo:otro",)
 

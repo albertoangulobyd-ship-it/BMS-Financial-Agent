@@ -25,6 +25,7 @@ import { formatDate, formatDateProse, formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
+import { twinMarks, type TwinMark } from '@/lib/twins';
 import { rememberView } from '@/lib/view-memory';
 import { useNav } from '@/shell/navigation';
 import { BANK_OF, LIST_OF, bucketShares, dueState, partiesByOverdue, type BucketKey, type DueState, type InvoiceFilter, type Side } from './money-model';
@@ -357,6 +358,8 @@ function ThisWeek({ cartera: c }: { cartera: Cartera }) {
   const held = week.facturas.filter((f) => f.retenida);
   const later = (c.retenido.lista ?? []).filter((f) => !week.facturas.some((w) => w.id === f.id));
   const iban = [...held, ...later].some((f) => f.razones.some((r) => r.regla.startsWith('F')));
+  // "1 van 2" en las dos facturas con el mismo numero y la misma relacion, como en las listas.
+  const twins = twinMarks([...week.facturas, ...later].map((f) => ({ id: f.id, numero: f.numero, contraparte: f.parte })));
   return (
     <section aria-labelledby='money-week'>
       <h2 id='money-week' className='text-[15px] font-semibold'>
@@ -367,8 +370,8 @@ function ThisWeek({ cartera: c }: { cartera: Cartera }) {
         <p className='rounded-md border border-border bg-card px-4 py-3 text-[13.5px]'>{t.money.week.nothing}</p>
       ) : (
         <div className='grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border lg:grid-cols-2'>
-          <WeekColumn title={t.money.week.clean} sum={week.sin_retener} rows={clean} empty={null} />
-          <WeekColumn title={t.money.week.held} sum={week.retenido} rows={held} empty={t.money.week.nothingHeld} held />
+          <WeekColumn title={t.money.week.clean} sum={week.sin_retener} rows={clean} empty={null} twins={twins} />
+          <WeekColumn title={t.money.week.held} sum={week.retenido} rows={held} empty={t.money.week.nothingHeld} twins={twins} held />
         </div>
       )}
       {later.length > 0 && (
@@ -376,7 +379,7 @@ function ThisWeek({ cartera: c }: { cartera: Cartera }) {
           <h3 className='mb-1 text-[13px] font-semibold text-soft-foreground'>{t.money.week.heldLater}</h3>
           <ul className='divide-y divide-divider overflow-hidden rounded-md border border-border bg-card'>
             {later.map((f) => (
-              <WeekRow key={f.id} row={f} held />
+              <WeekRow key={f.id} row={f} twin={twins.get(f.id)} held />
             ))}
           </ul>
         </div>
@@ -396,12 +399,14 @@ function WeekColumn({
   sum,
   rows,
   empty,
+  twins,
   held = false,
 }: {
   title: string;
   sum: { facturas: number; importe_cent: number };
   rows: CarteraInvoice[];
   empty: string | null;
+  twins: ReadonlyMap<number, TwinMark>;
   held?: boolean;
 }) {
   const { t } = useT();
@@ -424,7 +429,7 @@ function WeekColumn({
       ) : (
         <ul className='divide-y divide-divider border-t border-divider'>
           {rows.map((f) => (
-            <WeekRow key={f.id} row={f} held={held} />
+            <WeekRow key={f.id} row={f} twin={twins.get(f.id)} held={held} />
           ))}
         </ul>
       )}
@@ -434,21 +439,23 @@ function WeekColumn({
 
 /** Una factura de la semana: numero, empresa, lo que queda, cuando vence y, si esta
  *  retenida, por que (el hallazgo mas urgente, por su nombre). */
-function WeekRow({ row: f, held }: { row: CarteraInvoice; held: boolean }) {
+function WeekRow({ row: f, held, twin }: { row: CarteraInvoice; held: boolean; twin?: TwinMark | undefined }) {
   const { t, lang } = useT();
   const nav = useNav();
   const reason = f.razones[0];
+  const mark = twin ? fmt(t.common.twin, { n: twin.n, of: twin.of }) : null;
   return (
     <li>
       <button
         type='button'
         onClick={() => nav.open(recordRoute('invoice', f.id))}
-        aria-label={fmt(t.common.openRecord, { what: `${t.records.invoice.label} ${f.numero ?? f.id}` })}
+        aria-label={fmt(t.common.openRecord, { what: `${t.records.invoice.label} ${f.numero ?? f.id}${mark ? ` (${mark})` : ''}` })}
         className='grid w-full grid-cols-[1fr_auto] items-start gap-x-4 gap-y-0.5 px-4 py-2.5 text-left hover:bg-row-hover'
       >
         <span className='flex min-w-0 flex-col'>
-          <span className='font-mono text-[12.5px] font-medium text-primary' data-proper-name=''>
-            {f.numero ?? '—'}
+          <span className='font-mono text-[12.5px] font-medium text-primary'>
+            <span data-proper-name=''>{f.numero ?? '—'}</span>
+            {mark && <span className='ml-1.5 font-sans text-xs font-normal text-muted-foreground'>{mark}</span>}
           </span>
           <span className='truncate text-[13px] text-soft-foreground' data-proper-name=''>
             {f.parte ?? '—'}

@@ -94,7 +94,14 @@ function PartyTable({
       header: t.parties.outstanding,
       align: 'right',
       width: '9rem',
-      cell: (r) => <OutsideEuro cents={r.pendiente_cent} outside={r.sin_importe ?? 0} />,
+      // La cifra de la cartera (la del resumen de Te betalen / Te ontvangen) y, aparte, sus
+      // abonos sin enlazar: una empresa, un solo "Openstaand" (revision del paso 16).
+      cell: (r) => (
+        <span className='flex flex-col items-end'>
+          <OutsideEuro cents={r.deuda_cent} outside={r.sin_importe ?? 0} />
+          <UnlinkedCredit party={r} className='text-right' />
+        </span>
+      ),
     },
     {
       key: 'overdue',
@@ -130,6 +137,29 @@ function PartyTable({
         <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.parties.total, { shown: shown.length, all: rows.length })}</p>
       )}
     </>
+  );
+}
+
+/** "Creditnota nog niet gekoppeld: −€ 362,03": lo que acreditan los abonos sin enlazar de una
+ *  empresa, debajo de su "Openstaand" (que no los resta: es la cifra de la cartera, R4). */
+export function UnlinkedCredit({
+  party: p,
+  className,
+}: {
+  party: Pick<PartyRow, 'abonos_sin_enlazar_cent' | 'abonos_sin_enlazar_facturas'>;
+  className?: string;
+}) {
+  const { t } = useT();
+  if (!p.abonos_sin_enlazar_cent) return null;
+  const amount = formatMoney(p.abonos_sin_enlazar_cent);
+  const text =
+    p.abonos_sin_enlazar_facturas > 1
+      ? fmt(t.parties.unlinkedCreditMany, { n: p.abonos_sin_enlazar_facturas, amount })
+      : fmt(t.parties.unlinkedCredit, { amount });
+  return (
+    <span data-testid='unlinked-credit' className={`block text-xs text-muted-foreground ${className ?? ''}`}>
+      {text}
+    </span>
   );
 }
 

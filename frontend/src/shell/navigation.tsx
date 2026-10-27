@@ -131,8 +131,11 @@ export function NavigationProvider({ children, initial = HOME }: { children: Rea
 
   const { trail, moves, lastMove } = state;
 
-  // Ir adelante empieza arriba; al volver, la pagina donde se dejo (lo que carga despues puede
-  // tardar: se reintenta un poco mientras la pagina aun no es tan alta).
+  // Ir adelante empieza arriba; al volver, la pagina donde se dejo. Lo que la pantalla vuelve a
+  // leer puede tardar (con la maquina cargada, mas de un segundo): se reintenta mientras la
+  // pagina aun no es tan alta, como mucho 4 s, y se deja en cuanto la persona mueve la pagina
+  // (la rueda, el dedo, una tecla). Desde la revision del paso 16 la pagina se desplaza de
+  // verdad (antes el cuerpo era overflow: hidden y esto no se notaba).
   useEffect(() => {
     if (moves === 0) return;
     if (lastMove !== 'back') {
@@ -141,16 +144,25 @@ export function NavigationProvider({ children, initial = HOME }: { children: Rea
     }
     const target = scrolls.current[trail.length - 1] ?? 0;
     scrolls.current.length = trail.length;
-    let tries = 0;
+    const deadline = performance.now() + 4000;
     let frame = 0;
+    let moved = false;
+    const stop = () => {
+      moved = true;
+    };
+    const events = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
+    events.forEach((e) => window.addEventListener(e, stop, { passive: true, once: true }));
     const restore = () => {
+      if (moved) return;
       const max = document.documentElement.scrollHeight - window.innerHeight;
       window.scrollTo(0, Math.min(target, Math.max(0, max)));
-      tries += 1;
-      if (max < target && tries < 60) frame = window.requestAnimationFrame(restore);
+      if (max < target && performance.now() < deadline) frame = window.requestAnimationFrame(restore);
     };
     restore();
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      events.forEach((e) => window.removeEventListener(e, stop));
+    };
   }, [moves, lastMove, trail.length]);
 
   const current = trail[trail.length - 1]!;

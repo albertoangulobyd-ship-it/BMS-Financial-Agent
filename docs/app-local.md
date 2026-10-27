@@ -98,7 +98,10 @@ Con la base de prueba, arriba de todo va la banda **TESTGEGEVENS · TEST DATA**,
 la cabecera la marca «Testgegevens». En la instalación nativa, si la comprobación del
 aislamiento falla, falta o es vieja, una **banda roja** dice qué papel falla y que se
 ejecute `comprobar.bat`. Las dos bandas las pone el servidor dentro de la página, así
-que se ven aunque el script no llegue a cargar.
+que se ven aunque el script no llegue a cargar. **Se desplaza la página entera** (con la
+rueda del ratón, las teclas o el dedo; revisión del paso 16: antes el cuerpo no se
+desplazaba y lo de debajo de la ventana no se alcanzaba), y las bandas se quedan arriba,
+una debajo de otra, con la cabecera de la app debajo de ellas (`src/lib/server-bands.ts`).
 
 ## 3. Cómo se entra
 
@@ -169,7 +172,8 @@ una frase debajo de su título:
 
 Y las fichas, cada una dentro de su entrada: una factura, un proveedor, un cliente, un
 Object, una PO, un trimestre del BTW, una excepción y la carpeta de documentos de un
-cliente o de un proveedor.
+cliente o de un proveedor. Y la **búsqueda con filtros** (§4.8), que se abre encima de
+donde se esté (desde Ctrl+K o la caja del inicio) y vuelve allí al cerrarla.
 
 **Cómo se llega a cada cosa**
 
@@ -178,7 +182,9 @@ cliente o de un proveedor.
   pequeñas y más apagadas cuanto más lejos están de ella, y siempre en el mismo orden
   (Inicio arriba, IVA abajo). **Un clic o un toque en cualquiera la abre**, se vea grande o
   pequeña (Inicio, estando ya en él, baja a las tarjetas). La rueda del ratón, las flechas y
-  el dedo (deslizar arriba o abajo) la giran sin abrir nada; con Tab se recorren las
+  el dedo (deslizar arriba o abajo) la giran sin abrir nada; la rueda del ratón no da la
+  vuelta: en Inicio hacia arriba o en IVA hacia abajo, el gesto desplaza la página (revisión
+  del paso 16: con el ratón en el centro la página no bajaba nunca); con Tab se recorren las
   entradas y la rueda va con el foco, las flechas lo llevan de una a otra (de IVA vuelve a
   Inicio), Inicio y Fin van a la primera y a la última, Intro abre; el foco se ve. Es una `<nav>` con nombre
   («Hoofdmenu»), seis botones con su nombre, `aria-current` en la entrada en la que se está
@@ -313,7 +319,7 @@ ficha, las listas, las insignias de las vistas y el inicio, sin que la pantalla 
 | --- | --- | --- |
 | **Start** (el inicio) | Las cuatro tarjetas, «Als eerste» solo con lo bloqueado o urgente, y los accesos a la Werklijst, las Uitzonderingen y la Kasstroom (§4, «El inicio») | —, salvo abrir: cada tarjeta, cada fila de una tarjeta y cada fila de «Als eerste» abre lo suyo |
 | **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura (Start › Werklijst › su número) |
-| **Inkoopfacturen / Verkoopfacturen** (en Te betalen y en Te ontvangen, después del resumen) | Todas las de un sentido, con fichas y su cuenta: Alle, Openstaand (toda la deuda abierta, también lo vencido), Vervallen, Deze week, 30 dagen, Te bevestigen (con un pago propuesto por el banco), Betaald y Controle nodig; un tramo de antigüedad sale como una ficha más cuando se llega desde la barra del resumen. Las fichas de pago son las de la cartera: van por vencimiento (lo más antiguo arriba) y debajo dicen lo que suman, lo mismo que la cifra que se pulsó. El buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Openstaand (lo que queda; «van € 9.163,94» si no es el total), Vervaldatum («65 dagen te laat», «over 4 dagen»), Stand (pago, «Betaling te bevestigen» y revisión, en texto gris) y Waarom | Una fila abre la factura |
+| **Inkoopfacturen / Verkoopfacturen** (en Te betalen y en Te ontvangen, después del resumen) | Todas las de un sentido, con fichas y su cuenta: Alle, Openstaand (toda la deuda abierta, también lo vencido), Vervallen, Deze week, 30 dagen, Te bevestigen (con un pago propuesto por el banco), Betaald y Controle nodig; un tramo de antigüedad sale como una ficha más cuando se llega desde la barra del resumen. Las fichas de pago son las de la cartera: van por vencimiento (lo más antiguo arriba) y debajo dicen lo que suman, lo mismo que la cifra que se pulsó. El buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Openstaand (lo que queda; «van € 9.163,94» si no es el total), Vervaldatum («65 dagen te laat», «over 4 dagen»), Stand (pago, con el hoy del motor aunque la caché sea de otro día; «Betaald» siempre con su fuente: «volgens de bank», «volgens Exact» o «met de hand, nog niet in de bank», con K3; «Betaling te bevestigen» y revisión, en texto gris) y Waarom. «Vervallen», como los tramos, va por el hoy del motor (revisión del paso 16: con la caché de otro día se quedaba corta de la cifra que la abría) | Una fila abre la factura |
 | **Ficha de factura** | Arriba, qué es (con el botón **Origineel**, que baja el PDF, y **Betaling vastleggen** mientras quede algo por cobrar o pagar): el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el vencimiento («65 dagen te laat»), el pago («Betaald» siempre con su fuente: «volgens de bank», «volgens Exact» o «met de hand … door Ana», con K3 si el banco no lo trae) y la revisión. Después **Betalingen** (abajo, «Cobrar y pagar») y **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; confirmar o retirar un pago y apuntar uno ya hecho (`confirmar_pago`, `retirar_pago`, `marcar_pagada`); descargar el original |
 | **Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va (la factura con su relación, el cliente, la PO o la importación), en qué estado está, quién la lleva y desde cuándo. Una fila abre **la ficha de la excepción** (Start › Uitzonderingen › su asunto; antes, un panel lateral): qué pasa, de qué va, su estado y qué hacer. Una que ya se cerró lo dice y vuelve a la lista | Zelf oppakken, toewijzen, wachten op anderen (a quién y hasta cuándo), oplossen (cómo acabó y qué se hizo); desde la ficha, «Factuur openen» |
 | **IBAN-controles** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado («nog niet bevestigd» solo si aún no se llamó), **lo que falta en una frase** cuando ya se verificó por teléfono (con un F2 abierto: «nog niet in de stamgegevens van Exact: zet de rekening in Exact en importeer de leveranciers opnieuw»; ya no se ofrece volver a llamar), en qué factura, qué vio el sistema y el teléfono **de los datos maestros**. Abajo, las cuentas heredadas sin confirmar | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío, nunca se rellena con el del documento) y la app dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`), con qué pasa con la factura. Confirmar las heredadas (`atestar_iban`) |
@@ -335,8 +341,8 @@ las cifras cuadran al céntimo con el inicio y con las listas):
 
 | Vista | Qué hay | Órdenes |
 | --- | --- | --- |
-| **Overzicht** (el resumen, la primera vista) | **Cuatro cifras**: Openstaand (en N facturas), Vervallen, Deze week (hasta el domingo) y Komende 30 dagen (hasta su último día); cada una abre la lista con esa ficha. Debajo, siempre, «Openstaande saldi · Geen beschikbaar geld», la fecha de los datos y la del último extracto del banco (con la pastilla de la fuente caducada si los datos o el extracto son viejos) y lo cobrado o pagado este mes según el banco. **Wat op iemand wacht**: los pagos propuestos por confirmar y las líneas del banco sin casar (abren el banco), los abonos sin enlazar, X1 (facturas sin importe en euros) y los avisos de pago raros (K2–K5, K8, K9) con sus facturas. **Hoe lang het al openstaat**: la barra de antigüedad y sus seis tramos (al corriente, 1–30, 31–60, 61–90, más de 90 días, sin fecha), cada uno abre su lista; **visible en Te ontvangen, plegada en Te betalen**. En Te betalen, **«Tot en met zondag …»**: lo vencido y lo que vence esta semana, en dos columnas, sin objeciones del sistema y retenido o bloqueado (cada factura con su razón), y debajo lo retenido que vence después. **Por empresa** (Klanten o Leveranciers): lo vencido primero; prioridad, la empresa (facturas abiertas, cuánto tarda en pagar o en pagarle, la razón de lo retenido), Openstaand, Vervallen y la más antigua («65 dagen te laat») | La fila abre la ficha de la empresa; «Map» abre su carpeta en Documentos |
-| **Bankontvangsten / Bankbetalingen** | **Te bevestigen**: cada pago que el banco casó a medias (`GET /api/v2/pagos/propuestas`), la línea del banco al lado de la factura (día, importe, quién, concepto; número, relación, lo que queda) y las tres coincidencias (referencia, importe, cuenta) en verde o en rojo. **Zonder factuur**: las líneas del banco de ese signo que no casan con nada (`GET /api/v2/movimientos?signo=`), con su día, lo que queda, quién y el concepto, y desde cuándo | **Bevestigen** (`confirmar_pago`, con una nota si se quiere), **Niet deze** (`retirar_pago`, con motivo obligatorio) y «Factuur openen»; cada línea sin casar, **Aan een factuur koppelen** (`marcar_pagada` con su `movimiento_id`: se elige una factura pendiente de ese lado) |
+| **Overzicht** (el resumen, la primera vista) | **Cuatro cifras**: Openstaand (en N facturas), Vervallen, Deze week (hasta el domingo) y Komende 30 dagen (hasta su último día); cada una abre la lista con esa ficha. Debajo, siempre, «Openstaande saldi · Geen beschikbaar geld», la fecha de los datos y la del último extracto del banco (con la pastilla de la fuente caducada si los datos o el extracto son viejos) y lo cobrado o pagado este mes según el banco. **Wat op iemand wacht**: los pagos propuestos por confirmar y las líneas del banco sin casar (abren el banco), los abonos sin enlazar, X1 (facturas sin importe en euros) y los avisos de pago raros (K2–K5, K8, K9) con sus facturas. **Hoe lang het al openstaat**: la barra de antigüedad y sus seis tramos (al corriente, 1–30, 31–60, 61–90, más de 90 días, sin fecha), cada uno abre su lista; **visible en Te ontvangen, plegada en Te betalen**. En Te betalen, **«Tot en met zondag …»**: lo vencido y lo que vence esta semana, en dos columnas, sin objeciones del sistema y retenido o bloqueado (cada factura con su razón), y debajo lo retenido que vence después. **Por empresa** (Klanten o Leveranciers): lo vencido primero; prioridad, la empresa (facturas abiertas, cuánto tarda en pagar o en pagarle, la razón de lo retenido), Openstaand, Vervallen y la más antigua («65 dagen te laat»). **Una empresa dice el mismo «Openstaand» en todas partes** (este resumen, Leveranciers y Klanten, su carpeta en Documentos y su ficha): el de la cartera, `deuda_cent`; sus notas de crédito sin enlazar van aparte, debajo («Creditnota nog niet gekoppeld: −€ 362,03»). En «Tot en met zondag» y lo retenido, «1 van 2» en dos facturas con el mismo número | La fila abre la ficha de la empresa; «Map» abre su carpeta en Documentos |
+| **Bankontvangsten / Bankbetalingen** | **Te bevestigen**: cada pago que el banco casó a medias (`GET /api/v2/pagos/propuestas`), la línea del banco al lado de la factura (día, importe, quién, concepto; número, relación, lo que queda) y las tres coincidencias (referencia, importe, cuenta) en verde o en rojo. **Zonder factuur**: las líneas del banco de ese signo que no casan con nada (`GET /api/v2/movimientos?signo=`), con su día, lo que queda, quién y el concepto, y desde cuándo | **Bevestigen** (`confirmar_pago`, con una nota si se quiere), **Niet deze** (`retirar_pago`, con motivo obligatorio) y «Factuur openen»; cada línea sin casar, **Aan een factuur koppelen** (`marcar_pagada` con su `movimiento_id`: se elige una factura pendiente de ese lado; **ninguna viene elegida**: «Kies een factuur», y las que parecen de la línea —lo que queda es lo de la línea, o su número sale en el concepto— van primero y marcadas, «past bij deze bankregel»). Dos facturas con el mismo número llevan su «1 van 2» |
 | **Betalingen** (en la ficha de cada factura) | Cada pago con su estado (Voorgesteld, Bevestigd, Ingetrokken), la fecha, el importe, la fuente (Bank, Exact, Handmatig; «vanzelf gekoppeld» si lo casó el banco solo), quién lo confirmó o lo apuntó, su línea del banco («Bankregel van 27-10-2026: € −496,10 · quién · concepto»), el motivo, el justificante («Bewijs downloaden») y, de uno retirado, quién y por qué. Lo que espera arriba, lo retirado al final. Lo de Exact se corrige en Exact (lo dice) | Bevestigen y Niet deze en lo propuesto; **Intrekken** (con motivo) en lo que no es de Exact; **Betaling vastleggen** en la cabecera: el importe (por defecto lo que queda; no más), la fecha (no futura; con una línea del banco manda la del banco), la línea del banco sin casar si la hay, **el motivo, obligatorio**, y un justificante de su carpeta si se quiere. El diálogo dice «Er wordt niets betaald» |
 
 Todas piden el permiso `marcar_pagada`: quien solo mira (rol `consulta`) ve los pagos y no
@@ -758,6 +764,37 @@ lleva cada clic), `screens/documents-model.ts` (el orden, los tipos, el árbol y
 - Los nombres de empresas, números, IBAN, teléfonos, correos y ficheros vienen de los datos:
   se pintan como texto (`data-proper-name`).
 
+### 4.8 Zoeken: la búsqueda con filtros
+
+Revisión del paso 16 (§1b, filas 28 a 35; §2, «La búsqueda con filtros en pastillas»): la
+búsqueda de Aurora, sobre la del motor (`GET /api/v2/buscar`), en `src/screens/search.tsx`.
+
+- **Se llega** desde Ctrl+K («Zoeken met filters», abajo, con lo que ya se escribió) y desde
+  la caja del inicio (debajo de lo que encontró). Es un paso del camino donde se esté, con
+  sus migas («Te betalen › Overzicht › Zoeken»): **«Sluiten»** (y «Terug») vuelve allí.
+- **Un campo** (número o nombre, `texto`) y **«Filters»** con cuántos hay puestos: el tipo
+  (factura o nota de crédito, `tipo`), el sentido (`sentido`), el cliente o el proveedor
+  (`cliente_id`, `proveedor_id`), la fecha de la factura desde y hasta (dd-mm-jjjj,
+  `fecha_desde`, `fecha_hasta`), el importe sin IVA desde y hasta en euros (`importe_min`,
+  `importe_max`, como filtra el motor: sin IVA y en valor absoluto) y el pago (openstaand,
+  vervallen, betaald: `pendiente`, `vencida`, `pagada`). Lo que se elige de una lista se
+  aplica ya; lo que se escribe, al pulsar «Zoeken» o Intro. Una fecha o un importe que no se
+  entiende se dice («Bedrag zonder btw tot en met: schrijf het bedrag…») y no se busca.
+- **Cada filtro puesto, una pastilla** con su X; **«Filters wissen»** los quita (lo escrito
+  se queda). Sin nada que encaje, «Niets gevonden» y **«Opnieuw beginnen»**, que lo quita
+  todo.
+- **Los resultados**, los 50 primeros por fecha (si hay más, lo dice): número, tipo, empresa,
+  fecha, estado de pago («Betaald» con su fuente, como en las listas: «Betaald · volgens de
+  bank») e importe, con «1 van 2» si dos comparten número. El estado de pago y el filtro
+  «Vervallen» son los de la última pasada del motor: si es de otro día, la pantalla lo dice
+  arriba de los resultados, como el inicio y los resúmenes. Un resultado abre
+  su factura; «Terug» vuelve a la búsqueda tal como estaba (lo escrito y los filtros se
+  recuerdan en memoria, `lib/view-memory.ts`).
+- Lo que no se trajo del prototipo: los 18 documentos fijos y el segundo y medio de
+  «Pensando…» de adorno, el deslizador de importe con NumberFlow (dos campos en euros) y el
+  calendario de date-fns (dos campos de fecha), las fechas inventadas y el orbe de
+  partículas (un segundo orbe animado en la pantalla).
+
 ## 5. Neerlandés, inglés y castellano
 
 Por defecto, **neerlandés**; se cambia en el menú del nombre, en la entrada (**NL | EN |
@@ -923,18 +960,21 @@ se pinta como texto.
 | --- | --- | --- |
 | `logo.tsx` | `BmsMark` (la marca BMS en un SVG pequeño, trazada del PNG del dueño, en `currentColor`) y `BmsLogo` (la marca con «finance») | La entrada y la cabecera |
 | `orb/` | `AuroraOrb`, el orbe de colores (WebGL), y `AuroraMark`, su degradado fijo en pequeño; `orb-loop.ts` decide cuándo se mueve y a qué ritmo, sin React (`orb-loop.test.ts`) | El inicio, junto a la rueda (se mueve mientras carga o busca); `AuroraMark`, delante del logo fuera del inicio |
-| `thinking-orb/` | `ThinkingOrb`, el orbe de partículas de «Pensando…» | La búsqueda, cuando llegue |
+| `thinking-orb/` | `ThinkingOrb`, el orbe de partículas de «Pensando…» | **Sin montar**: lo usará el asistente local (revisión §6, un paso posterior). La búsqueda dice «Zoeken…» con el cargador de la app: un segundo orbe animado en la pantalla gastaría para nada |
 | `meerkat/` | `MeerkatScene`, el suricato del cargador (sus sprites en el código) | Los vacíos de Documentos (un archivo o una carpeta sin nada); el cargador de documentos, cuando llegue |
 | `processing/` | `DocumentLoader` y `loader-engine.ts` (el cargador con progreso de verdad: `setStage`), `ProcessingCard`, `ProcessingResult` (nuevas, ya leídas, posibles duplicados, fallidas), `FlowButton` | Procesar, cuando la lectura llegue a la app |
 | `documents/` | `ArchiveLayout`, `ArchiveHeading`, `ArchiveTabs`, `ArchiveSearch`, `FolderGrid`, `FolderCell`, `GlassFolder`, `TreeView`, `FolderProfile`, `FileTable`, `ArchiveEmpty`, `DocumentPreview` (un `<dialog>` nativo dibujado desde el registro, nunca desde el PDF); `Breadcrumbs`, sin montar (las migas son las de la app) | Documentos (§4.7) |
-| `conversation/`, `composer.tsx` | `Conversation` (copiar y parar; sin pulgares, regenerar ni compartir) y `WorkspaceComposer`, la caja de escribir | `WorkspaceComposer`, la caja de buscar del inicio; `Conversation`, el asistente local |
-| `search/` | La barra de filtros, sus pastillas, los resultados, «Pensando…» y el vacío | Zoeken sobre `/api/v2/buscar` |
-| `finance/` | `FinanceBento`, «Lo importante»: vencido por cobrar y por pagar, el neto de 30 días y la nota de que no es dinero disponible, desde céntimos | El resumen del asistente |
-| `wheel.tsx` | `Wheel`, la rueda de navegación: el orden fijo, la distancia de cada entrada (`wheelDistance`) y el paso de las flechas (`wheelStep`), con sus pruebas (`wheel.test.ts`) | El inicio (§4) |
+| `conversation/`, `composer.tsx` | `Conversation` (copiar y parar; sin pulgares, regenerar ni compartir) y `WorkspaceComposer`, la caja de escribir | `WorkspaceComposer`, la caja de buscar del inicio. `Conversation` (con «Copiar» y «Detener», revisión §1b filas 19 y 20) está **sin montar**: no hay conversación hasta que llegue el asistente local (§6, un paso posterior), y la caja del inicio busca y lo dice |
+| `search/` | La barra de filtros con su contador y «Filters wissen», sus pastillas con su X, los resultados y el vacío con «Opnieuw beginnen» | **Montada**: la búsqueda con filtros (§4.8), sobre `/api/v2/buscar`. `SearchThinking` (el orbe de partículas) no se usa |
+| `finance/` | `FinanceBento`, «Lo importante»: vencido por cobrar y por pagar, el neto de 30 días y la nota de que no es dinero disponible, desde céntimos | **Sin montar**. Lo que la revisión quería conservar de «Lo importante» (§2: las cifras, cada empresa que lleva a su carpeta y «Saldos pendientes · No es efectivo disponible») está en los resúmenes de Te ontvangen y Te betalen (§4.1), sobre la cartera; el bento, con su titular y su reparto, es para el resumen que dará el asistente local (§6, un paso posterior) |
+| `wheel.tsx` | `Wheel`, la rueda de navegación: el orden fijo, la distancia de cada entrada (`wheelDistance`), el paso de las flechas (`wheelStep`, que da la vuelta) y el de la rueda del ratón (`wheelScrollStep`, que no la da: en Start hacia arriba o en Btw hacia abajo el gesto es de la página), con sus pruebas (`wheel.test.ts`) | El inicio (§4) |
 
 Hoy la app monta el logo, el orbe, la rueda, la caja de escribir, el archivo de Documentos
-(sus carpetas de cristal, el árbol y la vista previa) y la suricata; las demás piezas esperan
-a su pantalla y no entran en lo construido hasta que alguien las importe.
+(sus carpetas de cristal, el árbol y la vista previa), la suricata y la búsqueda con filtros
+(revisión del paso 16). Sin montar, y sin entrar en lo construido hasta que alguien las
+importe: la conversación (con «Copiar» y «Detener»), el orbe de partículas y «Lo
+importante», que esperan al asistente local (§6 de la revisión, un paso posterior), y el
+cargador y el resultado de Procesar, que esperan a la lectura de verdad (§8.5, pasos 3 a 7).
 
 - **Los estilos** van bajo `.aurora-root` (cada pieza envuelve su raíz; `display: contents`,
   así no cambia la maquetación), en `@layer components` (las utilidades de Tailwind mandan)

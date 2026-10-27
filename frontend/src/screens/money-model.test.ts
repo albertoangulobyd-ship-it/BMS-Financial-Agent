@@ -18,6 +18,9 @@ import {
   dueState,
   inCartera,
   isInvoiceFilter,
+  isOverdue,
+  linkCandidates,
+  livePaymentState,
   matchesFilter,
   parseEuros,
   partiesByOverdue,
@@ -158,6 +161,39 @@ describe('las fichas de la lista', () => {
     expect(ids('vencida')).toEqual([1]);
   });
 
+  it('"vencida" va por el hoy del motor, como los tramos, aunque la cache diga "pendiente"', () => {
+    // Revision del paso 16: con la cache de la ultima pasada de otro dia, estado_pago seguia
+    // en "pendiente" y la ficha se quedaba corta de lo que decia la cifra "Vervallen".
+    const stale = [
+      row(11, { vencimiento: '2026-10-20', estado_pago: 'pendiente' }),
+      row(12, { vencimiento: '2026-10-26', estado_pago: 'pendiente' }),
+      row(13, { vencimiento: '2026-10-27', estado_pago: 'pendiente' }),
+      row(14, { vencimiento: '2026-08-23', estado_pago: 'vencida' }),
+      row(15, { vencimiento: '2026-10-01', estado_pago: 'pagada', pendiente_cent: 0 }),
+      row(16, { vencimiento: '2026-10-01', total_cent: -5_000, pendiente_cent: -5_000, estado_pago: 'pendiente' }),
+    ];
+    const vencidas = stale.filter((r) => matchesFilter('vencida', r, 'saliente', windows, none)).map((r) => r.id);
+    expect(vencidas).toEqual([11, 12, 14]);
+    // Lo mismo que los tramos de retraso (de 1 dia en adelante).
+    const late = stale.filter((r) => (['1_30', '31_60', '61_90', 'mas_de_90'] as const).some((b) => matchesFilter(`tramo:${b}`, r, 'saliente', windows, none)));
+    expect(late.map((r) => r.id)).toEqual(vencidas);
+    // Sin la cartera todavia, la cache.
+    expect(stale.filter((r) => matchesFilter('vencida', r, 'saliente', null, none)).map((r) => r.id)).toEqual([14]);
+    expect(isOverdue('2026-10-26', '2026-10-27')).toBe(true);
+    expect(isOverdue('2026-10-27', '2026-10-27')).toBe(false);
+    expect(isOverdue(null, '2026-10-27')).toBe(false);
+  });
+
+  it('la fila dice el estado de pago con el hoy del motor', () => {
+    expect(livePaymentState(row(1, { vencimiento: '2026-10-20', estado_pago: 'pendiente' }), '2026-10-27')).toBe('vencida');
+    expect(livePaymentState(row(1, { vencimiento: '2026-10-27', estado_pago: 'pendiente' }), '2026-10-27')).toBe('pendiente');
+    expect(livePaymentState(row(1, { vencimiento: '2026-11-20', estado_pago: 'vencida' }), '2026-10-27')).toBe('pendiente');
+    expect(livePaymentState(row(1, { vencimiento: '2026-10-01', estado_pago: 'pagada', pendiente_cent: 0 }), '2026-10-27')).toBe('pagada');
+    // Un abono sin enlazar no vence; sin el hoy del motor, la fila tal cual.
+    expect(livePaymentState(row(1, { vencimiento: '2026-10-01', total_cent: -5_000, pendiente_cent: -5_000 }), '2026-10-27')).toBe('pendiente');
+    expect(livePaymentState(row(1, { vencimiento: '2026-10-01', estado_pago: 'pendiente' }), null)).toBe('pendiente');
+  });
+
   it('esta semana llega al domingo y los 30 dias a su ultimo dia, incluido', () => {
     expect(ids('week')).toEqual([2]);
     expect(ids('next30')).toEqual([2, 3]);
@@ -286,5 +322,25 @@ describe('un importe tecleado', () => {
     expect(centsToApi(5)).toBe('0.05');
     expect(centsToInput(-497_068)).toBe('4970,68');
     expect(centsToInput(7)).toBe('0,07');
+  });
+});
+
+describe('enlazar una linea del banco', () => {
+  const invoices = [
+    row(1, { numero: 'VD26-301', pendiente_cent: 120_000 }),
+    row(2, { numero: 'VD26-302', pendiente_cent: 45_000 }),
+    row(3, { numero: 'VD26-303', pendiente_cent: 9_999 }),
+  ];
+  it('ninguna se elige sola; las que parecen de la linea van primero', () => {
+    // Revision del paso 16: se preseleccionaba la primera (la de mas prioridad).
+    expect(linkCandidates({ resto_cent: 45_000, importe_cent: 45_000, concepto: 'Betaling', referencia: null }, invoices)).toEqual({
+      likely: [invoices[1]],
+      others: [invoices[0], invoices[2]],
+    });
+    const named = linkCandidates({ resto_cent: 1_000, importe_cent: 1_000, concepto: 'Factuur vd26 303 deel', referencia: null }, invoices);
+    expect(named.likely.map((f) => f.id)).toEqual([3]);
+    const none = linkCandidates({ resto_cent: 7, importe_cent: 7, concepto: null, referencia: null }, invoices);
+    expect(none.likely).toEqual([]);
+    expect(none.others.map((f) => f.id)).toEqual([1, 2, 3]);
   });
 });
