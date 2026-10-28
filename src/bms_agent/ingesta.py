@@ -991,6 +991,7 @@ def ingestar_pasada(
     ruta: str = "entrante",
     resultado_pasada: Any = None,
     tipar: Callable[[sqlite3.Connection], list[Tipado]] = tipar_pendientes,
+    fase: Callable[[str], None] | None = None,
     **opciones: Any,
 ) -> tuple[Any, ResultadoIngesta]:
     """La entrada completa de una carpeta: almacen, extraccion segun la cache y filas tipadas.
@@ -1000,16 +1001,23 @@ def ingestar_pasada(
     aunque tipar falle); despues se tipa todo lo pendiente, sin API, y se
     recalculan las reglas, las dos cosas en una transaccion (cada documento
     en su SAVEPOINT): o queda tipado con sus hallazgos al dia, o nada.
+
+    `fase` (paso 17, lectura.py) oye cuando empieza cada parte despues de leer:
+    "comparando" antes de tipar (fuera de la transaccion: se ve en seguida) y
+    "analizando" antes de las reglas (dentro: queda con lo demas, o nada).
     """
     from .extract import extraer_pasada
     from .hallazgos import recalcular
 
     if ruta not in SENTIDO_DE_RUTA:
         raise ValueError(f"via de entrada desconocida: {ruta!r}")
+    avisar = fase or (lambda _fase: None)
     pasada = extraer_pasada(client, pdfs, out_dir, almacen=almacen, ruta=ruta,
                             resultado=resultado_pasada, **opciones)
+    avisar("comparando")
     with transaccion(almacen.conn):
         resultado = ResultadoIngesta(tipar(almacen.conn))
+        avisar("analizando")
         resultado.recalculo = recalcular(almacen.conn, motivo="ingesta")
     return pasada, resultado
 

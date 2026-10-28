@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import pytest
 from conftest import RAIZ, TARIFAS_V1, apunte, camt053, cuentas_propias, factura_de, \
-    importar_camt, persona
+    importar_camt, lectura_esperando, persona
 from test_hallazgos import SOLAPADA, _cargar, _hallazgo, _registro
 
 from bms_agent import campos, consultas, hallazgos, permisos, servicios
@@ -235,6 +235,22 @@ def _hoja_btw(conn) -> str:
     return btw.hoja(conn, 2026, 3).sha256
 
 
+def _preparar_lectura_pedida(almacen, admin) -> None:
+    servicios.ejecutar(almacen.conn, "pedir_lectura", {}, usuario_id=admin)
+
+
+def _preparar_lectura_contada(almacen, admin) -> None:
+    lectura_esperando(almacen.conn, admin)
+
+
+def _lectura(conn) -> tuple[int, str]:
+    """La lectura viva y la huella que espera (0 y una huella que no es, sin preparar: la
+    orden se deniega antes de mirarla)."""
+    fila = conn.execute("SELECT id, huella_estimacion FROM solicitud_lectura "
+                        "WHERE terminada_en IS NULL").fetchone()
+    return (fila[0], fila[1] or "0" * 64) if fila else (0, "0" * 64)
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -376,6 +392,13 @@ CASOS = [
         "trimestre": "2026-T3", "rev": _periodo_btw(c)[0], "hoja_sha256": _periodo_btw(c)[1],
         "referencia": "OB-2026-T3", "importe_declarado": "-1234,56",
         "motivo": "Presentada en el portal"}, _preparar_btw_lista),
+    # Paso 17: la lectura de los PDF pedida desde la app.
+    ("pedir_lectura", "pedir_lectura", "importar_datos", lambda c, i: {}, None),
+    ("aprobar_lectura", "aprobar_lectura", "importar_datos", lambda c, i: {
+        "solicitud_id": _lectura(c)[0], "huella_estimacion": _lectura(c)[1]},
+     _preparar_lectura_contada),
+    ("cancelar_lectura", "cancelar_lectura", "importar_datos", lambda c, i: {
+        "solicitud_id": _lectura(c)[0]}, _preparar_lectura_pedida),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -416,7 +439,10 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "objetos_po": "cambiar_po", "corregir_po": "cambiar_po", "imputar_po": "cambiar_po",
         # Paso 11.
         "btw_lista_para_revision": "gestionar_btw", "btw_reabrir": "gestionar_btw",
-        "btw_anotar_presentacion": "gestionar_btw"}
+        "btw_anotar_presentacion": "gestionar_btw",
+        # Paso 17.
+        "pedir_lectura": "importar_datos", "aprobar_lectura": "importar_datos",
+        "cancelar_lectura": "importar_datos"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,
@@ -443,7 +469,8 @@ def test_cada_orden_pide_su_permiso(escenario, caso, orden, permiso, datos, prep
     # Con el permiso, la orden pasa.
     diferencia = servicios.ejecutar(conn, orden, datos(conn, ids), usuario_id=admin)
     assert diferencia.evento_id is not None or orden == "recalcular"
-    assert diferencia.ejecucion_id is not None
+    # Paso 17: las de la lectura de PDF no tocan nada que lea una regla y no recalculan.
+    assert (diferencia.ejecucion_id is not None) is servicios.ACCIONES[orden].recalcula
     assert campos.verificar_controladas(conn) == []
     assert hallazgos.verificar(conn) == []
 

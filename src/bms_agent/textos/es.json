@@ -3227,6 +3227,18 @@
       "descripcion": "Anota que el trimestre se presentó en el portal de Hacienda (Belastingdienst), con la referencia. El sistema no presenta nada por su cuenta.",
       "confirmar": "Anotas que esta declaración ya se presentó a Hacienda. No se puede deshacer."
     },
+    "pedir_lectura": {
+      "etiqueta": "Pedir lectura",
+      "descripcion": "Pide al lector que lea los PDF del buzón. Antes de gastar nada cuenta lo que costaría y espera tu sí."
+    },
+    "aprobar_lectura": {
+      "etiqueta": "Empezar la lectura",
+      "descripcion": "Da el sí a lo que contó el lector, con un tope de gasto. Lee solo las facturas que viste."
+    },
+    "cancelar_lectura": {
+      "etiqueta": "No leer",
+      "descripcion": "Antes de empezar, el lector cierra su conexión a internet sin gastar nada; si ya está leyendo, para después de la factura en curso."
+    },
     "recalcular": {
       "etiqueta": "Volver a comprobar",
       "descripcion": "Vuelve a pasar todos los controles (cada acción ya lo hace)."

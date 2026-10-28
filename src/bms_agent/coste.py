@@ -116,6 +116,20 @@ def leer_documentos(registros: list[dict[str, Any]]) -> list[Documento]:
     return documentos
 
 
+def documentos_del_almacen(conn: Any) -> list[Documento]:
+    """Consumo y coste de cada extraccion que guarda el almacen (extraccion.uso_json), sin
+    out/: lo que leen /api/v2/lectura y la cuenta del lector (paso 17, lectura.py)."""
+    import json
+
+    return leer_documentos([
+        {"usage": json.loads(f[2]) if f[2] else {}, "model": f[0], "extracted_at": f[1],
+         "source_name": f[4], "schema_version": f[3]}
+        for f in conn.execute(
+            "SELECT e.modelo, e.extraido_en, e.uso_json, e.schema_version, "
+            "d.nombre_original FROM extraccion AS e "
+            "JOIN documento AS d ON d.id = e.documento_id ORDER BY e.id")])
+
+
 def agrupar_en_pasadas(documentos: list[Documento]) -> list[Pasada]:
     """Parte el historico en pasadas por los huecos de tiempo.
 

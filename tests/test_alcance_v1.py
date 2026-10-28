@@ -86,9 +86,18 @@ ESTADOS_PROHIBIDOS = re.compile(
     r"aprob|approv|borrador|draft|por_pagar|a_pagar|pago_ordenado|orden_pago|en_pago|"
     r"programad|transferid|enviad|remesa|sepa")
 
+# Paso 17 (especificacion §5, revision §8.5): la unica excepcion, y con nombre. Dar el si a
+# una lectura de PDF es aceptar lo que cobra la API por leerlos, con un tope; no aprueba
+# ninguna factura ni ningun pago. La orden (aprobar_lectura) y sus estados ('aprobada' y
+# 'esperando_aprobacion', solo en solicitud_lectura) son esos y nada mas.
+APROBAR_LECTURA = "aprobar_lectura"
+ESTADOS_DE_LA_LECTURA = {"aprobada", "esperando_aprobacion"}
+
 
 def test_ninguna_orden_ni_permiso_se_llama_como_lo_que_v1_no_hace(capsys) -> None:
-    assert not [n for n in servicios.ACCIONES if ORDENES_PROHIBIDAS.search(n)]
+    assert not [n for n in servicios.ACCIONES
+                if ORDENES_PROHIBIDAS.search(n) and n != APROBAR_LECTURA]
+    assert servicios.ACCIONES[APROBAR_LECTURA].permiso == Permiso.IMPORTAR_DATOS.value
     assert not [p for p in Permiso.valores() if ORDENES_PROHIBIDAS.search(p)]
     # Ni un subcomando de la CLI: las ordenes de persona salen de la misma tabla.
     from bms_agent import cli
@@ -110,9 +119,16 @@ def test_ningun_estado_dice_aprobado_ni_borrador_ni_pago_en_marcha(almacen) -> N
         if isinstance(objeto, type) and issubclass(objeto, enum.Enum):
             valores |= {str(m.value) for m in objeto}
     conn = almacen.conn
-    for (sql,) in conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND sql "
-                               "IS NOT NULL"):
-        valores |= set(re.findall(r"'([a-z_]+)'", sql))
+    de_la_lectura: set[str] = set()
+    for (nombre, sql) in conn.execute("SELECT name, sql FROM sqlite_master WHERE type = "
+                                      "'table' AND sql IS NOT NULL"):
+        literales = set(re.findall(r"'([a-z_]+)'", sql))
+        if nombre == "solicitud_lectura":
+            # La lectura de PDF (paso 17): sus dos estados del si, y ninguno mas.
+            de_la_lectura = {v for v in literales if ESTADOS_PROHIBIDOS.search(v)}
+            literales -= ESTADOS_DE_LA_LECTURA
+        valores |= literales
+    assert de_la_lectura == ESTADOS_DE_LA_LECTURA
     assert "pagada" in valores                      # se mira lo que hay, no una lista vacia
     assert not sorted(v for v in valores if ESTADOS_PROHIBIDOS.search(v))
     # Revisar no es aprobar: los resultados de una revision y lo que dice el sistema.

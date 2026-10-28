@@ -38,7 +38,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from . import config
 from .cache import CONSERVAR, CachedExtraction, indexar, reutilizable
@@ -369,6 +369,9 @@ class ResultadoPasada:
     # Con almacen: relecturas de un documento con vigente de otras versiones,
     # que quedan como candidatas hasta `reextraer --activar`.
     candidatas: int = 0
+    # Con seguimiento (paso 17): nuevos que no se pagaron porque no cabian (el tope, lo
+    # aprobado, una peticion de parar).
+    sin_pagar: int = 0
 
 
 # Donde van las candidatas, dentro de out/ (reextraccion.CARPETA_EXPORTACION):
@@ -404,6 +407,113 @@ def _fuera_de_su_base(de_prueba: bool, base_demo: bool) -> str | None:
     return None
 
 
+class Seguimiento(Protocol):
+    """Quien sigue una pasada documento a documento (paso 17, lectura.py): lo que se esta
+    haciendo, si el siguiente pago cabe y lo que costo cada llamada.
+
+    `empieza(nombre, que)` va antes de cada paso de un documento: "comparando" (mirar si ya
+    esta leido), "leyendo" (la llamada a la API) y "guardando" (al almacen). `cabe(doc)` va
+    justo antes de pagar: None deja pagar; un texto dice por que no, y ese documento no se
+    paga (los ya leidos siguen, que no cuestan). `pagado(uso)` va despues de cada llamada,
+    tambien de un rechazo (que se cobra); con None, una llamada que fallo sin decir su uso.
+    `sin_pagar(nombre, motivo)` dice que un documento se quedo sin leer por `cabe`.
+    """
+
+    def empieza(self, nombre: str, que: str) -> None: ...
+
+    def cabe(self, doc: SourceDocument) -> str | None: ...
+
+    def pagado(self, uso: dict[str, Any] | None) -> None: ...
+
+    def sin_pagar(self, nombre: str, motivo: str) -> None: ...
+
+
+@dataclass
+class Conocido:
+    """Lo que una pasada ya sabe antes de pagar nada: lo leido en out/, las candidatas, lo
+    leido por la otra via y lo vigente en el almacen. Lo usan la pasada (extraer_pasada) y la
+    cuenta de lo que costaria (lectura.estimar): las dos dicen lo mismo de cada PDF."""
+
+    model: str
+    politica: str
+    forzar: bool
+    indice: dict[str, list[CachedExtraction]]
+    releidas: dict[str, list[CachedExtraction]]
+    de_otra_via: dict[str, list[CachedExtraction]]
+    en_almacen: dict[str, tuple[int, tuple[str, str, str]]]
+    de_otra_version: dict[str, int]
+    base_demo: bool
+
+    @classmethod
+    def de(cls, out_dir: str | Path, *, model: str, politica: str = CONSERVAR,
+           forzar: bool = False, almacen: Almacen | None = None,
+           otras_vias: Iterable[str | Path] = ()) -> Conocido:
+        actual = (model, config.PROMPT_VERSION, config.SCHEMA_VERSION)
+        en_almacen = _vigentes_en_almacen(almacen) if almacen is not None else {}
+        de_otra_via: dict[str, list[CachedExtraction]] = {}
+        for carpeta in () if forzar else otras_vias:
+            for sha, guardadas in indexar(carpeta).items():
+                de_otra_via.setdefault(sha, []).extend(guardadas)
+        return cls(
+            model=model, politica=politica, forzar=forzar,
+            indice={} if forzar else indexar(out_dir),
+            # Las candidatas exportadas (reextraer, o un --estricta de antes) no son
+            # vigentes, pero estan pagadas: una de estas mismas versiones no se paga
+            # otra vez.
+            releidas={} if forzar else indexar(Path(out_dir) / _CARPETA_CANDIDATAS),
+            de_otra_via=de_otra_via, en_almacen=en_almacen,
+            de_otra_version={sha: extraccion_id for sha, (extraccion_id, versiones)
+                             in en_almacen.items() if versiones != actual},
+            base_demo=_es_la_base_de_prueba(almacen))
+
+    @property
+    def actual(self) -> tuple[str, str, str]:
+        return (self.model, config.PROMPT_VERSION, config.SCHEMA_VERSION)
+
+    def guardada(self, doc: SourceDocument) -> tuple[CachedExtraction | None, bool]:
+        """La extraccion de out/ que sirve para este PDF, y si es de la otra via."""
+        guardada = reutilizable(
+            self.indice.get(doc.sha256), politica=self.politica, model=self.model,
+            prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
+        ) or next((e for e in self.releidas.get(doc.sha256, []) if e.matches(*self.actual)),
+                  None)
+        if guardada is None and doc.sha256 in self.de_otra_via:
+            otra = reutilizable(
+                self.de_otra_via[doc.sha256], politica=self.politica, model=self.model,
+                prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION)
+            return otra, otra is not None
+        return guardada, False
+
+    def vigente(self, doc: SourceDocument) -> tuple[int, tuple[str, str, str]] | None:
+        """La vigente del almacen que hace que este PDF no se vuelva a pagar, si la hay.
+
+        Sin out/ (una base restaurada en otro ordenador, out/ borrado) lo leido sigue en
+        el almacen: no se vuelve a pagar. Con ESTRICTA, solo si es de estas versiones."""
+        vigente = None if self.forzar else self.en_almacen.get(doc.sha256)
+        if vigente is not None and (self.politica == CONSERVAR or vigente[1] == self.actual):
+            return vigente
+        return None
+
+    def clase(self, doc: SourceDocument) -> tuple[str, str | None]:
+        """Lo que la pasada haria con este PDF sin pagar nada: ("omitido", por que),
+        ("ya_leido", None) o ("nuevo", None). El mismo orden que extraer_pasada."""
+        from .almacen import contiene_datos_de_prueba
+
+        de_prueba = contiene_datos_de_prueba(base64.b64decode(doc.data_b64))
+        detalle = _fuera_de_su_base(de_prueba, self.base_demo)
+        if detalle is not None:
+            return "omitido", detalle
+        if self.guardada(doc)[0] is not None or self.vigente(doc) is not None:
+            return "ya_leido", None
+        if de_prueba:
+            return "omitido", NUNCA_A_LA_API
+        return "nuevo", None
+
+
+# Lo que se dice de un PDF de los datos de prueba que no esta leido.
+NUNCA_A_LA_API = "es de los DATOS DE PRUEBA: un PDF de prueba no se manda nunca a la API"
+
+
 def extraer_pasada(
     client: Any,
     rutas: Iterable[str | Path],
@@ -417,6 +527,7 @@ def extraer_pasada(
     almacen: Almacen | None = None,
     ruta: str = "entrante",
     otras_vias: Iterable[str | Path] = (),
+    seguimiento: Seguimiento | None = None,
 ) -> ResultadoPasada:
     """Extrae los PDF que no tengan ya una extraccion reutilizable.
 
@@ -443,30 +554,27 @@ def extraer_pasada(
     pagado, y leerlo otra vez no cambia nada porque un documento conserva la
     via por la que entro la primera vez (registrar_documento). Se reutiliza
     esa extraccion y se avisa de que la via no cambia. Con forzar, no.
+
+    `seguimiento` (paso 17, la lectura pedida desde la app): ve cada paso de cada
+    documento, decide antes de cada pago si cabe (lo aprobado, el tope, una peticion de
+    parar) y apunta lo que costo cada llamada (ver Seguimiento). Lo que ya esta leido lo
+    decide Conocido, lo mismo que dice la cuenta de antes de pagar.
     """
     from .almacen import contiene_datos_de_prueba
 
     model = model or config.model_id()
     avisar = informar or (lambda _tipo, _nombre, _detalle: None)
-    indice = {} if forzar else indexar(out_dir)
     resultado = resultado if resultado is not None else ResultadoPasada()
-    actual = (model, config.PROMPT_VERSION, config.SCHEMA_VERSION)
-    en_almacen = _vigentes_en_almacen(almacen) if almacen is not None else {}
-    base_demo = _es_la_base_de_prueba(almacen)
-    de_otra_version = {sha: extraccion_id for sha, (extraccion_id, versiones)
-                       in en_almacen.items() if versiones != actual}
-    # Las candidatas exportadas (reextraer, o un --estricta de antes) no son
-    # vigentes, pero estan pagadas: una de estas mismas versiones no se paga
-    # otra vez.
-    releidas = {} if forzar else indexar(Path(out_dir) / _CARPETA_CANDIDATAS)
-    de_otra_via: dict[str, list[CachedExtraction]] = {}
-    for carpeta in () if forzar else otras_vias:
-        for sha, guardadas in indexar(carpeta).items():
-            de_otra_via.setdefault(sha, []).extend(guardadas)
+    conocido = Conocido.de(out_dir, model=model, politica=politica, forzar=forzar,
+                           almacen=almacen, otras_vias=otras_vias)
+    indice = conocido.indice
+    de_otra_version = conocido.de_otra_version
 
     for ruta_pdf in rutas:
         ruta_pdf = Path(ruta_pdf)
         resultado.total += 1
+        if seguimiento is not None:
+            seguimiento.empieza(ruta_pdf.name, "comparando")
         try:
             doc = load_pdf(ruta_pdf)
         except UnsupportedDocument as exc:
@@ -475,61 +583,66 @@ def extraer_pasada(
             avisar("omitido", ruta_pdf.name, str(exc))
             continue
         de_prueba = contiene_datos_de_prueba(base64.b64decode(doc.data_b64))
-        detalle = _fuera_de_su_base(de_prueba, base_demo)
+        detalle = _fuera_de_su_base(de_prueba, conocido.base_demo)
         if detalle is not None:
             resultado.fallidas += 1
             resultado.errores.append(f"{ruta_pdf.name}: {detalle}")
             avisar("omitido", ruta_pdf.name, detalle)
             continue
 
-        guardada = reutilizable(
-            indice.get(doc.sha256), politica=politica, model=model,
-            prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION,
-        ) or next((e for e in releidas.get(doc.sha256, []) if e.matches(*actual)), None)
-        otra_via = None
-        if guardada is None and doc.sha256 in de_otra_via:
-            guardada = otra_via = reutilizable(
-                de_otra_via[doc.sha256], politica=politica, model=model,
-                prompt_version=config.PROMPT_VERSION, schema_version=config.SCHEMA_VERSION)
+        guardada, otra_via = conocido.guardada(doc)
         if guardada is not None:
             resultado.reutilizadas += 1
             detalle = _detalle_cache(guardada, model)
-            if otra_via is not None:
+            if otra_via:
                 detalle += (f"; ya leido por la otra via ({Path(guardada.path).parent.name}/): "
                             "el documento conserva la via por la que entro")
             avisar("cache", ruta_pdf.name, detalle)
             if almacen is not None:
+                if seguimiento is not None:
+                    seguimiento.empieza(ruta_pdf.name, "guardando")
                 _al_almacen(almacen, doc, ruta_pdf, Path(guardada.path), "out_v1", resultado,
                             avisar, via_entrada=ruta)
             continue
 
-        # Sin out/ (una base restaurada en otro ordenador, out/ borrado) lo leido sigue en el
-        # almacen: no se vuelve a pagar. Con ESTRICTA, solo si es de estas versiones.
-        vigente = None if forzar else en_almacen.get(doc.sha256)
-        if vigente is not None and (politica == CONSERVAR or vigente[1] == actual):
+        vigente = conocido.vigente(doc)
+        if vigente is not None:
             resultado.reutilizadas += 1
             avisar("cache", ruta_pdf.name, f"ya esta en el almacen (extraccion {vigente[0]}, "
                                            f"{vigente[1][0]}): no se vuelve a pagar")
             continue
         if de_prueba:
             # `demo crear` escribe la extraccion de sus PDF: uno de ellos nunca necesita la API.
-            detalle = "es de los DATOS DE PRUEBA: un PDF de prueba no se manda nunca a la API"
             resultado.fallidas += 1
-            resultado.errores.append(f"{ruta_pdf.name}: {detalle}")
-            avisar("omitido", ruta_pdf.name, detalle)
+            resultado.errores.append(f"{ruta_pdf.name}: {NUNCA_A_LA_API}")
+            avisar("omitido", ruta_pdf.name, NUNCA_A_LA_API)
             continue
 
+        if seguimiento is not None:
+            motivo = seguimiento.cabe(doc)
+            if motivo is not None:
+                resultado.sin_pagar += 1
+                seguimiento.sin_pagar(ruta_pdf.name, motivo)
+                continue
+            seguimiento.empieza(ruta_pdf.name, "leyendo")
         try:
             record = extract_invoice(client, doc, model=model)
         except Exception as exc:  # una pasada no se detiene por un documento
+            if seguimiento is not None:
+                # Un rechazo se cobra y trae su uso; un fallo sin uso no se sabe si se cobro.
+                seguimiento.pagado(getattr(exc, "uso", None) or None)
             resultado.fallidas += 1
             resultado.errores.append(f"{ruta_pdf.name}: {type(exc).__name__}: {exc}")
             avisar("error", ruta_pdf.name, f"{type(exc).__name__}: {exc}")
             continue
+        if seguimiento is not None:
+            seguimiento.pagado(record.usage)
 
         candidata = doc.sha256 in de_otra_version
         target = record.write_json(Path(out_dir) / _CARPETA_CANDIDATAS if candidata else out_dir)
         if almacen is not None:
+            if seguimiento is not None:
+                seguimiento.empieza(ruta_pdf.name, "guardando")
             _al_almacen(almacen, doc, ruta_pdf, target, "api", resultado, avisar,
                         via_entrada=ruta, anterior_id=de_otra_version.get(doc.sha256),
                         origen={"politica": politica, "forzar": forzar})

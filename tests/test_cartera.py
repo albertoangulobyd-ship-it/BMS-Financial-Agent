@@ -573,7 +573,7 @@ def test_las_lecturas_nuevas_por_la_api(archivo) -> None:
     puerto, tokens, db, ids = archivo
     dora = tokens["dora"]
     estado, cabeceras, contrato = _leer(puerto, "/api/v2/contrato", dora)
-    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.4"
+    assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == consultas.CONTRATO_V2 == "2.5"
     rutas = {r["ruta"] for r in contrato["lecturas"]}
     assert {"/api/v2/cartera", "/api/v2/pagos/propuestas", "/api/v2/movimientos",
             "/api/v2/clientes/N/documentos", "/api/v2/proveedores/N/documentos",

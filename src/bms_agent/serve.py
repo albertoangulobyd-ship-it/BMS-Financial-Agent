@@ -1171,6 +1171,7 @@ def _codigo_de(error: Exception) -> int | None:
     from .estados import NoSube
     from .excepciones import BloqueoAbierto, EstadoNoValido as EstadoExcepcion
     from .hallazgos import EstadoNoValido as EstadoHallazgo, NoAnulable
+    from .lectura import EstadoNoValido as EstadoLectura
     from .pagos import PagoNoValido
     from .revision import NoRevisable
 
@@ -1184,7 +1185,7 @@ def _codigo_de(error: Exception) -> int | None:
         return 409
     if isinstance(error, (BloqueoAbierto, EstadoExcepcion, EstadoHallazgo, NoAnulable,
                           NoRevisable, NoSube, CampoDeOtroSistema, CampoNoEditable,
-                          PagoNoValido, EstadoBtw)):
+                          PagoNoValido, EstadoBtw, EstadoLectura)):
         return 409
     if isinstance(error, LookupError):
         return 404

@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.4", ...}
+{"contrato": "2.5", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.4`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.5`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -404,6 +404,19 @@ quita:
   «Openstaand» en todos los sitios, y el abono debajo, para que una empresa no tenga dos
   cifras de lo pendiente.
 
+**Lo que añadió el 2.5 (paso 17, la lectura de los PDF pedida desde la app).** Claves y
+órdenes nuevas; ninguna cambia ni se quita:
+
+- `GET /api/v2/lectura` lleva, además de lo de antes, `solicitud` (la lectura viva o la
+  última), `pasada_en_curso` (la pasada de esa lectura, si la tiene), `ultima_pasada` (la
+  última terminada, con lo que fue de cada documento), `plazo_respuesta_segundos` (900) y
+  `consulta_cada_segundos` (2). Abajo, «La lectura pedida desde la app»;
+- tres órdenes en `POST /api/v2/acciones`, con el permiso `importar_datos`:
+  `pedir_lectura`, `aprobar_lectura` y `cancelar_lectura`. Ninguna lee ni habla con la
+  API (la app no tiene red): lo hace el lector, `leer-facturas.bat`. Dar el sí a una
+  lectura es aceptar lo que cobra la API por leer esas facturas, con un tope; no aprueba
+  ninguna factura ni ningún pago.
+
 ### Cuatro reglas que valen para todo
 
 **Importes en enteros, con su texto al lado.** `_cent` son céntimos de euro
@@ -450,7 +463,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.4",
+  "contrato": "2.5",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -640,7 +653,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
 | `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
 | `GET /api/v2/importaciones` | Las últimas 30 importaciones (qué, de cuándo, quién, cómo acabó), lo que se puede importar (`tipos`: cada `fuente` y `tipo`), el tamaño máximo de un fichero (`limite_bytes`) y de cuándo es cada fuente (`fuentes`, como `GET /api/v2/fuentes`) | — |
-| `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no) | — |
+| `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no). Desde el 2.5, también la lectura pedida desde la app: `solicitud`, `pasada_en_curso`, `ultima_pasada`, `plazo_respuesta_segundos` y `consulta_cada_segundos` (abajo, «La lectura pedida desde la app») | — |
 | `GET /api/v2/empresa` | La identidad de BM Support BV que usan las reglas (`nombre`, `otros_nombres`, `btw_id`, `kvk`, `cuentas_propias`, `completa`). Se cambia con `empresa.bat`, no desde la app | — |
 | `GET /api/v2/cartera` | Lo que nos deben (`sentido=saliente`) o lo que debemos (`sentido=entrante`): los totales del panel, la antigüedad por tramos, cada empresa, lo retenido y lo que espera aparte (abajo, «La cartera») | `sentido` (obligatorio: sin él, o con otro valor, `400`) |
 | `GET /api/v2/pagos/propuestas` | Los pagos que el banco propuso y esperan a una persona, cada uno con su línea del banco, su factura y las tres coincidencias | `sentido` (de la factura) |
@@ -705,6 +718,95 @@ dos idiomas y que cada error que escribe `serve.py` lleva el suyo.
 Un fallo de verdad del servidor (un `500`) no es un error de la orden y no
 lleva código: la orden no se aplica (va entera o nada) y la app dice «Er ging
 iets mis».
+
+### La lectura pedida desde la app (paso 17)
+
+La app no tiene red (`connect-src 'self'`) ni lanza programas: no lee ningún PDF. Lo que
+hace es pedir una lectura, enseñar lo que costaría, dar el sí (o el no) y seguir el
+progreso. Quien lee es el lector, que abre una persona en el escritorio
+(`leer-facturas.bat`), con el orden de siempre: enciende la salida, comprueba el
+aislamiento (si falla, no cuenta ni lee), cuenta (gratis), espera el sí, lee y apaga la
+salida pase lo que pase ([instalacion-nativa.md](instalacion-nativa.md), apartado 7). Su
+código está en `lectura.py`; sus órdenes, en `bms-agent lectura …`.
+
+**Las órdenes** (`POST /api/v2/acciones`, permiso `importar_datos`; quien solo consulta,
+`403`). Cada una deja su evento en la auditoría con la persona (`lectura_pedida`,
+`lectura_aceptada`, `lectura_cancelada`, `lectura_parar`), y ninguna pasa el motor de
+reglas (no tocan nada que lea una regla: `diferencia.ejecucion_id` es `null`).
+
+| Orden | Datos | Qué hace | Errores |
+| --- | --- | --- | --- |
+| `pedir_lectura` | — | Una lectura nueva, `pedida`. `diferencia.detalle.solicitud_id` dice cuál | `409 estado_no_valido` si ya hay una viva (una que un lector dejó a medias y no da señales se da por terminada antes) |
+| `aprobar_lectura` | `solicitud_id`, `huella_estimacion` (la que se enseñó), `tope_usd_micro` (opcional: por defecto, el extremo alto de la horquilla; nunca más) | El sí: solo en `esperando_aprobacion` y antes de `caduca_en`. `diferencia.detalle.tope_usd_micro` dice el tope guardado | `409 conflicto` si la estimación ya no es la que se vio (hay que volver a leer `/api/v2/lectura` y enseñarla); `409 estado_no_valido` si ya no espera (caducó, se canceló, ya tiene un sí); `400 invalido` con un tope fuera de 1…`coste_max_usd_micro` |
+| `cancelar_lectura` | `solicitud_id` | El no. Antes de leer, la lectura queda `cancelada` al momento (el lector apaga la salida sin gastar nada). Leyendo, se apunta que se pidió parar (`solicitud.parar_pedido`) y el lector para después del documento en curso; él la deja `cancelada`. `diferencia.detalle.estado` dice en qué quedó | `409 estado_no_valido` si ya terminó o ya se pidió parar; `404 no_existe` |
+
+El mismo `peticion_id` dos veces es la misma orden (no da dos síes). El sí también se puede
+dar escribiendo `si` en la ventana del lector: queda con `aprobada_via` `ventana` y sin
+persona.
+
+**`solicitud`** (o `null` si nunca se pidió ninguna):
+
+```
+"solicitud": {
+  "id", "estado",               // pedida | comprobando | contando | esperando_aprobacion |
+                                // aprobada | leyendo | hecha | fallida | caducada |
+                                // cancelada | nada_que_leer
+  "origen",                     // app | lector (alguien abrió el lector sin pedir nada)
+  "viva",                       // estado de los seis primeros
+  "abandonada",                 // un lector la tenía y ya no da señales: la siguiente
+                                // lectura (o pedir_lectura) la da por terminada
+  "pedida_por", "pedida_en", "tomada_en",          // pedida_por: {id, nombre} o null
+  "motivo", "motivo_codigo",    // por qué terminó así (fallida, nada_que_leer): el código
+                                // es estable (buzon_vacio, ya_leidas, clave, salida,
+                                // aislamiento, contar, sin_tarifa, estimacion, lectura,
+                                // interrumpida, abandonada) y el texto, en español
+  "pdf_nuevos", "pdf_ya_leidos",                   // de la cuenta (null antes de contar)
+  "coste_min_usd_micro", "coste_max_usd_micro",    // la horquilla del lote, en millonésimas
+  "huella_estimacion",          // la que manda aprobar_lectura
+  "contada_en", "caduca_en",    // el sí vale hasta caduca_en (15 minutos después de contar)
+  "aprobada_por", "aprobada_en", "aprobada_via", "tope_usd_micro",   // app | ventana
+  "cancelada_por", "cancelada_en", "cancelada_via",
+  "parar_pedido",               // leyendo, y alguien pidió parar
+  "terminada_en", "actualizada_en"
+}
+```
+
+**`pasada_en_curso`** (la pasada de esa lectura, o `null`) y **`ultima_pasada`** (la última
+terminada, o `null`), con la misma forma:
+
+```
+{"solicitud_id", "fase",        // cargando | leyendo | comparando | analizando |
+                                // organizando, y al final hecha | fallida | cancelada | tope
+ "terminada",
+ "total", "leidas", "ya_leidas", "fallidas",       // solo suben
+ "coste_usd_micro",             // lo gastado hasta ahora (solo sube; nunca pasa del tope
+                                // más lo que se desvíe la última factura de su estimación)
+ "documento_actual", "documento_fase",             // el PDF de ahora y lo que se hace con él:
+                                                   // comparando | leyendo | guardando
+ "recientes",                   // los dos últimos terminados (nombres)
+ "fases": [ {"fase", "en"} ],   // cada fase con el instante en que empezó
+ "motivo",                      // por qué paró (el tope, parar, un fallo)
+ "empezada_en", "terminada_en", "actualizada_en",
+ "resultado": [ {"documento_id", "nombre", "estado", "factura_id", "numero", "empresa"} ]}
+```
+
+`estado` de cada documento, al terminar: `nueva`, `ya_leida` (el mismo fichero: no se
+vuelve a pagar), `posible_duplicado` (otro PDF con la misma factura: un aviso B2, B3, B4 o
+B5 abierto, que espera a una persona) o `fallida`. Mientras lee, los leídos van como
+`leida` hasta que la pasada los compara. Los que se quedan sin leer (el tope, parar) no
+están: se cuentan la próxima vez. El nombre del PDF es texto de un tercero: va al DOM con
+`textContent`.
+
+Las fases, en orden: `cargando` (al empezar), `leyendo` (documento a documento),
+`comparando` (cada documento con su empresa, su número y lo que ya existía),
+`analizando` (las reglas, duplicados y banco incluidos), `organizando` (el resultado) y el
+final. Comparar y analizar van en **una sola transacción** (o queda todo tipado con sus
+avisos al día, o nada), así que la base no enseña `analizando` mientras dura: una consulta
+puede ver `comparando` y, la siguiente, `organizando` o `hecha`. `fases` lo cuenta después,
+con su hora. Una app que mueve algo por fases tiene que saber saltar las que no vio.
+
+Lo que no hace nada de esto: leer sin un sí de verdad, leer algo que no se contó (un PDF
+que llega después espera a la próxima), pagar dos veces lo ya leído o pasar del tope.
 
 ### Importar desde la app (`POST /api/v2/importar`)
 

@@ -1712,7 +1712,7 @@ def _horas_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any) -> dict[s
 # (revision del paso 16) anade a cada factura de las listas la fuente de lo pagado
 # (`fuente_pago`) y a cada proveedor y cliente, en su lista y en su vista, lo que dice la
 # cartera (`deuda_cent`) y sus abonos sin enlazar (`abonos_sin_enlazar_cent`), aparte.
-CONTRATO_V2 = "2.4"
+CONTRATO_V2 = "2.5"
 
 
 def _pb(parte: int, todo: int) -> int | None:
@@ -3586,20 +3586,16 @@ def lectura_pdf(conn: sqlite3.Connection) -> dict[str, Any]:
 
     La consola no lee PDF (no tiene internet): los lee el lector, con el acceso directo
     "Leer facturas", que ensena lo que va a costar antes de pagar. Aqui solo se mira.
+
+    Paso 17 (contrato 2.5): ademas, la lectura pedida desde la app (lectura.para_la_app):
+    `solicitud`, `pasada_en_curso` y `ultima_pasada`.
     """
     from statistics import median
 
-    from . import config, coste
+    from . import config, coste, lectura
     from .pricing import estimate_cost
 
-    registros = [{"usage": json.loads(f["uso_json"]) if f["uso_json"] else {},
-                  "model": f["modelo"], "extracted_at": f["extraido_en"],
-                  "source_name": f["nombre_original"], "schema_version": f["schema_version"]}
-                 for f in conn.execute(
-                     "SELECT e.modelo, e.extraido_en, e.uso_json, e.schema_version, "
-                     "d.nombre_original FROM extraccion AS e "
-                     "JOIN documento AS d ON d.id = e.documento_id ORDER BY e.id")]
-    documentos = coste.leer_documentos(registros)
+    documentos = coste.documentos_del_almacen(conn)
     costes = [d.coste for d in documentos if d.coste is not None]
     completo = bool(documentos) and len(costes) == len(documentos)
     total = sum(costes, Decimal(0)) if completo else None
@@ -3629,6 +3625,7 @@ def lectura_pdf(conn: sqlite3.Connection) -> dict[str, Any]:
                      "documentos": len(p.documentos), "coste_usd_micro": _micro(p.coste)}
                     for p in pasadas],
         "estimacion": estimacion,
+        **lectura.para_la_app(conn),
     }
 
 

@@ -121,6 +121,37 @@ def factura_de(conn, numero: str) -> int:
     return conn.execute("SELECT id FROM factura WHERE numero = ?", (numero,)).fetchone()[0]
 
 
+# ------------------------------------------------------------ paso 17: la lectura pedida
+
+def estimacion_lectura(nuevos: int = 2, ya_leidos: int = 1, *, alto: int = 60_000,
+                       bajo: int = 50_000):
+    """Una cuenta del lector hecha a mano, sin API: `nuevos` PDF nuevos (cada uno con su
+    entrada contada y su horquilla, en millonesimas de dolar) y `ya_leidos` ya leidos."""
+    from bms_agent import lectura
+
+    documentos = [lectura.Contado(f"nueva-{i}.pdf", f"{i + 1:064x}", "nuevo", 4000, bajo, alto)
+                  for i in range(nuevos)]
+    documentos += [lectura.Contado(f"leida-{i}.pdf", f"{i + 100:064x}", "ya_leido")
+                   for i in range(ya_leidos)]
+    return lectura.Estimacion("claude-opus-5-5", "extract/x", "2", 1200, 6400, False,
+                              "sin medir", documentos)
+
+
+def lectura_esperando(conn, quien: int | None, estimacion=None) -> int:
+    """Una lectura pedida desde la app por `quien` (o abierta en el lector, con None), tomada
+    y contada por el lector con `estimacion`: espera el si."""
+    from bms_agent import lectura
+
+    if quien is not None:
+        solicitud, _evento = lectura.pedir(conn, quien)
+    tomada = lectura.tomar(conn, hay_pdf=True)
+    solicitud = tomada.solicitud_id
+    estado, _est = lectura.contar(conn, solicitud,
+                                  lambda _antes: estimacion or estimacion_lectura())
+    assert estado == "esperando_aprobacion"
+    return solicitud
+
+
 # ------------------------------------------------------------ paso 7: el banco
 
 CUENTA_PROPIA = "NL60INGB0009988776"

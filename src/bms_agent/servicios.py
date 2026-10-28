@@ -49,6 +49,7 @@ from . import (
     estados,
     excepciones,
     hallazgos,
+    lectura,
     ordenes_compra,
     pagos,
     relaciones,
@@ -191,6 +192,9 @@ class Accion:
     ejecutar: Callable[[Contexto, dict[str, Any]], Hecho]
     motivo: str = "opcional"
     rev: bool = False
+    # Paso 17: las de la lectura de PDF no tocan nada que lea una regla (piden, aprueban o
+    # cancelan una lectura): no pasan el motor de reglas al terminar.
+    recalcula: bool = True
 
 
 # ------------------------------------------------------------ la diferencia
@@ -1635,6 +1639,34 @@ def _btw_anotar_presentacion(ctx: Contexto, d: dict[str, Any]) -> Hecho:
 
 # ------------------------------------------------------------ el catalogo
 
+# Paso 17: la lectura de los PDF, pedida desde la app (lectura.py). Ninguna lee ni habla con
+# la API: piden, dan el si o el no, y el lector (leer-facturas.bat) hace lo demas.
+
+def _pedir_lectura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    solicitud_id, evento = lectura.pedir(ctx.conn, ctx.persona.usuario_id,
+                                         peticion_id=ctx.persona.peticion_id,
+                                         datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"solicitud_id": solicitud_id})
+
+
+def _aprobar_lectura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    evento = lectura.aprobar(ctx.conn, ctx.persona.usuario_id, d["solicitud_id"],
+                             d["huella_estimacion"], d["tope_usd_micro"],
+                             peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    fila = ctx.conn.execute("SELECT tope_usd_micro FROM solicitud_lectura WHERE id = ?",
+                            (d["solicitud_id"],)).fetchone()
+    return Hecho(evento, detalle={"solicitud_id": d["solicitud_id"],
+                                  "tope_usd_micro": fila[0]})
+
+
+def _cancelar_lectura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    evento = lectura.cancelar(ctx.conn, ctx.persona.usuario_id, d["solicitud_id"],
+                              peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    fila = ctx.conn.execute("SELECT estado FROM solicitud_lectura WHERE id = ?",
+                            (d["solicitud_id"],)).fetchone()
+    return Hecho(evento, detalle={"solicitud_id": d["solicitud_id"], "estado": fila[0]})
+
+
 def _p(nombre: str, tipo: str = ENTERO, obligatorio: bool = True, ayuda: str = "") -> Parametro:
     return Parametro(nombre, tipo, obligatorio, ayuda)
 
@@ -1865,6 +1897,23 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
                ayuda="a pagar; en negativo, a devolver: -1234,56 (o -1.234,56)"),
             _p("fecha_presentacion", FECHA, False, "por defecto, hoy"), _MOTIVO),
            _btw_anotar_presentacion, motivo="obligatorio", rev=True),
+    # Paso 17: la lectura de los PDF desde la app. Dar el si a una lectura es aceptar lo que
+    # cuesta leer (la API cobra por factura), con un tope; no aprueba ninguna factura ni
+    # ningun pago.
+    Accion("pedir_lectura", P.IMPORTAR_DATOS.value,
+           "Pedir una lectura de los PDF del buzon: la hace el lector (leer-facturas.bat), que "
+           "cuenta lo que costaria y espera el si.",
+           (), _pedir_lectura, recalcula=False),
+    Accion("aprobar_lectura", P.IMPORTAR_DATOS.value,
+           "Dar el si a la lectura que espera, para la estimacion que se vio (su huella), con "
+           "un tope de gasto en millonesimas de dolar (por defecto, el extremo alto).",
+           (_p("solicitud_id"), _p("huella_estimacion", TEXTO),
+            _p("tope_usd_micro", ENTERO, False, "por defecto, el extremo alto de la horquilla"),
+            _MOTIVO), _aprobar_lectura, recalcula=False),
+    Accion("cancelar_lectura", P.IMPORTAR_DATOS.value,
+           "No leer: antes de empezar, el lector apaga la salida sin gastar nada; leyendo, "
+           "para despues del documento en curso.",
+           (_p("solicitud_id"), _MOTIVO), _cancelar_lectura, recalcula=False),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),
@@ -1939,7 +1988,7 @@ def ejecutar(conn: sqlite3.Connection, nombre: str, datos: Mapping[str, Any] | N
         antes = _foto_totales(conn)
         hecho = accion.ejecutar(contexto, valores)
         recalculo = None
-        if hecho.evento_id is not None or nombre == "recalcular":
+        if accion.recalcula and (hecho.evento_id is not None or nombre == "recalcular"):
             recalculo = hallazgos.recalcular(conn, motivo="edicion" if hecho.evento_id else
                                              "manual", usuario_id=usuario_id,
                                              causa_evento_id=hecho.evento_id)

@@ -3227,6 +3227,18 @@
       "descripcion": "Record that the quarter was filed in the tax office portal, with the reference. The system files nothing itself.",
       "confirmar": "You record that this return has already been filed with the tax office. This cannot be undone."
     },
+    "pedir_lectura": {
+      "etiqueta": "Request reading",
+      "descripcion": "Asks the reader to read the PDFs in the inbox. Before spending anything it counts what it would cost and waits for your yes."
+    },
+    "aprobar_lectura": {
+      "etiqueta": "Start reading",
+      "descripcion": "Gives your yes to what the reader counted, with a spending cap. Only the invoices you saw are read."
+    },
+    "cancelar_lectura": {
+      "etiqueta": "Don't read",
+      "descripcion": "Before it starts, the reader closes its internet connection without spending anything; if it is already reading, it stops after the current invoice."
+    },
     "recalcular": {
       "etiqueta": "Run checks again",
       "descripcion": "Run all checks again (every action already does this)."

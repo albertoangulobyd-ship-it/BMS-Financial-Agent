@@ -3227,6 +3227,18 @@
       "descripcion": "Vastleggen dat het kwartaal in het portaal van de Belastingdienst is aangegeven, met de referentie. Het systeem geeft zelf niets aan.",
       "confirmar": "Je legt vast dat deze aangifte al bij de Belastingdienst is ingediend. Dit kan niet ongedaan worden gemaakt."
     },
+    "pedir_lectura": {
+      "etiqueta": "Lezen aanvragen",
+      "descripcion": "Vraagt de lezer de pdf's in de inbox te lezen. Voordat er iets wordt uitgegeven, telt hij wat het zou kosten en wacht hij op je ja."
+    },
+    "aprobar_lectura": {
+      "etiqueta": "Lezen starten",
+      "descripcion": "Geeft je ja op wat de lezer telde, met een maximum aan kosten. Alleen de facturen die je zag worden gelezen."
+    },
+    "cancelar_lectura": {
+      "etiqueta": "Niet lezen",
+      "descripcion": "Vóór de start sluit de lezer zijn internetverbinding zonder iets uit te geven; als hij al leest, stopt hij na de huidige factuur."
+    },
     "recalcular": {
       "etiqueta": "Controles opnieuw uitvoeren",
       "descripcion": "Alle controles opnieuw uitvoeren (elke actie doet dat al vanzelf)."

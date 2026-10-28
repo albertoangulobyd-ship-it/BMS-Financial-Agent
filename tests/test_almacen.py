@@ -416,8 +416,11 @@ def test_la_lista_de_tablas_de_solo_escritura_esta_completa(db) -> None:
     # evento (test_hallazgos.py), y la excepcion del paso 4 es controlada como
     # las del paso 2, aunque la escribe excepciones.py (test_excepciones.py).
     # El periodo del BTW (paso 11) es controlado como la excepcion: lo escribe btw.py.
+    # La lectura pedida desde la app (paso 17) avanza por sus estados y su pasada por sus
+    # fases, solo como dice lectura.py; terminadas, no cambian (test_lectura.py).
     assert con_guarda - blindadas == {"usuario", "usuario_rol", "procedencia_campo", "hallazgo",
-                                      "excepcion", "periodo_btw", *TABLAS_CONTROLADAS}
+                                      "excepcion", "periodo_btw", "solicitud_lectura",
+                                      "pasada_lectura", *TABLAS_CONTROLADAS}
 
 
 def test_un_documento_solo_admite_apuntar_su_original_una_vez(almacen) -> None:
