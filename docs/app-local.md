@@ -1,6 +1,6 @@
 # La app local de BMS
 
-Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales; Cuentas por cobrar y por pagar con datos reales; el cierre de la puerta) · 28 de octubre de 2026
+Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales; Cuentas por cobrar y por pagar con datos reales; el cierre de la puerta) · 28 de octubre de 2026 · Paso 17, B1 (el marco, el inicio y el menú de Aurora tal cual; o el menú o una pantalla) · 28 de octubre de 2026
 
 La ventana con la que trabaja administración: facturas, avisos, relaciones, dinero y
 datos, en **neerlandés, inglés o castellano**, sin salir del ordenador. La pidió el dueño así:
@@ -25,12 +25,11 @@ Instellingen (§4.5) y Documenten (§4.7), todas con datos y órdenes de verdad.
 El **paso 16** trae dentro la base de **Aurora**, el prototipo del dueño: su aspecto
 oscuro, su orbe, su logo y sus piezas, sin nada simulado (§7, «Aurora dentro de la app»);
 los **dos temas**, el oscuro de Aurora por defecto, el claro y «Volg Windows» (§1); y el
-**castellano** como tercer idioma, con su catálogo del dominio (§5). Y la **navegación de
-Aurora** (§4): seis entradas (Inicio, Cuentas por cobrar, Cuentas por pagar, Documentos,
-Procesar e IVA), la rueda en el inicio, las seis en pequeño en las demás pantallas, migas y
-«Terug» dentro de cada sección, Ctrl+K para abrir cualquier pantalla o ficha, y el menú del
-nombre (Instellingen, idioma, tema y salir). **La barra lateral con pestañas como las de
-Chrome ya no es la navegación** (§4, «Lo que se quitó»). Y **Documentos es el archivo de
+**castellano** como tercer idioma, con su catálogo del dominio (§5). Y una primera
+**navegación de Aurora** (seis entradas, la rueda en el inicio, las seis en pequeño en las
+demás pantallas, Ctrl+K y el menú del nombre), que el paso 17 cambió por la de Aurora tal
+cual (abajo). **La barra lateral con pestañas como las de Chrome ya no es la navegación**
+(§4, «Lo que se quitó»). Y **Documentos es el archivo de
 Aurora** con los datos de verdad: las carpetas de cristal, el árbol «Explorar», la ficha de
 cada relación y la vista previa dibujada desde el registro, con la descarga del original
 (§4.7). Y **Cuentas por cobrar y por pagar** con la cartera del motor: un resumen con
@@ -39,6 +38,19 @@ empresa con lo que debe o se le debe, y lo que hay que pagar esta semana con lo 
 por qué; el banco de cada lado (los pagos que propone y las líneas sin casar); y en la
 ficha de cada factura sus **pagos** con las tres órdenes: confirmar un pago propuesto,
 retirarlo y apuntar uno ya hecho, con motivo (§4.1, «Cobrar y pagar»). Nada de eso paga.
+
+El **paso 17** (B1) cambia el marco por **el de Aurora, tal cual**, porque el dueño lo pidió
+así: «Necesito que te apegues a las animaciones y diseño de esta aplicación, no quiero que
+hagas algo diferente. No pueden vivir las pantallas y el menú al mismo tiempo». La app es
+ahora la de su prototipo: el saludo, el orbe (la onda `SiriWave` de 440 px), «Druk om te
+navigeren» y la caja; la rueda de Aurora con ocho entradas; los paneles de Aurora a la
+derecha; la conversación con el resumen general (el Finance Bento); la búsqueda de Aurora; y
+las pantallas de trabajo con el vuelo del orbe a la esquina. **O el menú o una pantalla,
+nunca los dos** (§4, «La regla del dueño»). Se fueron la cabecera de arriba, las seis en
+pequeño, las pastillas de las vistas, Ctrl+K, el menú del nombre, las cuatro tarjetas en el
+inicio y las fuentes IBM Plex (§4, «Lo que se quitó»). Las pantallas del paso 15 y 16 siguen,
+todas, como pantallas de trabajo dentro del marco de Aurora mientras sus paneles se rehacen
+(el paso siguiente, B2).
 
 ---
 
@@ -51,31 +63,31 @@ instalación nativa) no necesita Node para nada.
 
 - **Solo se abre desde el propio ordenador**, como la consola: el servidor escucha en
   `127.0.0.1` y no deja entrar a otra web (Host y Origin, igual que en `/api/v2`).
-- **No tiene internet ni lo necesita**: las fuentes (IBM Plex Sans y Mono) van dentro;
-  no hay imágenes, scripts ni estilos de fuera.
+- **No tiene internet ni lo necesita**: la letra es la del sistema, como en Aurora (Inter
+  si está; si no, Segoe UI), y no hay imágenes, fuentes, scripts ni estilos de fuera.
 - **La consola de antes sigue** en `http://127.0.0.1:8765/consola`, de reserva, con
   el mismo token. Si algo de la app no se viera bien, todo se puede hacer allí.
 
-El aspecto es el de Aurora desde el paso 16: **tema oscuro por defecto** (fondo
-`#0a0a0d`, tarjetas `#111116`, texto `#ebe8f0`, acento lila `#c2aed7`), IBM Plex Sans en
-cinco pesos (300 a 700) y Mono, títulos finos, líneas finas y sin sombras salvo en lo que
+El aspecto es el de Aurora: **tema oscuro por defecto** (desde el paso 17, el de sus hojas
+tal cual: fondo `#08090b`, texto `#e8e5ee`, la rueda en `#544e60` y `#eee5fa`, el panel en
+`#101015`), la letra del sistema, títulos finos, líneas finas y sin sombras salvo en lo que
 flota (menús, avisos). Hay también un **tema claro** con la misma paleta (fondo `#f5f4f8`,
 tarjetas `#fcfbfe`, acento `#5b4890`) y **«Volg Windows»**, que sigue al modo de Windows y
 cambia en vivo si Windows cambia. Lo elige cada persona en el menú de su cuenta o en
-Instellingen, y se guarda como el idioma: por persona y entorno, y la entrada sale con el
-último de ese ordenador. Los dos temas son variables CSS que usa toda la app
+Ajustes (paso 17: el panel de la entrada «Instellingen» de la rueda), y se guarda como el
+idioma: por persona y entorno, y la entrada sale con el último de ese ordenador. En las
+hojas de Aurora, el claro es su inversión (`src/aurora/claro.css`, que escribe
+`scripts/aurora-claro.mjs`: cada color con su luminosidad invertida en OKLab y el mismo
+matiz; las hojas del dueño no se tocan). Los dos temas son variables CSS que usa toda la app
 (`src/index.css`: las claras en `:root`, las oscuras en `:root.dark`) y los dos pasan WCAG
 AA (axe y la medida de cada pastilla en cada pantalla, §7). El tema lo decide **solo la
 clase `.dark` de `<html>`** (`frontend/src/lib/theme.tsx`, que la pone antes de pintar
 nada): el CSS construido no lleva `prefers-color-scheme`, así que un Windows en oscuro no
-cambia el tema que la persona eligió. Pensado para una ventana de 1440 px,
-y se usa también a 1024 × 768: la cabecera lleva en una fila el logo, las seis entradas en
-pequeño, «Zoeken» (Ctrl K), la marca de prueba y la persona, y las tablas anchas se
-desplazan dentro de su caja. Por debajo de 1024 px las seis entradas pasan a una segunda
-fila de la cabecera; en el móvil (de 360 a 430 px) el logo va sin «finance» para que la
-cabecera quepa en una fila, y las seis van debajo en dos o tres filas cortas, enteras y a un
-toque (32 px de alto o más); en el inicio la rueda se mueve con el dedo. Nada se sale
-de la ventana por el lado en ninguna anchura.
+cambia el tema que la persona eligió. Pensado para una ventana de 1440 px, con los cortes de
+Aurora (1150 y 700 px): se usa también a 1024 × 768 y en el móvil (de 360 a 430 px), donde
+todo va como en Aurora (el orbe arriba y la caja al pie, la rueda se gira con el dedo). Las
+tablas anchas se desplazan dentro de su caja y nada se sale de la ventana por el lado, salvo
+el orbe de Aurora, que a 400 px empieza fuera, como en su prototipo.
 
 ## 2. Cómo se abre
 
@@ -94,20 +106,23 @@ la reserva, y así se abre justo cuando hace falta. Si Edge no está, se abre en
 de siempre; si tampoco se puede, dicen la dirección. Al terminar dicen también dónde está
 la consola de antes.
 
-Con la base de prueba, arriba de todo va la banda **TESTGEGEVENS · TEST DATA**, y en
-la cabecera la marca «Testgegevens». En la instalación nativa, si la comprobación del
+Con la base de prueba, arriba de todo va la banda **TESTGEGEVENS · TEST DATA** (desde el
+paso 17, sin la marca de la cabecera: ya no hay cabecera, y todo, la marca de BMS también,
+baja lo que ocupan las bandas). En la instalación nativa, si la comprobación del
 aislamiento falla, falta o es vieja, una **banda roja** dice qué papel falla y que se
 ejecute `comprobar.bat`. Las dos bandas las pone el servidor dentro de la página, así
 que se ven aunque el script no llegue a cargar. **Se desplaza la página entera** (con la
 rueda del ratón, las teclas o el dedo; revisión del paso 16: antes el cuerpo no se
 desplazaba y lo de debajo de la ventana no se alcanzaba), y las bandas se quedan arriba,
-una debajo de otra, con la cabecera de la app debajo de ellas (`src/lib/server-bands.ts`).
+una debajo de otra, con la app debajo de ellas (`src/lib/server-bands.ts`).
 
 ## 3. Cómo se entra
 
 Con el **token personal** de siempre (el de la consola), que da quien mantiene el
-programa (`bms-agent usuario token NOMBRE`, o `persona.bat` en Docker). La entrada
-dice en una frase qué es y quién lo da.
+programa (`bms-agent usuario token NOMBRE`, o `persona.bat` en Docker). Desde el paso 17 la
+entrada es el inicio de Aurora (L0): «Welkom.», el orbe (que no se pulsa hasta entrar), la
+caja pide el código y el idioma va donde irá «Druk om te navigeren»; al entrar cambia solo el
+saludo («Welkom, Ana»).
 
 - **El token vive solo en la memoria de la ventana.** No va a `localStorage`, ni a
   `sessionStorage`, ni a una cookie, ni a la dirección. Recargar o cerrar la ventana es
@@ -121,149 +136,132 @@ dice en una frase qué es y quién lo da.
   campo se vacía antes de comprobar el token. Si aun así Edge ofreciera guardar algo, hay
   que decir **que no**.
 - `GET /api/v2/yo` dice quién es (el inicio la saluda por su nombre) y qué permisos
-  tiene: las entradas y sus vistas solo enseñan lo que la persona puede usar (Importeren y
-  Facturen lezen piden `importar_datos`: sin él, la entrada Verwerken no sale y quien solo
-  mira ve cinco) y los botones de cada orden siguen su permiso.
-- **Uitloggen / Log out** (en el menú del nombre, arriba a la derecha, y en
-  Instellingen) olvida el token. Si el servidor contesta `401` en cualquier momento
+  tiene: las entradas y sus filas solo enseñan lo que la persona puede usar (Importeren y
+  Facturen lezen piden `importar_datos`: sin él, la entrada Verwerken no sale de la rueda,
+  que tiene siete, ni Importeren del panel de Te ontvangen) y los botones de cada orden
+  siguen su permiso.
+- **Uitloggen / Log out** (al pie del panel de Instellingen) olvida el token. Si el servidor contesta `401` en cualquier momento
   (un token retirado), la app vuelve sola a la entrada y lo dice.
 
 ## 4. Las pantallas
 
-**Seis entradas** (decisión 1 de la revisión de Aurora, §8.3; la revisión del prototipo no
-está en el repositorio: sus decisiones, y lo que se hizo con cada una, están en el
-[registro](v1/registro.md), «Paso 16»), siempre en este orden y con estos nombres. Cada una agrupa las pantallas del paso 15
-que contestan a su pregunta; ninguna función se perdió por el camino.
+**El marco es el de Aurora** (paso 17, B1; `src/aurora/`, con las hojas del dueño tal cual:
+`styles.css`, `workspace-layout.css` y las de cada pieza). Hay dos pantallas, como en su
+prototipo: **el inicio de Aurora** (todo lo que pasa en su espacio central) y **una pantalla
+de trabajo** (Documentos o una pantalla del motor), y se pasa de una a otra con el vuelo del
+orbe. Cada cosa que se pulsa es una acción de una máquina de estados pura
+(`src/aurora/estado.ts`), así que nunca se ve un estado a medias.
 
-| Entrada | NL | EN | Sus vistas, en este orden |
-| --- | --- | --- | --- |
-| **Inicio** | Start | Home | El inicio (abajo); Werklijst, Uitzonderingen y Kasstroom |
-| **Cuentas por cobrar** | Te ontvangen | Receivables | Overzicht (el resumen), Verkoopfacturen, Bankontvangsten, Klanten, Objecten e Inkooporders (las de los clientes) |
-| **Cuentas por pagar** | Te betalen | Payables | Overzicht (el resumen), Inkoopfacturen, Bankbetalingen, Leveranciers, Inkooporders (las de los proveedores) e IBAN-controles |
-| **Documentos** | Documenten | Documents | Las carpetas de cada cliente y cada proveedor (§4.7) |
-| **Procesar** | Verwerken | Process | Importeren y Facturen lezen (las dos piden `importar_datos`; sin ese permiso la entrada no sale) |
-| **IVA** | Btw | VAT | Los trimestres del BTW |
-
-Instellingen va en el menú del nombre. Cada pantalla contesta **una** pregunta, dicha en
-una frase debajo de su título:
-
-| Entrada | Pantalla | Qué contesta |
+| Estado | Qué se ve | Cómo se llega |
 | --- | --- | --- |
-| Inicio | Start · Home · Inicio | Qué necesita atención hoy y cómo está el dinero |
-| | Werklijst · Work queue · Cola de trabajo | Las facturas que necesitan a una persona, lo más urgente arriba |
-| | Uitzonderingen · Exceptions · Excepciones | Lo que alguien tiene que resolver, y quién está en ello |
-| | Kasstroom · Cash flow · Flujo de caja | Lo que entra y sale las próximas semanas |
-| Cuentas por cobrar | Overzicht · Overview · Resumen | Lo que nos deben, y desde cuándo |
-| | Verkoopfacturen · Sales invoices · Facturas de venta | Todas las facturas de BMS a sus clientes, y cómo están |
-| | Bankontvangsten · Bank receipts · Cobros del banco | Los ingresos del banco que piden a una persona: cobros propuestos que confirmar y líneas sin factura |
-| | Klanten · Clients · Clientes | Clientes: lo que deben y lo que falta facturar |
-| | Objecten · Objects | Por cada sitio de un cliente: ingresos, costes y margen |
-| | Inkooporders van klanten · from clients · de clientes | Cuánto queda de cada PO de un cliente y cuáles se acaban |
-| Cuentas por pagar | Overzicht · Overview · Resumen | Lo que debemos, y qué está retenido |
-| | Inkoopfacturen · Purchase invoices · Facturas de compra | Todas las facturas de proveedores y zzp'ers, y cómo están |
-| | Bankbetalingen · Bank payments · Pagos del banco | Los cargos del banco que piden a una persona: pagos propuestos que confirmar y líneas sin factura |
-| | Leveranciers · Providers · Proveedores | Proveedores: lo pendiente y lo que destaca |
-| | Inkooporders aan leveranciers · to providers · a proveedores | Lo mismo para las PO con un proveedor |
-| | IBAN-controles · IBAN checks · Controles de IBAN | Las cuentas que faltan por verificar por teléfono |
-| Documentos | Documenten · Documents · Documentos | Qué documentos tiene cada cliente y cada proveedor |
-| Procesar | Importeren · Import · Importar | Leer un fichero de Exact, del banco o de TRNSPRNT: primero de prueba, luego de verdad |
-| | Facturen lezen · Read invoices · Leer facturas | Lo que ha costado leer los PDF y cómo se empieza (no desde aquí) |
-| IVA | Btw · VAT · IVA | El BTW por trimestre, listo para revisar (lo presenta una persona) |
-| (menú del nombre) | Instellingen · Settings · Ajustes | El idioma, el tema, quién eres, la empresa y cómo está aislado el programa |
+| **L0** · la entrada | «Welkom.», el orbe quieto de pulsar, la caja del código y el idioma | Al abrir la app, al salir o si la sesión caduca |
+| **E0** · el inicio | «Welkom, Ana», «Waarmee kan ik je vandaag helpen?», el orbe, «Druk om te navigeren» y la caja | Al entrar; el orbe con un panel, una conversación o una búsqueda; «Terug naar Aurora» y la miga «Start» desde una pantalla de trabajo |
+| **E1** · la rueda | El orbe a la izquierda y la rueda de Aurora con las ocho entradas | «Druk om te navigeren» o el orbe desde E0; la ✕ de un panel |
+| **E2** · un panel | El panel de Aurora (340 px) con su título, su frase y sus filas; el orbe a ×0,75 | Una entrada con panel (Instellingen, Start, Te ontvangen, Te betalen, Btw) |
+| **E3** · escribiendo | La caja con lo escrito | La primera tecla (cierra la rueda, como en Aurora) |
+| **E4** · la conversación | Las preguntas y respuestas; con «Geef me een overzicht», el resumen general (Finance Bento) | Intro en la caja |
+| **E5** · la búsqueda | «Wat zocht je?», la caja de buscar, Filters y los resultados | La entrada «Zoeken»; «Zoeken met filters» en una respuesta |
+| **Pantalla de trabajo** | El marco de Documentos de Aurora: la marca, «Terug naar Aurora», las migas y el orbe pequeño de la esquina, con la pantalla debajo | Documenten y Verwerken en la rueda; una fila de un panel; una fila de una respuesta |
 
-Y las fichas, cada una dentro de su entrada: una factura, un proveedor, un cliente, un
-Object, una PO, un trimestre del BTW, una excepción y la carpeta de documentos de un
-cliente o de un proveedor. Y la **búsqueda con filtros** (§4.8), que se abre encima de
-donde se esté (desde Ctrl+K o la caja del inicio) y vuelve allí al cerrarla.
+**La regla del dueño: o el menú o una pantalla.** La rueda solo se ve en E1. Con un panel
+abierto la rueda se oculta **en todos los anchos** (en Aurora solo a 1150 px o menos; la regla
+`.has-panel .navigation{display:none}` va al final de `src/aurora/styles.css`) y la entrada
+activa no se mueve: la rueda escondida no manda (ni la rueda del ratón ni las flechas). La
+conversación, la búsqueda y las pantallas de trabajo tampoco conviven con la rueda. La pantalla que se va se
+funde en 0,18 s y mientras tanto no recibe clics. Lo comprueba `e2e/exclusividad.spec.ts` en
+cada estado, en cada cuadro de cada transición y a 1440, 1151, 1150, 1024 y 400 px.
 
-**Cómo se llega a cada cosa**
+**La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
+240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso
+650, `#eee5fa`; las demás, `#544e60`). Las ocho, en este orden: **Instellingen, Zoeken,
+Documenten, Start, Te ontvangen, Te betalen, Btw y Verwerken**. Al abrirla por primera vez
+en una sesión, Start está en el centro; después, la última que se usó. **Un clic en
+cualquier entrada a la vista la abre a la primera** (en Aurora la centraba y el clic se
+perdía); las que quedan fuera de la ventana no se pueden pulsar, como en Aurora, y se
+alcanzan con un paso de la rueda del ratón (un paso por gesto, sin dar la vuelta), las
+flechas, Tab (centra la entrada que recibe el foco) o el dedo (un paso por gesto): Instellingen
+y Btw están a un paso, Verwerken a dos. Con Verwerken en el centro, el morado de Aurora y el
+orbe de partículas; el orbe entra en Verwerken. Sin el permiso `importar_datos` la rueda
+tiene siete (sin Verwerken). La decisión de dejar la ventana de cinco de Aurora (y no las
+ocho a la vista) es del dueño, que pidió no cambiar su diseño (especificación §7, punto 10).
 
-- **La rueda, en el inicio.** Las seis entradas en una columna junto al orbe
-  (`src/aurora/wheel.tsx`): la elegida (al llegar, Inicio), grande y clara; las demás, más
-  pequeñas y más apagadas cuanto más lejos están de ella, y siempre en el mismo orden
-  (Inicio arriba, IVA abajo). **Un clic o un toque en cualquiera la abre**, se vea grande o
-  pequeña (Inicio, estando ya en él, baja a las tarjetas). La rueda del ratón, las flechas y
-  el dedo (deslizar arriba o abajo) la giran sin abrir nada; la rueda del ratón no da la
-  vuelta: en Inicio hacia arriba o en IVA hacia abajo, el gesto desplaza la página (revisión
-  del paso 16: con el ratón en el centro la página no bajaba nunca); con Tab se recorren las
-  entradas y la rueda va con el foco, las flechas lo llevan de una a otra (de IVA vuelve a
-  Inicio), Inicio y Fin van a la primera y a la última, Intro abre; el foco se ve. Es una `<nav>` con nombre
-  («Hoofdmenu»), seis botones con su nombre, `aria-current` en la entrada en la que se está
-  y una frase para el lector de pantalla que dice cómo se usa. Lo que se achica es el texto:
-  cada botón ocupa su fila entera (46 px; 40 en el móvil), así que se toca bien. Con «menos
-  movimiento» gira sin animación. Las seis se ven siempre enteras, sin pisar el saludo ni la
-  caja de búsqueda, de 360 a 1440 px.
-- **En las demás pantallas**, las seis en pequeño en la cabecera (la misma `<nav>`), con la
-  actual marcada; el logo, con el orbe pequeño delante, vuelve al inicio.
-- **Dentro de una entrada**, sus vistas van como pastillas encima de la pantalla («Onderdelen
-  van Te betalen»), con su insignia solo cuando piden hacer algo (las facturas bloqueadas en
-  la Werklijst, las excepciones abiertas, las cuentas por verificar, de `/api/v2/panel`; los
-  pagos que propuso el banco en Bankontvangsten y Bankbetalingen, de
-  `/api/v2/pagos/propuestas`); la lectura que falla no pinta la suya. La primera vista de
-  cada entrada es la que más se usa: el resumen de Te ontvangen y de Te betalen,
-  Importeren. En el inicio, sus tres vistas salen además al
-  pie («Ook in Start»), con lo que esperan.
-- **Las fichas se abren dentro de su sección**, en el mismo sitio, con **migas** encima
-  («Te ontvangen › Klanten › Gemeente Demodorp › VD26-306»; cada una vuelve a ese paso) y
-  **«Terug»**, que quita el último (también Alt+← y el botón de atrás del ratón). La lista
-  vuelve como se dejó: el filtro, la búsqueda y por dónde iba la página. Abrir una ficha
-  que ya está en el camino vuelve a ella, sin repetirla. Lo que se abre con Ctrl+K o desde
-  la caja del inicio se pone en su sitio: una factura de compra, bajo Te betalen ›
-  Inkoopfacturen. Una factura de «Als eerste» se abre bajo Start, donde se estaba. El título de la ventana es
-  el de lo que se ve.
-- **Ctrl+K** (o «Zoeken», en la cabecera) abre **«Snel openen»**: escribiendo se encuentra
-  cualquier pantalla (por su nombre en cualquiera de los tres idiomas), cualquier relación,
-  Object o PO de las listas, y las facturas por número o por relación
-  (`GET /api/v2/buscar?texto=…`); flechas, Intro para abrir y Esc para cerrar. Es un
-  *combobox* con su lista, como manda WAI-ARIA.
-- **El menú del nombre** (arriba a la derecha): Instellingen, el idioma (Nederlands,
-  English, Español), el tema (Donker, Licht, Volg Windows) y Uitloggen.
-- **La dirección no cambia.** La app no usa la dirección ni el historial del navegador (la
-  ventana `--app` de Edge no tiene barra ni flechas); por eso «Terug» es suyo. Al entrar se
-  empieza siempre en el inicio.
+**Los paneles** (E2, `src/aurora/panels.tsx`), con el marco de Aurora: «WERKRUIMTE» y la ✕
+(vuelve a la rueda con su entrada en el centro), el título, su frase, la línea de los datos
+(«Testgegevens · EUR») y sus filas `.doc`. Escape cierra lo de dentro y después el panel; el
+orbe vuelve al inicio.
 
-**El inicio** es lo primero que se ve, y lo más tranquilo:
+- **Instellingen** (E2-A): Taal, Thema, Jouw account y Systeem, y «Uitloggen» al pie. Taal y
+  Thema abren su lista (la elegida dice «In gebruik»); Jouw account, su tarjeta (el rol y
+  «Wat je mag doen: N» con cada permiso); Systeem, sus filas: Bedrijf, Afscherming, Personen
+  (solo para quien administra) y Back-ups, cada una con su tarjeta (§4.5).
+- **Start, Te ontvangen, Te betalen y Btw**: mientras sus paneles se rehacen (paso
+  siguiente, B2: la cifra y los grupos de especificación §2.2), cada uno lista sus pantallas
+  de hoy, cada fila con su nombre, su frase y, si pide algo, su número («Werklijst 4
+  geblokkeerd», «Uitzonderingen 13», «IBAN-controles 3», «Bankontvangsten» con los pagos
+  propuestos). La primera es «Overzicht», su resumen. Una fila abre su pantalla de trabajo
+  con el vuelo:
 
-- **El saludo con el nombre** («Welkom, Ana», de `GET /api/v2/yo`), una frase, la rueda con
-  el orbe y **la caja de buscar**, que busca y no contesta: lo dice debajo, siempre
-  («Vragen beantwoorden kan ik nog niet: ik zoek in je gegevens en breng je naar het
-  scherm.»). Con Intro busca lo mismo que Ctrl+K y enseña lo encontrado por grupos
-  (pantallas, clientes, proveedores, Objects, PO, facturas); cada resultado abre su sitio.
-  Una pregunta no recibe una respuesta inventada: sin nada que encontrar, dice «Niets
-  gevonden voor …». El orbe se mueve solo mientras carga o busca.
-- **Cuatro tarjetas**: **Aandacht nodig** (de `GET /api/v2/panel`: cuántas facturas
-  esperan a alguien, con las bloqueadas, las urgentes y las excepciones abiertas), **Te
-  ontvangen** y **Te betalen** (de `GET /api/v2/cartera`, la misma lectura que sus
-  resúmenes: lo pendiente, «openstaand in 6 facturen bij 3 klanten», lo vencido, lo de los
-  próximos 30 días o lo de esta semana, y «Te bevestigen» cuando el banco propuso pagos) y
-  **Btw dit kwartaal** (el saldo, un plazo ya pasado sin la aangifte anotada y el próximo
-  plazo con los días que quedan). Cada tarjeta abre la pantalla que la explica (Te
-  ontvangen y Te betalen, su resumen), y sus filas abren la lista ya filtrada: «Vervallen»
-  en Te ontvangen abre las Verkoopfacturen vencidas (un clic), «Komende 30 dagen» las que
-  vencen en esos días, «Te bevestigen» los Bankontvangsten. **Cuadran al céntimo** con el
-  resumen, con la lista que abren y con el panel (lo comprueba `e2e/payments.spec.ts`).
-  Debajo, «Bijgewerkt om 18:04».
-- **«Als eerste»**, solo si hay algo **bloqueado o urgente**: como mucho cinco cosas
-  distintas (dos facturas con el mismo número y relación van en una fila: «2 facturen met
-  dit nummer»), con su prioridad, número, relación, importe y por qué. Si no hay nada que no
-  pueda esperar, no sale; si la werklijst está vacía, «Niets heeft je aandacht nodig».
-- **Al pie, «Ook in Start»**: la Werklijst (con las que esperan y las bloqueadas), las
-  Uitzonderingen (las abiertas) y la Kasstroom.
-- Se vuelve a leer **cada minuto mientras se ve** (no con la ventana oculta) y después de
-  cada orden, sin pasar por «Laden…». Nada late en el inicio.
+| Entrada | Sus filas, en este orden |
+| --- | --- |
+| **Start** | Overzicht (el resumen de antes: las cuatro tarjetas, «Als eerste» y «Ook in Start»), Werklijst, Uitzonderingen, IBAN-controles y Kasstroom |
+| **Te ontvangen** | Overzicht, Verkoopfacturen, Bankontvangsten, Klanten, Objecten, Inkooporders van klanten e Importeren (pide `importar_datos`) |
+| **Te betalen** | Overzicht, Inkoopfacturen, Bankbetalingen, Leveranciers e Inkooporders aan leveranciers |
+| **Btw** | Overzicht (los trimestres) |
 
-**Lo que se quitó.** La barra lateral con pestañas como las de Chrome (el componente del
-dueño del paso 15, `src/components/ui/sidebar-with-chrome-like-tabs.tsx`) **ya no es la
-navegación**: no se monta y no entra en lo construido (el fichero se queda, sin usar). Con
-ella se fueron las pestañas guardadas (al entrar se borran las que quedaban del paso 15),
-el + con «Snel openen» (ahora Ctrl+K), el menú `···`, cerrar y reordenar pestañas, y el
-Overzicht (ahora el inicio). Una fila ya no abre su ficha en una pestaña nueva: la abre en
-su sección, con migas y «Terug». El panel lateral de una excepción es ahora su ficha.
+**Start › Overzicht** es el inicio de los pasos 15 y 16, entero: **cuatro tarjetas**
+(**Aandacht nodig**, de `GET /api/v2/panel`; **Te ontvangen** y **Te betalen**, de
+`GET /api/v2/cartera`, la misma lectura que sus resúmenes, con «Te bevestigen» cuando el banco
+propuso pagos; y **Btw dit kwartaal**, con un plazo pasado sin la aangifte anotada y el
+próximo), que **cuadran al céntimo** con su resumen, con la lista que abren y con el panel (lo
+comprueba `e2e/payments.spec.ts`); **«Als eerste»**, solo lo bloqueado o urgente (como mucho
+cinco cosas distintas, dos facturas con el mismo número en una fila); y **«Ook in Start»**,
+con la Werklijst, las Uitzonderingen, los IBAN-controles y la Kasstroom. Cada tarjeta abre la
+pantalla que la explica y sus filas la lista ya filtrada («Vervallen» abre las
+Verkoopfacturen vencidas). Se vuelve a leer cada minuto mientras se ve y después de cada
+orden.
 
-Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
+Documenten (§4.7) y Verwerken (Facturen lezen, §4.4) se abren desde la rueda, sin panel, con
+el vuelo. Las fichas (una factura, un proveedor, un cliente, un Object, una PO, un trimestre
+del BTW, una excepción y la carpeta de documentos de una empresa) se abren dentro de su
+pantalla de trabajo. Ninguna función se perdió por el camino: cada pantalla del paso 15 y 16
+se alcanza desde una entrada (lo comprueba `src/aurora/estado.test.ts`).
 
-- El inicio lleva como mucho cuatro tarjetas y una lista «Als eerste» de cinco, solo con
-  lo bloqueado o urgente, y nada más.
+**Las pantallas de trabajo** (`src/aurora/work-screen.tsx`), con el marco del archivo de
+Aurora (`document-workspace.css`): la marca arriba a la izquierda, **«Terug naar Aurora»**
+arriba a la derecha, **las migas** («Start › Te betalen › Leveranciers › J. Voorbeeld
+Beveiliging (zzp)»; cada una vuelve a ese paso, «Start» al inicio) y el orbe pequeño de la
+esquina (la `SiriWave` de 180 px en su caja de 96 × 52), que vuelve al inicio. Al entrar,
+una copia de la onda vuela del centro del orbe grande al pequeño (1,05 s con
+`cubic-bezier(.4,0,.15,1)`); al volver, el camino inverso. Alt+← y el botón de atrás del
+ratón vuelven un paso (en la primera, al inicio). La lista vuelve como se dejó. Con «menos
+movimiento», sin vuelo.
+
+**La conversación** (E4, `src/aurora/chat/` y `src/aurora/assistant.ts`) contesta en el
+ordenador, sin ningún modelo: con «Geef me een overzicht» («Dame un resumen general», «Give
+me an overview»), el **resumen general**, el Finance Bento de Aurora con los datos de verdad
+(la cartera de cobrar y de pagar, los clientes y los proveedores con lo que queda de cada
+uno, los documentos de sus carpetas y la última lectura de facturas): **son saldos
+pendientes, no efectivo disponible**, y lo dice; con «Wat is een Object?», la frase del
+glosario; con el nombre de una pantalla, una fila que la abre (si es la de un panel, el
+panel); con un número de factura, un nombre, un Object o una PO, «Ik vond N voor «…».» y sus
+filas, que abren su sitio, y «Zoeken met filters», que lleva lo escrito a la búsqueda; con lo
+demás, lo que sí sabe hacer. «Terug naar de ruimte» vuelve a la rueda.
+
+**La búsqueda** (E5, §4.8) es la de Aurora: se abre desde la entrada «Zoeken» o desde una
+respuesta y busca en `GET /api/v2/buscar`.
+
+**Lo que se quitó** (paso 16): la barra lateral con pestañas como las de Chrome (el componente
+del dueño del paso 15, `src/components/ui/sidebar-with-chrome-like-tabs.tsx`, se queda sin
+montar). **Y en el paso 17**: la cabecera de arriba, las seis entradas en pequeño, las
+pastillas de las vistas de cada entrada, Ctrl+K («Snel openen»), el menú del nombre (su
+idioma, tema y salir están en Instellingen), la marca de prueba de la cabecera (la banda del
+servidor sigue), las cuatro tarjetas y «Als eerste» del inicio (están en Start › Overzicht),
+la caja que buscaba sin contestar (ahora es la conversación), la pantalla de la búsqueda con
+filtros del paso 16 (ahora E5), el orbe del paso 16 (ahora la `SiriWave` de Aurora) y las
+fuentes IBM Plex. La dirección sigue sin cambiar y al entrar se empieza en el inicio.
+
+Lo que se ve, en las reglas de diseño que valen para todas las pantallas de trabajo:
+
 - Una lista lleva como mucho seis columnas, las cifras a la derecha y alineadas, y una
   columna «Waarom» en palabras normales.
 - Una ficha empieza por qué es, qué está mal y qué hacer (una lista corta con los
@@ -276,33 +274,18 @@ Lo que se ve, en las reglas de diseño que valen para todas las pantallas:
 - Una pantalla vacía dice algo útil («Niets heeft je aandacht nodig»); una que carga o
   falla lo dice también, con un botón para reintentar.
 
-**Los clics** (revisión §5, la tabla de los 3 clics). Cada tarea de la tabla, desde el
-inicio, cabe en los clics de su columna «Objetivo», y `e2e/clicks.spec.ts` los cuenta uno a
-uno (escribir no cuenta; un diálogo de confirmación va aparte, como en la tabla):
-
-- **0**: qué necesita atención hoy, el total por cobrar con lo vencido y el total por pagar
-  con lo de esta semana (están en el inicio); buscar una factura por número o relación (se
-  escribe en la caja o con Ctrl+K); hacer una pregunta (y dice que aún no contesta).
-- **1**: abrir la factura más urgente, la lista de ventas vencidas, el flujo de caja, llegar
-  a Importeren.
-- **2**: una factura por cobrar con sus pagos («Vervallen» en la tarjeta y la fila), lo
-  pendiente de un cliente y sus facturas (Te ontvangen, cuyo resumen lista los clientes con
-  lo vencido arriba, y la fila; las abiertas van desplegadas en su ficha), la ficha de un
-  proveedor (igual, en Te betalen), ver las líneas del banco sin casar (Te betalen y
-  Bankbetalingen), el margen de un Object o lo que queda de una PO, llegar a Facturen lezen;
-  verificar un IBAN por teléfono, más su diálogo; cambiar el idioma o el tema (1 o 2, en el
-  menú del nombre).
-- **3**: el PDF original de una factura (se busca escribiendo en la caja y el botón
-  «Origineel» va arriba, en la cabecera de la ficha), marcar una factura como revisada, el
-  BTW de un trimestre con su hoja, los documentos de una empresa con la vista previa de uno
-  (Documentos, la carpeta de cristal y la fila; o la hoja del abanico) y bajar su original
-  (la descarga va al lado de la fila); confirmar un cobro que propuso el banco («Te
-  bevestigen» en la tarjeta y «Bevestigen» en la propuesta), apuntar un pago ya hecho con su
-  motivo («Vervallen», la fila y «Betaling vastleggen») y resolver una excepción, más su
-  diálogo.
-
-Queda pendiente en la prueba (`test.fixme`), con el paso que lo hace: leer un PDF con la
-confirmación de su coste (21, Procesar de verdad).
+**Los clics** (revisión §5). `e2e/clicks.spec.ts` cuenta, desde el inicio, los clics de cada
+tarea de la tabla de la revisión y, aparte, los pasos de la rueda (escribir no cuenta; un
+diálogo de confirmación va aparte), con la rueda como sale la primera vez en una sesión, Start
+en el centro. Mientras los paneles llevan las pantallas de hoy, cada
+camino por la rueda pasa por «Druk om te navigeren», la entrada y la fila: lo de un panel
+cuesta 2 (qué necesita atención hoy: Start), lo de una pantalla 3 (Kasstroom, IBAN-controles,
+Bankbetalingen, Objecten, Importeren, los resúmenes de cobrar y pagar) y una ficha 4. Lo que
+se busca por su número o su nombre va por la conversación: escribirlo no cuesta y abrirlo es
+1 (el PDF original de una factura, 2; marcarla revisada o apuntar un pago, 2 más su
+diálogo). Btw está a un paso de rueda (su hoja, 5 clics) y Verwerken a dos (2 clics); cambiar
+el idioma son 4 clics y un paso. La prueba falla si un camino crece; los paneles de B2 los
+acortan a lo de la tabla de la especificación (§2.6).
 
 ### 4.1 El trabajo diario
 
@@ -318,7 +301,7 @@ ficha, las listas, las insignias de las vistas y el inicio, sin que la pantalla 
 
 | Pantalla | Qué hay | Órdenes |
 | --- | --- | --- |
-| **Start** (el inicio) | Las cuatro tarjetas, «Als eerste» solo con lo bloqueado o urgente, y los accesos a la Werklijst, las Uitzonderingen y la Kasstroom (§4, «El inicio») | —, salvo abrir: cada tarjeta, cada fila de una tarjeta y cada fila de «Als eerste» abre lo suyo |
+| **Start › Overzicht** | Las cuatro tarjetas, «Als eerste» solo con lo bloqueado o urgente, y los accesos a la Werklijst, las Uitzonderingen, los IBAN-controles y la Kasstroom (§4, «Start › Overzicht») | —, salvo abrir: cada tarjeta, cada fila de una tarjeta y cada fila de «Als eerste» abre lo suyo |
 | **Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar), en el orden de la API. Fichas Alle / Geblokkeerd / Urgent / Aandacht con su cuenta, un buscador (número o relación, sin mayúsculas ni acentos) y cinco columnas: Prioriteit, Factuur (número y relación), Bedrag, Vervaldatum, Waarom | Una fila abre la factura (Start › Werklijst › su número) |
 | **Inkoopfacturen / Verkoopfacturen** (en Te betalen y en Te ontvangen, después del resumen) | Todas las de un sentido, con fichas y su cuenta: Alle, Openstaand (toda la deuda abierta, también lo vencido), Vervallen, Deze week, 30 dagen, Te bevestigen (con un pago propuesto por el banco), Betaald y Controle nodig; un tramo de antigüedad sale como una ficha más cuando se llega desde la barra del resumen. Las fichas de pago son las de la cartera: van por vencimiento (lo más antiguo arriba) y debajo dicen lo que suman, lo mismo que la cifra que se pulsó. El buscador; seis columnas: Prioriteit (la única pastilla de la fila), Factuur (número y relación; «1 van 2» si otra tiene el mismo número), Openstaand (lo que queda; «van € 9.163,94» si no es el total), Vervaldatum («65 dagen te laat», «over 4 dagen»), Stand (pago, con el hoy del motor aunque la caché sea de otro día; «Betaald» siempre con su fuente: «volgens de bank», «volgens Exact» o «met de hand, nog niet in de bank», con K3; «Betaling te bevestigen» y revisión, en texto gris) y Waarom. «Vervallen», como los tramos, va por el hoy del motor (revisión del paso 16: con la caché de otro día se quedaba corta de la cifra que la abría) | Una fila abre la factura |
 | **Ficha de factura** | Arriba, qué es (con el botón **Origineel**, que baja el PDF, y **Betaling vastleggen** mientras quede algo por cobrar o pagar): el número, la relación, el importe con IVA, la prioridad con su razón con nombre, el vencimiento («65 dagen te laat»), el pago («Betaald» siempre con su fuente: «volgens de bank», «volgens Exact» o «met de hand … door Ana», con K3 si el banco no lo trae) y la revisión. Después **Betalingen** (abajo, «Cobrar y pagar») y **Wat aandacht nodig heeft**, con lo que dice el sistema al lado, en su pastilla («Geen bezwaren van het systeem» cuando está limpia; nunca «goedgekeurd»): cada hallazgo pendiente con su nombre, su detalle escrito desde sus valores, «Wat te doen» y sus botones; y **Afronden**: controleren, la uitzondering y una notitie. Plegado debajo: Velden (valor, fuente y calidad: Ontbreekt, Onzeker, Afwijking, Afwijkend, Geverifieerd), Factuurregels, Referenties en inkooporders, Koppelingen, Planning (los turnos conciliados), Notities, Controles zonder gegevens, Geschiedenis (en palabras normales) y el Origineel document | Aceptar un hallazgo con un motivo de 10 caracteres o más (`anular_hallazgo`, si la regla lo admite; con la segunda firma de otra persona cuando la pide), dar la segunda firma a un colega (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`), verificar o corregir el campo al que apunta un hallazgo de lectura; marcar como gecontroleerd (`marcar_revisada`, con la huella de lo que se vio) o devolver (`devolver_factura`); abrir, asignar, dejar esperando y resolver la excepción; añadir una nota; cambiar un campo (antes de guardar se ve «Nu → Nieuw»), verificarlo o deshacer un cambio; confirmar o rechazar una relación propuesta; confirmar o retirar un pago y apuntar uno ya hecho (`confirmar_pago`, `retirar_pago`, `marcar_pagada`); descargar el original |
@@ -461,24 +444,30 @@ las últimas pasadas. **No hay ningún botón que la lance.**
 
 ### 4.5 Instellingen
 
-- **Taal**: NL | EN | ES (lo mismo que en el menú del nombre).
-- **Thema**: Donker | Licht | Volg Windows (lo mismo que en el menú del nombre).
-- **Quién eres**: el nombre, el rol o los roles en palabras (Beheerder, Administratie,
-  Alleen lezen) y, plegado con su número, **«Wat je mag doen»**: cada permiso en una
-  frase (`GET /api/v2/yo`, que ahora da también los roles). Uitloggen.
-- **Het bedrijf**, solo para leer: el nombre, los otros nombres, el btw-id, el KvK y las
-  cuentas propias (en grupos de cuatro), tal como los usan los controles
-  (`GET /api/v2/empresa`); si falta algo, lo dice, y que lo cambia quien administra el
-  programa (con `empresa.bat`, que la app no nombra).
-- **Afscherming**, solo para leer (`GET /api/v2/aislamiento`): que la app nunca tiene
-  internet; en la instalación nativa, si la última comprobación está bien y cada papel (la
-  app, el lector de PDF, la salida a internet, las órdenes) con su estado (en orden, una
-  prueba que falla, sin comprobar o comprobado hace demasiado: `papeles[].estado`, §4.6);
-  en Docker o a mano, una frase sobre cómo se aísla allí.
-- **Personas**, solo para quien administra: el nombre y el rol de cada una
-  (`GET /api/v2/personas`), y que se gestionan fuera de la app (`persona.bat`).
-- **Back-ups**, una frase: los hace quien administra el programa (`copia.bat`), en el
-  disco externo cifrado, y se comprueba cada copia.
+Desde el paso 17, el panel de la entrada «Instellingen» de la rueda (E2-A), con las filas y
+la tarjeta `.detail` de Aurora:
+
+- **Taal**: Nederlands, English o Español (la elegida dice «In gebruik»).
+- **Thema**: Donker (el de Aurora), Licht o Volg Windows.
+- **Jouw account**: el nombre y el rol en la fila; en su tarjeta, el rol o los roles en
+  palabras (Beheerder, Administratie, Alleen lezen) y **«Wat je mag doen: N»** con cada
+  permiso en una frase (`GET /api/v2/yo`).
+- **Systeem**, con sus filas:
+  - **Bedrijf**, solo para leer: el nombre, los otros nombres, el btw-id, el KvK y las
+    cuentas propias (en grupos de cuatro), tal como los usan los controles
+    (`GET /api/v2/empresa`); si falta algo, la fila dice «Onvolledig», y que lo cambia quien
+    administra el programa (con `empresa.bat`).
+  - **Afscherming**, solo para leer (`GET /api/v2/aislamiento`): que la app nunca tiene
+    internet; en la instalación nativa, si la última comprobación está bien («In orde») o
+    hay que mirarla («Nakijken»), y en su tarjeta cada papel (la app, el lector de PDF, la
+    salida a internet, las órdenes) con su estado (en orden, mislukt, niet gecontroleerd o te
+    lang geleden gecontroleerd: `papeles[].estado`); en Docker o a mano, una frase sobre cómo
+    se aísla allí.
+  - **Personen**, solo para quien administra: cada una con su rol (`GET /api/v2/personas`),
+    y que se gestionan fuera de la app (`persona.bat`).
+  - **Back-ups**, una frase: los hace quien administra el programa (`copia.bat`), en el
+    disco externo cifrado, y se comprueba cada copia.
+- **Uitloggen**, al pie.
 
 ### 4.6 Alertas y estados
 
@@ -765,42 +754,32 @@ lleva cada clic), `screens/documents-model.ts` (el orden, los tipos, el árbol y
 - Los nombres de empresas, números, IBAN, teléfonos, correos y ficheros vienen de los datos:
   se pintan como texto (`data-proper-name`).
 
-### 4.8 Zoeken: la búsqueda con filtros
+### 4.8 Zoeken: la búsqueda de Aurora
 
-Revisión del paso 16 (§1b, filas 28 a 35; §2, «La búsqueda con filtros en pastillas»): la
-búsqueda de Aurora, sobre la del motor (`GET /api/v2/buscar`), en `src/screens/search.tsx`.
+Desde el paso 17, la búsqueda es la de Aurora (E5, `src/aurora/search/`, su
+`SearchWorkspace` con su hoja tal cual) sobre la del motor (`GET /api/v2/buscar`). La de
+filtros del paso 16 (una pantalla con campos de fecha e importe) se fue.
 
-- **Se llega** desde Ctrl+K («Zoeken met filters», abajo, con lo que ya se escribió) y desde
-  la caja del inicio (debajo de lo que encontró). Es un paso del camino donde se esté, con
-  sus migas («Te betalen › Overzicht › Zoeken»): **«Sluiten»** (y «Terug») vuelve allí.
-- **Un campo** (número o nombre, `texto`) y **«Filters»** con cuántos hay puestos: el tipo
-  (factura o nota de crédito, `tipo`), el sentido (`sentido`), el cliente o el proveedor
-  (`cliente_id`, `proveedor_id`), la fecha de la factura desde y hasta (dd-mm-jjjj,
-  `fecha_desde`, `fecha_hasta`), el importe sin IVA desde y hasta en euros (`importe_min`,
-  `importe_max`, como filtra el motor: sin IVA y en valor absoluto) y el pago (openstaand,
-  vervallen, betaald: `pendiente`, `vencida`, `pagada`). Lo que se elige de una lista se
-  aplica ya; lo que se escribe, al pulsar «Zoeken» o Intro. Una fecha o un importe que no se
-  entiende se dice («Bedrag zonder btw tot en met: schrijf het bedrag…») y no se busca.
-- **Cada filtro puesto, una pastilla** con su X; **«Filters wissen»** los quita (lo escrito
-  se queda). Sin nada que encaje, «Niets gevonden» y **«Opnieuw beginnen»**, que lo quita
-  todo.
-- **Los resultados**, los 50 primeros por fecha (si hay más, lo dice): número, tipo, empresa,
-  fecha, estado de pago («Betaald» con su fuente, como en las listas: «Betaald · volgens de
-  bank») e importe, con «1 van 2» si dos comparten número. El estado de pago y el filtro
-  «Vervallen» son los de la última pasada del motor: si es de otro día, la pantalla lo dice
-  arriba de los resultados, como el inicio y los resúmenes. Un resultado abre
-  su factura; «Terug» vuelve a la búsqueda tal como estaba (lo escrito y los filtros se
-  recuerdan en memoria, `lib/view-memory.ts`).
-- Lo que no se trajo del prototipo: los 18 documentos fijos y el segundo y medio de
-  «Pensando…» de adorno, el deslizador de importe con NumberFlow (dos campos en euros) y el
-  calendario de date-fns (dos campos de fecha), las fechas inventadas y el orbe de
-  partículas (un segundo orbe animado en la pantalla).
+- **Se llega** por la entrada «Zoeken» de la rueda y por «Zoeken met filters» en una
+  respuesta de la conversación, con lo escrito. El saludo pasa a «Wat zocht je?» y la rueda
+  no está. El orbe vuelve al inicio.
+- **La caja** busca por número o nombre (`texto`) al pulsar Intro; mientras, «Even denken…»
+  con el orbe de partículas, como mucho lo que espera Aurora (1,5 s).
+- **«Filters»**, con cuántos hay puestos: el cliente o el proveedor (`cliente_id`,
+  `proveedor_id`, en el desplegable de Aurora con su buscador), el tipo (factura o nota de
+  crédito, `tipo`), el día de la factura (el calendario de Aurora, `fecha_desde` y
+  `fecha_hasta`) y el importe sin IVA en euros (el deslizador de Aurora, `importe_min` e
+  `importe_max`). Cada filtro, una pastilla con su X; **«Filters wissen»** los quita (lo
+  escrito se queda). Lo que llega de un panel (B2: «Vervallen», un tramo) sale en su pastilla.
+- **Los resultados**, los 50 primeros por fecha: número, empresa, de cliente o de proveedor,
+  fecha e importe. Un resultado abre su factura en su lista con el vuelo. Sin nada que
+  encaje, «Niets gevonden» y **«Opnieuw beginnen»**, que lo quita todo.
 
 ## 5. Neerlandés, inglés y castellano
 
-Por defecto, **neerlandés**; se cambia en el menú del nombre, en la entrada (**NL | EN |
-ES**) y en Instellingen (cada opción lleva el nombre del idioma en ese idioma: Nederlands,
-English, Español). Cada persona tiene el suyo (se guarda con su id y el entorno); la
+Por defecto, **neerlandés**; se cambia en la entrada (debajo del orbe) y en Instellingen ›
+Taal (cada opción lleva el nombre del idioma en ese idioma: Nederlands, English,
+Español). Cada persona tiene el suyo (se guarda con su id y el entorno); la
 entrada sale en el último usado en ese ordenador. El castellano llegó en el paso 16.
 
 - **Importes, horas y fechas siempre en notación neerlandesa**, también en inglés y en
@@ -946,11 +925,11 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | `src/components/ui/` | Los componentes de shadcn (button, sheet, dialog, input, label, tooltip, context-menu, dropdown-menu, hover-card, avatar) y los dos del dueño: la navegación del paso 15 (`sidebar-with-chrome-like-tabs.tsx`, **sin montar desde el paso 16**: §4, «Lo que se quitó») y las alertas (`status.tsx`); arriba de cada uno, lo que se le cambió y por qué |
 | `src/components/` | Las piezas de las pantallas: `PageHeader` y `Screen`, `SummaryCard`, `DataTable` (seis columnas como mucho, lo exige el tipo), `StatusPill` (todo estado, con el componente del dueño: §4.6), `Money`, `Hours`, `DateText`, `EmptyState`, `ErrorState` y `TechnicalDetail`, `Loading`, `HelpTip`, `Section`, `FilterChips`, `SearchBox`, `WhyCell`, `FactStrip` (las cifras de arriba de una ficha), `AttentionList` / `InvoiceAttentionList` (lo que necesita atención, agrupado por factura); `ActionDialog` / `ActionButton` (toda orden pasa por ahí; las fechas se teclean como `dd-mm-jjjj`) y `ExceptionStatus` / `ExceptionActions` |
 | `src/screens/` | Las pantallas (`home`, el inicio; `work-queue`, `invoice-list`, `invoice` con `invoice-findings`, `invoice-fields` e `invoice-sections`, `exceptions` y `exception`, `iban-checks`, `party-list` y `party` para proveedores y clientes, `objects` y `object`, `purchase-orders` (las de los clientes o las de los proveedores) y `purchase-order`, `cash-flow`, `vat` y `vat-quarter`, `documents` (el archivo de Aurora: las carpetas, la de cada relación y la vista previa) y `documents-model.ts` (su orden, sus tipos y su árbol, sin React), `money-overview` (el resumen de Te ontvangen y Te betalen), `bank` (Bankontvangsten y Bankbetalingen), `invoice-payments` (los Betalingen de una factura), `payment-actions` (las tres órdenes de los pagos: el único sitio que las manda) y `money-model.ts` (qué factura cae en cada ficha y tramo como en la cartera, cuánto falta o va tarde, el orden de las empresas y de los pagos, leer un importe tecleado; sin React), `import`, `read-invoices`, `settings`); `sections.ts` (las seis entradas, sus vistas en orden y el permiso de cada vista, sin React: lo usan también las pruebas en el navegador), `registry.ts` (los iconos, las fichas y su vista, qué se ve con cada permiso, las rutas) y `render.tsx` (qué pinta cada ruta) |
-| `src/shell/` | El marco (`app-shell.tsx`: la cabecera, el contenido y los atajos), dónde se está y el camino (`navigation.tsx`: `nextTrail`, puro, y `useNav`), las seis en pequeño (`compact-nav.tsx`), las vistas de una entrada (`section-nav.tsx`) con sus insignias (`use-badges.ts`), las migas y «Terug» (`crumbs.tsx`), «Snel openen» (`command-palette.tsx` y `use-quick-search.ts`), el menú del nombre (`account-menu.tsx`: Instellingen, idioma, tema, salir), el idioma y el tema de la entrada y de Instellingen (`language-switch.tsx`, `theme-switch.tsx`) y la marca de datos de prueba |
-| `src/aurora/` | Las piezas de Aurora (paso 16), cada una con su hoja de estilos: abajo, «Aurora dentro de la app» |
-| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una vista al volver de una ficha (`view-memory.ts`, solo en memoria), lo que encuentra Ctrl+K y la caja del inicio (`quick-search.ts`) y lo que se guarda (`storage.ts`) |
+| `src/shell/` | Dónde se está dentro de una pantalla de trabajo y su camino (`navigation.tsx`: `nextTrail`, puro, y `useNav`), las insignias de las filas de los paneles (`use-badges.ts`) y el nombre de cada paso de las migas (`crumbs.tsx`). El marco de antes (la cabecera, las seis en pequeño, las pastillas, Ctrl+K y el menú del nombre) se quitó en el paso 17 |
+| `src/aurora/` | La app de Aurora (paso 17): `root.tsx` (las dos pantallas y el vuelo del orbe), `app.tsx` (el inicio: L0 a E5), `estado.ts` (la máquina de estados, pura), `panels.tsx` (E2), `work-screen.tsx` (el marco de una pantalla de trabajo), `assistant.ts` (lo que contesta la conversación), `chat/`, `finance/` (el resumen general), `search/` (E5), `orb/` y `thinking-orb/` (la onda y el orbe de partículas), `text-marquee.tsx` (la rueda), `composer.tsx` y `logo.tsx`; las hojas del dueño tal cual (`styles.css`, `workspace-layout.css` y las de cada pieza), `bms.css` (lo que añade BMS) y `claro.css` (el tema claro, generado). Y las piezas del paso 16 que siguen (Documentos): abajo, «Aurora dentro de la app» |
+| `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una vista al volver de una ficha (`view-memory.ts`, solo en memoria), lo que encuentra la conversación (`quick-search.ts`: pantallas, relaciones y facturas) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`), `fmt` y `countText` (una cifra con su palabra, §5) en `index.tsx`, y, para las pruebas, las listas de restos de otro idioma (`leftovers.ts`) y el glosario del castellano (`glossary.ts`) |
-| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, las seis, las vistas, las migas, el menú del nombre) con los nombres de los diccionarios; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
+| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, los paneles, las migas, Instellingen) con los nombres de los diccionarios; `aurora/referencia.json` (las medidas del prototipo) y `aurora/contraste.json` (los grises de Aurora que no llegan a 4,5:1, apuntados); `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
 
 **Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
 respuestas inventados. Se trajo a `src/aurora/` lo que la revisión quiere conservar, con
@@ -1057,16 +1036,23 @@ montar: vuelve cuando su paso lo monte (§7, «Aurora dentro de la app»).
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
 Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
 que añade el script), arrancan `bms-agent serve` sobre ella en un puerto libre y entran
-con un token de prueba. Se mueven como una persona (`e2e/nav.ts`): la entrada en la rueda
-o en las seis en pequeño, la vista en sus pastillas, «Terug» y las migas, Instellingen y el
-idioma en el menú del nombre. `e2e/shell.spec.ts` prueba el marco: la rueda (un clic abre
-cualquier entrada; la rueda del ratón, las flechas, Tab e Intro; nada se pisa; con «menos
-movimiento», sin animación), las seis en todas las pantallas y cada vista de cada entrada en
-los tres idiomas, las migas y «Terug» con la lista como se dejó, Ctrl+K, la caja del inicio
-que dice que aún no contesta, el menú del nombre, el teclado con el foco a la vista, la app a
-1024 px y en el móvil (400 × 860 y 360 × 740: la rueda con el dedo, un toque abre, las seis
-enteras y a un toque, nada fuera de la ventana); `e2e/clicks.spec.ts` cuenta los clics de
-cada tarea de la tabla de la revisión (§4, «Los clics»); `e2e/documents.spec.ts` el archivo
+con un token de prueba. Se mueven como una persona (`e2e/nav.ts`, paso 17): «Druk om te
+navigeren», la entrada en la rueda (Tab la centra, como con el teclado), la fila de su panel
+y las migas; el idioma, el tema y salir en Instellingen (después del idioma se vuelve a la
+pantalla por el mismo camino). `e2e/shell.spec.ts` prueba el marco de Aurora: L0 en los tres
+idiomas; E0 sin nada más; la rueda con sus ocho entradas, el clic a la primera, la rueda del
+ratón, las flechas, Tab, el dedo y «menos movimiento»; los paneles con su ✕, Escape y el
+orbe; el vuelo a una pantalla de trabajo y de vuelta; cada pantalla de la app en los tres
+idiomas; las migas y Alt+←; Instellingen y salir; recargar y la sesión que caduca; el
+teclado; 1024 px y el móvil (400 × 860 y 360 × 740). `e2e/exclusividad.spec.ts` prueba la
+regla del dueño (o el menú o una pantalla) en cada estado, en cada cuadro de cada transición
+y en cinco anchos; `e2e/aurora-paridad.spec.ts` compara las cajas, la letra, el color y la
+escala de L0, E0, E1 y E2 a 1440 y 400 px con las medidas del prototipo
+(`e2e/aurora/referencia.json`, ±4 px) y los tiempos del orbe (abrir la rueda y el vuelo, por
+los cruces del 5, 50 y 95 %); `e2e/conversacion.spec.ts` el resumen general en los tres
+idiomas (lo pendiente de la cartera al céntimo, «saldos pendientes», a 1440 y a 400 px);
+`e2e/search.spec.ts` la búsqueda de Aurora; `e2e/clicks.spec.ts` cuenta los clics de cada
+tarea de la tabla de la revisión (§4, «Los clics»); `e2e/documents.spec.ts` el archivo
 de Documentos sobre la base de prueba, cada interacción de sus filas de la revisión (§1b, 36
 a 48): las carpetas en su orden contra la API, las pestañas, el buscador y su vacío, las hojas
 que asoman al pasar el ratón, la carpeta de cristal, «Kaart openen» y «Kaart bekijken», la

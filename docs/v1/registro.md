@@ -8720,3 +8720,204 @@ quitó ninguna comprobación.
 - `pytest -q`: **2559 pasan, 12 se saltan**, con Python 3.11.17 (7 min 50 s) y con 3.13.16
   (7 min 57 s); el motor no cambia.
 - `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · B1: el marco, el inicio y el menú de Aurora tal cual
+
+El dueño pidió, con su prototipo delante: «Necesito que te apegues a las animaciones y diseño
+de esta aplicación, no quiero que hagas algo diferente. No pueden vivir las pantallas y el
+menú al mismo tiempo, corrígelo por favor». B1 hace las dos cosas en el marco: la app es
+ahora la de su prototipo (el saludo, la onda, «Druk om te navigeren», la caja, la rueda, los
+paneles, la conversación con el resumen general, la búsqueda y el vuelo del orbe a la
+esquina), con sus hojas y sus piezas tal cual, y **o se ve el menú o se ve una pantalla,
+nunca los dos**. Se sigue la especificación del paso 17 (§1, §3 y §4; fuera del repositorio,
+como la revisión del paso 16) y, donde chocaba con lo que pidió el dueño, manda el dueño
+(abajo, «Desviaciones»). Las pantallas de los pasos 15 y 16 siguen, todas, dentro del marco
+de Aurora, mientras sus paneles se rehacen en B2.
+
+### Qué se construyó
+
+- **Las piezas del dueño, tal cual** (`frontend/src/aurora/`): sus hojas `styles.css` y
+  `workspace-layout.css` (los mismos valores, línea a línea), la onda `SiriWave`
+  (`orb/siri-wave.tsx`), el orbe de partículas (`thinking-orb/`), la rueda `TextMarquee`
+  (`text-marquee.tsx`), la caja (`composer.tsx`), la marca (`logo.tsx`), la conversación
+  (`chat/`), el resumen general `FinanceBento` (`finance/`) y la búsqueda
+  (`search/search-workspace.tsx` y sus piezas en `search/ui/`). Los únicos cambios son los que
+  permite la tarea: TypeScript estricto, los textos de los diccionarios (neerlandés, inglés y
+  castellano), los datos de `/api/v2` en lugar de los de ejemplo, la CSP (nada que
+  interprete HTML, ningún estilo ni script en línea, nada en `window`) y lo que pide axe (el
+  orbe de cada respuesta con `role="img"` y los tres puntos con `role="status"`: una etiqueta
+  sin papel no la lee nadie). Cada fichero dice al principio qué cambió y por qué. Sus
+  versiones: `framer-motion` 14.2.0 (la del prototipo; antes 12.43.0) y `cmdk` 1.1.1 (el
+  buscador de empresa de los filtros), exactas y publicadas hace más de 14 días.
+- **La máquina de estados** (`src/aurora/estado.ts`, pura, con `estado.test.ts`): L0 (la
+  entrada), E0 (el inicio), E1 (la rueda), E2 (un panel; E2-A, Ajustes), E3 (escribiendo), E4
+  (la conversación), E5 (la búsqueda) y la pantalla de trabajo. Cada clic, tecla o gesto es
+  una acción; ningún estado tiene a la vez la rueda y una pantalla.
+- **`Root`** (`src/aurora/root.tsx`): las dos pantallas de Aurora (su inicio y una pantalla
+  de trabajo), la que se va se funde en 0,18 s sin recibir clics, y **el vuelo del orbe**
+  (1,05 s, `cubic-bezier(.4,0,.15,1)`) del centro a la esquina y de vuelta, con un tope por si
+  la animación no avisa al acabar.
+- **El inicio de Aurora** (`src/aurora/app.tsx`): el saludo con el nombre, «Waarmee kan ik je
+  vandaag helpen?», la onda de 440 px, «Druk om te navigeren» y la caja; la rueda con ocho
+  entradas (Instellingen, Zoeken, Documenten, Start, Te ontvangen, Te betalen, Btw y
+  Verwerken; sin el permiso `importar_datos`, siete); la entrada de la app (L0) con las
+  palabras de Aurora y el código personal de siempre.
+- **Los paneles** (`src/aurora/panels.tsx`): el panel de Aurora a la derecha, con
+  «WERKRUIMTE», la ✕, el título, su frase, «Testgegevens · EUR» y sus filas. Ajustes (E2-A)
+  con Taal, Thema, Jouw account, Systeem y «Uitloggen». Start, Te ontvangen, Te betalen y
+  Btw listan sus pantallas de hoy, cada una con su número si pide algo, mientras B2 hace sus
+  paneles (§2.2).
+- **Las pantallas de trabajo** (`src/aurora/work-screen.tsx`): el marco del archivo de Aurora
+  (la marca, «Terug naar Aurora», las migas que empiezan en «Start» y el orbe pequeño de la
+  esquina) con la pantalla del paso 15 o 16 debajo. `SECTION_VIEWS`
+  (`src/screens/sections.ts`) dice qué pantallas van en cada entrada, una sola vez, y de ahí
+  salen las filas de los paneles y las migas.
+- **La conversación** (`src/aurora/assistant.ts`, sin ningún modelo): con «Geef me een
+  overzicht» («Dame un resumen general», «Give me an overview»), el `FinanceBento` con los
+  datos de verdad: lo pendiente de cobrar y de pagar de `GET /api/v2/cartera` (los dos lados,
+  al céntimo), los clientes y proveedores con lo que queda de cada uno y sus documentos, y la
+  última lectura de facturas; dice que **son saldos pendientes, no dinero disponible**. Con
+  una palabra del oficio, el glosario; con el nombre de una pantalla, la fila que la abre; con
+  un número, un nombre, un Object o una PO, lo que encuentra `GET /api/v2/buscar` y «Zoeken
+  met filters», que lleva lo escrito a la búsqueda.
+- **El tema claro** (`src/aurora/claro.css`): Aurora solo tiene oscuro. El claro lo escribe
+  `scripts/aurora-claro.mjs` a partir de las hojas del dueño (cada color con la luminosidad
+  invertida en OKLab, el matiz y el alfa igual) y el texto no pasa de una luminosidad de
+  0,44, para que sus grises lleguen a 4,5:1. Nadie lo edita a mano: una prueba lo compara con
+  lo que escribe el script.
+- **La regla del dueño** es una línea al final de `styles.css`
+  (`.has-panel .navigation{display:none}`, en todos los anchos; Aurora lo hacía solo a 1150 px
+  o menos) más la máquina de estados, que no deja la rueda montada en E4, E5 ni en una
+  pantalla de trabajo. **Lo que añade BMS** va aparte, en `src/aurora/bms.css`: las bandas del
+  servidor, el degradado sin WebGL, «Naar de inhoud» y el marco de una pantalla de trabajo.
+- **Fuera**: la cabecera, las seis entradas en pequeño, las pastillas de las vistas, Ctrl+K,
+  el menú del nombre, la marca de prueba de la cabecera, la entrada y la búsqueda del paso 16
+  (`screens/login.tsx`, `screens/search.tsx`), la rueda y el orbe del paso 16 (`wheel.tsx`,
+  `orb/aurora-orb.tsx`, `orb-loop.ts`, `wave-shader.ts`) y las fuentes IBM Plex con sus
+  licencias (la letra es la del sistema, como en Aurora: Inter o Segoe UI). Con ellas se van
+  de `pyproject.toml` y de las pruebas de Python las licencias y los `.woff2`.
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | La cabecera con las seis entradas, las pastillas de cada vista y Ctrl+K | La rueda de Aurora (E1) y sus paneles (E2); nunca la rueda y una pantalla a la vez | El dueño: «No pueden vivir las pantallas y el menú al mismo tiempo» |
+| 2 | Un clic en una entrada de la rueda la centraba | Un clic en cualquier entrada a la vista la abre | Especificación §3: ninguna escondida, ninguna a dos clics |
+| 3 | En Aurora la rueda solo se esconde con un panel a 1150 px o menos | Se esconde en todos los anchos, y la rueda del ratón y las flechas no la mueven mientras tanto | La regla del dueño |
+| 4 | El inicio con cuatro tarjetas y «Als eerste» | El inicio de Aurora; las tarjetas, en Start › Overzicht | El dueño: el diseño de Aurora, no otro |
+| 5 | El idioma y el tema en el menú del nombre | En Instellingen (E2-A), Taal y Thema; «Uitloggen» al pie | No hay menú del nombre (abajo, desviación 2) |
+| 6 | La caja del inicio buscaba sin contestar | Es la conversación de Aurora; la búsqueda con filtros es E5 | Aurora |
+| 7 | IBM Plex, servida por la app | La letra del sistema | Las hojas de Aurora |
+| 8 | Leer facturas, una vista de Start | La entrada «Verwerken» de la rueda | `SECTION_VIEWS` del paso 17 |
+| 9 | «Ook in Start» con la Werklijst, las Uitzonderingen y la Kasstroom | También los IBAN-controles, que ahora viven en Start; la lista sale de `SECTION_VIEWS` | Una sola fuente para las filas del panel y los accesos del resumen |
+
+### Las pruebas
+
+- **`e2e/exclusividad.spec.ts`** (nueva, 5 pruebas): en cada estado (L0, E0, E1, E3, cada
+  panel, E2-A con una lista y con una tarjeta, E4 con el resumen, E5, Documenten y una
+  pantalla del motor) y **en cada cuadro de cada transición**, a 1440, 1151, 1150, 1024 y
+  400 px, o se ve la rueda o una pantalla, nunca los dos; «se ve» con su opacidad efectiva,
+  su tamaño y dentro de la ventana. La pantalla que se va no recibe clics, y con un panel
+  abierto ni la rueda del ratón ni las flechas cambian la entrada activa.
+- **`e2e/aurora-paridad.spec.ts`** (nueva, 3 pruebas): las cajas, la letra, el color y la
+  escala de L0, E0, E1 (recién abierta y con Verwerken en el centro) y E2 (Te ontvangen) a
+  1440 × 900 y a 400 × 860 contra las medidas del prototipo (`e2e/aurora/referencia.json`,
+  sacadas de los cuadros de Aurora): ±4 px, letra y color exactos, escala ±0,01. Y los
+  tiempos del orbe por los cruces del 5, 50 y 95 % de su recorrido: T01 (abrir el menú,
+  0,85 s): del 5 al 50 % en 106 ms y al 95 % en 426 (en teoría, 106 y 427); T11 (el vuelo a
+  Documenten, 1,05 s): 224 y 622 ms (210 y 609); T17 (el de vuelta): 193 y 596 ms. La
+  tolerancia es del 10 % o un cuadro, y una medida con una parada de más de 100 ms del
+  navegador se repite.
+- **El coste de la onda**, apuntado sin límite (especificación §7, punto 1): en el inicio pide
+  61 cuadros por segundo y ocupa entre 1,8 y 2,4 s del hilo principal cada 5 s en esta máquina
+  (cuatro núcleos compartidos con otras pruebas); con la ventana oculta o el orbe fuera de la
+  vista, menos de 5 cuadros por segundo.
+- **`e2e/conversacion.spec.ts`** (nueva): «Geef me een overzicht», «Dame un resumen general» y
+  «Give me an overview» traen el resumen general con lo pendiente de la cartera al céntimo
+  (lo pide la prueba a `/api/v2/cartera`), «saldos pendientes» y «no es dinero disponible»,
+  sin la rueda, con axe y sin restos de otro idioma, a 1440 y a 400 px; «Terug naar de
+  ruimte» vuelve a la rueda.
+- **Las demás, migradas** a moverse como una persona por la rueda (`e2e/nav.ts`: `go`,
+  `openEntry`, `panelRow`, `setLang` y `chooseTheme` por Instellingen…): `shell.spec.ts` (17,
+  reescrita: L0, E0, E1, cada entrada, los paneles, el vuelo, Escape, Tab, la sesión que
+  caduca, «Naar de inhoud», 400 px), `search.spec.ts` (E5), `clicks.spec.ts` (con la rueda
+  de Aurora, abierta con Start en el centro como la primera vez en una sesión; límites
+  nuevos, que fallan si un camino crece), `themes.spec.ts` (la onda: se mueve al ritmo de la
+  pantalla, se para con la ventana oculta o fuera de la vista, sigue con «menos movimiento»
+  como en Aurora, y el degradado sin WebGL), y `daily`, `screens`, `payments`, `documents`,
+  `status` y `cartera-partes` con sus caminos nuevos. Ninguna comprobación se quitó sin otra
+  en su lugar.
+- **El contraste**: los grises de Aurora que en oscuro no llegan a 4,5:1 se dejan exactos y
+  se apuntan con su sitio y su par de colores (`e2e/aurora/contraste.json`, 13 casos: las
+  entradas apagadas de la rueda, «WERKRUIMTE», la línea de los datos del panel, el título de
+  una lista y lo gris de una fila; en la búsqueda, la pista, «Nieuwste eerst», la línea de un
+  resultado y las marcas y la frase del filtro de importe; en el resumen general, la fecha, la
+  línea gris de las tarjetas y las cifras en letra fija); solo valen en oscuro. En claro, en
+  L0, los avisos y las bandas, el contraste sigue siendo puerta.
+- **vitest**: `estado.test.ts` (28: cada acción, y que cada pantalla del motor se alcanza
+  desde una entrada), `assistant.test.ts` (lo que contesta en los tres idiomas),
+  `finance/finance-bento.test.ts` (las nueve tarjetas, «saldos pendientes», sin `NaN` sin
+  datos), `scripts/aurora-claro.test.mjs` (el claro al día y sus grises a 4,5:1); fuera
+  `wheel.test.ts` y `orb-loop.test.ts`, con sus piezas. `codigo-muerto.test.mjs` sigue
+  mirando que cada pieza de `src/aurora` la monte la app.
+
+### Desviaciones, y por qué
+
+1. **La rueda enseña cinco entradas, como la de Aurora**, no las ocho a la vista
+   (especificación §7, punto 10): el dueño pidió no cambiar su diseño. Ninguna queda
+   escondida: Instellingen y Btw están a un paso de la rueda del ratón, Verwerken a dos, y
+   Tab las recorre todas.
+2. **No hay menú del nombre ni de las iniciales** (especificación §7, punto 11): sería un
+   segundo menú encima de las pantallas, justo lo que el dueño no quiere, y Aurora no lo
+   tiene. El idioma, el tema, la cuenta y salir están en Instellingen (E2-A).
+3. **Los paneles de Start, Te ontvangen, Te betalen y Btw listan pantallas** y no son aún los
+   de §2.2 (la cifra y los grupos): es B2. Por eso los clics de `clicks.spec.ts` son los de
+   ahora (un panel, 2; una pantalla, 3; una ficha, 4) y no los de §2.6.
+4. **Las pantallas de los pasos 15 y 16 van dentro del marco de Aurora tal como eran**
+   (Documenten, también con el margen de su pantalla de antes) hasta que su paso las rehaga.
+5. **Las reglas del orbe grande de Procesar** (`.hero-orb`, de `processing-workspace.css`
+   del dueño) están copiadas en `bms.css`, porque B1 no monta esa hoja: el paso que traiga
+   Procesar las quita al importarla (después de `styles.css` y antes de
+   `workspace-layout.css`).
+6. **El tema claro es nuestro**: Aurora no lo tiene. Sale de sus hojas con una regla fija (y
+   el texto más oscuro, para pasar AA), no a mano.
+7. **Cambiar el idioma desde una pantalla lleva a Instellingen**: se vuelve a la pantalla por
+   la rueda, y lo que se estaba importando (sin mandar) se pierde.
+
+### Lo que deben saber los pasos siguientes
+
+- **B2** rehace los paneles con lo de §2.2 y baja los límites de `e2e/clicks.spec.ts` a la
+  tabla de §2.6; las filas salen de `SECTION_VIEWS` y `PANEL_SCREENS`
+  (`src/aurora/estado.ts`), y `estado.test.ts` falla si una pantalla se queda sin entrada.
+- **Cambiar una hoja de Aurora pide `node scripts/aurora-claro.mjs`**: si no,
+  `aurora-claro.test.mjs` falla (el claro ya no es el que escribe el script).
+- **Un gris nuevo de Aurora por debajo de 4,5:1 en oscuro** se apunta en
+  `e2e/aurora/contraste.json` (con `BMS_E2E_CONTRASTE=<fichero>`, las pruebas los dejan en un
+  fichero en vez de fallar).
+- **El servidor lee lo construido al arrancar**: después de `npm run build`, hay que
+  reiniciarlo (y no construir mientras corre Playwright).
+- **La paridad** mide contra `e2e/aurora/referencia.json`; si el dueño cambia su prototipo,
+  se vuelve a medir con los mismos selectores.
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1298 pasan** en 22 ficheros (en la puerta del
+  paso 16, 1266: entran `estado.test.ts`, `assistant.test.ts`, `finance-bento.test.ts` y
+  `aurora-claro.test.mjs`, salen `wheel.test.ts` y `orb-loop.test.ts` con sus piezas).
+- `npm run build` dos veces, el mismo resultado byte a byte (`fuente.json` 552f051e…);
+  `npm run fuente` al día. Lo construido ya no lleva las fuentes IBM Plex ni sus licencias.
+- Playwright sobre una base de prueba recién creada: **78 pasan y 1 se salta** (55,5 min; la
+  fila 21 de la tabla de los clics, que espera al Procesar de verdad), en 13 ficheros, con lo
+  construido que va en este commit. Por el camino salieron y se arreglaron: la copia del orbe
+  que se quedaba en pantalla si su animación no avisaba al acabar (ahora tiene un tope de
+  1,7 s), el texto del claro por debajo de 4,5:1 (el tope de luminosidad), el degradado sin
+  WebGL que no se veía (`.aurora canvas{background:transparent}` de Aurora le ganaba), «Ook
+  in Start» sin los IBAN-controles, y el orbe y los puntos de la conversación sin papel para
+  los lectores de pantalla.
+- Las capturas, en `app-capturas/paso17/shell` (dark/ y light/, 351), miradas al lado de los
+  cuadros de Aurora: la entrada, el inicio y la rueda (las mismas cajas que el prototipo), un
+  panel a 1440 y a 400 px (el de Aurora, sin la rueda al lado), Documenten con su vuelo y su
+  orbe en la esquina, el resumen general (el mismo bento, con euros) y las pantallas de
+  siempre en claro y en oscuro.
+- `pytest -q`: **2559 pasan, 12 se saltan** (5 min 27 s), con Python 3.11.17; el motor no cambia.
+- `git status` limpio después de construir y de las pruebas.
