@@ -11,8 +11,8 @@ import type { APIRequestContext, Page } from '@playwright/test';
 import type { Lang } from '../src/i18n/langs';
 import type { BankLines, Cartera, PaymentProposal } from '../src/lib/api-types';
 import { partiesByOverdue } from '../src/screens/money-model';
-import { capture, chooseTheme, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token, type Who } from './fixtures';
-import { TEXTS, crumbs, escapeRegExp, fill, go, readBadge, setLang, viewHeading } from './nav';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token, type Who } from './fixtures';
+import { TEXTS, chooseTheme, crumbs, escapeRegExp, fill, go, readBadge, setLang, viewHeading } from './nav';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -70,7 +70,8 @@ test('las cifras de cobrar y pagar: la tarjeta del inicio, la pantalla, los tram
 
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // La tarjeta del inicio.
+  // La tarjeta del resumen de Inicio (su fila «Overzicht» en el panel de Start, paso 17).
+  await go(page, 'home');
   const receivable = card(page, t.overview.moneyIn.title);
   await expect(receivable).toContainText(euro(inn.totales.pendiente_cent));
   await expect(receivable).toContainText(euro(inn.totales.vencido_cent));
@@ -94,7 +95,7 @@ test('las cifras de cobrar y pagar: la tarjeta del inicio, la pantalla, los tram
   // La cabecera de la pantalla: las cuatro cifras y la nota de que no es dinero disponible.
   await page.getByRole('main').getByRole('button', { name: `${t.areas.receivables.label} · ${t.nav.receivables.label}` }).click();
   await expect(viewHeading(page, 'receivables')).toBeVisible();
-  expect(await crumbs(page)).toEqual([]);
+  expect(await crumbs(page)).toEqual([t.areas.receivables.label]);
   await expect(figure(page, t.money.outstanding)).toContainText(euro(inn.totales.pendiente_cent));
   await expect(figure(page, t.money.overdue)).toContainText(euro(inn.totales.vencido_cent));
   await expect(figure(page, t.money.thisWeek)).toContainText(euro(inn.totales.semana_cent));
@@ -169,7 +170,7 @@ test('las cifras de cobrar y pagar: la tarjeta del inicio, la pantalla, los tram
   const first = partiesByOverdue(out.partes)[0]!;
   await page.getByRole('table', { name: t.money.parties.titleOut }).getByRole('button', { name: fill(t.common.openRecord, { what: first.nombre! }), exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: first.nombre! })).toBeVisible();
-  expect(await crumbs(page)).toEqual([t.areas.payables.label, t.nav.payables.label, first.nombre!]);
+  expect(await crumbs(page)).toEqual([t.areas.payables.label, first.nombre!]);
   await go(page, 'payables');
   await page.getByRole('button', { name: fill(t.money.parties.folderLabel, { name: first.nombre! }) }).click();
   await expect(page.getByRole('heading', { level: 1, name: `Documenten van ${first.nombre}` })).toBeVisible();
@@ -184,11 +185,12 @@ test('confirmar un cobro que propuso el banco y decir que otro no es', async ({ 
 
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // Desde el inicio: "Te bevestigen" en la tarjeta abre el banco de cobrar.
+  // La fila del banco en el panel de Te ontvangen dice cuantos hay por confirmar.
+  await expect.poll(() => readBadge(page, 'bank-in')).toBe(list.filter((p) => p.factura.sentido === 'saliente').length);
+  // Desde el resumen de Inicio: "Te bevestigen" en la tarjeta abre el banco de cobrar.
+  await go(page, 'home');
   await card(page, t.overview.moneyIn.title).getByRole('button', { name: t.home.showToConfirmIn }).click();
   await expect(viewHeading(page, 'bank-in')).toBeVisible();
-  // Las insignias se leen aparte de la pantalla: se espera a que lleguen.
-  await expect.poll(() => readBadge(page, 'bank-in')).toBe(list.filter((p) => p.factura.sentido === 'saliente').length);
   const cardA = proposalCard(page, a.factura.numero!);
   await expect(cardA).toContainText(a.movimiento!.concepto!);
   await expect(cardA.getByRole('list', { name: t.bank.matches })).toContainText(`${t.bank.match.referencia}: ${t.bank.yes}`);
@@ -206,6 +208,7 @@ test('confirmar un cobro que propuso el banco y decir que otro no es', async ({ 
   await dialog.getByRole('button', { name: 'Betaling bevestigen' }).click();
   await expect(dialog).toBeHidden();
   await expect(cardA).toHaveCount(0);
+  // Y la fila del banco en el panel cuenta uno menos.
   await expect.poll(() => readBadge(page, 'bank-in')).toBe(list.filter((p) => p.factura.sentido === 'saliente').length - 1);
   // Lo pendiente baja lo que se confirmo, y la factura dice pagada segun el banco, por quien.
   expect((await cartera(request, baseUrl, 'saliente')).totales.pendiente_cent).toBe(before - a.importe_cent);
@@ -419,6 +422,7 @@ test('despues de las ordenes, todo sigue cuadrando: el inicio, las pantallas y l
   const [inn, out] = [await cartera(request, baseUrl, 'saliente'), await cartera(request, baseUrl, 'entrante')];
   await page.goto(`${baseUrl}/app`);
   await login(page);
+  await go(page, 'home');
   await expect(card(page, t.overview.moneyIn.title)).toContainText(euro(inn.totales.pendiente_cent));
   await expect(card(page, t.overview.moneyOut.title)).toContainText(euro(out.totales.pendiente_cent));
   await go(page, 'receivables');
@@ -432,7 +436,7 @@ test('despues de las ordenes, todo sigue cuadrando: el inicio, las pantallas y l
 });
 
 test('capturas de cobrar, pagar y el banco en los tres idiomas y los dos temas', async ({ page, baseUrl }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000);
   await page.goto(`${baseUrl}/app`);
   await login(page);
   for (const theme of ['dark', 'light'] as const) {

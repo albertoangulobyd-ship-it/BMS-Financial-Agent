@@ -5,14 +5,13 @@
 // Y las ayudas: entrar con un token de prueba, elegir el tema, el analisis de accesibilidad
 // (axe), los restos de otro idioma y las capturas, que van a CAPTURAS_DIR (por defecto
 // test-results/capturas), en una carpeta por tema: dark/ o light/ (paso 16).
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test as base, type Page } from '@playwright/test';
 import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
 import { glossaryMisses } from '../src/i18n/glossary';
 import { leftoversIn } from '../src/i18n/leftovers';
-import { THEME_CHOICES, type ThemeChoice } from '../src/lib/theme-choice';
 
 interface Watch {
   external: string[];
@@ -83,13 +82,13 @@ export function token(who: Who = 'ana'): string {
   return value;
 }
 
-/** Entra con el token de una persona de prueba y espera al inicio (paso 16: el saludo y la
- *  rueda; antes, el marco con las pestanas). */
+/** Entra con el token de una persona de prueba y espera al inicio (paso 17: el saludo de Aurora
+ *  con su nombre, en el mismo sitio donde pedia el codigo). */
 export async function login(page: Page, who: Who = 'ana'): Promise<void> {
   await page.locator('#token').fill(token(who));
   await page.locator('#login-submit').click();
-  await expect(page.locator('#contenido')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: /^(Welkom|Welcome|Hola), / })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /^(Welkom|Welcome|Bienvenido), / })).toBeVisible();
+  await expect(page.locator('#token')).toHaveCount(0);
 }
 
 /**
@@ -112,9 +111,11 @@ export async function settled(page: Page): Promise<void> {
             return typeof end === 'number' && Number.isFinite(end);
           });
           if (running.length > 0) return null;
-          // La pantalla que entra con un fundido al cambiar de sitio (shell/app-shell.tsx).
-          const panels = Array.from(document.querySelectorAll<HTMLElement>('#view > div'));
-          if (panels.length > 1 || panels.some((el) => getComputedStyle(el).opacity !== '1')) return null;
+          // El cambio de pantalla de Aurora (aurora/root.tsx): la que sale se funde encima y el
+          // orbe vuela; quieta es una sola pantalla, entera, y sin vuelo.
+          const screens = Array.from(document.querySelectorAll<HTMLElement>('[data-aurora-root] > .app-screen'));
+          if (screens.length > 1 || screens.some((el) => getComputedStyle(el).opacity !== '1')) return null;
+          if (document.querySelector('.aurora-route-flight')) return null;
           const fading = Array.from(document.querySelectorAll<HTMLElement>('[style*="opacity"]'))
             .map((el) => el.style.opacity)
             .filter((o) => o !== '' && Number(o) > 0 && Number(o) < 1);
@@ -139,21 +140,49 @@ export async function settled(page: Page): Promise<void> {
   );
 }
 
+/** Los grises de Aurora que no llegan a 4,5:1 en el tema oscuro (especificacion §6.6 y §7,
+ *  punto 9): se dejan exactos y se apuntan aqui, cada uno con su sitio y su par de colores. */
+interface ContrastException {
+  /** Expresion regular sobre el selector que da axe. */
+  selector: string;
+  fg: string;
+  bg: string;
+}
+const AURORA_CONTRAST: ContrastException[] = (
+  JSON.parse(readFileSync(new URL('./aurora/contraste.json', import.meta.url), 'utf8')) as { casos: ContrastException[] }
+).casos;
+
 /** Ningun problema de accesibilidad serio o critico (WCAG 2.1 A y AA), ninguna falta de
- *  contraste (de ningun grado) y cada pastilla de estado medida a 4,5:1 o mas. Se mide con
- *  la pantalla quieta (settled). */
+ *  contraste (de ningun grado) salvo los grises de Aurora apuntados en e2e/aurora/contraste.json
+ *  (solo en oscuro), y cada pastilla de estado medida a 4,5:1 o mas. Se mide con la pantalla
+ *  quieta (settled). */
 export async function expectAccessible(page: Page, what: string): Promise<void> {
   await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
+  const dark = (await shownTheme(page)) === 'dark';
+  const excepted = (n: (typeof results.violations)[number]['nodes'][number]) => {
+    if (!dark) return false;
+    const data = n.any.find((c) => c.id === 'color-contrast')?.data as { fgColor?: string; bgColor?: string } | undefined;
+    const target = n.target.join(' ');
+    return AURORA_CONTRAST.some((c) => c.fg === data?.fgColor && c.bg === data?.bgColor && new RegExp(c.selector).test(target));
+  };
+  const contrastNodes = results.violations.filter((v) => v.id === 'color-contrast').flatMap((v) => v.nodes);
+  const unexcused = contrastNodes.filter((n) => !excepted(n));
+  if (process.env.BMS_E2E_CONTRASTE) {
+    // Para apuntar casos nuevos: los deja en un fichero y no falla por ellos.
+    for (const n of unexcused) {
+      const data = n.any.find((c) => c.id === 'color-contrast')?.data as { fgColor?: string; bgColor?: string } | undefined;
+      appendFileSync(process.env.BMS_E2E_CONTRASTE, JSON.stringify({ what, target: n.target.join(' '), fg: data?.fgColor, bg: data?.bgColor, dark }) + '\n');
+    }
+  }
   const serious = results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    .filter((v) => v.id !== 'color-contrast')
     .map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
   expect(serious, `accesibilidad: ${what}`).toEqual([]);
-  const contrast = results.violations
-    .filter((v) => v.id === 'color-contrast')
-    .flatMap((v) => v.nodes.map((n) => `${n.target.join(' ')}: ${n.failureSummary ?? ''}`));
+  const contrast = process.env.BMS_E2E_CONTRASTE ? [] : unexcused.map((n) => `${n.target.join(' ')}: ${n.failureSummary ?? ''}`);
   expect(contrast, `contraste (axe): ${what}`).toEqual([]);
   await expectStatusContrast(page, what);
 }
@@ -214,23 +243,6 @@ export async function expectStatusContrast(page: Page, what: string): Promise<vo
 /** El tema que se ve: la clase .dark de <html> (lib/theme.tsx), la unica que lo decide. */
 export async function shownTheme(page: Page): Promise<'dark' | 'light'> {
   return (await page.evaluate(() => document.documentElement.classList.contains('dark'))) ? 'dark' : 'light';
-}
-
-/** El menu del nombre, arriba a la derecha (en cualquier idioma). */
-export const ACCOUNT_MENU = /^(Accountmenu van|Account menu for|Menú de la cuenta de) /;
-
-/** Elige el tema en el menu del nombre (Donker / Licht / Volg Windows, en el orden de
- *  THEME_CHOICES, sea cual sea el idioma) y espera a que se vea. */
-export async function chooseTheme(page: Page, choice: ThemeChoice): Promise<void> {
-  await page.getByRole('button', { name: ACCOUNT_MENU }).click();
-  const items = page.getByRole('menu').getByRole('group', { name: /^(Thema|Theme|Tema)$/ }).getByRole('menuitemradio');
-  await expect(items).toHaveCount(THEME_CHOICES.length);
-  await items.nth(THEME_CHOICES.indexOf(choice)).click();
-  await expect(page.getByRole('menu')).toBeHidden();
-  if (choice !== 'system') {
-    await expect(page.locator('html')).toHaveAttribute('data-theme', choice);
-  }
-  await settled(page);
 }
 
 /** Una captura de la ventana a CAPTURAS_DIR/<tema>/<nombre>.png, para mirarla. */
@@ -295,7 +307,12 @@ export async function outsideTheWindow(page: Page): Promise<string[]> {
       const x = getComputedStyle(el).overflowX;
       return x === 'auto' || x === 'scroll';
     };
+    // El orbe de Aurora se sale de la ventana a proposito (a 400 px, el de la rueda empieza en
+    // x = -18, como en Aurora) y el lienzo del orbe pequeno de las pantallas de trabajo mide 180
+    // px en su caja de 96: es la onda, sin nada que leer ni pulsar, y no da desplazamiento.
+    const ORB = '.aurora, .aurora *, .ws-companion canvas, .aurora-route-flight, .aurora-route-flight *';
     for (const el of Array.from(document.body.querySelectorAll('*'))) {
+      if (el.matches(ORB)) continue;
       const box = el.getBoundingClientRect();
       if (box.width === 0 || box.height === 0) continue;
       if (box.right <= width + 1 && box.left >= -1) continue;

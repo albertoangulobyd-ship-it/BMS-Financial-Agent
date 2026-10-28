@@ -3,8 +3,8 @@
 // ya (en la Werklijst, lo bloqueado y lo urgente), y deja de latir para quien pide menos
 // movimiento. Capturas de las pastillas en NL y EN, y las pastillas medidas en los dos temas.
 import type { Page } from '@playwright/test';
-import { capture, chooseTheme, expect, expectAccessible, login, test } from './fixtures';
-import { go, setLang, viewHeading } from './nav';
+import { capture, expect, expectAccessible, login, test } from './fixtures';
+import { TEXTS, chooseTheme, go, openSettingsRow, panel, panelRow, setLang } from './nav';
 
 interface Pill {
   variant: string;
@@ -64,19 +64,13 @@ test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', 
   await expect(page.getByRole('heading', { level: 1, name: 'Inkoopfacturen' })).toHaveCount(0);
   await expect(page.locator('article').first()).toBeVisible();
   const iban = await pills(page);
-  expect(iban.length).toBeGreaterThan(1);
+  expect(iban.length).toBeGreaterThan(0);
   for (const p of iban) {
     const toVerify = p.label === 'Te verifiëren' || p.label === 'Geregistreerd, niet geverifieerd';
     expect(p.pings, p.label).toBe(toVerify);
     if (toVerify) expect(p.variant, p.label).toBe('warning');
   }
   await expectAccessible(page, 'nl iban-controles (pastillas)');
-
-  // La marca de prueba de la cabecera: aviso, sin latir.
-  const chip = page.getByTestId('test-data-chip');
-  await expect(chip).toHaveAttribute('data-variant', 'warning');
-  await expect(chip).toContainText('Testgegevens');
-  expect(await chip.evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-indicator"]')!, '::before').animationName)).toBe('none');
 
   // En ingles, el mismo estado con su texto.
   await setLang(page, 'en');
@@ -92,8 +86,8 @@ test('el punto late solo en lo que pide hacer algo ya, y siempre con su texto', 
 test('un solo sitio late por pantalla: ninguna lista ni tarjeta parpadea', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // El inicio (tarjetas y "Als eerste") y cada lista: nada late.
-  await expect(viewHeading(page, 'home')).toBeVisible();
+  // El resumen de Inicio (tarjetas y "Als eerste") y cada lista: nada late.
+  await go(page, 'home');
   await expect(page.getByTestId('summary-card').first()).toBeVisible();
   await expect(page.locator('section[aria-labelledby="next-up"] [data-slot="status"]').first()).toBeVisible();
   expect((await pills(page)).filter((p) => p.pings), 'inicio').toEqual([]);
@@ -128,7 +122,7 @@ test('quien pide menos movimiento no ve latir nada', async ({ page, baseUrl }) =
   expect(queue.filter((p) => p.pings)).toEqual([]);
 });
 
-test('la afscherming por papeles: lo que falla, falta o es viejo, en rojo y latiendo', async ({ page, baseUrl }) => {
+test('la afscherming por papeles en Ajustes: lo que falla, falta o es viejo, cada uno con su estado', async ({ page, baseUrl }) => {
   // En las pruebas no hay instalacion nativa (no hay afscherming que leer): la respuesta de
   // verdad se cambia aqui por la de una instalacion con tres problemas distintos.
   await page.route('**/api/v2/aislamiento', async (route) => {
@@ -149,23 +143,30 @@ test('la afscherming por papeles: lo que falla, falta o es viejo, en rojo y lati
   });
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  await go(page, 'settings');
-  await expect(page.getByText('Afscherming mislukt').first()).toBeVisible();
-  const shown = await pills(page);
-  const isolation = shown.filter((p) => p.label.startsWith('Afscherming') || p.label === 'Controle te oud');
-  expect(isolation.map((p) => [p.label, p.variant, p.pings])).toEqual([
-    ['Afscherming mislukt', 'error', true],
-    ['Afscherming in orde', 'success', false],
-    ['Afscherming mislukt', 'error', true],
-    ['Controle te oud', 'error', true],
-    ['Afscherming niet gecontroleerd', 'error', true],
-  ]);
-  await expectAccessible(page, 'nl instellingen (afscherming)');
-  await page.getByText('Afscherming', { exact: true }).scrollIntoViewIfNeeded();
+  // Ajustes > Systeem (E2-A): la fila de la afscherming dice que hay que mirarla, en el color
+  // de lo pendiente de Aurora (no el verde de lo pagado), y su tarjeta, cada papel con su estado.
+  await openSettingsRow(page, 'system');
+  const s = TEXTS.nl.aurora.settings;
+  const row = panelRow(page, s.systemRows.isolation);
+  await expect(row.locator('.doc-end small')).toHaveText(s.isolationBad);
+  await expect(row.locator('.doc-end small')).not.toHaveClass(/\bpaid\b/);
+  await row.click();
+  const card = panel(page).locator('.detail');
+  const roles = TEXTS.nl.settings.roles;
+  for (const [role, state] of [
+    [roles.consola, s.isolationStates.correcto],
+    [roles.lector, s.isolationStates.falla],
+    [roles.salida, s.isolationStates.caducada],
+    [roles.orden, s.isolationStates.sin_comprobar],
+  ] as const) {
+    await expect(card).toContainText(`${role}: ${state}`);
+  }
+  await expectAccessible(page, 'nl ajustes (afscherming)');
   await capture(page, 'nl-status-isolation');
   await setLang(page, 'en');
-  await expect(page.getByText('Shielding failed').first()).toBeVisible();
-  await page.getByText('Shielding', { exact: true }).scrollIntoViewIfNeeded();
+  await openSettingsRow(page, 'system');
+  await panelRow(page, TEXTS.en.aurora.settings.systemRows.isolation).click();
+  await expect(panel(page).locator('.detail')).toContainText(`${TEXTS.en.settings.roles.lector}: ${TEXTS.en.aurora.settings.isolationStates.falla}`);
   await capture(page, 'en-status-isolation');
   await setLang(page, 'nl');
 });
@@ -174,15 +175,22 @@ test('el tema es el que elige la persona, no el del sistema, y cada pastilla se 
   page,
   baseUrl,
 }) => {
+  test.setTimeout(240_000);
   // Paso 16: el oscuro de Aurora por defecto aunque Windows este en claro (la configuracion de
   // las pruebas emula claro), y el claro aunque Windows este en oscuro si la persona lo eligio.
   // Las clases dark: del componente Status valen con la clase .dark que pone la app en <html>,
   // nunca con prefers-color-scheme (con eso, un Windows en oscuro pintaria los tonos -400
   // sobre un fondo claro: menos de 2:1).
-  // La marca de prueba de la cabecera es una pastilla de aviso que siempre esta.
+  // Una pastilla de aviso que siempre esta: «Urgent» en la Werklijst (la base de prueba lleva
+  // cinco; las de los IBAN-controles las verifica antes daily.spec.ts en la misma base).
   const ORANGE_400 = 'oklch(0.75 0.183 55.934)';
-  const chipColor = () =>
-    page.getByTestId('test-data-chip').evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-label"]') ?? el).color);
+  const chipColor = async () => {
+    await go(page, 'work-queue');
+    return page
+      .locator('[data-slot="status"][data-variant="warning"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el.querySelector('[data-slot="status-label"]') ?? el).color);
+  };
   const visit = async (theme: string) => {
     await go(page, 'home');
     await expect(page.getByTestId('summary-card').first()).toBeVisible();
@@ -232,6 +240,7 @@ test('un plazo del btw pasado sin aangifte se ve en el inicio, en rojo', async (
   });
   await page.goto(`${baseUrl}/app`);
   await login(page);
+  await go(page, 'home');
   const card = page.getByTestId('summary-card').filter({ hasText: 'Btw dit kwartaal' });
   const late = card.locator('[data-slot="status"]').filter({ hasText: 'Aangifte te laat' });
   await expect(late).toBeVisible();

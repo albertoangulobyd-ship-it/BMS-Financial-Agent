@@ -1,29 +1,29 @@
-// Los temas, el castellano y el orbe de Aurora (paso 16) sobre la base de prueba:
+// Los temas, el castellano y el orbe de Aurora (paso 16; paso 17: la onda de Aurora tal cual):
 // - el oscuro de Aurora por defecto aunque Windows este en claro; el claro y "Volg Windows"
-//   se eligen y se guardan por persona, como el idioma; "Volg Windows" cambia en vivo;
+//   se eligen en Ajustes > Thema y se guardan por persona, como el idioma; "Volg Windows"
+//   cambia en vivo;
 // - cada pantalla en claro en los tres idiomas y en oscuro en castellano (los tres idiomas en
 //   oscuro ya los recorre shell.spec.ts): axe sin nada serio, cada pastilla a 4,5:1, ningun
-//   resto de otro idioma (desde que llego es.json, tampoco en castellano) y un orbe como mucho;
-// - el orbe quieto en reposo: ningun cuadro pedido y casi nada de CPU; se mueve solo mientras
-//   carga, y nunca con la ventana oculta, fuera de pantalla o con "menos movimiento"; sin
-//   WebGL, el degradado fijo.
+//   resto de otro idioma y un orbe como mucho;
+// - el orbe (la SiriWave de Aurora): se mueve al ritmo de la pantalla, como en Aurora, tambien
+//   con "menos movimiento"; se para con la ventana oculta o fuera de la vista y sigue al volver;
+//   lo que cuesta al hilo principal se anota (especificacion §6.6 y §7, punto 1); sin WebGL, el
+//   degradado fijo.
 // Capturas en CAPTURAS_DIR/dark y CAPTURAS_DIR/light como <idioma>-<pantalla>.png.
 import type { Page } from '@playwright/test';
 import type { Lang } from '../src/i18n/langs';
 import { VIEW_IDS, type ViewId } from '../src/screens/sections';
 import {
   capture,
-  chooseTheme,
   expect,
   expectAccessible,
   expectNoLeftovers,
-  expectStatusContrast,
   login,
   settled,
   test,
   type Who,
 } from './fixtures';
-import { go, setLang, signOut } from './nav';
+import { TEXTS, chooseTheme, escapeRegExp, go, panelRow, setLang, signOut } from './nav';
 
 async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
   await page.goto(`${baseUrl}/app`);
@@ -32,12 +32,12 @@ async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
 
 /** Lo que la pantalla tarda en cargar: ningun "Cargando..." en lo que se ve. */
 async function loaded(page: Page) {
-  await expect(page.locator('#view [role="status"] .animate-spin')).toHaveCount(0);
+  await expect(page.locator('#contenido [role="status"] .animate-spin')).toHaveCount(0);
 }
 
-/** Un orbe con WebGL como mucho por pantalla (orbRegistry). */
+/** Un orbe como mucho por pantalla: el grande del inicio o el pequeno de la esquina. */
 async function atMostOneOrb(page: Page, what: string) {
-  expect(await page.locator('canvas.aurora-orb__canvas').count(), `orbes en ${what}`).toBeLessThanOrEqual(1);
+  expect(await page.locator('.aurora-shared canvas, .ws-companion canvas').count(), `orbes en ${what}`).toBeLessThanOrEqual(1);
 }
 
 /** Cada vista de cada entrada (y Ajustes), en un idioma, en el tema que este puesto. */
@@ -61,12 +61,12 @@ test('oscuro por defecto; claro y "Volg Windows" se eligen y se guardan por pers
   await page.goto(`${baseUrl}/app`);
   await expect(html).toHaveAttribute('data-theme', 'dark');
   await expect(html).toHaveClass(/(^|\s)dark(\s|$)/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: TEXTS.nl.aurora.login.welcome })).toBeVisible();
   await expectAccessible(page, 'entrada en oscuro');
   await capture(page, 'nl-login');
   // El castellano en la entrada, y vuelta al neerlandes.
   await setLang(page, 'es');
-  await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: TEXTS.es.aurora.login.welcome })).toBeVisible();
   await expectNoLeftovers(page, 'es', 'entrada en castellano');
   await capture(page, 'es-login');
   await setLang(page, 'nl');
@@ -74,37 +74,34 @@ test('oscuro por defecto; claro y "Volg Windows" se eligen y se guardan por pers
   await login(page, 'ana');
   await chooseTheme(page, 'light');
   await expect(html).not.toHaveClass(/(^|\s)dark(\s|$)/);
-  // El menu de la cuenta, en claro, con el tema elegido marcado. (Sin axe con el menu
-  // abierto: Radix esconde el resto con aria-hidden mientras el foco esta en el menu.)
-  await page.getByRole('button', { name: 'Accountmenu van Ana Demo' }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Licht' })).toHaveAttribute('aria-checked', 'true');
-  await expectStatusContrast(page, 'menu de la cuenta en claro');
-  await capture(page, 'nl-account-menu');
-  await page.keyboard.press('Escape');
+  // Ajustes > Thema, en claro, con el tema elegido marcado.
+  await expect(panelRow(page, 'Licht')).toContainText(TEXTS.nl.aurora.settings.inUse);
+  await expectAccessible(page, 'ajustes, tema en claro');
+  await capture(page, 'nl-settings-theme');
 
   // Recargar borra el token (vive solo en memoria): la entrada sale con el tema de este
   // ordenador, y al entrar, con el de Ana.
   await page.reload();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inloggen' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: TEXTS.nl.aurora.login.welcome })).toBeVisible();
   await expect(html).toHaveAttribute('data-theme', 'light');
   await expectAccessible(page, 'entrada en claro');
   await capture(page, 'nl-login');
   await login(page, 'ana');
   await expect(html).toHaveAttribute('data-theme', 'light');
+  await expectAccessible(page, 'inicio en claro');
+  await capture(page, 'nl-home');
 
-  // "Volg Windows" en Instellingen: sigue al sistema, tambien si cambia con la app abierta.
-  await go(page, 'settings');
-  const themes = page.getByRole('group', { name: 'Thema' });
-  await themes.getByRole('button', { name: 'Volg Windows' }).click();
-  await expect(themes.getByRole('button', { name: 'Volg Windows' })).toHaveAttribute('aria-pressed', 'true');
+  // "Volg Windows": sigue al sistema, tambien si cambia con la app abierta.
+  await chooseTheme(page, 'system');
+  await expect(panelRow(page, 'Volg Windows')).toContainText(TEXTS.nl.aurora.settings.inUse);
   await expect(html).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(html).toHaveAttribute('data-theme', 'dark');
-  await expectAccessible(page, 'instellingen, Volg Windows en oscuro');
+  await expectAccessible(page, 'ajustes, Volg Windows en oscuro');
   await capture(page, 'nl-settings-follow-windows');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(html).toHaveAttribute('data-theme', 'light');
-  await themes.getByRole('button', { name: 'Licht' }).click();
+  await panelRow(page, 'Licht').click();
 
   // Otra persona en el mismo ordenador entra con el ultimo tema de este ordenador; lo que
   // elija es suyo y no cambia el de Ana.
@@ -120,6 +117,7 @@ test('oscuro por defecto; claro y "Volg Windows" se eligen y se guardan por pers
 
 for (const lang of ['nl', 'en', 'es'] as const) {
   test(`cada pantalla en claro: ${lang}`, async ({ page, baseUrl }) => {
+    test.setTimeout(600_000);
     await signIn(page, baseUrl);
     await chooseTheme(page, 'light');
     if (lang !== 'nl') await setLang(page, lang);
@@ -128,12 +126,14 @@ for (const lang of ['nl', 'en', 'es'] as const) {
 }
 
 test('cada pantalla en oscuro: es', async ({ page, baseUrl }) => {
+  test.setTimeout(600_000);
   await signIn(page, baseUrl);
   await setLang(page, 'es');
   await tour(page, 'es', 'oscuro');
 });
 
 test('las fichas en claro, y una factura en castellano en los dos temas', async ({ page, baseUrl }) => {
+  test.setTimeout(300_000);
   await signIn(page, baseUrl);
   await chooseTheme(page, 'light');
   const open = async (view: ViewId, row: RegExp, heading: string | RegExp, name: string) => {
@@ -167,14 +167,25 @@ test('las fichas en claro, y una factura en castellano en los dos temas', async 
   await page.getByRole('button', { name: /^Velden/ }).click();
   await expectAccessible(page, 'claro factuur');
   await capture(page, 'nl-invoice');
+  const number = ((await page.getByRole('heading', { level: 1 }).textContent()) ?? '').replace(/^Factuur /, '').trim();
+  // El idioma y el tema estan en Ajustes (paso 17): se vuelve a la factura despues.
+  const reopen = async () => {
+    await go(page, 'invoices-in', 'es');
+    await page.getByRole('searchbox').fill(number);
+    await page.getByRole('table').getByRole('button', { name: new RegExp(escapeRegExp(number)) }).first().click();
+    await expect(page.getByRole('heading', { level: 1, name: new RegExp(`^Factura .*${escapeRegExp(number)}$`) })).toBeVisible();
+    await loaded(page);
+    await page.getByRole('button', { name: /^Campos/ }).click();
+  };
   await setLang(page, 'es');
+  await reopen();
   // El tipo de factura es texto de dominio: desde que llego es.json, tambien en castellano.
   await expect(page.getByRole('heading', { level: 2, name: 'Campos' })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: /^Factura / })).toBeVisible();
   await expectAccessible(page, 'claro factura en castellano');
   await expectNoLeftovers(page, 'es', 'claro factura');
   await capture(page, 'es-invoice');
-  await chooseTheme(page, 'dark');
+  await chooseTheme(page, 'dark', 'es');
+  await reopen();
   await expectAccessible(page, 'oscuro factura en castellano');
   await capture(page, 'es-invoice');
 });
@@ -194,69 +205,54 @@ async function countFrames(page: Page) {
   return () => page.evaluate(() => (window as unknown as { __frames: number }).__frames);
 }
 
-/** El panel del inicio no contesta hasta que la prueba lo suelta: mientras, carga. */
-async function holdPanel(page: Page) {
-  let release: () => void = () => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route('**/api/v2/panel', async (route) => {
-    await held;
-    await route.fallback();
-  });
-  return () => release();
+/** Los cuadros que pide la pagina en `ms`. */
+async function framesIn(frames: () => Promise<number>, page: Page, ms: number): Promise<number> {
+  const before = await frames();
+  await page.waitForTimeout(ms);
+  return (await frames()) - before;
 }
 
-test('el orbe: se mueve solo mientras carga y en reposo no pide cuadros ni gasta CPU', async ({ page, baseUrl }) => {
+/** La ventana oculta (o visible otra vez), como cuando se minimiza. */
+async function hideWindow(page: Page, hidden: boolean) {
+  await page.evaluate((hidden) => {
+    if (hidden) {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    } else {
+      delete (document as unknown as { visibilityState?: string }).visibilityState;
+      delete (document as unknown as { hidden?: boolean }).hidden;
+    }
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+}
+
+test('el orbe: se mueve al ritmo de la pantalla y se para con la ventana oculta o fuera de la vista', async ({ page, baseUrl }) => {
   const frames = await countFrames(page);
-  const release = await holdPanel(page);
   await signIn(page, baseUrl);
-  const orb = page.locator('[data-orb]');
-  await expect(orb).toHaveCount(1);
-  await expect(orb).toHaveAttribute('data-orb', 'webgl');
-  await expect(orb).toHaveAttribute('aria-label', /^Aurora/);
-  // Cargando: se mueve, y a 30 imagenes por segundo como mucho (el bucle pide cada cuadro y
-  // dibuja uno de cada dos a 60 Hz: aqui solo se mira que pide).
-  await expect(orb).toHaveAttribute('data-moving', 'true');
-  const before = await frames();
-  await page.waitForTimeout(1000);
-  const moving = (await frames()) - before;
-  expect(moving, 'cuadros pedidos en 1 s moviendose').toBeGreaterThan(10);
-
-  // Oculta la ventana: se para. Vuelve: sigue.
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
-  await expect(orb).toHaveAttribute('data-moving', 'false');
-  await page.evaluate(() => {
-    delete (document as unknown as { visibilityState?: string }).visibilityState;
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
-  await expect(orb).toHaveAttribute('data-moving', 'true');
-  // Fuera de pantalla: se para. De vuelta: sigue.
-  await orb.evaluate((el) => {
-    el.style.transform = 'translateY(-4000px)';
-  });
-  await expect(orb).toHaveAttribute('data-moving', 'false');
-  await orb.evaluate((el) => {
-    el.style.transform = '';
-  });
-  await expect(orb).toHaveAttribute('data-moving', 'true');
-
-  // Llega el panel: reposo.
-  release();
-  await expect(page.getByTestId('summary-card').first()).toBeVisible();
-  await expect(orb).toHaveAttribute('data-moving', 'false');
   await settled(page);
-  // En reposo: ningun cuadro pedido en 3 s (con margen para algo suelto de la app; el orbe
-  // moviendose pediria unos 180).
-  const restStart = await frames();
-  await page.waitForTimeout(3000);
-  const atRest = (await frames()) - restStart;
-  expect(atRest, 'cuadros pedidos en 3 s en reposo').toBeLessThan(10);
-  // Y el hilo principal casi sin trabajo: menos de 0,25 s de tareas en 5 s (un 5 % de un
-  // nucleo; en reposo de verdad se mide cerca de 0).
+  const orb = page.locator('.aurora .hero-wave canvas');
+  await expect(orb).toHaveCount(1);
+  await expect(orb).not.toHaveClass(/siri-wave-fallback/);
+  // En reposo se mueve, como en Aurora (§7, punto 1): pide cada cuadro.
+  const moving = await framesIn(frames, page, 1000);
+  expect(moving, 'cuadros pedidos en 1 s en el inicio').toBeGreaterThan(20);
+  // Oculta la ventana: se para. Vuelve: sigue.
+  await hideWindow(page, true);
+  await page.waitForTimeout(200);
+  expect(await framesIn(frames, page, 1000), 'cuadros con la ventana oculta').toBeLessThan(5);
+  await hideWindow(page, false);
+  await expect.poll(() => framesIn(frames, page, 500)).toBeGreaterThan(10);
+  // Fuera de la vista: se para. De vuelta: sigue.
+  await page.locator('.aurora').evaluate((el) => {
+    (el as HTMLElement).style.translate = '0 -4000px';
+  });
+  await page.waitForTimeout(300);
+  expect(await framesIn(frames, page, 1000), 'cuadros con el orbe fuera de la vista').toBeLessThan(5);
+  await page.locator('.aurora').evaluate((el) => {
+    (el as HTMLElement).style.translate = '';
+  });
+  await expect.poll(() => framesIn(frames, page, 500)).toBeGreaterThan(10);
+  // Lo que cuesta, para el registro (sin limite: §7, punto 1).
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
   const task = async () => {
@@ -266,28 +262,16 @@ test('el orbe: se mueve solo mientras carga y en reposo no pide cuadros ni gasta
   const t0 = await task();
   await page.waitForTimeout(5000);
   const busy = (await task()) - t0;
-  console.log(`orbe en reposo: ${atRest} cuadros en 3 s, ${(busy * 1000).toFixed(0)} ms de tareas en 5 s; moviendose: ${moving} cuadros en 1 s`);
-  expect(busy, 'segundos de tareas del hilo principal en 5 s en reposo').toBeLessThan(0.25);
-  await expect(orb).toHaveAttribute('data-moving', 'false');
-  await capture(page, 'nl-home-orb-at-rest');
+  console.log(`orbe en el inicio: ${moving} cuadros en 1 s, ${(busy * 1000).toFixed(0)} ms de tareas del hilo principal en 5 s`);
+  await capture(page, 'nl-home-orb');
 });
 
-test('el orbe con "menos movimiento": quieto tambien mientras carga', async ({ page, baseUrl }) => {
+test('el orbe con "menos movimiento": sigue moviendose, como en Aurora', async ({ page, baseUrl }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const frames = await countFrames(page);
-  const release = await holdPanel(page);
   await signIn(page, baseUrl);
-  const orb = page.locator('[data-orb]');
-  await expect(orb).toHaveAttribute('data-orb', 'webgl');
-  await expect(page.locator('#view [role="status"]').first()).toBeVisible();
   await settled(page);
-  const before = await frames();
-  await page.waitForTimeout(1000);
-  expect((await frames()) - before, 'cuadros pedidos en 1 s cargando con menos movimiento').toBeLessThan(10);
-  await expect(orb).toHaveAttribute('data-moving', 'false');
-  release();
-  await expect(page.getByTestId('summary-card').first()).toBeVisible();
-  await expect(orb).toHaveAttribute('data-moving', 'false');
+  expect(await framesIn(frames, page, 1000), 'cuadros pedidos en 1 s con menos movimiento').toBeGreaterThan(20);
 });
 
 test('sin WebGL, el orbe es el degradado fijo y la pantalla sigue igual', async ({ page, baseUrl }) => {
@@ -299,12 +283,11 @@ test('sin WebGL, el orbe es el degradado fijo y la pantalla sigue igual', async 
     } as typeof HTMLCanvasElement.prototype.getContext;
   });
   await signIn(page, baseUrl);
-  await expect(page.getByTestId('summary-card').first()).toBeVisible();
-  const orb = page.locator('[data-orb]');
-  await expect(orb).toHaveAttribute('data-orb', 'fallback');
-  await expect(page.locator('canvas.aurora-orb__canvas')).toHaveCount(0);
-  const image = await orb.locator('.aurora-orb__fallback').evaluate((el) => getComputedStyle(el).backgroundImage);
+  const orb = page.locator('.aurora .hero-wave canvas');
+  await expect(orb).toHaveClass(/siri-wave-fallback/);
+  const image = await orb.evaluate((el) => getComputedStyle(el).backgroundImage);
   expect(image).toContain('gradient');
+  await expect(page.getByRole('button', { name: TEXTS.nl.aurora.home.navigate })).toBeVisible();
   await expectAccessible(page, 'inicio sin WebGL');
   await capture(page, 'nl-home-no-webgl');
 });

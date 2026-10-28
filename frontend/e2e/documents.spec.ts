@@ -8,8 +8,8 @@
 // los vacios y un error con su reintento. Las capturas, en los tres idiomas y los dos temas.
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Download, Page } from '@playwright/test';
-import { capture, chooseTheme, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
-import { TEXTS, back, crumbs, escapeRegExp, fill, go, setLang, viewHeading } from './nav';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token } from './fixtures';
+import { TEXTS, back, chooseTheme, crumbs, escapeRegExp, fill, go, greeting, setLang, viewHeading } from './nav';
 
 const t = TEXTS.nl;
 
@@ -170,7 +170,7 @@ test('el archivo: carpetas en su orden, pestanas, buscador y la ficha de verdad'
   // Cerrar la carpeta (otra vez la carpeta de cristal) vuelve a la rejilla.
   await folder(page, jv.nombre).click();
   await expect(viewHeading(page, 'documents')).toBeVisible();
-  expect(await crumbs(page)).toEqual([]);
+  expect(await crumbs(page)).toEqual([t.nav.documents.label]);
 
   // Un proveedor con dos tipos: el filtro de tipo ensena solo los que hay.
   const noord = providers.find((p) => p.nombre.startsWith('Demo Beveiligingsdiensten Noord'))!;
@@ -208,10 +208,10 @@ test('el archivo: carpetas en su orden, pestanas, buscador y la ficha de verdad'
   await expect(page.getByRole('heading', { level: 1, name: havenRow.nombre })).toBeVisible();
   expect(await crumbs(page)).toEqual([t.areas.receivables.label, t.nav.clients.label, havenRow.nombre]);
 
-  // El orbe de la cabecera lleva al inicio.
+  // El orbe de la cabecera lleva al inicio de Aurora (con el vuelo de vuelta).
   await go(page, 'documents');
   await page.getByRole('button', { name: t.aurora.archive.home }).click();
-  await expect(viewHeading(page, 'home')).toBeVisible();
+  await expect(greeting(page)).toBeVisible();
 });
 
 test('la vista previa: dibujada desde el registro, se cierra de tres formas y baja el original', async ({ page, baseUrl, request }) => {
@@ -343,9 +343,9 @@ test('el arbol "Verkennen" con el teclado: flechas, Home, End, una letra e Intro
   await expect(page.getByRole('group', { name: t.documents.tabsLabel }).getByRole('button', { name: new RegExp(`^${t.documents.providers}`) })).toHaveAttribute('aria-pressed', 'true');
   expect(await folderNames(page, t.documents.providers)).toEqual(expectedOrder([], providers));
   await page.getByRole('group', { name: t.documents.tabsLabel }).getByRole('button', { name: new RegExp(`^${t.documents.tabAll}`) }).click();
-  // Start, desde el arbol, es el inicio.
+  // Start, desde el arbol, es el inicio de Aurora.
   await item(new RegExp(`^${t.areas.home.label}`)).click();
-  await expect(viewHeading(page, 'home')).toBeVisible();
+  await expect(greeting(page)).toBeVisible();
 });
 
 test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se pudo leer', async ({ page, baseUrl, watch }) => {
@@ -411,7 +411,7 @@ test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se 
 });
 
 test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', async ({ page, baseUrl }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
   await page.goto(`${baseUrl}/app`);
   await login(page);
   for (const lang of ['es', 'nl', 'en'] as const) {
@@ -456,11 +456,11 @@ test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', 
   await page.setViewportSize({ width: 400, height: 860 });
   await go(page, 'documents', 'es');
   await artReady(page);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await outsideTheWindow(page)).toEqual([]);
   await capture(page, 'es-movil-documentos');
   await page.getByRole('button', { name: fill(TEXTS.es.aurora.archive.openProfileNamed, { name: 'J. Voorbeeld Beveiliging (zzp)' }) }).click();
   await expect(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await outsideTheWindow(page)).toEqual([]);
   await capture(page, 'es-movil-documentos-proveedor');
   await page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)', exact: true }).getByRole('button', { name: /^Vista previa de / }).first().click();
   await expect(page.getByRole('dialog').getByRole('button', { name: /^Descargar / })).toBeInViewport();

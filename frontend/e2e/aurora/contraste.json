@@ -1,0 +1,83 @@
+{
+  "_nota": "Los grises de Aurora que no llegan a 4,5:1 en el tema oscuro (especificacion §6.6 y §7, punto 9): se dejan exactos, como en las hojas del dueno, y se apuntan aqui con su sitio (una expresion regular sobre el selector de axe) y su par de colores. Solo valen en oscuro; en lo nuestro (L0, avisos, bandas) y en el tema claro, el contraste sigue siendo puerta. Lo lee e2e/fixtures.ts (expectAccessible).",
+  "casos": [
+    {
+      "selector": "\\.nav-item|button\\[data-entry=",
+      "fg": "#544e60",
+      "bg": "#08090b",
+      "donde": "las entradas apagadas de la rueda (styles.css: .nav-item)"
+    },
+    {
+      "selector": "\\.panel-top",
+      "fg": "#77717f",
+      "bg": "#101015",
+      "donde": "«ESPACIO DE TRABAJO» arriba del panel (styles.css: .panel-top)"
+    },
+    {
+      "selector": "\\.sample-label",
+      "fg": "#6c6578",
+      "bg": "#101015",
+      "donde": "la linea de los datos del panel (styles.css: .sample-label)"
+    },
+    {
+      "selector": "\\.list-title",
+      "fg": "#82778d",
+      "bg": "#101015",
+      "donde": "el titulo de una lista del panel (styles.css: .list-title)"
+    },
+    {
+      "selector": "small",
+      "fg": "#6e657a",
+      "bg": "#101015",
+      "donde": "lo gris de una fila del panel (styles.css: .doc small)"
+    },
+    {
+      "selector": "\\.search-filter-hint",
+      "fg": "#61536f",
+      "bg": "#08090b",
+      "donde": "la pista debajo de la caja de buscar (search-workspace.css: .search-filter-hint)"
+    },
+    {
+      "selector": "small",
+      "fg": "#62506f",
+      "bg": "#08090b",
+      "donde": "«Nieuwste eerst» en la cabecera de los resultados (search-workspace.css: .search-results-heading small)"
+    },
+    {
+      "selector": "\\.result-info",
+      "fg": "#756080",
+      "bg": "#08090b",
+      "donde": "la empresa, el tipo y la fecha de un resultado (search-workspace.css: .result-info>span)"
+    },
+    {
+      "selector": "\\.amount-ticks|^span(:nth-child\\(\\d+\\))?$",
+      "fg": "#604d6d",
+      "bg": "#08090b",
+      "donde": "las marcas de la barra del importe en los filtros (search-workspace.css: .amount-ticks)"
+    },
+    {
+      "selector": "\\.filter-amount-section",
+      "fg": "#6f5b7d",
+      "bg": "#08090b",
+      "donde": "la frase del filtro de importe (search-workspace.css: .filter-amount-section>p)"
+    },
+    {
+      "selector": "#asof",
+      "fg": "#666668",
+      "bg": "#08090b",
+      "donde": "la fecha de los datos arriba del resumen general (finance-bento-component.css: var(--t3))"
+    },
+    {
+      "selector": "\\.muted",
+      "fg": "#6b6b6d",
+      "bg": "#111113",
+      "donde": "la línea gris de las tarjetas del resumen general (finance-bento-component.css: .fpb .muted, var(--t3))"
+    },
+    {
+      "selector": "\\.mono",
+      "fg": "#727374",
+      "bg": "#1c1d1f",
+      "donde": "las cifras pequeñas en letra fija del resumen general (finance-bento-component.css: .fpb .mono)"
+    }
+  ]
+}

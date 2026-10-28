@@ -1,18 +1,20 @@
-// La busqueda con filtros (revision del paso 16: §1b filas 28 a 35, que no estaban montadas).
-// Se llega desde Ctrl+K y desde la caja del inicio con lo escrito; los filtros salen en
-// pastillas con su X, "Filters" lleva cuantos hay, "Filters wissen" los quita, "Opnieuw
-// beginnen" lo quita todo, un resultado abre su factura y "Terug" vuelve a la busqueda como
-// estaba, y "Sluiten" vuelve a donde se estaba. Cada resultado es lo que dice el motor
-// (GET /api/v2/buscar con los mismos filtros). En los tres idiomas, con axe y sin restos.
+// La busqueda de Aurora (E5, paso 17; la de filtros del paso 16 se fue con su pantalla): se
+// llega por la entrada «Zoeken» de la rueda y por «Zoeken met filters» de una respuesta de la
+// conversacion, con lo escrito. La caja busca en /api/v2/buscar tras la espera de Aurora (1,5 s
+// pensando); el filtro de empresa sale en su pastilla con su X, «Filters wissen» los quita y
+// «Opnieuw beginnen» lo quita todo; un resultado abre su factura (con el vuelo del orbe). Cada
+// resultado es lo que dice el motor con los mismos filtros. En los tres idiomas, con axe y sin
+// restos de otro idioma. Mientras se busca, la rueda no esta (la regla del dueno).
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { PartyRow } from '../src/lib/api-types';
 import type { Lang } from '../src/i18n/langs';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
-import { TEXTS, back, crumbs, fill, go, setLang, viewHeading } from './nav';
+import { TEXTS, auroraRoot, crumbs, entryLabel, fill, landed, openEntry, openMenu, setLang, wheel } from './nav';
 
 const t = TEXTS.nl;
 
+/** El motor, con lo que manda la busqueda (searchQuery: 50 como mucho, por fecha). */
 async function engine(request: APIRequestContext, baseUrl: string, query: Record<string, string>): Promise<{ total: number; facturas: InvoiceRow[] }> {
   const params = new URLSearchParams({ limite: '50', orden: 'fecha', ...query });
   const response = await request.get(`${baseUrl}/api/v2/buscar?${params}`, { headers: { 'X-BMS-Token': token('ana') } });
@@ -20,141 +22,120 @@ async function engine(request: APIRequestContext, baseUrl: string, query: Record
   return ((await response.json()) as { busqueda: { total: number; facturas: InvoiceRow[] } }).busqueda;
 }
 
+const box = (page: Page, lang: Lang = 'nl') => page.getByRole('textbox', { name: TEXTS[lang].aurora.composer.searchLabel });
 const results = (page: Page, lang: Lang = 'nl') => page.getByRole('region', { name: TEXTS[lang].aurora.search.resultsLabel });
-const resultButtons = (page: Page, lang: Lang = 'nl') => results(page, lang).getByRole('button');
-const toggle = (page: Page, lang: Lang = 'nl') => page.getByRole('button', { name: new RegExp(`^${TEXTS[lang].aurora.search.filters}(?: \\d+)?$`) });
-/** "Zoeken" del formulario (el de la cabecera abre Ctrl+K). */
-const submit = (page: Page, lang: Lang = 'nl') =>
-  page.getByRole('search', { name: TEXTS[lang].finder.title }).getByRole('button', { name: TEXTS[lang].finder.submit, exact: true }).first();
+const links = (page: Page, lang: Lang = 'nl') => results(page, lang).getByRole('link');
+const toggle = (page: Page, lang: Lang = 'nl') => page.getByRole('button', { name: new RegExp(`^${TEXTS[lang].aurora.search.filters}( \\d+)?$`) });
 
-/** Lo que ensena la pantalla es lo que dice el motor: cuantas y cuales, en su orden. */
-async function sameAsEngine(page: Page, found: { total: number; facturas: InvoiceRow[] }) {
-  if (found.total === 0) {
-    await expect(page.getByText(t.aurora.search.noMatches)).toBeVisible();
-    return;
-  }
-  await expect(results(page)).toContainText(found.total === 1 ? t.finder.headingOne : fill(t.finder.heading, { n: found.total }));
-  await expect(resultButtons(page)).toHaveCount(found.facturas.length);
-  const names = await resultButtons(page).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
-  expect(names).toEqual(found.facturas.map((f) => fill(t.common.openRecord, { what: `${t.records.invoice.label} ${f.numero ?? f.id}` })));
+/** Busca lo escrito y espera a que pase la espera de Aurora. Mientras piensa (tambien por un
+ *  filtro que se acaba de cambiar), Intro no busca, como en Aurora: se espera antes. */
+async function search(page: Page, text: string, lang: Lang = 'nl') {
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
+  await box(page, lang).fill(text);
+  await box(page, lang).press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: TEXTS[lang].aurora.search.thinking })).toBeVisible();
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
 }
 
-test('la busqueda con filtros: lo escrito, cada filtro en su pastilla, limpiar, empezar de nuevo, abrir y cerrar', async ({ page, baseUrl, request }) => {
+/** Lo que ensena la busqueda es lo que dice el motor: cuantas y cuales, en su orden. */
+async function sameAsEngine(page: Page, found: { total: number; facturas: InvoiceRow[] }, lang: Lang = 'nl') {
+  const s = TEXTS[lang].aurora.search;
+  if (found.total === 0) {
+    await expect(page.getByText(s.noMatches)).toBeVisible();
+    return;
+  }
+  await expect(results(page, lang)).toContainText(found.total === 1 ? s.foundOne : fill(s.found, { n: found.total }));
+  await expect(links(page, lang)).toHaveCount(found.facturas.length);
+  const numbers = await links(page, lang).locator('.result-info strong').allTextContents();
+  expect(numbers).toEqual(found.facturas.map((f) => f.numero ?? fill(TEXTS[lang].records.invoice.fallbackTitle, { id: f.id })));
+}
+
+test('la busqueda (E5): lo escrito, el filtro de empresa en su pastilla, limpiar, empezar de nuevo y abrir', async ({ page, baseUrl, request }) => {
   const providers = ((await (await request.get(`${baseUrl}/api/v2/proveedores`, { headers: { 'X-BMS-Token': token('ana') } })).json()) as { proveedores: PartyRow[] })
     .proveedores;
   const jv = providers.find((p) => p.nombre.startsWith('J. Voorbeeld'))!;
 
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // Desde Te betalen, con Ctrl+K: lo escrito pasa a la busqueda con filtros.
-  await go(page, 'payables');
-  await page.keyboard.press('Control+k');
-  const palette = page.getByRole('dialog', { name: t.palette.title });
-  await palette.getByRole('combobox').fill('JV');
-  await palette.getByRole('button', { name: t.finder.withFilters }).click();
-  await expect(page.getByRole('heading', { level: 1, name: t.finder.title })).toBeVisible();
-  expect((await crumbs(page)).at(-1)).toBe(t.records.search.fallbackTitle);
-  await expect(page.getByLabel(t.finder.query)).toHaveValue('JV');
+  await openEntry(page, 'search');
+  // El saludo cambia y la rueda se va; la caja es la de buscar, con el foco.
+  await expect(page.getByRole('heading', { level: 1, name: t.aurora.home.searchTitle })).toBeVisible();
+  await expect(wheel(page)).toHaveCount(0);
+  await expect(box(page)).toBeFocused();
+  await search(page, 'JV');
   await sameAsEngine(page, await engine(request, baseUrl, { texto: 'JV' }));
   await expectAccessible(page, 'zoeken');
   await expectNoLeftovers(page, 'nl', 'zoeken');
   await capture(page, 'nl-search');
 
-  // Filters: el contador, el panel, y cada filtro como una pastilla que se quita con su X.
+  // Filters: el de la empresa, en su pastilla con su X; el contador lo cuenta.
   await toggle(page).click();
   await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
-  await page.getByLabel(t.finder.party).selectOption(`proveedor:${jv.id}`);
+  await page.getByRole('combobox', { name: t.aurora.search.partyChoose }).click();
+  await page.getByRole('combobox', { name: t.aurora.search.partySearchLabel }).fill('Voorbeeld');
+  await page.getByRole('option', { name: new RegExp(jv.nombre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first().click();
   await expect(toggle(page)).toContainText('1');
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
   await sameAsEngine(page, await engine(request, baseUrl, { texto: 'JV', proveedor_id: String(jv.id) }));
-  await page.getByLabel(t.finder.kind).selectOption('factura');
-  await page.getByLabel(t.finder.dateFrom).fill('01-01-2026');
-  await page.getByLabel(t.finder.dateTo).fill('31-12-2026');
-  await page.getByLabel(`${t.finder.amountFrom} (€)`).fill('100');
-  await submit(page).click();
-  await expect(toggle(page)).toContainText('5');
-  const filtered = { texto: 'JV', proveedor_id: String(jv.id), tipo: 'factura', fecha_desde: '2026-01-01', fecha_hasta: '2026-12-31', importe_min: '100,00' };
-  await sameAsEngine(page, await engine(request, baseUrl, filtered));
-  for (const chip of [jv.nombre, 'Vanaf 01-01-2026', 'Tot en met 31-12-2026', 'Vanaf € 100,00']) {
-    await expect(page.getByRole('button', { name: fill(t.aurora.search.removeFilter, { name: chip }) })).toBeVisible();
-  }
+  const chip = page.locator('.active-filter-chips button').filter({ hasText: jv.nombre });
+  await expect(chip).toBeVisible();
+  await settled(page);
   await expectAccessible(page, 'zoeken met filters');
   await capture(page, 'nl-search-filters');
-  await page.getByRole('button', { name: fill(t.aurora.search.removeFilter, { name: 'Tot en met 31-12-2026' }) }).click();
-  await expect(toggle(page)).toContainText('4');
-  const { fecha_hasta: _dropped, ...withoutTo } = filtered;
-  await sameAsEngine(page, await engine(request, baseUrl, withoutTo));
-  // Lo que no se entiende se dice, y no se busca.
-  await page.getByLabel(`${t.finder.amountTo} (€)`).fill('veel');
-  await submit(page).click();
-  await expect(page.getByRole('search', { name: t.finder.title }).getByRole('alert')).toContainText(fill(t.finder.badAmount, { field: t.finder.amountTo }));
-  await page.getByLabel(`${t.finder.amountTo} (€)`).fill('');
-  // El pago: vervallen.
-  await page.getByLabel(t.finder.payment).selectOption('vencida');
-  await sameAsEngine(page, await engine(request, baseUrl, { ...withoutTo, vencida: 'si' }));
-  // Filters wissen: sin pastillas, sin contador; lo escrito se queda.
-  await page.getByRole('button', { name: new RegExp(`^${t.aurora.search.clearFilters}`) }).click();
-  await expect(page.getByRole('button', { name: new RegExp(`^${t.aurora.search.removeFilter.split('{')[0]}`) })).toHaveCount(0);
-  await expect(page.getByLabel(t.finder.query)).toHaveValue('JV');
+  // La X de la pastilla lo quita; «Filters wissen» tambien (lo escrito se queda).
+  await chip.click();
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
   await sameAsEngine(page, await engine(request, baseUrl, { texto: 'JV' }));
+  await page.getByRole('combobox', { name: t.aurora.search.partyChoose }).click();
+  await page.getByRole('option', { name: new RegExp(jv.nombre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first().click();
+  await page.getByRole('button', { name: new RegExp(`^${t.aurora.search.clearFilters}`) }).click();
+  await expect(page.locator('.active-filter-chips')).toHaveCount(0);
+  await expect(box(page)).toHaveValue('JV');
 
-  // Un resultado abre su factura; Terug vuelve a la busqueda tal como estaba.
-  await page.getByLabel(t.finder.kind).selectOption('factura');
-  const first = resultButtons(page).first();
-  const name = (await first.getAttribute('aria-label'))!;
-  await first.click();
-  await expect(page.getByRole('heading', { level: 1, name: new RegExp(`${name.split(' ').slice(1, 2)[0]}$`) })).toBeVisible();
-  await back(page);
-  await expect(page.getByLabel(t.finder.kind)).toHaveValue('factura');
-  await expect(page.getByLabel(t.finder.query)).toHaveValue('JV');
-
-  // Sin nada que encaje: "Niets gevonden" y "Opnieuw beginnen", que lo quita todo.
-  await page.getByLabel(t.finder.query).fill('zzzz-geen-factuur');
-  await submit(page).click();
+  // Sin nada que encaje: «Niets gevonden» y «Opnieuw beginnen», que lo quita todo.
+  await search(page, 'zzzz-geen-factuur');
   await expect(page.getByText(t.aurora.search.noMatches)).toBeVisible();
   await capture(page, 'nl-search-empty');
   await page.getByRole('button', { name: t.aurora.search.startOver }).click();
-  await expect(page.getByLabel(t.finder.query)).toHaveValue('');
-  await expect(page.getByText(t.finder.start)).toBeVisible();
+  await expect(box(page)).toHaveValue('');
+  await expect(results(page)).toHaveCount(0);
 
-  // Sluiten: vuelve a donde se estaba (Te betalen).
-  await page.getByRole('button', { name: t.finder.close, exact: true }).click();
-  await expect(viewHeading(page, 'payables')).toBeVisible();
+  // Un resultado abre su factura, en su lista, con el vuelo del orbe.
+  await search(page, 'JV');
+  const first = links(page).first();
+  const number = ((await first.locator('.result-info strong').textContent()) ?? '').trim();
+  await first.click();
+  await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'work');
+  await landed(page);
+  await expect(page.getByRole('heading', { level: 1, name: new RegExp(`${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })).toBeVisible();
+  expect(await crumbs(page)).toEqual([entryLabel('payables'), t.nav['invoices-in'].label, number]);
 });
 
-test('desde la caja del inicio, con lo escrito; y en ingles y en castellano', async ({ page, baseUrl, request }) => {
+test('«Zoeken met filters» desde la conversacion, con lo escrito; y en ingles y en castellano', async ({ page, baseUrl, request }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const box = page.getByRole('textbox', { name: t.ask.label });
-  await box.fill('VD26');
-  await box.press('Enter');
-  await page.getByRole('button', { name: t.finder.withFilters }).click();
-  await expect(page.getByRole('heading', { level: 1, name: t.finder.title })).toBeVisible();
-  await expect(page.getByLabel(t.finder.query)).toHaveValue('VD26');
+  // La conversacion encuentra «VD26» y ofrece buscarlo con filtros (E4 → E5).
+  const ask = page.getByRole('textbox', { name: t.aurora.composer.askLabel });
+  await ask.fill('VD26');
+  await ask.press('Enter');
+  await page.getByRole('button', { name: t.aurora.chat.withFilters }).click();
+  await expect(page.getByRole('heading', { level: 1, name: t.aurora.home.searchTitle })).toBeVisible();
+  await expect(box(page)).toHaveValue('VD26');
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
   await sameAsEngine(page, await engine(request, baseUrl, { texto: 'VD26' }));
   for (const lang of ['en', 'es'] as Lang[]) {
-    const tx = TEXTS[lang];
     await setLang(page, lang);
-    await expect(page.getByRole('heading', { level: 1, name: tx.finder.title })).toBeVisible();
+    await openMenu(page, lang);
+    await openEntry(page, 'search', lang);
+    await expect(page.getByRole('heading', { level: 1, name: TEXTS[lang].aurora.home.searchTitle })).toBeVisible();
+    await search(page, 'VD26', lang);
+    await sameAsEngine(page, await engine(request, baseUrl, { texto: 'VD26' }), lang);
     await toggle(page, lang).click();
-    await page.getByLabel(tx.finder.payment).selectOption('pendiente');
-    await expect(results(page, lang)).toBeVisible();
     await settled(page);
     await expectAccessible(page, `${lang} zoeken`);
     await expectNoLeftovers(page, lang, `${lang} zoeken`);
     await capture(page, `${lang}-search-filters`);
-    await page.getByRole('button', { name: new RegExp(`^${tx.aurora.search.clearFilters}`) }).click();
-    await toggle(page, lang).click();
   }
   await setLang(page, 'nl');
-  // "Betaald" lleva su fuente, como en las listas (decision 5): el banco, Exact o a mano.
-  await toggle(page).click();
-  await page.getByLabel(t.finder.payment).selectOption('pagada');
-  const paid = await engine(request, baseUrl, { texto: 'VD26', pagada: 'si' });
-  await sameAsEngine(page, paid);
-  const sourced = paid.facturas.filter((f) => f.fuente_pago);
-  expect(sourced.length, 'hay ventas cobradas con su fuente').toBeGreaterThan(0);
-  for (const f of sourced) {
-    const source = f.fuente_pago === 'banco' ? t.payments.listBank : f.fuente_pago === 'exact' ? t.payments.listExact : t.payments.listManual;
-    await expect(resultButtons(page).filter({ hasText: f.numero! }).first()).toContainText(`Betaald · ${source}`);
-  }
 });
