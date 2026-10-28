@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "2628c8c128f905ae59439e447c6fbed4c9ee093c02a46470d2a15c70eba393dc",
+  "sha256": "becc6ad06abf62f3975620870d21a68af8c75c42f6c1470bf91c914c8802b594",
   "entradas": {
     "frontend/build-inputs.json": "99e9fb2611088e18e267497e5a1d48a1804dd867d080461d341357b78761e536",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -47,7 +47,7 @@
     "frontend/src/aurora/thinking-orb/renderer.ts": "50789e5e30e7d543dc77469157f33eafd9943d592d30e6603d9fb5e615e30a62",
     "frontend/src/aurora/thinking-orb/thinking-orb.tsx": "faff43bb0f79f0f53adbb0adc82e5f22d96357365e09315b14cdac761c0713e5",
     "frontend/src/aurora/wheel.tsx": "5641bdc0bea1460cbc73c2e4fbc1dac90f0b3b5836c12d395803b79a5ea746ab",
-    "frontend/src/components/action-dialog.tsx": "ff9674bdd0bb527f5e57ee9765705029067e659dee2e36eff33bf3624652f4b5",
+    "frontend/src/components/action-dialog.tsx": "04db32d0c86d06ee2d4a7adc4f51b14924ae4cc08ee9f01ff4ffb282b567e08b",
     "frontend/src/components/attention-list.tsx": "4c5a616898001e3b19bd7ea8ebbfdfab321e22cae28257c24daa235c48db1dba",
     "frontend/src/components/data-table.tsx": "ee4f617a12b778129afe1c8125fe55d97a53bac0ed516b36c0e35df23b933561",
     "frontend/src/components/exception-block.tsx": "6ae6b332b7706f81367107648687edbfa8b238dd314936ef1bf2b8093d9d0668",
@@ -170,11 +170,11 @@
     "assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2": "0717336fb31fcdcde4b8deb3675bb4a0f7f6d484864afcd6751ac29975962203",
     "assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2": "8960851d691c054ed38e259bdcf1a6190d157b4203ed5bb32c632a863fb8ec2f",
     "assets/ibm-plex-sans-latin-700-normal-Bxkt5Cjx.woff2": "42e7b0c143c19df9d99fd896e76b48f846edf0902d200bc29796b34d12c33aa7",
-    "assets/index-BWs2Ztvi.js": "181bc1ec12a1b2be68c45e8a399e8cd7c0dfabfec17a6586b3c7b872ea6363af",
+    "assets/index-C99kBvTD.js": "1d81b0f92b091ef8d3591d8551778efcab4ec6ae87b566a3dd7a2833ab4fd45a",
     "assets/style-lOA9ExQj.css": "50113a7390a9396a4a1f79ac70fca7f059182fec7a2e67ff7b86e6ee55676d82",
     "assets/textos-QHGYXPfU.js": "6c07c0ae32f615b4a7c18d9957ba6c8a2dff210450123d8fe4286f36e01e91c0",
     "assets/vendor-CFd_PqW3.js": "21c740d227d123bd9aaf8dda6ea95cd18a31bd7b67233b4db9b3fdaad8823f25",
-    "index.html": "5bf758d2f722440825756056e16fbd0d92040bf09c61fd3c17cd0aa61682ada8",
+    "index.html": "fba8b8385f24cb54e96c39120066fd990cbde48765f0a77aa485f60eb9dc5b15",
     "licenses/ibm-plex-mono-OFL.txt": "23b0a9d0c6d3f140a0b77e483c5cfa6bba574325ef5cb189ed9f2fec4884533f",
     "licenses/ibm-plex-sans-OFL.txt": "d0283623ef57e722fd0eb688a8041589670c608ab780cd3612d06ba6f153d3fd"
   }

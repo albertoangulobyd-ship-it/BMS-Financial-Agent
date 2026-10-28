@@ -146,4 +146,15 @@ test('desde la caja del inicio, con lo escrito; y en ingles y en castellano', as
     await toggle(page, lang).click();
   }
   await setLang(page, 'nl');
+  // "Betaald" lleva su fuente, como en las listas (decision 5): el banco, Exact o a mano.
+  await toggle(page).click();
+  await page.getByLabel(t.finder.payment).selectOption('pagada');
+  const paid = await engine(request, baseUrl, { texto: 'VD26', pagada: 'si' });
+  await sameAsEngine(page, paid);
+  const sourced = paid.facturas.filter((f) => f.fuente_pago);
+  expect(sourced.length, 'hay ventas cobradas con su fuente').toBeGreaterThan(0);
+  for (const f of sourced) {
+    const source = f.fuente_pago === 'banco' ? t.payments.listBank : f.fuente_pago === 'exact' ? t.payments.listExact : t.payments.listManual;
+    await expect(resultButtons(page).filter({ hasText: f.numero! }).first()).toContainText(`Betaald · ${source}`);
+  }
 });

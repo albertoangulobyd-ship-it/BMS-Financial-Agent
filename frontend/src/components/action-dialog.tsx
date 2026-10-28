@@ -194,7 +194,12 @@ export function ActionDialog({
               <FieldInput
                 field={field}
                 value={values[field.name] ?? ''}
-                onChange={(v) => setValues((old) => ({ ...old, [field.name]: v }))}
+                onChange={(v) => {
+                  setValues((old) => ({ ...old, [field.name]: v }));
+                  // Lo que faltaba ya se esta arreglando: el aviso no se queda al lado de lo
+                  // elegido ("Vul Factuur in" con la factura ya elegida).
+                  setProblem(null);
+                }}
               />
               {/* Lo que se va a guardar, justo debajo de lo que se escribe. */}
               {index === 0 && preview?.(apiValues(fields, values))}

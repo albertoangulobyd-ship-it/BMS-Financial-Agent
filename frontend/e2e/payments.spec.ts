@@ -134,6 +134,16 @@ test('las cifras de cobrar y pagar: la tarjeta del inicio, la pantalla, los tram
     await expect(page.getByRole('main')).toContainText(held.numero ?? '');
   }
   await expect(page.getByRole('main')).toContainText('IBAN niet betaalbaar');
+  // Dos facturas con el mismo numero y la misma empresa llevan su "1 van 2" y "2 van 2", como
+  // en las listas (revision del paso 16: JV-2026-007 salia dos veces igual en lo retenido).
+  const shown = [...week.facturas, ...(out.retenido.lista ?? []).filter((f) => !week.facturas.some((w) => w.id === f.id))];
+  const repeated = shown.filter((f) => shown.filter((g) => g.numero === f.numero && g.parte === f.parte).length > 1);
+  expect(repeated.length, 'la base de prueba retiene dos facturas con el mismo numero').toBeGreaterThanOrEqual(2);
+  const weekRegion = page.getByRole('region', { name: new RegExp(`^${escapeRegExp(fill(t.money.week.title, { date: '' }).trim())}`) });
+  for (const n of [1, 2]) {
+    const name = fill(t.common.openRecord, { what: `${t.records.invoice.label} ${repeated[0]!.numero} (${fill(t.common.twin, { n, of: 2 })})` });
+    await expect(weekRegion.getByRole('button', { name, exact: true })).toHaveCount(1);
+  }
   await ageing.click();
   await expect(ageing).toHaveAttribute('aria-expanded', 'true');
   const overdue = out.tramos.find((b) => b.clave !== 'al_corriente' && b.facturas > 0)!;
@@ -251,6 +261,8 @@ test('enlazar una linea del banco a su factura: desde el banco y desde la factur
   await expect(dialog.getByRole('alert')).toContainText(fill(t.action.required, { field: t.payments.invoiceField }));
   expect(sent).toEqual([]);
   await choice.selectOption(String(target.id));
+  // Lo que faltaba ya esta elegido: el aviso no se queda al lado.
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
   await capture(page, 'nl-bank-link');
   await dialog.getByRole('button', { name: 'Betaling vastleggen' }).click();
   await expect(dialog).toBeHidden();

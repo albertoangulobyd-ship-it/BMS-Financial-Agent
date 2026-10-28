@@ -8501,3 +8501,141 @@ transferencia: dice qué dinero **ya se movió**. El detalle, en
   causado (desviación 6).
 - `npm run typecheck` sin errores, `npm run build` sin el aviso del tamaño y lo construido al
   día (`npm run fuente`).
+
+## Paso 16 · correcciones de la revisión
+
+La revisión del paso 16 dejó **18 hallazgos** (un bloqueante, seis importantes y once menores).
+Se miraron todos contra el código y la base de prueba (`scripts/crear_demo_e2e.py`) y **los 18
+eran de verdad**: se corrigieron, cada uno con una prueba que falla antes y pasa después cuando
+se puede; los de redacción y aspecto, además, mirando las capturas nuevas
+(`app-capturas/paso16/final`). El 7 tenía dos salidas; se tomó la que pide el dueño («todas las
+interacciones tienen que funcionar»): la búsqueda con filtros está montada, y lo que de verdad
+espera a otro paso queda dicho fila a fila (abajo).
+
+| # | Hallazgo | Qué se hizo | Dónde se comprueba |
+| --- | --- | --- | --- |
+| 1 | `GET /api/v2/documentos/N/original` **bajaba cualquier documento por su id correlativo**: con `ver_facturas` (también el rol consulta) salían los maestros de Exact con cada IBAN y su teléfono de verificación, la lista del personal, la planificación y cada extracto | `consultas.documento_de_descarga` solo da un documento que algún registro enlaza (`factura.documento_id`, `aplicacion_pago.evidencia_documento_id`, `orden_compra.documento_id`, `orden_compra_modificacion.documento_id`: lo que llena la carpeta de una parte); lo demás es `404 no_existe`, como un id que no existe y sin evento, también para un administrador. Un extracto baja solo si es el justificante de un pago. [integracion-web.md](../integracion-web.md) lo dice | `tests/test_cartera.py::test_solo_se_descarga_lo_que_un_registro_enlaza` (los tres ficheros de importación de Exact y contactos y un segundo extracto que nadie da como justificante: 404 para Dora, de consulta, y para Ana, ningún `documento_abierto`; el extracto justificante y las dos hojas de PO, 200). Sin el arreglo falla: Dora baja `exact-proveedores-v1.csv` (200) |
+| 2 | «Aan een factuur koppelen» **venía con la primera factura elegida** (la de más prioridad, sin nada que ver con la línea): confirmar sin mirar dejaba otra factura «pagada según el banco», sin K3 | El desplegable empieza en «Kies een factuur» y sin elegir no se manda nada (`required` y `validate`); `linkCandidates` (`money-model.ts`) pone primero, sin elegirlas, las que parecen de la línea (lo que queda es lo de la línea, o su número sale en el concepto o la referencia), marcadas «past bij deze bankregel»; dos con el mismo número llevan su «1 van 2» | `money-model.test.ts` («enlazar una linea del banco…»); `e2e/payments.spec.ts` «enlazar una linea…» (el valor vacío, la primera opción, la marcada; enviar sin elegir dice el campo obligatorio y **no sale ninguna petición**; al elegir, el aviso se va, y después sale una). El aviso de un campo que falta se quita al tocar un campo en todos los diálogos de órdenes (`action-dialog.tsx`): se quedaba al lado de lo ya elegido |
+| 3 | Con la caché de otro día, **la ficha «Vervallen» se quedaba corta** de la cifra «Vervallen» que la abría (con el reloj 10 días adelante: 1 factura frente a 3 al pagar, 1 frente a 4 al cobrar) | `matchesFilter('vencida')` va por el hoy del motor, como los tramos (`isOverdue(vencimiento, cartera.hoy)`); sin la cartera todavía, la caché. La columna Stand dice el estado con ese mismo hoy (`livePaymentState`: una deuda en juego con el vencimiento pasado es «vencida»), así ya no sale «pendiente» al lado de «10 dagen te laat» | `money-model.test.ts` («"vencida" va por el hoy del motor…», con filas en «pendiente» y vencidas, que dan lo mismo que los tramos de retraso; «la fila dice el estado de pago con el hoy del motor»); `tests/test_cartera.py::test_lo_vencido_de_las_listas_es_lo_de_la_cartera_con_la_cache_vieja` (el 14-10, el 20-11 y el 31-01, sin rehacer la caché: lo que filtra la app suma `totales.vencido_cent` y cuenta `vencidas`) |
+| 4 | En las listas, **«Betaald» iba sin su fuente** (decisión 5) | Contrato 2.4: cada fila de las listas y de la búsqueda lleva `fuente_pago` (`banco`, `exact`, `manual` o `null`, de `v_factura_saldo`, la que manda). La columna Stand pone debajo de «Betaald» «volgens de bank», «volgens Exact» o «met de hand, nog niet in de bank», y el aviso K3 mientras siga abierto | `test_cartera.py::test_cada_factura_de_las_listas_dice_de_donde_sale_lo_pagado`; `e2e/payments.spec.ts` «apuntar un pago…» (la ficha «Betaald» de Inkoopfacturen: la factura apuntada a mano dice «met de hand, nog niet in de bank»; en Verkoopfacturen, una cobrada según el banco); `e2e/search.spec.ts` (en la búsqueda, cada resultado pagado dice «Betaald · volgens de bank» o lo que toque) |
+| 5 | **Bloqueante: no se podía desplazar ninguna pantalla** con la rueda, las teclas ni el dedo (`body { overflow: hidden }` del paso 15; el marco del paso 16 no tenía panel con scroll) | Se desplaza la página entera (`index.css`: el cuerpo sin `overflow: hidden`, `#root` y el marco con `flex`), así funcionan también la memoria de lo desplazado al volver y las capturas de página entera. Las bandas del servidor se quedan arriba: son `sticky`, una debajo de otra, y la cabecera de la app va debajo (`lib/server-bands.ts`, `--bms-bandas`); la barra «Verkennen» de Documentos, igual. Al volver de una ficha, la página vuelve a donde estaba aunque la pantalla tarde en leer (hasta 4 s, y se deja si la persona mueve la página) | `e2e/shell.spec.ts` «la pagina se desplaza…» (1366 × 768: la rueda del ratón sobre el saludo lleva «Ook in Start» a la vista; PageDown, Espacio, Fin y la flecha, sin foco y con el foco en el contenido; la banda en `y = 0` y la cabecera justo debajo; en Te betalen, «Alle inkoopfacturen» se alcanza; volver de una empresa deja su fila a la vista) y «en el movil…» (el dedo, fuera de la rueda, baja la página, a 400 y 360 px); `wheel.test.ts` («las bandas del servidor…», `stackBands`) |
+| 6 | **La misma empresa con dos «Openstaand»**: € 10.702,57 en el resumen de Te betalen (la cartera) y € 10.340,54 en Leveranciers, su carpeta y su ficha (la vista, que resta la nota de crédito sin enlazar DBN-CR-2026-09) | Contrato 2.4: las listas y las vistas de clientes y proveedores llevan `deuda_cent`, **de la misma función que la cartera** (`_partidas_por_parte` sobre `flujo_caja.datos`, que ahora usan las dos), y aparte `abonos_sin_enlazar_cent` (de `_abonos_sin_enlazar`, la misma definición que la lista de la cartera). `pendiente_cent` no cambia (es la suma de las dos). La app enseña `deuda_cent` como «Openstaand» en Leveranciers, Klanten, la rejilla y la ficha de Documentos y la ficha de la empresa, y debajo «Creditnota nog niet gekoppeld: −€ 362,03»; las carpetas se ordenan por esa cifra | `test_cartera.py::test_lo_pendiente_de_una_empresa_es_una_sola_cifra` (tres fechas, los dos sentidos, cada lista y cada vista contra `cartera.partes`); `documents-model.test.ts`; `e2e/cartera-partes.spec.ts` «una empresa dice un solo Openstaand…» (cada fila de Leveranciers y Klanten contra la cartera al céntimo; la de Noord en el resumen, la lista, su ficha, su carpeta y la ficha de la carpeta, con la nota de crédito aparte); `e2e/documents.spec.ts` (cada carpeta) |
+| 7 | **Interacciones de §1b sin montar ni apuntadas**: la búsqueda con filtros (filas 28 a 35) y «Lo importante» (§2); Copiar y Detener (19 y 20) sin sitio | **La búsqueda con filtros, montada** (`screens/search.tsx`, [app-local.md](../app-local.md) §4.8): desde Ctrl+K («Zoeken met filters») y desde la caja del inicio, con lo escrito; un paso del camino con «Sluiten»; el campo, «Filters» con su contador, el tipo, el sentido, el cliente o el proveedor, las fechas y el importe sin IVA desde y hasta, el pago; cada filtro en su pastilla con su X, «Filters wissen» y «Opnieuw beginnen»; cada resultado abre su factura y «Terug» vuelve a la búsqueda como estaba. Cada resultado dice su estado de pago, «Betaald» con su fuente (hallazgo 4), y si la caché es de otro día la pantalla lo dice (hallazgo 3). Lo que espera de verdad a otro paso, abajo («Lo que queda para después»). La tabla de app-local.md ya no da por montado lo que no lo está | `e2e/search.spec.ts` (cada filtro y su pastilla contra `GET /api/v2/buscar` con los mismos filtros, uno por uno y juntos, quitar uno, el importe que no se entiende, limpiar, abrir y volver, el vacío, cerrar; desde la caja del inicio; en inglés y en castellano con axe y sin restos) |
+| 8 | La rueda del ratón sobre la rueda de Aurora **daba la vuelta** (de Btw a Start) y no dejaba nunca bajar la página | `wheelScrollStep` no da la vuelta: en Start hacia arriba o en Btw hacia abajo el gesto no se cancela y la página se desplaza. Las flechas siguen dando la vuelta | `wheel.test.ts` («la rueda del raton no da la vuelta…»); `e2e/shell.spec.ts` «la rueda del raton gira el menu hasta Btw y despues baja la pagina» (cinco pasos sin mover la página, el sexto la baja y la rueda sigue en Btw) |
+| 9 | JV-2026-007 **dos veces igual** en lo retenido de Te betalen | `twinMarks` en «Tot en met zondag» (las dos columnas y lo retenido después, juntos), en las propuestas del banco, en las opciones de «Aan een factuur koppelen» y en los resultados de la búsqueda | `e2e/payments.spec.ts` «las cifras de cobrar y pagar…» (las dos facturas retenidas con el mismo número, cada una con su «1 van 2» / «2 van 2» en el nombre de su botón); capturas `nl-money-payables`, `nl-search-filters`; las propuestas, con su nombre accesible «JV-2026-007 (1 van 2) · …» |
+| 10 | **En castellano el impuesto tenía dos nombres**: IVA en la app (`es.ts`) y BTW en el catálogo (`es.json`, 148 veces), en la misma pantalla | `es.json` dice IVA (la entrada se llama IVA: decisión 1); BTW solo queda en «BTW verlegd», el régimen tal como lo imprime la factura. `src/bms_agent/textos/LEEME.md` y `tests/test_textos_es.py` cambian a propósito (antes exigían BTW); `casos.json` regenerado | `test_textos_es.py::test_el_impuesto_es_siempre_iva`; `i18n.test.ts` («el glosario del castellano», es.ts y es.json); `e2e/fixtures.ts` (`expectNoLeftovers` en castellano mira el glosario en cada pantalla) |
+| 11 | **Más palabras con dos nombres**: abono / nota de crédito, aviso / hallazgo, fichero / archivo, relación / parte | Un glosario (`src/i18n/glossary.ts` y LEEME.md): **nota de crédito**, **hallazgo** (aviso es solo la gravedad de un hallazgo), **archivo**, **empresa** para un cliente o un proveedor (el catálogo decía «parte» 27 veces en ese sentido; «en parte» o «las partes del desglose» se quedan) y **anotar** un pago | `i18n.test.ts` (ninguna palabra dejada en `es.ts` ni en `es.json`; las expresiones, con límites de palabra que saben de tildes); `test_textos_es.py::test_el_glosario_es_uno_solo`; el glosario en cada pantalla en castellano de las pruebas en el navegador |
+| 12 | «Esperando **a el** proveedor» | `es.json` trae la frase entera («al proveedor», «al banco», «a Exact», «a otra persona») y `es.ts` dice «Esperando {who}»; el campo del diálogo, «¿A quién se espera?» | `status-pill.test.ts` («esperando a alguien…», los siete en castellano y uno en NL y EN); `test_textos_es.py::test_esperando_a_lleva_su_preposicion_contraida`; `e2e/screens.spec.ts` «las fichas en castellano…» (la excepción que espera al proveedor) |
+| 13 | En castellano, **dos verbos para una orden**: «Apuntar un pago ya hecho» y «Anotar pago»; «Dé la segunda firma» frente al botón «Dar la segunda firma» | «Anotar pago» en el botón, el título y el envío (los dos diálogos de pago pasan `submitLabel`), «anotado a mano» en todo; las citas dicen el botón tal cual: «Pide a un compañero que pulse «Dar la segunda firma» para ti» | `i18n.test.ts` (el glosario: ningún «apuntar»); captura `es-money-record` |
+| 14 | «Bloqueada 4» junto a «Urgentes 5», «Vencida € 4.072,86» con la fila «Vencido»; «Presentado» junto a «Presentada» | `StatusPill` acepta `label`: en una tarjeta la pastilla pone el tono y el texto de su fila («Bloqueadas», «Vencido»); la cuenta atrás del IVA conserva el suyo («Quedan 4 días»). «Presentado; no queda nada por hacer.» | `status-pill.test.ts` (la pastilla con su texto); captura `es-home` |
+| 15 | «What is Receivables?», «¿Qué es Cuentas por cobrar?»; «freelancers» | Cada entrada de ayuda lleva su pregunta entera en cada idioma (`help.<término>.ask`: «What are receivables?», «¿Qué son las cuentas por cobrar?», «Wat is te ontvangen?»); «zzp’ers» | `i18n.test.ts` (las mismas claves en los tres) |
+| 16 | **Solo el castellano nombraba** el acceso directo «BMS Finanzas - Leer facturas» y los `.bat` | Los tres idiomas los nombran (`components/script-names.tsx`: `{readShortcut}`, `{company}`, `{check}`, `{people}`, `{backup}`, `{readScript}`), como nombres propios (`data-proper-name`, en letra fija): son así en el disco. Cambia a propósito lo que decidió el paso 15 (hallazgo 16 y su desviación 4: «la app ya no los nombra»): la oficina que trabaja en neerlandés es la que más los necesita | `e2e/screens.spec.ts` «facturen lezen…» (cambia a propósito: la snelkoppeling y `leer-facturas.bat` por su nombre, marcados); `i18n.test.ts` (los mismos huecos en los tres) |
+| 17 | Un porcentaje **de dos formas** en la misma pantalla: «85,95 %» (la app) y «85,95%» (los textos del motor) | `formatPercentFromBasisPoints` escribe «85,95%», como `templates.ts` y `bms_agent.textos` (`pct`), y los textos de la app («{pct}%», «0%»). Sin espacio tampoco se parte la línea (lo que buscaba el paso 15) | `format.test.ts` (cambia a propósito); `e2e/screens.spec.ts` «las fichas en castellano…» (la PO: ningún «85,95 %») |
+| 18 | **Ninguna prueba miraba las fichas en castellano**, y la de restos no veía palabras mezcladas dentro del castellano | `e2e/screens.spec.ts` «las fichas en castellano…» (proveedor, cliente, Object, PO, trimestre del IVA, una factura con sus campos abiertos y la excepción), y `expectNoLeftovers` mira el glosario en cada pantalla en castellano de todas las pruebas | Esa prueba; las giras de `themes.spec.ts` y `shell.spec.ts` en castellano, con el glosario |
+
+### Cambios de comportamiento
+
+| # | Antes (el paso 16 de Cobrar y Pagar) | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | `/api/v2/documentos/N/original`, cualquier documento guardado | Solo lo que un registro enlaza; un fichero de importación es `404 no_existe` | Hallazgo 1 |
+| 2 | La página no se desplazaba (`overflow: hidden`) | Se desplaza la página entera; las bandas del servidor, `sticky` arriba | Hallazgo 5 |
+| 3 | La rueda del ratón daba la vuelta en la rueda de Aurora | En los extremos el gesto es de la página | Hallazgo 8 |
+| 4 | «Vervallen» y la columna Stand, de la caché | Con el hoy del motor | Hallazgo 3 |
+| 5 | «Aan een factuur koppelen» con la primera factura elegida | Ninguna elegida; las que parecen de la línea, primero | Hallazgo 2 |
+| 6 | «Openstaand» de una empresa: el de la vista (restaba la nota de crédito sin enlazar) | El de la cartera (`deuda_cent`), con la nota de crédito aparte | Hallazgo 6 |
+| 7 | «Betaald» sin fuente en las listas | Con su fuente y K3 | Hallazgo 4 |
+| 8 | Contrato 2.3 | **2.4**: `fuente_pago` en las facturas de las listas; `deuda_cent`, `abonos_sin_enlazar_cent`, `abonos_sin_enlazar` y `abonos_sin_enlazar_facturas` en las partes (claves nuevas; ninguna cambia ni se quita) | Hallazgos 4 y 6 |
+| 9 | La búsqueda del inicio y Ctrl+K, sin filtros | Además, la búsqueda con filtros (§4.8) | Hallazgo 7 |
+| 10 | En castellano, BTW en el catálogo; abono, aviso, fichero, relación, apuntar en la app | Un glosario: IVA, nota de crédito, hallazgo, archivo, empresa, anotar | Hallazgos 10, 11 y 13 |
+| 11 | NL y EN no nombraban el acceso directo ni los `.bat` | Los tres idiomas los nombran, como nombres propios | Hallazgo 16 |
+| 12 | «21 %» en la app | «21%», como los textos del motor | Hallazgo 17 |
+| 13 | Volver a una pantalla: se reintentaba la posición 60 cuadros | Hasta 4 s, y se deja si la persona mueve la página | Hallazgo 5: con la página desplazable, la pantalla puede tardar en leer más de un segundo |
+| 14 | En un diálogo de una orden, «Vul … in» se quedaba hasta volver a enviar | Se quita en cuanto se toca un campo | Hallazgo 2: al elegir la factura, el aviso seguía al lado |
+| 15 | La búsqueda con filtros no existía | Sus resultados dicen «Betaald» con su fuente y avisan si la caché es de otro día | Hallazgos 3, 4 y 7 |
+
+**Pruebas que cambian, a propósito** (no se quitó ninguna comprobación): `tests/test_cartera.py`
+(el contrato es 2.4; el documento «sin original» de la descarga es ahora uno que enlaza una
+factura, porque los no enlazados ya no se bajan), `tests/test_textos_es.py` y
+`tests/test_textos.py` (IVA en vez de BTW), `src/lib/format.test.ts` (el porcentaje sin
+espacio), `e2e/documents.spec.ts` (cada carpeta dice `deuda_cent`, y el orden va por ella),
+`e2e/payments.spec.ts` (al enlazar una línea hay que elegir la factura) y
+`e2e/screens.spec.ts` «facturen lezen…» (el nombre del acceso directo y del `.bat`). La prueba
+nueva de la cifra única de una empresa va en su propio fichero, `e2e/cartera-partes.spec.ts`:
+los ficheros corren por orden alfabético sobre la misma base, y `daily.spec.ts` enlaza la nota
+de crédito DBN-CR-2026-09 a su factura; antes de eso queda una sin enlazar que mirar.
+
+### Lo que queda para después, fila a fila (revisión §1b)
+
+- **19 «Detener respuesta» y 20 «Copiar respuesta»**: viven en la conversación
+  (`aurora/conversation/`, con las dos, sin pulgares, regenerar ni compartir), y no hay
+  conversación hasta el **asistente local** (§6 de la revisión, un paso posterior). Hasta
+  entonces la caja del inicio busca y dice que aún no contesta preguntas.
+- **«Lo importante. Todo en un vistazo.»** (§2): lo que pedía conservar (las cifras de cobrar y
+  pagar, cada empresa con lo suyo que lleva a su carpeta y «Saldos pendientes · No es efectivo
+  disponible») está en los resúmenes de Te ontvangen y Te betalen, sobre la cartera. El bento
+  (`aurora/finance/`), con su titular y su reparto, es el resumen que dará el asistente local.
+- **El orbe de partículas «Pensando…»** (`aurora/thinking-orb/`): también del asistente; la
+  búsqueda dice «Zoeken…» con el cargador de la app.
+- **28 a 35, la búsqueda**: ya no quedan para después (hallazgo 7).
+- **El «Procesar» de verdad** (§8.5, pasos 3 a 7: el cargador de la suricata con su progreso y
+  el resultado «N nuevas · N repetidas»): como decía el paso, es de otro paso.
+
+### Desviaciones, y por qué
+
+1. **La búsqueda con filtros es un paso del camino, no una vista de una entrada**: así
+   «Sluiten» y «Terug» vuelven a donde se estaba (la revisión pide «una sola pantalla de
+   búsqueda… con Cerrar»). Va como una ficha más (`search`, siempre con el id 1,
+   `SEARCH_ROUTE`) y no tiene botón propio en la cabecera: «Zoeken» sigue abriendo Ctrl+K (lo
+   que piden las filas de la tabla de los clics), que lleva abajo «Zoeken met filters».
+2. **Sin el orbe de partículas en la búsqueda**: un segundo orbe animado en la pantalla
+   gastaría para nada (las reglas del orbe del paso 16).
+3. **El importe de la búsqueda es sin IVA y en valor absoluto**, porque así filtra el motor
+   (`importe_min`, `importe_max`); el campo lo dice.
+4. **`pendiente_cent` de las partes no cambia** (la vista resta las notas de crédito sin
+   enlazar desde la migración 0017, a propósito): la cifra de la cartera es una clave nueva,
+   `deuda_cent`, y es la que enseña la app.
+5. **Lo que filtra «Vervallen» en una lista lo decide la app con el hoy del motor**
+   (`cartera.hoy`), como ya hacían los tramos y «Deze week», en vez de recalcular la caché en
+   cada lectura: la caché la rehace la pasada del motor, y una prueba en Python comprueba que
+   con la caché vieja lo que filtra la app suma lo vencido de la cartera.
+6. **La banda del servidor tapa lo que pasa por debajo al desplazar**, como la cabecera: es
+   lo que se quería (se ve siempre), y su alto lo mide la app (si el script no carga, las
+   bandas siguen arriba de la página).
+7. **Un color del tema claro, un poco más oscuro**: con la página desplazable, axe mira
+   también lo que queda debajo de la ventana (antes, con `overflow: hidden`, lo daba por
+   oculto). Salió la etiqueta «Cliente 03» de la carpeta abierta del archivo, en el tema
+   claro: 4,44:1 sobre el fondo de la página (la paleta de Aurora medía sus textos sobre una
+   tarjeta). `--au-t-706078` pasa de `#7a6983` a `#776680`, el mismo matiz: 4,65:1 allí.
+8. **En la búsqueda con filtros, «Vervallen» es el del motor** (`GET /api/v2/buscar?vencida=si`
+   filtra por la caché de la última pasada), no el hoy de la cartera como en las listas: la
+   búsqueda no lee la cartera. Para que no engañe, si la caché es de otro día la pantalla lo
+   dice encima de los resultados (`al_dia` y `estado_del` de la respuesta), como el inicio y
+   los resúmenes. Llevar el filtro del motor al hoy es otro cambio del contrato, para cuando
+   el asistente local busque.
+9. **El trabajo se hizo en dos tandas**: un reinicio del contenedor cortó la primera con los
+   cambios sin guardar. Se repasaron uno por uno contra cada hallazgo antes de guardarlos, y
+   se corrigió lo que no estaba bien: la prueba de la descarga contaba también los PDF de las
+   facturas como ficheros de importación (ahora mira los de Exact, los contactos y el banco,
+   con un segundo extracto que nadie enlaza), los resultados de la búsqueda decían «Betaald»
+   sin su fuente, la cita de la segunda firma en castellano no se leía bien («que te «Dar la
+   segunda firma»»), el aviso «Vul “Factuur” in» se quedaba en el diálogo con la factura ya elegida (se vio en la captura `nl-bank-link`), lo retenido no tenía una prueba de su «1 van 2» y quedaban un comentario viejo en `read-invoices.tsx` y uno en neerlandés
+   en `e2e/screens.spec.ts`. Se guardó en tres commits: el motor; la app con lo construido; y este registro con el último arreglo del diálogo y sus pruebas.
+
+### Resultado
+
+- `pytest -q`: **2559 pasan, 12 se saltan**, con Python 3.11 y con 3.13 (antes de la revisión,
+  2549 y 12: los diez nuevos son de `test_cartera.py` y `test_textos_es.py`).
+- `npm run typecheck` sin errores; `vitest`: **1254 pasan** (antes, 1245).
+- Playwright: antes 64; ahora seis pruebas más (`search.spec.ts` con dos,
+  `cartera-partes.spec.ts`, dos en `shell.spec.ts` y las fichas en castellano de
+  `screens.spec.ts`).
+- `npm run build` sin el aviso del tamaño, `npm run fuente` al día y `git status` limpio
+  después de construir.
+- Playwright sobre una base de prueba recién creada: **70 pasan y 1 se salta** (la fila 21 de
+  la tabla de los clics, «Leer PDF con la confirmación del coste», que espera al Procesar de
+  verdad, §8.5). Las capturas, en `app-capturas/paso16/final` (dark/ y light/), miradas: el
+  inicio a 1366 × 768 desplazado hasta «Ook in Start», Te betalen con su «1 van 2», el diálogo
+  de enlazar una línea sin factura elegida, «Betaald · met de hand…» en la lista, las fichas y
+  el inicio en castellano («Bloqueadas», «Vencido», «Esperando al proveedor», «85,95%»,
+  «Presentado»), los nombres del acceso directo y los `.bat` en neerlandés y la búsqueda con
+  filtros en los tres idiomas.
