@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "4ca8290a67cb838ba4070e91697027a604e871241c1e10fc6d31f264cc1f5ce2",
+  "sha256": "2331722737661ed38b9018d6dce9235d964c3c0173b8fb00b9488787252b8342",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -19,7 +19,7 @@
     "frontend/src/aurora/chat/ai-actions.tsx": "08896cc19e76b756151ce091f103f2402ca1b2f50108129afc010d08c1964b98",
     "frontend/src/aurora/chat/conversation.tsx": "649f3aebca7c346fd5c45559697d2bb807fc99a414053d2ab4705f090c71ed30",
     "frontend/src/aurora/chat/message.tsx": "fed670fd71ea560007f336ebe9267e366cedd3daf51054d27e5a38aeabd78f48",
-    "frontend/src/aurora/claro.css": "00a8801ef4141cebc905102ba0c0b143ae97ec61f539a6e7cf068eb04acc686e",
+    "frontend/src/aurora/claro.css": "cc92134e546de27ae1a2ce781817a4997734adc916c48923a4691627de2598c2",
     "frontend/src/aurora/composer.tsx": "9e46f53358707fabc4bf6813520773e7e476117d67dca5c5793d2f9d1330a588",
     "frontend/src/aurora/documents/analysis.ts": "ffdab0d7456a16a66baabbfada74497bb7e07d3fa6cf58f3117451efd255cddd",
     "frontend/src/aurora/documents/badge.tsx": "efd8bec85efb45f43b59957ed02ab1d5f26fddfbd06243403dff67ecb4ebe962",
@@ -139,9 +139,9 @@
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "assets/index-CLq-gV0n.js": "30ebdc250ec12209488ee65d35d9803d58c6fea35bc3b431cc39993765bad8ff",
-    "assets/style-Ct1GB3-O.css": "3252b521a94d7737b0cf300e3aeb570ef809ba62eb9ec98fd3407c7e0a5335cb",
+    "assets/style-C_GAq5nz.css": "7ab8a59a4fde7dd3cfe2bff004c8190e7298a38109ef6a1e3a7e094d892c32f0",
     "assets/textos-l6omhw9Q.js": "d2dc126731d5d62057006660cff891a950537c98170923bf74aa8111b10a93a5",
     "assets/vendor-DZbmtkxJ.js": "557b77e7e62d47c35590bf28e47189c724cafabef4ab22160bffab17c6c8133d",
-    "index.html": "3ed565aa18ba9a615d8c1cbab05430633a7f4c467033840bd1e0914273f78ee6"
+    "index.html": "00d1f16881098ab974199624dcf7de1966cbc8093bd6f5ddda1f7a87c730dae2"
   }
 }

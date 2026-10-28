@@ -47,4 +47,15 @@ describe('aurora-claro', () => {
     expect(css).toContain('html:not(.dark) .panel{');
     expect(css).toMatch(/html:not\(\.dark\) \.outline,html:not\(\.dark\) \.primary\{/);
   });
+
+  it('Procesar es negro con la suricata blanca en los dos temas: no se invierte, y la marca sigue blanca', () => {
+    const css = build();
+    for (const selector of ['.processing-', '.flow-button', '.zur-', '.pc-', '.analysis-entry{', '.analysis-counts']) {
+      expect(css, selector).not.toContain(`html:not(.dark) ${selector}`);
+    }
+    // Sin esto, «finance» salia casi negro sobre el negro de Procesar (axe, en claro).
+    expect(css).toContain('html:not(.dark) .process-mode .bms-brand{color:#fff}');
+    expect(css).toContain('html:not(.dark) .process-mode .bms-brand svg{filter:none}');
+    expect(css).toContain('html:not(.dark) .process-mode .bms-brand>span{border-left:1px solid #ffffff26}');
+  });
 });

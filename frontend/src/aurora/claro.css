@@ -279,8 +279,11 @@ html:not(.dark) .order-error{color:#7b0009!important}
 
 /* A mano: el logo es un PNG que un filtro pinta de blanco; en claro, invertido. */
 html:not(.dark) .bms-brand svg{filter:invert(1)}
-/* A mano: en Procesar (negro en los dos temas) el logo sigue blanco. */
+/* A mano: en Procesar (negro en los dos temas) la marca sigue como en el oscuro: el logo blanco,
+   «finance» blanco y su raya. */
 html:not(.dark) .process-mode .bms-brand svg{filter:none}
+html:not(.dark) .process-mode .bms-brand{color:#fff}
+html:not(.dark) .process-mode .bms-brand>span{border-left:1px solid #ffffff26}
 /* A mano: el papel de la hoja se queda claro (es una superficie de Aurora); en el claro, que es
    nuestro, sus grises llegan a 4,5:1 con el mismo matiz. */
 html:not(.dark) .ws-paper dt,html:not(.dark) .ws-paper .ws-paper-disclaimer{color:#6e6179}
