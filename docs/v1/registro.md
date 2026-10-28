@@ -9109,3 +9109,114 @@ parecida, con sus clases. Se sigue la especificación del paso 17 (§2 y §3).
   1440 y a 400 px (las mismas cajas que el prototipo; la marca de agua dice «TEST»), y el claro.
 - `pytest -q`: **2559 pasan, 12 se saltan** (5 min 33 s); el motor no cambia.
 - `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · Procesar de verdad: la lectura pedida desde la app (el motor y el lector)
+
+El dueño pidió que la app se mueva como Aurora y que Procesar deje de ser una demostración:
+la suricata tiene que contar lo que pasa de verdad. Esta parte es la del motor y del lector
+(`especificacion.md` §5 y `revision.md` §8.5): lo que la app pide, lo que el lector hace y lo
+que la app puede leer mientras tanto. La pantalla es de otra parte del paso.
+
+La app no tiene red (`connect-src 'self'`) ni lanza programas, así que no puede leer un PDF.
+Ahora puede **pedir** una lectura, **ver** lo que costaría, **dar el sí** (o el no) y **seguir**
+el progreso factura a factura. Quien lee sigue siendo el lector (`leer-facturas.bat`), con el
+orden de seguridad de siempre, que no cambia: salida encendida con una credencial nueva,
+aislamiento comprobado (si falla, no se cuenta ni se lee), contar (gratis), leer solo con un
+sí, salida apagada pase lo que pase.
+
+### Lo que hay
+
+| Pieza | Qué es |
+| --- | --- |
+| Migración **0018** | `solicitud_lectura` (la petición y su vida: `pedida`, `comprobando`, `contando`, `esperando_aprobacion`, `aprobada`, `leyendo` y, al final, `hecha`, `fallida`, `caducada`, `cancelada` o `nada_que_leer`; la estimación con su huella y su plazo; quién dio el sí, por dónde, con qué tope y para qué huella; quién dijo que no) y `pasada_lectura` (la fase, las cuentas, lo gastado, el documento de ahora y lo que fue de cada uno). Una sola viva (índice único parcial); lo aprobado y lo cancelado no cambian; una terminada no cambia; ninguna se borra; desde la app, solo personas |
+| **`lectura.py`** | Las tres órdenes de las personas (`pedir`, `aprobar`, `cancelar`), los pasos del lector (`tomar`, `contar`, `esperar`, `leer`, `cerrar`), la cuenta de lo que costaría (`estimar`, con lo ya leído decidido como en la pasada), el seguimiento de la pasada con su tope y lo que lee la app (`para_la_app`) |
+| **`servicios.py`** | `pedir_lectura`, `aprobar_lectura` y `cancelar_lectura` en `POST /api/v2/acciones`, con el permiso `importar_datos`, su evento con la persona y su `peticion_id`. `Accion.recalcula`: estas tres no pasan el motor de reglas (no tocan nada que lea una regla) |
+| **`extract.py`** | `Conocido`: lo que la pasada ya sabe antes de pagar (out/, candidatas, la otra vía, la base), lo mismo para la pasada y para la cuenta. `Seguimiento`: quien sigue cada paso de cada documento (`comparando`, `leyendo`, `guardando`), decide antes de cada pago si cabe y apunta lo que costó |
+| **`ingesta.py`** | `ingestar_pasada(fase=…)`: oye cuándo empiezan comparar y analizar |
+| **CLI** | `bms-agent lectura tomar|contar|esperar|leer|cerrar|ver`, con sus códigos de salida (`cli.LECTURA_NADA` 3, `OCUPADA` 4, `CANCELADA` 5, `CADUCADA` 6, `FALLIDA` 7) |
+| **`windows/leer-facturas.ps1`** | Tomar, salida, aislamiento (con `Cerrar-Lectura … "aislamiento"` si falla), contar, esperar (con `Orden-Directa`: lo que se escribe en la ventana le llega), leer; en el `finally`, la salida apagada y la lectura cerrada si quedó a medias. `comun.ps1`: `Valor-De` (lo que dice una orden, en líneas), `Cerrar-Lectura` y los códigos |
+| **`docker/leer-facturas.ps1`** | Lo mismo con Docker: tomar, esperar y cerrar en el contenedor de las órdenes (sin red), contar y leer en el lector |
+| **`/api/v2/lectura`** (contrato **2.5**) | `solicitud`, `pasada_en_curso`, `ultima_pasada`, `plazo_respuesta_segundos` y `consulta_cada_segundos` (`integracion-web.md`, «La lectura pedida desde la app») |
+| **`scripts/simular_lector.py`** | El lector de las pruebas en el navegador, solo con la base de prueba: da los pasos del lector uno a uno con las mismas funciones (tomar, contar, sí, no, caducar, recontar, leer con su pausa, fallar) |
+| Textos | Las tres órdenes en `textos/es.json`, `nl.json` y `en.json` («Pedir lectura», «Empezar la lectura», «No leer»). Los catálogos entran en lo construido: `src/bms_agent/web` y `fuente.json` se rehicieron (`npm ci && npm run build`), sin tocar nada de `frontend/` |
+
+### Puertas
+
+| Lo que se pide | Dónde se comprueba |
+| --- | --- |
+| Una sola lectura viva; pedir, dar el sí y cancelar con `importar_datos` («consulta» no puede); cada cambio en la auditoría, con la persona desde la app y con el extractor desde el lector | `test_lectura.py` (`…solo_una_viva`, `…toma_la_pedida…`, `…el_si_vale_solo…`, `…no_leer_en_cada_estado`), `test_servicios.py` (la matriz de permisos, con las tres órdenes nuevas), `test_lectura_lector.py::test_la_persona_de_la_app_no_es_del_lector` |
+| El sí vale solo para la estimación que se vio (su huella), antes de que caduque (15 min), con un tope que no pasa del extremo alto; lo aprobado no se puede cambiar | `test_lectura.py` (`…el_si_vale_solo_para_la_estimacion_que_se_vio`, `…pasado_el_plazo…`, `…lo_aprobado_y_lo_terminado_no_cambian`, `…vuelve_a_contar…`, `…con_otro_modelo_que_el_contado_no_se_lee`), `test_lectura.py::test_la_lectura_por_la_api` (`409 conflicto`, `409 estado_no_valido`, `403`, `404`) |
+| El orden no cambia: tomar, salida, aislamiento, contar, esperar, leer, salida apagada, lectura cerrada | `test_lectura_lector.py` (el lector paso a paso con una salida falsa y una API falsa que no contesta con la salida apagada; y los dos `.ps1`, con los mismos pasos en el mismo orden), `test_instalacion_nativa.py` y `test_entorno_local.py` (migradas) |
+| Si el aislamiento falla no se cuenta ni se lee | `test_lectura_lector.py::test_si_el_aislamiento_falla_no_se_cuenta_ni_se_lee` (el del script y el de la puerta del lector), `…test_en_windows_nada_se_cuenta_sin_el_aislamiento_bien` |
+| Caducar y cancelar no gastan nada | `test_lectura.py::test_sin_respuesta_en_15_minutos_caduca`, `…lo_escrito_en_la_ventana…`, `…con_un_no_antes_de_empezar…`; `test_lectura_lector.py::test_con_un_no_o_sin_respuesta_no_se_gasta_nada`, `…el_no_de_la_app_mientras_espera`, `…ctrl_c_esperando…` |
+| El tope para la lectura; parar para después del documento en curso | `test_lectura.py::test_el_tope_para_la_lectura`, `…parar_leyendo…`; `test_lectura_lector.py::test_el_tope_que_da_la_app…` |
+| Solo se lee lo que se contó; lo ya leído no se paga | `test_lectura.py::test_leer_paga_solo_lo_aprobado_y_recorre_sus_fases` (un PDF que llega después no se lee), `…la_cuenta_ve_lo_ya_leido_como_la_pasada` (también sin out/) |
+| La pasada por fases en orden, con las cuentas que suben, y cada documento nuevo, ya leído, posible duplicado (B2-B5) o fallido | `test_lectura.py` (`…recorre_sus_fases`, `…el_progreso_se_ve_documento_a_documento`, `…un_duplicado_y_un_pdf_que_no_se_lee`, `…un_fallo_leyendo…`, `…ctrl_c_leyendo…`) |
+| La app sin red y ningún módulo lanza procesos | Las de siempre (`test_alcance_v1.py`, `test_instalacion_nativa.py` «nadie lanza procesos»), que miran también `lectura.py`; el lector espera lo escrito con un hilo, no con otro programa |
+| El ayudante de las pruebas, solo con la base de prueba | `test_simular_lector.py` |
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | `leer-facturas` preguntaba con `Read-Host` y esperaba sin límite | Espera el sí como mucho 15 minutos, de la app o escrito en la ventana (`lectura esperar`); sin respuesta, caduca y apaga la salida | `revision.md` §8.5, punto 5 |
+| 2 | Leía todo lo que hubiera en el buzón al leer | Lee solo lo que contó (por su sha256) | El sí vale para lo que se vio |
+| 3 | Sin tope: `extract` pagaba lo que hiciera falta | Para antes de la factura que ya no cabe en el tope aprobado | El tope del sí |
+| 4 | Contar era `coste --estimar`, leer era `extract` | `lectura contar` y `lectura leer` (las dos de siempre por dentro: `contar_entrada` y `ingestar_pasada`). `coste --estimar` y `extract` siguen, para quien los use a mano | La petición y su progreso |
+| 5 | La salida no se cerraba con nada más | En el `finally`, además, `lectura cerrar --si-viva`: una lectura a medias no queda viva | La app no se queda esperando |
+| 6 | Contrato 2.4 | 2.5: claves y órdenes nuevas, ninguna cambia | `integracion-web.md` |
+
+### Desviaciones, y por qué
+
+1. **`aprobar_lectura` y sus estados `aprobada` y `esperando_aprobacion` llevan «aprob»**, y
+   la suite de alcance (`test_alcance_v1.py`) no deja ninguna orden ni ningún estado con esa
+   palabra: V1 no aprueba facturas ni pagos. La especificación nombra así la orden y sus
+   estados, y la otra parte del paso los usa; dar el sí a una lectura es aceptar lo que cobra
+   la API por leer, con un tope. La prueba lleva **una excepción con nombre**: esa orden, con el
+   permiso `importar_datos`, y esos dos estados, solo en `solicitud_lectura`; cualquier otro
+   sigue haciéndola fallar. El evento del sí se llama `lectura_aceptada` y las etiquetas de la
+   app dicen «Empezar la lectura», sin «aprob».
+2. **`analizando` no se ve mientras dura.** Tipar y pasar las reglas van en una sola
+   transacción (o todo tipado con sus avisos al día, o nada, como desde el paso 2), y otra
+   conexión no ve lo que no se ha confirmado. `comparando` se escribe justo antes; `analizando`
+   queda en `fases` con su hora al confirmar; la app ve `comparando` y después `organizando` o
+   `hecha`, y salta las etapas que no vio (la especificación ya lo pide).
+3. **El tope se mira con el extremo alto de cada factura**, no con su peor caso como
+   `reextraer`: con el peor caso (todo el `max_tokens` de salida), un tope igual al extremo alto
+   de la horquilla pararía en la primera factura. Lo que se puede pasar del tope es lo que se
+   desvíe una sola factura de su estimación; una llamada que falla sin decir su uso cuenta su
+   extremo alto.
+4. **Parar leyendo no cambia el estado al momento**: se apunta quién lo pidió
+   (`parar_pedido`) y el lector, que es quien sabe cuándo acaba la factura en curso, deja la
+   lectura `cancelada` con lo leído. Antes de leer, cancelar es inmediato.
+5. **Una lectura abandonada** (la ventana se cerró con la X) no bloquea para siempre: esperando
+   el sí, el lector da señales cada 10 s y sin ellas en 90 s el lector siguiente **vuelve a
+   contar la misma petición** (lo que la persona pidió sigue, con una huella nueva: el sí a la
+   de antes es un `409 conflicto`, el caso «Ha cambiado» de la especificación); en los demás
+   estados del lector, sin señales en 45 minutos, se da por terminada (`abandonada`). La app ve
+   `abandonada` en la `solicitud`.
+6. **Sin nada nuevo no se hace una pasada gratis** para meter en la base lo que ya estaba en
+   out/ y no en ella (lo hacía el `extract` de antes si se decía que sí): eso es
+   `importar-out`, sin red.
+7. **Docker no comprueba el aislamiento ni apaga la salida**: allí lo dan las redes, y la salida
+   es un servicio que además lleva la entrada a la consola. Tomar, esperar y cerrar van en el
+   contenedor de las órdenes, sin red.
+8. **Claves de más** sobre la especificación, ninguna en su contra: `motivo_codigo` (para que
+   la app diga el motivo en cada idioma), `abandonada`, `parar_pedido`, `ultima_pasada`,
+   `recientes`, `fases`, y `factura_id`, `numero` y `empresa` en cada fila del resultado. Mientras
+   lee, un documento leído va como `leida` hasta que la pasada lo compara.
+9. **El sí escrito en la ventana** no tiene persona (`aprobada_via` `ventana`) y su tope es el
+   extremo alto que la ventana acaba de enseñar, como hasta ahora (no había tope).
+10. **Se rehízo lo construido** (`src/bms_agent/web`) porque los catálogos de textos son
+    entradas de la construcción; el código de `frontend/` no cambia. La otra parte del paso
+    lo vuelve a construir al juntarlo.
+
+### Resultado
+
+- `pytest -q`: **2621 pasan, 12 se saltan** con Python 3.11 (62 pruebas nuevas:
+  `test_lectura.py`, `test_lectura_lector.py`, `test_simular_lector.py` y las tres órdenes en
+  la matriz de `test_servicios.py`). En esta copia de trabajo, `test_scoring.py` necesita
+  `ground_truth/respuestas-ejemplo.yaml`, que no está en git: con el fichero, pasa. Las de la
+  lectura, la matriz de órdenes, el alcance y la pasada, también con Python 3.13.
+- `vitest`: **1266 pasan** (sin cambios); `npm run build` con los catálogos nuevos y
+  `fuente.json` al día.
