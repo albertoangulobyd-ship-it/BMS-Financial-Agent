@@ -1,0 +1,60 @@
+/* workspace-layout.css de Aurora (entrega del 28-10-2026), tal cual. */
+/* One visual format for the home composer and its search mode. */
+.app:not(.process-mode) main{--chat-y:calc(var(--stage-y) + 105px)}
+.app:not(.process-mode) .welcome-line{top:max(110px,calc(var(--stage-y) - 200px))}
+.search-mode .welcome-line{left:50%;font-size:clamp(18px,2vw,28px)}
+.search-mode .welcome-line h1{font-size:inherit;letter-spacing:inherit}
+.search-mode .stage{min-height:var(--chat-y)}
+.search-mode .aurora,.search-mode.thinking-active .aurora{top:var(--stage-y);left:50%;transform:translate(-50%,-50%) scale(.58)}
+.search-mode .composer-area{position:relative;top:auto;bottom:auto;left:auto;transform:none;width:min(600px,calc(100% - 48px));margin:0 auto;padding-bottom:40px;animation:none}
+.search-embedded,.search-embedded .search-shell{min-height:0;background:none;padding:0}
+.search-workspace .workspace-composer{margin:0}
+.search-workspace:not(.search-embedded) .workspace-composer{margin-top:32px}
+.composer-glyph{display:grid;place-items:center}
+.search-filter-bar{margin-top:10px;min-height:32px}
+.search-thinking{min-height:65px;margin-top:12px;font-size:11px;gap:7px}
+.search-thinking small{font-size:9px}
+@media(max-width:700px){.app:not(.process-mode) main{--chat-y:calc(var(--stage-y) + 90px)}.app:not(.process-mode) .welcome-line{top:max(105px,calc(var(--stage-y) - 155px))}.search-mode .welcome-line{font-size:19px;width:calc(100% - 56px)}.search-mode .composer-area{width:calc(100% - 36px)}.search-mode .aurora,.search-mode.thinking-active .aurora{transform:translate(-50%,-50%) scale(.52)}}
+
+/* Keep the navigation hint below the shared input, outside its hit area. */
+.app:not(.process-mode) .discreet{top:calc(var(--chat-y) + 78px);padding:6px 10px;font-size:9px;line-height:1.4;white-space:nowrap}
+
+/* Keep one uniformly scaled wave visible for the whole route transition. */
+.aurora-route-flight{position:fixed;left:0;top:0;width:440px;height:440px;z-index:100;pointer-events:none;transform-origin:50% 50%;will-change:transform}
+.aurora-route-flight canvas{display:block;background:transparent;mask-image:none}
+.aurora-route-moving .aurora,.aurora-route-moving .ws-companion{visibility:hidden}
+.aurora-route-moving .workspace .ws-title-line,.aurora-route-moving .workspace .ws-heading>div>p,.aurora-route-moving .workspace .ws-sidebar,.aurora-route-moving .workspace .ws-grid,.aurora-route-moving .workspace .ws-tools{animation:documents-arrive .65s .3s both}
+@keyframes documents-arrive{from{opacity:0;translate:0 9px}to{opacity:1;translate:0 0}}
+@media(prefers-reduced-motion:reduce){.aurora-route-flight{display:none}.aurora-route-moving .aurora,.aurora-route-moving .ws-companion{visibility:visible}}
+/* Remove the outgoing page from flow before measuring the destination. */
+.aurora-route-moving>.app-screen{position:absolute;left:0;top:0;width:100%}
+/* Analysis belongs to the folder, not a separate summary panel. */
+.ws-layout .ws-grid,.ws-layout .ws-empty{grid-row:3}
+.ws-layout .ws-grid{padding-top:16px}
+.ws-layout .ws-sidebar{grid-row:3/span 2;margin-top:16px}
+.ws-layout .ws-profile{grid-row:4}
+.ws-layout .ws-footnote{grid-row:5}
+.gf-statuses{position:absolute;top:62px;left:28px;right:22px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;z-index:2;pointer-events:none}
+.gf-statuses:empty{display:none}
+.ui-status{display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:30px;border:1px solid currentColor;background:#0b0b103b;font-size:12px;line-height:1.2;font-weight:400;white-space:nowrap}
+.ui-status.online{color:#89d6a5;border-color:#89d6a533}
+.ui-status.degraded{color:#dfad72;border-color:#dfad7233}
+.ui-status.offline{color:#f87171}.ui-status.maintenance{color:#93b9ee}
+.ui-status-label{color:inherit}
+.ui-status-indicator{position:relative;display:flex;width:6px;height:6px;flex:none}
+.ui-status-indicator>span{background:currentColor;border-radius:50%;width:6px;height:6px}
+@media(max-width:600px){.ws-layout .ws-sidebar{grid-row:3;max-height:200px;margin-top:4px;margin-bottom:18px}.ws-layout .ws-grid,.ws-layout .ws-empty{grid-row:4}.ws-layout .ws-profile{grid-row:5}.ws-layout .ws-footnote{grid-row:6}}
+@media(prefers-reduced-motion:reduce){.ui-status-indicator .animate-ping{animation:none}}
+/* Extra breathing room between the greeting and the open home menu. */
+.app.navigating:not(.process-mode):not(.search-mode) .welcome-line{top:max(100px,calc(var(--stage-y) - 240px))}
+.app.navigating .navigation{top:calc(var(--stage-y) - 96px)}
+@media(max-width:700px){.app.navigating:not(.process-mode):not(.search-mode) .welcome-line{top:max(90px,calc(var(--stage-y) - 190px))}}
+/* Reserve the full navigation height before placing the composer. */
+.app.navigating:not(.has-panel):not(.process-mode) main{--navigation-height:240px;--navigation-top:calc(var(--stage-y) - 96px);--chat-y:calc(var(--navigation-top) + var(--navigation-height) + 28px);min-height:max(100dvh,calc(var(--chat-y) + 110px))}
+.app.navigating:not(.has-panel) .navigation{top:var(--navigation-top)}
+
+/* Local document navigation stays in the same shell. */
+.tree-row{position:relative;isolation:isolate}.tree-row.tree-selected{background:transparent}.tree-selection-background{position:absolute;inset:0;border-radius:7px;background:#b281d212;z-index:-1;pointer-events:none}.ws-grid,.ws-profile{will-change:opacity}.ws-folder-cell{min-width:0}@media(prefers-reduced-motion:reduce){.tree-selection-background,.ws-folder-cell,.ws-grid,.ws-profile,.ws-footnote{will-change:auto}}
+
+/* The return follows the same path and timing, growing back into the home guide. */
+.aurora-route-to-home .app .welcome-line,.aurora-route-to-home .app .composer-area,.aurora-route-to-home .app .discreet{animation:documents-arrive .65s .3s both}

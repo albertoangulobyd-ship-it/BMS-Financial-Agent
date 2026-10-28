@@ -9,7 +9,7 @@
 // son las de la app (shell/crumbs.tsx): las del prototipo no se traen.
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ArrowUpRight, ChevronRight, FileText, FolderOpen, Search, X } from 'lucide-react';
-import { AuroraOrb } from '@/aurora/orb/aurora-orb';
+import { SiriWave } from '@/aurora/orb/siri-wave';
 import { fmt, useT } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { GlassFolder, type ArtRecipe, type FolderFile } from './glass-folder';
@@ -81,14 +81,12 @@ export function ArchiveHeading({
   title,
   description,
   onHome,
-  orbActive = false,
 }: {
   eyebrow: string;
   /** Con un nombre de los datos dentro, marcado (data-proper-name) por quien lo pasa. */
   title: ReactNode;
   description: string;
   onHome?: () => void;
-  orbActive?: boolean;
 }) {
   const { t } = useT();
   return (
@@ -96,11 +94,15 @@ export function ArchiveHeading({
       <div>
         {onHome ? (
           <button type='button' className='ws-companion' onClick={onHome} aria-label={t.aurora.archive.home}>
-            <AuroraOrb label={t.aurora.name} size={140} active={orbActive} />
+            <span className='aurora-shared'>
+              <SiriWave size={180} renderScale={1} />
+            </span>
           </button>
         ) : (
           <span className='ws-companion'>
-            <AuroraOrb label={t.aurora.name} size={140} active={orbActive} />
+            <span className='aurora-shared'>
+              <SiriWave size={180} renderScale={1} />
+            </span>
           </span>
         )}
         <p className='ws-eyebrow'>{eyebrow}</p>

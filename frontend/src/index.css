@@ -9,10 +9,9 @@
 @source not "../src/**/*.test.ts";
 @source not "../src/**/*.test.tsx";
 @import "tw-animate-css";
-/* Aurora (paso 16): su paleta en los dos temas y la base de sus piezas (frontend/src/aurora).
-   Las hojas de cada pieza las importa la pieza. */
+/* Aurora (paso 16): la paleta de las piezas del archivo en los dos temas. Las hojas de Aurora
+   (paso 17: styles.css, workspace-layout.css...) las importa la pieza que las usa. */
 @import "./aurora/palette.css";
-@import "./aurora/aurora.css";
 
 /* Dos temas (paso 16): el oscuro de Aurora, por defecto, y el claro. Los decide SOLO la clase
    .dark en <html>, que pone lib/theme.tsx (tambien con "seguir a Windows", mirando
@@ -34,57 +33,8 @@
  * siempre con su texto.
  */
 
-/* Las fuentes van en el paquete (sin red): solo latin y solo los pesos que se usan. El 300 y
-   el 700 son los de Aurora (titulos ligeros y el nombre del saludo). */
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 300;
-  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-300-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 400;
-  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 500;
-  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 600;
-  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 700;
-  src: url("../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 400;
-  src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 500;
-  src: url("../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
-}
+/* La letra es la de Aurora (styles.css: Inter, 'Segoe UI', sans-serif) sin servir ninguna: en el
+   PC del dueno, Inter si la tiene y Segoe UI si no, como en su prototipo (especificacion D-49). */
 
 /* El tema claro: la pareja de Aurora con el mismo matiz lavanda. */
 :root {
@@ -153,12 +103,13 @@
 }
 
 /* El tema oscuro: la paleta de Aurora (fondo #08090b-#101015, texto #e8e5ee, acento lavanda
-   #c2aed7). Los grises de texto de Aurora (#77717f) no llegaban a 4,5:1: aqui son mas claros. */
+   #c2aed7). El fondo y el texto son los de su :root, tal cual (paso 17, D-51); los demas tokens
+   los usan las pantallas del motor mientras no son de Aurora. */
 :root.dark {
   color-scheme: dark;
 
-  --background: #0a0a0d;
-  --foreground: #ebe8f0;
+  --background: #08090b;
+  --foreground: #e8e5ee;
   --card: #111116;
   --card-foreground: #ebe8f0;
   --popover: #16151c;
@@ -205,8 +156,8 @@
 }
 
 @theme inline {
-  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --font-sans: Inter, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
 
   /* Cuerpo a 13,5 px; el resto de la escala se queda. */
   --text-sm: 0.84375rem;
@@ -283,7 +234,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   html {
     height: 100%;
@@ -294,8 +245,10 @@
      scroll; el marco del paso 16 no lo tiene, y nada debajo de la ventana se alcanzaba
      (revision del paso 16). Las bandas del servidor se quedan arriba: son sticky, una
      debajo de otra (lib/server-bands.ts), y la cabecera de la app va debajo de ellas. */
+  /* Como en Aurora: el cuerpo no pone tamano ni interlineado (lo pone cada pieza; las pantallas
+     del motor, su marco: .host-body en aurora/bms.css). */
   body {
-    @apply bg-sidebar text-foreground font-sans text-sm antialiased;
+    @apply bg-background text-foreground font-sans;
     margin: 0;
     min-height: 100%;
     display: flex;
@@ -345,13 +298,4 @@
   padding: 1rem;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+/* Con "menos movimiento", lo de Aurora (styles.css): sin animaciones ni transiciones en el CSS. */

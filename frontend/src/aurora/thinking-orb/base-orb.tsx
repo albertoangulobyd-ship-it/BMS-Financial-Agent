@@ -1,0 +1,18 @@
+// BaseThinkingOrb de Aurora (thinking-orb-utils/base-orb.tsx, entrega del 28-10-2026), tal cual.
+import {useEffect,useRef,useState} from 'react';
+import type {BaseThinkingOrbProps} from './types';
+import {setupCanvasDpr,clamp,presetFor,renderers,renderOrbScene} from './renderer';
+const DEFAULT_FRAME=[240,240] as const;
+/** React host for the unchanged renderer from the author's public 21st.dev preview. */
+export function BaseThinkingOrb({mode='orbits',surface='auto',scale=.72,speed=1,size=240,playback='play',caption='Thinking',summary='Interactive particle state',frame=DEFAULT_FRAME,className='',style}:BaseThinkingOrbProps){
+ const canvasRef=useRef<HTMLCanvasElement>(null),rootRef=useRef<HTMLElement>(null);
+ const [dark,setDark]=useState(true); const [frameWidth,frameHeight]=frame;
+ useEffect(()=>{if(surface==='ink'||surface==='dark'){setDark(true);return}if(surface==='paper'||surface==='light'){setDark(false);return}
+ const media=window.matchMedia('(prefers-color-scheme: dark)');const check=()=>setDark(document.documentElement.classList.contains('dark')||!document.documentElement.classList.contains('light')&&media.matches);check();const observer=new MutationObserver(check);observer.observe(document.documentElement,{attributes:true,attributeFilter:['class']});media.addEventListener('change',check);return()=>{observer.disconnect();media.removeEventListener('change',check)}},[surface]);
+ useEffect(()=>{const canvas=canvasRef.current,root=rootRef.current;if(!canvas||!root)return;let raf=0,disposed=false,visible=true,last=0,time=0,previous=performance.now();const media=matchMedia('(prefers-reduced-motion: reduce)');
+ const shouldAnimate=()=>!disposed&&visible&&!document.hidden&&playback==='play'&&!media.matches;
+ const draw=(now:number)=>{raf=0;if(disposed)return;const delta=(now-previous)*.001;previous=now;if(shouldAnimate())time+=delta*Math.max(Number(speed)||1,.05);if(!last||now-last>=1000/45){const box=canvas.getBoundingClientRect(),{ctx,w,h}=setupCanvasDpr(canvas,box.width||frameWidth,box.height||frameHeight);ctx.clearRect(0,0,w,h);const side=Math.max(8,Math.min(w,h)*clamp(Number(scale)||.72)),preset=presetFor(mode,side);ctx.save();ctx.translate((w-side)/2,(h-side)/2);renderOrbScene(ctx,renderers[mode](side,shouldAnimate()?time*preset.speed:.6*preset.speed,preset.opts),dark);ctx.restore();last=now}if(shouldAnimate())raf=requestAnimationFrame(draw)};
+ const trigger=()=>{if(raf)cancelAnimationFrame(raf);previous=performance.now();last=0;draw(previous)};const resize=new ResizeObserver(trigger);resize.observe(root);const intersection=new IntersectionObserver(([entry])=>{visible=entry?.isIntersecting!==false;trigger()},{rootMargin:'100px',threshold:.01});intersection.observe(root);document.addEventListener('visibilitychange',trigger);media.addEventListener('change',trigger);trigger();return()=>{disposed=true;cancelAnimationFrame(raf);resize.disconnect();intersection.disconnect();document.removeEventListener('visibilitychange',trigger);media.removeEventListener('change',trigger)};
+ },[mode,scale,speed,playback,dark,frameWidth,frameHeight]);
+ return <figure ref={rootRef} className={'thinking-orb '+className} style={{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',isolation:'isolate',userSelect:'none',width:size,height:size,maxWidth:'100%',margin:0,...style}} data-playback={playback}><canvas ref={canvasRef} style={{display:'block',maxWidth:'100%',maxHeight:'100%',width:`min(100%, ${frameWidth}px)`,height:'auto',aspectRatio:`${frameWidth} / ${frameHeight}`}} role="img" aria-label={`${caption}. ${summary}`}/><figcaption className="sr-only">{caption}: {summary}</figcaption></figure>
+}

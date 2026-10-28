@@ -98,15 +98,14 @@
     isolation: isolate;
     border-radius: 50%;
   }
-  .aurora-root .ws-companion canvas,
-  .aurora-root .ws-companion .aurora-orb {
+  .aurora-root .ws-companion canvas {
     position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
   }
-  /* El orbe dibuja mas ancho que su caja (140 px en 96): con el margen de la pantalla mas
+  /* El orbe dibuja mas ancho que su caja (180 px en 96): con el margen de la pantalla mas
      estrecho (por debajo de 1280 px) no se sale por la izquierda. */
   @media (max-width: 1279px) {
     .aurora-root .ws-companion {
