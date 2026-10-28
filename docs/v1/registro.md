@@ -8921,3 +8921,191 @@ de Aurora, mientras sus paneles se rehacen en B2.
   siempre en claro y en oscuro.
 - `pytest -q`: **2559 pasan, 12 se saltan** (5 min 27 s), con Python 3.11.17; el motor no cambia.
 - `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · B2: los paneles y Documentos de Aurora, con los datos de verdad
+
+Lo mismo que pidió el dueño en B1 («Necesito que te apegues a las animaciones y diseño de esta
+aplicación, no quiero que hagas algo diferente. No pueden vivir las pantallas y el menú al mismo
+tiempo»), ahora por dentro: B1 dejó el marco de Aurora con las pantallas de los pasos 15 y 16
+debajo; B2 las quita y pone su trabajo en las piezas de Aurora. Cobrar y Pagar son los paneles
+de Aurora (la cifra principal, los grupos, sus vistas y sus tarjetas) con la cartera de verdad;
+Documentos es el archivo de Aurora (el vuelo, el árbol, las carpetas de cristal, la ficha, la
+hoja, las marcas de nueva y repetida y la descarga auditada del original); el IVA, la cola de
+trabajo, las excepciones, los IBAN, las relaciones con sus Objects y PO, importar y Ajustes, con
+los mismos patrones. Nada visualmente nuevo: lo que no tenía pieza en Aurora va en la suya más
+parecida, con sus clases. Se sigue la especificación del paso 17 (§2 y §3).
+
+### Qué se construyó
+
+- **Los paneles en dos niveles** (`src/aurora/panels/`): en reposo, la cifra principal de Aurora
+  (`.balance`, con su barra de verdad: la parte vencida, la bloqueada o urgente, lo que ha pasado
+  del trimestre) y una fila por grupo; la vista de un grupo con cinco filas como mucho, el campo
+  `.search` del panel de Aurora sobre la lista entera, «En nog N» y «Terug naar …»; y la tarjeta
+  `.detail` de cada fila. **Start** (E2-I: Eerst, Werklijst, Uitzonderingen, IBAN te controleren
+  y Kasstroom), **Te ontvangen** y **Te betalen** (E2-C y E2-P: Te bevestigen, Niet gekoppeld,
+  Vervallen o Deze week, Met bezwaren of geblokkeerd y la antigüedad, de `GET /api/v2/cartera`),
+  **Btw** (E2-V: los trimestres con su tarjeta y la hoja) e **Instellingen** (E2-A, de B1).
+- **Las órdenes en las tarjetas** (`src/aurora/orders.tsx`): la principal en `.primary`, las
+  demás en `.outline`; su formulario dentro de la tarjeta (`.order-form`, con el desplegable y el
+  calendario de la búsqueda de Aurora) y su «sí» en `.chat-export`, una vez; hecha, `.success`.
+  Son las mismas órdenes y las mismas reglas de los pasos 15 y 16 (los permisos, la regla de las
+  dos personas, la segunda firma, el 409 de concurrencia), ahora en `exception-orders.tsx`,
+  `payment-orders.tsx` (el único sitio que manda las tres de los pagos), `home-panel.tsx` (las
+  cuentas), `vat-panel.tsx` (el BTW) y la hoja de una factura.
+- **La tarjeta de una factura** (`invoice-card.tsx`), en cualquier vista: lo que es, lo que queda,
+  el vencimiento, los pagos con su fuente y por qué pide atención; «Factuur openen» (su hoja en
+  Documentos, con el vuelo), «Origineel downloaden» y, con permiso, «Betaling vastleggen».
+- **Importar dentro de Te ontvangen** (`import-panel.tsx`): el panel 4 de Aurora (la zona de
+  soltar, la ficha del fichero con su ✕, la clase y el día con el desplegable y el calendario),
+  «Eerst proberen» y «Nu echt importeren» con las reglas de siempre; sin fichero, de cuándo es
+  cada fuente y las últimas importaciones.
+- **Documentos de Aurora** (`src/aurora/documents/`): `document-workspace.tsx`,
+  `glass-folder-cards.tsx`, `tree-view.tsx`, sus hojas y la pastilla `status.tsx`, de la entrega
+  del dueño, con las carpetas de verdad (las doce que piden atención en la rejilla, todas en el
+  árbol), la ficha debajo de la rejilla con lo del maestro y su tabla (documentos, Objects y PO),
+  las marcas de nueva y repetida de la última lectura (`analysis.ts`), y el `<dialog>` de la hoja
+  dibujada desde el registro con «Origineel downloaden» (auditada). La hoja de una factura
+  (`invoice-sheet.tsx`) lleva una sola tabla, «Wat je kunt doen», con una fila por cosa pendiente
+  y su tarjeta debajo (`sheet-model.ts`, puro); las de un documento, un Object y una PO, en
+  `sheets.tsx`. El sitio (categoría, carpeta, hoja) es estado de la app (`estado.ts`, `docs`).
+- **Los estados con los colores de Aurora** (D-31): en una fila, el texto de `doc-end small` con
+  su clase (`rowTone`: pendiente, `paid` o `blocked`); en una pastilla, la `.ui-status` de
+  Aurora. La tabla de qué estado lleva qué tono sigue en `status-pill.tsx`.
+- **El tema claro**: `scripts/aurora-claro.mjs` deja como en el oscuro las superficies claras de
+  Aurora con su texto oscuro (el `.primary`, el papel de la hoja, la descarga, el día elegido del
+  calendario, «Naar de inhoud») y lo de dentro; invertidas eran texto oscuro sobre fondo oscuro
+  (lo vio axe en claro). Los grises del papel, a mano, a 4,5:1.
+- **Fuera**: las pantallas de los pasos 15 y 16 (`src/screens/`, salvo Facturen lezen), sus
+  piezas (`action-dialog`, `attention-list`, `exception-block`, `filter-chips`, `help-tip`,
+  `invoice-attention`, `search-box`, `section`, `summary-card`, `why-cell`, y `dialog`, `input`,
+  `label` y la `status.tsx` de shadcn), `src/shell/` (las migas y la navegación de las pantallas
+  de trabajo), `lib/view-memory.ts`, el archivo del paso 16 (`archive.tsx`, `glass-folder.tsx`,
+  `palette.css`) y el suricato de los vacíos (`meerkat/`, D-44).
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Una fila de un panel abría una pantalla de los pasos 15 y 16 | Abre la vista de su grupo; una fila de la vista, su tarjeta con sus órdenes | Los paneles de Aurora (§2.2) |
+| 2 | La ficha de una factura, a página entera | Su hoja en Documentos (E6-h), con el vuelo, una tabla «Wat je kunt doen» y las tarjetas | El archivo de Aurora (§2.3) |
+| 3 | Las listas de proveedores, clientes, Objects y PO, con sus fichas | Sus carpetas en Documentos: la ficha y su tabla; un Object o una PO, su hoja | Aurora no tiene listas; la empresa vive en su carpeta |
+| 4 | La ficha de la carpeta arriba de la rejilla; «Alle N mappen tonen»; pestañas y buscador de carpetas | La ficha debajo de la rejilla, como en Aurora; las doce primeras en la rejilla y todas en el árbol | Aurora tal cual (D-39) |
+| 5 | Una carpeta vacía con la suricata | Lo vacío de Aurora (`.ws-empty`), sin suricata | D-44: la suricata es de Procesar |
+| 6 | Los estados, pastillas con su punto en cada fila | En una fila, el texto de la derecha en el color de Aurora; la pastilla, donde Aurora la tiene | D-31 |
+| 7 | Kasstroom, una tabla de periodos | Un grupo de Start con las cuatro semanas; cada una abre sus facturas en la búsqueda | §2.2.1 |
+| 8 | Importeren, una pantalla | Dentro de Te ontvangen, el panel 4 de Aurora | §2.2.6 |
+| 9 | Un resultado de la búsqueda abría la factura en su lista | Abre su hoja en Documentos | No hay lista de facturas |
+| 10 | En claro, el botón `.primary` y el papel de la hoja, oscuros con texto oscuro | Como en el oscuro | Se leían a menos de 2:1 |
+
+### Las pruebas
+
+- **Migradas, sin quitar ninguna comprobación** (cada una a su portador nuevo, especificación
+  §6.6): `daily.spec.ts` (12: Start y sus grupos, las órdenes de la hoja, la segunda firma, el 409,
+  quien solo mira, la excepción, el IBAN con la regla de las dos personas, E5-p),
+  `payments.spec.ts` (8), `cartera-partes.spec.ts` (el panel, el resumen y las carpetas al
+  céntimo), `screens.spec.ts` (las fichas y las hojas en tres idiomas, la Kasstroom, el BTW con
+  sus dos personas, importar, Facturen lezen, Instellingen, quien solo mira y 1024 px),
+  `documents.spec.ts` (5), `shell.spec.ts` (17), `search.spec.ts` (el resultado abre su hoja),
+  `status.spec.ts` (4, rehecha: cada estado en su color de Aurora en los dos temas, el latido solo
+  en la afscherming y nada en Documentos, «menos movimiento», el plazo del BTW pasado en rojo en su
+  fila) y `themes.spec.ts` (la gira de `tourAll`, ahora en `nav.ts`: cada panel en reposo y cada
+  vista de grupo, la búsqueda, Documentos y Procesar, en claro en los tres idiomas y en oscuro en
+  castellano; las fichas y las hojas en claro).
+- **`clicks.spec.ts`**: los límites son los de la tabla de §2.6 (un grupo, 3; una tarjeta, 4; una
+  orden, 5 como mucho), y una prueba nueva: en los grupos de más de cinco filas de la base de prueba
+  (la Werklijst, las excepciones), la sexta fila y la última se alcanzan escribiendo en su campo.
+- **`exclusividad.spec.ts`**: además de lo de B1, en cada ancho los paneles por dentro (una vista,
+  una tarjeta con su orden abierta e importar), «Vervallen» → E5-p y la hoja de una factura con
+  una orden abierta (E6-h, E6-o), cuadro a cuadro donde hay transición.
+- **`aurora-paridad.spec.ts`**: además de lo de B1, E2 con una tarjeta y Documentos (todo, una
+  carpeta abierta y la hoja) a 1440 y 400 px contra las grabaciones de Aurora (`cobrar-*` y
+  `documentos-*`, añadidas a `e2e/aurora/referencia.json` con la misma forma); **el
+  desplazamiento de los paneles** en reposo, en cada vista de grupo y en importar (como mucho, 42
+  px a 1440 × 900 y 181 px a 400 × 860; el límite, 53 y 213); y **el de la hoja de cada factura**
+  de la base de prueba, anotado (abajo).
+- **El contraste**: ocho casos nuevos de grises de Aurora en oscuro en `e2e/aurora/contraste.json`
+  (la nota de `.balance`, «En nog N», la privacidad y la zona de soltar de importar, la línea de un
+  resultado de la búsqueda, la segunda línea de la ficha y de la hoja, y los nombres y la nota del
+  papel). La marca de agua del papel no se mide (es decoración, WCAG 1.4.3). En claro no hay
+  ninguno: es puerta.
+- **vitest**: `panel-model`, `money-model`, `iban-model`, `weeks`, `documents-model`,
+  `sheet-model` y `analysis` (lo puro de los paneles y de Documentos); `estado.test.ts` con las
+  vistas de los paneles y el sitio de Documentos; `aurora-claro.test.mjs`, las superficies claras.
+  Se fueron con sus pantallas `home.test.ts`, `registry.test.ts`, `screens.test.ts`,
+  `status-states.test.ts` y `navigation.test.ts`; lo que comprobaban vive en las pruebas de los
+  modelos y en el navegador.
+- **Python**: `test_app_local.py` reconoce las órdenes de Aurora (`action: '…'`) y comprueba que
+  las de los pagos salen solo de `payment-orders.tsx` y la de la aangifte solo de `vat-panel.tsx`.
+
+### Desviaciones, y por qué
+
+1. **El diálogo de una factura se desplaza más de 300 px con muchas filas** (especificación §6.1):
+   con la anatomía de §2.3 (el papel entero arriba, la descarga y la tabla), las de cuatro filas o
+   menos se quedan en 292 px o menos, pero las de cinco llegan a 331–366, las de seis a 421, las
+   de siete a 494 y la peor, DBO-2026-0417 con ocho, a 586 px. La prueba lo anota todo y falla solo
+   con cuatro filas o menos. Es un punto para el dueño (§7.14): plegar el papel cuando hay filas o
+   dejar que el diálogo se desplace, como hace hoy.
+2. **La base de prueba no se completó a siete filas por grupo**: la Werklijst (14) y las excepciones
+   (13) pasan de cinco y prueban el campo de buscar; los demás grupos tienen menos, y la prueba se
+   salta los que no llegan.
+3. **El latido**: se queda la regla de los pasos 15 y 16 (solo lo que pide hacer algo ya) en las
+   pastillas que quedan, y Documentos va quieto entero; en Aurora todas laten.
+4. **Lo neutro sin pastilla**: Aurora no tiene pastilla gris; un estado neutro va en texto.
+5. **El «sí» (`.chat-export`) va dentro de la tarjeta**, debajo del formulario, y no flotando como
+   el de compartir de la conversación de Aurora: es de esa orden.
+6. **Procesar sigue siendo Facturen lezen** dentro del marco de Documentos (`work-screen.tsx`): el
+   Procesar de Aurora (E7) es otro paso. Con él se irán `work-screen.tsx` y lo que solo usa esa
+   pantalla (`page-header`, `data-table`, `fact-strip`).
+7. **Las reglas del análisis de las carpetas** (las marcas de nueva y repetida) están copiadas de
+   `processing-workspace.css` del dueño en `file-analysis.css`, porque esa hoja es de Procesar.
+8. **Las filas de la hoja llevan dos líneas** (`FileRow`: qué es y su estado), como las de la ficha
+   de Aurora, en vez de una línea con el estado aparte.
+9. **Las frases de las vistas son cortas**, para que el panel no pase de su desplazamiento
+   (§6.1); la de Aurora es una línea.
+10. **La historia de importar** lleva el fichero como título de la fila, y la clase y la persona
+    debajo (antes, «N filas»).
+11. **El título de la tarjeta de una excepción** es «Uitzondering» en el idioma de la persona: el
+    título que da el motor es castellano y no se enseña.
+12. **«Naar de inhoud» lleva al título de Documentos** (`.ws-heading`): `.ws-shell` es
+    `display:contents` en el diseño de Aurora y no puede recibir el foco.
+13. **Una carpeta cuyos documentos no se pudieron leer** lo dice con su «Opnieuw proberen» (Aurora
+    no tiene ese caso).
+14. **En Documentos la paridad mide la `y` desde la marca** (la página se desplaza al abrir una
+    carpeta), y de la hoja compara solo el diálogo: en la grabación de Aurora a 400 px la cabecera
+    sale 30 px más abajo que en los otros dos estados.
+15. **`i18n/domain.ts` importa los catálogos con `with { type: 'json' }`**: así los carga también
+    Node y las pruebas en el navegador usan las reglas puras de la app (`needsPerson`,
+    `buildChecks`) en vez de copiarlas.
+
+### Lo que deben saber los pasos siguientes
+
+- **E7 (Procesar)** sustituye a Facturen lezen: al montarlo se quitan `screens/read-invoices.tsx`,
+  `aurora/work-screen.tsx` y las piezas que solo usan ellos (`codigo-muerto.test.mjs` las
+  señalará); la fila 21 de la tabla de los clics deja de saltarse.
+- **El diálogo de una factura con muchas filas** espera la decisión del dueño (desviación 1).
+- **Un grupo nuevo** va en su `*-panel.tsx` con `GroupView` y `Detail`; una orden nueva, una
+  `OrderSpec` (`orders.tsx`). `aurora-paridad.spec.ts` mide su desplazamiento.
+- **Cambiar una hoja de Aurora** sigue pidiendo `node scripts/aurora-claro.mjs`.
+
+### Resultado
+
+- `npm run typecheck` sin errores (también `tsconfig.node.json`, que ahora resuelve `@/` y JSX
+  para las pruebas que usan las reglas puras de la app); `vitest`: **1287 pasan** en 22 ficheros
+  (con `codigo-muerto.test.mjs`: ningún fichero, exportación ni clase sin usar).
+- `npm run build` dos veces, el mismo resultado byte a byte (`fuente.json` 23416188…); `npm run
+  fuente` al día.
+- Playwright sobre una base de prueba recién creada: **81 pasan** en 13 ficheros (37,1 min), con
+  lo construido que va en el commit y sin ninguna falta de contraste fuera de las apuntadas. Los
+  tiempos del orbe: T01 106 / 427 ms (en teoría, 106 / 427), T11 216 / 610 (210 / 609), T17
+  209 / 607. La onda en el inicio: 61 cuadros por segundo y 2,4 s del hilo principal cada 5 s.
+  Por el camino salieron y se arreglaron: en claro, el `.primary` y el papel de la hoja con el
+  texto oscuro sobre un fondo invertido (axe); «Naar de inhoud» que no llevaba a ningún sitio en
+  Documentos (`display:contents`); y tres pruebas que dependían del orden (una excepción que ya no
+  sale entre las cinco primeras, el aviso B2 ya aceptado por `daily.spec.ts`, el trimestre ya
+  anotado por `screens.spec.ts`).
+- Las capturas, en `app-capturas/paso17/secciones` (dark/ 238 y light/ 105), miradas al lado de
+  las grabaciones de Aurora: el panel de Te ontvangen con su vista y su tarjeta (el de Aurora, sin
+  la rueda al lado: la regla del dueño), Documentos con la carpeta abierta, la ficha y la hoja a
+  1440 y a 400 px (las mismas cajas que el prototipo; la marca de agua dice «TEST»), y el claro.
+- `pytest -q`: **2559 pasan, 12 se saltan** (5 min 33 s); el motor no cambia.
+- `git status` limpio después de construir y de las pruebas.
