@@ -28,7 +28,7 @@ where = ["src"]
 "bms_agent.almacen" = ["sql/*.sql"]
 # Paso 15: la app local construida (frontend/ -> src/bms_agent/web): un paquete instalado
 # con pip tiene que poder servir /app.
-"bms_agent" = ["web/*.html", "web/*.json", "web/assets/*", "web/licenses/*"]
+"bms_agent" = ["web/*.html", "web/*.json", "web/assets/*"]
 # Paso 15: los textos NL/EN de la app y sus casos de referencia (Docker instala con pip).
 "bms_agent.textos" = ["*.json", "LEEME.md"]
 

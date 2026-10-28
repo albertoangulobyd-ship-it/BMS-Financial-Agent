@@ -137,10 +137,11 @@ def test_cada_fichero_de_la_pagina_se_sirve_con_su_tipo_y_cache_inmutable(tmp_pa
             assert datos == (WEB / ruta.removeprefix("/app/")).read_bytes()
         assert {"text/javascript; charset=utf-8", "text/css; charset=utf-8",
                 "image/svg+xml"} <= tipos
-        # Las fuentes que pide el estilo: woff2, del propio servidor.
+        # Desde el paso 17 la letra es la de Aurora, del sistema (Inter, Segoe UI): el estilo no
+        # pide ninguna fuente. Si algun dia pide una, woff2 y del propio servidor.
         css = next(_pedir(puerto, r)[2] for r in referidos if r.endswith(".css")).decode()
         fuentes = re.findall(r"url\(([^)]+)\)", css)
-        assert fuentes and all(re.fullmatch(r"/app/assets/[A-Za-z0-9._-]+\.woff2", f) for f in fuentes)
+        assert all(re.fullmatch(r"/app/assets/[A-Za-z0-9._-]+\.woff2", f) for f in fuentes)
         for fuente in fuentes:
             estado, cabeceras, _d = _pedir(puerto, fuente)
             assert estado == 200 and cabeceras["content-type"] == "font/woff2"
@@ -377,13 +378,13 @@ def test_el_css_construido_no_cambia_con_el_modo_oscuro_del_sistema() -> None:
 def test_el_paquete_lleva_la_app_y_los_textos() -> None:
     datos = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
     datos_paquete = datos["tool"]["setuptools"]["package-data"]
-    assert {"web/*.html", "web/*.json", "web/assets/*", "web/licenses/*"} <= set(
-        datos_paquete["bms_agent"])
+    assert {"web/*.html", "web/*.json", "web/assets/*"} <= set(datos_paquete["bms_agent"])
     # textos/ es un paquete propio (tiene __init__.py): sus catalogos van con el suyo.
     assert "*.json" in datos_paquete["bms_agent.textos"]
-    # Las fuentes van con su licencia (SIL OFL 1.1 pide que cada copia la lleve).
-    assert {f.name for f in (WEB / "licenses").iterdir()} == {"ibm-plex-sans-OFL.txt",
-                                                              "ibm-plex-mono-OFL.txt"}
+    # Sin fuentes propias desde el paso 17 (la letra de Aurora es la del sistema): ni ficheros
+    # de letra ni sus licencias.
+    assert not (WEB / "licenses").exists()
+    assert not list((WEB / "assets").glob("*.woff2"))
     atributos = (RAIZ / ".gitattributes").read_text(encoding="utf-8")
     assert "src/bms_agent/web/** -text" in atributos
 
@@ -432,6 +433,9 @@ def test_el_navegador_solo_guarda_comodidades_desde_un_sitio() -> None:
 def test_el_frontend_no_lleva_ninguna_direccion_de_fuera() -> None:
     for fichero in [*_fuentes_del_frontend(), FRONTEND / "index.html", FRONTEND / "src" / "index.css"]:
         texto = fichero.read_text(encoding="utf-8")
+        # El espacio de nombres de SVG (createElementNS) es un nombre, no una direccion: nunca
+        # se pide (el Finance Bento de Aurora, paso 17).
+        texto = texto.replace("'http://www.w3.org/2000/svg'", "")
         assert not re.search(r"https?://(?!127\.0\.0\.1|localhost)", texto), fichero
 
 
