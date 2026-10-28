@@ -28,6 +28,12 @@ proveedores sin la referencia y un ingreso que no es de ninguna factura (sin cas
 apuntar un pago con su linea). Entra por el importador de siempre, como desde Importeren.
 Solo en la base de las pruebas: `bms-agent demo crear` no cambia, y sus pruebas en Python
 tampoco. Lo que entro va en "banco" del JSON.
+
+Paso 17: ese extracto necesita facturas que sigan abiertas, y el escenario va respecto a hoy:
+al final de cada mes (del 29 al 31 de octubre, por ejemplo) la factura mensual de la
+Stichting ya se cobro y no queda ninguna suya abierta. Entonces la base se hace con el reloj
+de un dia antes (y asi hasta una semana), como una base de prueba hecha ese dia y abierta hoy:
+"dias_atras" del JSON lo dice. `bms-agent demo crear` no cambia.
 """
 
 from __future__ import annotations
@@ -36,12 +42,19 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
 
 CONSULTA = "Cas Consulta"
+# Como mucho, cuantos dias antes de hoy se busca uno en el que la base tenga lo que pide el
+# extracto de las pruebas (las facturas abiertas de _facturas_del_extracto).
+DIAS_ATRAS = 7
+
+
+class _FaltaUnaFactura(Exception):
+    """La base de prueba de ese dia no tiene una de las facturas abiertas del extracto."""
 
 
 def _persona_de_consulta(ruta: Path) -> str:
@@ -64,18 +77,32 @@ def main(argv: list[str] | None = None) -> int:
 
     from bms_agent import demo
     from bms_agent.almacen import NOMBRE_DEMO
+    from bms_agent.reloj import RelojFijo
 
     ruta = Path(args.carpeta) / NOMBRE_DEMO
-    resumen = demo.crear(ruta, rehacer=args.rehacer)
-    if not resumen.creada:
-        print(json.dumps({"error": f"{ruta} ya existe: --rehacer para hacerla de nuevo"}),
+    falta = None
+    for atras in range(DIAS_ATRAS + 1):
+        reloj = (None if atras == 0
+                 else RelojFijo(datetime.now(timezone.utc) - timedelta(days=atras)))
+        resumen = demo.crear(ruta, reloj=reloj, rehacer=args.rehacer or atras > 0)
+        if not resumen.creada:
+            print(json.dumps({"error": f"{ruta} ya existe: --rehacer para hacerla de nuevo"}),
+                  file=sys.stderr)
+            return 2
+        falta = _falta_para_el_extracto(ruta)
+        if falta is None:
+            break
+    else:
+        print(json.dumps({"error": f"en ninguno de los {DIAS_ATRAS + 1} ultimos dias tiene la "
+                                   f"base lo que pide el extracto de las pruebas: {falta}"}),
               file=sys.stderr)
-        return 2
+        return 3
     tokens = {**resumen.tokens, CONSULTA: _persona_de_consulta(ruta)}
     ficheros = _ficheros_de_importar(Path(args.carpeta))
     banco = _extracto_de_pagos(ruta, Path(args.carpeta))
     print(json.dumps({"db": str(ruta), "tokens": tokens, "cifras": resumen.cifras,
-                      "ficheros": ficheros, "banco": banco}, ensure_ascii=False))
+                      "ficheros": ficheros, "banco": banco, "dias_atras": atras},
+                     ensure_ascii=False))
     return 0
 
 
@@ -118,6 +145,53 @@ def _camt(apuntes: list[tuple], inicial: Decimal, secuencia: int, dia: date) -> 
         f"{''.join(entradas)}</Stmt></BkToCstmrStmt></Document>").encode("utf-8")
 
 
+def _facturas_del_extracto(conn: sqlite3.Connection) -> dict:
+    """Las facturas abiertas que usa el extracto: tres del puerto, la ultima de la Stichting,
+    la ultima pendiente (no vencida) del gemeentehuis, la ultima de Oost y la primera de
+    Voorbeeld. _FaltaUnaFactura si alguna no esta."""
+
+    def abiertas(sentido: str, tabla: str, codigo: str) -> list[sqlite3.Row]:
+        columna = "cliente_id" if tabla == "cliente" else "proveedor_id"
+        return conn.execute(
+            f"SELECT f.numero, e.pendiente_cent, e.estado_pago FROM factura AS f "
+            f"JOIN factura_estado AS e ON e.factura_id = f.id "
+            f"JOIN {tabla} AS p ON p.id = f.{columna} WHERE f.sentido = ? "
+            f"AND p.exact_id = ? AND e.estado_pago IN ('pendiente', 'vencida') "
+            f"AND f.total_cent > 0 ORDER BY e.vencimiento, f.id",
+            (sentido, codigo)).fetchall()
+
+    def una(nombre: str, filas: list[sqlite3.Row]) -> sqlite3.Row:
+        if not filas:
+            raise _FaltaUnaFactura(f"ninguna factura abierta de {nombre}")
+        return filas[0]
+
+    haven = abiertas("saliente", "cliente", "10001")
+    if len(haven) < 3:
+        raise _FaltaUnaFactura(f"{len(haven)} facturas abiertas del puerto, y hacen falta tres")
+    return {
+        "haven": haven,
+        "stichting": una("la Stichting", abiertas("saliente", "cliente", "10002")[-1:]),
+        "gemeente": una("el gemeentehuis (pendiente)",
+                        [f for f in abiertas("saliente", "cliente", "10003")
+                         if f["estado_pago"] == "pendiente"][-1:]),
+        "oost": una("Oost", abiertas("entrante", "proveedor", "30004")[-1:]),
+        "voorbeeld": una("Voorbeeld", abiertas("entrante", "proveedor", "30002")[:1]),
+    }
+
+
+def _falta_para_el_extracto(ruta: Path) -> str | None:
+    """Que le falta a la base para el extracto de las pruebas, o None si lo tiene todo."""
+    conn = sqlite3.connect(f"file:{ruta}?mode=ro", uri=True)
+    try:
+        conn.row_factory = sqlite3.Row
+        _facturas_del_extracto(conn)
+    except _FaltaUnaFactura as falta:
+        return str(falta)
+    finally:
+        conn.close()
+    return None
+
+
 def _extracto_de_pagos(ruta: Path, carpeta: Path) -> dict[str, int]:
     """El extracto de hoy de las pruebas de Cuentas por cobrar y por pagar.
 
@@ -137,25 +211,12 @@ def _extracto_de_pagos(ruta: Path, carpeta: Path) -> dict[str, int]:
         hoy = date.fromisoformat(conn.execute("SELECT max(hasta) FROM extracto_bancario")
                                  .fetchone()[0])
 
-        def abiertas(sentido: str, tabla: str, codigo: str) -> list[sqlite3.Row]:
-            columna = "cliente_id" if tabla == "cliente" else "proveedor_id"
-            return conn.execute(
-                f"SELECT f.numero, e.pendiente_cent, e.estado_pago FROM factura AS f "
-                f"JOIN factura_estado AS e ON e.factura_id = f.id "
-                f"JOIN {tabla} AS p ON p.id = f.{columna} WHERE f.sentido = ? "
-                f"AND p.exact_id = ? AND e.estado_pago IN ('pendiente', 'vencida') "
-                f"AND f.total_cent > 0 ORDER BY e.vencimiento, f.id",
-                (sentido, codigo)).fetchall()
-
         def euros(cent: int) -> Decimal:
             return Decimal(cent) / 100
 
-        haven = abiertas("saliente", "cliente", "10001")
-        [stichting] = abiertas("saliente", "cliente", "10002")[-1:]
-        [gemeente] = [f for f in abiertas("saliente", "cliente", "10003")
-                      if f["estado_pago"] == "pendiente"][-1:]
-        [oost] = abiertas("entrante", "proveedor", "30004")[-1:]
-        [voorbeeld] = abiertas("entrante", "proveedor", "30002")[:1]
+        f = _facturas_del_extracto(conn)
+        haven, stichting, gemeente = f["haven"], f["stichting"], f["gemeente"]
+        oost, voorbeeld = f["oost"], f["voorbeeld"]
         proveedor = {p.codigo: p for p in demo.PROVEEDORES}
         apuntes = [
             # Cobros con la referencia y el importe, desde una cuenta que no es la del maestro.
