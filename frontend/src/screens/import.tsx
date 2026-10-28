@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { DateText } from '@/components/values';
-import { fmt, useT, type Messages } from '@/i18n';
+import { countText, fmt, useT, type Messages } from '@/i18n';
 import { importKindLabel, stateLabel } from '@/i18n/domain';
 import { ApiError, paths, toBase64, type ImportBatch, type ImportKind, type ImportResult } from '@/lib/api';
 import type { ImportHistoryRow, ImportsInfo, SourceFreshness } from '@/lib/api-types';
@@ -402,7 +402,12 @@ function ImportSummary({ result, done }: { result: ImportResult; done: boolean }
       ))}
       <ChecksAfter result={result} />
       {result.pagos && (result.pagos.casados > 0 || result.pagos.propuestas > 0) && (
-        <p className='text-[13px]'>{fmt(t.importing.payments, { matched: result.pagos.casados, proposed: result.pagos.propuestas })}</p>
+        <p className='text-[13px]'>
+          {fmt(t.importing.payments, {
+            matched: fmt(result.pagos.casados === 1 ? t.importing.paymentsMatchedOne : t.importing.paymentsMatched, { n: result.pagos.casados }),
+            proposed: fmt(result.pagos.propuestas === 1 ? t.importing.paymentsProposedOne : t.importing.paymentsProposed, { n: result.pagos.propuestas }),
+          })}
+        </p>
       )}
     </div>
   );
@@ -420,13 +425,13 @@ function Batch({ batch: b, done }: { batch: ImportBatch; done: boolean }) {
     );
   }
   const parts: string[] = [
-    fmt(t.importing.rowsRead, { n: b.filas_leidas }),
-    fmt(done ? t.importing.wentIn : t.importing.goIn, { n: b.aceptadas }),
+    fmt(b.filas_leidas === 1 ? t.importing.rowsReadOne : t.importing.rowsRead, { n: b.filas_leidas }),
+    done ? fmt(b.aceptadas === 1 ? t.importing.wentInOne : t.importing.wentIn, { n: b.aceptadas }) : fmt(b.aceptadas === 1 ? t.importing.goInOne : t.importing.goIn, { n: b.aceptadas }),
   ];
-  if (b.nuevos) parts.push(fmt(t.importing.newRows, { n: b.nuevos }));
-  if (b.cambiados) parts.push(fmt(t.importing.changed, { n: b.cambiados }));
-  if (b.rechazadas) parts.push(fmt(t.importing.rejected, { n: b.rechazadas }));
-  if (b.retirados) parts.push(fmt(t.importing.removed, { n: b.retirados }));
+  if (b.nuevos) parts.push(fmt(b.nuevos === 1 ? t.importing.newRowsOne : t.importing.newRows, { n: b.nuevos }));
+  if (b.cambiados) parts.push(fmt(b.cambiados === 1 ? t.importing.changedOne : t.importing.changed, { n: b.cambiados }));
+  if (b.rechazadas) parts.push(fmt(b.rechazadas === 1 ? t.importing.rejectedOne : t.importing.rejected, { n: b.rechazadas }));
+  if (b.retirados) parts.push(fmt(b.retirados === 1 ? t.importing.removedOne : t.importing.removed, { n: b.retirados }));
   return (
     <div className='rounded-md border border-border px-4 py-3'>
       <div className='flex flex-wrap items-baseline justify-between gap-2'>
@@ -439,7 +444,7 @@ function Batch({ batch: b, done }: { batch: ImportBatch; done: boolean }) {
         <p className='text-[13px]'>{fmt(b.cuentas.nuevas === 1 ? t.importing.accountsNewOne : t.importing.accountsNew, { n: b.cuentas.nuevas })}</p>
       )}
       {b.cuentas?.primer_maestro && <p className='text-xs text-muted-foreground'>{t.importing.firstMaster}</p>}
-      {b.sin_resolver > 0 && <p className='text-[13px]'>{fmt(t.importing.unresolved, { n: b.sin_resolver })}</p>}
+      {b.sin_resolver > 0 && <p className='text-[13px]'>{fmt(b.sin_resolver === 1 ? t.importing.unresolvedOne : t.importing.unresolved, { n: b.sin_resolver })}</p>}
       {b.rechazos.length > 0 && <Rejections batch={b} />}
       {b.avisos.length > 0 && (
         // Los avisos son frases del importador en castellano (para el soporte y la CLI): la app
@@ -502,9 +507,9 @@ function ChecksAfter({ result }: { result: ImportResult }) {
   const { t } = useT();
   const h = result.hallazgos;
   const parts: string[] = [];
-  if (h.detectado) parts.push(fmt(t.importing.findingsNew, { n: h.detectado }));
-  if (h.cerrado_automatico) parts.push(fmt(t.importing.findingsClosed, { n: h.cerrado_automatico }));
-  if (h.reabierto) parts.push(fmt(t.importing.findingsReopened, { n: h.reabierto }));
+  if (h.detectado) parts.push(fmt(h.detectado === 1 ? t.importing.findingsNewOne : t.importing.findingsNew, { n: h.detectado }));
+  if (h.cerrado_automatico) parts.push(fmt(h.cerrado_automatico === 1 ? t.importing.findingsClosedOne : t.importing.findingsClosed, { n: h.cerrado_automatico }));
+  if (h.reabierto) parts.push(fmt(h.reabierto === 1 ? t.importing.findingsReopenedOne : t.importing.findingsReopened, { n: h.reabierto }));
   return (
     <p className='text-[13px]'>
       <span className='font-medium'>{t.importing.checksAfter}: </span>
@@ -519,10 +524,9 @@ function Freshness({ rows }: { rows: SourceFreshness[] }) {
   const age = (r: SourceFreshness) => {
     if (r.edad === null) return '—';
     if (r.edad === 0) return t.importing.ageToday;
-    return fmt(r.unidad.includes('laborables') ? t.importing.ageWorkdays : t.importing.ageDays, { n: r.edad });
+    return countText(t, r.unidad.includes('laborables') ? 'workdays' : 'days', r.edad);
   };
-  const limitText = (r: SourceFreshness) =>
-    fmt(r.unidad.includes('laborables') ? t.importing.ageWorkdays : t.importing.ageDays, { n: r.limite ?? 0 });
+  const limitText = (r: SourceFreshness) => countText(t, r.unidad.includes('laborables') ? 'workdays' : 'days', r.limite ?? 0);
   const columns: Columns<SourceFreshness> = [
     { key: 'data', header: t.importing.data, cell: (r) => importKindLabel(lang, r.fuente, r.tipo) },
     { key: 'exported', header: t.importing.exported, width: '9rem', cell: (r) => <DateText value={r.exportado} /> },

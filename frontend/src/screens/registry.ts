@@ -31,7 +31,6 @@ import {
   Cog,
   type LucideIcon,
 } from 'lucide-react';
-import type { Messages } from '@/i18n';
 import { idToQuarter } from '@/lib/format';
 
 import {
@@ -133,8 +132,6 @@ export const RECORDS: Readonly<Record<RecordId, { icon: LucideIcon; view: ViewId
 export const SEARCH_ROUTE: Route = { screen: 'search', id: 1 };
 
 export const HOME: ViewId = 'home';
-
-export type SectionKey = keyof Messages['areas'];
 
 export function isViewId(value: unknown): value is ViewId {
   return typeof value === 'string' && (VIEW_IDS as readonly string[]).includes(value);

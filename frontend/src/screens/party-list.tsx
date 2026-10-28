@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { useNav } from '@/shell/navigation';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
-import { fmt, useT } from '@/i18n';
+import { countText, fmt, useT } from '@/i18n';
 import { paths } from '@/lib/api';
 import type { PartyRow } from '@/lib/api-types';
 import { NO_VALUE, formatMoney } from '@/lib/format';
@@ -83,7 +83,7 @@ function PartyTable({
         <span className='flex min-w-0 flex-col items-start'>
           <span className='text-[13.5px]'>{r.nombre}</span>
           <span className='text-xs font-normal text-muted-foreground'>
-            {fmt(r.facturas === 1 ? t.parties.invoicesOne : t.parties.invoices, { n: r.facturas })}
+            {countText(t, 'invoices', r.facturas)}
             {!r.activo && ` · ${t.parties.inactive}`}
           </span>
         </span>

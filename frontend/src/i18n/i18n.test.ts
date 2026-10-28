@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANGS, MESSAGES, fmt, isLang, type Lang } from './index';
+import { LANGS, MESSAGES, countText, fmt, isLang, type Lang } from './index';
 import { DOMAIN_FALLBACK, catalogFor } from './domain';
 import { ES_GLOSSARY, glossaryMisses } from './glossary';
 import { leftoversIn, sharedWords } from './leftovers';
@@ -73,6 +73,63 @@ describe('los textos de la app', () => {
       if (value === dictionaries.en.get(key) || value === dictionaries.nl.get(key)) untranslated.push(`${key}: ${value}`);
     }
     expect(untranslated).toEqual([]);
+  });
+});
+
+// Una cifra con su palabra (puerta del paso 16: el inicio decia "bij 1 klanten"). Cada texto con
+// {n} tiene su singular en <clave>One, salvo estos, con su porque. Que la pantalla lea tambien el
+// singular lo mira scripts/singular.test.mjs.
+const NO_SINGULAR: Record<string, string> = {
+  'common.twin': 'sin palabra: "2 van 3"',
+  'action.tooShort': 'n es un minimo de letras, siempre mas de 1',
+  'invoice.acceptReasonHelp': 'n es un minimo de letras, siempre mas de 1',
+  'why.fieldsToVerify': 'etiqueta y cifra: "Velden te verifiëren: 1"',
+  'invoice.notesCount': 'etiqueta y cifra',
+  'exceptions.total': 'etiqueta y cifra',
+  'parties.exceptionsOpen': 'etiqueta y cifra',
+  'overview.nextUp.all': 'solo sale con 2 o mas (hay alguna urgente y mas en la lista)',
+  'overview.nextUp.sameNumber': 'solo sale con 2 o mas',
+  'documents.showAll': 'solo sale si quedan carpetas por ensenar: 2 o mas',
+  'documents.moreWarnings': 'sin palabra: "en nog 1"',
+  'importing.moreRejections': 'sin palabra: "en nog 1"',
+  'importing.row': 'un numero de regla, no una cuenta',
+  'importing.stale': 'n ya viene escrito con su unidad (count)',
+  'status.vat.daysLeft': 'el singular es status.vat.dayLeft',
+  'vat.daysLeft': 'el singular es vat.dayLeft',
+  'parties.unlinkedCreditMany': 'el singular es parties.unlinkedCredit',
+};
+
+describe('las cifras con su singular', () => {
+  it('cada texto con {n} tiene su <clave>One, salvo los de la lista', () => {
+    for (const lang of LANGS) {
+      const texts = dictionaries[lang];
+      const missing = [...texts]
+        .filter(([key, value]) => typeof value === 'string' && value.includes('{n}') && !key.endsWith('One'))
+        .filter(([key]) => !texts.has(`${key}One`) && !(key in NO_SINGULAR))
+        .map(([key, value]) => `${key}: ${value}`);
+      expect(missing, lang).toEqual([]);
+    }
+    // La lista no guarda claves que ya no estan.
+    for (const key of Object.keys(NO_SINGULAR)) expect(dictionaries.nl.has(key), key).toBe(true);
+  });
+
+  it('cada <clave>One tiene su plural, y el singular es de verdad para el 1', () => {
+    for (const lang of LANGS) {
+      for (const [key, value] of dictionaries[lang]) {
+        if (!key.endsWith('One') || typeof value !== 'string') continue;
+        expect(dictionaries[lang].has(key.slice(0, -3)), `${lang}:${key} sin su plural`).toBe(true);
+        expect(value.includes('{n}'), `${lang}:${key}`).toBe(false);
+      }
+    }
+  });
+
+  it('countText() pone el singular solo para el 1', () => {
+    const [nl, en, es] = [MESSAGES.nl, MESSAGES.en, MESSAGES.es];
+    expect([0, 1, 2].map((n) => countText(nl, 'clients', n))).toEqual(['0 klanten', '1 klant', '2 klanten']);
+    expect([0, 1, 2].map((n) => countText(en, 'clients', n))).toEqual(['0 clients', '1 client', '2 clients']);
+    expect([0, 1, 2].map((n) => countText(es, 'clients', n))).toEqual(['0 clientes', '1 cliente', '2 clientes']);
+    expect([countText(nl, 'days', 1), countText(en, 'times', 1), countText(es, 'times', 3)]).toEqual(['1 dag', 'once', '3 veces']);
+    expect(countText(es, 'workdays', 1)).toBe('1 día laborable');
   });
 });
 

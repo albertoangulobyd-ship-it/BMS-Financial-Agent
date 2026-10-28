@@ -8639,3 +8639,84 @@ de crédito DBN-CR-2026-09 a su factura; antes de eso queda una sin enlazar que 
   el inicio en castellano («Bloqueadas», «Vencido», «Esperando al proveedor», «85,95%»,
   «Presentado»), los nombres del acceso directo y los `.bat` en neerlandés y la búsqueda con
   filtros en los tres idiomas.
+
+## Paso 16 · cierre de la puerta
+
+La puerta del paso 16 falló en **un punto, G2** («el código de Aurora en `frontend/src`, sin
+código muerto, sin datos simulados…»): lo demás de G2 se cumplía (nada que interprete HTML,
+ningún dato simulado, `localStorage` solo para idioma y tema, las hojas bajo `.aurora-root`,
+la CSP sin violaciones en las 70 pruebas en el navegador), pero un recorrido de los `import`
+desde `src/main.tsx` encontró **13 ficheros de Aurora que nadie importaba** (la conversación,
+`FinanceBento` y todo `processing/`), más el orbe de partículas (`thinking-orb/`, con su
+dibujo de unas 850 líneas sin comprobar tipos) que solo importaba `SearchThinking`, que nadie
+usaba: unas 3.200 de las 8.463 líneas de `frontend/src/aurora`, sin pruebas, con sus textos en
+los tres diccionarios. `app-local.md` las llamaba «sin montar», guardadas para el asistente y
+para Procesar; justo lo que G2 no deja. La revisión vio además dos defectos menores: el
+inicio decía «openstaand in 2 facturen bij **1 klanten**» (y «from 1 clients», «de 1
+clientes»), y `app-local.md` enlazaba `v1/revision.md`, que no está en el repositorio.
+
+| # | Qué falló | Qué se hizo | Dónde se comprueba |
+| --- | --- | --- | --- |
+| G2 | Código de Aurora sin montar | **Fuera** `aurora/conversation/`, `aurora/finance/`, `aurora/processing/` (sus nueve ficheros) y `aurora/thinking-orb/`, `SearchThinking` y sus reglas `.search-thinking`, y sus textos en `nl.ts`, `en.ts` y `es.ts` (`aurora.conversation`, `aurora.loader`, `aurora.processing`, `aurora.finance` y `aurora.search.thinking`). Mirando con una herramienta en vez de a ojo salió lo demás que tampoco se usaba, y también se quitó: `Breadcrumbs` del archivo (las migas son las de la app) con sus reglas `.ws-breadcrumbs`, su texto y la regla `.ws-file-empty`; las marcas «Nueva» y «Posible duplicado» de una lectura en la carpeta y el árbol (`analysisStatus`, `tone`, sus clases y sus dos textos: solo Procesar las sabe, y vuelven con él); 88 variables de `palette.css` (cada una en los dos temas) que no usaba nadie, 10 de ellas ya antes; y las declaraciones exportadas que nadie nombraba: `SIDE_OF` (`money-model.ts`) y `SectionKey` (`registry.ts`), del paso 16, y `Severity`, `Priority`, `PRIORITIES`, `isPriority`, `priorityMeaning`, `categoryText` (`i18n/domain.ts`) y `ActionSpec` (`lib/api.ts`), del 15. La línea en blanco doble de `wheel.tsx`, fuera. `frontend/src/aurora` pasa de 8.463 líneas a 4.957 | **`scripts/codigo-muerto.mjs`** y su prueba **`scripts/codigo-muerto.test.mjs`** (vitest, en `npm test`): los ficheros de `src` que `main.tsx` no alcanza (con el analizador de `import` de TypeScript y los `@import` de las hojas) son exactamente los que se guardan a propósito (abajo, desviación 1); ningún fichero de `src/aurora` fuera de la app y ninguno de las cuatro carpetas quitadas; ninguna declaración exportada sin nadie que la nombre (la app, una prueba o e2e; con el servicio de lenguaje de TypeScript); ninguna variable de la paleta sin usar; ninguna clase de una hoja que no ponga ninguna pantalla (salvo las dos bandas, que mete `app_local.py`); y cada texto de la sección `aurora`, en los tres idiomas, leído por alguna pieza. **Sobre `756b1ba` (antes del arreglo) fallan las seis**: los 13 ficheros, las 14 declaraciones (`Conversation`, `Breadcrumbs`, `FinanceBento`, `DocumentLoader`, `FlowButton`, `ProcessingResult`, `SearchThinking` y las siete de los pasos 15 y 16), las 10 variables, 12 clases (`.chat-message-*`, `.analysis-*`, `.tree-tone-*`, `.gf-sheet--new`/`--duplicate`, `.ws-file-empty`) y 8 textos de `aurora.processing.result` |
+| m1 | «bij 1 klanten» | El pie de las dos tarjetas se escribe con `moneyCaption` (`home.tsx`): «openstaand in {invoices} bij {parties}», cada cifra con su palabra. Las palabras que se repiten van en un grupo nuevo de los diccionarios, `counts` (días, días laborables, veces, facturas, clientes, proveedores, cada una con su `…One`), y se escriben con `countText(t, 'clients', n)` (`i18n/index.tsx`). **El mismo defecto estaba en más sitios** y se arregló en todos: «1 dagen over de vervaldatum», «gemiddeld na 1 dagen», «1 keer te laat» («late 1 times»), «Nog 1 facturen gevonden», «En nog 1 regels», «1 regels gelezen», «1 gaan erin», «1 wijzigingen», «1 nieuwe meldingen», «1 wijken af», «1 betalingen gekoppeld», «1 voorstellen», «1 van 1 facturen»; en inglés «1 hours of work»; y en castellano «1 abiertas», «1 importadas», «1 rechazadas», «1 resueltos», «1 abiertos otra vez»…; y una pantalla que tenía el singular y no lo leía (`exception.tsx`, «en nog {n}» de los motivos, sin `why.moreOne`: hoy los dos dicen lo mismo con un 1, pero la prueba nueva no distingue y así queda igual que en las demás) | `i18n.test.ts` («las cifras con su singular»: cada texto con `{n}` tiene su `<clave>One` salvo 17 con su porqué —una etiqueta y una cifra, un mínimo de letras, «en nog 1», lo que solo sale con 2 o más—; cada `…One` tiene su plural y no lleva `{n}`; `countText()` en los tres idiomas con 0, 1 y 2); **`scripts/singular.test.mjs`** (la pantalla que lee un texto con cifra lee también su singular; sobre `756b1ba` falla en `exception.tsx`; las palabras de `counts` solo se leen con `countText()`); `home.test.ts` (el pie en los tres idiomas, «bij 1 klant», «1 factuur bij 3 leveranciers», «0 facturas a 0 proveedores»); `e2e/payments.spec.ts` «las cifras de cobrar y pagar…» (el pie de las dos tarjetas contra la cartera, y ningún «1 facturen», «1 klanten» ni «1 leveranciers») |
+| m2 | Enlace a `v1/revision.md`, que no existe | `app-local.md` §4 dice que la revisión del prototipo no está en el repositorio y lleva al registro, donde están sus decisiones y lo que se hizo con cada una | Ningún otro enlace a `revision.md` en `docs/` |
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | `src/aurora` con la conversación, el orbe de partículas, el bento y el cargador de Procesar, sin montar | No están en `src`; vuelven de la historia de git (`756b1ba`) cuando su paso los monte | G2 |
+| 2 | Una cifra de 1 con la palabra en plural en una veintena de textos | En singular | m1 |
+| 3 | «late {late} times» / «{late} times late» en inglés | «late once», «late 3 times» | m1: el singular inglés de «times» es «once» |
+| 4 | «De media a los {n} días» | «De media en 30 días» / «en 1 día» | m1: «a los 1 día» no se dice |
+| 5 | «{matched} betalingen gekoppeld aan facturen, {proposed} voorstellen om te bevestigen.» | «3 betalingen gekoppeld aan facturen en 1 voorstel om te bevestigen.» (y «and», «y») | m1: cada cifra con su frase; con una coma sola, el castellano decía lo mismo que el inglés y el neerlandés, y `i18n.test.ts` no lo deja |
+| 6 | `parties.days`, `parties.invoices`/`invoicesOne`, `importing.ageDays`/`ageWorkdays`, `bank.ageDays`/`ageOne`, `overview.vat.daysLeft`/`dayLeft` | `counts.days`, `counts.invoices`, `counts.workdays` (los mismos textos) | m1: una sola vez cada palabra |
+
+**Pruebas que cambian, a propósito**: `e2e/payments.spec.ts` (el pie de la tarjeta ya no es
+`{n}` y `{k}` sino dos cifras con su palabra; ahora se mira también el de Te betalen). No se
+quitó ninguna comprobación.
+
+### Desviaciones, y por qué
+
+1. **Cuatro piezas de `components/ui` siguen sin montar, a propósito**: la tira de pestañas
+   tipo Chrome del dueño (`sidebar-with-chrome-like-tabs.tsx`, que el paso 16 quitó del marco
+   y pidió guardar), `context-menu.tsx` y `hover-card.tsx`, que solo usa ella, y `sheet.tsx`
+   (una pieza de shadcn que el paso 15 usaba en Uitzonderingen). Es la biblioteca, que se usa a
+   la carta, no código de Aurora; la prueba las nombra una por una, así que otra que se quede
+   sin usar la hace fallar. `i18n/glossary.ts` e `i18n/leftovers.ts` tampoco entran en la app:
+   son de las pruebas, y la prueba comprueba que una prueba los importa.
+2. **Se quitaron también siete declaraciones del paso 15** que nadie usaba (`domain.ts` y
+   `api.ts`): no son de Aurora, pero la prueba mira todo `src`, y dejarlas era tener que
+   apuntarlas como excepciones.
+3. **La carpeta de cristal conserva sus opciones** (el menú «…», dónde va la etiqueta, el
+   tono dado, los dorsos con nombre): es la pieza del dueño con su forma, como las de
+   `components/ui`, y la app elige las que usa. Lo que se quitó de ella son las marcas de una
+   lectura, que solo puede poner Procesar.
+4. **Lo quitado vuelve de git, no de la copia de la revisión**: la copia compilada con
+   nuestras versiones vive fuera del repositorio; en `756b1ba` están las piezas ya pasadas a
+   TypeScript estricto, a `framer-motion` y a la CSP, con sus textos en los tres idiomas
+   (`app-local.md` §7 dice cómo sacarlas).
+5. **Que cada texto se lea solo se mira en la sección `aurora`**: en las demás, muchas claves
+   se leen con un nombre calculado (`t.nav[view]`, `t.areas[section]`) y la búsqueda de texto
+   no las ve. El singular sí se mira en todos los diccionarios.
+6. **La prueba de las declaraciones exportadas tarda unos 10 s** (el servicio de lenguaje de
+   TypeScript sobre todo `src` y `e2e`): lleva un límite de 120 s, porque la máquina la
+   comparten otros procesos; lo que comprueba no cambia con el tiempo.
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1266 pasan** (antes, 1254: seis de
+  `codigo-muerto.test.mjs`, dos de `singular.test.mjs`, tres de `i18n.test.ts` y una de
+  `home.test.ts`).
+- `npm run build` dos veces, el mismo resultado byte a byte; `npm run fuente` al día. Lo
+  construido ya no lleva nada de lo quitado (ni «Aurora denkt na», ni `.chat-message`,
+  `.search-thinking`, `.ws-breadcrumbs`, `.analysis-*` o `.tree-tone-*`).
+- Playwright sobre una base de prueba recién creada: **70 pasan y 1 se salta** (13,3 min; la
+  fila 21 de la tabla de los clics, que espera al Procesar de verdad, §8.5), con lo construido
+  que va en este commit. Las capturas, en `app-capturas/paso16/puerta` (dark/ y light/),
+  miradas: el pie de las tarjetas del inicio en los tres idiomas («outstanding in 2 invoices
+  from 1 client», «pendiente en 2 facturas de 1 cliente», «95 días» del IVA), Te ontvangen
+  («pays after 25 days on average») y el resto sin cambios a la vista.
+- `pytest -q`: **2559 pasan, 12 se saltan**, con Python 3.11.17 (7 min 50 s) y con 3.13.16
+  (7 min 57 s); el motor no cambia.
+- `git status` limpio después de construir y de las pruebas.

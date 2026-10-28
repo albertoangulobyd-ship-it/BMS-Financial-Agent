@@ -526,18 +526,6 @@
       transform: none;
     }
   }
-  .aurora-root .gf-sheet--new {
-    box-shadow: inset 0 0 0 1px #6cad8977 !important;
-  }
-  .aurora-root .gf-sheet--duplicate {
-    box-shadow: inset 0 0 0 1px #ce945d77 !important;
-  }
-  .aurora-root .gf-sheet--new .gf-sheet-name {
-    color: #95cfaa !important;
-  }
-  .aurora-root .gf-sheet--duplicate .gf-sheet-name {
-    color: #dbb181 !important;
-  }
   /* La carpeta se dibuja a 340 px y se escala a su ancho (--gf-k, 264/340 en la rejilla): lo
      que se lee se agranda lo mismo, para que no quede por debajo de 12 px de verdad. */
   .aurora-root .gf-statuses {

@@ -152,7 +152,6 @@ export function Wheel({ entries, active, onActive, onOpen, label, description, r
     window.setTimeout(() => (pointerFocus.current = false), 0);
   };
 
-
   return (
     <div className='aurora-root'>
       <nav ref={navRef} aria-label={label} aria-describedby={descId} className={cn('wheel', className)}>

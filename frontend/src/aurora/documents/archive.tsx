@@ -6,7 +6,7 @@
 // "Descargar muestra TXT", la pista de los 12 s y la marca "MUESTRA". Aqui quien monta
 // Documentos (screens/documents.tsx) pasa lo que ensena, ya traducido, y recibe los clics; cada
 // documento se abre por su id. Todo texto que viene de un dato se pinta como texto. Las migas
-// son las de la app (shell/crumbs.tsx): las del prototipo (Breadcrumbs) no se montan.
+// son las de la app (shell/crumbs.tsx): las del prototipo no se traen.
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ArrowUpRight, ChevronRight, FileText, FolderOpen, Search, X } from 'lucide-react';
 import { AuroraOrb } from '@/aurora/orb/aurora-orb';
@@ -32,32 +32,6 @@ export const PROVIDER_ART: ArtRecipe = {
   angle: -0.5,
   warp: 1.7,
 };
-
-export interface Crumb {
-  label: string;
-  /** Sin onSelect es donde se esta (aria-current). */
-  onSelect?: () => void;
-}
-
-export function Breadcrumbs({ items }: { items: Crumb[] }) {
-  const { t } = useT();
-  return (
-    <nav className='ws-breadcrumbs' aria-label={t.aurora.archive.breadcrumbs}>
-      {items.map((item, i) => (
-        <span key={i} className='ws-crumb'>
-          {i > 0 && <ChevronRight size={12} aria-hidden='true' />}
-          {item.onSelect ? (
-            <button type='button' onClick={item.onSelect}>
-              {item.label}
-            </button>
-          ) : (
-            <span aria-current='page'>{item.label}</span>
-          )}
-        </span>
-      ))}
-    </nav>
-  );
-}
 
 /** El marco: arriba la cabecera; a la izquierda "EXPLORAR" con el arbol; a la derecha la
  *  ficha de la carpeta abierta (top) y lo demas (las pestanas, las carpetas). En el movil la

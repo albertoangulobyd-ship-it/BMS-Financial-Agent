@@ -44,7 +44,7 @@ export function whyOf(row: WhyRow, lang: Lang, t: Messages): Why | null {
   if (row.excepcion) return { text: t.why.openException, title: null, rule: null, more: 0 };
   if (row.estado_pago === 'vencida') {
     return {
-      text: row.dias_vencida ? fmt(t.why.overdueDays, { n: row.dias_vencida }) : t.why.overdue,
+      text: row.dias_vencida ? fmt(row.dias_vencida === 1 ? t.why.overdueDaysOne : t.why.overdueDays, { n: row.dias_vencida }) : t.why.overdue,
       title: null,
       rule: null,
       more: 0,

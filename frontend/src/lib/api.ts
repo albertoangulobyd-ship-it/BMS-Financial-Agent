@@ -314,14 +314,6 @@ export interface ActionResult {
   diferencia: Record<string, unknown>;
 }
 
-/** Lo que dice GET /api/v2/acciones de cada orden (su contrato). */
-export interface ActionSpec {
-  nombre: string;
-  permiso: string | null;
-  motivo: 'obligatorio' | 'opcional' | 'segun_campo';
-  parametros: { nombre: string; tipo: string; obligatorio: boolean }[];
-}
-
 // ---- el cliente
 
 export interface ApiClient {

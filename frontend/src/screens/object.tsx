@@ -165,7 +165,7 @@ function ObjectDetail({
         <InvoiceAttentionList rows={attention.slice(0, ATTENTION_MAX)} emptyText={t.objects.attentionEmpty} onOpen={openInvoice} />
         {attention.length > ATTENTION_MAX && (
           <p className='mt-2 text-[13px] text-muted-foreground'>
-            {fmt(t.objects.moreInvoices, { n: attention.length - ATTENTION_MAX })}
+            {fmt(attention.length - ATTENTION_MAX === 1 ? t.objects.moreInvoicesOne : t.objects.moreInvoices, { n: attention.length - ATTENTION_MAX })}
           </p>
         )}
       </section>

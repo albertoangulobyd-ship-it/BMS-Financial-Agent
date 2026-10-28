@@ -20,7 +20,7 @@ import { SummaryCard, SummaryGrid } from '@/components/summary-card';
 import { Button } from '@/components/ui/button';
 import { Money } from '@/components/values';
 import { WhyCell } from '@/components/why-cell';
-import { fmt, useT } from '@/i18n';
+import { countText, fmt, useT, type Messages } from '@/i18n';
 import { paths, type InvoiceRow, type Panel } from '@/lib/api';
 import type { Cartera } from '@/lib/api-types';
 import { formatDate, formatDateProse, quarterLabel } from '@/lib/format';
@@ -54,6 +54,15 @@ export function urgentFirst(invoices: readonly InvoiceRow[]): InvoiceRow[] {
 export function firstName(name: string): string {
   const first = name.trim().split(/\s+/)[0] ?? '';
   return first.length >= 2 && !first.endsWith('.') ? first : name.trim();
+}
+
+/** El pie de "Te ontvangen" / "Te betalen": cada cifra con su palabra, en singular si es 1
+ *  ("openstaand in 2 facturen bij 1 klant"). */
+export function moneyCaption(t: Messages, side: 'in' | 'out', invoices: number, parties: number): string {
+  return fmt(side === 'in' ? t.home.captionIn : t.home.captionOut, {
+    invoices: countText(t, 'invoices', invoices),
+    parties: countText(t, side === 'in' ? 'clients' : 'providers', parties),
+  });
 }
 
 function clock(date: Date): string {
@@ -297,7 +306,7 @@ function AskResults({
           </div>
         ))}
         {loading && <Loading className='py-3' label={t.ask.searching} />}
-        {more > 0 && <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.ask.moreInvoices, { n: more })}</p>}
+        {more > 0 && <p className='mt-2 text-xs text-muted-foreground'>{fmt(more === 1 ? t.ask.moreInvoicesOne : t.ask.moreInvoices, { n: more })}</p>}
         {/* Con filtros (el tipo, la empresa, las fechas, el importe): la busqueda entera. */}
         <Button variant='link' size='sm' className='mt-2 h-auto px-2' onClick={() => openSearch(nav, query)}>
           {t.finder.withFilters}
@@ -384,7 +393,7 @@ function HomeContent({
           <SummaryCard
             title={t.overview.moneyIn.title}
             value={<Money cents={receivable.totales.pendiente_cent} />}
-            caption={fmt(t.home.captionIn, { n: receivable.totales.facturas, k: owing(receivable) })}
+            caption={moneyCaption(t, 'in', receivable.totales.facturas, owing(receivable))}
             rows={[
               {
                 label: t.overview.money.overdue,
@@ -406,7 +415,7 @@ function HomeContent({
           <SummaryCard
             title={t.overview.moneyOut.title}
             value={<Money cents={payable.totales.pendiente_cent} />}
-            caption={fmt(t.home.captionOut, { n: payable.totales.facturas, k: owing(payable) })}
+            caption={moneyCaption(t, 'out', payable.totales.facturas, owing(payable))}
             rows={[
               {
                 label: t.overview.money.overdue,
@@ -457,9 +466,7 @@ function HomeContent({
                         }
                       : {
                           label: t.overview.vat.left,
-                          value: fmt(deadline.dias_para_limite === 1 ? t.overview.vat.dayLeft : t.overview.vat.daysLeft, {
-                            n: deadline.dias_para_limite ?? 0,
-                          }),
+                          value: countText(t, 'days', deadline.dias_para_limite ?? 0),
                         },
                   ]
                 : []),
@@ -504,7 +511,7 @@ function HomeContent({
               view === 'work-queue'
                 ? fmt(queue.length === 1 ? t.home.waitingOne : t.home.waiting, { n: queue.length })
                 : view === 'exceptions'
-                  ? fmt(t.home.openCount, { n: a.excepciones.abiertas })
+                  ? fmt(a.excepciones.abiertas === 1 ? t.home.openCountOne : t.home.openCount, { n: a.excepciones.abiertas })
                   : t.home.comingWeeks;
             return (
               <li key={view} className='bg-card'>

@@ -9,9 +9,6 @@ import type { AgeingBucket, BankLine, Cartera, CarteraParty, InvoicePayment, Pay
 
 export type Side = 'saliente' | 'entrante';
 
-/** El sentido de las facturas de cada entrada: lo que nos deben y lo que debemos. */
-export const SIDE_OF = { receivables: 'saliente', payables: 'entrante' } as const satisfies Record<string, Side>;
-
 /** La lista de facturas de cada sentido y la vista del banco de cada uno. */
 export const LIST_OF: Record<Side, 'invoices-out' | 'invoices-in'> = { saliente: 'invoices-out', entrante: 'invoices-in' };
 export const BANK_OF: Record<Side, 'bank-in' | 'bank-out'> = { saliente: 'bank-in', entrante: 'bank-out' };

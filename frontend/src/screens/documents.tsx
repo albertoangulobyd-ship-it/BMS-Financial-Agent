@@ -35,7 +35,7 @@ import { ErrorState, Loading, TechnicalDetail, errorMessage } from '@/components
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { Money } from '@/components/values';
-import { fmt, useT, type Messages } from '@/i18n';
+import { countText, fmt, useT, type Messages } from '@/i18n';
 import { paymentStateLabel, ruleText, stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { InvoiceDetail, PartyDocument, PartyDocuments, PartyRow, PartyView } from '@/lib/api-types';
@@ -573,15 +573,15 @@ function profileFacts(side: Side, p: PartyView, row: PartyRow | undefined, { t, 
     paid.pagadas === 0 || paid.media_dias === null
       ? t.documents.paysNone
       : paid.tarde > 0
-        ? fmt(t.documents.paysAfter, { n: paid.media_dias, late: paid.tarde })
-        : fmt(t.documents.paysAfterOnTime, { n: paid.media_dias });
+        ? fmt(t.documents.paysAfter, { days: countText(t, 'days', paid.media_dias), late: countText(t, 'times', paid.tarde) })
+        : fmt(t.documents.paysAfterOnTime, { days: countText(t, 'days', paid.media_dias) });
   const facts: ArchiveFact[] = [
     { label: t.documents.exactCode, value: p.exact_id ?? NO_VALUE, data: true },
     { label: t.documents.btwId, value: p.btw_id ?? NO_VALUE, data: true },
     { label: t.documents.kvk, value: p.kvk ?? NO_VALUE, data: true },
     {
       label: t.parties.paymentTerm,
-      value: p.plazo_pago_dias !== null ? fmt(t.parties.days, { n: p.plazo_pago_dias }) : t.common.unknown,
+      value: p.plazo_pago_dias !== null ? countText(t, 'days', p.plazo_pago_dias) : t.common.unknown,
     },
     {
       label: t.parties.outstanding,
@@ -895,7 +895,7 @@ function Preview({
             value: (
               <>
                 {formatDate(d.vencimiento?.fecha ?? d.estado?.vencimiento)}
-                {d.estado?.dias_vencida ? <small>{fmt(t.why.overdueDays, { n: d.estado.dias_vencida })}</small> : null}
+                {d.estado?.dias_vencida ? <small>{fmt(d.estado.dias_vencida === 1 ? t.why.overdueDaysOne : t.why.overdueDays, { n: d.estado.dias_vencida })}</small> : null}
               </>
             ),
           },

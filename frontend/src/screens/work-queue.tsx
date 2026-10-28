@@ -114,7 +114,7 @@ function QueueTable({
         />
       )}
       {shown.length > 0 && (
-        <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.workQueue.total, { shown: shown.length, all: rows.length })}</p>
+        <p className='mt-2 text-xs text-muted-foreground'>{fmt(rows.length === 1 ? t.workQueue.totalOne : t.workQueue.total, { shown: shown.length, all: rows.length })}</p>
       )}
     </>
   );

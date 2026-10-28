@@ -444,11 +444,6 @@
     font-size: 12px;
     color: var(--au-t-786982);
   }
-  .aurora-root .ws-file-empty {
-    margin: 14px 0 0;
-    font-size: 13px;
-    color: var(--au-t-8f8698);
-  }
 
   /* ---- los vacios, con la suricata o la carpeta */
   .aurora-root .ws-empty {
@@ -718,37 +713,6 @@
     margin-left: 11px;
     border-left: 1px solid var(--au-ffffff14);
     padding-left: 5px;
-  }
-  .aurora-root .tree-tone-new .tree-label {
-    color: var(--au-t-83bd99);
-  }
-  .aurora-root .tree-tone-duplicate .tree-label {
-    color: var(--au-t-bd936b);
-  }
-
-  /* ---- las migas del prototipo (sin montar: las de la app van en el marco) */
-  .aurora-root .ws-breadcrumbs {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    font-size: 12px;
-    color: var(--au-t-716878);
-    line-height: 2;
-  }
-  .aurora-root .ws-crumb {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .aurora-root .ws-breadcrumbs button {
-    color: inherit;
-  }
-  .aurora-root .ws-breadcrumbs button:hover {
-    color: var(--au-t-ddd2e8);
-  }
-  .aurora-root .ws-breadcrumbs [aria-current='page'] {
-    color: var(--au-t-c9b4da);
   }
 
   /* ---- anchos: dos columnas de carpetas, luego una; en el movil, el arbol encima */

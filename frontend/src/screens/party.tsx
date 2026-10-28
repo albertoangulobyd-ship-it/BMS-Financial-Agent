@@ -14,7 +14,7 @@ import { ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { useNav } from '@/shell/navigation';
 import { DateText, Hours, Money } from '@/components/values';
-import { fmt, useT } from '@/i18n';
+import { countText, fmt, useT } from '@/i18n';
 import { ruleText, stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { PartyInvoice, PartyView, ProposedRelation } from '@/lib/api-types';
@@ -66,7 +66,7 @@ function PartyDetail({ kind, party: p, relations }: { kind: PartyKind; party: Pa
   const { open: openRoute } = useNav();
   const numbers = useMemo(() => new Map(p.historial.map((f) => [f.id, f.numero])), [p.historial]);
   const openInvoice = (invoiceId: number) => openRoute(recordRoute('invoice', invoiceId));
-  const invoices = fmt(p.facturas === 1 ? t.parties.invoicesOne : t.parties.invoices, { n: p.facturas });
+  const invoices = countText(t, 'invoices', p.facturas);
   const description = `${fmt(kind === 'provider' ? t.parties.isProvider : t.parties.isClient, { invoices })} ${
     p.deuda_cent > 0 ? fmt(t.parties.openAmount, { amount: formatMoney(p.deuda_cent) }) : t.parties.nothingOpen
   }`;
@@ -159,9 +159,9 @@ function TermFact({ party: p }: { party: PartyView }) {
   const { t } = useT();
   const mean = p.plazo_de_pago.media_dias;
   return (
-    <Fact label={t.parties.paymentTerm} note={mean !== null ? fmt(t.parties.paidAfter, { n: mean }) : undefined}>
+    <Fact label={t.parties.paymentTerm} note={mean !== null ? fmt(t.parties.paidAfter, { days: countText(t, 'days', mean) }) : undefined}>
       <span className='text-[15px] font-semibold'>
-        {p.plazo_pago_dias !== null ? fmt(t.parties.days, { n: p.plazo_pago_dias }) : t.common.unknown}
+        {p.plazo_pago_dias !== null ? countText(t, 'days', p.plazo_pago_dias) : t.common.unknown}
       </span>
     </Fact>
   );
@@ -181,7 +181,7 @@ function UnbilledFact({ party: p }: { party: PartyView }) {
   return (
     <Fact
       label={t.parties.unbilled}
-      note={none ? undefined : `${fmt(t.parties.unbilledHours, { hours: formatHours(work.horas_mil) })}${work.estimado ? ` · ${t.parties.estimate}` : ''}`}
+      note={none ? undefined : `${work.horas_mil === 1000 ? t.parties.unbilledHoursOne : fmt(t.parties.unbilledHours, { hours: formatHours(work.horas_mil) })}${work.estimado ? ` · ${t.parties.estimate}` : ''}`}
     >
       {none ? (
         <span className='text-[15px] font-semibold'>{t.parties.nothingUnbilled}</span>

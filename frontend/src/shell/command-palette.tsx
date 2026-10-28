@@ -142,7 +142,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         </div>
         {q && search.loading && <Loading className='justify-center py-3' label={t.ask.searching} />}
         {search.moreInvoices > 0 && (
-          <p className='px-3 py-2 text-xs text-muted-foreground'>{fmt(t.ask.moreInvoices, { n: search.moreInvoices })}</p>
+          <p className='px-3 py-2 text-xs text-muted-foreground'>{fmt(search.moreInvoices === 1 ? t.ask.moreInvoicesOne : t.ask.moreInvoices, { n: search.moreInvoices })}</p>
         )}
       </div>
       <div className='flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2'>

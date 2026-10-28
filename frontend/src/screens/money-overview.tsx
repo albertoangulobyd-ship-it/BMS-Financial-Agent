@@ -17,7 +17,7 @@ import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { StatusPill } from '@/components/status-pill';
 import { Button } from '@/components/ui/button';
 import { Money } from '@/components/values';
-import { fmt, useT, type Messages } from '@/i18n';
+import { countText, fmt, useT, type Messages } from '@/i18n';
 import { ruleText } from '@/i18n/domain';
 import { paths } from '@/lib/api';
 import type { Cartera, CarteraInvoice, CarteraParty, SourceFreshness } from '@/lib/api-types';
@@ -518,8 +518,9 @@ function Parties({ side, cartera: c }: { side: Side; cartera: Cartera }) {
   const paysText = (r: CarteraParty) => {
     const pay = r.plazo_de_pago;
     if (!pay || pay.pagadas === 0 || pay.media_dias === null) return null;
-    if (side === 'saliente') return fmt(pay.tarde > 0 ? p.paysAfterLate : p.paysAfter, { n: pay.media_dias, late: pay.tarde });
-    return fmt(pay.tarde > 0 ? p.wePayAfterLate : p.wePayAfter, { n: pay.media_dias, late: pay.tarde });
+    const values = { days: countText(t, 'days', pay.media_dias), late: countText(t, 'times', pay.tarde) };
+    if (side === 'saliente') return fmt(pay.tarde > 0 ? p.paysAfterLate : p.paysAfter, values);
+    return fmt(pay.tarde > 0 ? p.wePayAfterLate : p.wePayAfter, values);
   };
   const columns: Columns<CarteraParty> = [
     { key: 'priority', header: t.columns.priority, width: '8.5rem', cell: (r) => (r.nivel ? <StatusPill group='prioridad' state={r.nivel} /> : null) },

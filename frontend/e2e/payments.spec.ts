@@ -75,10 +75,20 @@ test('las cifras de cobrar y pagar: la tarjeta del inicio, la pantalla, los tram
   await expect(receivable).toContainText(euro(inn.totales.pendiente_cent));
   await expect(receivable).toContainText(euro(inn.totales.vencido_cent));
   await expect(receivable).toContainText(euro(inn.totales.proximos_30_cent));
-  await expect(receivable).toContainText(fill(t.home.captionIn, { n: inn.totales.facturas, k: inn.partes.filter((p) => p.id !== null).length }));
+  // El pie, cada cifra con su palabra: en singular si es 1 (la puerta del paso 16 vio "bij 1 klanten").
+  const said = (n: number, many: string, one: string) => (n === 1 ? one : fill(many, { n }));
+  const owing = (c: Cartera) => c.partes.filter((p) => p.id !== null).length;
+  await expect(receivable).toContainText(
+    fill(t.home.captionIn, { invoices: said(inn.totales.facturas, t.counts.invoices, t.counts.invoicesOne), parties: said(owing(inn), t.counts.clients, t.counts.clientsOne) })
+  );
+  await expect(receivable).not.toContainText(/(^|\D)1 (facturen|klanten)\b/);
   await expect(receivable.getByRole('button', { name: t.home.showToConfirmIn })).toHaveText(String(inn.por_confirmar.pagos));
   const payable = card(page, t.overview.moneyOut.title);
   await expect(payable).toContainText(euro(out.totales.pendiente_cent));
+  await expect(payable).toContainText(
+    fill(t.home.captionOut, { invoices: said(out.totales.facturas, t.counts.invoices, t.counts.invoicesOne), parties: said(owing(out), t.counts.providers, t.counts.providersOne) })
+  );
+  await expect(payable).not.toContainText(/(^|\D)1 (facturen|leveranciers)\b/);
   await expect(payable).toContainText(euro(out.totales.semana_cent));
 
   // La cabecera de la pantalla: las cuatro cifras y la nota de que no es dinero disponible.

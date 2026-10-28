@@ -12,7 +12,7 @@ import { PageHeader, Screen } from '@/components/page-header';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { DateText, Money } from '@/components/values';
-import { fmt, useT } from '@/i18n';
+import { countText, fmt, useT } from '@/i18n';
 import { paths, type InvoiceRow } from '@/lib/api';
 import type { BankLine, BankLines, PaymentProposal } from '@/lib/api-types';
 import { formatMoney } from '@/lib/format';
@@ -125,7 +125,7 @@ function Unmatched({ side, lines, invoices, onDone }: { side: Side; lines: BankL
       width: '7rem',
       cell: (l) => (
         <span className='text-[13px] text-soft-foreground'>
-          {l.dias === 0 ? t.bank.ageToday : fmt(l.dias === 1 ? t.bank.ageOne : t.bank.ageDays, { n: l.dias })}
+          {l.dias === 0 ? t.bank.ageToday : countText(t, 'days', l.dias)}
         </span>
       ),
     },
@@ -148,7 +148,7 @@ function Unmatched({ side, lines, invoices, onDone }: { side: Side; lines: BankL
       ) : (
         <>
           <DataTable columns={columns} rows={rows} rowKey={(l) => l.id} caption={t.bank.unmatchedTitle} />
-          {lines.total > rows.length && <p className='mt-2 text-xs text-muted-foreground'>{fmt(t.bank.more, { n: lines.total - rows.length })}</p>}
+          {lines.total > rows.length && <p className='mt-2 text-xs text-muted-foreground'>{fmt(lines.total - rows.length === 1 ? t.bank.moreOne : t.bank.more, { n: lines.total - rows.length })}</p>}
         </>
       )}
     </section>

@@ -8,8 +8,10 @@
 //   con su menu (moreButton), o nada;
 // - sin imagenes ni enlaces hechos con un dato (los props image y href): un documento se abre
 //   con onFileSelect, por su id, y lo pinta quien lo sabe;
-// - los textos (nombres accesibles, "N documentos", "Nueva", "Posible duplicado") salen de los
-//   diccionarios, y el tono (claro u oscuro) sigue al tema si no se da otro;
+// - los textos (nombres accesibles, "N documentos") salen de los diccionarios, y el tono
+//   (claro u oscuro) sigue al tema si no se da otro;
+// - sin las marcas "Nueva" y "Posible duplicado" de una lectura: volveran con Procesar
+//   (revision §8.5), que es quien las sabe;
 // - "N documentos" puede venir dado (total): una carpeta cerrada aun no ha leido los suyos.
 import * as React from "react";
 import { fmt, useT } from "@/i18n";
@@ -34,8 +36,6 @@ export type FolderFile = {
   meta?: string;
   /** El nombre accesible de la hoja (lo que abre: su vista previa). */
   label?: string;
-  /** Lo que pide atencion tras una lectura: nuevo, o posible duplicado (avisos B2-B5). */
-  analysisStatus?: "new" | "duplicate";
   art?: ArtPreset | ArtRecipe;
 };
 export type FolderMenuItem = {
@@ -678,18 +678,12 @@ export function GlassFolder({
             <div ref={filesRef} className="gf-files" role="list" aria-label={fmt(texts.filesOf, { name: label })}>
               {visible.map((file, v) => {
                 const slot = fanSlot(v, visible.length),
-                  jitter = rng(hashString(file.id + file.name)),
-                  status =
-                    file.analysisStatus === "new" ? texts.newPrefix : file.analysisStatus === "duplicate" ? texts.duplicatePrefix : "";
+                  jitter = rng(hashString(file.id + file.name));
                 return (
                   <div role="listitem" key={file.id} className="gf-sheet-slot">
                     <button
                       type="button"
-                      className={
-                        "gf-sheet" +
-                        (file.analysisStatus ? " gf-sheet--" + file.analysisStatus : "") +
-                        (file.art ? " gf-sheet--art" : "")
-                      }
+                      className={"gf-sheet" + (file.art ? " gf-sheet--art" : "")}
                       style={
                         {
                           "--gf-slot": slot,
@@ -721,10 +715,9 @@ export function GlassFolder({
                       )}
                       <span className="gf-sheet-head">
                         <span className="gf-sheet-name">{file.name}</span>
-                        {(file.meta || status) && (
-                          <span className="gf-sheet-meta">
-                            {status}
-                            <span data-proper-name="">{file.meta}</span>
+                        {file.meta && (
+                          <span className="gf-sheet-meta" data-proper-name="">
+                            {file.meta}
                           </span>
                         )}
                       </span>

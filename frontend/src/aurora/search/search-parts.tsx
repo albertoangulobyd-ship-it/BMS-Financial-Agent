@@ -1,9 +1,10 @@
 // Las piezas de la busqueda de Aurora (paso 16), de search-workspace.tsx del prototipo: la barra
 // de "Filtros" con su contador y "Limpiar filtros", las pastillas de cada filtro activo con su
-// X, la lista de resultados, el "Pensando..." con el orbe de particulas y el estado vacio con
-// "Empezar de nuevo". La revision las quiere tal cual (§2) sobre nuestra busqueda
-// (/api/v2/buscar); lo que se quita:
+// X, la lista de resultados y el estado vacio con "Empezar de nuevo". La revision las quiere
+// tal cual (§2) sobre nuestra busqueda (/api/v2/buscar); lo que se quita:
 // - los 18 documentos fijos, el 1,5 s de "Pensando" de adorno y las fechas inventadas;
+// - el "Pensando..." con el orbe de particulas (mientras busca, la pantalla pone el cargador
+//   de la app; el orbe de particulas volvera con el asistente local, revision §6);
 // - el deslizador de importe con NumberFlow y el calendario con date-fns (dos bibliotecas que
 //   no traemos): el importe sera "Desde / Hasta" en euros y la fecha un rango, con nuestros
 //   campos (revision §4.23);
@@ -11,7 +12,6 @@
 //   formatea quien llama desde los centimos).
 import type { ReactNode } from 'react';
 import { ArrowUpRight, ChevronDown, FileText, FolderSearch, SlidersHorizontal, X } from 'lucide-react';
-import { ThinkingOrb } from '@/aurora/thinking-orb/thinking-orb';
 import { fmt, useT } from '@/i18n';
 import { cn } from '@/lib/utils';
 import './search.css';
@@ -81,19 +81,6 @@ export function FilterChips({ filters }: { filters: ActiveFilter[] }) {
             <X size={10} aria-hidden='true' />
           </button>
         ))}
-      </div>
-    </div>
-  );
-}
-
-/** Mientras busca de verdad: el orbe de particulas y "Pensando...". */
-export function SearchThinking() {
-  const { t } = useT();
-  return (
-    <div className='aurora-root'>
-      <div className='search-thinking' role='status' aria-live='polite'>
-        <ThinkingOrb mode='orbits' label={t.aurora.search.thinking} size={160} />
-        <span>{t.aurora.search.thinking}</span>
       </div>
     </div>
   );

@@ -232,7 +232,7 @@ function ListBody({
       />
       {rows.length > 0 && (
         <p className='mt-2 flex flex-wrap gap-x-3 text-xs text-muted-foreground'>
-          <span>{fmt(t.workQueue.total, { shown: rows.length, all: total })}</span>
+          <span>{fmt(total === 1 ? t.workQueue.totalOne : t.workQueue.total, { shown: rows.length, all: total })}</span>
           {sum !== null && <span data-testid='list-sum'>{fmt(t.money.listSum, { amount: formatMoney(sum) })}</span>}
         </p>
       )}

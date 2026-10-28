@@ -15,9 +15,6 @@ import { DOMAIN_FALLBACK } from './langs';
 import { fmt } from './index';
 import { renderDetail, type RuleTexts, type TemplateCatalog } from './templates';
 
-export type Priority = 'normal' | 'atencion' | 'urgente' | 'bloqueada';
-export type Severity = 'bloqueo' | 'retencion' | 'aviso';
-
 type Catalog = typeof nlCatalog;
 
 // DOMAIN_FALLBACK (langs.ts) queda vacio: cada idioma tiene su catalogo.
@@ -25,12 +22,6 @@ export { DOMAIN_FALLBACK };
 
 // Los catalogos tienen la misma forma (lo comprueban tests/test_textos.py y i18n.test.ts).
 const CATALOGS: Record<Lang, Catalog> = { nl: nlCatalog, en: enCatalog as Catalog, es: esCatalog as Catalog };
-
-export const PRIORITIES: readonly Priority[] = ['normal', 'atencion', 'urgente', 'bloqueada'];
-
-export function isPriority(value: unknown): value is Priority {
-  return typeof value === 'string' && (PRIORITIES as readonly string[]).includes(value);
-}
 
 const has = (o: object, k: string | null | undefined): k is string =>
   typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
@@ -54,10 +45,6 @@ export function templateCatalog(lang: Lang): TemplateCatalog {
 /** La prioridad en palabras ("Geblokkeerd"), o null si el codigo no se conoce. */
 export function priorityLabel(lang: Lang, priority: string | null | undefined): string | null {
   return pick(CATALOGS[lang].prioridad, priority)?.etiqueta ?? null;
-}
-
-export function priorityMeaning(lang: Lang, priority: string | null | undefined): string | null {
-  return pick(CATALOGS[lang].prioridad, priority)?.significa ?? null;
 }
 
 export function severityLabel(lang: Lang, severity: string | null | undefined): string | null {
@@ -100,11 +87,6 @@ export function findingDetail(lang: Lang, rule: string, result: string | null | 
   const r = pick(CATALOGS[lang].reglas as Record<string, RuleTexts>, rule);
   if (!r) return null;
   return renderDetail(r, result ?? 'fallo', values, templateCatalog(lang)).text;
-}
-
-export function categoryText(lang: Lang, key: string | null | undefined): { label: string; meaning: string } | null {
-  const c = pick(CATALOGS[lang].categorias, key);
-  return c ? { label: c.etiqueta, meaning: c.significa } : null;
 }
 
 // ------------------------------------------------------------ campos, fuentes y calidad

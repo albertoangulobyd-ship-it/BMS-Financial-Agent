@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import { ActionButton, type ActionField } from '@/components/action-dialog';
 import { DateText, Money } from '@/components/values';
-import { fmt, useT } from '@/i18n';
+import { countText, fmt, useT } from '@/i18n';
 import { paths, type InvoiceRow } from '@/lib/api';
 import type { BankLine, BankLines, PartyDocuments, PaymentProposal } from '@/lib/api-types';
 import { formatDate, formatMoney } from '@/lib/format';
@@ -169,7 +169,7 @@ function lineLabel(l: BankLine, t: ReturnType<typeof useT>['t']): string {
   return [formatDate(l.fecha), formatMoney(l.resto_cent ?? l.importe_cent), l.contraparte ?? '', l.concepto ?? '']
     .filter(Boolean)
     .join(' · ')
-    .concat(l.dias > 0 ? ` (${fmt(l.dias === 1 ? t.bank.ageOne : t.bank.ageDays, { n: l.dias })})` : '');
+    .concat(l.dias > 0 ? ` (${countText(t, 'days', l.dias)})` : '');
 }
 
 /** Las lineas del banco sin casar del lado de la factura (ingresos para cobrar, cargos para

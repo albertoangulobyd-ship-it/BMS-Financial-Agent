@@ -1,6 +1,6 @@
 # La app local de BMS
 
-Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales; Cuentas por cobrar y por pagar con datos reales) · 27 de octubre de 2026
+Paso 15 · 19 de octubre de 2026 · Paso 16 (la base de Aurora, los temas y el castellano; la rueda con seis entradas, el inicio y las pantallas en su sitio; Documentos con datos reales; Cuentas por cobrar y por pagar con datos reales; el cierre de la puerta) · 28 de octubre de 2026
 
 La ventana con la que trabaja administración: facturas, avisos, relaciones, dinero y
 datos, en **neerlandés, inglés o castellano**, sin salir del ordenador. La pidió el dueño así:
@@ -130,8 +130,9 @@ dice en una frase qué es y quién lo da.
 
 ## 4. Las pantallas
 
-**Seis entradas** (decisión 1 de la revisión de Aurora, [v1/revision.md](v1/revision.md)
-§8.3), siempre en este orden y con estos nombres. Cada una agrupa las pantallas del paso 15
+**Seis entradas** (decisión 1 de la revisión de Aurora, §8.3; la revisión del prototipo no
+está en el repositorio: sus decisiones, y lo que se hizo con cada una, están en el
+[registro](v1/registro.md), «Paso 16»), siempre en este orden y con estos nombres. Cada una agrupa las pantallas del paso 15
 que contestan a su pregunta; ninguna función se perdió por el camino.
 
 | Entrada | NL | EN | Sus vistas, en este orden |
@@ -813,6 +814,13 @@ entrada sale en el último usado en ese ordenador. El castellano llegó en el pa
   `frontend/src/i18n/nl.ts`, `en.ts` y `es.ts`; el tipo (`Messages`, la forma de `nl.ts`)
   obliga a que los tres tengan las mismas claves, e `i18n.test.ts` lo vuelve a comprobar
   (las mismas claves, los mismos huecos `{n}` y ningún texto vacío).
+- **Una cifra con su palabra**: «1 factuur», «2 facturen». En los tres idiomas solo el 1 va
+  en singular (el 0 va en plural). Cada texto con `{n}` tiene su singular en `<clave>One`
+  (o, si nunca sale con un 1, `i18n.test.ts` dice por qué), y la pantalla que lee uno lee
+  también el otro (`scripts/singular.test.mjs`). Las palabras que se repiten (días, días
+  laborables, veces, facturas, clientes y proveedores) están en `counts` y se escriben con
+  `countText(t, 'days', n)` (`i18n/index.tsx`); un texto con dos cifras junta dos: «openstaand in
+  2 facturen bij 1 klant» (la puerta del paso 16 vio «bij 1 klanten» en el inicio).
 - **Los textos del dominio** (cada regla, qué quiere decir y qué hacer; estados,
   prioridades, campos, fuentes, órdenes) salen de los catálogos de Python
   `src/bms_agent/textos/nl.json`, `en.json` y `es.json`, que la app importa al construirse, para
@@ -941,7 +949,7 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | `src/shell/` | El marco (`app-shell.tsx`: la cabecera, el contenido y los atajos), dónde se está y el camino (`navigation.tsx`: `nextTrail`, puro, y `useNav`), las seis en pequeño (`compact-nav.tsx`), las vistas de una entrada (`section-nav.tsx`) con sus insignias (`use-badges.ts`), las migas y «Terug» (`crumbs.tsx`), «Snel openen» (`command-palette.tsx` y `use-quick-search.ts`), el menú del nombre (`account-menu.tsx`: Instellingen, idioma, tema, salir), el idioma y el tema de la entrada y de Instellingen (`language-switch.tsx`, `theme-switch.tsx`) y la marca de datos de prueba |
 | `src/aurora/` | Las piezas de Aurora (paso 16), cada una con su hoja de estilos: abajo, «Aurora dentro de la app» |
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que recuerda una vista al volver de una ficha (`view-memory.ts`, solo en memoria), lo que encuentra Ctrl+K y la caja del inicio (`quick-search.ts`) y lo que se guarda (`storage.ts`) |
-| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`) y las listas de restos de otro idioma (`leftovers.ts`) |
+| `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`), `fmt` y `countText` (una cifra con su palabra, §5) en `index.tsx`, y, para las pruebas, las listas de restos de otro idioma (`leftovers.ts`) y el glosario del castellano (`glossary.ts`) |
 | `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, las seis, las vistas, las migas, el menú del nombre) con los nombres de los diccionarios; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
 
 **Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
@@ -960,21 +968,24 @@ se pinta como texto.
 | --- | --- | --- |
 | `logo.tsx` | `BmsMark` (la marca BMS en un SVG pequeño, trazada del PNG del dueño, en `currentColor`) y `BmsLogo` (la marca con «finance») | La entrada y la cabecera |
 | `orb/` | `AuroraOrb`, el orbe de colores (WebGL), y `AuroraMark`, su degradado fijo en pequeño; `orb-loop.ts` decide cuándo se mueve y a qué ritmo, sin React (`orb-loop.test.ts`) | El inicio, junto a la rueda (se mueve mientras carga o busca); `AuroraMark`, delante del logo fuera del inicio |
-| `thinking-orb/` | `ThinkingOrb`, el orbe de partículas de «Pensando…» | **Sin montar**: lo usará el asistente local (revisión §6, un paso posterior). La búsqueda dice «Zoeken…» con el cargador de la app: un segundo orbe animado en la pantalla gastaría para nada |
-| `meerkat/` | `MeerkatScene`, el suricato del cargador (sus sprites en el código) | Los vacíos de Documentos (un archivo o una carpeta sin nada); el cargador de documentos, cuando llegue |
-| `processing/` | `DocumentLoader` y `loader-engine.ts` (el cargador con progreso de verdad: `setStage`), `ProcessingCard`, `ProcessingResult` (nuevas, ya leídas, posibles duplicados, fallidas), `FlowButton` | Procesar, cuando la lectura llegue a la app |
-| `documents/` | `ArchiveLayout`, `ArchiveHeading`, `ArchiveTabs`, `ArchiveSearch`, `FolderGrid`, `FolderCell`, `GlassFolder`, `TreeView`, `FolderProfile`, `FileTable`, `ArchiveEmpty`, `DocumentPreview` (un `<dialog>` nativo dibujado desde el registro, nunca desde el PDF); `Breadcrumbs`, sin montar (las migas son las de la app) | Documentos (§4.7) |
-| `conversation/`, `composer.tsx` | `Conversation` (copiar y parar; sin pulgares, regenerar ni compartir) y `WorkspaceComposer`, la caja de escribir | `WorkspaceComposer`, la caja de buscar del inicio. `Conversation` (con «Copiar» y «Detener», revisión §1b filas 19 y 20) está **sin montar**: no hay conversación hasta que llegue el asistente local (§6, un paso posterior), y la caja del inicio busca y lo dice |
-| `search/` | La barra de filtros con su contador y «Filters wissen», sus pastillas con su X, los resultados y el vacío con «Opnieuw beginnen» | **Montada**: la búsqueda con filtros (§4.8), sobre `/api/v2/buscar`. `SearchThinking` (el orbe de partículas) no se usa |
-| `finance/` | `FinanceBento`, «Lo importante»: vencido por cobrar y por pagar, el neto de 30 días y la nota de que no es dinero disponible, desde céntimos | **Sin montar**. Lo que la revisión quería conservar de «Lo importante» (§2: las cifras, cada empresa que lleva a su carpeta y «Saldos pendientes · No es efectivo disponible») está en los resúmenes de Te ontvangen y Te betalen (§4.1), sobre la cartera; el bento, con su titular y su reparto, es para el resumen que dará el asistente local (§6, un paso posterior) |
+| `meerkat/` | `MeerkatScene`, el suricato del cargador (sus sprites en el código) | Los vacíos de Documentos (un archivo o una carpeta sin nada); el cargador de Procesar, cuando llegue |
+| `documents/` | `ArchiveLayout`, `ArchiveHeading`, `ArchiveTabs`, `ArchiveSearch`, `FolderGrid`, `FolderCell`, `GlassFolder`, `TreeView`, `FolderProfile`, `FileTable`, `ArchiveEmpty`, `DocumentPreview` (un `<dialog>` nativo dibujado desde el registro, nunca desde el PDF) | Documentos (§4.7). Las migas son las de la app |
+| `composer.tsx` | `WorkspaceComposer`, la caja de escribir | La caja de buscar del inicio |
+| `search/` | La barra de filtros con su contador y «Filters wissen», sus pastillas con su X, los resultados y el vacío con «Opnieuw beginnen» | La búsqueda con filtros (§4.8), sobre `/api/v2/buscar`; mientras busca, el cargador de la app |
 | `wheel.tsx` | `Wheel`, la rueda de navegación: el orden fijo, la distancia de cada entrada (`wheelDistance`), el paso de las flechas (`wheelStep`, que da la vuelta) y el de la rueda del ratón (`wheelScrollStep`, que no la da: en Start hacia arriba o en Btw hacia abajo el gesto es de la página), con sus pruebas (`wheel.test.ts`) | El inicio (§4) |
 
-Hoy la app monta el logo, el orbe, la rueda, la caja de escribir, el archivo de Documentos
-(sus carpetas de cristal, el árbol y la vista previa), la suricata y la búsqueda con filtros
-(revisión del paso 16). Sin montar, y sin entrar en lo construido hasta que alguien las
-importe: la conversación (con «Copiar» y «Detener»), el orbe de partículas y «Lo
-importante», que esperan al asistente local (§6 de la revisión, un paso posterior), y el
-cargador y el resultado de Procesar, que esperan a la lectura de verdad (§8.5, pasos 3 a 7).
+**Todo lo que hay en `src/aurora/` está montado.** Lo que espera a otro paso no está en
+`src`: la conversación (con «Copiar» y «Detener», revisión §1b filas 19 y 20), el orbe de
+partículas de «Pensando…» y «Lo importante» (`FinanceBento`), que esperan al asistente local
+(§6 de la revisión), y el cargador con su progreso, la tarjeta y el resultado de Procesar
+(«nuevas, ya leídas, posibles duplicados, fallidas») y su botón, que esperan a la lectura de
+verdad (§8.5, pasos 3 a 7). Ya estaban pasados a TypeScript estricto, a nuestras bibliotecas
+y a la CSP: cuando su paso los monte, vuelven de la historia de git, donde están tal como
+quedaron (el último commit que los tiene es `756b1ba`: `git show
+756b1ba:frontend/src/aurora/processing/loader-engine.ts`; `conversation/`, `finance/`,
+`processing/` y `thinking-orb/`, con sus textos en la sección `aurora` de los diccionarios).
+`scripts/codigo-muerto.test.mjs` (vitest) no deja que vuelva nada sin montar (§7, «Sin
+código muerto»).
 
 - **Los estilos** van bajo `.aurora-root` (cada pieza envuelve su raíz; `display: contents`,
   así no cambia la maquetación), en `@layer components` (las utilidades de Tailwind mandan)
@@ -993,7 +1004,8 @@ cargador y el resultado de Procesar, que esperan a la lectura de verdad (§8.5, 
   pierde, el degradado fijo con CSS. `data-orb` (`webgl` o `fallback`) y `data-moving`
   dicen en la página lo que hace, para las pruebas. En el prototipo dibujaba 60 veces por
   segundo siempre.
-- **Los textos** de las piezas están en la sección `aurora` de los tres diccionarios.
+- **Los textos** de las piezas están en la sección `aurora` de los tres diccionarios; cada
+  uno lo lee alguna pieza (`scripts/codigo-muerto.test.mjs`).
 
 **Por qué los componentes de shadcn están en `src/components/ui`.** Es la ruta que usan
 shadcn y su CLI (`components.json`: `ui` es `@/components/ui`), y todos sus imports
@@ -1027,6 +1039,19 @@ los scripts) y una clase escrita en una prueba cambiaba el CSS sin cambiar la hu
 `scripts/tailwind-fuentes.mjs` saca con el escáner de Tailwind los ficheros que lee;
 `fuente.mjs` no construye ni da por buena la huella si alguno no está en
 `build-inputs.json`, y `scripts/tailwind-fuentes.test.mjs` (vitest) lo comprueba.
+
+**Sin código muerto** (la puerta del paso 16). `scripts/codigo-muerto.mjs` mira, sin
+construir, cuatro cosas, y `scripts/codigo-muerto.test.mjs` (vitest) exige que no haya
+ninguna: los ficheros de `src` que `src/main.tsx` no alcanza siguiendo sus `import` (y los
+`@import` de las hojas), salvo los que se guardan a propósito y la prueba nombra (la
+biblioteca de `components/ui`: la tira de pestañas del dueño con las dos piezas que solo ella
+usa, y `sheet`; y lo que solo usan las pruebas, `i18n/glossary.ts` e `i18n/leftovers.ts`);
+las declaraciones exportadas que nadie nombra, ni la app ni una prueba ni e2e (con el
+analizador de TypeScript); las variables de `aurora/palette.css` que nadie usa; y las clases
+de las hojas que ninguna pantalla pone (salvo las bandas, que las pone el servidor). Además,
+cada texto de la sección `aurora` de los diccionarios lo lee alguna pieza. A mano: `node
+scripts/codigo-muerto.mjs`. Lo que espera a un paso posterior no se deja en `src` sin
+montar: vuelve cuando su paso lo monte (§7, «Aurora dentro de la app»).
 
 **Las pruebas en el navegador** (`npm run e2e`) crean una base de prueba nueva en una
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana

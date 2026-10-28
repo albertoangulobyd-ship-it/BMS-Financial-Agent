@@ -103,7 +103,7 @@ function ExceptionDetail({ row, data, onDone }: { row: ExceptionRow; data: Loade
                 </li>
               ))}
               {row.razones.length > 6 && (
-                <li className='px-4 py-2 text-xs text-muted-foreground'>{fmt(t.why.more, { n: row.razones.length - 6 })}</li>
+                <li className='px-4 py-2 text-xs text-muted-foreground'>{fmt(row.razones.length - 6 === 1 ? t.why.moreOne : t.why.more, { n: row.razones.length - 6 })}</li>
               )}
             </ul>
           ) : (

@@ -24,6 +24,16 @@ export function fmt(template: string, values: Record<string, string | number>): 
   );
 }
 
+/** Lo que cuenta un texto de `counts` (dias, facturas, clientes...). */
+export type CountWord = Exclude<keyof Messages['counts'], `${string}One`>;
+
+/** Una cifra con su palabra: "1 factuur", "3 facturen". En los tres idiomas solo el 1 va en
+ *  singular (el 0 va en plural). Un texto con dos cifras se arma con dos de estas (paso 16:
+ *  "bij 1 klanten"). */
+export function countText(t: Messages, word: CountWord, n: number): string {
+  return fmt(n === 1 ? t.counts[`${word}One`] : t.counts[word], { n });
+}
+
 interface I18nValue {
   lang: Lang;
   t: Messages;
