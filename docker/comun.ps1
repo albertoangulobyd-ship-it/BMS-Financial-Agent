@@ -98,6 +98,23 @@ function Olvidar-Token {
     Remove-Item Env:\BMS_TOKEN -ErrorAction SilentlyContinue
 }
 
+# Paso 17: como acaban las ordenes "lectura" del lector (los mismos numeros que
+# cli.LECTURA_NADA y los demas; los tests exigen que sean iguales).
+$LecturaNada = 3
+$LecturaOcupada = 4
+$LecturaCancelada = 5
+$LecturaCaducada = 6
+$LecturaFallida = 7
+
+function Cerrar-Lectura([string]$Solicitud, [string]$Motivo, [switch]$SiViva) {
+    # La lectura que no se ha podido hacer termina fallida, con su motivo, y la app lo ve. Lo
+    # escribe el contenedor de las ordenes, sin red. Con -SiViva (el final del script), solo
+    # si el lector la dejo a medias.
+    $argumentos = @("lectura", "cerrar", $Solicitud, "--motivo", $Motivo)
+    if ($SiViva) { $argumentos += "--si-viva" }
+    docker compose run --rm -T orden @argumentos | Out-Host
+}
+
 function Orden([string[]]$Argumentos) {
     # Una orden suelta en el contenedor "orden", que no tiene red ninguna. El token, si
     # hay, pasa por el entorno (-e BMS_TOKEN sin valor): nunca en la linea de la orden.

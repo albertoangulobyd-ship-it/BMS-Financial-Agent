@@ -129,6 +129,39 @@ function Orden-De([string]$Rol, [string[]]$Argumentos) {
     return $codigo
 }
 
+function Valor-De([string]$Rol, [string[]]$Argumentos) {
+    # Como Orden-De, pero lo que la orden dice por la salida normal se devuelve, linea a linea
+    # (Lineas), con su codigo (Codigo); lo que dice por la de errores se ve igual.
+    $programa = Programa $Rol
+    if (-not (Test-Path -LiteralPath $programa)) {
+        Fallar "Falta $programa. Vuelve a instalar con instalar.bat."
+    }
+    Push-Location -LiteralPath $Inst.Raiz
+    try {
+        $lineas = @(& $programa @OpcionesPython -m bms_agent.cli @Argumentos)
+        $codigo = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    return [pscustomobject]@{ Codigo = $codigo; Lineas = $lineas }
+}
+
+# Paso 17: como acaban las ordenes "lectura" del lector (los mismos numeros que
+# cli.LECTURA_NADA y los demas; los tests exigen que sean iguales).
+$LecturaNada = 3
+$LecturaOcupada = 4
+$LecturaCancelada = 5
+$LecturaCaducada = 6
+$LecturaFallida = 7
+
+function Cerrar-Lectura([string]$Solicitud, [string]$Motivo, [switch]$SiViva) {
+    # La lectura que no se ha podido hacer termina fallida, con su motivo, y la app lo ve.
+    # Con -SiViva (el final del script), solo si el lector la dejo a medias.
+    $argumentos = @("lectura", "cerrar", $Solicitud, "--motivo", $Motivo)
+    if ($SiViva) { $argumentos += "--si-viva" }
+    Orden-De "lector" $argumentos | Out-Null
+}
+
 function Orden-Directa([string]$Rol, [string[]]$Argumentos) {
     # Igual, pero hablando con la ventana sin pasar por PowerShell: para lo que pregunta algo
     # sin que se vea (la clave de la API).

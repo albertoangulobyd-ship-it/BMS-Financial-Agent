@@ -1766,12 +1766,16 @@ def test_el_instalador_deja_el_codigo_de_solo_lectura() -> None:
 
 
 def test_leer_facturas_comprueba_antes_de_pagar_y_para_la_salida() -> None:
+    """Paso 17: contar, esperar el si (de la app o escrito en la ventana) y leer son las
+    ordenes `lectura` del lector; el orden de siempre no cambia (test_lectura_lector.py lo
+    recorre paso a paso)."""
     texto = _ps1("leer-facturas")
     orden = [texto.index(t) for t in (
-        "if ($Demo)", "$salida = Arrancar-Salida $credencial", 'Comprobar-Rol "salida"',
-        'Comprobar-Rol "lector"', "if ($codigoSalida -ne 0 -or $codigoLector -ne 0)",
-        '"coste", "--estimar"', "Read-Host", "-not (Es-Si $respuesta)", '"extract"',
-        "} finally {", "Parar-Salida $salida")]
+        "if ($Demo)", '"lectura", "tomar"', "$salida = Arrancar-Salida $credencial",
+        'Comprobar-Rol "salida"', 'Comprobar-Rol "lector"',
+        "if ($codigoSalida -ne 0 -or $codigoLector -ne 0)", '"lectura", "contar"',
+        '"lectura", "esperar"', '"lectura", "leer"', "} finally {", "Parar-Salida $salida",
+        'Cerrar-Lectura $solicitud "interrumpida" -SiViva')]
     assert orden == sorted(orden)
     # Sin forma de saltarse la comprobacion: ningun parametro mas que -Demo.
     assert re.search(r"(?m)^param\(\[switch\]\$Demo\)$", texto)

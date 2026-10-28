@@ -229,20 +229,42 @@ mismas carpetas que el entorno de Docker: la tabla está en
   así que no se mueve ([app-local.md](app-local.md), §4.4).
 - **BMS Finanzas - Leer facturas** (`leer-facturas.bat`) para los PDF. **Esto sí cuesta
   dinero** (unos céntimos por factura). Lo que hace, en orden:
-  1. enciende la salida, solo en este ordenador y con una credencial nueva para esta
+  1. toma la lectura que se pidió en la app (**Procesar**, «Pedir lectura») o, si nadie
+     pidió nada, empieza una. Si el buzón no tiene ningún PDF, no hay nada que leer: no
+     enciende nada y la lectura pedida termina así;
+  2. enciende la salida, solo en este ordenador y con una credencial nueva para esta
      lectura, que solo conocen la salida y el lector;
-  2. comprueba el aislamiento de la salida y del lector: si el lector puede llegar a
-     internet por su cuenta, o la salida deja pasar algo que no sea la API, **no lee
-     nada ni paga nada**, y lo dice en rojo. No hay forma de saltarse esto;
-  3. cuenta lo que va a mandar (gratis), te enseña el coste y solo sigue si escribes
-     `si`;
-  4. lee, y apaga la salida al acabar (también si algo falla). Si cierras la ventana
-     con la X a mitad, Windows no deja al script apagarla: la salida se apaga sola a las
-     tres horas como mucho, y también al abrir la consola o con **Parar**.
+  3. comprueba el aislamiento de la salida y del lector: si el lector puede llegar a
+     internet por su cuenta, o la salida deja pasar algo que no sea la API, **no cuenta,
+     no lee nada ni paga nada**, y lo dice en rojo (y en la app). No hay forma de
+     saltarse esto;
+  4. cuenta lo que va a mandar (gratis) y enseña el coste aquí y en la app: cuántas
+     facturas nuevas, cuántas ya leídas (que no se vuelven a pagar) y la horquilla;
+  5. espera tu sí **como mucho 15 minutos**: en la app («Empezar») o escribiendo `si`
+     aquí, lo que llegue antes. «No leer» en la app, o cualquier otra cosa escrita aquí,
+     es que no. Sin respuesta, o con un no, apaga la salida y no ha gastado nada;
+  6. lee **solo las facturas que contó** (un PDF que llega mientras tanto espera a la
+     próxima) y **nunca por encima del tope** que se aprobó (por defecto, el extremo alto
+     de la horquilla): antes de pagar cada factura mira si lo gastado más lo que puede
+     costar esa cabe; si no, para y lo dice. La app ve cada factura según se lee, y si
+     alguien dice «Parar la lectura» en la app, para después de la factura en curso;
+  7. apaga la salida al acabar (también si algo falla, si se dice que no o con Ctrl+C), y
+     si la lectura se quedó a medias la deja terminada con su motivo. Si cierras la
+     ventana con la X a mitad, Windows no deja al script apagarla: la salida se apaga
+     sola a las tres horas como mucho, y también al abrir la consola o con **Parar**.
 
-  Un PDF que ya se leyó no se vuelve a pagar. En la app, **Facturen lezen** enseña lo
-  leído y lo gastado hasta ahora y lo que costaría la siguiente factura, pero no tiene
-  botón para leer: se empieza siempre con este acceso directo.
+  Un PDF que ya se leyó no se vuelve a pagar. La app no tiene internet y no abre
+  programas, así que no puede leer por su cuenta: pide la lectura y dice «Abre "BMS
+  Finanzas - Leer facturas" en el escritorio». Pedir, dar el sí o decir que no lo hace
+  quien puede importar datos (el permiso `importar_datos`); quien solo consulta lo ve.
+  Cada paso queda en la auditoría: quién pidió, quién dio el sí (o lo escribió en la
+  ventana), con qué tope y para qué cuenta.
+
+  Si la ventana del lector se cerró a medias, la lectura sigue «viva» un rato: esperando
+  el sí, hasta 5 minutos después de su plazo; leyendo, hasta 45 minutos sin señales.
+  Pasado eso, la siguiente lectura (o «Pedir lectura» en la app) la da por terminada. Si
+  no quieres esperar y la ventana ya no está, «No leer» en la app y vuelve a abrir el
+  lector.
 
 ### Las órdenes sueltas (`orden.bat`)
 
@@ -468,6 +490,9 @@ copias siguen funcionando sin crédito.
 | En `comprobar.bat`, «el Python de este papel» en rojo | Ese programa hace caso de algo del entorno que no debería (una variable `PYTHON…`). No trabajes con datos de verdad: avisa y manda la ventana. |
 | Banda roja «AISLAMIENTO SIN COMPROBAR O CON FALLOS» | `comprobar.bat`. Si sale en rojo, manda la ventana a quien mantiene el programa y no trabajes con datos de verdad. |
 | «El aislamiento no esta bien … no se lee nada ni se paga nada» | Lo mismo: `comprobar.bat`. No se ha gastado nada. |
+| «Ya hay otra lectura en marcha» al abrir **Leer facturas** | Hay otra ventana del lector abierta: espera a que acabe. Si no la hay (se cerró con la X), «No leer» en la app (Procesar) y vuelve a abrir el lector. |
+| «Nadie ha dicho que si en 15 minutos» | Nadie dijo que sí en la app ni aquí: la salida está apagada y no se ha gastado nada. Vuelve a pedir la lectura cuando puedas responder. |
+| «no cabe en el tope» al leer | Se ha parado antes de pasarse del tope que se aprobó. Lo leído queda; lo que falta se cuenta y se paga la próxima vez (otra lectura). |
 | «el perfil … del cortafuegos esta apagado» | Seguridad de Windows → Firewall y protección de red → enciéndelo en los tres perfiles. |
 | «falta la regla …» | Vuelve a abrir `instalar.bat` desde la carpeta del proyecto: rehace las reglas sin tocar tus datos. |
 | «no se puede leer el cortafuegos» | Abre `comprobar.bat` otra vez; si sigue, puede que un antivirus haya sustituido el cortafuegos de Windows: avisa a quien mantiene el programa. |
@@ -530,8 +555,10 @@ primera vez en tu ordenador**, con datos de prueba, antes de meter nada de verda
    (y `http://127.0.0.1:8765/consola`, con la de DATOS DE PRUEBA).
 6. Desde otro ordenador o el móvil, en la misma red, `http://<la IP de tu PC>:8765` no
    abre nada.
-7. `clave.bat`, y después `leer-facturas.bat` con **una** factura de verdad: cuenta,
-   pregunta, lee. Luego `ver-salida.bat`: solo `api.anthropic.com`, permitido.
+7. `clave.bat`, y después «Pedir lectura» en la app (Procesar) y `leer-facturas.bat` con
+   **una** factura de verdad: la app enseña lo que cuesta, das el sí en la app
+   («Empezar»), lee y la app lo ve. Luego `ver-salida.bat`: solo `api.anthropic.com`,
+   permitido.
 8. `parar.bat`, y en el Administrador de tareas no queda ningún `python.exe` de
    `C:\BMS`.
 9. `copia.bat -Destino` al disco cifrado y `copia.bat -Comprobar` de esa copia.

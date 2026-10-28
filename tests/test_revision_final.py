@@ -1269,14 +1269,19 @@ def test_las_preguntas_de_los_scripts_aceptan_si_con_tilde() -> None:
     funcion = funcion[:funcion.index("\n}\n")]
     assert "[char]0x00ED" in funcion and '-eq "si"' in funcion and '-eq "s"' in funcion
     assert ".ToLower()" in funcion and ".Trim()" in funcion
-    for script in ("leer-facturas.ps1", "restaurar.ps1"):
-        texto = (RAIZ / "docker" / script).read_text(encoding="ascii")
-        assert not re.search(r'-ne\s+"si"', texto)
-        assert "if (-not (Es-Si $respuesta))" in texto and "No has escrito si" in texto
+    texto = (RAIZ / "docker" / "restaurar.ps1").read_text(encoding="ascii")
+    assert not re.search(r'-ne\s+"si"', texto)
+    assert "if (-not (Es-Si $respuesta))" in texto and "No has escrito si" in texto
+    # Paso 17: en leer-facturas.ps1 el si lo espera el lector (`lectura esperar`, de la app o
+    # escrito en la ventana), con lectura.es_si, que dice lo mismo que Es-Si.
+    from bms_agent.lectura import es_si
+
+    texto = (RAIZ / "docker" / "leer-facturas.ps1").read_text(encoding="ascii")
+    assert "lectura esperar" in texto and not re.search(r'-ne\s+"si"', texto)
     for respuesta in ("si", "sí", "Sí", " SI ", "s"):
-        assert _es_si_como_comun_ps1(respuesta), respuesta
+        assert _es_si_como_comun_ps1(respuesta) and es_si(respuesta), respuesta
     for respuesta in ("", "no", "sii", "yes"):
-        assert not _es_si_como_comun_ps1(respuesta), respuesta
+        assert not _es_si_como_comun_ps1(respuesta) and not es_si(respuesta), respuesta
 
 
 # ============================================================ 24. trimestres de antes de empezar

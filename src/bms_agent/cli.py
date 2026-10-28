@@ -9,6 +9,8 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
                                   (--salientes: facturas emitidas, a out/salientes)
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
+    bms-agent lectura ...         la lectura pedida desde la app (paso 17): lo que hace el
+                                  lector (tomar, contar, esperar el si, leer, cerrar) y ver
     bms-agent db init|migrar|verificar   el almacen (datos/bms.sqlite3)
     bms-agent importar-out        lleva out/*.json al almacen y lo tipa, sin llamar a la API
     bms-agent ingestar            tipa lo extraido que aun no tiene su factura, sin la API
@@ -109,11 +111,12 @@ _AYUDA_DB = "almacen SQLite (por defecto: BMS_DB o datos/bms.sqlite3)"
 _AYUDA_OUT = ("lee esta carpeta de extracciones tal cual, sin correcciones, en vez del "
               "almacen (sin --out: el almacen, o out/ si aun no hay almacen)")
 
-_ETIQUETAS_PASO = {"omitido": "omitido", "cache": "cache", "error": "ERROR", "ok": "ok"}
+_ETIQUETAS_PASO = {"omitido": "omitido", "cache": "cache", "error": "ERROR", "ok": "ok",
+                   "sin_leer": "sin leer"}
 
 
 def _imprimir_paso(tipo: str, nombre: str, detalle: str) -> None:
-    separador = ": " if tipo in ("omitido", "error") else " -> "
+    separador = ": " if tipo in ("omitido", "error", "sin_leer") else " -> "
     print(f"  {_ETIQUETAS_PASO[tipo]:<8} {nombre}{separador}{detalle}")
 
 
@@ -627,6 +630,232 @@ def _cmd_coste(args: argparse.Namespace) -> int:
         salida_baja=salida.bajo * nuevos, salida_alta=salida.alto * nuevos,
         salida_medida=salida.medida, origen_salida=salida.origen,
     )))
+    return 0
+
+
+# ------------------------------------------------------------ paso 17: el lector
+
+# Como acaba cada orden de `lectura` (los leer-facturas.ps1 deciden por esto): 0 bien, 1 leida
+# con algun documento que no se pudo leer, 2 una puerta (como las demas ordenes), y estas.
+LECTURA_NADA = 3          # no hay nada que leer (buzon vacio, o todo ya leido)
+LECTURA_OCUPADA = 4       # otro lector tiene una lectura entre manos
+LECTURA_CANCELADA = 5     # alguien dijo que no (la app o la ventana)
+LECTURA_CADUCADA = 6      # nadie dijo que si en el plazo
+LECTURA_FALLIDA = 7       # no se pudo: la lectura queda fallida con su motivo
+
+
+def _pdfs_de(carpeta: str) -> list[Path]:
+    return list(iter_pdfs(carpeta)) if Path(carpeta).is_dir() else []
+
+
+def _cmd_lectura_tomar(args: argparse.Namespace) -> int:
+    """El lector se abre: toma la lectura pedida (o crea una) y dice su numero, solo, por la
+    salida normal (lo lee el script); lo demas va a la de errores."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        tomada = lectura.tomar(almacen.conn, hay_pdf=bool(_pdfs_de(args.carpeta)))
+        _anclar(almacen)
+    if tomada.como == lectura.VACIO:
+        print(f"No hay PDF en {args.carpeta}: no hay nada que leer.", file=sys.stderr)
+        return LECTURA_NADA
+    if tomada.como == lectura.OCUPADA:
+        print(f"No se lee: {tomada.detalle}. Espera a que acabe o cierralo.", file=sys.stderr)
+        return LECTURA_OCUPADA
+    de_donde = "la pedida desde la app" if tomada.como == lectura.TOMADA else "una nueva"
+    print(f"Lectura {tomada.solicitud_id} ({de_donde}).", file=sys.stderr)
+    print(tomada.solicitud_id)
+    return 0
+
+
+def _cmd_lectura_cerrar(args: argparse.Namespace) -> int:
+    """El lector termina una lectura que no llega a leer (la salida no arranco, el aislamiento
+    no esta bien) o que se quedo a medias (el finally del script): fallida con su motivo."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        cerrada = lectura.cerrar(almacen.conn, args.solicitud, args.motivo,
+                                 detalle=args.detalle, solo_si_viva=args.si_viva)
+        _anclar(almacen)
+    if cerrada:
+        print(f"Lectura {args.solicitud}: {lectura.MOTIVOS[args.motivo]}.", file=sys.stderr)
+    return 0
+
+
+def _cliente_de_la_lectura(conn, solicitud_id: int):
+    """El cliente de la API para contar o leer, despues de la puerta (_cliente_api). Si la
+    puerta no deja (el aislamiento de esta pasada no esta bien, otro programa, sin la clave),
+    la lectura termina fallida con su motivo y no se habla con la API: (None, codigo)."""
+    from . import lectura
+    from .nativo import LecturaNoAislada
+
+    try:
+        import anthropic
+    except ImportError:
+        lectura.cerrar(conn, solicitud_id, "lectura", detalle="falta el paquete anthropic")
+        print("Falta el paquete anthropic. Instala con: pip install -e .", file=sys.stderr)
+        return None, LECTURA_FALLIDA
+    try:
+        return _cliente_api(anthropic), 0
+    except LecturaNoAislada as exc:
+        lectura.cerrar(conn, solicitud_id, "aislamiento")
+        print(f"No se hace: {exc}", file=sys.stderr)
+    except config.ClaveNoValida as exc:
+        lectura.cerrar(conn, solicitud_id, "clave")
+        print(f"No se puede usar la clave de la API: {exc}", file=sys.stderr)
+    return None, LECTURA_FALLIDA
+
+
+def _cmd_lectura_contar(args: argparse.Namespace) -> int:
+    """Con la salida encendida y el aislamiento comprobado: cuenta lo que costaria (contar
+    no se cobra) y deja la lectura esperando el si, con la estimacion y su huella."""
+    from . import lectura
+    from .coste import formatear_estimacion
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        client, codigo = _cliente_de_la_lectura(conn, args.solicitud)
+        if client is None:
+            _anclar(almacen)
+            return codigo
+        out = Path(args.out)
+        try:
+            estado, est = lectura.contar(conn, args.solicitud, lambda antes: lectura.estimar(
+                client, _pdfs_de(args.carpeta), out, almacen=almacen,
+                politica=ESTRICTA if args.estricta else CONSERVAR,
+                otras_vias=[carpeta_out(out, "saliente")], antes=antes))
+        except lectura.Parada as parada:
+            print(f"No se cuenta mas: la lectura esta {parada.estado}. No se ha gastado nada.",
+                  file=sys.stderr)
+            _anclar(almacen)
+            return LECTURA_CANCELADA if parada.estado == "cancelada" else LECTURA_FALLIDA
+        except Exception as exc:  # contar es una llamada a la API: puede fallar
+            lectura.cerrar(conn, args.solicitud, "contar", detalle=f"{type(exc).__name__}: {exc}")
+            print(f"No se ha podido contar: {type(exc).__name__}: {exc}", file=sys.stderr)
+            _anclar(almacen)
+            return LECTURA_FALLIDA
+        fila = conn.execute("SELECT caduca_en, motivo FROM solicitud_lectura WHERE id = ?",
+                            (args.solicitud,)).fetchone()
+        _anclar(almacen)
+    for contado in est.de_clase("omitido"):
+        print(f"  omitido  {contado.nombre}: {contado.detalle}")
+    print()
+    print(formatear_estimacion(est.para_coste()))
+    if estado == "nada_que_leer":
+        print(f"\nNo hay nada que leer: {fila['motivo']}.")
+        return LECTURA_NADA
+    if estado != "esperando_aprobacion":
+        print(f"\nNo se lee: {fila['motivo']}.", file=sys.stderr)
+        return LECTURA_FALLIDA
+    print(f"\nEntre {lectura.dolares(est.coste_min_usd_micro)} y "
+          f"{lectura.dolares(est.coste_max_usd_micro)} por {est.nuevos} facturas nuevas "
+          f"({est.ya_leidos} ya leidas no se vuelven a pagar). Tope: "
+          f"{lectura.dolares(est.coste_max_usd_micro)}.")
+    return 0
+
+
+def _linea_de_la_ventana():
+    """Lo que se escriba en la ventana del lector, sin pararse a esperarlo: un hilo lee una
+    linea y la deja en una cola; `linea(segundos)` espera como mucho eso. Sin ventana (la
+    entrada cerrada), nunca llega nada: solo vale el si de la app."""
+    import queue
+    import threading
+
+    cola: queue.Queue = queue.Queue()
+
+    def leer() -> None:
+        try:
+            texto = sys.stdin.readline()
+        except (OSError, ValueError):
+            return
+        if texto:
+            cola.put(texto)
+
+    threading.Thread(target=leer, name="ventana-del-lector", daemon=True).start()
+
+    def linea(segundos: float) -> str | None:
+        try:
+            return cola.get(timeout=max(segundos, 0))
+        except queue.Empty:
+            return None
+
+    return linea
+
+
+def _cmd_lectura_esperar(args: argparse.Namespace) -> int:
+    """Espera el si: de la app (Procesar, «Empezar») o escrito aqui. Otra cosa escrita aqui
+    es que no. Sin respuesta en el plazo, caduca. En ningun caso se ha gastado nada."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        fila = almacen.conn.execute("SELECT caduca_en FROM solicitud_lectura WHERE id = ?",
+                                    (args.solicitud,)).fetchone()
+        hasta = fila["caduca_en"] if fila is not None else "?"
+        print(f"Puedes decir que si en la app (Procesar, «Empezar») o escribir si aqui y pulsar "
+              f"Intro; otra cosa es que no. Hasta {hasta} (UTC).", flush=True)
+        estado = lectura.esperar(almacen.conn, args.solicitud, linea=_linea_de_la_ventana())
+        _anclar(almacen)
+    if estado == "aprobada":
+        print("Si: se lee.")
+        return 0
+    if estado == "caducada":
+        print("Nadie ha dicho que si en el plazo: no se ha leido ni gastado nada.")
+        return LECTURA_CADUCADA
+    if estado == "cancelada":
+        print("No se lee: no se ha leido ni gastado nada.")
+        return LECTURA_CANCELADA
+    print(f"La lectura esta {estado}: no se lee.", file=sys.stderr)
+    return LECTURA_FALLIDA
+
+
+def _cmd_lectura_leer(args: argparse.Namespace) -> int:
+    """Con el si: lee lo que se conto, con su progreso en la base y sin pasar del tope."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        fila = conn.execute("SELECT estado FROM solicitud_lectura WHERE id = ?",
+                            (args.solicitud,)).fetchone()
+        if fila is None or fila["estado"] != "aprobada":
+            estado = fila["estado"] if fila is not None else "inexistente"
+            print(f"No se lee: la lectura {args.solicitud} esta {estado}.", file=sys.stderr)
+            return LECTURA_CANCELADA if estado == "cancelada" else LECTURA_FALLIDA
+        client, codigo = _cliente_de_la_lectura(conn, args.solicitud)
+        if client is None:
+            _anclar(almacen)
+            return codigo
+        out = Path(args.out)
+        print(f"Leyendo con {config.model_id()}")
+        try:
+            leida = lectura.leer(conn, args.solicitud, client=client, almacen=almacen,
+                                 pdfs=_pdfs_de(args.carpeta), out_dir=out,
+                                 politica=ESTRICTA if args.estricta else CONSERVAR,
+                                 otras_vias=[carpeta_out(out, "saliente")],
+                                 imprimir=_imprimir_paso)
+        finally:
+            _anclar(almacen)
+    print()
+    print(f"Lectura {args.solicitud}: {leida.estado} ({leida.fase}). Gastado "
+          f"{lectura.dolares(leida.gastado_usd_micro)}.")
+    print(f"  nuevas {leida.cuenta('nueva')}, posibles duplicados "
+          f"{leida.cuenta('posible_duplicado')}, ya leidas {leida.cuenta('ya_leida')}, "
+          f"con problemas {leida.cuenta('fallida')}")
+    if leida.motivo:
+        print(f"  {leida.motivo}")
+    if leida.estado == "cancelada" and not leida.resultado:
+        return LECTURA_CANCELADA
+    if leida.estado not in ("hecha", "cancelada"):
+        return LECTURA_FALLIDA
+    return 1 if leida.fallidas or leida.errores_tipado else 0
+
+
+def _cmd_lectura_ver(args: argparse.Namespace) -> int:
+    """La lectura viva (o la ultima) y su pasada, como las ve la app."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        datos = lectura.para_la_app(almacen.conn)
+    print(json.dumps(datos, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -2759,6 +2988,50 @@ def main(argv: list[str] | None = None) -> int:
         help="estima como `extract --estricta`: lo leido con otra version cuenta como nuevo",
     )
     p_coste.set_defaults(func=_cmd_coste)
+
+    # Paso 17: las ordenes del lector (leer-facturas.ps1 de windows/ y docker/), en el orden
+    # en que las llama: tomar, contar, esperar, leer y, pase lo que pase, cerrar.
+    p_lectura = sub.add_parser(
+        "lectura", help="la lectura de los PDF pedida desde la app: lo que hace el lector "
+                        "(tomar, contar, esperar el si, leer, cerrar) y ver")
+    sub_lectura = p_lectura.add_subparsers(dest="accion", required=True)
+    p_l = sub_lectura.add_parser("tomar", help="toma la lectura pedida (o crea una) y dice su "
+                                               "numero; sin PDF no hay nada que leer")
+    p_l.add_argument("carpeta", help="la carpeta de los PDF (buzon/facturas)")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_tomar)
+    for nombre, ayuda, funcion in (
+            ("contar", "cuenta lo que costaria (contar no se cobra) y espera el si",
+             _cmd_lectura_contar),
+            ("leer", "lee con el si, sin pasar del tope", _cmd_lectura_leer)):
+        p_l = sub_lectura.add_parser(nombre, help=ayuda)
+        p_l.add_argument("solicitud", type=int, help="el numero que dio tomar")
+        p_l.add_argument("carpeta", help="la carpeta de los PDF (buzon/facturas)")
+        p_l.add_argument("--out", default="out", help="carpeta con las extracciones")
+        p_l.add_argument("--estricta", action="store_true",
+                         help="como `extract --estricta`: lo leido con otra version es nuevo")
+        p_l.add_argument("--db", help=_AYUDA_DB)
+        p_l.set_defaults(func=funcion)
+    p_l = sub_lectura.add_parser("esperar", help="espera el si de la app o escrito aqui (como "
+                                                 "mucho 15 minutos)")
+    p_l.add_argument("solicitud", type=int, help="el numero que dio tomar")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_esperar)
+    from .lectura import MOTIVOS
+
+    p_l = sub_lectura.add_parser("cerrar", help="termina una lectura que no se pudo hacer: "
+                                                "fallida, con su motivo")
+    p_l.add_argument("solicitud", type=int, help="el numero que dio tomar")
+    p_l.add_argument("--motivo", required=True, choices=sorted(MOTIVOS),
+                     help="por que no se pudo")
+    p_l.add_argument("--detalle", help="lo que se sepa, en una linea")
+    p_l.add_argument("--si-viva", action="store_true",
+                     help="solo si el lector la dejo a medias (el final del script)")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_cerrar)
+    p_l = sub_lectura.add_parser("ver", help="la lectura viva (o la ultima), como la ve la app")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_ver)
 
     p_serve = sub.add_parser(
         "serve", help="servidor local de desarrollo (solo 127.0.0.1)"

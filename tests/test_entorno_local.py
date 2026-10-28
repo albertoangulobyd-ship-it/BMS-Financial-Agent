@@ -301,12 +301,13 @@ def test_el_token_va_por_el_entorno_y_no_en_la_orden() -> None:
 
 def test_leer_facturas_cuenta_antes_y_pide_que_si() -> None:
     texto = (DOCKER / "leer-facturas.ps1").read_text(encoding="utf-8")
-    contar = texto.index("lector coste --estimar")
-    preguntar = texto.index("Read-Host")
-    leer = texto.index("lector extract")
+    contar = texto.index("lector lectura contar")
+    preguntar = texto.index("orden lectura esperar")
+    leer = texto.index("lector lectura leer")
     assert contar < preguntar < leer
-    # Revision final: "si", "s" y "si" con tilde valen (comun.ps1, Es-Si); otra cosa no lee.
-    assert "-not (Es-Si $respuesta)" in texto
+    # Paso 17: el si lo espera `lectura esperar` (de la app o escrito en la ventana); "si",
+    # "s" y "si" con tilde valen (lectura.es_si, como Es-Si de comun.ps1); otra cosa no lee.
+    assert "Read-Host" not in texto and "extract" not in texto
 
 
 def test_importar_conoce_cada_carpeta_del_buzon() -> None:
@@ -355,7 +356,7 @@ def test_la_pasada_del_dia_la_hacen_iniciar_e_importar() -> None:
 
 def test_leer_facturas_no_lee_nada_con_demo() -> None:
     texto = (DOCKER / "leer-facturas.ps1").read_text(encoding="utf-8")
-    assert texto.index("if ($Demo)") < texto.index("lector coste --estimar")
+    assert texto.index("if ($Demo)") < texto.index("orden lectura tomar")
     assert "Elegir-Base -Demo" not in texto
 
 

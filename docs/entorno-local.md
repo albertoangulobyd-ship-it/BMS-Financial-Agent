@@ -216,9 +216,15 @@ Después:
   por el buzón ([app-local.md](app-local.md), §4.4).
 - **Doble clic en `leer-facturas.bat`** para los PDF. **Esto sí cuesta dinero**
   (unos céntimos por factura), así que primero cuenta, gratis, lo que va a mandar,
-  te enseña el coste y solo sigue si escribes `si`. Un PDF que ya se leyó no se
-  vuelve a pagar. **Facturen lezen**, en la app, enseña lo gastado, pero no lee: se
-  empieza siempre con `leer-facturas.bat`.
+  te enseña el coste (aquí y en la app) y solo sigue con un sí: en la app (**Procesar**,
+  «Empezar») o escribiendo `si` aquí, como mucho en 15 minutos. Otra cosa, «No leer» o
+  nada en ese rato es que no, y no se gasta nada. Lee solo lo que contó y nunca por encima
+  del tope aprobado; la app ve cada factura según se lee. Un PDF que ya se leyó no se
+  vuelve a pagar. La app no lee por su cuenta (no tiene internet): con «Pedir lectura» te
+  dice que abras `leer-facturas.bat`, que toma esa petición
+  ([instalacion-nativa.md](instalacion-nativa.md), apartado 7, cuenta los pasos). Pedir,
+  esperar el sí y cerrar la lectura los hace el contenedor de las órdenes, sin red; contar
+  y leer, el lector, por la salida.
 
 El buzón solo lo leen las cajas: nada de dentro de Docker puede escribir ni borrar en
 él. Lo mueve el script, en tu Windows.
@@ -365,7 +371,8 @@ después de restaurar en otro ordenador.
 | «la base está abierta» al restaurar | La consola sigue en marcha: `parar.bat` y vuelve a probar. |
 | El extracto del banco no entra: «todavía no se han dado las cuentas propias» | Apartado 5, paso 3: `.\empresa.bat -Cuentas ...`, y vuelve a `importar.bat`. |
 | «La verificación NO VALE» | El teléfono no era el del maestro, o se cambió hace menos de 14 días: [uso-v1.md](uso-v1.md), «Cómo verificar un IBAN por teléfono». |
-| «No has escrito si» | Las preguntas de `leer-facturas.bat` y `restaurar.bat` solo siguen con `si` (o `sí`, o `s`). |
+| «No has escrito si» | La pregunta de `restaurar.bat` solo sigue con `si` (o `sí`, o `s`). En `leer-facturas.bat` vale lo mismo, o «Empezar» en la app; otra cosa escrita es que no («No se lee»). |
+| «Ya hay otra lectura en marcha» | Hay otra ventana de `leer-facturas.bat` abierta: espera a que acabe. Si no la hay, «No leer» en la app y vuelve a abrirlo. |
 | Quieres ver qué ha salido a internet | `.\ver-salida.bat` (o `.\ver-salida.bat -Rechazados`): cada intento desde el primer día, a dónde y si se dejó. Se guarda en su propio volumen y no se borra al parar; `docker compose logs salida` solo llega hasta el último arranque. |
 
 ---
@@ -374,8 +381,8 @@ después de restaurar en otro ordenador.
 
 **Son estimaciones**, hechas con facturas de una o dos páginas; las tuyas pueden ser
 más largas o más cortas. La cifra exacta de lo que se va a mandar la da gratis
-`bms-agent coste --estimar` (es lo primero que hace `leer-facturas.bat`): contar no
-se cobra.
+`bms-agent coste --estimar` (y `leer-facturas.bat`, con `bms-agent lectura contar`, antes
+de leer nada): contar no se cobra.
 
 | Partida | Coste | Nota |
 | --- | --- | --- |
