@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "23416188d685dc0dbfd6190de3b61d9b5687aa4b955364b19ee98d60c587f0c7",
+  "sha256": "ddd294d6aeb64bf3f9ed9d627114dd08d7c22701441642feb14664ce156a91c3",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -127,16 +127,16 @@
     "frontend/tsconfig.app.json": "495ad4991e36ca7aec91753dc64e2795eb1fa0e73e015e513eabfe75db5e18c0",
     "frontend/tsconfig.json": "1f10234e851ddbb03e1c2d73bdd7aa13be4e1d8c33cc16b84372f1341a172c3c",
     "frontend/vite.config.ts": "2910a23f69f65fd99b90a92c4477c79d4ac7aca111fc4c799d7a5432cb49ee5c",
-    "src/bms_agent/textos/en.json": "72e90c8616c47aada51f27e44860fc8f5e716235ed774f861241b67fa4a6d1ce",
-    "src/bms_agent/textos/es.json": "e9536b065e38a9cb0c3d81b36a4953423dbcdbd939d94525fd692c51bb51c41c",
-    "src/bms_agent/textos/nl.json": "96ccbc00664e1c4dfd4fd889186a7a5d83926a63ec566cc8cab83d52adf8db1f"
+    "src/bms_agent/textos/en.json": "e9eb03f8455ee3e9489f97dc51e47c7a27915124f2e49682211563cc45d3ebb1",
+    "src/bms_agent/textos/es.json": "3d491684d5419c4847d8313dbf373e01a24e37dca83a81fd91231653ad22b25b",
+    "src/bms_agent/textos/nl.json": "fa888897dcf91439e7d67ba0ec23da55b5c13684c28bef469b3b41915d329473"
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-BYl2ldgm.js": "35c4f8cd7919078ea3802c8b1fa046b8e45689f651f8bb6f9acbce3bbd1610a3",
+    "assets/index-DCTnb9hN.js": "fecd878546f17dfb02c3bfa7a47d6a3608cb1e64e022e928aae2e9a5d59b1ac3",
     "assets/style-DOLTlMuc.css": "93034d55f2b9d74a7f2df73966f30c011bafc6ad39024133e8bca325a51274f5",
-    "assets/textos-QHGYXPfU.js": "6c07c0ae32f615b4a7c18d9957ba6c8a2dff210450123d8fe4286f36e01e91c0",
+    "assets/textos-l6omhw9Q.js": "d2dc126731d5d62057006660cff891a950537c98170923bf74aa8111b10a93a5",
     "assets/vendor-QKXXhdZY.js": "ba6bff70d6b6002e16597195b81c59dcdca29ddf7c8f93c8b8bfdc16729ac217",
-    "index.html": "f82a3d77a4ae4dd41291d2c0e874561b72f5efcaf84911de98812ae3464b4db9"
+    "index.html": "4950ee3579327bcc2e6a53c17f09a7af9ff6c6b53abf622da9e3c9ecd8ff3b02"
   }
 }
