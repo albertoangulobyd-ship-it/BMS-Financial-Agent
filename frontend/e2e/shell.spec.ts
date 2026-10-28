@@ -288,10 +288,14 @@ test('una factura del panel abre su hoja con el vuelo del orbe; «Terug naar Aur
   await crumbsNav(page).getByRole('link', { name: t.aurora.work.home }).click();
   await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'home');
   await landed(page);
+  // Procesar no es una pantalla de trabajo: es el espacio central sin orbe (como en Aurora), y
+  // «Terug naar start» vuelve al inicio, sin vuelo.
   await openEntry(page, 'process');
-  await page.locator('.ws-companion').click();
+  await expect(page.locator('.ws-companion')).toHaveCount(0);
+  await page.locator('.processing-back').click();
   await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'home');
-  await landed(page);
+  await expect(app(page)).not.toHaveClass(/\bprocess-mode\b/);
+  await expect(greeting(page)).toBeVisible();
 });
 
 test('cada sitio de la app se alcanza desde la rueda, en los tres idiomas', async ({ page, baseUrl }) => {

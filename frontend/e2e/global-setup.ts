@@ -87,6 +87,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // Los ficheros que sube la prueba de Importeren (los deja scripts/crear_demo_e2e.py).
   process.env.BMS_E2E_FILE_CLIENTS = demo.ficheros.clientes;
   process.env.BMS_E2E_FILE_ODD = demo.ficheros.raro;
+  // El lector de las pruebas de Procesar (scripts/simular_lector.py) da sus pasos sobre esta
+  // misma base, con este Python (paso 17).
+  process.env.BMS_E2E_DB = demo.db;
+  process.env.BMS_E2E_PYTHON = python();
+  process.env.BMS_E2E_REPO = repo;
 
   return async () => {
     server.kill();

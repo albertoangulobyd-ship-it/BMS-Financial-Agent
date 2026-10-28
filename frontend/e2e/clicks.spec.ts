@@ -12,7 +12,7 @@ import type { AccountRow, ExceptionRow } from '../src/lib/api-types';
 import { accountStep, buildChecks } from '../src/aurora/panels/iban-model';
 import { needsPerson } from '../src/lib/why';
 import { expect, login, settled, test, token } from './fixtures';
-import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, sheetDialog, toHome, treeItem } from './nav';
+import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, processLanded, sheetDialog, toHome, treeItem } from './nav';
 
 const t = TEXTS.nl;
 
@@ -283,7 +283,8 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     // Te betalen en el centro: Verwerken asoma abajo, en la ventana de cinco, y un clic la abre.
     await expect(app(page)).toHaveAttribute('data-active', 'payables');
     await c.click(entryButton(page, 'process'));
-    await landed(page);
+    // Procesar (E7): el espacio central con la suricata, sin vuelo; pedir la lectura es un clic mas.
+    await processLanded(page);
     expect(c.total).toBeLessThanOrEqual(4);
     expect(c.steps).toBeLessThanOrEqual(2);
   });

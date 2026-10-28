@@ -1,7 +1,7 @@
 // Moverse por la app como una persona (paso 17, la app de Aurora; especificacion §6.6): el orbe y
 // "Presiona para navegar" abren la rueda (openMenu); un paso de la rueda (wheelStep); una entrada
-// abre su panel (Ajustes, Inicio, Cuentas por cobrar y por pagar, IVA), la busqueda o una
-// pantalla de trabajo (Documentos, Procesar) (openEntry). En un panel, una fila de grupo abre su
+// abre su panel (Ajustes, Inicio, Cuentas por cobrar y por pagar, IVA), la busqueda, Documentos
+// (la pantalla de trabajo, con el vuelo) o Procesar (el espacio central con la suricata) (openEntry). En un panel, una fila de grupo abre su
 // vista (openGroup) y «Volver a …» vuelve (backFromGroup); una fila de una vista abre su tarjeta
 // .detail (openCard); la ✕ cierra el panel (closePanel) y el orbe lleva al inicio (home). Una
 // factura se abre escribiendo su numero en la caja: la fila de la respuesta lleva con el vuelo a
@@ -123,7 +123,13 @@ export async function toHome(page: Page): Promise<void> {
   await toAurora(page);
   for (let i = 0; i < 3; i += 1) {
     const s = await state(page);
-    if (!/\b(navigating|has-panel|chatting|search-mode|conversation-mode)\b/.test(s)) break;
+    if (!/\b(navigating|has-panel|chatting|search-mode|conversation-mode|process-mode)\b/.test(s)) break;
+    // En Procesar no hay orbe: «Volver al inicio».
+    if (/\bprocess-mode\b/.test(s)) {
+      await page.locator('.processing-back').click();
+      await expect.poll(() => state(page)).not.toMatch(/\bprocess-mode\b/);
+      continue;
+    }
     // En la conversacion (E4) el orbe no esta a la vista: «Terug naar de ruimte» vuelve a la
     // rueda (E1) y de ahi el orbe la cierra.
     const back = page.getByRole('button', { name: TEXTS[await pageLang(page)].aurora.chat.back });
@@ -137,7 +143,7 @@ export async function toHome(page: Page): Promise<void> {
     await orb(page).click();
     await expect.poll(() => state(page)).not.toBe(s);
   }
-  await expect(app(page)).not.toHaveClass(/\b(navigating|has-panel|chatting|search-mode)\b/);
+  await expect(app(page)).not.toHaveClass(/\b(navigating|has-panel|chatting|search-mode|process-mode)\b/);
   await settled(page);
 }
 
@@ -152,7 +158,7 @@ export async function openMenu(page: Page, language?: Lang): Promise<void> {
   if (/\bhas-panel\b/.test(s)) {
     // La ✕ del panel vuelve a la rueda (E1).
     await panel(page).getByRole('button', { name: TEXTS[lang].aurora.panel.close }).click();
-  } else if (!/\bnavigating\b/.test(s) || /\b(chatting|search-mode)\b/.test(s)) {
+  } else if (!/\bnavigating\b/.test(s) || /\b(chatting|search-mode|process-mode)\b/.test(s)) {
     await toHome(page);
     await page.getByRole('button', { name: TEXTS[lang].aurora.home.navigate }).click();
   }
@@ -191,15 +197,35 @@ export async function openEntry(page: Page, id: EntryId, language?: Lang): Promi
   await openMenu(page, lang);
   await centre(page, id);
   await entryButton(page, id).click();
-  if (id === 'documents' || id === 'process') {
+  if (id === 'documents') {
     await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'work');
     await landed(page);
+  } else if (id === 'process') {
+    await processLanded(page);
   } else if (id === 'search') {
     await expect(app(page)).toHaveClass(/\bsearch-mode\b/);
   } else {
     await expect(panel(page).getByRole('heading', { level: 2, name: entryLabel(id, lang), exact: true })).toBeVisible();
   }
   await settled(page);
+}
+
+/** Procesar (E7): el inicio en processMode, y la entrada de la suricata ya hecha (las
+ *  particulas, el monticulo y la cabeza, unos 2,6 s): solo la cabeza espera. */
+export async function processLanded(page: Page): Promise<void> {
+  await expect(app(page)).toHaveClass(/\bprocess-mode\b/);
+  await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'home');
+  await expect(page.locator('.processing-workspace')).toBeVisible();
+  // Despues de la entrada (las particulas, el monticulo, "Entrada · asomando la cabeza"), la
+  // linea del motor empieza por "Etapa".
+  await expect.poll(() => engineState(page), { timeout: 15_000 }).toMatch(/^Etapa \d\/5 · (?!partículas|montículo)/);
+  await settled(page);
+}
+
+/** El estado del motor de la suricata (su linea de depuracion, oculta: etapa, accion, pila). */
+export async function engineState(page: Page): Promise<string> {
+  // Sin esperas: sin la escena (antes de montarse o despues del fundido), una linea vacia.
+  return page.evaluate(() => document.querySelector('.zur-debug output')?.textContent ?? '');
 }
 
 /** El titulo del panel (su h2: la entrada en reposo, el grupo en su vista). */

@@ -1,0 +1,223 @@
+{
+ "_nota": "Del prototipo de Aurora del dueno (entrega del 28-10-2026), grabado con reloj virtual (herramientas/reloj.cjs del paso 17, E1: Playwright clock, pasos de 40 ms en la entrada, 200 ms en la espera y 80 ms en el trabajo): las transiciones de la linea de depuracion del motor (loader-engine.ts) desde el clic en Procesar, las acciones de cada etapa en orden y cuatro recortes de la escena (el lienzo del mundo, en pixeles de la pantalla) que compara e2e/procesar.spec.ts: la cabeza esperando (vt 3400 ms) y la suricata entera revisando la pila de 1 papel. No se editan a mano. «reducido»: la secuencia de la linea de depuracion con prefers-reduced-motion (procesar-reloj-*-reduce).",
+ "mundo": {
+  "1440": [
+   400,
+   308,
+   640,
+   169
+  ],
+  "400": [
+   16,
+   322,
+   368,
+   105
+  ]
+ },
+ "entrada": {
+  "1440": [
+   {
+    "vt": 0,
+    "debug": "Etapa 1/5 · partículas cayendo · frame 2 · pila 0"
+   },
+   {
+    "vt": 1440,
+    "debug": "Etapa 1/5 · montículo formado · frame 2 · pila 0"
+   },
+   {
+    "vt": 1680,
+    "debug": "Entrada · asomando la cabeza · frame 1"
+   },
+   {
+    "vt": 1840,
+    "debug": "Entrada · asomando la cabeza · frame 2"
+   },
+   {
+    "vt": 2000,
+    "debug": "Entrada · asomando la cabeza · frame 3"
+   },
+   {
+    "vt": 2080,
+    "debug": "Entrada · asomando la cabeza · frame 4"
+   },
+   {
+    "vt": 2640,
+    "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0"
+   }
+  ],
+  "400": [
+   {
+    "vt": 0,
+    "debug": "Etapa 1/5 · partículas cayendo · frame 2 · pila 0"
+   },
+   {
+    "vt": 1440,
+    "debug": "Etapa 1/5 · montículo formado · frame 2 · pila 0"
+   },
+   {
+    "vt": 1640,
+    "debug": "Entrada · asomando la cabeza · frame 1"
+   },
+   {
+    "vt": 1840,
+    "debug": "Entrada · asomando la cabeza · frame 2"
+   },
+   {
+    "vt": 2000,
+    "debug": "Entrada · asomando la cabeza · frame 3"
+   },
+   {
+    "vt": 2080,
+    "debug": "Entrada · asomando la cabeza · frame 4"
+   },
+   {
+    "vt": 2600,
+    "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0"
+   }
+  ]
+ },
+ "etapas": {
+  "1440": {
+   "1": [
+    "emerge-search",
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "2": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "olfateando junto a la pila",
+    "vigilando"
+   ],
+   "3": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "4": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "5": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "olfateando junto a la pila",
+    "vigilando",
+    "centinela"
+   ]
+  },
+  "400": {
+   "1": [
+    "emerge-search",
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "2": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "olfateando junto a la pila",
+    "vigilando"
+   ],
+   "3": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "4": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "revisando la pila",
+    "vigilando"
+   ],
+   "5": [
+    "buscando otro documento",
+    "moving-document",
+    "regresando con documento",
+    "moving-document",
+    "soltando documento",
+    "olfateando junto a la pila",
+    "vigilando",
+    "centinela"
+   ]
+  }
+ },
+ "recortes": {
+  "cabeza@1440": {
+   "fichero": "suricata/cabeza-1440.png",
+   "vt": 3400,
+   "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0",
+   "de": "procesar-espera-cabeza/1440/0082_+003400ms.png"
+  },
+  "pila1@1440": {
+   "fichero": "suricata/pila1-1440.png",
+   "debug": "Etapa 1/5 · revisando la pila · frame 6 · pila 1",
+   "de": "procesar-etapas/1440/0210_+007840ms.png"
+  },
+  "cabeza@400": {
+   "fichero": "suricata/cabeza-400.png",
+   "vt": 3400,
+   "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0",
+   "de": "procesar-espera-cabeza/400/0082_+003400ms.png"
+  },
+  "pila1@400": {
+   "fichero": "suricata/pila1-400.png",
+   "debug": "Etapa 1/5 · revisando la pila · frame 6 · pila 1",
+   "de": "procesar-etapas/400/0166_+004320ms.png"
+  }
+ },
+ "reducido": {
+  "1440": [
+   "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0",
+   "Etapa 1/5 · cabeza fuera del hoyo · frame 6 · pila 1",
+   "Etapa 2/5 · cabeza fuera del hoyo · frame 6 · pila 2",
+   "Etapa 3/5 · cabeza fuera del hoyo · frame 6 · pila 3",
+   "Etapa 4/5 · cabeza fuera del hoyo · frame 6 · pila 4",
+   "Etapa 5/5 · cabeza fuera del hoyo · frame 6 · pila 5",
+   "Etapa 5/5 · centinela · frame 6 · pila 5"
+  ],
+  "400": [
+   "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0",
+   "Etapa 1/5 · cabeza fuera del hoyo · frame 6 · pila 1",
+   "Etapa 2/5 · cabeza fuera del hoyo · frame 6 · pila 2",
+   "Etapa 3/5 · cabeza fuera del hoyo · frame 6 · pila 3",
+   "Etapa 4/5 · cabeza fuera del hoyo · frame 6 · pila 4",
+   "Etapa 5/5 · cabeza fuera del hoyo · frame 6 · pila 5",
+   "Etapa 5/5 · centinela · frame 6 · pila 5"
+  ]
+ }
+}

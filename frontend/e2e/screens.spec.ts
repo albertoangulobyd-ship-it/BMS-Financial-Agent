@@ -4,7 +4,7 @@
 // una factura, en neerlandes, ingles y castellano; la caja de las cuatro semanas con su estimacion
 // aparte; el IVA con la descarga de la hoja y sus estados (la declaracion la anota una persona; el
 // programa no presenta nada); importar primero como prueba y despues de verdad (dentro de Cuentas
-// por cobrar); la lectura de los PDF sin ningun boton que la lance (Procesar); y Ajustes. En cada
+// por cobrar); lo que cuesta leer los PDF y pedir la lectura (Procesar); y Ajustes. En cada
 // sitio: solo 127.0.0.1, ninguna violacion de la CSP ni error en la consola (fixtures), axe sin
 // nada serio y ningun resto de otro idioma. Captura de cada uno como <idioma>-<sitio>.png.
 import { readFileSync } from 'node:fs';
@@ -445,30 +445,40 @@ test('importeren: eerst een proef die niets bewaart, daarna echt', async ({ page
   await expect(treeItem(page, 'Demo Nieuwbouw BV')).toBeVisible();
 });
 
-test('facturen lezen: wat het kost en hoe je het start, zonder knop die het start', async ({ page, baseUrl, request }) => {
+test('facturen verwerken: wat het kost en hoe je de lezer start; de app vraagt het alleen aan, in NL en EN', async ({ page, baseUrl, request }) => {
+  // Verwerken (E7) es Procesar de Aurora (paso 17 B3): la vuelta entera, con el lector de las
+  // pruebas, esta en procesar.spec.ts. Aqui, en neerlandes y en ingles: lo que cuesta (sin red),
+  // que «Lezen aanvragen» solo pide la lectura (la app no lee ni lanza nada: lo dice, con el
+  // nombre de verdad del acceso directo del escritorio) y «Niet lezen» la retira.
   await signIn(page, baseUrl);
-  // Verwerken: de pantalla de trabajo de la lectura (su paso trae la de Aurora).
-  await openEntry(page, 'process');
-  // Como se empieza: con el nombre de verdad del acceso directo y del .bat. En el disco se llaman
-  // asi, en castellano: van marcados como nombre propio, no son restos.
-  await expect(page.getByText(/met de snelkoppeling «BMS Finanzas - Leer facturas» op het bureaublad/)).toBeVisible();
-  await expect(page.locator('[data-proper-name]').filter({ hasText: 'BMS Finanzas - Leer facturas' })).toHaveCount(1);
-  await expect(page.locator('[data-proper-name]').filter({ hasText: 'leer-facturas.bat' })).toHaveCount(1);
-  await expect(page.getByText('Deze app heeft bewust geen internet')).toBeVisible();
-  // Cuantos se han leido depende del dia en que se crea la base de prueba: lo que diga la API.
-  const reading = (await (await request.get(`${baseUrl}/api/v2/lectura`, { headers: { 'X-BMS-Token': token('ana') } })).json()) as {
-    lectura: { documentos: number };
-  };
-  expect(reading.lectura.documentos).toBeGreaterThan(1);
-  await expect(page.getByText(new RegExp(`\\b${reading.lectura.documentos} documenten`))).toBeVisible();
-  // Geen knop die het lezen start; las migas dicen donde se esta.
-  await expect(page.getByRole('main').getByRole('button', { name: /lezen|lees|start|read/i })).toHaveCount(0);
-  expect(await crumbs(page)).toEqual([TEXTS.nl.areas.process.label]);
-  await check(page, 'nl', 'read-invoices');
-  await setLang(page, 'en');
-  await openEntry(page, 'process', 'en');
-  await expect(page.getByText('This app has no internet on purpose')).toBeVisible();
-  await check(page, 'en', 'read-invoices');
+  const title = page.locator('.welcome-line h1');
+  const line = page.locator('.welcome-line p');
+  const flow = page.locator('.processing-workspace .flow-button');
+  const note = page.locator('.processing-workspace .processing-demo');
+  const live = async () =>
+    ((await (await request.get(`${baseUrl}/api/v2/lectura`, { headers: { 'X-BMS-Token': token('ana') } })).json()) as { lectura: { solicitud: { viva: boolean } | null } })
+      .lectura.solicitud?.viva ?? false;
+  for (const lang of ['nl', 'en'] as const) {
+    const p = TEXTS[lang].aurora.process;
+    await setLang(page, lang);
+    await openEntry(page, 'process', lang);
+    await expect(title).toHaveText(p.ready.title);
+    await expect(line).toHaveText(p.ready.line);
+    await expect(note).toContainText(lang === 'nl' ? /^Uitgegeven tot nu toe: \$\s\d+,\d{2} · Per factuur tussen \$\s0,\d{3} en \$\s0,\d{3}/ : /^Spent so far: \$\s\d+,\d{2} · Each invoice, between \$\s0,\d{3} and \$\s0,\d{3}/);
+    await check(page, lang, 'process-ready');
+    // Aanvragen: de app start niets; ze zegt welke snelkoppeling je opent (in het Spaans, zoals
+    // op de schijf: een eigennaam, geen rest).
+    await flow.click();
+    await expect(title).toHaveText(fill(p.requested.title, { readShortcut: 'BMS Finanzas - Leer facturas' }));
+    await expect(title.locator('[data-proper-name]')).toHaveText('BMS Finanzas - Leer facturas');
+    await expect(line).toHaveText(p.requested.line);
+    await expect(flow).toHaveCSS('visibility', 'hidden');
+    expect(await live()).toBe(true);
+    await check(page, lang, 'process-requested');
+    await page.locator('.processing-workspace').getByRole('button', { name: p.notRead, exact: true }).click();
+    await expect(title).toHaveText(p.cancelled.title);
+    await expect.poll(live).toBe(false);
+  }
   await setLang(page, 'nl');
 });
 

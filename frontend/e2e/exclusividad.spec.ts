@@ -1,6 +1,6 @@
 // La regla del dueno (paso 17, especificacion §1.1 y §6.4): «No pueden vivir las pantallas y el
 // menu al mismo tiempo». El menu es la rueda; una pantalla es un panel (E2), la conversacion
-// (E4), la busqueda (E5) o una pantalla de trabajo (Documentos, Procesar, las del motor). En cada
+// (E4), la busqueda (E5), Documentos (la pantalla de trabajo) o Procesar (E7). En cada
 // estado, en cada ancho (los de Aurora a ambos lados de sus cortes: 1150 y 700) y en cada cuadro
 // de las transiciones, se ve uno o lo otro, nunca los dos. «Se ve» es de verdad: montado, con
 // display y visibility, una opacidad efectiva (la de todos sus padres) por encima de 0,05, con
@@ -25,6 +25,7 @@ import {
   openSheetRow,
   panel,
   panelRow,
+  processLanded,
   sheetDialog,
   toHome,
 } from './nav';
@@ -58,7 +59,7 @@ const SEEN = `(() => {
     return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
   };
   const any = (sel) => Array.from(document.querySelectorAll(sel)).some(shown);
-  const SCREENS = { panel: 'aside.panel', conversation: '.conversation', search: '.search-workspace', work: '.workspace-host, .ws-layout' };
+  const SCREENS = { panel: 'aside.panel', conversation: '.conversation', search: '.search-workspace', work: '.workspace-host, .ws-layout', process: '.processing-workspace' };
   const screens = Object.entries(SCREENS).filter(([, sel]) => any(sel)).map(([name]) => name);
   const leavingClickable = Array.from(document.querySelectorAll('[data-aurora-root] > .app-screen'))
     .filter((s) => s.getAttribute('data-screen') !== now)
@@ -185,6 +186,24 @@ for (const width of [1440, 1151, 1150, 1024, 400] as const) {
     await expectRuleWhile(page, 'Documenten → E0', () => page.locator('a.ws-home').click(), 1600);
     await landed(page);
     await expectRule(page, 'E0 tras Documenten', { menu: false });
+
+    // E7: Procesar desde la rueda (el espacio central con la suricata, sin orbe ni rueda; las
+    // particulas del orbe caen al monticulo) y «Terug naar start», al inicio.
+    await openMenu(page);
+    await expectRuleWhile(
+      page,
+      'E1 → E7',
+      async () => {
+        await entryButton(page, 'process').focus();
+        await settled(page);
+        await entryButton(page, 'process').click();
+      },
+      2600
+    );
+    await processLanded(page);
+    await expectRule(page, 'E7', { menu: false, screen: 'process' });
+    await expectRuleWhile(page, 'E7 → E0', () => page.locator('.processing-back').click());
+    await expectRule(page, 'E0 tras Procesar', { menu: false });
 
     // E2 por dentro: una vista de grupo, una tarjeta con una orden abierta, e importar.
     await openEntry(page, 'home');
