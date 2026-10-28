@@ -97,6 +97,8 @@ const NO_SINGULAR: Record<string, string> = {
   'status.vat.daysLeft': 'el singular es status.vat.dayLeft',
   'vat.daysLeft': 'el singular es vat.dayLeft',
   'parties.unlinkedCreditMany': 'el singular es parties.unlinkedCredit',
+  'aurora.panel.more': 'sin palabra: "Y 1 más"',
+  'aurora.settings.permissions': 'etiqueta y cifra',
 };
 
 describe('las cifras con su singular', () => {

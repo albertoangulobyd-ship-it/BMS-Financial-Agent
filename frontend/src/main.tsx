@@ -31,7 +31,7 @@ const root = document.getElementById('root');
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <App nonce={nonce} />
+      <App />
     </StrictMode>
   );
 }

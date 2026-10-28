@@ -12,7 +12,6 @@ import { formatMoney } from './format';
 import { fold, matches } from './text';
 
 export type ResultKind = 'screens' | 'clients' | 'providers' | 'objects' | 'pos' | 'invoices';
-export const RESULT_KINDS: readonly ResultKind[] = ['screens', 'clients', 'providers', 'objects', 'pos', 'invoices'];
 
 export interface QuickResult {
   kind: ResultKind;

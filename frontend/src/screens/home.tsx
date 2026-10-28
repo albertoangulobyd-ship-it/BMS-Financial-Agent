@@ -1,19 +1,15 @@
-// Inicio (paso 16): la cara de Aurora sobre el motor de verdad. Arriba, el saludo con el nombre
-// de quien entro (/api/v2/yo), el orbe y la rueda con las seis entradas, y la caja que busca
-// (/api/v2/buscar y las listas: abre pantallas y fichas; todavia no contesta preguntas, y lo
-// dice). Debajo, cuatro tarjetas tranquilas (Atencion y el IVA del trimestre, del panel; Por
-// cobrar y Por pagar, de la cartera: la misma lectura que la cabecera de su pantalla, asi que
-// dicen los mismos centimos), "Lo primero" solo cuando algo esta bloqueado o es urgente (cinco
-// filas como mucho) y la entrada a lo que vive en Inicio: la cola de trabajo, las excepciones y
-// el flujo de caja. Se vuelve a leer cada minuto mientras la ventana esta a la vista, y despues
-// de cada orden, sin saltar a "Laden…".
-import { ArrowRight, CircleCheck, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { WorkspaceComposer } from '@/aurora/composer';
-import { AuroraOrb } from '@/aurora/orb/aurora-orb';
-import { Wheel, type WheelEntry } from '@/aurora/wheel';
+// Inicio, la pantalla del motor (paso 16; desde el paso 17 es una fila del panel Inicio mientras
+// ese panel se rehace en el lenguaje de Aurora): cuatro tarjetas tranquilas (Atencion y el IVA
+// del trimestre, del panel; Por cobrar y Por pagar, de la cartera: la misma lectura que la
+// cabecera de su pantalla, asi que dicen los mismos centimos), "Lo primero" solo cuando algo
+// esta bloqueado o es urgente (cinco filas como mucho) y la entrada a lo que vive en Inicio: la
+// cola de trabajo, las excepciones, los controles de IBAN y el flujo de caja. Se vuelve a leer
+// cada minuto mientras la ventana esta a la vista, y despues de cada orden, sin saltar a
+// "Laden…". El saludo, el orbe, la rueda y la caja son de Aurora (aurora/app.tsx).
+import { ArrowRight, CircleCheck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { HelpTip } from '@/components/help-tip';
-import { useDocumentTitle } from '@/components/page-header';
+import { PageHeader, Screen } from '@/components/page-header';
 import { PingScope, StatusPill } from '@/components/status-pill';
 import { EmptyState, ErrorState, Loading } from '@/components/states';
 import { SummaryCard, SummaryGrid } from '@/components/summary-card';
@@ -24,19 +20,16 @@ import { countText, fmt, useT, type Messages } from '@/i18n';
 import { paths, type InvoiceRow, type Panel } from '@/lib/api';
 import type { Cartera } from '@/lib/api-types';
 import { formatDate, formatDateProse, quarterLabel } from '@/lib/format';
-import { RESULT_KINDS, type QuickResult } from '@/lib/quick-search';
 import { useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
 import { distinctByNumber } from '@/lib/twins';
 import { rememberView } from '@/lib/view-memory';
 import { needsPerson, whyOf } from '@/lib/why';
-import { cn } from '@/lib/utils';
 import { useNav } from '@/shell/navigation';
-import { openSearch } from './search';
 import { badgeFor, countsFromPanel } from '@/shell/use-badges';
-import { useQuickSearch } from '@/shell/use-quick-search';
 import type { InvoiceFilter } from './money-model';
-import { recordRoute, visibleSections, visibleViews, type SectionId, type ViewId } from './registry';
+import { recordRoute, visibleSections, type SectionId, type ViewId } from './registry';
+import { SECTION_VIEWS } from './sections';
 import { useLoad } from './use-load';
 import { deadlineState, overdueQuarters } from './vat';
 
@@ -65,21 +58,11 @@ export function moneyCaption(t: Messages, side: 'in' | 'out', invoices: number, 
   });
 }
 
+/** Lo que vive en Start ademas del resumen: sus filas del panel, en su orden (sections.ts). */
+const ALSO_HERE = SECTION_VIEWS.home.filter((view) => view !== 'home');
+
 function clock(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function useNarrow(): boolean {
-  const query = '(max-width: 639px)';
-  const [narrow, setNarrow] = useState(() => typeof window.matchMedia === 'function' && window.matchMedia(query).matches);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const m = window.matchMedia(query);
-    const on = () => setNarrow(m.matches);
-    m.addEventListener('change', on);
-    return () => m.removeEventListener('change', on);
-  }, []);
-  return narrow;
 }
 
 /** Vuelve a leer cada minuto mientras la ventana se ve; al volver a ella, si ya toca. */
@@ -104,9 +87,7 @@ export function HomeScreen() {
   const { t } = useT();
   const { session } = useSession();
   const can = useCan();
-  const nav = useNav();
   const { version } = useRefresh();
-  const narrow = useNarrow();
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [state, reload] = useLoad(
     () =>
@@ -122,96 +103,13 @@ export function HomeScreen() {
     [session, version]
   );
   useMinuteRefresh(reload, loadedAt);
-  useDocumentTitle(t.areas.home.label);
 
   const sections = visibleSections(can);
-  const [active, setActive] = useState(0);
-  const [asked, setAsked] = useState('');
-  const [text, setText] = useState('');
-  const search = useQuickSearch(asked);
-  const cards = useRef<HTMLElement>(null);
-
-  const entries: WheelEntry[] = sections.map((id) => ({ id, label: t.areas[id].label, current: id === 'home' }));
-  const openSection = (index: number) => {
-    const id = sections[index]!;
-    if (id === 'home') {
-      // Ya se esta en Inicio: a lo que hay debajo de la rueda.
-      cards.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-      cards.current?.focus({ preventScroll: true });
-      return;
-    }
-    const first = visibleViews(id, can)[0];
-    if (first) nav.go(first);
-  };
-
-  const onAsk = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setAsked(text.trim());
-  };
-
-  const name = session ? firstName(session.me.nombre) : '';
-  const greeting = fmt(t.home.greeting, { name: '\u0000' }).split('\u0000');
 
   return (
-    <div className='aurora-root'>
-      <section className='mx-auto flex w-full max-w-[760px] flex-col items-center px-5 pb-6 pt-8 sm:pt-12'>
-        <div className='welcome-line text-center'>
-          <h1>
-            {greeting[0]}
-            <strong data-proper-name=''>{name}</strong>
-            {greeting[1]}
-          </h1>
-          <p>{t.home.intro}</p>
-        </div>
-
-        <div className='mt-6 flex w-full items-center justify-center gap-3 sm:mt-8 sm:gap-8'>
-          <AuroraOrb
-            label={t.aurora.orb}
-            size={narrow ? 104 : 190}
-            active={state.status === 'loading' || (search.loading && asked !== '')}
-            flowPhase={active * 1.4}
-            className='shrink-0'
-          />
-          <Wheel
-            entries={entries}
-            active={active}
-            onActive={setActive}
-            onOpen={openSection}
-            label={t.shell.mainNavigation}
-            description={t.shell.wheel}
-            row={narrow ? 40 : 46}
-            className={cn(narrow ? 'w-[13.5rem] [--wheel-font:18px]' : 'w-[19rem]')}
-          />
-        </div>
-
-        <div className='mt-6 w-full max-w-[600px] sm:mt-8'>
-          <WorkspaceComposer
-            mode='search'
-            value={text}
-            onValueChange={(v) => {
-              setText(v);
-              if (!v.trim()) setAsked('');
-            }}
-            onSubmit={onAsk}
-            disabled={!text.trim()}
-            placeholder={t.ask.placeholder}
-            label={t.ask.label}
-            submitLabel={t.ask.submit}
-          />
-          <p className='mt-3 text-center text-[12.5px] text-muted-foreground'>{t.ask.notYet}</p>
-          {asked && <AskResults query={asked} results={search.results} loading={search.loading} more={search.moreInvoices} error={search.error} onClose={() => {
-            setAsked('');
-            setText('');
-          }} />}
-        </div>
-      </section>
-
-      <section
-        ref={cards}
-        tabIndex={-1}
-        aria-label={t.home.cardsLabel}
-        className='mx-auto w-full max-w-[1240px] scroll-mt-20 px-5 pb-12 outline-none xl:px-8'
-      >
+    <Screen calm>
+      <PageHeader title={t.nav.home.label} description={t.nav.home.description} />
+      <section aria-label={t.home.cardsLabel} className='pb-12'>
         {state.status === 'loading' && <Loading />}
         {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}
         {/* Un resumen: nada late aqui (lo que late esta en la Werklijst y en la ficha). */}
@@ -228,92 +126,7 @@ export function HomeScreen() {
           </PingScope>
         )}
       </section>
-    </div>
-  );
-}
-
-function AskResults({
-  query,
-  results,
-  loading,
-  more,
-  error,
-  onClose,
-}: {
-  query: string;
-  results: QuickResult[];
-  loading: boolean;
-  more: number;
-  error: unknown;
-  onClose: () => void;
-}) {
-  const { t } = useT();
-  const nav = useNav();
-  const groups = RESULT_KINDS.map((kind) => ({ kind, items: results.filter((r) => r.kind === kind) })).filter((g) => g.items.length);
-  const open = (r: QuickResult) => {
-    if (r.route.screen === r.view && r.route.id === undefined) nav.go(r.view);
-    else nav.openFrom(r.view, r.route);
-  };
-  return (
-    <section aria-labelledby='ask-results' className='mt-5 rounded-xl border border-border bg-card px-4 py-4 text-left'>
-      <div className='flex items-start justify-between gap-3'>
-        <h2 id='ask-results' className='text-[14px] font-semibold'>
-          {fmt(t.ask.resultsFor, { q: '\u0000' }).split('\u0000')[0]}
-          <span data-proper-name=''>{query}</span>
-          {fmt(t.ask.resultsFor, { q: '\u0000' }).split('\u0000')[1]}
-        </h2>
-        <Button variant='ghost' size='icon' className='-mr-2 -mt-1 h-7 w-7' aria-label={t.ask.clear} onClick={onClose}>
-          <X className='h-4 w-4' aria-hidden='true' />
-        </Button>
-      </div>
-      <div aria-live='polite'>
-        {groups.length === 0 && !loading && (
-          <div className='py-3'>
-            <p className='font-medium'>
-              {fmt(t.ask.nothing, { q: '\u0000' }).split('\u0000')[0]}
-              <span data-proper-name=''>{query}</span>
-              {fmt(t.ask.nothing, { q: '\u0000' }).split('\u0000')[1]}
-            </p>
-            <p className='mt-1 text-[13px] text-muted-foreground'>{t.ask.nothingText}</p>
-          </div>
-        )}
-        {groups.map((g) => (
-          <div key={g.kind} className='mt-3'>
-            <h3 className='mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground'>{t.ask.groups[g.kind]}</h3>
-            <ul className='flex flex-col'>
-              {g.items.map((r) => (
-                <li key={r.key}>
-                  <button
-                    type='button'
-                    onClick={() => open(r)}
-                    className='flex w-full items-baseline justify-between gap-4 rounded-md px-2 py-1.5 text-left hover:bg-row-hover'
-                  >
-                    <span
-                      className={cn('text-[14px] text-foreground', (r.kind === 'invoices' || r.kind === 'pos') && 'font-mono text-[13px]')}
-                      data-proper-name={r.kind === 'screens' ? undefined : ''}
-                    >
-                      {r.label}
-                    </span>
-                    {r.detail && (
-                      <span className='truncate text-xs text-muted-foreground' data-proper-name={r.kind === 'screens' ? undefined : ''}>
-                        {r.detail}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-        {loading && <Loading className='py-3' label={t.ask.searching} />}
-        {more > 0 && <p className='mt-2 text-xs text-muted-foreground'>{fmt(more === 1 ? t.ask.moreInvoicesOne : t.ask.moreInvoices, { n: more })}</p>}
-        {/* Con filtros (el tipo, la empresa, las fechas, el importe): la busqueda entera. */}
-        <Button variant='link' size='sm' className='mt-2 h-auto px-2' onClick={() => openSearch(nav, query)}>
-          {t.finder.withFilters}
-        </Button>
-        {error !== null && !loading && <p className='mt-2 text-xs text-late-foreground'>{t.errors.unexpected}</p>}
-      </div>
-    </section>
+    </Screen>
   );
 }
 
@@ -504,15 +317,16 @@ function HomeContent({
 
       <nav aria-label={t.home.alsoHere}>
         <p className='mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground'>{t.home.alsoHere}</p>
-        <ul className='grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3'>
-          {(['work-queue', 'exceptions', 'cash-flow'] as const).map((view) => {
+        <ul className='grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-4'>
+          {ALSO_HERE.map((view) => {
             const badge = badgeFor(view, counts, t.badges);
+            const open = view === 'exceptions' ? a.excepciones.abiertas : (counts['iban-checks'] ?? 0);
             const note =
               view === 'work-queue'
                 ? fmt(queue.length === 1 ? t.home.waitingOne : t.home.waiting, { n: queue.length })
-                : view === 'exceptions'
-                  ? fmt(a.excepciones.abiertas === 1 ? t.home.openCountOne : t.home.openCount, { n: a.excepciones.abiertas })
-                  : t.home.comingWeeks;
+                : view === 'cash-flow'
+                  ? t.home.comingWeeks
+                  : fmt(open === 1 ? t.home.openCountOne : t.home.openCount, { n: open });
             return (
               <li key={view} className='bg-card'>
                 <button

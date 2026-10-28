@@ -1,8 +1,8 @@
-// Donde se esta y como se vuelve (paso 16). Sustituye a las pestanas: hay un solo sitio a la
-// vista, y un camino (`trail`) desde la vista de su seccion hasta la ficha abierta: una lista
-// de Cuentas por cobrar, un cliente, una factura de ese cliente. Las migas lo ensenan y
-// "Volver" quita el ultimo paso. Ir a otra entrada (la rueda, la navegacion compacta, una
-// vista de la seccion) empieza un camino nuevo. Solo en memoria: no va a localStorage (los
+// Donde se esta dentro de una pantalla de trabajo (paso 16; desde el paso 17, solo dentro de la
+// pantalla de trabajo de Aurora, aurora/work-screen.tsx): un camino (`trail`) desde la vista
+// hasta la ficha abierta: una lista de Cuentas por cobrar, un cliente, una factura de ese
+// cliente. Las migas lo ensenan y cada una vuelve a su paso. Cada vez que se entra en una
+// pantalla de trabajo empieza un camino nuevo. Solo en memoria: no va a localStorage (los
 // titulos son texto de documentos) y se pierde al salir.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import {
@@ -98,8 +98,12 @@ function reducer(state: NavState, action: NavAction): NavState {
   return { trail: next.trail, lastMove: next.lastMove, moves: state.moves + 1 };
 }
 
-export function NavigationProvider({ children, initial = HOME }: { children: ReactNode; initial?: ViewId }) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => ({ trail: [viewRoute(initial)], moves: 0, lastMove: 'start' as const }));
+export function NavigationProvider({ children, initial = [viewRoute(HOME)] }: { children: ReactNode; initial?: readonly Route[] }) {
+  const [state, dispatch] = useReducer(reducer, undefined, () => ({
+    trail: initial.length ? [...initial] : [viewRoute(HOME)],
+    moves: 0,
+    lastMove: 'start' as const,
+  }));
   const [titles, setTitles] = useState<ReadonlyMap<string, string>>(() => new Map());
   // Lo desplazada que estaba cada paso, para volver a el donde se dejo.
   const scrolls = useRef<number[]>([]);

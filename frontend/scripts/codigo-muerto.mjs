@@ -1,7 +1,7 @@
 // Lo que esta en frontend/src y la app no usa (puerta del paso 16, G2: sin codigo muerto). Las
-// piezas de Aurora que esperan a un paso posterior (la conversacion, el orbe de particulas, el
-// cargador de Procesar, el resumen del dinero) no se quedan sin montar en src: vuelven de la
-// historia de git (756b1ba) cuando su paso las monte. Cuatro miradas, todas sin construir:
+// piezas de Aurora que esperan a un paso posterior (el cargador y la tarjeta de Procesar) no se
+// quedan sin montar en src: vuelven de la copia del prototipo cuando su paso las monte. Cuatro
+// miradas, todas sin construir:
 // - los ficheros: lo que no se alcanza desde src/main.tsx siguiendo los import (y los @import
 //   de las hojas);
 // - lo exportado: cada declaracion exportada que nadie nombra (ni la app, ni una prueba, ni e2e);
@@ -151,14 +151,16 @@ export function unusedPaletteTokens() {
 }
 
 /** Las clases de las hojas de src que ninguna pantalla pone (ni index.html). `external` son las
- *  que pone otro (el servidor, las bandas). */
-export function unusedClasses({ external = [] } = {}) {
+ *  que pone otro (el servidor, las bandas); `verbatim`, las hojas que se copian tal cual de la
+ *  entrega del dueno (rutas desde frontend/): sus reglas son las suyas aunque una pieza aun no
+ *  las use. */
+export function unusedClasses({ external = [], verbatim = [] } = {}) {
   const code = [
     ...sourceFiles().filter((path) => !path.endsWith('.css')),
     join(frontend, 'index.html'),
   ].map(read).join('\n');
   const out = [];
-  for (const sheet of sourceFiles().filter((path) => path.endsWith('.css'))) {
+  for (const sheet of sourceFiles().filter((path) => path.endsWith('.css') && !verbatim.includes(posix(path)))) {
     const text = read(sheet).replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\([^)]*\)/g, '');
     const classes = new Set([...text.matchAll(/(?<![\w-])\.([a-zA-Z_][\w-]*)/g)].map((m) => m[1]));
     for (const name of classes) {

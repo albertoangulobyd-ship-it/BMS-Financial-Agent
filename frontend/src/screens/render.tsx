@@ -25,7 +25,6 @@ import { PartyListScreen } from './party-list';
 import { PurchaseOrderScreen } from './purchase-order';
 import { PurchaseOrdersScreen } from './purchase-orders';
 import { ReadInvoicesScreen } from './read-invoices';
-import { SearchScreen } from './search';
 import { VIEWS, isRecordId, isViewId, routeKey, type RecordId, type Route, type ViewId } from './registry';
 import { SettingsScreen } from './settings';
 import { VatScreen } from './vat';
@@ -97,8 +96,6 @@ function RecordScreen({ screen, id, navKey }: { screen: RecordId; id: number; na
       return <PartyDocumentsScreen key={screen} kind='client' id={id} navKey={navKey} />;
     case 'provider-documents':
       return <PartyDocumentsScreen key={screen} kind='provider' id={id} navKey={navKey} />;
-    case 'search':
-      return <SearchScreen navKey={navKey} />;
   }
 }
 

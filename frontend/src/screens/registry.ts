@@ -19,7 +19,6 @@ import {
   MapPin,
   Percent,
   ScanText,
-  Search,
   Settings,
   TriangleAlert,
   Truck,
@@ -41,20 +40,15 @@ import {
   VIEW_REQUIRES,
   sectionOfView,
   type RecordId,
+  type Route,
+  type ScreenId,
   type SectionId,
   type ViewId,
 } from './sections';
 
 export { RECORD_IDS, SECTION_IDS, VIEW_IDS };
-export type { RecordId, SectionId, ViewId };
+export type { RecordId, Route, ScreenId, SectionId, ViewId };
 
-export type ScreenId = ViewId | RecordId;
-
-/** Donde se esta: una vista (sin id) o una ficha (con su id numerico). */
-export interface Route {
-  screen: ScreenId;
-  id?: number;
-}
 
 export interface SectionDef {
   id: SectionId;
@@ -124,12 +118,7 @@ export const RECORDS: Readonly<Record<RecordId, { icon: LucideIcon; view: ViewId
   // La carpeta de una empresa en Documentos (su id es el de la empresa).
   'client-documents': { icon: FolderOpen, view: 'documents' },
   'provider-documents': { icon: FolderOpen, view: 'documents' },
-  // La busqueda con filtros: encima de donde se este; sin camino, desde el inicio.
-  search: { icon: Search, view: 'home' },
 };
-
-/** La busqueda con filtros (screens/search.tsx): un paso del camino, siempre el mismo. */
-export const SEARCH_ROUTE: Route = { screen: 'search', id: 1 };
 
 export const HOME: ViewId = 'home';
 

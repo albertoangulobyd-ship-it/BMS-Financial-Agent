@@ -34,14 +34,14 @@ describe('las seis entradas (paso 16)', () => {
     expect([...homed, 'settings'].sort()).toEqual([...VIEW_IDS].sort());
     for (const section of SECTIONS) for (const view of section.views) expect(VIEWS[view].section).toBe(section.id);
     expect(sectionOf('settings')).toBeNull();
-    // Donde decidio el dueno: Inicio con la cola, las excepciones y el flujo; cobrar con las
-    // ventas, los clientes, los Objects y las PO de clientes; pagar con las compras, los
-    // proveedores, sus PO y los IBAN; Procesar con leer facturas e importar. Paso 16 (Cuentas
-    // por cobrar y por pagar): cada una abre con su resumen y lleva su banco tras las facturas.
-    expect(SECTIONS.find((s) => s.id === 'home')!.views).toEqual(['home', 'work-queue', 'exceptions', 'cash-flow']);
-    expect(SECTIONS.find((s) => s.id === 'receivables')!.views).toEqual(['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos']);
-    expect(SECTIONS.find((s) => s.id === 'payables')!.views).toEqual(['payables', 'invoices-in', 'bank-out', 'providers', 'provider-pos', 'iban-checks']);
-    expect(SECTIONS.find((s) => s.id === 'process')!.views).toEqual(['import', 'read-invoices']);
+    // Donde estan (paso 17, los paneles de especificacion §2.2): Inicio con la cola, las
+    // excepciones, los IBAN y el flujo; cobrar con las ventas, el banco, los clientes, los
+    // Objects, las PO de clientes e importar; pagar con las compras, el banco, los proveedores y
+    // sus PO; Procesar con leer facturas. Cada una abre con su resumen.
+    expect(SECTIONS.find((s) => s.id === 'home')!.views).toEqual(['home', 'work-queue', 'exceptions', 'iban-checks', 'cash-flow']);
+    expect(SECTIONS.find((s) => s.id === 'receivables')!.views).toEqual(['receivables', 'invoices-out', 'bank-in', 'clients', 'objects', 'client-pos', 'import']);
+    expect(SECTIONS.find((s) => s.id === 'payables')!.views).toEqual(['payables', 'invoices-in', 'bank-out', 'providers', 'provider-pos']);
+    expect(SECTIONS.find((s) => s.id === 'process')!.views).toEqual(['read-invoices']);
   });
 
   it('cada entrada, vista y ficha tiene su nombre y su frase en los tres idiomas', () => {

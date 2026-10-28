@@ -1,0 +1,53 @@
+/* Lo que BMS anade a Aurora (paso 17, especificacion §4.2, cambios B), con los valores de las
+   hojas del dueno: nada que Aurora no tenga a la vista.
+   - L0: el orbe no se puede pulsar hasta entrar; el codigo va tapado; el idioma va donde ira
+     "Presiona para navegar", con la letra de .discreet.
+   - La pantalla que sale (el fundido de 0,18 s de Root) no recibe clics (§1.1).
+   - El marco de una pantalla de trabajo: el de document-workspace.css (.workspace, .ws-home,
+     .ws-breadcrumbs, la cabecera con el orbe pequeno de 96x52).
+   - Las filas de una respuesta (E4-r), con el sangrado del texto del mensaje.
+   - La marca baja con las bandas del servidor (datos de prueba, aislamiento), como todo lo demas.
+   - El orbe de particulas de E1 con Procesar en el centro, con las reglas de
+     components/processing-workspace.css del dueno (tal cual): esa hoja la trae el paso de
+     Procesar; entonces estas tres reglas salen de aqui. */
+.app>.bms-brand{margin-top:var(--bms-bandas,0px)}
+.hero-wave{position:absolute;inset:0;pointer-events:none}.hero-orb{position:absolute;left:85px;top:85px;width:270px;height:270px;pointer-events:none}.aurora .hero-orb canvas{transform:none!important;filter:none!important;mask-image:none!important}.aurora:has(.hero-orb)::after{height:66%;width:66%}
+.aurora-locked::after{pointer-events:none}
+.token-input{-webkit-text-security:disc}
+.discreet-languages{display:flex;gap:0;white-space:nowrap}
+.discreet-languages button{padding:0 2px;color:inherit}
+.discreet-languages button[aria-pressed=true]{color:#c3b7d1}
+[data-aurora-root][data-screen=work]>.app-screen[data-screen=home],[data-aurora-root][data-screen=home]>.app-screen[data-screen=work]{pointer-events:none}
+
+/* El marco de una pantalla de trabajo (document-workspace.css:1,4,12). Sin desplazamiento de lado:
+   el giro 3D de las carpetas de cristal no ensancha la pagina. */
+.workspace-host{position:relative;min-height:100dvh;overflow-x:clip;background:radial-gradient(ellipse at 50% 28%,#291a3621,transparent 65%),#08090b;color:#ded9e6}
+.workspace-host .bms-brand{position:absolute}
+.workspace-host .ws-home{position:absolute;top:38px;right:42px;z-index:8;display:flex;gap:9px;align-items:center;font-size:11px;color:#9b90a8;cursor:pointer}
+.workspace-host .host-frame{max-width:1480px;margin:0 auto;padding:112px 32px 40px}
+.workspace-host .ws-breadcrumbs ol{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0;padding:0;list-style:none;font-size:10px;color:#716878;line-height:2}
+.workspace-host .ws-breadcrumbs li{display:flex;align-items:center;gap:10px}
+.workspace-host .ws-breadcrumbs a{cursor:pointer}
+.workspace-host .ws-breadcrumbs a:hover{color:#ded1ed}
+.workspace-host .ws-breadcrumbs [aria-current=page]{color:#c9b4da}
+.workspace-host .host-heading{display:flex;align-items:flex-start;margin:22px 0 0}
+.workspace-host .host-heading .ws-companion{position:relative;display:block;width:96px;height:52px;margin:0 0 15px -12px;isolation:isolate;border-radius:16px}
+.workspace-host .host-heading .ws-companion canvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+.workspace-host .host-heading .ws-eyebrow{font-size:8px;letter-spacing:2px;color:#8d779f;margin:0 0 11px}
+.workspace-host .host-body{outline:none;font-size:13.5px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.aurora-route-moving .workspace-host .host-body,.aurora-route-moving .workspace-host .host-heading .ws-eyebrow{animation:documents-arrive .65s .3s both}
+@media(max-width:650px){.workspace-host .ws-home{top:76px;right:24px;font-size:9px}.workspace-host .host-frame{padding:110px 0 32px}.workspace-host .ws-breadcrumbs,.workspace-host .host-heading{padding:0 20px}}
+@media(prefers-reduced-motion:reduce){.aurora-route-moving .workspace-host .host-body,.aurora-route-moving .workspace-host .host-heading .ws-eyebrow{animation:none}}
+
+/* Las filas de una respuesta (E4-r): .search-result de la busqueda, debajo del texto. */
+.chat-rows{width:100%;padding-left:45px;max-width:94%;margin-top:6px}
+.chat-rows .search-result{cursor:pointer}
+.chat-rows .chat-search{margin-top:14px}
+@media(max-width:700px){.chat-rows{padding-left:9px}}
+
+/* Sin WebGL: un degradado fijo con los colores de la onda (siri-wave.tsx). */
+.siri-wave-fallback,.aurora canvas.siri-wave-fallback{background:radial-gradient(ellipse 46% 9% at 50% 50%,#d9c8ffcc,#7d9bff55 55%,transparent 72%)}
+
+/* "Ir al contenido": solo con el teclado. */
+.skip-link{position:absolute;left:12px;top:-48px;z-index:200;padding:8px 12px;border-radius:8px;background:#c2aed7;color:#21182c;font-size:12px}
+.skip-link:focus{top:calc(8px + var(--bms-bandas,0px))}

@@ -46,6 +46,8 @@ import { useSession, type Session } from '@/lib/session';
 import { rememberView, useViewState } from '@/lib/view-memory';
 import { partyWhy } from '@/lib/why';
 import { useNav } from '@/shell/navigation';
+import { useAurora } from '@/aurora/root';
+import { useBackToAurora } from '@/aurora/work-screen';
 import {
   ARCHIVE_TABS,
   allFolders,
@@ -70,7 +72,7 @@ import {
   type Side,
 } from './documents-model';
 import { formatSize } from './import';
-import { HOME, isViewId, recordRoute, routeKey, type Route } from './registry';
+import { isViewId, recordRoute, routeKey, type Route } from './registry';
 import { useLoad } from './use-load';
 
 /** Lo que el archivo recuerda mientras la app esta abierta (la pestana, la busqueda, "Ver
@@ -198,6 +200,8 @@ function Archive({ navKey, folder }: { navKey: string; folder: { side: Side; id:
   const { session } = useSession();
   const { version } = useRefresh();
   const nav = useNav();
+  const { dispatch } = useAurora();
+  const backToAurora = useBackToAurora();
   const [lists, retryLists] = useLoad(
     () =>
       Promise.all([
@@ -274,7 +278,8 @@ function Archive({ navKey, folder }: { navKey: string; folder: { side: Side; id:
   };
   const onTreeSelect = (nodeId: string) => {
     const target = nodeTarget(nodeId);
-    if (target.kind === 'home') nav.go(HOME);
+    // El nodo "Inicio" del arbol vuelve al inicio de Aurora sin vuelo (como en Aurora).
+    if (target.kind === 'home') dispatch({ type: 'home' });
     else if (target.kind === 'tab') {
       setTab(target.tab);
       if (folder) toRoot();
@@ -296,8 +301,7 @@ function Archive({ navKey, folder }: { navKey: string; folder: { side: Side; id:
       description={
         folder ? (folder.side === 'client' ? t.documents.questionClient : t.documents.questionProvider) : t.nav.documents.description
       }
-      onHome={() => nav.go(HOME)}
-      orbActive={lists.status === 'loading'}
+      onHome={backToAurora}
     />
   );
 
