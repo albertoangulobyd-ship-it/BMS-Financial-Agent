@@ -1,11 +1,10 @@
 // Lo que esta en frontend/src y la app no usa (puerta del paso 16, G2: sin codigo muerto). Las
 // piezas de Aurora que esperan a un paso posterior (el cargador y la tarjeta de Procesar) no se
-// quedan sin montar en src: vuelven de la copia del prototipo cuando su paso las monte. Cuatro
+// quedan sin montar en src: vuelven de la copia del prototipo cuando su paso las monte. Tres
 // miradas, todas sin construir:
 // - los ficheros: lo que no se alcanza desde src/main.tsx siguiendo los import (y los @import
 //   de las hojas);
 // - lo exportado: cada declaracion exportada que nadie nombra (ni la app, ni una prueba, ni e2e);
-// - la paleta de Aurora: cada variable --au-* que ninguna hoja ni pantalla usa;
 // - las hojas: cada clase que ninguna pantalla pone.
 // Lo usa scripts/codigo-muerto.test.mjs (npm test). A mano: node scripts/codigo-muerto.mjs
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -137,19 +136,6 @@ export function unusedExports({ skip = [] } = {}) {
   return out.sort();
 }
 
-/** Las variables de aurora/palette.css que nadie usa (ni una hoja, ni una pantalla, ni otra
- *  variable de la paleta). */
-export function unusedPaletteTokens() {
-  const palettePath = join(src, 'aurora', 'palette.css');
-  const palette = read(palettePath);
-  const elsewhere = sourceFiles().filter((path) => path !== palettePath).map(read).join('\n');
-  const insidePalette = new Set([...palette.matchAll(/var\((--au-[\w-]+)/g)].map((m) => m[1]));
-  const tokens = new Set([...palette.matchAll(/(--au-[\w-]+)\s*:/g)].map((m) => m[1]));
-  return [...tokens]
-    .filter((token) => !insidePalette.has(token) && !new RegExp(`${token}(?![\\w-])`).test(elsewhere))
-    .sort();
-}
-
 /** Las clases de las hojas de src que ninguna pantalla pone (ni index.html). `external` son las
  *  que pone otro (el servidor, las bandas); `verbatim`, las hojas que se copian tal cual de la
  *  entrega del dueno (rutas desde frontend/): sus reglas son las suyas aunque una pieza aun no
@@ -219,7 +205,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const report = {
     unreachedFiles: unreachedFiles(),
     unusedExports: unusedExports(),
-    unusedPaletteTokens: unusedPaletteTokens(),
     unusedClasses: unusedClasses(),
   };
   console.log(JSON.stringify(report, null, 2));

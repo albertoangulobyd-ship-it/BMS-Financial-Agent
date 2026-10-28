@@ -17,7 +17,7 @@ import type { ReadingStatus } from '@/lib/api-types';
 import { NBSP, formatUsdMicro } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useSession } from '@/lib/session';
-import { useLoad } from './use-load';
+import { useLoad } from '@/aurora/use-load';
 
 /** El acceso directo del escritorio que lanza el lector (windows/instalar.ps1). */
 

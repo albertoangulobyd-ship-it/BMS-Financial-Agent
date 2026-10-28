@@ -1,24 +1,20 @@
-// Un estado del dominio con el componente Status del dueno (components/ui/status.tsx):
-// la pastilla tintada con su punto y SIEMPRE su texto (nunca solo color). Aqui, y solo
-// aqui, se decide que variante lleva cada estado y si su punto late: las pantallas dicen
-// el grupo y el valor (tal como los manda la API y los nombran los catalogos) y nunca
-// eligen una variante.
+// Un estado del dominio con la pastilla de Aurora (.ui-status de workspace-layout.css:38-44,
+// aurora/documents/status.tsx; paso 17, especificacion D-31): online en verde, degraded en
+// naranja, offline en rojo y maintenance en azul, con su punto y SIEMPRE su texto (nunca solo
+// color). Lo neutro (un pago pendiente, la prioridad normal) va solo en texto: Aurora no tiene
+// pastilla gris. En una fila de un panel no hay pastilla: el estado va en el texto de doc-end
+// small con su color (rowTone). Aqui, y solo aqui, se decide que tono lleva cada estado y si su
+// punto late: las pantallas dicen el grupo y el valor (tal como los manda la API y los nombran
+// los catalogos) y nunca eligen un tono.
 //
-// El punto late SOLO en lo que pide hacer algo ya (bloqueada, urgente, una cuenta por
-// verificar, el aislamiento que falla o falta). Todo lo demas lleva el punto quieto: una
-// lista de quince facturas no parpadea entera ("minimalista y facil de entender").
-// Y ademas, solo en UN sitio por pantalla (PingScope): en las listas, las tarjetas y las
-// fichas de relaciones las prioridades van quietas (DataTable y SummaryCard lo ponen);
-// late la cabecera de la ficha que se tiene delante (una factura bloqueada o urgente), las
-// filas Geblokkeerd de la Werklijst (la lista donde se trabaja), una cuenta por llamar en
-// IBAN-controles y el aislamiento.
+// El punto late SOLO en lo que pide hacer algo ya (bloqueado, urgente, una cuenta por verificar,
+// el aislamiento que falla o falta). Todo lo demas lleva el punto quieto.
 //
-// Las etiquetas salen de los catalogos de Python (src/bms_agent/textos, via
-// i18n/domain.ts) y, para lo que no es del dominio (la marca de prueba, el IBAN tecleado,
-// el aislamiento, la frescura...), de los textos de la app (i18n/nl.ts y en.ts, status).
+// Las etiquetas salen de los catalogos de Python (src/bms_agent/textos, via i18n/domain.ts) y,
+// para lo que no es del dominio (el IBAN tecleado, el aislamiento, la frescura...), de los textos
+// de la app (i18n/*.ts, status).
 import { createContext, useContext, type ReactNode } from 'react';
-import type * as React from 'react';
-import { Status, StatusIndicator, StatusLabel } from '@/components/ui/status';
+import { Status, StatusIndicator, StatusLabel, type AuroraStatus } from '@/aurora/documents/status';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { priorityLabel, qualityText, severityLabel, severityMeaning, stateLabel, verdictPartText } from '@/i18n/domain';
 
@@ -323,28 +319,52 @@ export function pings(rule: StatusRule, scope: PingScopeValue, group: StatusGrou
   return true;
 }
 
-export interface StatusPillProps extends Omit<React.ComponentProps<'div'>, 'children'> {
+/** La pastilla de Aurora de cada tono (lo neutro, sin pastilla). */
+const AURORA: Record<StatusVariant, AuroraStatus | null> = {
+  success: 'online',
+  warning: 'degraded',
+  error: 'offline',
+  info: 'maintenance',
+  default: null,
+};
+
+/** El color del estado en una fila de un panel (doc-end small, styles.css:3): pagada en verde
+ *  (.paid), bloqueada en el rojo de .ui-status.offline (.blocked) y lo demas en el de pendiente. */
+export function rowTone(group: StatusGroup, state: string | null | undefined): 'paid' | 'blocked' | '' {
+  const variant = statusRule(group, state).variant;
+  return variant === 'success' ? 'paid' : variant === 'error' ? 'blocked' : '';
+}
+
+export interface StatusPillProps {
   group: StatusGroup;
   state: string | null | undefined;
   /** Las cifras o nombres que lleva el texto (el veredicto, "Wacht op de leverancier"). */
   values?: StatusValues;
-  /** El texto de la fila en lugar del del estado (la pastilla pone solo el tono): en una
-   *  tarjeta, "Bloqueadas 4" y "Vencido" concuerdan con la fila; el estado diria "Bloqueada"
-   *  y "Vencida", que son de una factura (revision del paso 16). */
+  /** El texto de la fila en lugar del del estado (la pastilla pone solo el tono). */
   label?: string;
+  title?: string;
+  className?: string;
 }
 
-/** Un estado del dominio, como lo quiere el dueno: pastilla, punto y texto. */
-export function StatusPill({ group, state, values, label: own, ...props }: StatusPillProps) {
+/** Un estado del dominio, con la pastilla de Aurora: punto y texto. */
+export function StatusPill({ group, state, values, label: own, title, className }: StatusPillProps) {
   const { lang, t } = useT();
   const scope = useContext(PingContext);
   const rule = statusRule(group, state);
   const label = own ?? statusLabel(lang, t, group, state, values) ?? t.common.unknown;
   // La gravedad de un aviso dice ademas, al pasar el raton, que hace con la factura.
-  const hint = group === 'severidad' ? severityMeaning(lang, state) : null;
+  const hint = title ?? (group === 'severidad' ? severityMeaning(lang, state) : null) ?? undefined;
+  const status = AURORA[rule.variant];
+  if (!status) {
+    return (
+      <span className={className} title={hint} data-slot='status' data-variant='default'>
+        <span data-slot='status-label'>{label}</span>
+      </span>
+    );
+  }
   return (
-    <Status variant={rule.variant} title={hint ?? undefined} {...props}>
-      <StatusIndicator className={pings(rule, scope, group, state) ? undefined : 'before:animate-none'} />
+    <Status status={status} variant='outline' title={hint} className={className} data-variant={rule.variant}>
+      <StatusIndicator still={!pings(rule, scope, group, state)} />
       <StatusLabel>{label}</StatusLabel>
     </Status>
   );

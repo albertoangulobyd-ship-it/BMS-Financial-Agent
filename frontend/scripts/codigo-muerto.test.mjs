@@ -10,7 +10,6 @@ import {
   unreachedFiles,
   unusedClasses,
   unusedExports,
-  unusedPaletteTokens,
   unusedTexts,
 } from './codigo-muerto.mjs';
 
@@ -18,7 +17,7 @@ import {
 // - components/ui es la biblioteca de piezas (las de shadcn hechas a mano y las del dueno): se
 //   usan a la carta. La tira de pestanas tipo Chrome del dueno (paso 15) ya no es la
 //   navegacion (paso 16) y se guarda tal cual, con las piezas que solo ella usa (desde el paso
-//   17 tambien el desplegable del menu del nombre, que ya no existe).
+//   17 tambien el desplegable del menu del nombre, que ya no existe, y el tooltip).
 // - i18n/glossary.ts e i18n/leftovers.ts son de las pruebas (i18n.test.ts y e2e/fixtures.ts).
 const LIBRARY = [
   'src/components/ui/context-menu.tsx',
@@ -26,6 +25,7 @@ const LIBRARY = [
   'src/components/ui/hover-card.tsx',
   'src/components/ui/sheet.tsx',
   'src/components/ui/sidebar-with-chrome-like-tabs.tsx',
+  'src/components/ui/tooltip.tsx',
 ];
 const FOR_TESTS = ['src/i18n/glossary.ts', 'src/i18n/leftovers.ts'];
 
@@ -49,10 +49,6 @@ describe('sin codigo muerto en frontend/src', () => {
     expect(unusedExports({ skip: ['src/components/ui/'] })).toEqual([]);
   }, 120_000);
 
-  it('cada variable de la paleta de Aurora se usa', () => {
-    expect(unusedPaletteTokens()).toEqual([]);
-  });
-
   it('cada clase de las hojas la pone alguna pantalla', () => {
     // Las bandas de datos de prueba y de aislamiento las mete el servidor (app_local.py) en la
     // pagina, no la app.
@@ -66,6 +62,9 @@ describe('sin codigo muerto en frontend/src', () => {
       'src/aurora/finance/finance-bento.css',
       'src/aurora/finance/finance-bento-component.css',
       'src/aurora/search/search-workspace.css',
+      'src/aurora/documents/document-workspace.css',
+      'src/aurora/documents/file-analysis.css',
+      'src/aurora/documents/glass-folder-cards.css',
       // El tema claro sale de esas hojas (scripts/aurora-claro.mjs): lleva sus mismas reglas.
       'src/aurora/claro.css',
     ];

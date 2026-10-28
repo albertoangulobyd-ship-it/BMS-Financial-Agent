@@ -2,8 +2,9 @@
 // con sus documentos. Viene de tree-view.tsx del prototipo casi tal cual: se maneja entero con
 // el teclado (flechas, Inicio, Fin, la primera letra, Intro y espacio) con el patron "tree" de
 // ARIA, y lo anima framer-motion (quieto con "menos movimiento"). Cambia: la ayuda para lectores
-// de pantalla sale de los diccionarios, los tipos aguantan noUncheckedIndexedAccess y no lleva el
-// tono de lo nuevo o lo duplicado de una lectura (volvera con Procesar).
+// de pantalla sale de los diccionarios, los tipos aguantan noUncheckedIndexedAccess y una
+// etiqueta que viene de los datos lo dice (proper). Desde el paso 17 vuelve el tono de lo nuevo o
+// lo repetido de la ultima lectura (tone), como en el prototipo.
 import { useCallback, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useT } from "@/i18n";
@@ -27,6 +28,8 @@ export type TreeNode = {
   meta?: string;
   /** La etiqueta viene de los datos (un nombre, un numero): no es texto de la app. */
   proper?: boolean;
+  /** Nueva o repetida en la ultima lectura (tree-tone-new, tree-tone-duplicate). */
+  tone?: "new" | "duplicate";
   children?: TreeNode[];
 };
 export type TreeRow = {
@@ -272,7 +275,7 @@ export function TreeView({
               tree.focusRow(node.id);
               if (row.branch) tree.toggle(node.id);
             }}
-            className={"tree-row" + (isSelected ? " tree-selected" : "")}
+            className={"tree-row " + (isSelected ? "tree-selected " : "") + (node.tone ? "tree-tone-" + node.tone : "")}
           >
             {isSelected && (
               <motion.span
@@ -325,15 +328,13 @@ export function TreeView({
       );
     });
   return (
-    <div className="aurora-root">
-      <div className={"tree-view " + className}>
-        <ul role="tree" aria-label={label}>
-          {renderNodes(nodes, 1)}
-        </ul>
-        <span id={hintId} className="sr-only">
-          {t.aurora.tree.hint}
-        </span>
-      </div>
+    <div className={"tree-view " + className}>
+      <ul role="tree" aria-label={label}>
+        {renderNodes(nodes, 1)}
+      </ul>
+      <span id={hintId} className="sr-only">
+        {t.aurora.tree.hint}
+      </span>
     </div>
   );
 }

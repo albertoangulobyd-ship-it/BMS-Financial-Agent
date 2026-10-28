@@ -3,13 +3,14 @@
 // desde el paso 16), que la app importa al construirse: asi la app y lo que se prueba en Python dicen lo mismo y no hay
 // una segunda traduccion escondida. Este es el UNICO modulo que los importa; las
 // pantallas usan estas funciones y no la forma del JSON. Los tres ficheros entran en la
-// huella de web/fuente.json (frontend/build-inputs.json).
+// huella de web/fuente.json (frontend/build-inputs.json). Con el atributo de JSON: asi los carga
+// tambien Node, en las pruebas e2e que usan las reglas puras de la app (paso 17).
 //
 // Lo que la API manda en castellano (titulo, detalle, etiqueta, fuente_texto, nota,
 // motivos, error) no se ensena nunca: se queda para la CLI y la auditoria.
-import nlCatalog from '../../../src/bms_agent/textos/nl.json';
-import enCatalog from '../../../src/bms_agent/textos/en.json';
-import esCatalog from '../../../src/bms_agent/textos/es.json';
+import nlCatalog from '../../../src/bms_agent/textos/nl.json' with { type: 'json' };
+import enCatalog from '../../../src/bms_agent/textos/en.json' with { type: 'json' };
+import esCatalog from '../../../src/bms_agent/textos/es.json' with { type: 'json' };
 import type { Lang } from './index';
 import { DOMAIN_FALLBACK } from './langs';
 import { fmt } from './index';
@@ -66,8 +67,6 @@ export function stateLabel(lang: Lang, group: StateGroup, state: string | null |
 }
 
 export const paymentStateLabel = (lang: Lang, s: string | null | undefined) => stateLabel(lang, 'pago', s);
-export const reviewStateLabel = (lang: Lang, s: string | null | undefined) => stateLabel(lang, 'revision', s);
-export const directionLabel = (lang: Lang, s: string | null | undefined) => stateLabel(lang, 'sentido', s);
 
 // ------------------------------------------------------------ reglas y hallazgos
 

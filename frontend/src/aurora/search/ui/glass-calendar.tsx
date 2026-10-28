@@ -1,7 +1,8 @@
 // GlassCalendar de Aurora (components/ui/glass-calendar.tsx, entrega del 28-10-2026), tal cual.
 // Cambios: date-fns pasa a Date e Intl con el idioma de la persona (el mismo texto: "octubre
 // 2026", "3 de octubre de 2026"), sin dependencia nueva; (I) los textos del diccionario; el mes
-// de partida es el de hoy (el prototipo partia de su fecha de ejemplo).
+// de partida es el de hoy (el prototipo partia de su fecha de ejemplo); en un formulario de una
+// orden (aurora/orders.tsx) la cabecera dice el nombre del campo (`label`).
 import { useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -17,7 +18,17 @@ export function longDate(date: Date, locale: string): string {
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 }
 
-export function GlassCalendar({ selectedDate, onDateSelect, onClear }: { selectedDate?: Date; onDateSelect: (date: Date) => void; onClear: () => void }) {
+export function GlassCalendar({
+  selectedDate,
+  onDateSelect,
+  onClear,
+  label,
+}: {
+  selectedDate?: Date;
+  onDateSelect: (date: Date) => void;
+  onClear: () => void;
+  label?: string;
+}) {
   const { t, lang } = useT();
   const s = t.aurora.search;
   const locale = LOCALES[lang];
@@ -30,7 +41,7 @@ export function GlassCalendar({ selectedDate, onDateSelect, onClear }: { selecte
     <div className='glass-calendar'>
       <div className='calendar-header'>
         <span>
-          <CalendarDays size={13} /> {s.date}
+          <CalendarDays size={13} /> {label ?? s.date}
         </span>
         <button type='button' disabled={!selectedDate} onClick={onClear} aria-label={s.dateClear}>
           <X size={14} />

@@ -6,7 +6,7 @@ import { MESSAGES } from '@/i18n';
 import type { ApiClient } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { answerQuestion, glossaryAnswer } from './assistant';
-import { entryIndex } from './estado';
+import { folderPlace } from './estado';
 
 const party = (id: number, nombre: string, deuda: number) => ({
   id,
@@ -84,14 +84,14 @@ describe('asistente', () => {
   it('el nombre de una pantalla que es la entrada de un panel abre el panel (F9)', async () => {
     const a = await answerQuestion('IVA', ctx());
     const row = a.rows!.find((r) => r.screen && r.key === 'screen:vat')!;
-    expect(row.target).toEqual({ kind: 'panel', entry: entryIndex('vat') });
+    expect(row.target).toEqual({ kind: 'panel', entry: 'vat' });
     expect(a.search).toBe('IVA');
   });
 
   it('una empresa abre su carpeta en Documentos', async () => {
     const a = await answerQuestion('Zeezicht', ctx());
     const row = a.rows!.find((r) => r.key === 'client:7')!;
-    expect(row.target).toEqual({ kind: 'work', trail: [{ screen: 'documents' }, { screen: 'client-documents', id: 7 }] });
+    expect(row.target).toEqual({ kind: 'documents', place: folderPlace('client', 7) });
     expect(a.text).toBe(MESSAGES.es.aurora.chat.foundOne.replace('{q}', 'Zeezicht'));
   });
 

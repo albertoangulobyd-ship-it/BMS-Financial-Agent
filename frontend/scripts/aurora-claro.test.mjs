@@ -1,6 +1,7 @@
 // El tema claro de Aurora (scripts/aurora-claro.mjs): src/aurora/claro.css es el que escribe el
-// script (nadie lo edita a mano ni se queda viejo al cambiar una hoja) y la inversion conserva
-// el matiz y el alfa.
+// script (nadie lo edita a mano ni se queda viejo al cambiar una hoja), la inversion conserva
+// el matiz y el alfa, y las superficies claras con su texto oscuro (el boton .primary, la hoja de
+// papel) se quedan como en el oscuro.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -35,5 +36,15 @@ describe('aurora-claro', () => {
       const text = invert([...grey, 1], TEXT_MAX_L);
       expect((lum(panel) + 0.05) / (lum(text) + 0.05), grey.join(',')).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it('las superficies claras (texto oscuro sobre fondo claro) y lo de dentro no se invierten', () => {
+    const css = build();
+    for (const selector of ['.primary', '.ws-paper', '.ws-paper dt', '.ws-paper hr', '.ws-download', '.search-submit', '.search-submit:hover', '.skip-link']) {
+      expect(css, selector).not.toContain(`\nhtml:not(.dark) ${selector}{`);
+    }
+    // Lo demas, si: el panel y su texto.
+    expect(css).toContain('html:not(.dark) .panel{');
+    expect(css).toMatch(/html:not\(\.dark\) \.outline,html:not\(\.dark\) \.primary\{/);
   });
 });

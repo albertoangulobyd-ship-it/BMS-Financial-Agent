@@ -18,15 +18,14 @@ import { LANGS, fmt, useT, type Lang, type Messages } from '@/i18n';
 import { ApiError, type InvoiceRow } from '@/lib/api';
 import { useCan, useSession } from '@/lib/session';
 import { useTheme } from '@/lib/theme';
-import { firstName } from '@/screens/home';
-import { viewRoute, type Route } from '@/screens/registry';
 import { answerQuestion, type AnswerTarget } from './assistant';
 import { Example as AiActions, useConversation } from './chat/ai-actions';
 import { WorkspaceComposer } from './composer';
-import { ENTRIES, LAST_ENTRY, entryIndex, flowPhase, isPanelEntry, visibleEntries, type EntryId } from './estado';
+import { DOCS_ROOT, ENTRIES, LAST_ENTRY, entryIndex, flowPhase, folderPlace, invoicePlace, isPanelEntry, visibleEntries, type EntryId } from './estado';
 import { BmsLogo } from './logo';
 import { SiriWave } from './orb/siri-wave';
 import { PanelFor } from './panels';
+import { firstName } from './panels/panel-model';
 import { useAurora } from './root';
 import { SearchWorkspace } from './search/search-workspace';
 import { TextMarquee } from './text-marquee';
@@ -43,13 +42,6 @@ export function entryLabel(t: Messages, id: EntryId): string {
       return t.areas[id].label;
   }
 }
-
-/** Lo que abre una entrada que no es un panel: Documentos y Procesar (mientras Procesar no es
- *  la pantalla de la suricata, la lectura de facturas, como hasta ahora). */
-const WORK_OF_ENTRY: Partial<Record<EntryId, Route[]>> = {
-  documents: [viewRoute('documents')],
-  process: [viewRoute('read-invoices')],
-};
 
 // Lo que se guarda es la clave del texto, no el texto: al cambiar de idioma, cambia.
 type LoginMessage = 'empty' | 'invalid' | 'forbidden' | 'incompatible' | 'unreachable' | 'sessionEnded' | 'loggedOut' | null;
@@ -194,9 +186,6 @@ export function App() {
   const entries = visibleEntries(can);
   const conversation = chat.messages.length > 0;
 
-  /** Una pantalla de trabajo (con el vuelo). */
-  const openWork = (trail: Route[], index?: number) => go({ type: 'enterWork', trail, index });
-
   function enter(i: number) {
     const id = ENTRIES[i]!;
     if (isPanelEntry(i)) {
@@ -207,8 +196,9 @@ export function App() {
       dispatch({ type: 'enterSearch', index: i });
       return;
     }
-    const trail = WORK_OF_ENTRY[id];
-    if (trail) openWork(trail, i);
+    // Documentos y Procesar: una pantalla de trabajo, con el vuelo del orbe (root.tsx).
+    if (id === 'documents') go({ type: 'enterDocuments', place: DOCS_ROOT, index: i });
+    if (id === 'process') go({ type: 'enterProcess', index: i });
   }
 
   function orbClick() {
@@ -229,24 +219,24 @@ export function App() {
     dispatch({ type: 'send' });
   }
 
+  /** Una fila de la respuesta: su panel (con la vista de su grupo), la busqueda con sus filtros,
+   *  Documentos o Procesar, en un solo cambio (F9). */
   function openTarget(target: AnswerTarget) {
-    if (target.kind === 'panel') {
-      clearChat();
-      dispatch({ type: 'enterFromConversation', index: target.entry });
-    } else {
-      clearChat();
-      openWork(target.trail);
-    }
+    clearChat();
+    if (target.kind === 'panel') dispatch({ type: 'enterFromConversation', index: entryIndex(target.entry), view: target.view ?? null });
+    else if (target.kind === 'search') dispatch({ type: 'enterSearch', index: entryIndex('search'), preset: target.preset });
+    else if (target.kind === 'documents') go({ type: 'enterDocuments', place: target.place });
+    else go({ type: 'enterProcess' });
   }
 
+  /** Un resultado de la busqueda: la hoja de la factura en su carpeta (F3). */
   function openInvoice(invoice: InvoiceRow) {
-    openWork([viewRoute(invoice.sentido === 'entrante' ? 'invoices-in' : 'invoices-out'), { screen: 'invoice', id: invoice.id }]);
+    go({ type: 'enterDocuments', place: invoicePlace(invoice) });
   }
 
   function openParty(party: { id: number; type: 'clientes' | 'proveedores' } | null) {
     clearChat();
-    if (!party) openWork([viewRoute('documents')]);
-    else openWork([viewRoute('documents'), { screen: party.type === 'clientes' ? 'client-documents' : 'provider-documents', id: party.id }]);
+    go({ type: 'enterDocuments', place: party ? folderPlace(party.type === 'clientes' ? 'client' : 'provider', party.id) : DOCS_ROOT });
   }
 
   const name = session ? firstName(session.me.nombre) : '';

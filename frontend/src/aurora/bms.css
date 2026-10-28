@@ -10,7 +10,7 @@
    - El orbe de particulas de E1 con Procesar en el centro, con las reglas de
      components/processing-workspace.css del dueno (tal cual): esa hoja la trae el paso de
      Procesar; entonces estas tres reglas salen de aqui. */
-.app>.bms-brand{margin-top:var(--bms-bandas,0px)}
+.app>.bms-brand,.workspace>.bms-brand,.workspace>.ws-home{margin-top:var(--bms-bandas,0px)}
 .hero-wave{position:absolute;inset:0;pointer-events:none}.hero-orb{position:absolute;left:85px;top:85px;width:270px;height:270px;pointer-events:none}.aurora .hero-orb canvas{transform:none!important;filter:none!important;mask-image:none!important}.aurora:has(.hero-orb)::after{height:66%;width:66%}
 .aurora-locked::after{pointer-events:none}
 .token-input{-webkit-text-security:disc}
@@ -51,3 +51,25 @@
 /* "Ir al contenido": solo con el teclado. */
 .skip-link{position:absolute;left:12px;top:-48px;z-index:200;padding:8px 12px;border-radius:8px;background:#c2aed7;color:#21182c;font-size:12px}
 .skip-link:focus{top:calc(8px + var(--bms-bandas,0px))}
+
+/* Los paneles en dos niveles y las ordenes en la tarjeta (paso 17 · B2, especificacion §2.2 y
+   §2.4), con las piezas y los valores de Aurora:
+   - la barra de la cifra principal marca la parte de verdad (en Aurora, fija al 68 %);
+   - lo bloqueado, en el rojo de .ui-status.offline (D-31); lo pendiente y lo pagado ya tienen el
+     suyo en doc-end small;
+   - los campos de una orden con las piezas de la busqueda (.filter-label, .composer,
+     .filter-combo-trigger, .filter-date-trigger), con el aire de .search-filter;
+   - el "si" (.chat-export) va en la tarjeta, debajo de su orden: en la conversacion flota sobre
+     ella, en una tarjeta taparia los campos. */
+.balance-line{background:linear-gradient(90deg,#b09cc8 var(--balance-share,68%),#211c29 var(--balance-share,68%))}
+.doc-end small.blocked{color:#f87171}
+.order-form{margin-top:16px}
+.order-field{margin-top:14px}
+.order-field .composer{border-radius:10px;padding:4px 8px}
+.order-error{color:#f87171!important}
+.order-matches span{margin-right:10px;white-space:nowrap}
+.detail .chat-export,.ws-dialog .chat-export{position:relative;bottom:auto;right:auto;max-width:none;margin-top:16px;box-shadow:none;backdrop-filter:none}
+
+/* Las hojas (paso 17 · B2, especificacion §2.3): debajo del papel o de "Descargar original" va
+   la tabla de lo que se puede hacer, con el aire que deja el papel (.ws-paper, margin 22px). */
+.ws-dialog .ws-file-table{margin-top:22px}

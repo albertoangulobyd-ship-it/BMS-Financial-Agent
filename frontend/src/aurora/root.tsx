@@ -1,7 +1,7 @@
 // Root de Aurora (main.tsx:42-46 del dueno, entrega del 28-10-2026): el cambio de pantalla y el
 // vuelo del orbe. La pantalla que entra se monta enseguida y la que sale se funde encima en
-// 0,18 s (AnimatePresence mode="sync"); al ir a una pantalla de trabajo (Documentos, o una
-// pantalla del motor mientras no tiene su panel) una copia de la onda vuela del centro de
+// 0,18 s (AnimatePresence mode="sync"); al ir a una pantalla de trabajo (Documentos o
+// Procesar) una copia de la onda vuela del centro de
 // .aurora al orbe pequeno de la esquina, 1,05 s con cubic-bezier(.4,0,.15,1), y al volver hace
 // el camino inverso. Cambios (especificacion §4.2):
 // - R: sin direcciones. La pantalla es estado de la app (aurora/estado.ts) y el vuelo se dispara
@@ -15,6 +15,7 @@ import { useSession } from '@/lib/session';
 // conversacion, el resumen, la busqueda) y workspace-layout.css despues; el tema claro, al final.
 import './styles.css';
 import { App } from './app';
+import { DocumentWorkspace } from './documents/document-workspace';
 import { INITIAL_STATE, auroraReducer, type AuroraAction, type AuroraState } from './estado';
 import { SiriWave } from './orb/siri-wave';
 import { WorkScreen } from './work-screen';
@@ -66,7 +67,11 @@ export function Root() {
     (action: AuroraAction) => {
       const leaving = screen.current;
       const destination =
-        leaving === 'home' && action.type === 'enterWork' ? 'documents' : leaving === 'work' && action.type === 'home' ? 'home' : null;
+        leaving === 'home' && (action.type === 'enterDocuments' || action.type === 'enterProcess')
+          ? 'documents'
+          : leaving === 'work' && action.type === 'home'
+            ? 'home'
+            : null;
       if (destination && !reduced) {
         const source = document.querySelector(destination === 'home' ? '.ws-companion canvas' : '.aurora')?.getBoundingClientRect();
         if (source) {
@@ -132,7 +137,13 @@ export function Root() {
             exit={{ opacity: 0, position: 'absolute', top: 0, width: '100%' }}
             transition={{ duration: reduced ? 0 : 0.18 }}
           >
-            {shown === 'work' ? <WorkScreen key={state.workSeq} trail={state.work} /> : <App />}
+            {shown !== 'work' ? (
+              <App />
+            ) : state.work.kind === 'documents' ? (
+              <DocumentWorkspace key={state.workSeq} place={state.work.place} />
+            ) : (
+              <WorkScreen key={state.workSeq} />
+            )}
           </motion.div>
         </AnimatePresence>
         {flight && (

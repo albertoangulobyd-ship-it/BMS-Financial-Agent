@@ -11,7 +11,7 @@ describe('lo que lee Tailwind', () => {
   it('es src (sin pruebas) e index.html', async () => {
     const files = await scannedFiles();
     expect(files).toContain('frontend/index.html');
-    expect(files).toContain('frontend/src/components/ui/status.tsx');
+    expect(files).toContain('frontend/src/aurora/documents/status.tsx');
     expect(files.filter((f) => !f.startsWith('frontend/src/') && f !== 'frontend/index.html')).toEqual([]);
     expect(files.filter((f) => /\.test\.tsx?$/.test(f))).toEqual([]);
   });

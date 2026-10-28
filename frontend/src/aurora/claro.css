@@ -1,5 +1,5 @@
 /* El tema claro de las hojas de Aurora. NO SE EDITA A MANO: lo escribe
-   frontend/scripts/aurora-claro.mjs a partir de styles.css, workspace-layout.css, chat/ai-actions.css, search/search-workspace.css, finance/finance-bento.css, finance/finance-bento-component.css, bms.css
+   frontend/scripts/aurora-claro.mjs a partir de styles.css, workspace-layout.css, chat/ai-actions.css, search/search-workspace.css, finance/finance-bento.css, finance/finance-bento-component.css, documents/file-analysis.css, documents/document-workspace.css, bms.css
    (cada color con su luminosidad invertida en OKLab, bajo html:not(.dark)). */
 html:not(.dark){color:#09070c;background:#e3e5e8}
 html:not(.dark) button:focus-visible,html:not(.dark) input:focus-visible{outline:1px solid #41346a}
@@ -11,7 +11,6 @@ html:not(.dark) .nav-item:hover{color:#2a1c39}
 html:not(.dark) .composer{border:1px solid #01010115;background:#01010102}
 html:not(.dark) .input-row input{color:#100d15}
 html:not(.dark) .input-row input::placeholder{color:#564f5d}
-html:not(.dark) .send{border:1px solid #01010115;background:#2d223e;color:#554f5d}
 html:not(.dark) .response{color:#2f2937}
 html:not(.dark) .response button{color:#584d65}
 html:not(.dark) .panel{background:#d8d8e0;border:1px solid #01010110;scrollbar-color:#ada7ba transparent}
@@ -31,7 +30,6 @@ html:not(.dark) .balance small{color:#594c64}
 html:not(.dark) .balance-line{background:linear-gradient(90deg,#3f2d52 68%,#c7c1d3 68%)}
 html:not(.dark) .balance p{color:#584d66}
 html:not(.dark) .outline,html:not(.dark) .primary{border:1px solid #01010118}
-html:not(.dark) .primary{background:#312040;color:#574d65}
 html:not(.dark) .detail{border:1px solid #89719b55;background:#d3cddc}
 html:not(.dark) .detail p,html:not(.dark) .detail>span{color:#473854}
 html:not(.dark) .dropzone{border:1px dashed #74648066;color:#423251}
@@ -87,8 +85,6 @@ html:not(.dark) .search-hero:focus-within{border-color:#4d216688;box-shadow:0 0 
 html:not(.dark) .search-leading{color:#5d496a}
 html:not(.dark) .search-hero input{color:#110a16}
 html:not(.dark) .search-hero input::placeholder{color:#5a4c66}
-html:not(.dark) .search-submit{background:#422751;color:#594d64}
-html:not(.dark) .search-submit:hover{background:#2d123c}
 html:not(.dark) .search-clear{color:#5b4b66}
 html:not(.dark) .filters-toggle{border:1px solid #01010110;color:#524062}
 html:not(.dark) .filters-toggle.filters-open{background:#5d367610;color:#2d153b}
@@ -116,7 +112,6 @@ html:not(.dark) .calendar-month button{color:#533b63}
 html:not(.dark) .calendar-weekday{color:#5d496d}
 html:not(.dark) .calendar-grid button{color:#3c2849}
 html:not(.dark) .calendar-grid button:hover{background:#5b336f1a}
-html:not(.dark) .calendar-grid button.calendar-selected{background:#633a7a;color:#564f5d;box-shadow:0 0 16px #9a68b040}
 html:not(.dark) .glass-calendar>p{color:#5f476c}
 html:not(.dark) .filter-amount-section{border-top:1px solid #01010109}
 html:not(.dark) .amount-values{color:#26142d}
@@ -203,7 +198,6 @@ html:not(.dark) .fpb{color:#010101}
 html:not(.dark) .fpb{--acc:#100d15;--t1:#010101;--t2:#0101018f;--t3:#01010161;--hair:#01010124;--fiat:#010101;--stocks:#39343d;--crypto:#66616e}
 html:not(.dark) .fpb .fpb-c{background:#ffffff;color:#010101}
 html:not(.dark) .fpb .seg{background:#01010114;border:1px solid #0101011f}
-html:not(.dark) .fpb .seg button[aria-pressed="true"]{background:#010101;color:#525254}
 html:not(.dark) .fpb .ava{box-shadow:0 0 0 2px #0101012e}
 html:not(.dark) .fpb .card .rim{box-shadow:inset 0 1px 0 #01010133,inset 0 0 0 1px #0101010f}
 html:not(.dark) .fpb .glass{background:#0101010f;border:1px solid #0101011f}
@@ -215,6 +209,67 @@ html:not(.dark) .fpb .tip{background:#dcdcdfeb;color:#010101;border:1px solid #0
 html:not(.dark) .fpb .vb-badge{--vb-on:#4f34d8;background:#d7d7da;border:1px solid #0101011a;color:#010101;box-shadow:0 8px 24px -14px #ffffff40}
 html:not(.dark) .fpb .vb-mark i{background:#01010129}
 html:not(.dark) .fpb .vb-by{color:#01010180}
+html:not(.dark) .status-new{color:#003714!important}
+html:not(.dark) .status-duplicate{color:#502700!important}
+html:not(.dark) .ws-file-analysis.new{background:#29744613;border-color:#23623b33;color:#2d5f3f}
+html:not(.dark) .ws-file-analysis.duplicate{background:#7b450014;border-color:#663e0033;color:#724814}
+html:not(.dark) .tree-tone-new .tree-label{color:#003c1f}
+html:not(.dark) .tree-tone-duplicate .tree-label{color:#59350b}
+html:not(.dark) .gf-sheet--new{box-shadow:inset 0 0 0 1px #004c2d77!important}
+html:not(.dark) .gf-sheet--duplicate{box-shadow:inset 0 0 0 1px #5d2b0077!important}
+html:not(.dark) .gf-sheet--new .gf-sheet-name{color:#002d11!important}
+html:not(.dark) .gf-sheet--duplicate .gf-sheet-name{color:#3f1e00!important}
+html:not(.dark) .ws-analysis-banner{border:1px solid #01010110}
+html:not(.dark) .ws-analysis-links>a{border:1px solid #01010112}
+html:not(.dark) .workspace{background:radial-gradient(ellipse at 50% 28%,#cab8dd21,transparent 65%),#e3e5e8;color:#100d15}
+html:not(.dark) .ws-home{color:#4a4055!important}
+html:not(.dark) .ws-breadcrumbs{color:#574f5e}
+html:not(.dark) .ws-breadcrumbs a:hover{color:#160c20}
+html:not(.dark) .ws-breadcrumbs [aria-current=page]{color:#2c1b39}
+html:not(.dark) .ws-eyebrow{color:#5d486e}
+html:not(.dark) .ws-heading>div>p:last-child{color:#574e62}
+html:not(.dark) .ws-demo{border:1px solid #01010112;color:#574e61}
+html:not(.dark) .ws-demo i{background:#573f67}
+html:not(.dark) .ws-tools{border-bottom:1px solid #0101010d}
+html:not(.dark) .ws-tabs>a{color:#584e62}
+html:not(.dark) .ws-tabs>a[aria-current=page]{background:#582b7414;color:#1c0b24}
+html:not(.dark) .ws-tabs>a>span{color:#5b4c62}
+html:not(.dark) .ws-search{border:1px solid #01010110;color:#594d63}
+html:not(.dark) .ws-search input{color:#1c1324}
+html:not(.dark) .ws-gallery-meta{color:#574e63}
+html:not(.dark) .ws-folder-active{border-color:#67448029;background:#63437a05}
+html:not(.dark) .ws-party-type{color:#5b4c63}
+html:not(.dark) .ws-party-type>span{color:#584e5f}
+html:not(.dark) .ws-folder-caption{color:#5b4b65}
+html:not(.dark) .ws-folder-caption>a{color:#412c50}
+html:not(.dark) .ws-profile{border:1px solid #01010110}
+html:not(.dark) .ws-tax{color:#5a4c65}
+html:not(.dark) .ws-profile dt{color:#5b4c64}
+html:not(.dark) .ws-profile dd{color:#302638}
+html:not(.dark) .ws-table-head{color:#412f4f}
+html:not(.dark) .ws-table-head button{color:#563e69}
+html:not(.dark) .ws-file-table>a{border-top:1px solid #0101010c;color:#5e4969}
+html:not(.dark) .ws-file-table strong{color:#21172a}
+html:not(.dark) .ws-file-table small{color:#5a4c64}
+html:not(.dark) .ws-empty{color:#5c496d}
+html:not(.dark) .ws-empty h2{color:#2e1f38}
+html:not(.dark) .ws-empty button{color:#371948}
+html:not(.dark) .ws-footnote{color:#584d63}
+html:not(.dark) .ws-dialog{border:1px solid #69577244;background:#d9d7df;color:#1a1221;box-shadow:0 30px 100px #ffffff99}
+html:not(.dark) .ws-dialog::backdrop{background:#f5f2ffc9}
+html:not(.dark) .ws-dialog-top{color:#564164}
+html:not(.dark) .ws-toast{border:1px solid #3e224c3b;background:#cec1dfeb;color:#2b113a;box-shadow:0 10px 30px #ffffff55}
+html:not(.dark) .ws-sidebar{scrollbar-color:#baa9c7 transparent}
+html:not(.dark) .ws-tree-hint{color:#584d63}
+html:not(.dark) .tree-view{border:1px solid #0101010c;background:#dedae40f}
+html:not(.dark) .tree-row{color:#53455a}
+html:not(.dark) .tree-row:hover{background:#01010105;color:#211529}
+html:not(.dark) .tree-row:focus-visible{box-shadow:inset 0 0 0 1px #5c327a;background:#5c2f7411}
+html:not(.dark) .tree-row.tree-selected{background:#57287212;color:#1d0a27}
+html:not(.dark) .tree-caret{color:#5c4b66}
+html:not(.dark) .tree-meta{color:#5c4a68}
+html:not(.dark) .tree-view .tree-branch{border-left:1px solid #01010114}
+html:not(.dark) .ws-companion:focus-visible{outline:1px solid #6e5181}
 html:not(.dark) .discreet-languages button[aria-pressed=true]{color:#292033}
 html:not(.dark) .workspace-host{background:radial-gradient(ellipse at 50% 28%,#cab8dd21,transparent 65%),#e3e5e8;color:#100d15}
 html:not(.dark) .workspace-host .ws-home{color:#4a4055}
@@ -223,7 +278,12 @@ html:not(.dark) .workspace-host .ws-breadcrumbs a:hover{color:#160c20}
 html:not(.dark) .workspace-host .ws-breadcrumbs [aria-current=page]{color:#2c1b39}
 html:not(.dark) .workspace-host .host-heading .ws-eyebrow{color:#5d486e}
 html:not(.dark) .siri-wave-fallback,html:not(.dark) .aurora canvas.siri-wave-fallback{background:radial-gradient(ellipse 46% 9% at 50% 50%,#1b0932cc,#1f2d8755 55%,transparent 72%)}
-html:not(.dark) .skip-link{background:#312040;color:#574d65}
+html:not(.dark) .balance-line{background:linear-gradient(90deg,#3f2d52 var(--balance-share,68%),#c7c1d3 var(--balance-share,68%))}
+html:not(.dark) .doc-end small.blocked{color:#7b0009}
+html:not(.dark) .order-error{color:#7b0009!important}
 
 /* A mano: el logo es un PNG que un filtro pinta de blanco; en claro, invertido. */
 html:not(.dark) .bms-brand svg{filter:invert(1)}
+/* A mano: el papel de la hoja se queda claro (es una superficie de Aurora); en el claro, que es
+   nuestro, sus grises llegan a 4,5:1 con el mismo matiz. */
+html:not(.dark) .ws-paper dt,html:not(.dark) .ws-paper .ws-paper-disclaimer{color:#6e6179}

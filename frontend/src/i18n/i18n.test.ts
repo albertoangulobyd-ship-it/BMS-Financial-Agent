@@ -98,6 +98,8 @@ const NO_SINGULAR: Record<string, string> = {
   'vat.daysLeft': 'el singular es vat.dayLeft',
   'parties.unlinkedCreditMany': 'el singular es parties.unlinkedCredit',
   'aurora.panel.more': 'sin palabra: "Y 1 más"',
+  'aurora.home.week': 'un numero de semana, no una cuenta',
+  'aurora.home.weekOpen': 'un numero de semana, no una cuenta',
   'aurora.settings.permissions': 'etiqueta y cifra',
 };
 

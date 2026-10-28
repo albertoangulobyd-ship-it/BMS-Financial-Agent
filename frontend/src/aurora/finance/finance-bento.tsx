@@ -49,7 +49,8 @@ export async function loadFinanceSummary(api: ApiClient): Promise<FinanceSummary
     api.get<{ cartera: Cartera }>(paths.cartera, { sentido: 'entrante' }).then((r) => r.cartera),
     api.get<{ clientes: PartyRow[] }>(paths.clients).then((r) => r.clientes),
     api.get<{ proveedores: PartyRow[] }>(paths.providers).then((r) => r.proveedores),
-    api.get<unknown>(paths.reading).catch(() => null),
+    // La lectura viene dentro de `lectura` (como la lee Procesar).
+    api.get<{ lectura?: unknown }>(paths.reading).then((r) => r.lectura ?? null, () => null),
   ]);
   const rows = [...clients.map((p) => ({ p, type: 'clientes' as const })), ...providers.map((p) => ({ p, type: 'proveedores' as const }))].map(
     ({ p, type }) => ({

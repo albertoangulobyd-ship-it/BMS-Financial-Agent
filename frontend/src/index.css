@@ -9,9 +9,8 @@
 @source not "../src/**/*.test.ts";
 @source not "../src/**/*.test.tsx";
 @import "tw-animate-css";
-/* Aurora (paso 16): la paleta de las piezas del archivo en los dos temas. Las hojas de Aurora
-   (paso 17: styles.css, workspace-layout.css...) las importa la pieza que las usa. */
-@import "./aurora/palette.css";
+/* Las hojas de Aurora (paso 17: styles.css, workspace-layout.css, las de Documentos...) las
+   importa la pieza que las usa; el tema claro sale de ellas (aurora/claro.css). */
 
 /* Dos temas (paso 16): el oscuro de Aurora, por defecto, y el claro. Los decide SOLO la clase
    .dark en <html>, que pone lib/theme.tsx (tambien con "seguir a Windows", mirando

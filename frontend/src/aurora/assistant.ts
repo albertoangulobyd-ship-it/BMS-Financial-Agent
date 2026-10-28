@@ -9,18 +9,14 @@
 // El asistente de 25 preguntas del servidor (/api/v2/preguntar) entra despues por el mismo hueco.
 import { LANGS, MESSAGES, fmt, type Messages } from '@/i18n';
 import type { ApiClient } from '@/lib/api';
-import { invoiceResults, loadSources, recordResults, screenResults, type QuickResult } from '@/lib/quick-search';
+import { invoiceResults, loadSources, recordResults, screenResults, type PlaceTarget } from '@/lib/quick-search';
 import { fold } from '@/lib/text';
-import { viewRoute, type Route, type ViewId } from '@/screens/registry';
-import { entryIndex, type EntryId } from './estado';
 import { loadFinanceSummary, summaryRequested, summaryText, type FinanceSummary } from './finance/finance-bento';
 
-/** Lo que abre una fila de la respuesta. */
-export type AnswerTarget =
-  /** Una pantalla de trabajo (Documentos, una ficha o una pantalla del motor), con vuelo. */
-  | { kind: 'work'; trail: Route[] }
-  /** El panel de una entrada (E4 -> E2 en un solo cambio, F9). */
-  | { kind: 'panel'; entry: number };
+/** Lo que abre una fila de la respuesta (lib/quick-search.ts): el panel de una entrada con la
+ *  vista de un grupo (E4 -> E2 en un solo cambio, F9), la busqueda con sus filtros, Documentos
+ *  (con el vuelo) o Procesar. */
+export type AnswerTarget = PlaceTarget;
 
 export interface AnswerRow {
   key: string;
@@ -37,30 +33,6 @@ export interface Answer {
   /** Lo buscado, para "Buscar con filtros" (E5). */
   search?: string;
   summary?: FinanceSummary;
-}
-
-/** Las vistas que son la entrada de un panel: abrirlas es abrir su panel (F9). */
-const PANEL_OF_VIEW: Partial<Record<ViewId, EntryId>> = {
-  home: 'home',
-  receivables: 'receivables',
-  payables: 'payables',
-  vat: 'vat',
-  settings: 'settings',
-};
-
-/** Donde se abre lo encontrado (lib/quick-search.ts: su vista y, si es una ficha, la ficha). */
-function targetOf(r: QuickResult): AnswerTarget {
-  if (r.route.screen === r.view && r.route.id === undefined) {
-    const panel = PANEL_OF_VIEW[r.view];
-    if (panel) return { kind: 'panel', entry: entryIndex(panel) };
-    return { kind: 'work', trail: [viewRoute(r.view)] };
-  }
-  // Una empresa: su carpeta en Documentos (§2.5).
-  if (r.route.screen === 'client' || r.route.screen === 'provider') {
-    const folder = r.route.screen === 'client' ? 'client-documents' : 'provider-documents';
-    return { kind: 'work', trail: [viewRoute('documents'), { screen: folder, id: r.route.id }] };
-  }
-  return { kind: 'work', trail: [viewRoute(r.view), r.route] };
 }
 
 const QUESTION: readonly RegExp[] = [
@@ -99,7 +71,7 @@ export async function answerQuestion(
     label: r.label,
     detail: r.detail,
     screen: r.kind === 'screens',
-    target: targetOf(r),
+    target: r.target,
   }));
   const total = found.length + Math.max(0, invoices.total - invoices.results.length);
   return { text: fmt(total === 1 ? t.aurora.chat.foundOne : t.aurora.chat.found, { n: total, q }), rows, search: q };

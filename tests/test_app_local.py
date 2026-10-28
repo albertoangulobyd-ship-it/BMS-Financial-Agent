@@ -441,12 +441,23 @@ def test_el_frontend_no_lleva_ninguna_direccion_de_fuera() -> None:
 
 # ------------------------------------------------------------ las ordenes de la app
 
+# Una orden en una pantalla: action='...' (un boton del paso 15) o action: '...' (la orden de
+# una tarjeta de Aurora, aurora/orders.tsx, desde el paso 17).
+_ORDEN = re.compile(r"\baction(?:=|: )'([a-z_]+)'")
+
+
 def _ordenes_usadas() -> set[str]:
-    """Cada orden que manda una pantalla (action='...' en un ActionButton o ActionDialog)."""
+    """Cada orden que manda una pantalla."""
     usadas = set()
     for fichero in _fuentes_del_frontend():
-        usadas |= set(re.findall(r"\baction='([a-z_]+)'", fichero.read_text(encoding="utf-8")))
+        usadas |= set(_ORDEN.findall(fichero.read_text(encoding="utf-8")))
     return usadas
+
+
+def _donde_se_manda(ordenes: set[str]) -> set[str]:
+    """Los ficheros del frontend que mandan alguna de esas ordenes."""
+    return {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
+            if set(_ORDEN.findall(f.read_text(encoding="utf-8"))) & ordenes}
 
 
 def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> None:
@@ -463,18 +474,16 @@ def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> No
     # Paso 16 (Cuentas por cobrar y por pagar, revision de Aurora §8.4 y decision 9B): la
     # app confirma o retira lo que el banco propuso y apunta un pago que YA se hizo, con su
     # motivo (marcar_pagada; hasta el paso 16 solo estaba en la consola). Ninguna paga ni
-    # aprueba nada, y las tres salen de un solo sitio, el de sus dialogos.
+    # aprueba nada, y las tres salen de un solo sitio, el de sus ordenes (paso 17: las tarjetas
+    # de los paneles y de la hoja de una factura las piden a aurora/panels/payment-orders.tsx).
     pagos = {"confirmar_pago", "retirar_pago", "marcar_pagada"}
     assert pagos <= usadas
-    donde = {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
-             if any(f"action='{a}'" in f.read_text(encoding="utf-8") for a in pagos)}
-    assert donde == {"src/screens/payment-actions.tsx"}, donde
+    assert _donde_se_manda(pagos) == {"src/aurora/panels/payment-orders.tsx"}, _donde_se_manda(pagos)
     # Paso 15 (B2): anotar la aangifte que una persona ya presento en el portal de la
-    # Belastingdienst (con su referencia) es una orden de estado, y solo la da la ficha del
-    # trimestre: el programa no presenta nada.
-    donde = {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
-             if "action='btw_anotar_presentacion'" in f.read_text(encoding="utf-8")}
-    assert donde == {"src/screens/vat-quarter.tsx"}, donde
+    # Belastingdienst (con su referencia) es una orden de estado, y solo la da la tarjeta del
+    # trimestre (paso 17: en el panel de IVA): el programa no presenta nada.
+    donde = _donde_se_manda({"btw_anotar_presentacion"})
+    assert donde == {"src/aurora/panels/vat-panel.tsx"}, donde
 
 
 def test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios() -> None:

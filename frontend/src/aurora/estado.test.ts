@@ -2,16 +2,18 @@
 // (o el menu o una pantalla), la rueda escondida que no manda con un panel abierto y los cambios
 // de un solo paso (F8 y F9).
 import { describe, expect, it } from 'vitest';
-import { VIEW_IDS } from '@/screens/sections';
+import { PLACE_IDS, screenResults } from '@/lib/quick-search';
+import { MESSAGES } from '@/i18n';
 import {
   ENTRIES,
   INITIAL_STATE,
   LAST_ENTRY,
-  PANEL_SCREENS,
+  DOCS_ROOT,
   START_ENTRY,
   auroraReducer,
   entryIndex,
-  entryOfView,
+  folderPlace,
+  invoicePlace,
   visibleEntries,
   flowPhase,
   isPanelEntry,
@@ -88,7 +90,7 @@ describe('el orbe como puerta (§1.3)', () => {
   });
 
   it('desde una pantalla de trabajo no hace nada (alli el orbe pequeno vuelve al inicio)', () => {
-    const work = run([{ type: 'enterWork', trail: [{ screen: 'documents' }] }], E1);
+    const work = run([{ type: 'enterDocuments', place: DOCS_ROOT }], E1);
     expect(run([{ type: 'orb' }], work)).toBe(work);
     expect(run([{ type: 'home' }], work)).toMatchObject({ screen: 'home', open: false, panel: null });
   });
@@ -132,7 +134,9 @@ describe('o el menu o una pantalla, nunca los dos (§1.1)', () => {
       ['E3 con panel', run([{ type: 'text', value: 'x' }], panelOf('vat')), false],
       ['E4', run([{ type: 'text', value: 'x' }, { type: 'send' }], E1), true],
       ['E5', run([{ type: 'enterSearch', index: 1 }], E1), false],
-      ['E6', run([{ type: 'enterWork', trail: [{ screen: 'documents' }] }], E1), false],
+      ['E6', run([{ type: 'enterDocuments', place: DOCS_ROOT }], E1), false],
+      ['E6-h', run([{ type: 'enterDocuments', place: folderPlace('client', 1, { kind: 'invoice', id: 7 }) }], E1), false],
+      ['E7', run([{ type: 'enterProcess' }], E1), false],
     ];
     for (const [name, state, conversation] of states) {
       const parts = visibleParts(state, conversation);
@@ -191,12 +195,25 @@ describe('las transiciones de §1.2', () => {
     expect(s).toMatchObject({ chatting: false, open: true, active: entryIndex('home'), panel: entryIndex('home'), view: 'cola' });
   });
 
-  it('una pantalla de trabajo empieza su camino de cero y vuelve a E0', () => {
-    const a = run([{ type: 'enterWork', trail: [{ screen: 'documents' }], index: entryIndex('documents') }], E1);
-    expect(a).toMatchObject({ screen: 'work', open: false, active: entryIndex('documents') });
-    const b = run([{ type: 'home' }, { type: 'enterWork', trail: [{ screen: 'vat' }] }], a);
+  it('una pantalla de trabajo empieza de cero y vuelve a E0; dentro de Documentos se mueve sin vuelo', () => {
+    const a = run([{ type: 'enterDocuments', place: DOCS_ROOT, index: entryIndex('documents') }], E1);
+    expect(a).toMatchObject({ screen: 'work', open: false, active: entryIndex('documents'), work: { kind: 'documents', place: DOCS_ROOT } });
+    // Moverse dentro (una carpeta, su hoja) no vuelve a empezar la pantalla.
+    const inside = run([{ type: 'docs', place: folderPlace('provider', 3, { kind: 'po', id: 9 }) }], a);
+    expect(inside.workSeq).toBe(a.workSeq);
+    expect(inside.work).toEqual({ kind: 'documents', place: { category: 'providers', folder: { side: 'provider', id: 3 }, sheet: { kind: 'po', id: 9 } } });
+    // Fuera de Documentos, docs no hace nada.
+    expect(run([{ type: 'docs', place: DOCS_ROOT }], E1)).toBe(E1);
+    const b = run([{ type: 'home' }, { type: 'enterProcess' }], a);
     expect(b.workSeq).toBe(a.workSeq + 1);
-    expect(b.work).toEqual([{ screen: 'vat' }]);
+    expect(b.work).toEqual({ kind: 'process' });
+  });
+
+  it('la hoja de una factura se abre en la carpeta de su empresa (F3)', () => {
+    expect(invoicePlace({ id: 7, sentido: 'saliente', cliente_id: 2, proveedor_id: null })).toEqual(folderPlace('client', 2, { kind: 'invoice', id: 7 }));
+    expect(invoicePlace({ id: 8, sentido: 'entrante', cliente_id: null, proveedor_id: 5 })).toEqual(folderPlace('provider', 5, { kind: 'invoice', id: 8 }));
+    // Sin empresa conocida, la hoja sola (Documentos la lleva a su carpeta al leerla).
+    expect(invoicePlace({ id: 9 })).toEqual({ ...DOCS_ROOT, sheet: { kind: 'invoice', id: 9 } });
   });
 
   it('entrar o salir vuelve a E0 con Inicio en el centro', () => {
@@ -204,13 +221,12 @@ describe('las transiciones de §1.2', () => {
     expect(s).toMatchObject({ screen: 'home', open: false, active: START_ENTRY });
   });
 
-  it('cada pantalla de la app se alcanza desde una entrada (ninguna se pierde con la rueda nueva)', () => {
-    for (const view of VIEW_IDS) expect(ENTRIES, view).toContain(entryOfView(view));
-    // Cada pantalla del motor esta en un solo panel, y cada panel empieza por su resumen.
-    const listed = Object.values(PANEL_SCREENS).flat();
-    expect(new Set(listed).size).toBe(listed.length);
-    for (const [entry, views] of Object.entries(PANEL_SCREENS)) expect(views[0]).toBe(entry);
-    expect(VIEW_IDS.filter((v) => !listed.includes(v))).toEqual(['documents', 'read-invoices', 'settings']);
+  it('cada pantalla de antes tiene su sitio y se abre por su nombre (ninguna se pierde)', () => {
+    const everyone = () => true;
+    for (const id of PLACE_IDS) {
+      const label = MESSAGES.es.nav[id].label;
+      expect(screenResults(label, MESSAGES.es, everyone).map((r) => r.key), id).toContain(`screen:${id}`);
+    }
   });
 
   it('sin permiso para importar, Procesar no esta en la rueda y la rueda no pasa de la anterior', () => {

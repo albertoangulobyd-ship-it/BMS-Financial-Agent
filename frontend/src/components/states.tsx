@@ -1,7 +1,6 @@
 // Los tres estados de cualquier pantalla que lee: cargando, error y vacio. Un vacio dice
 // algo util ("Niets heeft je aandacht nodig"), no una tabla en blanco.
-import type { ReactNode } from 'react';
-import { CircleAlert, Inbox, LoaderCircle, type LucideIcon } from 'lucide-react';
+import { CircleAlert, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useT, type Lang, type Messages } from '@/i18n';
 import { errorText } from '@/i18n/domain';
@@ -14,27 +13,6 @@ export function Loading({ label, className }: { label?: string; className?: stri
     <div role='status' aria-live='polite' className={cn('flex items-center gap-2 py-10 text-muted-foreground', className)}>
       <LoaderCircle className='h-4 w-4 animate-spin motion-reduce:animate-none' aria-hidden='true' />
       <span>{label ?? t.common.loading}</span>
-    </div>
-  );
-}
-
-export function EmptyState({
-  title,
-  text,
-  icon: Icon = Inbox,
-  action,
-}: {
-  title: string;
-  text?: string;
-  icon?: LucideIcon;
-  action?: ReactNode;
-}) {
-  return (
-    <div className='flex flex-col items-center gap-2 rounded-md border border-dashed border-border-strong px-6 py-12 text-center'>
-      <Icon className='h-6 w-6 text-muted-foreground' aria-hidden='true' />
-      <p className='font-medium'>{title}</p>
-      {text && <p className='max-w-md text-muted-foreground'>{text}</p>}
-      {action && <div className='mt-2'>{action}</div>}
     </div>
   );
 }

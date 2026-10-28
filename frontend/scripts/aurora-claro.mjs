@@ -2,12 +2,15 @@
 // el claro es nuestro y es una opcion de Ajustes. Este script lee las hojas que se copian tal
 // cual de la entrega del dueno (y las de BMS que van con ellas) y escribe src/aurora/claro.css:
 // cada declaracion con un color, repetida bajo html:not(.dark) con el mismo matiz y la
-// luminosidad invertida en OKLab (como aurora/palette.css). Las hojas de Aurora no se tocan y el
+// luminosidad invertida en OKLab. Las hojas de Aurora no se tocan y el
 // tema oscuro no cambia. Un color con transparencia conserva su alfa (el blanco al 8 % pasa a
 // negro al 8 %). El texto (color, fill) no pasa de una luminosidad de 0,44 en OKLab: los grises
 // de Aurora sobre su fondo oscuro no llegan a 4,5:1 (se dejan asi en el oscuro, que es el suyo),
-// pero el claro es nuestro y pasa WCAG AA. Al final, lo que no es un color de una hoja (el logo
-// blanco, los orbes que se pintan en un lienzo) va escrito a mano.
+// pero el claro es nuestro y pasa WCAG AA. Las superficies claras de Aurora con su texto oscuro (el
+// boton .primary, la hoja de papel .ws-paper, la descarga, el dia elegido...) se quedan como en el
+// oscuro, con lo que llevan dentro: invertidas serian texto oscuro sobre fondo oscuro (paso 17 B2).
+// Al final, lo que no es un color de una hoja (el logo blanco, los orbes que se pintan en un
+// lienzo) va escrito a mano.
 //
 //   node scripts/aurora-claro.mjs              escribe src/aurora/claro.css
 //   node scripts/aurora-claro.mjs --comprobar  sale con 1 si claro.css no es el que saldria
@@ -24,6 +27,8 @@ export const SHEETS = [
   'search/search-workspace.css',
   'finance/finance-bento.css',
   'finance/finance-bento-component.css',
+  'documents/file-analysis.css',
+  'documents/document-workspace.css',
   'bms.css',
 ];
 
@@ -166,19 +171,50 @@ function prefix(selectors) {
     .join(',');
 }
 
-function lightRules(css) {
+/** La luminosidad relativa (WCAG) de un color opaco. */
+function luminance([r, g, b]) {
+  return [r, g, b].map((v) => toLinear(v / 255)).reduce((n, v, i) => n + v * [0.2126, 0.7152, 0.0722][i], 0);
+}
+
+/** Los selectores de las superficies claras con su propio texto (en la misma regla, un fondo opaco
+ *  mas claro que su `color`: texto oscuro sobre claro): en el claro se quedan como estan. */
+function lightSurfaces(css, out = []) {
+  for (const { prelude, body } of blocks(css)) {
+    if (prelude.startsWith('@')) {
+      if (!prelude.startsWith('@keyframes') && !prelude.startsWith('@font-face')) lightSurfaces(body, out);
+      continue;
+    }
+    const decls = declarations(body);
+    const bg = decls.find(({ prop }) => prop === 'background' || prop === 'background-color');
+    const text = decls.find(({ prop }) => prop === 'color');
+    const rgba = bg && (bg.value.match(COLOR_TOKEN) ?? []).map(parseColor)[0];
+    const ink = text && (text.value.match(COLOR_TOKEN) ?? []).map(parseColor)[0];
+    if (rgba && ink && rgba[3] >= 1 && luminance(rgba) > luminance(ink)) {
+      out.push(...prelude.split(',').map((x) => x.trim()));
+    }
+  }
+  return out;
+}
+
+/** Si un selector es una de esas superficies, un estado suyo (:hover) o algo de dentro. */
+function onSurface(selector, surfaces) {
+  return surfaces.some((k) => selector === k || (selector.startsWith(k) && /^[\s>:.[+~]/.test(selector.slice(k.length))));
+}
+
+function lightRules(css, surfaces) {
   const out = [];
   for (const { prelude, body } of blocks(css)) {
     if (prelude.startsWith('@keyframes') || prelude.startsWith('@font-face')) continue;
     if (prelude.startsWith('@media') || prelude.startsWith('@supports')) {
-      const inner = lightRules(body);
+      const inner = lightRules(body, surfaces);
       if (inner.length) out.push(`${prelude}{${inner.join('')}}`);
       continue;
     }
     if (prelude.startsWith('@layer')) {
-      out.push(...lightRules(body));
+      out.push(...lightRules(body, surfaces));
       continue;
     }
+    if (prelude.split(',').every((x) => onSurface(x.trim(), surfaces))) continue;
     const decls = declarations(body)
       .filter(({ prop }) => COLOR_PROPS.test(prop) || prop.startsWith('--'))
       .map(({ prop, value }) => {
@@ -195,10 +231,15 @@ function lightRules(css) {
 const BY_HAND = `
 /* A mano: el logo es un PNG que un filtro pinta de blanco; en claro, invertido. */
 html:not(.dark) .bms-brand svg{filter:invert(1)}
+/* A mano: el papel de la hoja se queda claro (es una superficie de Aurora); en el claro, que es
+   nuestro, sus grises llegan a 4,5:1 con el mismo matiz. */
+html:not(.dark) .ws-paper dt,html:not(.dark) .ws-paper .ws-paper-disclaimer{color:#6e6179}
 `;
 
 export function build() {
-  const rules = SHEETS.flatMap((sheet) => lightRules(stripComments(readFileSync(src + sheet, 'utf8'))));
+  const sheets = SHEETS.map((sheet) => stripComments(readFileSync(src + sheet, 'utf8')));
+  const surfaces = sheets.flatMap((css) => lightSurfaces(css));
+  const rules = sheets.flatMap((css) => lightRules(css, surfaces));
   return `/* El tema claro de las hojas de Aurora. NO SE EDITA A MANO: lo escribe
    frontend/scripts/aurora-claro.mjs a partir de ${SHEETS.join(', ')}
    (cada color con su luminosidad invertida en OKLab, bajo html:not(.dark)). */

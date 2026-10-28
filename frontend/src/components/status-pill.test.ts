@@ -178,7 +178,7 @@ describe('status-pill: la tabla de estados', () => {
     }
     // Lo que no late nunca, tampoco con 'all'.
     expect(pings(statusRule('prioridad', 'atencion'), 'all', 'prioridad', 'atencion')).toBe(false);
-    // Y en el HTML: dentro de PingScope none, el punto lleva before:animate-none.
+    // Y en el HTML: dentro de PingScope none, el punto no lleva el anillo que late.
     const html = renderToStaticMarkup(
       createElement(I18nProvider, {
         lang: 'nl',
@@ -186,7 +186,8 @@ describe('status-pill: la tabla de estados', () => {
         children: createElement(PingScope, { scope: 'none', children: createElement(StatusPill, { group: 'prioridad', state: 'bloqueada' }) }),
       } as never)
     );
-    expect(html).toContain('before:animate-none');
+    expect(html).toContain('data-slot="status-indicator"');
+    expect(html).not.toContain('animate-ping');
   });
 
   it('un estado que no se conoce va en gris, quieto y con su texto', () => {
@@ -243,16 +244,21 @@ describe('status-pill: la tabla de estados', () => {
     expect(html).not.toContain('>Bloqueada<');
   });
 
-  it('la pastilla es la del dueno: variante, punto y texto; el punto late solo donde toca', () => {
+  it('la pastilla es la del dueno (.ui-status): variante, punto y texto; el punto late solo donde toca; lo neutro, solo texto', () => {
     for (const [group, state] of all()) {
       const html = render('nl', group, state);
       const rule = statusRule(group, state);
       expect(html).toContain('data-slot="status"');
       expect(html).toContain(`data-variant="${rule.variant}"`);
-      expect(html).toContain('data-slot="status-indicator"');
       expect(html).toContain('data-slot="status-label"');
-      expect(html.includes('before:animate-ping'), `${group}.${state}`).toBe(rule.ping);
-      expect(html).toContain('motion-reduce:before:animate-none');
+      if (rule.variant === 'default') {
+        // D-31: lo neutro es texto llano, sin punto ni borde.
+        expect(html, `${group}.${state}`).not.toContain('ui-status');
+        continue;
+      }
+      expect(html).toContain('ui-status');
+      expect(html).toContain('data-slot="status-indicator"');
+      expect(html.includes('animate-ping'), `${group}.${state}`).toBe(rule.ping);
     }
   });
 });

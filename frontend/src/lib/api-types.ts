@@ -392,12 +392,6 @@ export interface ObjectRow {
   razones?: Reason[];
 }
 
-export interface ObjectsList {
-  hoy: string;
-  ano: number;
-  objetos: ObjectRow[];
-}
-
 export interface PoRow {
   id: number;
   numero: string;
@@ -468,17 +462,6 @@ export interface PoView extends PoRow {
   sin_facturar: { estado: string; valor_cent: number | null } | null;
   avisos: { activos: number; aceptados: number; hallazgos: PartyFinding[]; excepciones: { id: number; estado: string }[] };
   prioridad: { nivel: string; puntos: number };
-}
-
-/** Una relacion propuesta (GET /api/v2/relaciones). */
-export interface ProposedRelation {
-  id: number;
-  rev: number;
-  tipo: string;
-  fuente: string;
-  origen_id: number;
-  destino_id: number;
-  evidencia_doc: string | null;
 }
 
 // ---- caja
