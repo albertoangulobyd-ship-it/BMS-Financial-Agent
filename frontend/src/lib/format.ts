@@ -162,15 +162,32 @@ export function initials(name: string | null | undefined): string {
 }
 
 /** Millonesimas de dolar (lo que cuesta leer un pdf: *_usd_micro) -> "$ 0,03", redondeado al
- *  centimo (la mitad hacia arriba), en notacion neerlandesa. Sin dato, "—". */
-export function formatUsdMicro(value: number | bigint | string | null | undefined): string {
+ *  centimo (la mitad hacia arriba), en notacion neerlandesa. Sin dato, "—". Con `decimals` 3, a
+ *  la milesima: lo que cuesta una factura ("$ 0,057"). */
+export function formatUsdMicro(value: number | bigint | string | null | undefined, decimals: 2 | 3 = 2): string {
   const micro = toBigInt(value);
   if (micro === null) return NO_VALUE;
   const negative = micro < 0n;
   const abs = negative ? -micro : micro;
+  if (decimals === 3) {
+    const mills = (abs + 500n) / 1000n;
+    const sign = negative && mills > 0n ? MINUS : '';
+    return `$${NBSP}${sign}${groupThousands((mills / 1000n).toString())},${(mills % 1000n).toString().padStart(3, '0')}`;
+  }
   const cents = (abs + 5000n) / 10000n;
   const text = formatCents(negative ? -cents : cents);
   return `$${NBSP}${text}`;
+}
+
+/** La hora de un instante ISO en Amsterdam ("10:12") y si es de hoy alli. */
+export function formatTimeOfDay(value: string | null | undefined, now: Date = new Date()): { time: string; date: string; today: boolean } | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  const full = formatDateTime(value);
+  const [date = '', time = ''] = full.split(' ');
+  const [day, month, year] = date.split('-');
+  return { time, date, today: `${year}-${month}-${day}` === todayIso(now) };
 }
 
 /** Un trimestre de la API ("2026-T3") como numero de pestana (20263) y al reves: las

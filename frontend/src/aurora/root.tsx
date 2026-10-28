@@ -1,7 +1,6 @@
 // Root de Aurora (main.tsx:42-46 del dueno, entrega del 28-10-2026): el cambio de pantalla y el
 // vuelo del orbe. La pantalla que entra se monta enseguida y la que sale se funde encima en
-// 0,18 s (AnimatePresence mode="sync"); al ir a una pantalla de trabajo (Documentos o
-// Procesar) una copia de la onda vuela del centro de
+// 0,18 s (AnimatePresence mode="sync"); al ir a Documentos una copia de la onda vuela del centro de
 // .aurora al orbe pequeno de la esquina, 1,05 s con cubic-bezier(.4,0,.15,1), y al volver hace
 // el camino inverso. Cambios (especificacion §4.2):
 // - R: sin direcciones. La pantalla es estado de la app (aurora/estado.ts) y el vuelo se dispara
@@ -18,8 +17,9 @@ import { App } from './app';
 import { DocumentWorkspace } from './documents/document-workspace';
 import { INITIAL_STATE, auroraReducer, type AuroraAction, type AuroraState } from './estado';
 import { SiriWave } from './orb/siri-wave';
-import { WorkScreen } from './work-screen';
 import './workspace-layout.css';
+// Procesar: las reglas de .process-mode que Aurora lleva despues de workspace-layout.css.
+import './processing/meerkat-scene.css';
 import './bms.css';
 import './claro.css';
 
@@ -67,7 +67,7 @@ export function Root() {
     (action: AuroraAction) => {
       const leaving = screen.current;
       const destination =
-        leaving === 'home' && (action.type === 'enterDocuments' || action.type === 'enterProcess')
+        leaving === 'home' && action.type === 'enterDocuments'
           ? 'documents'
           : leaving === 'work' && action.type === 'home'
             ? 'home'
@@ -137,12 +137,15 @@ export function Root() {
             exit={{ opacity: 0, position: 'absolute', top: 0, width: '100%' }}
             transition={{ duration: reduced ? 0 : 0.18 }}
           >
+            {/* El inicio que se va se funde con lo que tenia (main.tsx:46: en Aurora su estado es
+                suyo): el estado va dentro de la pantalla, y AnimatePresence guarda la que sale
+                tal como estaba. Asi Procesar o la rueda se funden, en lugar de verse el inicio. */}
             {shown !== 'work' ? (
-              <App />
-            ) : state.work.kind === 'documents' ? (
-              <DocumentWorkspace key={state.workSeq} place={state.work.place} />
+              <AuroraContext.Provider value={value}>
+                <App />
+              </AuroraContext.Provider>
             ) : (
-              <WorkScreen key={state.workSeq} />
+              <DocumentWorkspace key={state.workSeq} place={state.work.place} />
             )}
           </motion.div>
         </AnimatePresence>

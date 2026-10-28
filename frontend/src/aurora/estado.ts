@@ -1,6 +1,6 @@
 // La maquina de estados de Aurora en BMS (paso 17, especificacion §1). Las variables de main.tsx
-// del dueno (open, active, panel, chatting, searchMode, el texto de la caja) mas la pantalla de
-// Root (el inicio, Documentos o Procesar) y el sitio dentro de Documentos (la categoria, la
+// del dueno (open, active, panel, chatting, searchMode, processMode, el texto de la caja) mas la
+// pantalla de Root (el inicio o Documentos) y el sitio dentro de Documentos (la categoria, la
 // carpeta y la hoja abierta: lo que en Aurora era la ruta #/documentos/...), en un solo reductor
 // puro: cada clic es UNA accion que pone todas las variables a la vez, asi que React pinta un
 // solo render y nunca hay un estado intermedio a la vista (F8 y F9).
@@ -99,8 +99,9 @@ export function invoicePlace(ref: InvoiceRef): DocsPlace {
   return { ...DOCS_ROOT, sheet };
 }
 
-/** Una pantalla de trabajo: Documentos (con su sitio) o Procesar (la lectura de facturas). */
-export type Work = { kind: 'documents'; place: DocsPlace } | { kind: 'process' };
+/** La pantalla de trabajo de Root: Documentos, con su sitio. Procesar no es otra pantalla de
+ *  Root: como en Aurora, es el inicio en processMode (main.tsx:23,40). */
+export type Work = { kind: 'documents'; place: DocsPlace };
 
 /** Donde se esta: el inicio de Aurora (E0 a E5 y L0) o una pantalla de trabajo. */
 export type Screen = 'home' | 'work';
@@ -121,6 +122,8 @@ export interface AuroraState {
   view: string | null;
   chatting: boolean;
   searchMode: boolean;
+  /** Procesar (E7): el espacio central con la suricata, sin orbe, rueda ni caja (main.tsx:40). */
+  processMode: boolean;
   /** Los filtros con que se entro en la busqueda (E5-p); null: la busqueda vacia. */
   search: SearchPreset | null;
   /** Lo escrito en la caja. */
@@ -137,6 +140,7 @@ export const INITIAL_STATE: AuroraState = {
   view: null,
   chatting: false,
   searchMode: false,
+  processMode: false,
   search: null,
   text: '',
 };
@@ -161,8 +165,13 @@ export type AuroraAction =
   | { type: 'enterDocuments'; place: DocsPlace; index?: number }
   /** Moverse dentro de Documentos (sin vuelo): el arbol, una carpeta, una hoja. */
   | { type: 'docs'; place: DocsPlace }
-  /** Procesar (la lectura de facturas). */
+  /** Procesar (la lectura de facturas): el inicio en processMode, sin vuelo (main.tsx:23). */
   | { type: 'enterProcess'; index?: number }
+  /** "Volver al inicio" de Procesar: E0 (main.tsx:40, onBack). */
+  | { type: 'leaveProcess' }
+  /** "Ir a la cola de trabajo" del resultado de Procesar: E2-I con la vista de la cola, en un
+   *  solo cambio (F8). */
+  | { type: 'processToQueue' }
   /** El ✕ del panel: vuelve a E1 con la entrada del panel en el centro. */
   | { type: 'closePanel' }
   /** Abrir o cerrar la vista de un grupo dentro del panel. */
@@ -184,7 +193,7 @@ function clampEntry(index: number, last: number = LAST_ENTRY): number {
 
 /** E0: el inicio, cerrado. La activa se recuerda (como en Aurora). */
 function homeState(state: AuroraState): AuroraState {
-  return { ...state, screen: 'home', open: false, panel: null, view: null, chatting: false, searchMode: false, search: null, text: '' };
+  return { ...state, screen: 'home', open: false, panel: null, view: null, chatting: false, searchMode: false, processMode: false, search: null, text: '' };
 }
 
 /** Una pantalla de trabajo desde donde se este: lo del inicio se cierra. */
@@ -203,7 +212,8 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
     case 'reset':
       return { ...INITIAL_STATE, workSeq: state.workSeq };
     case 'orb': {
-      if (state.screen !== 'home') return state;
+      // En Documentos el orbe es el pequeno (vuelve con el vuelo); en Procesar no hay orbe.
+      if (state.screen !== 'home' || state.processMode) return state;
       // Con panel, siempre cierra y vuelve a E0 (aunque se este escribiendo).
       if (state.panel !== null) return homeState(state);
       if (state.searchMode) return { ...state, searchMode: false, search: null, open: false };
@@ -213,14 +223,14 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
       return { ...state, open: !state.open };
     }
     case 'openMenu':
-      if (state.screen !== 'home' || state.chatting || state.searchMode || state.panel !== null) return state;
+      if (state.screen !== 'home' || state.chatting || state.searchMode || state.processMode || state.panel !== null) return state;
       return { ...state, open: true };
     case 'step':
       // Solo con el menu a la vista: con un panel, la rueda escondida no manda.
-      if (!state.open || state.chatting || state.panel !== null || state.screen !== 'home') return state;
+      if (!state.open || state.chatting || state.panel !== null || state.processMode || state.screen !== 'home') return state;
       return { ...state, active: clampEntry(state.active + Math.sign(action.delta), action.last) };
     case 'focusEntry':
-      if (!state.open || state.panel !== null || state.screen !== 'home') return state;
+      if (!state.open || state.panel !== null || state.processMode || state.screen !== 'home') return state;
       return { ...state, active: clampEntry(action.index) };
     case 'enterPanel': {
       const index = clampEntry(action.index);
@@ -233,6 +243,7 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
         panel: index,
         view: action.view ?? null,
         searchMode: false,
+        processMode: false,
         search: null,
       };
     }
@@ -243,6 +254,7 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
         screen: 'home',
         active: action.index === undefined ? state.active : clampEntry(action.index),
         searchMode: true,
+        processMode: false,
         search: action.preset ?? null,
         open: false,
         panel: null,
@@ -256,7 +268,18 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
       if (state.screen !== 'work' || state.work.kind !== 'documents') return state;
       return { ...state, work: { kind: 'documents', place: action.place } };
     case 'enterProcess':
-      return workState(state, { kind: 'process' }, action.index);
+      // main.tsx:23 (enter(4)): fuera la busqueda, la conversacion, la rueda y el panel; con la
+      // entrada pulsada, la activa es Procesar (la ultima).
+      return { ...homeState(state), processMode: true, active: action.index === undefined ? state.active : clampEntry(action.index) };
+    case 'leaveProcess':
+      if (!state.processMode) return state;
+      return homeState(state);
+    case 'processToQueue': {
+      // F8: processMode=false, open=true, active=Inicio, panel=Inicio y la vista de la cola, a la
+      // vez: la rueda nace con .has-panel y no se ve.
+      const home = entryIndex('home');
+      return { ...homeState(state), open: true, active: home, panel: home, view: 'queue' };
+    }
     case 'closePanel':
       if (state.panel === null) return state;
       return { ...state, panel: null, view: null, open: true, active: state.panel };
@@ -265,10 +288,12 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
       return { ...state, view: action.view };
     case 'text':
       // main.tsx:40: la primera tecla lleva a E3 y cierra el menu (el panel sigue, como en Aurora).
+      // En Procesar no hay caja.
+      if (state.processMode) return state;
       if (action.value.length) return { ...state, text: action.value, chatting: true, open: false };
       return { ...state, text: action.value };
     case 'send':
-      if (!state.text.trim()) return state;
+      if (!state.text.trim() || state.processMode) return state;
       return { ...state, text: '', chatting: true, open: false, panel: null, view: null };
     case 'backToSpace':
       return { ...state, chatting: false, open: true, text: '' };
@@ -296,7 +321,7 @@ export function auroraReducer(state: AuroraState, action: AuroraAction): AuroraS
 /** Lo que se ve (para las pruebas y para quien pinta): o el menu o una pantalla, nunca los dos. */
 export function visibleParts(state: AuroraState, conversation: boolean): { menu: boolean; screen: boolean } {
   if (state.screen !== 'home') return { menu: false, screen: true };
-  const screen = state.panel !== null || conversation || state.searchMode;
-  const menu = state.open && !state.chatting && state.panel === null && !state.searchMode;
+  const screen = state.panel !== null || conversation || state.searchMode || state.processMode;
+  const menu = state.open && !state.chatting && state.panel === null && !state.searchMode && !state.processMode;
   return { menu, screen };
 }

@@ -600,6 +600,86 @@ export interface ReadingStatus {
   pasadas: { desde: string | null; hasta: string | null; documentos: number; coste_usd_micro: number | null }[];
   estimacion: { por_documento_bajo_usd_micro: number; por_documento_alto_usd_micro: number; medida: boolean } | null;
   lee_aqui: boolean;
+  /** Contrato 2.5 (paso 17): la lectura pedida desde la app, la viva o la ultima. */
+  solicitud?: ReadingRequest | null;
+  /** La pasada de esa lectura (o null), con lo que fue de cada documento hasta ahora. */
+  pasada_en_curso?: ReadingPass | null;
+  /** La ultima pasada terminada: lo que Documentos pinta de verde y de naranja. */
+  ultima_pasada?: ReadingPass | null;
+  plazo_respuesta_segundos?: number;
+  consulta_cada_segundos?: number;
+}
+
+/** El estado de una lectura pedida (solicitud_lectura, lectura.py). */
+export type ReadingRequestState =
+  | 'pedida'
+  | 'comprobando'
+  | 'contando'
+  | 'esperando_aprobacion'
+  | 'aprobada'
+  | 'leyendo'
+  | 'hecha'
+  | 'fallida'
+  | 'caducada'
+  | 'cancelada'
+  | 'nada_que_leer';
+
+export interface ReadingRequest {
+  id: number;
+  estado: ReadingRequestState;
+  origen: 'app' | 'lector';
+  viva: boolean;
+  abandonada: boolean;
+  pedida_por: { id: number; nombre: string } | null;
+  pedida_en: string | null;
+  tomada_en: string | null;
+  motivo: string | null;
+  motivo_codigo: string | null;
+  pdf_nuevos: number | null;
+  pdf_ya_leidos: number | null;
+  coste_min_usd_micro: number | null;
+  coste_max_usd_micro: number | null;
+  huella_estimacion: string | null;
+  contada_en: string | null;
+  caduca_en: string | null;
+  aprobada_por: { id: number; nombre: string } | null;
+  aprobada_en: string | null;
+  aprobada_via: 'app' | 'ventana' | null;
+  tope_usd_micro: number | null;
+  cancelada_en: string | null;
+  parar_pedido: boolean;
+  terminada_en: string | null;
+}
+
+/** Lo que fue de un documento de la pasada (nombre: texto de un tercero). */
+export interface ReadingPassRow {
+  documento_id: number | null;
+  nombre: string;
+  estado: 'nueva' | 'ya_leida' | 'posible_duplicado' | 'fallida' | 'leida' | string;
+  factura_id?: number | null;
+  numero?: string | null;
+  empresa?: string | null;
+}
+
+/** La pasada de una lectura (pasada_lectura): fases, cuentas y lo gastado, que solo suben. */
+export interface ReadingPass {
+  solicitud_id: number;
+  fase: 'cargando' | 'leyendo' | 'comparando' | 'analizando' | 'organizando' | 'hecha' | 'fallida' | 'cancelada' | 'tope';
+  terminada: boolean;
+  total: number;
+  leidas: number;
+  ya_leidas: number;
+  fallidas: number;
+  coste_usd_micro: number;
+  documento_actual: string | null;
+  documento_fase: 'comparando' | 'leyendo' | 'guardando' | null;
+  recientes: string[];
+  /** Cada fase con el instante en que empezo (comparar y analizar van en una transaccion). */
+  fases: { fase: string; en: string }[];
+  motivo: string | null;
+  empezada_en: string | null;
+  terminada_en: string | null;
+  resultado: ReadingPassRow[];
 }
 
 export interface Company {

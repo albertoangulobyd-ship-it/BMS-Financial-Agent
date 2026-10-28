@@ -1,0 +1,27 @@
+/* De meerkat-scene.css de Aurora (components/ui/meerkat-scene.css:7-26, entrega del 28-10-2026),
+   tal cual: las reglas de .process-mode que el prototipo compilado lleva despues de
+   workspace-layout.css. MeerkatScene es codigo muerto en Aurora y no se porta (especificacion
+   §4.1), pero estas reglas si pintan Procesar: la transicion del fondo (0,45 s), el borde del
+   boton (#bbb), el divisor del resultado (#ddd), el interlineado de la nota y el color de las
+   filas; lo demas lo anula document-loader.css con !important, como en Aurora. Las lineas 1-6
+   (las de la escena muerta) no se copian. */
+/* The approved black PNGs live on a clean white processing surface. */
+.app.process-mode{background:#fff;color:#111;transition:background-color .45s ease,color .45s ease}
+.process-mode .welcome-line h1{color:#151515}.process-mode .welcome-line p{color:#666}
+.process-mode .aurora{transform:translate(-50%,-50%)!important}
+.process-mode .processing-workspace{color:#222}.process-mode .processing-back{color:#777}
+.process-mode .processing-plan{color:#444}.process-mode .processing-plan>i{background:#ddd}
+.process-mode .processing-demo{color:#777}.process-mode .processing-progress span{background:#e8e8e8}.process-mode .processing-progress .reached{background:#333;box-shadow:none;transition:background .5s ease}
+.process-mode .flow-button{color:#111;border-color:#bbb}
+.process-mode .analysis-entry{color:#444;border-color:#eee}.process-mode .analysis-divider{background:#ddd}
+.process-mode .analysis-new{color:#227944}.process-mode .analysis-duplicate{color:#976014}
+.process-mode .processing-back:focus-visible{outline:2px solid #333;outline-offset:5px}
+@media(prefers-reduced-motion:reduce){.app.process-mode{transition:none}}
+.process-mode .bms-brand{filter:invert(1)}
+.process-mode .flow-circle{background:#111}.process-mode .flow-button:hover{color:#fff}
+.process-mode .welcome-line{top:max(110px,15dvh)}
+.process-mode .aurora{top:max(320px,42dvh)}
+.process-mode .stage{min-height:calc(max(320px,42dvh) + 170px)}
+.process-mode .processing-plan{margin-top:24px;margin-bottom:28px}
+.process-mode .processing-demo{line-height:1.8}
+@media(max-width:700px){.process-mode .welcome-line{top:110px}.process-mode .welcome-line h1{font-size:23px}.process-mode .aurora{top:340px}.process-mode .stage{min-height:490px}.process-mode .composer-area{width:calc(100% - 40px)}}

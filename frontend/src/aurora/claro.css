@@ -1,5 +1,5 @@
 /* El tema claro de las hojas de Aurora. NO SE EDITA A MANO: lo escribe
-   frontend/scripts/aurora-claro.mjs a partir de styles.css, workspace-layout.css, chat/ai-actions.css, search/search-workspace.css, finance/finance-bento.css, finance/finance-bento-component.css, documents/file-analysis.css, documents/document-workspace.css, bms.css
+   frontend/scripts/aurora-claro.mjs a partir de styles.css, workspace-layout.css, chat/ai-actions.css, search/search-workspace.css, finance/finance-bento.css, finance/finance-bento-component.css, processing/processing-workspace.css, documents/document-workspace.css, bms.css
    (cada color con su luminosidad invertida en OKLab, bajo html:not(.dark)). */
 html:not(.dark){color:#09070c;background:#e3e5e8}
 html:not(.dark) button:focus-visible,html:not(.dark) input:focus-visible{outline:1px solid #41346a}
@@ -221,6 +221,7 @@ html:not(.dark) .gf-sheet--new .gf-sheet-name{color:#002d11!important}
 html:not(.dark) .gf-sheet--duplicate .gf-sheet-name{color:#3f1e00!important}
 html:not(.dark) .ws-analysis-banner{border:1px solid #01010110}
 html:not(.dark) .ws-analysis-links>a{border:1px solid #01010112}
+html:not(.dark) .inline-search-close{color:#5e496a}
 html:not(.dark) .workspace{background:radial-gradient(ellipse at 50% 28%,#cab8dd21,transparent 65%),#e3e5e8;color:#100d15}
 html:not(.dark) .ws-home{color:#4a4055!important}
 html:not(.dark) .ws-breadcrumbs{color:#574f5e}
@@ -271,12 +272,6 @@ html:not(.dark) .tree-meta{color:#5c4a68}
 html:not(.dark) .tree-view .tree-branch{border-left:1px solid #01010114}
 html:not(.dark) .ws-companion:focus-visible{outline:1px solid #6e5181}
 html:not(.dark) .discreet-languages button[aria-pressed=true]{color:#292033}
-html:not(.dark) .workspace-host{background:radial-gradient(ellipse at 50% 28%,#cab8dd21,transparent 65%),#e3e5e8;color:#100d15}
-html:not(.dark) .workspace-host .ws-home{color:#4a4055}
-html:not(.dark) .workspace-host .ws-breadcrumbs ol{color:#574f5e}
-html:not(.dark) .workspace-host .ws-breadcrumbs a:hover{color:#160c20}
-html:not(.dark) .workspace-host .ws-breadcrumbs [aria-current=page]{color:#2c1b39}
-html:not(.dark) .workspace-host .host-heading .ws-eyebrow{color:#5d486e}
 html:not(.dark) .siri-wave-fallback,html:not(.dark) .aurora canvas.siri-wave-fallback{background:radial-gradient(ellipse 46% 9% at 50% 50%,#1b0932cc,#1f2d8755 55%,transparent 72%)}
 html:not(.dark) .balance-line{background:linear-gradient(90deg,#3f2d52 var(--balance-share,68%),#c7c1d3 var(--balance-share,68%))}
 html:not(.dark) .doc-end small.blocked{color:#7b0009}
@@ -284,6 +279,8 @@ html:not(.dark) .order-error{color:#7b0009!important}
 
 /* A mano: el logo es un PNG que un filtro pinta de blanco; en claro, invertido. */
 html:not(.dark) .bms-brand svg{filter:invert(1)}
+/* A mano: en Procesar (negro en los dos temas) el logo sigue blanco. */
+html:not(.dark) .process-mode .bms-brand svg{filter:none}
 /* A mano: el papel de la hoja se queda claro (es una superficie de Aurora); en el claro, que es
    nuestro, sus grises llegan a 4,5:1 con el mismo matiz. */
 html:not(.dark) .ws-paper dt,html:not(.dark) .ws-paper .ws-paper-disclaimer{color:#6e6179}

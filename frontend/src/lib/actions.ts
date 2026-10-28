@@ -34,6 +34,12 @@ export const ACTION_PERMISSION = {
   confirmar_pago: 'marcar_pagada',
   retirar_pago: 'marcar_pagada',
   marcar_pagada: 'marcar_pagada',
+  // La lectura de los PDF pedida desde la app (paso 17, Procesar): pedirla, dar el si a lo que
+  // cuesta leerla (con su tope) y pararla. Ninguna lee ni habla con la API (la app no tiene red):
+  // lee el lector del escritorio. El si es al coste de la lectura, no a ninguna factura ni pago.
+  pedir_lectura: 'importar_datos',
+  aprobar_lectura: 'importar_datos',
+  cancelar_lectura: 'importar_datos',
 } as const;
 
 export type ActionName = keyof typeof ACTION_PERMISSION | 'fijar_campo' | 'verificar_campo' | 'revertir_campo';

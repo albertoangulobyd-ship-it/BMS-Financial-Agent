@@ -101,6 +101,8 @@ const NO_SINGULAR: Record<string, string> = {
   'aurora.home.week': 'un numero de semana, no una cuenta',
   'aurora.home.weekOpen': 'un numero de semana, no una cuenta',
   'aurora.settings.permissions': 'etiqueta y cifra',
+  'aurora.process.step': 'un numero de paso, no una cuenta',
+  'aurora.process.error.some': 'sin palabra: "(1)"',
 };
 
 describe('las cifras con su singular', () => {

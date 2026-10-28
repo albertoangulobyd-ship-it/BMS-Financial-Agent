@@ -27,7 +27,7 @@ export const SHEETS = [
   'search/search-workspace.css',
   'finance/finance-bento.css',
   'finance/finance-bento-component.css',
-  'documents/file-analysis.css',
+  'processing/processing-workspace.css',
   'documents/document-workspace.css',
   'bms.css',
 ];
@@ -201,6 +201,11 @@ function onSurface(selector, surfaces) {
   return surfaces.some((k) => selector === k || (selector.startsWith(k) && /^[\s>:.[+~]/.test(selector.slice(k.length))));
 }
 
+/** Procesar es negro con la suricata blanca en los dos temas (document-loader.css lo pinta con
+ *  !important, y el animal blanco sobre fondo claro no se veria): sus reglas no se invierten. De
+ *  processing-workspace.css solo pasan al claro las marcas de Documentos (nueva y repetida). */
+const KEEP_DARK = /\.process-mode|\.processing-|\.flow-|\.analysis-(?:counts|new|duplicate|divider|report-list|entry)|\.hero-|\.completed-wave/;
+
 function lightRules(css, surfaces) {
   const out = [];
   for (const { prelude, body } of blocks(css)) {
@@ -214,7 +219,7 @@ function lightRules(css, surfaces) {
       out.push(...lightRules(body, surfaces));
       continue;
     }
-    if (prelude.split(',').every((x) => onSurface(x.trim(), surfaces))) continue;
+    if (prelude.split(',').every((x) => onSurface(x.trim(), surfaces) || KEEP_DARK.test(x))) continue;
     const decls = declarations(body)
       .filter(({ prop }) => COLOR_PROPS.test(prop) || prop.startsWith('--'))
       .map(({ prop, value }) => {
@@ -231,6 +236,8 @@ function lightRules(css, surfaces) {
 const BY_HAND = `
 /* A mano: el logo es un PNG que un filtro pinta de blanco; en claro, invertido. */
 html:not(.dark) .bms-brand svg{filter:invert(1)}
+/* A mano: en Procesar (negro en los dos temas) el logo sigue blanco. */
+html:not(.dark) .process-mode .bms-brand svg{filter:none}
 /* A mano: el papel de la hoja se queda claro (es una superficie de Aurora); en el claro, que es
    nuestro, sus grises llegan a 4,5:1 con el mismo matiz. */
 html:not(.dark) .ws-paper dt,html:not(.dark) .ws-paper .ws-paper-disclaimer{color:#6e6179}

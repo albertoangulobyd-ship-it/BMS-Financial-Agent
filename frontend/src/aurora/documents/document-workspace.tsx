@@ -57,7 +57,6 @@ import { GlassFolder, type ArtRecipe, type FolderFile } from './glass-folder-car
 import { InvoiceSheet } from './invoice-sheet';
 import { DocumentSheet, FileRow, FileTable, ObjectSheet, PoSheet, docName, typeLabel } from './sheets';
 import { TreeView } from './tree-view';
-import './file-analysis.css';
 import './document-workspace.css';
 
 // El marmol de los clientes y las vetas de los proveedores (document-workspace.tsx:15-16).

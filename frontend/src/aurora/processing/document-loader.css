@@ -1,0 +1,46 @@
+/* document-loader.css de Aurora (components/ui/document-loader.css, entrega del 28-10-2026),
+   tal cual: la escena negra de la suricata, la lectura y el sitio estable de Procesar en el
+   espacio central. */
+.document-loader{width:100%;max-width:640px;margin:0 auto;color:#fff;background:#000}
+.zur-loader{transition:opacity 300ms ease;color:#fff;background:#000;text-align:center;font-family:ui-monospace,Consolas,monospace}
+.zur-stage{position:relative;display:grid;place-items:center;isolation:isolate}
+.zur-stage canvas{display:block;image-rendering:pixelated;max-width:none;background:transparent}
+.zur-world{position:relative;z-index:1}.zur-pile{position:absolute;top:0;z-index:2;pointer-events:none}
+.zur-text{margin:10px 0 0;min-height:62px}.zur-title{color:#fff;font-size:12px;line-height:1.6;margin:0 0 8px}.zur-sub{font-size:10px;color:#888;line-height:1.7;margin:0}
+.zur-debug{margin-top:20px;color:#888;font:9px/1.8 ui-monospace,Consolas,monospace}.zur-debug[hidden]{display:none}.zur-debug button{font:inherit;color:#fff;background:#000;border:1px solid #444;border-radius:5px;padding:6px 10px;margin:10px 4px 0;cursor:pointer}.zur-debug button:hover{border-color:#fff}.zur-debug button:focus-visible{outline:2px solid #fff;outline-offset:3px}
+/* Keep the same home header; the sprite scene occupies the existing content area. */
+.app.process-mode{background:#000!important;color:#fff!important}.process-mode .bms-brand{filter:none!important}.process-mode .aurora{display:none!important}
+.process-mode .welcome-line{position:relative!important;top:auto!important;left:auto!important;transform:none!important;margin:0 auto!important;padding:125px 0 0!important}
+.process-mode .welcome-line h1{color:#fff!important}.process-mode .welcome-line p{color:#888!important}
+.process-mode .stage{min-height:0!important;padding-bottom:16px!important}.process-mode .composer-area{width:min(640px,calc(100% - 32px))!important;animation:none!important;padding-bottom:40px!important}
+.process-mode .processing-workspace,.process-mode .processing-plan,.process-mode .flow-button{color:#fff!important}.process-mode .processing-back,.process-mode .processing-demo{color:#888!important}
+.process-mode .flow-circle{background:#fff!important}.process-mode .flow-button:hover{color:#000!important}.process-mode .processing-plan>i{background:#444!important}
+.processing-embedded .document-loader{display:block!important;margin:0 auto 24px}.processing-embedded .processing-back{margin:20px auto 0!important}
+.process-mode .analysis-counts,.process-mode .analysis-new,.process-mode .analysis-duplicate,.process-mode .analysis-entry strong,.process-mode .analysis-entry-icon,.process-mode .analysis-entry-status{color:#fff!important}.process-mode .analysis-entry small{color:#888!important}.process-mode .analysis-entry{border-color:#333!important}
+@media(max-width:700px){.process-mode .welcome-line{padding-top:105px!important}.zur-title{font-size:11px}.zur-sub{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.zur-pile{transition:none!important}}
+/* A single stable central stage for menu, head reveal, work and results. */
+.process-mode .welcome-line{padding-top:clamp(145px,26dvh,330px)!important;min-height:80px}
+.process-mode .welcome-line h1{font-size:27px!important;line-height:1.35}
+.process-mode .welcome-line p{min-height:38px;max-width:530px!important}
+.process-mode .stage{padding-bottom:12px!important}
+.processing-embedded .processing-core{min-height:340px}
+.processing-embedded .document-loader{padding-top:28px;min-height:190px;margin-bottom:12px!important}
+.processing-embedded .zur-text{display:none}
+.processing-embedded .processing-back{order:2;margin:12px auto 0!important}
+.processing-embedded .processing-plan{margin:6px auto 18px!important}
+.processing-embedded .processing-demo{margin-top:14px}
+.processing-embedded .processing-complete{max-height:380px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#444 transparent}
+.processing-embedded .analysis-counts{margin:4px 0 14px!important}
+.processing-embedded .analysis-entry{padding:9px 5px}
+.processing-embedded .analysis-report-list{margin-bottom:18px}
+@media(max-width:700px){.process-mode .welcome-line{padding-top:clamp(100px,23dvh,220px)!important}.process-mode .welcome-line h1{font-size:23px!important}.processing-embedded .document-loader{min-height:155px}.processing-embedded .processing-core{min-height:300px}}
+/* Capture the menu's actual coordinates before replacing its content. */
+.app.process-mode[style*="--process-heading-y"] .welcome-line{position:absolute!important;top:var(--process-heading-y)!important;left:50%!important;transform:translateX(-50%)!important;padding:0!important;margin:0!important}
+.app.process-mode[style*="--process-scene-y"] .composer-area{position:absolute!important;top:var(--process-scene-y)!important;left:50%!important;transform:translateX(-50%)!important;margin:0!important}
+.app.process-mode[style*="--process-heading-y"] .welcome-line h1{font-size:28px!important}
+.zur-reading{width:min(350px,100%);margin:20px auto 0;text-align:left;font:10px/1.8 ui-monospace,Consolas,monospace;color:#888}
+.zur-reading[hidden]{display:none}.zur-reading-top{display:flex;justify-content:space-between;font-size:8px;letter-spacing:1px;margin-bottom:7px}.zur-percent{color:#fff;letter-spacing:0}
+.zur-progress{display:block;appearance:none;width:100%;height:3px;border:0;background:#242424;border-radius:2px;overflow:hidden;color:#fff}.zur-progress::-webkit-progress-bar{background:#242424}.zur-progress::-webkit-progress-value{background:#fff;transition:width .35s ease}.zur-progress::-moz-progress-bar{background:#fff}
+.zur-file-log{min-height:54px;margin:12px 0 0;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;color:#aaa;letter-spacing:0}
+@media(prefers-reduced-motion:reduce){.zur-progress::-webkit-progress-value{transition:none}}

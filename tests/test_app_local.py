@@ -446,17 +446,27 @@ def test_el_frontend_no_lleva_ninguna_direccion_de_fuera() -> None:
 _ORDEN = re.compile(r"\baction(?:=|: )'([a-z_]+)'")
 
 
+# El motor de la suricata de Aurora (paso 17, copiado tal cual) llama `action` a su pose
+# (action='vigilando'): no es una orden ni manda nada.
+_SIN_ORDENES = {"src/aurora/processing/loader-engine.ts"}
+
+
+def _fuentes_con_ordenes() -> list[Path]:
+    return [f for f in _fuentes_del_frontend()
+            if f.relative_to(FRONTEND).as_posix() not in _SIN_ORDENES]
+
+
 def _ordenes_usadas() -> set[str]:
     """Cada orden que manda una pantalla."""
     usadas = set()
-    for fichero in _fuentes_del_frontend():
+    for fichero in _fuentes_con_ordenes():
         usadas |= set(_ORDEN.findall(fichero.read_text(encoding="utf-8")))
     return usadas
 
 
 def _donde_se_manda(ordenes: set[str]) -> set[str]:
     """Los ficheros del frontend que mandan alguna de esas ordenes."""
-    return {f.relative_to(FRONTEND).as_posix() for f in _fuentes_del_frontend()
+    return {f.relative_to(FRONTEND).as_posix() for f in _fuentes_con_ordenes()
             if set(_ORDEN.findall(f.read_text(encoding="utf-8"))) & ordenes}
 
 
@@ -468,9 +478,16 @@ def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> No
             "btw_lista_para_revision"} <= usadas
     assert usadas <= set(servicios.ACCIONES), usadas - set(servicios.ACCIONES)
     # Pagar, aprobar un pago, presentar el btw o crear una factura no existen en
-    # servicios.py, y la app no los nombra.
+    # servicios.py, y la app no los nombra. La unica excepcion, con su nombre y en un solo
+    # sitio (paso 17, Procesar): aprobar_lectura es el si de una persona a lo que cuesta leer
+    # los PDF que el lector conto (con su tope y la huella de esa cuenta); no aprueba ninguna
+    # factura ni ningun pago (es la misma excepcion de test_alcance_v1.py).
+    lectura = {"pedir_lectura", "aprobar_lectura", "cancelar_lectura"}
+    assert lectura <= usadas
+    assert _donde_se_manda(lectura) == {"src/aurora/processing/processing-workspace.tsx"}, \
+        _donde_se_manda(lectura)
     for prohibida in ("pagar", "aprobar", "presentar", "crear_factura"):
-        assert not any(prohibida in u for u in usadas), prohibida
+        assert not any(prohibida in u for u in usadas - {"aprobar_lectura"}), prohibida
     # Paso 16 (Cuentas por cobrar y por pagar, revision de Aurora §8.4 y decision 9B): la
     # app confirma o retira lo que el banco propuso y apunta un pago que YA se hizo, con su
     # motivo (marcar_pagada; hasta el paso 16 solo estaba en la consola). Ninguna paga ni
@@ -501,6 +518,42 @@ def test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios() -> None:
     for accion in ("fijar_campo", "verificar_campo", "revertir_campo"):
         assert servicios.ACCIONES[accion].permiso is None
     assert _ordenes_usadas() <= set(pares) | {"fijar_campo", "verificar_campo", "revertir_campo"}
+
+
+# ------------------------------------------------------------ la suricata de Aurora
+
+# Los ocho PNG aprobados por el dueno (Suricata-Final-Revision/ de la entrega del 28-10-2026,
+# con su SHA256.json): la app los lleva tal cual, como data URI, en
+# frontend/src/aurora/processing/loader-sprites.ts (copiado byte a byte del prototipo). Nadie
+# redibuja el animal: el motor solo hace drawImage de estas celdas.
+SURICATA_APROBADA = {
+    "emerge-dig": "4b300504f76355ac62ff1d6c51a083ca760dc6412ffed915cf46551ef2bc8d69",
+    "emerge-search": "98f18be6350fed73e9a590b3f1a66fa2e74a5a7cacf711b71f1f8c2d1f49221f",
+    "enter-burrow": "6a676a187e4a4a4bbc87d2ba51ec546b103eae84800db3ede524725829eece91",
+    "found-cave": "7a0fc582ea1d607b36f1067b75e321e25d9d93d76f1eb04327c4bd96b42e2fa6",
+    "guard-head": "a9f399ea7266f3f024137284b4e46b6df0316227e61d614ca8d707d87dc534a7",
+    "moving-document": "a183b3fcd13f7208595ad4891f1c349293ebb8f5fe33ef584be43ff26c96c3ce",
+    "Paper": "1f096b57138c7492558820176952d2a27d44cc567ae3a4fe753f121948059a51",
+    "walking-documento": "d72caf6891fdae96c030916bd076cb5fc057f449c9acbd6b828d863b3ee054f3",
+}
+
+
+def test_los_png_de_la_suricata_son_los_aprobados() -> None:
+    import base64
+
+    texto = (FRONTEND / "src" / "aurora" / "processing" / "loader-sprites.ts").read_text(encoding="utf-8")
+    hallados = {nombre: hashlib.sha256(base64.b64decode(datos)).hexdigest() for nombre, datos
+                in re.findall(r'"([A-Za-z-]+)":\s*"data:image/png;base64,([A-Za-z0-9+/=]+)"', texto)}
+    assert hallados == SURICATA_APROBADA
+    # El motor pinta con drawImage, sin suavizado y en pixeles: ni divs, ni SVG, ni figuras.
+    motor = _sin_comentarios((FRONTEND / "src" / "aurora" / "processing" / "loader-engine.ts")
+                             .read_text(encoding="utf-8"))
+    assert "imageSmoothingEnabled=pctx.imageSmoothingEnabled=false" in motor
+    assert "drawImage(" in motor
+    for prohibido in ("arc(", "lineTo(", "createElementNS", "<svg", "bezierCurveTo("):
+        assert prohibido not in motor, prohibido
+    css = (FRONTEND / "src" / "aurora" / "processing" / "document-loader.css").read_text(encoding="utf-8")
+    assert "image-rendering:pixelated" in css
 
 
 # ------------------------------------------------------------ los lanzadores abren /app

@@ -8,7 +8,9 @@
 // - B: ocho entradas en la rueda (§1.4); con un panel abierto la rueda se oculta y `active` no
 //   se mueve (§1.1); el clic se queda en la fila donde se apoyo el raton;
 // - D: la conversacion la contesta el asistente local; la busqueda va a /api/v2/buscar;
-// - R: Documentos (y lo que aun no tiene panel) se abre con el vuelo del orbe (root.tsx);
+// - R: Documentos se abre con el vuelo del orbe (root.tsx);
+// - D: Procesar (processMode, main.tsx:23,40) es la lectura de verdad (processing/); como en
+//   Aurora, el saludo dice su titulo, no hay orbe ni caja y el espacio central es suyo;
 // - I: todos los textos del diccionario.
 // El estado vive en aurora/estado.ts: cada clic es una accion.
 import { AnimatePresence, motion } from 'framer-motion';
@@ -26,6 +28,9 @@ import { BmsLogo } from './logo';
 import { SiriWave } from './orb/siri-wave';
 import { PanelFor } from './panels';
 import { firstName } from './panels/panel-model';
+import { introView, type ProcessView } from './processing/process-texts';
+import { captureProcessingEntry } from './processing/processing-entry';
+import { ProcessingWorkspace } from './processing/processing-workspace';
 import { useAurora } from './root';
 import { SearchWorkspace } from './search/search-workspace';
 import { TextMarquee } from './text-marquee';
@@ -149,14 +154,30 @@ function LanguageLine() {
   );
 }
 
+/** El titulo de Procesar en el saludo; el nombre del acceso directo (en castellano en los tres
+ *  idiomas, como en el disco) va como nombre propio. */
+function ProcessTitle({ view }: { view: ProcessView }) {
+  const name = view.properName;
+  const at = name ? view.title.indexOf(name) : -1;
+  if (!name || at < 0) return <>{view.title}</>;
+  return (
+    <>
+      {view.title.slice(0, at)}
+      <span data-proper-name=''>{name}</span>
+      {view.title.slice(at + name.length)}
+    </>
+  );
+}
+
 export function App() {
   const { t } = useT();
   const { resolved } = useTheme();
   const { session } = useSession();
   const can = useCan();
   const { state, dispatch, go } = useAurora();
-  const { open, active, panel, chatting, searchMode, text } = state;
+  const { open, active, panel, chatting, searchMode, processMode, text } = state;
   const [searchThinking, setSearchThinking] = useState(false);
+  const [processView, setProcessView] = useState<ProcessView>(() => introView('ready', null, t));
   const wheelTime = useRef(0);
   const loginState = useLogin();
   const api = session?.api;
@@ -186,6 +207,14 @@ export function App() {
   const entries = visibleEntries(can);
   const conversation = chat.messages.length > 0;
 
+  /** Procesar (main.tsx:23, enter(4)): antes de cambiar, las particulas del orbe y los sitios del
+   *  saludo y del orbe (captureProcessingEntry); el saludo empieza por el de la intro. */
+  function enterProcess(index?: number) {
+    captureProcessingEntry();
+    setProcessView(introView('ready', null, t));
+    dispatch({ type: 'enterProcess', index });
+  }
+
   function enter(i: number) {
     const id = ENTRIES[i]!;
     if (isPanelEntry(i)) {
@@ -196,9 +225,9 @@ export function App() {
       dispatch({ type: 'enterSearch', index: i });
       return;
     }
-    // Documentos y Procesar: una pantalla de trabajo, con el vuelo del orbe (root.tsx).
+    // Documentos: la pantalla de trabajo, con el vuelo del orbe (root.tsx). Procesar: aqui mismo.
     if (id === 'documents') go({ type: 'enterDocuments', place: DOCS_ROOT, index: i });
-    if (id === 'process') go({ type: 'enterProcess', index: i });
+    if (id === 'process') enterProcess(i);
   }
 
   function orbClick() {
@@ -226,7 +255,7 @@ export function App() {
     if (target.kind === 'panel') dispatch({ type: 'enterFromConversation', index: entryIndex(target.entry), view: target.view ?? null });
     else if (target.kind === 'search') dispatch({ type: 'enterSearch', index: entryIndex('search'), preset: target.preset });
     else if (target.kind === 'documents') go({ type: 'enterDocuments', place: target.place });
-    else go({ type: 'enterProcess' });
+    else enterProcess();
   }
 
   /** Un resultado de la busqueda: la hoja de la factura en su carpeta (F3). */
@@ -249,7 +278,7 @@ export function App() {
         ? t.login.loggedOut
         : t.login[message]
     : t.aurora.login.prompt;
-  const welcomeKey = !loggedIn ? `login:${message ?? ''}` : searchMode ? 'search' : 'welcome';
+  const welcomeKey = !loggedIn ? `login:${message ?? ''}` : processMode ? `process:${processView.title}` : searchMode ? 'search' : 'welcome';
   const highlight = active === LAST_ENTRY && open && panel === null;
 
   return (
@@ -261,6 +290,7 @@ export function App() {
         (chatting ? 'chatting ' : '') +
         (searchMode ? 'search-mode ' : '') +
         (searchThinking ? 'thinking-active ' : '') +
+        (processMode ? 'process-mode ' : '') +
         (conversation ? 'conversation-mode ' : '') +
         (highlight ? 'process-highlight' : '')
       }
@@ -306,6 +336,8 @@ export function App() {
                   <h1>
                     {!loggedIn ? (
                       t.aurora.login.welcome
+                    ) : processMode ? (
+                      <ProcessTitle view={processView} />
                     ) : searchMode ? (
                       t.aurora.home.searchTitle
                     ) : (
@@ -316,13 +348,25 @@ export function App() {
                       </>
                     )}
                   </h1>
-                  <p id={!loggedIn ? 'login-line' : undefined} role={!loggedIn && message && message !== 'loggedOut' ? 'alert' : undefined}>
-                    {!loggedIn ? loginLine : searchMode ? (searchThinking ? t.aurora.home.searchThinking : t.aurora.home.searchIntro) : t.aurora.home.intro}
+                  <p
+                    id={!loggedIn ? 'login-line' : undefined}
+                    role={(!loggedIn && message && message !== 'loggedOut') || (processMode && processView.alert) ? 'alert' : undefined}
+                  >
+                    {!loggedIn
+                      ? loginLine
+                      : processMode
+                        ? processView.detail
+                        : searchMode
+                          ? searchThinking
+                            ? t.aurora.home.searchThinking
+                            : t.aurora.home.searchIntro
+                          : t.aurora.home.intro}
                   </p>
                 </motion.div>
               </AnimatePresence>
             </div>
           )}
+          {!processMode && (
           <button
             className={'aurora' + (loggedIn ? '' : ' aurora-locked')}
             aria-label={open ? t.aurora.home.close : t.aurora.home.open}
@@ -359,8 +403,9 @@ export function App() {
               </AnimatePresence>
             </motion.span>
           </button>
+          )}
           {!loggedIn && !chatting && <LanguageLine />}
-          {loggedIn && !open && !chatting && !searchMode && (
+          {loggedIn && !open && !chatting && !searchMode && !processMode && (
             <button className='discreet' onClick={() => dispatch({ type: 'openMenu' })}>
               {t.aurora.home.navigate}
             </button>
@@ -391,6 +436,16 @@ export function App() {
         <section className='composer-area'>
           {!loggedIn ? (
             <LoginComposer login={loginState} />
+          ) : processMode ? (
+            <ProcessingWorkspace
+              embedded
+              onViewChange={setProcessView}
+              onBack={() => dispatch({ type: 'leaveProcess' })}
+              // F5: sin vuelo (en Aurora, location.hash; aqui no hay orbe del que salir).
+              onDocuments={() => dispatch({ type: 'enterDocuments', place: DOCS_ROOT })}
+              onOpenInvoice={(row) => dispatch({ type: 'enterDocuments', place: invoicePlace({ id: row.factura_id }) })}
+              onQueue={() => dispatch({ type: 'processToQueue' })}
+            />
           ) : searchMode ? (
             <SearchWorkspace preset={state.search} onSearchingChange={setSearchThinking} onOpenInvoice={openInvoice} />
           ) : (

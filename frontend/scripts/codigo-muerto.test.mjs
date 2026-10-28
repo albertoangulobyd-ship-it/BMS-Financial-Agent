@@ -17,9 +17,11 @@ import {
 // - components/ui es la biblioteca de piezas (las de shadcn hechas a mano y las del dueno): se
 //   usan a la carta. La tira de pestanas tipo Chrome del dueno (paso 15) ya no es la
 //   navegacion (paso 16) y se guarda tal cual, con las piezas que solo ella usa (desde el paso
-//   17 tambien el desplegable del menu del nombre, que ya no existe, y el tooltip).
+//   17 tambien el desplegable del menu del nombre, que ya no existe, y el tooltip; y, desde el
+//   paso 17 · B3, el boton, que solo usaban la pantalla vieja de la lectura y la tira).
 // - i18n/glossary.ts e i18n/leftovers.ts son de las pruebas (i18n.test.ts y e2e/fixtures.ts).
 const LIBRARY = [
+  'src/components/ui/button.tsx',
   'src/components/ui/context-menu.tsx',
   'src/components/ui/dropdown-menu.tsx',
   'src/components/ui/hover-card.tsx',
@@ -38,9 +40,8 @@ describe('sin codigo muerto en frontend/src', () => {
   });
 
   it('cada pieza de Aurora en src la monta la app', () => {
-    // Desde el paso 17 la conversacion, el orbe de particulas y el resumen del dinero se montan;
-    // el cargador y la tarjeta de Procesar (revision §8.5) vuelven de la copia del prototipo
-    // cuando su paso los monte, no antes.
+    // Desde el paso 17 la conversacion, el orbe de particulas, el resumen del dinero y (B3) el
+    // cargador y la tarjeta de Procesar se montan.
     expect(unreachedFiles().filter((path) => path.startsWith('src/aurora/'))).toEqual([]);
   });
 
@@ -63,8 +64,11 @@ describe('sin codigo muerto en frontend/src', () => {
       'src/aurora/finance/finance-bento-component.css',
       'src/aurora/search/search-workspace.css',
       'src/aurora/documents/document-workspace.css',
-      'src/aurora/documents/file-analysis.css',
       'src/aurora/documents/glass-folder-cards.css',
+      'src/aurora/processing/processing-workspace.css',
+      'src/aurora/processing/document-loader.css',
+      'src/aurora/processing/processing-card.css',
+      'src/aurora/processing/meerkat-scene.css',
       // El tema claro sale de esas hojas (scripts/aurora-claro.mjs): lleva sus mismas reglas.
       'src/aurora/claro.css',
     ];

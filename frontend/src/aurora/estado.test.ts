@@ -137,6 +137,8 @@ describe('o el menu o una pantalla, nunca los dos (§1.1)', () => {
       ['E6', run([{ type: 'enterDocuments', place: DOCS_ROOT }], E1), false],
       ['E6-h', run([{ type: 'enterDocuments', place: folderPlace('client', 1, { kind: 'invoice', id: 7 }) }], E1), false],
       ['E7', run([{ type: 'enterProcess' }], E1), false],
+      ['E7 desde la rueda', run([{ type: 'enterProcess', index: LAST_ENTRY }], E1), false],
+      ['E2-I desde E7 (F8)', run([{ type: 'enterProcess' }, { type: 'processToQueue' }], E1), false],
     ];
     for (const [name, state, conversation] of states) {
       const parts = visibleParts(state, conversation);
@@ -204,9 +206,53 @@ describe('las transiciones de §1.2', () => {
     expect(inside.work).toEqual({ kind: 'documents', place: { category: 'providers', folder: { side: 'provider', id: 3 }, sheet: { kind: 'po', id: 9 } } });
     // Fuera de Documentos, docs no hace nada.
     expect(run([{ type: 'docs', place: DOCS_ROOT }], E1)).toBe(E1);
-    const b = run([{ type: 'home' }, { type: 'enterProcess' }], a);
+    // Volver a entrar empieza de cero.
+    const b = run([{ type: 'home' }, { type: 'enterDocuments', place: DOCS_ROOT }], a);
     expect(b.workSeq).toBe(a.workSeq + 1);
-    expect(b.work).toEqual({ kind: 'process' });
+  });
+
+  it('Procesar es el inicio en processMode (main.tsx:23,40), sin vuelo ni pantalla de Root', () => {
+    // Desde la rueda: fuera la rueda, el panel, la busqueda y la conversacion; Procesar activa.
+    const p = run([{ type: 'enterProcess', index: LAST_ENTRY }], E1);
+    expect(p).toMatchObject({ screen: 'home', processMode: true, open: false, panel: null, searchMode: false, chatting: false, active: LAST_ENTRY });
+    expect(visibleParts(p, false)).toEqual({ menu: false, screen: true });
+    // Desde una respuesta (sin entrada): la activa no se mueve.
+    const fromChat = run([{ type: 'text', value: 'x' }, { type: 'send' }, { type: 'enterProcess' }], E1);
+    expect(fromChat).toMatchObject({ processMode: true, chatting: false, active: E1.active });
+    // En Procesar no hay orbe, ni "Presiona para navegar", ni rueda, ni caja.
+    for (const action of [
+      { type: 'orb' },
+      { type: 'openMenu' },
+      { type: 'step', delta: 1 },
+      { type: 'focusEntry', index: 0 },
+      { type: 'text', value: 'hola' },
+      { type: 'send' },
+    ] as AuroraAction[]) {
+      expect(run([action], p), action.type).toBe(p);
+    }
+    // "Volver al inicio": E0, con Procesar aun activa (la proxima vez, el orbe de particulas).
+    const back = run([{ type: 'leaveProcess' }], p);
+    expect(back).toMatchObject({ processMode: false, open: false, panel: null, active: LAST_ENTRY });
+    expect(run([{ type: 'leaveProcess' }], E1)).toBe(E1);
+    // "Ver en Documentos" (F5): Documentos, y Procesar se va.
+    const docs = run([{ type: 'enterDocuments', place: DOCS_ROOT }], p);
+    expect(docs).toMatchObject({ screen: 'work', processMode: false });
+    expect(run([{ type: 'home' }], docs).processMode).toBe(false);
+  });
+
+  it('"Ir a la cola de trabajo" es un solo cambio a E2-I con la vista de la cola (F8)', () => {
+    const p = run([{ type: 'enterProcess', index: LAST_ENTRY }], E1);
+    const q = run([{ type: 'processToQueue' }], p);
+    expect(q).toMatchObject({
+      screen: 'home',
+      processMode: false,
+      open: true,
+      active: entryIndex('home'),
+      panel: entryIndex('home'),
+      view: 'queue',
+    });
+    // La rueda nace con el panel: no se ve.
+    expect(visibleParts(q, false)).toEqual({ menu: false, screen: true });
   });
 
   it('la hoja de una factura se abre en la carpeta de su empresa (F3)', () => {
