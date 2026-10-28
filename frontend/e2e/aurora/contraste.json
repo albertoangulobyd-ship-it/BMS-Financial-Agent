@@ -78,6 +78,54 @@
       "fg": "#727374",
       "bg": "#1c1d1f",
       "donde": "las cifras pequeñas en letra fija del resumen general (finance-bento-component.css: .fpb .mono)"
+    },
+    {
+      "selector": "\\.balance",
+      "fg": "#695d77",
+      "bg": "#101015",
+      "donde": "la nota debajo de la barra de la cifra principal del panel (styles.css: .balance p)"
+    },
+    {
+      "selector": "\\.empty",
+      "fg": "#70647c",
+      "bg": "#101015",
+      "donde": "«En nog N» y lo vacio de una lista del panel (styles.css: .empty)"
+    },
+    {
+      "selector": "\\.privacy",
+      "fg": "#70647c",
+      "bg": "#101015",
+      "donde": "la nota de privacidad de importar (styles.css: .privacy)"
+    },
+    {
+      "selector": "\\.dropzone",
+      "fg": "#756881",
+      "bg": "#101015",
+      "donde": "lo pequeno de la zona de soltar de importar (styles.css: .dropzone span)"
+    },
+    {
+      "selector": "span\\[data-proper-name",
+      "fg": "#756080",
+      "bg": "#08090b",
+      "donde": "la linea de un resultado de la busqueda (search-workspace.css: .result-info>span)"
+    },
+    {
+      "selector": "small",
+      "fg": "#786982",
+      "bg": "#111015",
+      "donde": "la segunda linea de una fila de la ficha y de la hoja (document-workspace.css: .ws-file-table small)"
+    },
+    {
+      "selector": "dt",
+      "fg": "#82758e",
+      "bg": "#edeaf1",
+      "donde": "los nombres de los datos en el papel de la hoja (document-workspace.css: .ws-paper dt)"
+    },
+    {
+      "selector": "\\.ws-paper-disclaimer",
+      "fg": "#92839e",
+      "bg": "#edeaf1",
+      "donde": "la nota al pie del papel de la hoja (document-workspace.css: .ws-paper .ws-paper-disclaimer)"
     }
   ]
 }

@@ -7,10 +7,17 @@
 // compara: no esta (§1.1). Y los tiempos: el orbe al abrir el menu (T01, 0,85 s con
 // cubic-bezier(.22,.8,.2,1)) y el vuelo a Documentos (T11, 1,05 s con cubic-bezier(.4,0,.15,1)),
 // por los cruces del 5, 50 y 95 % de su recorrido (como herramientas/cruces.py).
+// Paso 17 B2: tambien E2 con una tarjeta, Documentos (todo, una carpeta abierta y la hoja de una
+// factura): en Documentos la `y` se cuenta desde la marca (la pagina se desplaza al abrir); lo
+// que va debajo de los datos (la tarjeta) y el dialogo centrado dependen de los datos en su `y`.
+// Y el desplazamiento (§6.1): cada panel en reposo, cada vista de grupo e importar sin fichero no
+// pasan de 53 px a 1440 × 900 ni de 213 px a 400 × 860; el del dialogo de cada factura de la base
+// de prueba se mide y se anota (falla si pasa de 300 px una hoja de cuatro filas o menos).
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
-import { expect, login, settled, test } from './fixtures';
-import { TEXTS, entryButton, landed, openMenu, setLang } from './nav';
+import type { InvoiceRow } from '../src/lib/api';
+import { expect, login, settled, test, token } from './fixtures';
+import { TEXTS, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, treeItem } from './nav';
 
 interface Box {
   x: number;
@@ -38,9 +45,19 @@ const SEL: Record<string, string> = {
   navSelected: '.nav-item.selected',
   heroOrb: '.hero-orb',
   panel: '.panel',
+  detail: '.detail',
+  companion: '.ws-companion',
+  wsTitle: '.ws-title-line h1',
+  wsGrid: '.ws-grid',
+  wsSidebar: '.ws-sidebar',
+  wsProfile: '.ws-profile',
+  dialog: '.ws-dialog',
 };
 /** Lo que depende de los datos: solo el tope de su alto. */
-const DATA_HEIGHT = new Set(['panel']);
+const DATA_HEIGHT = new Set(['panel', 'detail', 'wsGrid', 'wsSidebar', 'wsProfile', 'dialog']);
+/** Lo que depende de los datos tambien en su `y`: la tarjeta va debajo de las filas del panel y
+ *  el dialogo se centra segun su alto. */
+const DATA_Y = new Set(['detail', 'dialog']);
 
 /** Las medidas de la app, como capture.cjs mide Aurora (menos las bandas en `y`). */
 async function measure(page: Page): Promise<Record<string, Box | { display: 'none' }>> {
@@ -77,18 +94,22 @@ async function measure(page: Page): Promise<Record<string, Box | { display: 'non
   }, SEL);
 }
 
-/** Cada elemento contra Aurora, con las tolerancias de §6.1. */
-function compare(state: string, ours: Record<string, Box | { display: 'none' }>, skip: string[] = []): string[] {
+/** Cada elemento contra Aurora, con las tolerancias de §6.1. Con `anchor`, la `y` de cada uno se
+ *  cuenta desde la de ese elemento (en Documentos, la marca: la pagina se desplaza). */
+function compare(state: string, ours: Record<string, Box | { display: 'none' }>, skip: string[] = [], anchor?: string): string[] {
   const ref = REF[state];
   expect(ref, state).toBeDefined();
   const out: string[] = [];
+  const origin = (m: Record<string, unknown>) => (anchor ? ((m[anchor] as Box | undefined)?.y ?? 0) : 0);
+  const [refY, ourY] = [origin(ref!), origin(ours)];
   for (const name of Object.keys(SEL)) {
     if (skip.includes(name)) continue;
     const a = ref![name] as Box | { display: 'none' } | undefined;
     if (!a) continue;
     const b = ours[name];
     if ('display' in a && a.display === 'none') {
-      if (!(b && 'display' in b)) out.push(`${name}: en Aurora no se ve`);
+      // Que no se vea: con display:none o sin montar (el <dialog> cerrado).
+      if (b && !('display' in b) && b.w > 0) out.push(`${name}: en Aurora no se ve`);
       continue;
     }
     const want = a as Box;
@@ -96,8 +117,11 @@ function compare(state: string, ours: Record<string, Box | { display: 'none' }>,
       out.push(`${name}: no esta`);
       continue;
     }
-    const near = (k: 'x' | 'y' | 'w' | 'h') => Math.abs(b[k] - want[k]) <= 4;
-    for (const k of ['x', 'y', 'w'] as const) if (!near(k)) out.push(`${name}.${k}: ${b[k]} (Aurora ${want[k]})`);
+    const near = (k: 'x' | 'y' | 'w' | 'h') => Math.abs(k === 'y' ? b.y - ourY - (want.y - refY) : b[k] - want[k]) <= 4;
+    for (const k of ['x', 'y', 'w'] as const) {
+      if (k === 'y' && (DATA_Y.has(name) || name === anchor)) continue;
+      if (!near(k)) out.push(`${name}.${k}: ${b[k]} (Aurora ${want[k]})`);
+    }
     if (DATA_HEIGHT.has(name)) {
       if (b.maxH !== undefined && b.h > b.maxH + 1) out.push(`${name}.h: ${b.h} pasa de su tope ${b.maxH}`);
     } else if (!near('h')) out.push(`${name}.h: ${b.h} (Aurora ${want.h})`);
@@ -138,8 +162,104 @@ for (const size of [
     const e2 = await measure(page);
     expect(e2.navigation, 'E2: la rueda').toEqual({ display: 'none' });
     expect(compare(`E2-cobrar@${w}`, e2, ['navigation', 'navSelected']), 'E2').toEqual([]);
+    // E2 con una tarjeta (la de Aurora es la de una fila del panel; la nuestra, la de una fila de
+    // la vista de un grupo): la tarjeta en su sitio, con su letra y su color.
+    await panel(page).locator('.doc-list button.doc').first().click();
+    await settled(page);
+    await panel(page).locator('.doc-list button.doc').first().click();
+    await expect(panel(page).locator('.detail')).toBeVisible();
+    expect(compare(`E2-cobrar-tarjeta@${w}`, await measure(page), ['navigation', 'navSelected']), 'E2 con tarjeta').toEqual([]);
+
+    // Documentos: todo, una carpeta abierta (la categoria de los clientes, tres como en Aurora) y la
+    // hoja de un documento suyo.
+    await page.locator('button.aurora').click();
+    await openEntry(page, 'documents', 'es');
+    await landed(page);
+    expect(compare(`E6@${w}`, await measure(page), [], 'brand'), 'E6').toEqual([]);
+    await treeItem(page, TEXTS.es.documents.clients).first().click();
+    await treeItem(page, 'Demo Havenbedrijf BV').first().click();
+    await expect(page.locator('.ws-profile')).toBeVisible();
+    expect(compare(`E6-carpeta@${w}`, await measure(page), [], 'brand'), 'E6 con una carpeta').toEqual([]);
+    await page.locator('.ws-profile .ws-file-table > a').first().click();
+    await expect(sheetDialog(page)).toBeVisible();
+    // De la hoja, el dialogo (lo de detras ya esta en E6 con una carpeta).
+    const sheet = await measure(page);
+    expect(compare(`E6-h@${w}`, sheet, ['companion', 'wsTitle', 'wsGrid', 'wsSidebar', 'wsProfile'], 'brand'), 'E6-h').toEqual([]);
   });
 }
+
+/** Lo que se desplaza el panel (o el dialogo) dentro de si. */
+const overflow = (page: Page, selector: string) => page.locator(selector).evaluate((el) => el.scrollHeight - el.clientHeight);
+
+for (const size of [
+  { width: 1440, height: 900, limit: 53 },
+  { width: 400, height: 860, limit: 213 },
+] as const) {
+  test(`los paneles casi no se desplazan a ${size.width} px: en reposo, en cada vista de grupo e importar (§6.1)`, async ({ page, baseUrl }) => {
+    test.setTimeout(300_000);
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    const t = TEXTS.nl;
+    const groups: Record<'settings' | 'home' | 'receivables' | 'payables' | 'vat', string[]> = {
+      settings: [t.aurora.settings.language, t.aurora.settings.theme, t.aurora.settings.system],
+      home: [t.aurora.home.first, t.nav['work-queue'].label, t.nav.exceptions.label, t.aurora.home.iban, t.nav['cash-flow'].label],
+      receivables: [t.aurora.money.proposals, t.aurora.money.unmatched, t.money.ageing.title],
+      payables: [t.aurora.money.proposals, t.aurora.money.unmatched, t.aurora.money.week, t.money.week.held, t.money.ageing.title],
+      vat: [t.aurora.vat.older],
+    };
+    const seen: string[] = [];
+    const over: string[] = [];
+    const check = async (what: string) => {
+      await settled(page);
+      const px = await overflow(page, 'aside.panel');
+      seen.push(`${what} ${px}`);
+      if (px > size.limit) over.push(`${what}: ${px} px`);
+    };
+    for (const [entry, labels] of Object.entries(groups) as [keyof typeof groups, string[]][]) {
+      await openEntry(page, entry);
+      await check(entry);
+      for (const label of labels) {
+        if (!(await panelRow(page, label).count())) continue;
+        // Las vistas de Ajustes se quedan con el titulo del panel; las demas llevan el del grupo.
+        if (entry === 'settings') await panelRow(page, label).click();
+        else await openGroup(page, label);
+        await check(`${entry} > ${label}`);
+        await page.keyboard.press('Escape');
+      }
+    }
+    // Importar sin fichero, dentro de Te ontvangen.
+    await openEntry(page, 'receivables');
+    await panel(page).getByRole('button', { name: t.aurora.money.import }).click();
+    await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText(t.nav.import.label);
+    await check('importeren');
+    console.log(`desplazamiento de los paneles a ${size.width} px: ${seen.join(' · ')}`);
+    expect(over, `paneles que se desplazan mas de ${size.limit} px`).toEqual([]);
+  });
+}
+
+test('el dialogo de cada factura: cuanto se desplaza a 1440 × 900 (§6.1)', async ({ page, baseUrl, request }) => {
+  test.setTimeout(600_000);
+  const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
+  const invoices = ((await response.json()) as { facturas: InvoiceRow[] }).facturas.filter((f) => f.numero);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  const seen: { number: string; rows: number; px: number }[] = [];
+  const nth = new Map<string, number>();
+  for (const f of invoices) {
+    const number = f.numero!;
+    const n = nth.get(number) ?? 0;
+    nth.set(number, n + 1);
+    const sheet = await openInvoice(page, number, { nth: n });
+    seen.push({ number, rows: await sheet.locator('.ws-file-table > a').count(), px: await overflow(page, 'dialog.ws-dialog[open]') });
+  }
+  seen.sort((a, b) => b.px - a.px);
+  // Para el registro: la peor y el reparto.
+  console.log(`dialogo de factura a 1440 px: ${seen.map((s) => `${s.number} (${s.rows} filas) ${s.px}`).join(' · ')}`);
+  expect(seen.length).toBe(invoices.length);
+  // Con cuatro filas o menos (lo de una factura sin mucho que mirar), dentro del limite de Aurora.
+  expect(seen.filter((s) => s.rows <= 4 && s.px > 300).map((s) => `${s.number}: ${s.px} px`)).toEqual([]);
+});
 
 /** Una curva medida en cada cuadro: [t en ms, valor]. */
 type Series = [number, number][];

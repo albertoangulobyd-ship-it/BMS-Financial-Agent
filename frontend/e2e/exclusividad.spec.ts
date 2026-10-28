@@ -6,10 +6,28 @@
 // display y visibility, una opacidad efectiva (la de todos sus padres) por encima de 0,05, con
 // tamano y dentro de la ventana. La pantalla que se va (el fundido de 0,18 s de Root) no cuenta,
 // pero no recibe clics. Y con un panel abierto, la rueda escondida no manda: ni la rueda del
-// raton ni las flechas cambian la entrada activa.
+// raton ni las flechas cambian la entrada activa. Los paneles por dentro (una vista de grupo, una
+// tarjeta, una orden abierta e importar), la busqueda con filtros que abre un panel (E5-p) y la
+// hoja de una factura con una orden abierta (E6-h, E6-o) cuentan como su pantalla.
 import type { Page } from '@playwright/test';
 import { expect, login, settled, test } from './fixtures';
-import { TEXTS, app, entryButton, landed, openEntry, openMenu, openSettingsRow, panel, panelRow, toHome } from './nav';
+import {
+  TEXTS,
+  app,
+  closeSheet,
+  entryButton,
+  landed,
+  openCard,
+  openEntry,
+  openGroup,
+  openMenu,
+  openSettingsRow,
+  openSheetRow,
+  panel,
+  panelRow,
+  sheetDialog,
+  toHome,
+} from './nav';
 
 const t = TEXTS.nl;
 
@@ -167,10 +185,42 @@ for (const width of [1440, 1151, 1150, 1024, 400] as const) {
     await expectRuleWhile(page, 'Documenten → E0', () => page.locator('a.ws-home').click(), 1600);
     await landed(page);
     await expectRule(page, 'E0 tras Documenten', { menu: false });
-    await openEntry(page, 'payables');
-    await expectRuleWhile(page, 'E2 → werkscherm', () => panelRow(page, t.nav['invoices-in'].label).click(), 1600);
+
+    // E2 por dentro: una vista de grupo, una tarjeta con una orden abierta, e importar.
+    await openEntry(page, 'home');
+    await openGroup(page, t.nav.exceptions.label);
+    await expectRule(page, 'E2-I vista de grupo', { menu: false, screen: 'panel' });
+    const exception = await openCard(page, panel(page).locator('.doc-list button.doc').first());
+    await expectRule(page, 'E2-I tarjeta', { menu: false, screen: 'panel' });
+    await exception.getByRole('button', { name: t.exceptions.resolve, exact: true }).first().click();
+    await expect(exception.locator('.order-form')).toBeVisible();
+    await expectRule(page, 'E2-I orden', { menu: false, screen: 'panel' });
+    await exception.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
+    await openEntry(page, 'receivables');
+    await panel(page).getByRole('button', { name: t.aurora.money.import }).click();
+    await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText(t.nav.import.label);
+    await expectRule(page, 'E2-C importar', { menu: false, screen: 'panel' });
+
+    // E5-p: «Vervallen» abre la busqueda con sus filtros (el panel se cierra en el mismo cambio).
+    await openEntry(page, 'receivables');
+    await expectRuleWhile(page, 'E2-C → E5-p', () => panelRow(page, t.aurora.money.overdue).click(), 1600);
+    await expect(page.locator('.active-filter-chips')).toBeVisible();
+    await expectRule(page, 'E5-p', { menu: false, screen: 'search' });
+
+    // E6-h y E6-o: «Factuur openen» de una tarjeta (con el vuelo) y una orden dentro de la hoja.
+    await openEntry(page, 'home');
+    await openGroup(page, t.aurora.home.first);
+    const first = await openCard(page, panel(page).locator('.doc-list button.doc').first());
+    await expectRuleWhile(page, 'E2 → E6-h', () => first.getByRole('button', { name: t.aurora.card.openInvoice }).click(), 1600);
     await landed(page);
-    await expectRule(page, 'Inkoopfacturen', { menu: false, screen: 'work' });
+    await expect(sheetDialog(page)).toBeVisible();
+    await expectRule(page, 'E6-h', { menu: false, screen: 'work' });
+    const more = await openSheetRow(page, t.aurora.sheet.more);
+    await more.getByRole('button', { name: t.notes.add, exact: true }).click();
+    await expect(more.locator('.order-form')).toBeVisible();
+    await expectRule(page, 'E6-o', { menu: false, screen: 'work' });
+    await more.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
+    await closeSheet(page);
     await toHome(page);
     await expectRule(page, 'E0 al final', { menu: false });
   });

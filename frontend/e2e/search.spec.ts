@@ -2,15 +2,16 @@
 // llega por la entrada «Zoeken» de la rueda y por «Zoeken met filters» de una respuesta de la
 // conversacion, con lo escrito. La caja busca en /api/v2/buscar tras la espera de Aurora (1,5 s
 // pensando); el filtro de empresa sale en su pastilla con su X, «Filters wissen» los quita y
-// «Opnieuw beginnen» lo quita todo; un resultado abre su factura (con el vuelo del orbe). Cada
-// resultado es lo que dice el motor con los mismos filtros. En los tres idiomas, con axe y sin
-// restos de otro idioma. Mientras se busca, la rueda no esta (la regla del dueno).
+// «Opnieuw beginnen» lo quita todo; un resultado abre la hoja de su factura en Documentos (con el
+// vuelo del orbe). Cada resultado es lo que dice el motor con los mismos filtros. En los tres
+// idiomas, con axe y sin restos de otro idioma. Mientras se busca, la rueda no esta (la regla del
+// dueno).
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { PartyRow } from '../src/lib/api-types';
 import type { Lang } from '../src/i18n/langs';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
-import { TEXTS, auroraRoot, crumbs, entryLabel, fill, landed, openEntry, openMenu, setLang, wheel } from './nav';
+import { TEXTS, auroraRoot, crumbs, escapeRegExp, fill, landed, openEntry, openMenu, setLang, sheetDialog, wheel } from './nav';
 
 const t = TEXTS.nl;
 
@@ -101,15 +102,17 @@ test('la busqueda (E5): lo escrito, el filtro de empresa en su pastilla, limpiar
   await expect(box(page)).toHaveValue('');
   await expect(results(page)).toHaveCount(0);
 
-  // Un resultado abre su factura, en su lista, con el vuelo del orbe.
+  // Un resultado abre su hoja en Documentos (E6-h), en la carpeta de su empresa, con el vuelo del orbe.
   await search(page, 'JV');
   const first = links(page).first();
   const number = ((await first.locator('.result-info strong').textContent()) ?? '').trim();
   await first.click();
   await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'work');
   await landed(page);
-  await expect(page.getByRole('heading', { level: 1, name: new RegExp(`${number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })).toBeVisible();
-  expect(await crumbs(page)).toEqual([entryLabel('payables'), t.nav['invoices-in'].label, number]);
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(number);
+  const trail = await crumbs(page);
+  expect(trail.slice(0, 2)).toEqual([t.nav.documents.label, t.documents.providers]);
+  expect(trail[trail.length - 1]).toMatch(new RegExp(escapeRegExp(number)));
 });
 
 test('«Zoeken met filters» desde la conversacion, con lo escrito; y en ingles y en castellano', async ({ page, baseUrl, request }) => {

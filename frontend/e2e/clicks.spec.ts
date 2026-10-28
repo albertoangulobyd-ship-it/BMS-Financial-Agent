@@ -1,16 +1,18 @@
-// Los clics de cada tarea (revision de Aurora, §5; paso 17: con la rueda de Aurora). Cada tarea
-// empieza en el inicio (E0) y se cuentan los clics de verdad y, aparte, los pasos de la rueda
-// (escribir no es un clic; el boton que abre un dialogo de confirmacion cuenta como "+ dialogo").
-// Cada tarea abre la rueda con Start en el centro, como sale la primera vez en una sesion
-// (despues sale con la ultima entrada que se uso): los clics y los pasos se cuentan desde ahi.
-// Mientras los paneles llevan las pantallas de hoy (paso 17, B1), cada camino pasa por
-// «Druk om te navigeren», la entrada y la fila de su pantalla: los limites de abajo son los de
-// ahora y la prueba falla si un camino crece. Los paneles de especificacion §2.2 (B2) los
-// acortan a lo de la tabla de §2.6. La conversacion (escribir un numero o un nombre) abre una
-// factura con un clic desde el inicio.
+// Los clics de cada tarea (especificacion §2.6, con la rueda de Aurora y los paneles en dos
+// niveles). Cada tarea empieza en el inicio (E0) y se cuentan los clics de verdad y, aparte, los
+// pasos de la rueda (un gesto de la rueda del raton): los dos suman, como en la tabla. Escribir no
+// es un clic. "+ conf." (el "si" de una orden) no se cuenta. Cada tarea abre la rueda con Inicio en
+// el centro, como sale la primera vez en una sesion: ponerla ahi no cuenta. Los limites son los de
+// la tabla (la columna "Clics"): la prueba falla si un camino crece. Y, en cada grupo con mas de
+// cinco filas, la sexta y la ultima se alcanzan escribiendo en el campo .search de su vista, sin
+// ningun clic mas.
 import type { Locator, Page } from '@playwright/test';
-import { expect, login, settled, test } from './fixtures';
-import { TEXTS, app, centre, crumbs, entryButton, landed, panel, panelRow, toHome, viewHeading } from './nav';
+import type { InvoiceRow } from '../src/lib/api';
+import type { AccountRow, ExceptionRow } from '../src/lib/api-types';
+import { accountStep, buildChecks } from '../src/aurora/panels/iban-model';
+import { needsPerson } from '../src/lib/why';
+import { expect, login, settled, test, token } from './fixtures';
+import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, sheetDialog, toHome, treeItem } from './nav';
 
 const t = TEXTS.nl;
 
@@ -19,6 +21,10 @@ class Clicks {
   n = 0;
   steps = 0;
   constructor(private readonly page: Page) {}
+  /** Lo que cuenta la tabla: clics y pasos de la rueda. */
+  get total() {
+    return this.n + this.steps;
+  }
   async click(target: Locator) {
     this.n += 1;
     await target.click();
@@ -40,33 +46,23 @@ class Clicks {
     this.n = 0;
     this.steps = 0;
   }
-  /** «Druk om te navigeren»: la rueda (1 clic), como sale la primera vez en una sesion, con
-   *  Start en el centro (§1.4; despues sale con la ultima que se uso). Ponerla ahi no cuenta. */
+  /** El orbe: la rueda (1 clic), con Inicio en el centro (§1.4). Ponerla ahi no cuenta. */
   async menu() {
-    await this.click(this.page.getByRole('button', { name: t.aurora.home.navigate }));
+    await this.click(this.page.locator('button.aurora'));
     await centre(this.page, 'home');
   }
-  /** Una fila del panel abierto, y su pantalla con el vuelo. */
-  async row(label: string) {
-    await this.click(panelRow(this.page, label));
-    await landed(this.page);
+  /** Una fila del panel abierto (la vista de su grupo, o su tarjeta). */
+  async row(label: string | Locator) {
+    await this.click(typeof label === 'string' ? panelRow(this.page, label) : label);
+    await settled(this.page);
   }
 }
 
-/** Escribe en la caja del inicio e Intro (escribir no es un clic) y espera la respuesta. */
-async function ask(page: Page, text: string): Promise<void> {
-  const box = page.getByRole('textbox', { name: t.aurora.composer.askLabel });
-  await box.fill(text);
-  await box.press('Enter');
-  await expect(page.locator('.conversation')).toBeVisible();
-  await expect(page.locator('.typing-dots')).toHaveCount(0, { timeout: 15_000 });
-}
-
-/** Una fila de la respuesta de la conversacion. */
-const answerRow = (page: Page, name: RegExp) => page.locator('.conversation .chat-rows').getByRole('link', { name }).first();
+const firstRow = (page: Page) => panel(page).locator('.doc-list button.doc').first();
+const card = (page: Page) => panel(page).locator('.detail');
 
 test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ page, baseUrl }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(400_000);
   await page.goto(`${baseUrl}/app`);
   await login(page);
   const c = new Clicks(page);
@@ -75,155 +71,163 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
   await test.step('1 · Qué necesita atención hoy: 2', async () => {
     await c.menu();
     await c.click(entryButton(page, 'home'));
-    await expect(panelRow(page, t.nav['work-queue'].label)).toContainText(t.badges.blocked);
-    expect(c.n).toBeLessThanOrEqual(2);
+    await expect(panel(page).getByTestId('balance')).toContainText(t.aurora.home.attention);
+    await expect(panelRow(page, t.nav['work-queue'].label)).toContainText('geblokkeerd');
+    expect(c.total).toBeLessThanOrEqual(2);
   });
 
-  await test.step('2 · Abrir la factura más urgente: 4', async () => {
-    await c.row(t.aurora.panel.overview);
-    await c.click(page.locator('section[aria-labelledby="next-up"] ol').getByRole('button').first());
-    await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(4);
+  await test.step('2 · Abrir la factura más urgente: 4 (la hoja, 5)', async () => {
+    await c.row(t.aurora.home.first);
+    await c.row(firstRow(page));
+    await expect(card(page)).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(4);
+    await c.click(card(page).getByRole('button', { name: t.aurora.card.openInvoice }));
+    await landed(page);
+    await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(5);
   });
 
-  await test.step('3 y 4 · Lo pendiente por cobrar y por pagar: 3', async () => {
+  await test.step('3 y 4 · Lo pendiente por cobrar y por pagar: 2', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'receivables'));
-    await c.row(t.aurora.panel.overview);
-    await expect(viewHeading(page, 'receivables')).toBeVisible();
-    await expect(page.locator('[data-testid="money-figure"]').first()).toContainText('€');
-    expect(c.n).toBeLessThanOrEqual(3);
+    await expect(panel(page).getByTestId('balance')).toContainText('€');
+    expect(c.total).toBeLessThanOrEqual(2);
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'payables'));
-    await c.row(t.aurora.panel.overview);
-    await expect(page.locator(`[data-testid="money-figure"][data-label="${t.money.thisWeek}"]`)).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
+    await expect(panelRow(page, t.aurora.money.week)).toContainText('€');
+    expect(c.total).toBeLessThanOrEqual(2);
   });
 
-  await test.step('5 y 6 · Las ventas vencidas y una de ellas: 4 y 5', async () => {
+  await test.step('5 y 6 · Las ventas vencidas y una de ellas con sus pagos: 3 y 4', async () => {
     await c.fromHome();
     await c.menu();
-    await c.click(entryButton(page, 'home'));
-    await c.row(t.aurora.panel.overview);
-    await c.click(page.getByRole('button', { name: t.home.overdueOut }));
-    await expect(viewHeading(page, 'invoices-out')).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Welke facturen' }).getByRole('button', { name: /^Vervallen/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(c.n).toBeLessThanOrEqual(4);
-    await c.click(page.getByRole('table').getByRole('row').nth(1).getByRole('button'));
-    await expect(page.getByRole('heading', { level: 2, name: /^Betalingen/ })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(5);
+    await c.click(entryButton(page, 'receivables'));
+    await c.row(t.aurora.money.overdue);
+    await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
+    const results = page.getByRole('region', { name: t.aurora.search.resultsLabel });
+    await expect(results).toContainText('VD26-306');
+    expect(c.total).toBeLessThanOrEqual(3);
+    await c.click(results.getByRole('link').first());
+    await landed(page);
+    await expect(sheetDialog(page).getByTestId('paid-source')).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(4);
   });
 
-  await test.step('7 · El PDF original de una factura: 2 (escribiendo su número)', async () => {
+  await test.step('6 (por la caja) y 7 · Una factura y su PDF original: 1 y 2 + escribir', async () => {
     await c.fromHome();
     await ask(page, 'JV-2026-004');
-    await c.click(answerRow(page, /JV-2026-004/));
+    await c.click(answerRow(page, 'JV-2026-004'));
     await landed(page);
+    await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('JV-2026-004');
+    expect(c.total).toBeLessThanOrEqual(1);
     const download = page.waitForEvent('download');
-    await c.click(page.getByRole('button', { name: 'Origineel', exact: true }));
+    await c.click(sheetDialog(page).getByRole('button', { name: t.aurora.card.downloadOriginal }));
     expect((await download).suggestedFilename()).toBe('JV-2026-004.pdf');
-    expect(c.n).toBeLessThanOrEqual(2);
+    expect(c.total).toBeLessThanOrEqual(2);
   });
 
-  await test.step('8 · Lo pendiente de un cliente y sus facturas: 4', async () => {
+  await test.step('8 y 9 · La ficha de un cliente y la de un proveedor: 3', async () => {
+    for (const name of ['Gemeente Demodorp', 'J. Voorbeeld Beveiliging (zzp)']) {
+      await c.fromHome();
+      await c.menu();
+      await c.click(entryButton(page, 'documents'));
+      await landed(page);
+      await c.click(treeItem(page, name).first());
+      await expect(page.getByRole('region', { name: `Kaart van ${name}`, exact: true })).toBeVisible();
+      expect(c.total).toBeLessThanOrEqual(3);
+    }
+  });
+
+  await test.step('10 · Buscar una factura: 0 + escribir', async () => {
+    await c.fromHome();
+    await ask(page, 'KT-202608');
+    await expect(answerRow(page, 'KT-202608')).toBeVisible();
+    expect(c.total).toBe(0);
+  });
+
+  await test.step('11 · Confirmar un cobro que propuso el banco: 5 + conf.', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'receivables'));
-    await c.row(t.aurora.panel.overview);
-    await c.click(page.getByRole('table', { name: t.money.parties.titleIn }).getByRole('button', { name: /Gemeente Demodorp/ }).first());
-    await expect(page.getByRole('heading', { level: 1, name: 'Gemeente Demodorp' })).toBeVisible();
-    await expect(page.getByRole('main')).toContainText('VD26-306');
-    expect(c.n).toBeLessThanOrEqual(4);
+    await c.row(t.aurora.money.proposals);
+    await c.row(firstRow(page));
+    await c.click(card(page).getByRole('button', { name: t.bank.confirm, exact: true }));
+    await expect(card(page)).toContainText(t.payments.confirmIntro);
+    expect(c.total).toBeLessThanOrEqual(5);
+    await card(page).locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
-  await test.step('9 · Ficha de un proveedor: 4', async () => {
+  await test.step('12 · Anotar un pago ya hecho, con motivo: 3 + escribir (por la caja); 5 por el panel', async () => {
+    await c.fromHome();
+    await ask(page, 'VD26-306');
+    await c.click(answerRow(page, 'VD26-306'));
+    await landed(page);
+    await c.click(sheetDialog(page).locator('.ws-file-table > a').filter({ hasText: t.aurora.sheet.more }));
+    const more = sheetDialog(page).locator('.detail');
+    await c.click(more.getByRole('button', { name: t.payments.record, exact: true }));
+    await expect(more).toContainText('Er wordt niets betaald');
+    await expect(more.getByLabel(t.payments.reasonField)).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(3);
+    await more.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'payables'));
-    await c.row(t.nav.providers.label);
-    await c.click(page.getByRole('table').getByRole('button', { name: /J\. Voorbeeld Beveiliging/ }).first());
-    await expect(page.getByRole('heading', { level: 1, name: 'J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(4);
-  });
-
-  await test.step('10 · Buscar una factura por número o nombre: 0 + escribir', async () => {
-    await c.fromHome();
-    await ask(page, 'KT-202608');
-    await expect(answerRow(page, /KT-202608/)).toBeVisible();
-    expect(c.n).toBe(0);
-  });
-
-  await test.step('11 · Confirmar un cobro que propuso el banco: 4 + diálogo', async () => {
-    await c.fromHome();
-    await c.menu();
-    await c.click(entryButton(page, 'receivables'));
-    await c.row(t.nav['bank-in'].label);
-    await c.click(page.getByRole('article').first().getByRole('button', { name: t.bank.confirm }));
-    await expect(page.getByRole('dialog')).toContainText(t.payments.confirmIntro);
-    expect(c.n).toBeLessThanOrEqual(4);
-    await page.getByRole('dialog').getByRole('button', { name: 'Annuleren' }).click();
-  });
-
-  await test.step('12 · Apuntar un pago ya hecho, con motivo: 2 + diálogo (escribiendo su número)', async () => {
-    await c.fromHome();
-    await ask(page, 'VD26-306');
-    await c.click(answerRow(page, /VD26-306/));
-    await landed(page);
-    await c.click(page.getByRole('button', { name: t.payments.record }));
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText('Er wordt niets betaald');
-    await expect(dialog.getByLabel(t.payments.reasonField)).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(2);
-    await dialog.getByRole('button', { name: 'Annuleren' }).click();
+    await c.row(t.aurora.money.week);
+    await c.row(firstRow(page));
+    await c.click(card(page).getByRole('button', { name: t.payments.record, exact: true }));
+    await expect(card(page).getByLabel(t.payments.reasonField)).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(5);
+    await card(page).locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
   await test.step('13 · Ver las líneas del banco sin casar: 3', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'payables'));
-    await c.row(t.nav['bank-out'].label);
-    await expect(page.getByRole('table', { name: t.bank.unmatchedTitle })).toContainText('Kosten zakelijk betalen');
-    expect(c.n).toBeLessThanOrEqual(3);
+    await c.row(t.aurora.money.unmatched);
+    await expect(panel(page)).toContainText('Kosten zakelijk betalen');
+    expect(c.total).toBeLessThanOrEqual(3);
   });
 
-  await test.step('14 · Verificar un IBAN por teléfono: 3 + diálogo', async () => {
+  await test.step('14 · Verificar un IBAN por teléfono: 5 + conf.', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'home'));
-    await c.row(t.nav['iban-checks'].label);
-    await expect(viewHeading(page, 'iban-checks')).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
-    const call = page.getByRole('button', { name: 'Telefonisch bevestigen' }).first();
+    await c.row(t.aurora.home.iban);
+    await c.row(firstRow(page));
+    const call = card(page).getByRole('button', { name: t.iban.verify, exact: true });
     await expect(call).toBeVisible();
-    await call.click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.getByRole('dialog').getByRole('button', { name: 'Annuleren' }).click();
+    await c.click(call);
+    await expect(card(page).getByLabel(t.iban.typedIban)).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(5);
+    await card(page).locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
-  await test.step('15 · Resolver una excepción: 4 + diálogo', async () => {
+  await test.step('15 · Resolver una excepción: 5 + conf.', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'home'));
     await c.row(t.nav.exceptions.label);
-    await c.click(page.getByRole('button', { name: /^Uitzondering \d+ openen$/ }).first());
-    await page.getByRole('main').getByRole('button', { name: 'Oplossen' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(4);
-    await page.getByRole('dialog').getByRole('button', { name: 'Annuleren' }).click();
+    await c.row(firstRow(page));
+    await c.click(card(page).getByRole('button', { name: t.exceptions.resolve, exact: true }));
+    await expect(card(page).getByLabel(t.exceptions.whatWasDone)).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(5);
+    await card(page).locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
-  await test.step('16 · Marcar una factura como revisada: 2 (escribiendo su número)', async () => {
+  await test.step('16 · Marcar una factura como revisada: 3 + escribir', async () => {
     await c.fromHome();
-    await ask(page, 'JV-2026-004');
-    await c.click(answerRow(page, /JV-2026-004/));
+    await ask(page, 'JV-2026-003');
+    await c.click(answerRow(page, 'JV-2026-003'));
     await landed(page);
-    await expect(page.getByRole('heading', { level: 1, name: /JV-2026-004$/ })).toBeVisible();
-    await c.click(page.getByRole('region', { name: 'Afronden' }).getByRole('button', { name: 'Markeren als gecontroleerd' }));
-    await expect(page.getByRole('dialog')).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(2);
-    await page.getByRole('dialog').getByRole('button', { name: 'Annuleren' }).click();
+    await c.click(sheetDialog(page).locator('.ws-file-table > a').filter({ hasText: t.invoice.reviewStep }));
+    const review = sheetDialog(page).locator('.detail');
+    await c.click(review.getByRole('button', { name: t.invoice.markReviewed, exact: true }));
+    await expect(review).toContainText('Dat keurt geen betaling goed');
+    expect(c.total).toBeLessThanOrEqual(3);
+    await review.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
   await test.step('17 · Flujo de caja: 3', async () => {
@@ -231,50 +235,47 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await c.menu();
     await c.click(entryButton(page, 'home'));
     await c.row(t.nav['cash-flow'].label);
-    await expect(viewHeading(page, 'cash-flow')).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
+    await expect(panel(page).getByTestId('cash-estimate')).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(3);
   });
 
-  await test.step('18 · IVA del trimestre y su hoja: 5 y un paso de rueda', async () => {
+  await test.step('18 · IVA del trimestre y su hoja: 4 (un paso de rueda)', async () => {
     await c.fromHome();
     await c.menu();
     await c.step(120);
     await c.click(entryButton(page, 'vat'));
-    await c.row(t.aurora.panel.overview);
-    await c.click(page.getByRole('table').getByRole('button', { name: /Q3 2026/ }).first());
     const download = page.waitForEvent('download');
-    await c.click(page.getByRole('button', { name: 'Werkblad downloaden' }));
-    expect((await download).suggestedFilename()).toBe('btw-2026-T3.csv');
-    expect(c.n).toBeLessThanOrEqual(5);
+    await c.click(panel(page).getByRole('button', { name: t.aurora.vat.download }));
+    expect((await download).suggestedFilename()).toMatch(/^btw-\d{4}-T\d\.csv$/);
+    expect(c.total).toBeLessThanOrEqual(4);
     expect(c.steps).toBeLessThanOrEqual(1);
   });
 
-  await test.step('19 · Margen de un Object o lo que queda de una PO: 3', async () => {
+  await test.step('19 · Margen de un Object o lo que queda de una PO: 4 por el archivo', async () => {
     await c.fromHome();
     await c.menu();
-    await c.click(entryButton(page, 'receivables'));
-    await c.row(t.nav.objects.label);
-    await expect(page.getByRole('columnheader', { name: 'Marge' })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
-    await c.fromHome();
-    await c.menu();
-    await c.click(entryButton(page, 'receivables'));
-    await c.row(t.nav['client-pos'].label);
-    await expect(page.getByRole('columnheader', { name: 'Over' })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
+    await c.click(entryButton(page, 'documents'));
+    await landed(page);
+    await c.click(treeItem(page, 'Demo Havenbedrijf BV').first());
+    await c.click(page.locator('.ws-profile .ws-file-table > a').filter({ hasText: 'HAVEN-NOORD' }));
+    await expect(sheetDialog(page).getByRole('term').filter({ hasText: t.objects.marginFact })).toHaveCount(1);
+    expect(c.total).toBeLessThanOrEqual(4);
+    await page.keyboard.press('Escape');
+    await c.click(page.locator('.ws-profile .ws-file-table > a').filter({ hasText: 'PO-DEMO-4501' }));
+    await expect(sheetDialog(page).getByRole('term').filter({ hasText: t.pos.left })).toHaveCount(1);
+    await page.keyboard.press('Escape');
   });
 
-  await test.step('20 · Importar un fichero de Exact o del banco: 3 para llegar', async () => {
+  await test.step('20 · Importar un fichero: 3 para llegar', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'receivables'));
-    await c.row(t.nav.import.label);
-    await expect(viewHeading(page, 'import')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Eerst proberen' })).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(3);
+    await c.click(panel(page).getByRole('button', { name: t.aurora.money.import }));
+    await expect(panel(page).locator('.dropzone')).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(3);
   });
 
-  await test.step('21 · Leer PDF (Procesar): 2 para llegar y dos pasos de rueda', async () => {
+  await test.step('21 · Leer PDF (Procesar): dos pasos de rueda y un clic para llegar', async () => {
     await c.fromHome();
     await c.menu();
     await c.step(120);
@@ -283,46 +284,38 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await expect(app(page)).toHaveAttribute('data-active', 'payables');
     await c.click(entryButton(page, 'process'));
     await landed(page);
-    await expect(viewHeading(page, 'read-invoices')).toBeVisible();
-    expect(c.n).toBeLessThanOrEqual(2);
+    expect(c.total).toBeLessThanOrEqual(4);
     expect(c.steps).toBeLessThanOrEqual(2);
   });
 
-  await test.step('22 · Documentos de una empresa y su vista previa: 4', async () => {
+  await test.step('22 · Los documentos de una empresa y su hoja: 4 (2 + escribir por la caja)', async () => {
     await c.fromHome();
     await c.menu();
     await c.click(entryButton(page, 'documents'));
     await landed(page);
-    await c.click(page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }));
-    await expect(page.getByRole('heading', { level: 1, name: 'Documenten van J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
-    expect(await crumbs(page)).toEqual(['Documenten', 'J. Voorbeeld Beveiliging (zzp)']);
-    await c.click(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /^Voorbeeld van Inkoopfactuur / }).first());
-    await expect(page.getByRole('dialog')).toContainText('Inkoopfactuur JV-2026-007');
-    expect(c.n).toBeLessThanOrEqual(4);
+    await c.click(treeItem(page, 'J. Voorbeeld Beveiliging (zzp)').first());
+    await c.click(page.locator('.ws-profile .ws-file-table > a').first());
+    await expect(sheetDialog(page).getByTestId('paper')).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(4);
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toBeHidden();
-  });
-
-  await test.step('22 · …y bajar el original de uno: 4', async () => {
     await c.fromHome();
-    await c.menu();
-    await c.click(entryButton(page, 'documents'));
+    await ask(page, 'Voorbeeld');
+    await c.click(answerRow(page, 'J. Voorbeeld Beveiliging (zzp)').first());
     await landed(page);
-    await c.click(page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }));
-    const download = page.waitForEvent('download');
-    await c.click(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /downloaden$/ }).first());
-    expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
-    expect(c.n).toBeLessThanOrEqual(4);
+    await c.click(page.locator('.ws-profile .ws-file-table > a').first());
+    await expect(sheetDialog(page).getByTestId('paper')).toBeVisible();
+    expect(c.total).toBeLessThanOrEqual(2);
+    await page.keyboard.press('Escape');
   });
 
   await test.step('23 · Hacer una pregunta: 0 (y dice lo que sabe hacer)', async () => {
     await c.fromHome();
     await ask(page, 'Wat moeten we deze week betalen?');
     await expect(page.locator('.conversation')).toContainText(t.aurora.chat.unknown);
-    expect(c.n).toBe(0);
+    expect(c.total).toBe(0);
   });
 
-  await test.step('24 · Cambiar el idioma: 4 y un paso de rueda (Ajustes)', async () => {
+  await test.step('24 · Cambiar el idioma: 5 (un paso de rueda)', async () => {
     await c.fromHome();
     await c.menu();
     await c.step(-120);
@@ -330,14 +323,55 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await c.click(panelRow(page, t.aurora.settings.language));
     await c.click(panelRow(page, 'English'));
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
-    expect(c.n).toBeLessThanOrEqual(4);
+    expect(c.total).toBeLessThanOrEqual(5);
     expect(c.steps).toBeLessThanOrEqual(1);
     await panelRow(page, 'Nederlands').click();
     await expect(page.locator('html')).toHaveAttribute('lang', 'nl');
-    await expect(panel(page)).toBeVisible();
   });
 });
 
-// Lo que llega en un paso siguiente (revision §8.5, Procesar de verdad): al construirlo, quien lo
-// haga cambia fixme por test y escribe el camino, con su objetivo.
-test.fixme('21 · Leer PDF con la confirmación del coste: 2 + confirmación (Procesar de verdad, §8.5)', async () => {});
+test('en un grupo de mas de cinco filas, la sexta y la ultima se alcanzan escribiendo', async ({ page, baseUrl, request }) => {
+  const headers = { 'X-BMS-Token': token('ana') };
+  const get = async <T,>(path: string) => (await (await request.get(`${baseUrl}${path}`, { headers })).json()) as T;
+  const invoices = (await get<{ facturas: InvoiceRow[] }>('/api/v2/facturas')).facturas;
+  const exceptions = (await get<{ excepciones: ExceptionRow[] }>('/api/v2/excepciones')).excepciones;
+  const accounts = (await get<{ cuentas: AccountRow[] }>('/api/v2/cuentas')).cuentas;
+  // Lo que se escribe para llegar a una fila: su numero de factura (Werklijst, Uitzonderingen) o
+  // su IBAN (IBAN te controleren), en el orden en que las pinta su vista.
+  const queue = invoices.filter(needsPerson).map((f) => f.numero ?? '');
+  const byException = exceptions.map((e) => invoices.find((f) => f.id === e.factura_id)?.numero ?? '');
+  const checks = buildChecks(invoices, accounts)
+    .filter((x) => accountStep(x) === 'confirm')
+    .map((x) => x.iban);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  let tried = 0;
+  for (const [group, keys] of [
+    [t.nav['work-queue'].label, queue],
+    [t.nav.exceptions.label, byException],
+    [t.aurora.home.iban, checks],
+  ] as const) {
+    if (keys.length <= 5) continue;
+    tried += 1;
+    await toHome(page);
+    await page.locator('button.aurora').click();
+    await centre(page, 'home');
+    await entryButton(page, 'home').click();
+    await panelRow(page, group).click();
+    // Cinco a la vista y "En nog N".
+    await expect(panel(page).locator('.doc-list button.doc')).toHaveCount(5);
+    await expect(panel(page).locator('.doc-list .empty')).toBeVisible();
+    const search = panel(page).getByRole('textbox', { name: t.aurora.panel.searchPlaceholder });
+    for (const key of [keys[5]!, keys[keys.length - 1]!].filter(Boolean)) {
+      // Escribir no es un clic: la fila sale entre las que encajan.
+      await search.fill(key);
+      const shown = panel(page).locator('.doc-list button.doc');
+      await expect(shown.first()).toBeVisible();
+      expect(await shown.count()).toBeGreaterThan(0);
+      await expect(panel(page).locator('.doc-list')).toContainText(group === t.aurora.home.iban ? /NL/ : key);
+      await search.fill('');
+    }
+  }
+  // La base de prueba tiene grupos de mas de cinco (la cola, las excepciones): no es una prueba vacia.
+  expect(tried).toBeGreaterThan(0);
+});

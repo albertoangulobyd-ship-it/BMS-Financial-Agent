@@ -2,57 +2,66 @@
 // - el oscuro de Aurora por defecto aunque Windows este en claro; el claro y "Volg Windows"
 //   se eligen en Ajustes > Thema y se guardan por persona, como el idioma; "Volg Windows"
 //   cambia en vivo;
-// - cada pantalla en claro en los tres idiomas y en oscuro en castellano (los tres idiomas en
-//   oscuro ya los recorre shell.spec.ts): axe sin nada serio, cada pastilla a 4,5:1, ningun
-//   resto de otro idioma y un orbe como mucho;
+// - cada sitio (cada panel en reposo y cada vista de grupo, la busqueda, Documentos y Procesar)
+//   en claro en los tres idiomas y en oscuro en castellano (los tres idiomas en oscuro ya los
+//   recorre shell.spec.ts): axe sin nada serio, ningun resto de otro idioma y un orbe como mucho;
+//   y las fichas (las carpetas de Documentos, las hojas de un Object, una PO y una factura, la
+//   tarjeta de un trimestre y la de una excepcion) en claro;
 // - el orbe (la SiriWave de Aurora): se mueve al ritmo de la pantalla, como en Aurora, tambien
 //   con "menos movimiento"; se para con la ventana oculta o fuera de la vista y sigue al volver;
 //   lo que cuesta al hilo principal se anota (especificacion §6.6 y §7, punto 1); sin WebGL, el
 //   degradado fijo.
-// Capturas en CAPTURAS_DIR/dark y CAPTURAS_DIR/light como <idioma>-<pantalla>.png.
+// Capturas en CAPTURAS_DIR/dark y CAPTURAS_DIR/light como <idioma>-<sitio>.png.
 import type { Page } from '@playwright/test';
+import type { InvoiceRow } from '../src/lib/api';
 import type { Lang } from '../src/i18n/langs';
-import { VIEW_IDS, type ViewId } from '../src/screens/sections';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
 import {
-  capture,
-  expect,
-  expectAccessible,
-  expectNoLeftovers,
-  login,
-  settled,
-  test,
-  type Who,
-} from './fixtures';
-import { TEXTS, chooseTheme, escapeRegExp, go, panelRow, setLang, signOut } from './nav';
+  TEXTS,
+  chooseTheme,
+  openCard,
+  openDocuments,
+  openEntry,
+  openFolder,
+  openGroup,
+  openInvoice,
+  openSheetRow,
+  panel,
+  panelRow,
+  profileRow,
+  setLang,
+  sheetDialog,
+  signOut,
+  tourAll,
+} from './nav';
 
 async function signIn(page: Page, baseUrl: string, who: Who = 'ana') {
   await page.goto(`${baseUrl}/app`);
   await login(page, who);
 }
 
-/** Lo que la pantalla tarda en cargar: ningun "Cargando..." en lo que se ve. */
-async function loaded(page: Page) {
-  await expect(page.locator('#contenido [role="status"] .animate-spin')).toHaveCount(0);
-}
-
-/** Un orbe como mucho por pantalla: el grande del inicio o el pequeno de la esquina. */
+/** Un orbe como mucho a la vista: el de Aurora (la onda o las particulas de Procesar) o el
+ *  companero de Documentos. */
 async function atMostOneOrb(page: Page, what: string) {
-  expect(await page.locator('.aurora-shared canvas, .ws-companion canvas').count(), `orbes en ${what}`).toBeLessThanOrEqual(1);
+  const shown = await page.locator('button.aurora canvas, .ws-companion canvas').evaluateAll((els) =>
+    els.filter((el) => {
+      const r = el.getBoundingClientRect();
+      const visible = getComputedStyle(el).visibility !== 'hidden';
+      return visible && r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+    }).length
+  );
+  expect(shown, `orbes en ${what}`).toBeLessThanOrEqual(1);
 }
 
-/** Cada vista de cada entrada (y Ajustes), en un idioma, en el tema que este puesto. */
+/** Cada sitio de la app, en un idioma, en el tema que este puesto. */
 async function tour(page: Page, lang: Lang, theme: string) {
-  for (const view of VIEW_IDS) {
-    const what = `${lang} ${theme} ${view}`;
-    await go(page, view, lang);
-    await loaded(page);
-    if (view === 'home') await expect(page.getByTestId('summary-card').first()).toBeVisible();
-    if (view === 'work-queue') await expect(page.getByRole('table')).toBeVisible();
+  await tourAll(page, lang, async (where) => {
+    const what = `${lang} ${theme} ${where}`;
     await expectAccessible(page, what);
     await expectNoLeftovers(page, lang, what);
     await atMostOneOrb(page, what);
-    await capture(page, `${lang}-${view}`);
-  }
+    await capture(page, `${lang}-${where.replace(/[^\p{L}\d-]+/gu, '-').toLowerCase()}`);
+  });
 }
 
 test('oscuro por defecto; claro y "Volg Windows" se eligen y se guardan por persona', async ({ page, baseUrl }) => {
@@ -132,61 +141,68 @@ test('cada pantalla en oscuro: es', async ({ page, baseUrl }) => {
   await tour(page, 'es', 'oscuro');
 });
 
-test('las fichas en claro, y una factura en castellano en los dos temas', async ({ page, baseUrl }) => {
+test('las fichas en claro, y una factura en castellano en los dos temas', async ({ page, baseUrl, request }) => {
   test.setTimeout(300_000);
+  // Una factura bloqueada con un numero que no se repite: la que se abre al final.
+  const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
+  const invoices = ((await response.json()) as { facturas: InvoiceRow[] }).facturas;
+  const blocked = invoices.find((f) => f.nivel === 'bloqueada' && f.numero && invoices.filter((g) => g.numero === f.numero).length === 1)!;
+  expect(blocked, 'la base de prueba lleva una factura bloqueada').toBeTruthy();
+  const number = blocked.numero!;
+  const t = TEXTS.nl;
   await signIn(page, baseUrl);
   await chooseTheme(page, 'light');
-  const open = async (view: ViewId, row: RegExp, heading: string | RegExp, name: string) => {
-    await go(page, view);
-    await page.getByRole('table').getByRole('button', { name: row }).first().click();
-    await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-    await loaded(page);
+  const check = async (name: string) => {
+    await settled(page);
     await expectAccessible(page, `claro ${name}`);
     await expectNoLeftovers(page, 'nl', `claro ${name}`);
     await capture(page, `nl-${name}`);
   };
-  await open('providers', /J\. Voorbeeld Beveiliging/, 'J. Voorbeeld Beveiliging (zzp)', 'provider');
-  await open('clients', /Demo Havenbedrijf/, 'Demo Havenbedrijf BV', 'client');
-  await open('objects', /HAVEN-NOORD/, 'Haventerrein Demo-Noord', 'object');
-  await open('client-pos', /PO-DEMO-4501/, 'PO-DEMO-4501', 'purchase-order');
-  await open('vat', /Q3 2026/, 'Btw Q3 2026', 'vat-quarter');
-  await open('exceptions', /^Uitzondering \d+ openen$/, /./, 'exception');
-  // Una carpeta de Documenten, con sus documentos.
-  await go(page, 'documents');
-  await page.getByRole('button', { name: /^J\. Voorbeeld Beveiliging \(zzp\) openen/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Documenten van J. Voorbeeld Beveiliging (zzp)' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)' }).getByRole('button', { name: /^Voorbeeld van / }).first()).toBeVisible();
-  await expectAccessible(page, 'claro documenten van een leverancier');
-  await capture(page, 'nl-provider-documents');
+  // Las carpetas de Documentos: un proveedor (con sus documentos) y un cliente (con sus Objects y
+  // sus PO); la hoja de un Object y la de una PO.
+  await openDocuments(page);
+  await openFolder(page, 'J. Voorbeeld Beveiliging (zzp)', 'provider');
+  await expect(profileRow(page, /JV-\d{4}-\d{3}/).first()).toBeVisible();
+  await check('provider');
+  await openFolder(page, 'Demo Havenbedrijf BV', 'client');
+  await check('client');
+  for (const [row, name] of [
+    [`${t.records.object.label} HAVEN-NOORD`, 'object'],
+    [`${t.records['purchase-order'].label} PO-DEMO-4501`, 'purchase-order'],
+  ] as const) {
+    await profileRow(page, row).first().click();
+    await expect(sheetDialog(page).getByTestId('paper')).toBeVisible();
+    await check(name);
+    await page.keyboard.press('Escape');
+    await expect(sheetDialog(page)).toHaveCount(0);
+  }
+  // La tarjeta de un trimestre del IVA y la de una excepcion.
+  await openEntry(page, 'vat');
+  await openCard(page, panelRow(page, 'Q3 2026'));
+  await check('vat-quarter');
+  await openEntry(page, 'home');
+  await openGroup(page, t.nav.exceptions.label);
+  await openCard(page, panel(page).locator('.doc-list button.doc').first());
+  await check('exception');
 
-  // Una factura bloqueada, con su veredicto, sus avisos y sus campos abiertos.
-  await go(page, 'work-queue');
-  await page.getByRole('table').getByRole('row').filter({ hasText: 'Geblokkeerd' }).first().getByRole('button').first().click();
-  await expect(page.getByRole('heading', { level: 1, name: /^Factuur / })).toBeVisible();
-  await loaded(page);
-  await page.getByRole('button', { name: /^Velden/ }).click();
-  await expectAccessible(page, 'claro factuur');
-  await capture(page, 'nl-invoice');
-  const number = ((await page.getByRole('heading', { level: 1 }).textContent()) ?? '').replace(/^Factuur /, '').trim();
-  // El idioma y el tema estan en Ajustes (paso 17): se vuelve a la factura despues.
-  const reopen = async () => {
-    await go(page, 'invoices-in', 'es');
-    await page.getByRole('searchbox').fill(number);
-    await page.getByRole('table').getByRole('button', { name: new RegExp(escapeRegExp(number)) }).first().click();
-    await expect(page.getByRole('heading', { level: 1, name: new RegExp(`^Factura .*${escapeRegExp(number)}$`) })).toBeVisible();
-    await loaded(page);
-    await page.getByRole('button', { name: /^Campos/ }).click();
-  };
+  // Una factura bloqueada, con su veredicto, sus avisos y lo leido abierto.
+  await openInvoice(page, number);
+  await openSheetRow(page, t.aurora.sheet.read);
+  await check('invoice');
+  // En castellano, en claro y en oscuro (el idioma y el tema estan en Ajustes: se vuelve a abrir).
   await setLang(page, 'es');
-  await reopen();
-  // El tipo de factura es texto de dominio: desde que llego es.json, tambien en castellano.
-  await expect(page.getByRole('heading', { level: 2, name: 'Campos' })).toBeVisible();
+  await openInvoice(page, number, { lang: 'es' });
+  await openSheetRow(page, TEXTS.es.aurora.sheet.read);
+  await settled(page);
   await expectAccessible(page, 'claro factura en castellano');
   await expectNoLeftovers(page, 'es', 'claro factura');
   await capture(page, 'es-invoice');
   await chooseTheme(page, 'dark', 'es');
-  await reopen();
+  await openInvoice(page, number, { lang: 'es' });
+  await openSheetRow(page, TEXTS.es.aurora.sheet.read);
+  await settled(page);
   await expectAccessible(page, 'oscuro factura en castellano');
+  await expectNoLeftovers(page, 'es', 'oscuro factura');
   await capture(page, 'es-invoice');
 });
 

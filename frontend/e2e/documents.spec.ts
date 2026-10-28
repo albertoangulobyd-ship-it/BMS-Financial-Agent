@@ -1,75 +1,63 @@
-// Documentos con datos de verdad (paso 16, revision §8.5): el archivo de Aurora sobre la base
-// de prueba. Cada interaccion de las filas de Documentos de la revision (§1b, 36 a 48) hace lo
-// que dice: las migas, "Volver" y el orbe; el arbol con el raton y con el teclado; la carpeta
-// de cristal y "Abrir ficha"; la hoja del abanico; la ficha de verdad; el saldo; la fila y su
-// vista previa dibujada desde el registro; cerrarla con la X, Escape o un clic fuera;
-// "Descargar el original" (el PDF de verdad); sin "Agregar muestra"; la pista de los 12 s,
-// ahora el texto del buscador; el buscador y las pestanas. Y las doce primeras con "Ver todas",
-// los vacios y un error con su reintento. Las capturas, en los tres idiomas y los dos temas.
+// Documentos de Aurora con datos de verdad (paso 17, especificacion §2.3 y D-37…D-45): el vuelo
+// del orbe a la esquina y de vuelta; el companero de la esquina (un solo orbe); el antetitulo, el
+// titulo y la linea de Aurora; el arbol "Verkennen" con el raton y con el teclado; la rejilla de
+// carpetas de cristal con las 12 que piden atencion (las demas, en el arbol, y lo dice el pie); la
+// prioridad en la carpeta y su pie (el importe o "Bij", y "Kaart openen"); la ficha debajo de la
+// rejilla, con sus documentos, sus Objects y sus PO; la hoja en el <dialog> (dibujada desde el
+// registro), que se cierra con la ✕, Escape o un clic fuera; "Origineel downloaden" (el PDF de
+// verdad, que queda en la auditoria); un error con su reintento. Capturas en los tres idiomas y
+// los dos temas, y en el movil.
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Download, Page } from '@playwright/test';
+import type { PartyRow } from '../src/lib/api-types';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token } from './fixtures';
-import { TEXTS, back, chooseTheme, crumbs, escapeRegExp, fill, go, greeting, setLang, viewHeading } from './nav';
+import {
+  TEXTS,
+  auroraRoot,
+  chooseTheme,
+  crumbs,
+  entryButton,
+  escapeRegExp,
+  euro,
+  fill,
+  folderCell,
+  folderProfile,
+  greeting,
+  landed,
+  openDocuments,
+  openFolder,
+  openMenu,
+  profileRow,
+  setLang,
+  sheetDialog,
+  treeItem,
+} from './nav';
 
 const t = TEXTS.nl;
+const a = t.aurora.archive;
+const JV = 'J. Voorbeeld Beveiliging (zzp)';
+const HAVEN = 'Demo Havenbedrijf BV';
 
-interface Row {
-  id: number;
-  nombre: string;
-  pendiente_cent: number;
-  /** Contrato 2.4: la cifra de la cartera, la que dice la carpeta (revision del paso 16). */
-  deuda_cent: number;
-  vencido_cent: number;
-  nivel: string;
-  documentos?: number;
-}
-
-/** Un importe como lo escribe la app (format.ts): euro, espacio que no se parte y notacion
- *  neerlandesa. */
-function euro(cents: number): string {
-  const abs = Math.abs(cents);
-  const units = Math.floor(abs / 100).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `€\u00a0${cents < 0 ? '−' : ''}${units},${String(abs % 100).padStart(2, '0')}`;
-}
-
-/** Las carpetas como las pide la revision: lo vencido, luego lo pendiente, luego el orden de
- *  la API. */
-function expectedOrder(clients: Row[], providers: Row[]): string[] {
-  return [...clients, ...providers]
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => b.row.vencido_cent - a.row.vencido_cent || Math.max(0, b.row.deuda_cent) - Math.max(0, a.row.deuda_cent) || a.index - b.index)
-    .map((x) => x.row.nombre);
-}
-
-async function lists(request: APIRequestContext, baseUrl: string): Promise<{ clients: Row[]; providers: Row[] }> {
+async function lists(request: APIRequestContext, baseUrl: string): Promise<{ clients: PartyRow[]; providers: PartyRow[] }> {
   const headers = { 'X-BMS-Token': token('ana') };
-  const clients = ((await (await request.get(`${baseUrl}/api/v2/clientes`, { headers })).json()) as { clientes: Row[] }).clientes;
-  const providers = ((await (await request.get(`${baseUrl}/api/v2/proveedores`, { headers })).json()) as { proveedores: Row[] }).proveedores;
+  const clients = ((await (await request.get(`${baseUrl}/api/v2/clientes`, { headers })).json()) as { clientes: PartyRow[] }).clientes;
+  const providers = ((await (await request.get(`${baseUrl}/api/v2/proveedores`, { headers })).json()) as { proveedores: PartyRow[] }).proveedores;
   return { clients, providers };
 }
 
-const grid = (page: Page, label = t.documents.tabAll) => page.getByRole('list', { name: label, exact: true });
-const folderNames = async (page: Page, label?: string) =>
-  grid(page, label).locator(':scope > [role="listitem"]').evaluateAll((cells) => cells.map((c) => c.getAttribute('aria-label') ?? ''));
-/** La carpeta de cristal (su boton: abrir o cerrar). */
-const folder = (page: Page, name: string) => page.getByRole('button', { name: new RegExp(`^${escapeRegExp(name)} (openen|sluiten)`) });
-const profile = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
-const preview = (page: Page) => page.getByRole('dialog');
+/** Las carpetas en el orden de la atencion: lo vencido, luego lo pendiente, luego la API. */
+function byAttention(clients: PartyRow[], providers: PartyRow[]): string[] {
+  return [...clients, ...providers]
+    .map((row, index) => ({ row, index }))
+    .sort((x, y) => Math.max(0, y.row.vencido_cent) - Math.max(0, x.row.vencido_cent) || Math.max(0, y.row.deuda_cent) - Math.max(0, x.row.deuda_cent) || x.index - y.index)
+    .map((x) => x.row.nombre);
+}
+
+const folderNames = (page: Page) => page.locator('.ws-grid [data-testid="folder-cell"] .gf-title').allTextContents();
 
 /** Las carpetas pintadas del todo (su dorso se calcula por partes): para las capturas. */
 async function artReady(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => Array.from(document.querySelectorAll('canvas.gf-art')).every((c) => c.hasAttribute('data-ready')),
-    undefined,
-    { timeout: 30_000 }
-  );
-  await settled(page);
-}
-
-async function openFolder(page: Page, name: string): Promise<void> {
-  await folder(page, name).click();
-  await expect(page.getByRole('heading', { level: 1, name: fill(t.documents.folderOf, { name }) })).toBeVisible();
-  await expect(profile(page, name)).toBeVisible();
+  await page.waitForFunction(() => Array.from(document.querySelectorAll('canvas.gf-art')).every((c) => c.hasAttribute('data-ready')), undefined, { timeout: 30_000 });
   await settled(page);
 }
 
@@ -77,236 +65,177 @@ async function pdfOf(download: Download): Promise<string> {
   return readFileSync((await download.path())!).subarray(0, 5).toString('latin1');
 }
 
-test('el archivo: carpetas en su orden, pestanas, buscador y la ficha de verdad', async ({ page, baseUrl, request }) => {
+test('el archivo de Aurora: el vuelo, el companero, el arbol, las doce carpetas y la ficha de verdad', async ({ page, baseUrl, request }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
   const { clients, providers } = await lists(request, baseUrl);
-  await go(page, 'documents');
-  await expect(page.getByText(t.documents.eyebrow, { exact: true })).toBeVisible();
-  // Ninguna muestra que anadir, ningun dato inventado.
+  // El vuelo del orbe a la esquina (D-45).
+  await openMenu(page);
+  await entryButton(page, 'documents').focus();
+  await settled(page);
+  await entryButton(page, 'documents').click();
+  await expect(page.locator('.aurora-route-flight')).toHaveCount(1);
+  await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'work');
+  await landed(page);
+  // Un solo orbe: el companero de la esquina (D-37); antetitulo, titulo y linea de Aurora (D-38).
+  await expect(page.locator('.ws-companion canvas')).toHaveCount(1);
+  await expect(page.getByText(t.documents.eyebrow.toLocaleUpperCase(), { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(a.title);
+  await expect(page.getByText(a.intro, { exact: true })).toBeVisible();
+  // Ni pestanas ni buscador ni muestras que anadir (D-39): las categorias van por el arbol.
+  await expect(page.getByRole('group', { name: t.documents.tabsLabel })).toHaveCount(0);
+  await expect(page.getByRole('searchbox')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /muestra|monster|sample/i })).toHaveCount(0);
-
-  // Una carpeta por cliente y por proveedor, en el orden de lo que pide atencion; la cuenta de
-  // cada pestana.
-  const tabs = page.getByRole('group', { name: t.documents.tabsLabel });
-  await expect(tabs.getByRole('button', { name: `${t.documents.tabAll} ${clients.length + providers.length}` })).toHaveAttribute('aria-pressed', 'true');
-  expect(await folderNames(page)).toEqual(expectedOrder(clients, providers));
-  // Debajo de cada carpeta, lo pendiente en euros o "Niets openstaand"; encima, la prioridad
-  // solo cuando pide algo.
-  const jv = providers.find((p) => p.nombre.startsWith('J. Voorbeeld'))!;
-  const jvCell = grid(page).getByRole('listitem', { name: jv.nombre, exact: true });
-  await expect(jvCell).toContainText(fill(t.documents.outstanding, { amount: euro(jv.deuda_cent) }));
-  for (const party of [...clients, ...providers]) {
-    const cell = grid(page).getByRole('listitem', { name: party.nombre, exact: true });
-    await expect(cell.locator('[data-slot="status"]')).toHaveCount(party.nivel === 'normal' ? 0 : 1);
-    if (party.deuda_cent === 0) await expect(cell).toContainText(t.documents.nothingOpen);
-    else await expect(cell).toContainText(fill(t.documents.outstanding, { amount: euro(party.deuda_cent) }));
-  }
-  await expectAccessible(page, 'documenten');
-  await expectNoLeftovers(page, 'nl', 'documenten');
-
-  // Las pestanas.
-  await tabs.getByRole('button', { name: new RegExp(`^${t.documents.clients}`) }).click();
-  expect(await folderNames(page, t.documents.clients)).toEqual(expectedOrder(clients, []));
-  await tabs.getByRole('button', { name: new RegExp(`^${t.documents.providers}`) }).click();
-  expect(await folderNames(page, t.documents.providers)).toEqual(expectedOrder([], providers));
-  await tabs.getByRole('button', { name: new RegExp(`^${t.documents.tabAll}`) }).click();
-
-  // El buscador (la pista de los 12 s del prototipo es ahora su texto): nombre o codigo, sin
-  // mayusculas; nada que coincida lo dice y se limpia con un clic.
-  const search = page.getByRole('searchbox', { name: t.documents.searchLabel });
-  await expect(search).toHaveAttribute('placeholder', t.documents.search);
-  await search.fill('PROEF');
-  expect(await folderNames(page)).toEqual(['Proefwacht Security VOF']);
-  await search.fill('zzzz');
-  await expect(page.getByRole('heading', { name: t.documents.noMatch })).toBeVisible();
-  await page.getByRole('button', { name: t.documents.clearSearch }).click();
-  await expect(search).toHaveValue('');
-  expect((await folderNames(page)).length).toBe(clients.length + providers.length);
-
-  // Pasar por encima de una carpeta lee sus documentos: asoman las hojas (cerrada, no se
-  // pueden pulsar).
-  await folder(page, jv.nombre).hover();
-  const sheets = page.getByRole('list', { name: fill(t.aurora.folder.filesOf, { name: jv.nombre }) });
-  await expect(sheets.locator('[role="listitem"]')).toHaveCount(Math.min(4, jv.documentos ?? 0));
-
-  // La carpeta de cristal abre la carpeta: migas, la ficha de solo lectura arriba (sin
-  // desplazar) y sus documentos al lado.
-  await openFolder(page, jv.nombre);
-  expect(await crumbs(page)).toEqual([t.nav.documents.label, jv.nombre]);
-  await expect(folder(page, jv.nombre)).toHaveAttribute('aria-expanded', 'true');
-  const card = profile(page, jv.nombre);
-  await expect(card).toBeInViewport();
-  await expect(card).toContainText(t.documents.profileProvider);
-  for (const label of [t.documents.exactCode, t.documents.btwId, t.documents.kvk, t.parties.paymentTerm, t.parties.outstanding, t.parties.overdueColumn, t.documents.paysProvider, t.columns.priority, t.documents.account, t.documents.phone]) {
-    await expect(card.getByRole('term').filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })).toHaveCount(1);
-  }
-  await expect(card).toContainText('30002');
-  await expect(card).toContainText('NL999000102B01');
-  // El IBAN del registro con su estado y el telefono de los maestros; solo se mira: se verifica
-  // en IBAN-controles.
-  await expect(card).toContainText(/NL\d\dDEMO\d{10}/);
-  await expect(card.getByRole('definition').filter({ hasText: /NL\d\dDEMO/ }).locator('[data-slot="status"]').first()).toBeVisible();
-  await expect(card).toContainText(t.documents.ibanReadOnly);
-  await expect(card.getByRole('textbox')).toHaveCount(0);
-  // Los documentos: uno por fila (un tipo solo: sin filtro).
-  const docs = card.getByRole('button', { name: new RegExp(`^${escapeRegExp(fill(t.documents.previewNamed, { name: '' }))}`) });
-  await expect(docs).toHaveCount(jv.documentos ?? 0);
-  await expect(card.getByRole('group', { name: t.documents.typeFilter })).toHaveCount(0);
-  await expectAccessible(page, 'map van een leverancier');
-  await expectNoLeftovers(page, 'nl', 'map van een leverancier');
-
-  // "Naar IBAN-controles" lleva a su pantalla; "Terug" vuelve a la carpeta, como estaba.
-  await card.getByRole('button', { name: new RegExp(`^${escapeRegExp(t.documents.toIbanChecks)}`) }).click();
-  await expect(viewHeading(page, 'iban-checks')).toBeVisible();
-  await go(page, 'documents');
-
-  // "Kaart openen" abre la carpeta; en la abierta, "Kaart bekijken" lleva el foco a la ficha.
-  await page.getByRole('button', { name: fill(t.aurora.archive.openProfileNamed, { name: jv.nombre }) }).click();
-  await expect(profile(page, jv.nombre)).toBeVisible();
-  await page.getByRole('button', { name: fill(t.aurora.archive.viewProfileNamed, { name: jv.nombre }) }).click();
-  await expect(page.getByRole('heading', { level: 2, name: jv.nombre })).toBeFocused();
-
-  // Cerrar la carpeta (otra vez la carpeta de cristal) vuelve a la rejilla.
-  await folder(page, jv.nombre).click();
-  await expect(viewHeading(page, 'documents')).toBeVisible();
   expect(await crumbs(page)).toEqual([t.nav.documents.label]);
 
-  // Un proveedor con dos tipos: el filtro de tipo ensena solo los que hay.
-  const noord = providers.find((p) => p.nombre.startsWith('Demo Beveiligingsdiensten Noord'))!;
-  await openFolder(page, noord.nombre);
-  const types = profile(page, noord.nombre).getByRole('group', { name: t.documents.typeFilter });
-  await expect(types.getByRole('button')).toHaveText([
-    `${t.documents.allTypes}3`,
-    `${t.documents.types.factura_compra}2`,
-    `${t.documents.types.abono_compra}1`,
-  ]);
-  await types.getByRole('button', { name: new RegExp(`^${escapeRegExp(t.documents.types.abono_compra)}`) }).click();
-  await expect(profile(page, noord.nombre).getByRole('button', { name: /^Voorbeeld van / })).toHaveText([/DBN-CR-2026-09/]);
-  await types.getByRole('button', { name: new RegExp(`^${t.documents.allTypes}`) }).click();
-  await expect(profile(page, noord.nombre).getByRole('button', { name: /^Voorbeeld van / })).toHaveCount(3);
+  // La rejilla: las doce que piden atencion, en su orden; el pie lo dice si hay mas (D-39, D-42).
+  const order = byAttention(clients, providers);
+  expect(await folderNames(page)).toEqual(order.slice(0, 12));
+  const footnote = page.locator('.ws-footnote');
+  await expect(footnote).toContainText(t.documents.later);
+  if (order.length > 12) await expect(footnote).toContainText(a.firstTwelve);
+  // Cada carpeta: la prioridad solo cuando pide algo; debajo, lo pendiente o "Bij" (D-41).
+  for (const party of [...clients, ...providers].filter((p) => order.slice(0, 12).includes(p.nombre))) {
+    const cell = folderCell(page, party.nombre);
+    await expect(cell.locator('.gf-statuses [data-slot="status"]')).toHaveCount(party.nivel === 'normal' ? 0 : 1);
+    await expect(cell.locator('.ws-folder-caption > span')).toHaveText(party.deuda_cent > 0 ? euro(party.deuda_cent) : a.upToDate);
+    await expect(cell.getByRole('link', { name: fill(a.openProfileNamed, { name: party.nombre }) })).toBeVisible();
+  }
+  // El arbol: Start, Documenten con cuantos hay, y Klanten y Leveranciers con cuantas carpetas.
+  await expect(treeItem(page, t.aurora.work.home)).toBeVisible();
+  await expect(treeItem(page, t.documents.clients)).toContainText(String(clients.length));
+  await expect(treeItem(page, t.documents.providers)).toContainText(String(providers.length));
+  await expectAccessible(page, 'documenten');
+  await expectNoLeftovers(page, 'nl', 'documenten');
+  await capture(page, 'nl-documents');
 
-  // Otra carpeta desde la rejilla: un paso, no dos (las migas no crecen).
-  const havenRow = clients.find((c) => c.nombre.startsWith('Demo Havenbedrijf'))!;
-  await openFolder(page, havenRow.nombre);
-  expect(await crumbs(page)).toEqual([t.nav.documents.label, havenRow.nombre]);
-  // Un cliente sin documentos: la suricata y lo que pasa; sus Objects y sus PO abren su ficha.
-  const haven = profile(page, havenRow.nombre);
-  await expect(haven).toContainText(t.documents.empty);
-  await expect(haven.getByRole('img', { name: t.aurora.meerkat })).toBeVisible();
+  // "Kaart openen": la carpeta se abre (su abanico) y su ficha sale debajo de la rejilla (D-40).
+  const jv = providers.find((p) => p.nombre === JV)!;
+  await folderCell(page, JV).getByRole('link', { name: fill(a.openProfileNamed, { name: JV }) }).click();
+  const profile = folderProfile(page, JV);
+  await expect(profile).toBeVisible();
+  expect(await crumbs(page)).toEqual([t.nav.documents.label, t.documents.providers, JV]);
+  const grid = (await page.locator('.ws-grid').boundingBox())!;
+  const box = (await profile.boundingBox())!;
+  expect(box.y).toBeGreaterThan(grid.y);
+  await expect(folderCell(page, JV).getByRole('link', { name: fill(a.viewProfileNamed, { name: JV }) })).toBeVisible();
+  await expect(page.getByRole('list', { name: fill(t.aurora.folder.filesOf, { name: JV }) }).getByRole('listitem')).toHaveCount(Math.min(4, jv.documentos ?? 0));
+  // La ficha de solo lectura: lo del maestro, el IBAN con su estado y el telefono.
+  await expect(profile.getByRole('heading', { level: 2 })).toHaveText(JV);
+  for (const label of [t.documents.exactCode, t.parties.paymentTerm, t.parties.outstanding, t.parties.overdueColumn, t.documents.paysProvider, t.documents.account, t.documents.phone]) {
+    await expect(profile.getByRole('term').filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })).toHaveCount(1);
+  }
+  await expect(profile).toContainText('30002');
+  await expect(profile).toContainText('NL999000102B01');
+  await expect(profile).toContainText(/NL\d\dDEMO\d{10}/);
+  await expect(profile.getByRole('definition').filter({ hasText: /NL\d\dDEMO/ }).locator('[data-slot="status"]').first()).toBeVisible();
+  await expect(profile.getByRole('textbox')).toHaveCount(0);
+  // Sus documentos, uno por fila.
+  await expect(profile.locator('.ws-file-table > a')).toHaveCount(jv.documentos ?? 0);
+  await expectAccessible(page, 'map van een leverancier');
+  await expectNoLeftovers(page, 'nl', 'map van een leverancier');
+  await capture(page, 'nl-documents-provider');
+  // "Kaart bekijken" lleva el foco a la ficha.
+  await folderCell(page, JV).getByRole('link', { name: fill(a.viewProfileNamed, { name: JV }) }).click();
+  // Cerrar la carpeta (la carpeta de cristal) vuelve a la rejilla de su categoria.
+  await page.getByRole('button', { name: fill(t.aurora.folder.closeNamed, { name: JV }) }).click();
+  await expect(profile).toHaveCount(0);
+  expect(await crumbs(page)).toEqual([t.nav.documents.label, t.documents.providers]);
+
+  // Un cliente sin documentos: lo dice; sus Objects y sus PO abren su hoja (sin suricata, D-44).
+  const haven = await openFolder(page, HAVEN, 'client');
   await expect(haven).toContainText(t.documents.paysClient);
-  await haven.getByRole('button', { name: fill(t.common.openRecord, { what: `${t.records.object.label} HAVEN-NOORD` }) }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Haventerrein Demo-Noord' })).toBeVisible();
-  expect(await crumbs(page)).toEqual([t.nav.documents.label, havenRow.nombre, 'HAVEN-NOORD']);
-  await back(page);
-  await haven.getByRole('button', { name: fill(t.common.openRecord, { what: `${t.records['purchase-order'].label} PO-DEMO-4501` }) }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'PO-DEMO-4501' })).toBeVisible();
-  await back(page);
+  await expect(page.locator('.meerkat, [class*="meerkat"]')).toHaveCount(0);
+  await profileRow(page, `${t.records.object.label} HAVEN-NOORD`).click();
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('HAVEN-NOORD');
+  expect((await crumbs(page)).at(-1)).toBe(t.records.object.label);
+  await page.keyboard.press('Escape');
+  await profileRow(page, `${t.records['purchase-order'].label} PO-DEMO-4501`).click();
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('PO-DEMO-4501');
+  await page.keyboard.press('Escape');
   await expectAccessible(page, 'map van een klant');
-  // La ficha completa vive en su seccion (Te ontvangen › Klanten).
-  await haven.getByRole('button', { name: new RegExp(`^${escapeRegExp(t.documents.fullCard)}`) }).click();
-  await expect(page.getByRole('heading', { level: 1, name: havenRow.nombre })).toBeVisible();
-  expect(await crumbs(page)).toEqual([t.areas.receivables.label, t.nav.clients.label, havenRow.nombre]);
 
-  // El orbe de la cabecera lleva al inicio de Aurora (con el vuelo de vuelta).
-  await go(page, 'documents');
-  await page.getByRole('button', { name: t.aurora.archive.home }).click();
+  // El companero de la esquina lleva al inicio de Aurora, con el vuelo de vuelta.
+  await page.getByRole('link', { name: a.home }).click();
+  await expect(page.locator('.aurora-route-flight')).toHaveCount(1);
+  await landed(page);
+  await expect(greeting(page)).toBeVisible();
+  // El nodo "Start" del arbol, tambien (sin vuelo).
+  await openDocuments(page);
+  await treeItem(page, t.aurora.work.home).click();
   await expect(greeting(page)).toBeVisible();
 });
 
-test('la vista previa: dibujada desde el registro, se cierra de tres formas y baja el original', async ({ page, baseUrl, request }) => {
+test('la hoja: dibujada desde el registro, se cierra de tres formas y baja el original auditado', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  const { providers } = await lists(request, baseUrl);
-  const jv = providers.find((p) => p.nombre.startsWith('J. Voorbeeld'))!;
-  await go(page, 'documents');
-  await openFolder(page, jv.nombre);
-  const card = profile(page, jv.nombre);
+  await openDocuments(page);
+  await openFolder(page, JV, 'provider');
 
-  // La hoja del abanico (el camino mas corto) abre su vista previa.
-  const sheets = page.getByRole('list', { name: fill(t.aurora.folder.filesOf, { name: jv.nombre }) });
-  await sheets.getByRole('button').last().click();
-  const sheet = preview(page);
+  // La hoja del abanico (el camino mas corto) abre su hoja.
+  const fan = page.getByRole('list', { name: fill(t.aurora.folder.filesOf, { name: JV }) });
+  await fan.getByRole('button').last().click();
+  const sheet = sheetDialog(page);
   await expect(sheet).toBeVisible();
-  await expect(sheet).toContainText(t.documents.previewEyebrow.toUpperCase().slice(0, 8), { ignoreCase: true });
-  await expect(sheet.getByRole('heading', { level: 2 })).toHaveText(/^Inkoopfactuur JV-2026-00\d$/);
-  // Desde el registro: los importes de la factura, su estado y sus avisos, nunca "MUESTRA".
-  for (const label of [t.documents.number, t.documents.invoiceDate, t.documents.due, t.documents.base, t.documents.vat, t.documents.total, t.parties.outstanding, t.documents.state, t.documents.payments, t.documents.warnings, t.documents.file]) {
+  await expect(sheet.locator('.ws-dialog-top')).toContainText(t.documents.types.factura_compra.toLocaleUpperCase());
+  await expect(sheet.getByRole('heading', { level: 2 })).toHaveText(/^JV-2026-00\d$/);
+  // Desde el registro: fecha, vencimiento, base, IVA, total, pendiente, estado y pagos; sin
+  // muestras; la marca de agua es la de la base de prueba.
+  for (const label of [t.documents.invoiceDate, t.documents.due, t.documents.base, t.documents.vat, t.documents.total, t.parties.outstanding, t.documents.state, t.documents.payments]) {
     await expect(sheet.getByRole('term').filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })).toHaveCount(1);
   }
   await expect(sheet).not.toContainText(/muestra|monster|sample/i);
-  await expect(sheet).toContainText(t.documents.previewNote);
-  await expectAccessible(page, 'voorbeeld van een document');
-  await expectNoLeftovers(page, 'nl', 'voorbeeld van een document');
-  // La X la cierra y el foco vuelve a la hoja que la abrio.
-  await sheet.getByRole('button', { name: t.aurora.archive.closePreview }).click();
-  await expect(sheet).toBeHidden();
-  await expect(sheets.getByRole('button').last()).toBeFocused();
+  await expect(sheet).toContainText(a.drawn);
+  await expect(sheet.locator('.ws-watermark')).toHaveText(a.watermark);
+  await expectAccessible(page, 'hoja van een factuur');
+  await expectNoLeftovers(page, 'nl', 'hoja van een factuur');
+  await capture(page, 'nl-documents-sheet');
+  // La ✕ la cierra (la carpeta sigue abierta).
+  await sheet.getByRole('button', { name: a.closePreview }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(folderProfile(page, JV)).toBeVisible();
 
-  // La fila abre la vista previa; Escape la cierra.
-  const rows = card.getByRole('button', { name: /^Voorbeeld van Inkoopfactuur / });
-  await rows.nth(3).click();
+  // La fila abre la hoja; Escape la cierra; un clic fuera, tambien.
+  const rows = profileRow(page, /^Inkoopfactuur JV-2026-/);
+  await rows.nth(1).click();
   await expect(sheet).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(sheet).toBeHidden();
-  await expect(rows.nth(3)).toBeFocused();
-  // Un clic fuera de la hoja la cierra.
-  await rows.nth(3).click();
+  await expect(sheet).toHaveCount(0);
+  await rows.nth(1).click();
   await expect(sheet).toBeVisible();
   await page.mouse.click(8, 450);
-  await expect(sheet).toBeHidden();
+  await expect(sheet).toHaveCount(0);
 
   // Una pagada dice segun quien: el banco, con su fecha.
-  const paid = card.getByRole('button', { name: 'Voorbeeld van Inkoopfactuur JV-2026-001' });
-  await paid.click();
-  await expect(sheet).toContainText(/Betaald volgens de bank op \d\d-\d\d-2026/);
-  await expect(sheet).toContainText(/Bank · (Bevestigd|Confirmed)/);
-  // "Origineel downloaden": el PDF de verdad (con el token, y queda en la auditoria).
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    sheet.getByRole('button', { name: fill(t.documents.downloadNamed, { name: 'Inkoopfactuur JV-2026-001' }) }).click(),
-  ]);
-  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+  await profileRow(page, 'Inkoopfactuur JV-2026-001').click();
+  await expect(sheet.getByTestId('paid-source')).toContainText(/Betaald volgens de bank op \d\d-\d\d-2026/);
+  await expect(sheet.getByTestId('payment').first()).toContainText(/Bank · (Bevestigd|Confirmed)/);
+  // "Origineel downloaden": el PDF de verdad, con el token, y queda en la auditoria.
+  const [download] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: t.aurora.card.downloadOriginal }).click()]);
+  expect(download.suggestedFilename()).toBe('JV-2026-001.pdf');
   expect(await pdfOf(download)).toBe('%PDF-');
-  // "Factuur openen": la ficha de la factura, dentro de Documenten; "Terug" vuelve a la carpeta.
-  await sheet.getByRole('button', { name: t.documents.openInvoice }).click();
-  await expect(page.getByRole('heading', { level: 1, name: /^Factuur JV-2026-001/ })).toBeVisible();
-  const trail = await crumbs(page);
-  expect(trail.slice(0, 2)).toEqual([t.nav.documents.label, jv.nombre]);
-  expect(trail[2]).toMatch(/JV-2026-001/);
-  await back(page);
-  await expect(profile(page, jv.nombre)).toBeVisible();
-  await expect(preview(page)).toBeHidden();
-
-  // La descarga de la fila, sin abrir la vista previa.
-  const [fromRow] = await Promise.all([
-    page.waitForEvent('download'),
-    card.getByRole('button', { name: fill(t.documents.downloadNamed, { name: 'Inkoopfactuur JV-2026-002' }) }).click(),
-  ]);
-  expect(await pdfOf(fromRow)).toBe('%PDF-');
 });
 
 test('el arbol "Verkennen" con el teclado: flechas, Home, End, una letra e Intro', async ({ page, baseUrl, request }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
   const { clients, providers } = await lists(request, baseUrl);
-  await go(page, 'documents');
-  const tree = page.getByRole('tree', { name: t.aurora.archive.treeLabel });
+  await openDocuments(page);
+  const tree = page.getByRole('tree', { name: a.treeLabel });
   const item = (name: RegExp) => tree.getByRole('treeitem', { name });
   // La entrada al arbol es lo que se ve (Documenten, todas las carpetas).
   const all = item(new RegExp(`^${t.nav.documents.label}`));
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(all).toHaveAttribute('tabindex', '0');
   await all.focus();
-  // Abajo: Klanten (con el foco a la vista); Home: Start; End: la ultima carpeta.
+  // Abajo: Klanten (con el foco a la vista); Home: Start; End: la ultima.
   await page.keyboard.press('ArrowDown');
   await expect(item(new RegExp(`^${t.documents.clients}`))).toBeFocused();
   expect(await page.evaluate(() => getComputedStyle(document.activeElement!).boxShadow)).not.toBe('none');
   await page.keyboard.press('Home');
-  await expect(item(new RegExp(`^${t.areas.home.label}`))).toBeFocused();
+  await expect(item(new RegExp(`^${t.aurora.work.home}`))).toBeFocused();
   await page.keyboard.press('End');
-  const last = expectedOrder([], providers).at(-1)!;
-  await expect(item(new RegExp(`^${escapeRegExp(last)}`))).toBeFocused();
+  await expect(tree.getByRole('treeitem').last()).toBeFocused();
   // Una letra va a la siguiente que empieza por ella.
   await page.keyboard.press('Home');
   await page.keyboard.press('l');
@@ -323,37 +252,34 @@ test('el arbol "Verkennen" con el teclado: flechas, Home, End, una letra e Intro
   await expect(item(new RegExp(`^${escapeRegExp(proef.nombre)}`))).toHaveAttribute('aria-expanded', 'true');
   const firstDoc = item(/^Inkoopfactuur PW26/).first();
   await expect(firstDoc).toBeVisible();
-  // Intro sobre un documento abre su carpeta y su vista previa.
+  // Intro sobre un documento abre su carpeta y su hoja.
   await page.keyboard.press('ArrowDown');
   await expect(firstDoc).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 1, name: fill(t.documents.folderOf, { name: proef.nombre }) })).toBeVisible();
-  await expect(preview(page)).toBeVisible();
-  await expect(preview(page).getByRole('heading', { level: 2 })).toHaveText(/^Inkoopfactuur PW26/);
+  await expect(folderProfile(page, proef.nombre)).toBeVisible();
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(/^PW26/);
   await page.keyboard.press('Escape');
-  await expect(preview(page)).toBeHidden();
-  // Intro sobre otra carpeta la abre; sobre un grupo, vuelve a la rejilla con esa pestana.
-  const client = expectedOrder(clients, [])[0]!;
+  await expect(sheetDialog(page)).toHaveCount(0);
+  // Intro sobre otra carpeta la abre; sobre un grupo, vuelve a la rejilla de ese grupo.
+  const client = byAttention(clients, [])[0]!;
   await item(new RegExp(`^${escapeRegExp(client)}`)).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { level: 1, name: fill(t.documents.folderOf, { name: client }) })).toBeVisible();
+  await expect(folderProfile(page, client)).toBeVisible();
   await item(new RegExp(`^${t.documents.providers}`)).focus();
   await page.keyboard.press('Enter');
-  await expect(viewHeading(page, 'documents')).toBeVisible();
-  await expect(page.getByRole('group', { name: t.documents.tabsLabel }).getByRole('button', { name: new RegExp(`^${t.documents.providers}`) })).toHaveAttribute('aria-pressed', 'true');
-  expect(await folderNames(page, t.documents.providers)).toEqual(expectedOrder([], providers));
-  await page.getByRole('group', { name: t.documents.tabsLabel }).getByRole('button', { name: new RegExp(`^${t.documents.tabAll}`) }).click();
+  expect(await crumbs(page)).toEqual([t.nav.documents.label, t.documents.providers]);
+  await expect.poll(() => folderNames(page)).toEqual(byAttention([], providers).slice(0, 12));
   // Start, desde el arbol, es el inicio de Aurora.
-  await item(new RegExp(`^${t.areas.home.label}`)).click();
+  await item(new RegExp(`^${t.aurora.work.home}`)).click();
   await expect(greeting(page)).toBeVisible();
 });
 
-test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se pudo leer', async ({ page, baseUrl, watch }) => {
-  // Mas proveedores de los que tiene la base de prueba: la respuesta de verdad, con diez mas
-  // sin nada pendiente (van al final).
+test('las doce primeras, todas en el arbol; una carpeta que no se pudo leer; el archivo vacio', async ({ page, baseUrl, watch }) => {
+  // Mas proveedores de los que tiene la base de prueba: la respuesta de verdad, con diez mas sin
+  // nada pendiente (van al final).
   await page.route('**/api/v2/proveedores', async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { proveedores: Row[] };
+    const body = (await response.json()) as { proveedores: PartyRow[] };
     const extra = Array.from({ length: 10 }, (_, i) => ({
       ...body.proveedores[0]!,
       id: 9001 + i,
@@ -372,18 +298,14 @@ test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se 
   });
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  await go(page, 'documents');
-  const total = await page
-    .getByRole('group', { name: t.documents.tabsLabel })
-    .getByRole('button', { name: new RegExp(`^${t.documents.tabAll}`) })
-    .textContent();
-  const n = Number(/(\d+)/.exec(total ?? '')![1]);
-  expect(n).toBeGreaterThan(12);
+  await openDocuments(page);
   expect((await folderNames(page)).length).toBe(12);
-  await page.getByRole('button', { name: fill(t.documents.showAll, { n }) }).click();
-  expect((await folderNames(page)).length).toBe(n);
-  expect((await folderNames(page)).slice(-10)).toEqual(Array.from({ length: 10 }, (_, i) => `Proefmap ${String(i + 1).padStart(2, '0')}`));
-  await expect(page.getByRole('button', { name: fill(t.documents.showAll, { n }) })).toHaveCount(0);
+  await expect(page.locator('.ws-footnote')).toContainText(a.firstTwelve);
+  // Las demas, en el arbol: una de las de mas abre su carpeta (y sale en la rejilla). Son de
+  // mentira: el servidor no las conoce (404 en su ficha y sus documentos).
+  watch.expectHttpErrors(404);
+  await openFolder(page, 'Proefmap 10', 'provider');
+  expect(await folderNames(page)).toContain('Proefmap 10');
   await page.unroute('**/api/v2/proveedores');
 
   // Una carpeta cuyos documentos no se pudieron leer: lo dice, con su reintento.
@@ -392,22 +314,21 @@ test('las doce primeras y "Ver todas", el archivo vacio y una carpeta que no se 
   await page.route('**/api/v2/proveedores/*/documentos', (route) =>
     failing ? route.fulfill({ status: 500, json: { error: 'fallo de prueba', codigo: 'interno' } }) : route.continue()
   );
-  await go(page, 'documents');
+  await openDocuments(page);
   const proef = 'Proefwacht Security VOF';
-  await openFolder(page, proef);
-  const card = profile(page, proef);
-  await expect(card.getByRole('alert')).toBeVisible();
+  const profile = await openFolder(page, proef, 'provider');
+  await expect(profile.getByRole('alert')).toBeVisible();
   failing = false;
-  await card.getByRole('button', { name: t.common.retry }).click();
-  await expect(card.getByRole('button', { name: /^Voorbeeld van Inkoopfactuur PW26/ })).toHaveCount(2);
+  await profile.getByRole('button', { name: t.common.retry }).click();
+  await expect(profileRow(page, /^Inkoopfactuur PW26/)).toHaveCount(2);
   await page.unroute('**/api/v2/proveedores/*/documentos');
 
-  // Sin clientes ni proveedores: la suricata y lo que pasa.
+  // Sin clientes ni proveedores: lo vacio de Aurora (ws-empty), sin suricata.
   await page.route('**/api/v2/clientes', (route) => route.fulfill({ json: { clientes: [] } }));
   await page.route('**/api/v2/proveedores', (route) => route.fulfill({ json: { proveedores: [] } }));
-  await go(page, 'documents');
-  await expect(page.getByText(t.documents.noFolders)).toBeVisible();
-  await expect(page.getByRole('img', { name: t.aurora.meerkat })).toBeVisible();
+  await openDocuments(page);
+  await expect(page.locator('.ws-empty')).toContainText(t.documents.noFolders);
+  await expect(page.locator('.meerkat, [class*="meerkat"]')).toHaveCount(0);
 });
 
 test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', async ({ page, baseUrl }) => {
@@ -419,52 +340,46 @@ test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', 
     await setLang(page, lang);
     for (const theme of ['dark', 'light'] as const) {
       await chooseTheme(page, theme);
-      await go(page, 'documents', lang);
+      await openDocuments(page, lang);
       await artReady(page);
       await expectAccessible(page, `${lang} ${theme} documentos`);
       await expectNoLeftovers(page, lang, `${lang} ${theme} documentos`);
       await capture(page, `${lang}-documentos`);
-      const name = 'J. Voorbeeld Beveiliging (zzp)';
-      await page.getByRole('button', { name: fill(tx.aurora.archive.openProfileNamed, { name }) }).click();
-      await expect(page.getByRole('region', { name, exact: true })).toBeVisible();
+      await folderCell(page, JV).getByRole('link', { name: fill(tx.aurora.archive.openProfileNamed, { name: JV }) }).click();
+      await expect(folderProfile(page, JV, lang)).toBeVisible();
       await artReady(page);
       await expectAccessible(page, `${lang} ${theme} carpeta de un proveedor`);
       await expectNoLeftovers(page, lang, `${lang} ${theme} carpeta de un proveedor`);
       await capture(page, `${lang}-documentos-proveedor`);
-      await page.getByRole('region', { name, exact: true }).getByRole('button', { name: fill(tx.documents.previewNamed, { name: `${tx.documents.types.factura_compra} JV-2026-001` }) }).click();
-      await expect(page.getByRole('dialog')).toContainText(/JV-2026-001/);
-      await expect(page.getByRole('dialog').getByRole('term')).toHaveCount(12);
-      await expectAccessible(page, `${lang} ${theme} vista previa`);
-      await expectNoLeftovers(page, lang, `${lang} ${theme} vista previa`);
-      await capture(page, `${lang}-documentos-vista-previa`);
+      await profileRow(page, `${tx.documents.types.factura_compra} JV-2026-001`).click();
+      await expect(sheetDialog(page)).toContainText(/JV-2026-001/);
+      await expectAccessible(page, `${lang} ${theme} hoja`);
+      await expectNoLeftovers(page, lang, `${lang} ${theme} hoja`);
+      await capture(page, `${lang}-documentos-hoja`);
       await page.keyboard.press('Escape');
-      // Un cliente sin documentos (la suricata quieta: con menos movimiento sale ya sentada).
-      await page.emulateMedia({ reducedMotion: 'reduce' });
-      const client = 'Demo Havenbedrijf BV';
-      await page.getByRole('button', { name: fill(tx.aurora.archive.openProfileNamed, { name: client }) }).click();
-      await expect(page.getByRole('region', { name: client, exact: true })).toContainText(tx.documents.empty);
+      // Un cliente sin documentos, con sus Objects y sus PO.
+      await openFolder(page, HAVEN, 'client', lang);
+      await expect(folderProfile(page, HAVEN, lang)).toContainText(`${tx.records.object.label} HAVEN-NOORD`);
       await artReady(page);
       await expectAccessible(page, `${lang} ${theme} carpeta de un cliente`);
       await expectNoLeftovers(page, lang, `${lang} ${theme} carpeta de un cliente`);
       await capture(page, `${lang}-documentos-cliente`);
-      await page.emulateMedia({ reducedMotion: 'no-preference' });
     }
   }
   // En el movil, en castellano y oscuro: nada se sale por el lado.
-  await chooseTheme(page, 'dark');
+  await chooseTheme(page, 'dark', 'en');
   await setLang(page, 'es');
   await page.setViewportSize({ width: 400, height: 860 });
-  await go(page, 'documents', 'es');
+  await openDocuments(page, 'es');
   await artReady(page);
   expect(await outsideTheWindow(page)).toEqual([]);
   await capture(page, 'es-movil-documentos');
-  await page.getByRole('button', { name: fill(TEXTS.es.aurora.archive.openProfileNamed, { name: 'J. Voorbeeld Beveiliging (zzp)' }) }).click();
-  await expect(page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)', exact: true })).toBeVisible();
+  await openFolder(page, JV, 'provider', 'es');
   expect(await outsideTheWindow(page)).toEqual([]);
   await capture(page, 'es-movil-documentos-proveedor');
-  await page.getByRole('region', { name: 'J. Voorbeeld Beveiliging (zzp)', exact: true }).getByRole('button', { name: /^Vista previa de / }).first().click();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /^Descargar / })).toBeInViewport();
-  await capture(page, 'es-movil-documentos-vista-previa');
+  await profileRow(page, `${TEXTS.es.documents.types.factura_compra} JV-2026-001`).click();
+  await expect(sheetDialog(page).getByRole('button', { name: TEXTS.es.aurora.card.downloadOriginal })).toBeVisible();
+  await capture(page, 'es-movil-documentos-hoja');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 900 });
   await setLang(page, 'nl');

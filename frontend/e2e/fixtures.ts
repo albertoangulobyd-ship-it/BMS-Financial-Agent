@@ -158,8 +158,11 @@ const AURORA_CONTRAST: ContrastException[] = (
  *  quieta (settled). */
 export async function expectAccessible(page: Page, what: string): Promise<void> {
   await settled(page);
+  // La marca de agua del papel de la hoja («MUESTRA», aria-hidden) es decoracion: WCAG 1.4.3 no
+  // pide contraste al texto que solo decora.
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .exclude('.ws-watermark')
     .analyze();
   const dark = (await shownTheme(page)) === 'dark';
   const excepted = (n: (typeof results.violations)[number]['nodes'][number]) => {
