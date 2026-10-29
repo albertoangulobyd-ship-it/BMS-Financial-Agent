@@ -4,7 +4,7 @@
 // centimo) y el resumen dice que son saldos pendientes, no dinero disponible; los documentos y
 // sus facturas salen de las mismas carpetas, y la ultima revision es la ultima lectura
 // terminada. Con axe y sin restos de otro idioma, a 1440 y a 400 px, y sin la rueda (la regla
-// del dueno). «Terug naar de ruimte» vuelve a la rueda.
+// del dueno). «Terug naar de werkruimte» vuelve a la rueda.
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { Cartera } from '../src/lib/api-types';
 import type { Lang } from '../src/i18n/langs';
@@ -106,7 +106,7 @@ test('el resumen general (Finance Bento) con la cartera de verdad, en los tres i
   await expectAccessible(page, 'en resumen general a 400 px');
   await capture(page, 'en-mobile-conversation-summary-400');
   await page.setViewportSize({ width: 1440, height: 900 });
-  // «Back to the space»: la rueda otra vez, sin la conversacion.
+  // «Back to the workspace»: la rueda otra vez, sin la conversacion.
   await page.getByRole('button', { name: TEXTS.en.aurora.chat.back }).click();
   await expect(wheel(page)).toBeVisible();
   await expect(page.locator('.conversation')).toHaveCount(0);

@@ -3229,11 +3229,11 @@
     },
     "pedir_lectura": {
       "etiqueta": "Lezen aanvragen",
-      "descripcion": "Vraagt de lezer de pdf's in de inbox te lezen. Voordat er iets wordt uitgegeven, telt hij wat het zou kosten en wacht hij op je ja."
+      "descripcion": "Vraagt de lezer de pdf's in de postbus te lezen. Voordat er iets wordt uitgegeven, telt hij wat het zou kosten en wacht hij op je ja."
     },
     "aprobar_lectura": {
       "etiqueta": "Lezen starten",
-      "descripcion": "Geeft je ja op wat de lezer telde, met een maximum aan kosten. Alleen de facturen die je zag worden gelezen."
+      "descripcion": "Geeft je ja op wat de lezer telde, met een plafond voor de kosten. Alleen de facturen die je zag worden gelezen."
     },
     "cancelar_lectura": {
       "etiqueta": "Niet lezen",

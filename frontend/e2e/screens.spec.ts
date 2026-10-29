@@ -472,6 +472,8 @@ test('facturen verwerken: wat het kost en hoe je de lezer start; de app vraagt h
     await flow.click();
     await expect(title).toHaveText(fill(p.requested.title, { readShortcut: 'BMS Finanzas - Leer facturas' }));
     await expect(title.locator('[data-proper-name]')).toHaveText('BMS Finanzas - Leer facturas');
+    // Y el lector de pantalla lo dice en castellano.
+    await expect(title.locator('[data-proper-name]')).toHaveAttribute('lang', 'es');
     await expect(line).toHaveText(p.requested.line);
     await expect(flow).toHaveCSS('visibility', 'hidden');
     expect(await live()).toBe(true);

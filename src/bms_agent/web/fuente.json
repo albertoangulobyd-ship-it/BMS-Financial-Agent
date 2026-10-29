@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "fd79f95fe7c0c832676d5041d5e4526dc83ed8f325ce5b7460f0c9e1ae894710",
+  "sha256": "9037bfd4c3276e2e5567c28c204f9dc2bdcef8979337e0650ee9360d90114f5b",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -11,7 +11,7 @@
     "frontend/scripts/fuente.mjs": "7bdd0d2d263dba8817f92dd8940d71b4f9ceee941c3546a45317257c351f0382",
     "frontend/scripts/tailwind-fuentes.mjs": "f842ea0299d651d9f1bc7b3cd35514358f9db66e4d6602030670ac708870589c",
     "frontend/src/App.tsx": "6c07893fb69a220fd187bd28785390b522e0952dcbb997acb88278c4d5970442",
-    "frontend/src/aurora/app.tsx": "147df8c298ffad214afc58664994df1139934d5c1f75420df42ed72ed7f5ba2d",
+    "frontend/src/aurora/app.tsx": "73c05f94be9abacf52beac5febeabe8ef6e4d248db5b763ea747b191eea437d5",
     "frontend/src/aurora/assistant.ts": "6cd3602a65ce0f592fbb07864836f857fc6d731924048b4060b75c2e146d3231",
     "frontend/src/aurora/bms.css": "21e4b120f34ac7df05bab5621ce2b1e35a8c85311e5995f1a55a75f7b1f232f9",
     "frontend/src/aurora/chat/actions.tsx": "6b1edd54f586df09ff77a45499a8d53e08b25b8be8760f9eb279b9b0b6696a4b",
@@ -102,14 +102,14 @@
     "frontend/src/components/ui/tooltip.tsx": "e8e74b0ffba3db903abecb8470a1d07ce9cb4756e2eee23dbbc6151d5cd6040d",
     "frontend/src/favicon.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "frontend/src/i18n/domain.ts": "9945d8e5295f907aa8c99cb512ea413f872a48eef3723cb7a2ca6a329844e7d6",
-    "frontend/src/i18n/en.ts": "bb8543dc51d2e7a058da3dcbeb04d8307e7576263ed184a3310e937c54350091",
-    "frontend/src/i18n/es.ts": "ae06db5097fbb344cf56bbf08d24eb2d9b6c5b8c3fb65be38636ba0677294683",
+    "frontend/src/i18n/en.ts": "31927701b46a7011b974fadb08549a6c981439da72ca83bc948d5ac0d624a8e6",
+    "frontend/src/i18n/es.ts": "e5b16cf6954004ea8dea262ef7956fca3345a5045e5a2267dbc3420a3fa73f1d",
     "frontend/src/i18n/glossary.ts": "0a2d75b9c024532cf0d06d5444b27f55a1034843263b1bf17fd5d97696f865b1",
     "frontend/src/i18n/index.tsx": "41ccc9109f76ad67574a7d7fab4adefa9f31976514f38b574e11f373d6d7c674",
     "frontend/src/i18n/langs.ts": "d8739067f8322a395d4bde6baeccd45a838e0cb0cce91195e2cea5ae66851a5c",
     "frontend/src/i18n/leftovers.ts": "cec1be18c2de04dcfab426856ea893a9bce52dc45626f1c6d8b087cbb5b173c1",
     "frontend/src/i18n/messages.ts": "f7c2e6913082af51ea27b768a486965308c2f081845eb7c753f63d066cf86279",
-    "frontend/src/i18n/nl.ts": "52ee2b0b48207006a20e229c4d0b2a2476ff6dc07318cfaec5e0b3bb389d1e7b",
+    "frontend/src/i18n/nl.ts": "63e92643e3f5e59f5fddc01927c782eacf105c6302e1462ce99f6499c83b4635",
     "frontend/src/i18n/templates.ts": "ad84c20e9b91a83a0610f4841a65e7510c55607213746810f0f46bfbc3b72faf",
     "frontend/src/index.css": "3eb1039ba12cf34aeded38384aeb013d98b99c81973632df5868867ea113d1e1",
     "frontend/src/lib/actions.ts": "34653ec861358ee8ec78915fa5520e88c0e935883b4d788cab7525bac382340c",
@@ -132,16 +132,16 @@
     "frontend/tsconfig.app.json": "495ad4991e36ca7aec91753dc64e2795eb1fa0e73e015e513eabfe75db5e18c0",
     "frontend/tsconfig.json": "1f10234e851ddbb03e1c2d73bdd7aa13be4e1d8c33cc16b84372f1341a172c3c",
     "frontend/vite.config.ts": "2910a23f69f65fd99b90a92c4477c79d4ac7aca111fc4c799d7a5432cb49ee5c",
-    "src/bms_agent/textos/en.json": "e9eb03f8455ee3e9489f97dc51e47c7a27915124f2e49682211563cc45d3ebb1",
+    "src/bms_agent/textos/en.json": "45df4005d7abe363b7390bb314ad9b11fc026fe461ca6d4a1ad1cadd8f6fcb66",
     "src/bms_agent/textos/es.json": "3d491684d5419c4847d8313dbf373e01a24e37dca83a81fd91231653ad22b25b",
-    "src/bms_agent/textos/nl.json": "fa888897dcf91439e7d67ba0ec23da55b5c13684c28bef469b3b41915d329473"
+    "src/bms_agent/textos/nl.json": "c2d7478a826c49750d7a9a72fde123290edf2b875e3a3924c7fd8651ae9e72cb"
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-DxDwD0qD.js": "027b828ded93362025dacb81f280124aa373315a8745c379277eb92ca144404c",
+    "assets/index-CMl3FINp.js": "ea865fa01993173226617278c403606d15f12cc28155d8e71e6afdd778ef0913",
     "assets/style-Cfg-pN0B.css": "dcfe056271b01152e32f9e3668ebc3e58820acbe89fa78f11c3d9dea09274678",
-    "assets/textos-l6omhw9Q.js": "d2dc126731d5d62057006660cff891a950537c98170923bf74aa8111b10a93a5",
+    "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
     "assets/vendor-DZbmtkxJ.js": "557b77e7e62d47c35590bf28e47189c724cafabef4ab22160bffab17c6c8133d",
-    "index.html": "b2143be4547a51f22d9655cc06fb6574c72daf9cd4d0ba7f16be97efb69f04c0"
+    "index.html": "7dfc0574fecac04a985877818cf07de912039443ba62f24fd7742c6a003f5caf"
   }
 }

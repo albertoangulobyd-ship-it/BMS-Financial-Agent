@@ -3229,7 +3229,7 @@
     },
     "pedir_lectura": {
       "etiqueta": "Request reading",
-      "descripcion": "Asks the reader to read the PDFs in the inbox. Before spending anything it counts what it would cost and waits for your yes."
+      "descripcion": "Asks the reader to read the PDFs in the mailbox. Before spending anything it counts what it would cost and waits for your yes."
     },
     "aprobar_lectura": {
       "etiqueta": "Start reading",

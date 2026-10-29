@@ -155,15 +155,18 @@ function LanguageLine() {
 }
 
 /** El titulo de Procesar en el saludo; el nombre del acceso directo (en castellano en los tres
- *  idiomas, como en el disco) va como nombre propio. */
+ *  idiomas, como en el disco) va como nombre propio, y en castellano para el lector de pantalla. */
 function ProcessTitle({ view }: { view: ProcessView }) {
+  const { lang } = useT();
   const name = view.properName;
   const at = name ? view.title.indexOf(name) : -1;
   if (!name || at < 0) return <>{view.title}</>;
   return (
     <>
       {view.title.slice(0, at)}
-      <span data-proper-name=''>{name}</span>
+      <span data-proper-name='' lang={lang === 'es' ? undefined : 'es'}>
+        {name}
+      </span>
       {view.title.slice(at + name.length)}
     </>
   );

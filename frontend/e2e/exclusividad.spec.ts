@@ -166,7 +166,7 @@ for (const width of [1440, 1151, 1150, 1024, 400] as const) {
     await expectRuleWhile(page, 'E1 → E4', () => ask.press('Enter'), 2500);
     await expect(page.locator('.finance-bento')).toBeVisible();
     await expectRule(page, 'E4', { menu: false, screen: 'conversation' });
-    // «Terug naar de ruimte»: E1, sin conversacion.
+    // «Terug naar de werkruimte»: E1, sin conversacion.
     await expectRuleWhile(page, 'E4 → E1', () => page.getByRole('button', { name: t.aurora.chat.back }).click());
     await expectRule(page, 'E1 tras la conversacion', { menu: true });
 

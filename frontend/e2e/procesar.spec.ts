@@ -325,6 +325,8 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   // P1: la app no lanza nada; dice que se abra el acceso directo. El boton guarda su sitio, oculto.
   await requestReading(page);
   await expect(title(page).locator('[data-proper-name]')).toHaveText('BMS Finanzas - Leer facturas');
+  // En castellano, el nombre ya es del idioma de la pagina: sin lang aparte.
+  await expect(title(page).locator('[data-proper-name]')).not.toHaveAttribute('lang', /./);
   await expect(line(page)).toHaveText(p.requested.line);
   await expect(flow(page)).toHaveCSS('visibility', 'hidden');
   await expect(note(page)).toHaveText(new RegExp(`^Pedida por Ana Demo a las \\d{2}:\\d{2} · ${p.notRead}$`));

@@ -554,7 +554,7 @@ pendientes, no efectivo disponible**, y lo dice; con «Wat is een Object?», la 
 glosario; con el nombre de un grupo o de una entrada, una fila que abre su panel (F9); con un
 número de factura, un nombre, un Object o una PO, «Ik vond N voor «…».» y sus filas, que
 abren su hoja en Documentos con el vuelo, y «Zoeken met filters», que lleva lo escrito a la
-búsqueda; con lo demás, lo que sí sabe hacer. «Terug naar de ruimte» vuelve a la rueda.
+búsqueda; con lo demás, lo que sí sabe hacer. «Terug naar de werkruimte» vuelve a la rueda.
 
 **La búsqueda** es, desde el paso 17, la de Aurora (E5, `src/aurora/search/`, su
 `SearchWorkspace` con su hoja tal cual) sobre la del motor (`GET /api/v2/buscar`). La de

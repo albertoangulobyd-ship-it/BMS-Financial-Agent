@@ -186,6 +186,74 @@ describe('el glosario del castellano', () => {
   });
 });
 
+describe('el castellano de Aurora, tal cual (especificacion §4.2 I)', () => {
+  // Las cadenas del prototipo del dueno (outputs/aurora/src, entrega del 28-10-2026) que la app
+  // usa en castellano: la misma frase, letra a letra. En neerlandes e ingles, su traduccion.
+  const AURORA_ES: Record<string, string> = {
+    'aurora.home.navigate': 'Presiona para navegar', // main.tsx
+    'aurora.home.intro': '¿Cómo te puedo ayudar hoy?', // main.tsx
+    'aurora.home.open': 'Abrir navegación', // main.tsx
+    'aurora.home.close': 'Cerrar navegación', // main.tsx
+    'aurora.home.searchTitle': '¿Qué estabas buscando?', // main.tsx
+    'aurora.home.searchIntro': 'Encuentra claridad entre tus documentos.', // main.tsx
+    'aurora.home.searchThinking': 'Pensando… Buscando entre tus documentos.', // main.tsx
+    'aurora.chat.back': 'Volver al espacio', // ai-actions.tsx
+    'aurora.process.back': 'Volver al inicio', // processing-workspace.tsx
+    'aurora.process.eyebrow': 'UN POCO DE ORDEN. MUCHA CLARIDAD.', // processing-workspace.tsx
+    'aurora.process.complete.title': 'He finalizado con el análisis.', // processing-workspace.tsx
+    'aurora.archive.upToDate': 'Al corriente', // document-workspace.tsx
+    'aurora.archive.openProfile': 'Abrir ficha', // document-workspace.tsx
+    'aurora.archive.viewProfile': 'Ver ficha', // document-workspace.tsx
+    'aurora.tree.hint':
+      'Usa las flechas para moverte. Derecha expande una carpeta; izquierda la cierra o sube al padre. Inicio y Fin saltan a los extremos. Escribe una letra para encontrar el siguiente nombre.', // tree-view.tsx
+    'aurora.folder.open': 'Abrir carpeta', // glass-folder-cards.tsx
+    'aurora.folder.close': 'Cerrar carpeta', // glass-folder-cards.tsx
+    'aurora.folder.filesOf': 'Archivos de {name}', // glass-folder-cards.tsx ('Archivos de '+label)
+  };
+  it('las frases de Aurora en es.ts son las del prototipo', () => {
+    const differ = Object.entries(AURORA_ES).filter(([key, text]) => dictionaries.es.get(key) !== text);
+    expect(differ.map(([key, text]) => `${key}: «${dictionaries.es.get(key)}» y no «${text}»`)).toEqual([]);
+  });
+  it('y en neerlandes e ingles van traducidas, no copiadas', () => {
+    for (const lang of ['nl', 'en'] as const) for (const key of Object.keys(AURORA_ES)) expect(dictionaries[lang].get(key), `${lang} ${key}`).not.toBe(AURORA_ES[key]);
+  });
+});
+
+describe('el glosario del neerlandes y del ingles', () => {
+  // Las palabras de la app (revision del paso 17): la werkruimte / the workspace, de postbus /
+  // the mailbox, het plafond / the cap, providers (no suppliers); las comillas tipograficas (“…”)
+  // y no las del castellano («…»). Y las marcas de nueva y repetida de Aurora (en Documentos, en
+  // Procesar y en el resumen) son "herhaald": "dubbel" es el de los avisos de duplicados (B2-B5,
+  // V7, K4) y el de un posible duplicado.
+  const REJECTED: Record<'nl' | 'en', Record<string, RegExp | [RegExp, RegExp]>> = {
+    nl: {
+      werkruimte: /\bde ruimte\b/i,
+      postbus: /\binbox\b/i,
+      plafond: /maximum aan kosten/i,
+      herhaald: [/\bdubbel(e)?\b/i, /^aurora\.(bento|folder|archive|process\.complete)\./],
+      '“…”': /[«»]/,
+    },
+    en: {
+      workspace: /\bthe space\b/i,
+      mailbox: /\binbox\b/i,
+      providers: /\bsuppliers?\b/i,
+      '“…”': /[«»]/,
+    },
+  };
+  for (const lang of ['nl', 'en'] as const) {
+    it(`${lang}.ts y textos/${lang}.json usan las palabras de la app`, () => {
+      const found: string[] = [];
+      const texts = [...dictionaries[lang]].flatMap(([key, value]) => (Array.isArray(value) ? value : [value]).map((text) => [key, text] as const));
+      for (const [key, text] of [...texts, ...catalogTexts(catalogFor(lang))])
+        for (const [word, rule] of Object.entries(REJECTED[lang])) {
+          const [rejected, keys] = Array.isArray(rule) ? rule : [rule, /./];
+          if (keys.test(key) && rejected.test(text)) found.push(`${word} <- ${key}: ${text}`);
+        }
+      expect(found).toEqual([]);
+    });
+  }
+});
+
 describe('fmt', () => {
   it('rellena los huecos y deja a la vista los que faltan', () => {
     expect(fmt('Factuur {id}', { id: 12 })).toBe('Factuur 12');

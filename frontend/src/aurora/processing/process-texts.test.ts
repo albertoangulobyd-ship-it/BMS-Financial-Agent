@@ -105,7 +105,7 @@ describe('el saludo de cada estado (especificacion §5.4)', () => {
     const v = introView('requested', status(request('pedida')), es);
     expect(v.title).toBe('Abre «BMS Finanzas - Leer facturas» en el escritorio.');
     expect(v.properName).toBe('BMS Finanzas - Leer facturas');
-    expect(introView('requested', null, MESSAGES.nl).title).toBe('Open «BMS Finanzas - Leer facturas» op het bureaublad.');
+    expect(introView('requested', null, MESSAGES.nl).title).toBe('Open “BMS Finanzas - Leer facturas” op het bureaublad.');
   });
 
   it('P2 comprobando y contando', () => {
