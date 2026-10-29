@@ -258,6 +258,27 @@ test('cada entrada a la vista se abre con el primer clic, y la rueda del raton, 
   await expect(panel(page).getByRole('heading', { level: 2, name: entryLabel('receivables') })).toBeVisible();
 });
 
+test('al apoyar el raton en una entrada, pasa al centro como en Aurora, y el clic abre esa aunque se suelte sobre otra', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  await openMenu(page);
+  expect(await activeEntry(page)).toBe('home');
+  // Te betalen, dos filas por debajo del centro.
+  const target = await box(entryButton(page, 'payables'));
+  const point = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  // Al apoyar: la activa (main.tsx:32, el foco), y la pista se desliza hasta ponerla en el centro.
+  await expect.poll(() => activeEntry(page)).toBe('payables');
+  await settled(page);
+  const under = await page.evaluate((p) => document.elementFromPoint(p.x, p.y)?.closest('.nav-item')?.getAttribute('data-entry') ?? null, point);
+  expect(under, 'bajo el raton, ahora otra fila').toBe('process');
+  // Se suelta encima de Verwerken: se abre la que se apoyo.
+  await page.mouse.up();
+  await expect(panel(page).getByRole('heading', { level: 2, name: entryLabel('payables') })).toBeVisible();
+  expect(await activeEntry(page)).toBe('payables');
+});
+
 test('los paneles: cada entrada el suyo; la ✕ y Escape vuelven a la rueda, el orbe al inicio', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);

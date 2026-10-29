@@ -36,11 +36,13 @@ import {
   openEntry,
   openMenu,
   panelTitle,
+  processLanded,
   setLang,
   sheetDialog,
+  wheelStep,
 } from './nav';
 import { sources } from '../src/aurora/processing/loader-sprites';
-import { decodePng, differingPixels, opaqueColumns } from './png';
+import { decodePng, differingPixels, grains, opaqueColumns } from './png';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -56,6 +58,19 @@ interface Suricata {
   etapas: Record<string, Record<string, string[]>>;
   recortes: Record<string, { fichero: string; vt?: number; debug: string }>;
   reducido: Record<string, string[]>;
+  /** El camino de la fila 21 (§2.6): dos pasos de rueda y el clic en Procesar, dos filas por
+   *  debajo del centro (herramientas/reloj-fila21.cjs). */
+  fila21: Record<
+    string,
+    {
+      seleccionada: string;
+      variables: Record<'--process-heading-y' | '--process-scene-y', number>;
+      entrada: { vt: number; debug: string }[];
+      lienzos: Record<string, string>;
+      cajas: Record<'h1' | 'p' | 'world' | 'flow' | 'note' | 'reading', [number, number, number, number]>;
+      h1: string;
+    }
+  >;
 }
 const AURORA = JSON.parse(readFileSync(new URL('./aurora/suricata.json', import.meta.url), 'utf8')) as Suricata;
 
@@ -823,5 +838,172 @@ for (const width of [1440, 400] as const) {
     const status = await reading(request, baseUrl);
     expect(status.solicitud?.estado).toBe('hecha');
     expect((status.ultima_pasada ?? status.pasada_en_curso)?.resultado).toHaveLength(5);
+  });
+}
+
+// La fila 21 de la especificacion (§2.6): «orbe → dos pasos de rueda → Procesar → Pedir lectura».
+// Despues de los dos pasos, Procesar esta dos filas por debajo del centro. En Aurora, al apoyar el
+// raton la fila recibe el foco y pasa a ser la activa (main.tsx:32): sale el orbe de particulas y
+// el clic entra con captureProcessingEntry, que toma de el las particulas y los sitios del titulo y
+// de la escena. Aqui igual (app.tsx, onMouseDown). Como en la grabacion de Aurora
+// (herramientas/reloj-fila21.cjs), la entrada del orbe de particulas se deja en su primer cuadro
+// al soltar (lo que Aurora toma con el reloj de verdad, que es lo que aqui corre: el reloj virtual
+// de Playwright descoloca las animaciones del navegador que pone motion). Se comprueba: los sitios
+// capturados (±1 px); en el primer cuadro, los granos en los puntos del orbe (salen de donde
+// estaba el orbe, no de una nube en el centro de la tarjeta) y, al posarse, el monticulo donde el
+// de Aurora (su centro, ±6 px); la entrada en el orden de Aurora; y, con la cabeza
+// esperando, las cajas del titulo, la escena y el boton (±4 px) y donde empiezan la linea, la
+// lectura y la nota.
+for (const width of [1440, 400] as const) {
+  test(`la fila 21 a ${width} px: dos pasos de rueda y Procesar dos filas por debajo del centro, como en Aurora por el mismo camino`, async ({ page, baseUrl }) => {
+    test.setTimeout(240_000);
+    const w = String(width);
+    const ref = AURORA.fila21[w]!;
+    await page.setViewportSize({ width, height: width === 400 ? 860 : 900 });
+    await page.goto(`${baseUrl}/app`);
+    await setLang(page, 'es');
+    await login(page);
+    await openMenu(page, 'es');
+    await wheelStep(page, 2);
+    await expect(page.locator('.nav-item.selected')).toHaveText(t.areas.payables.label);
+    const selected = await box(page.locator('.nav-item.selected'));
+    const entry = await box(entryButton(page, 'process'));
+    expect(Math.round(entry.y - selected.y), 'Procesar, dos filas por debajo del centro').toBe(96);
+    expect(await page.locator('.aurora .hero-orb').count(), 'antes de apoyar el raton, la onda').toBe(0);
+    // Cada cuadro desde el clic: la linea del motor, donde esta el lienzo de la escena y sus
+    // granos; y, al soltar, los puntos del orbe de particulas que toma captureProcessingEntry (los
+    // de alfa > 0,14, uno de cada 2 px), en la pantalla.
+    await page.evaluate(() => {
+      type Row = { debug: string; x: number; y: number; n: number; width: number; left: number; top: number };
+      const w = window as unknown as { __bmsFila21: Row[] | null; __bmsOrb: { x: number; y: number }[] | null };
+      const rows: Row[] = [];
+      w.__bmsFila21 = rows;
+      w.__bmsOrb = null;
+      document.addEventListener(
+        'click',
+        () => {
+          const canvas = document.querySelector<HTMLCanvasElement>('.aurora .thinking-orb canvas');
+          if (!canvas) return;
+          const box = canvas.getBoundingClientRect();
+          const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+          const points: { x: number; y: number }[] = [];
+          for (let y = 0; y < canvas.height; y += 2)
+            for (let x = 0; x < canvas.width; x += 2)
+              if (data[(y * canvas.width + x) * 4 + 3]! / 255 > 0.14) points.push({ x: box.left + (x / canvas.width) * box.width, y: box.top + (y / canvas.height) * box.height });
+          const stride = Math.max(1, Math.ceil(points.length / 350));
+          w.__bmsOrb = points.filter((_, i) => i % stride === 0);
+        },
+        { capture: true, once: true }
+      );
+      const tick = () => {
+        if (w.__bmsFila21 !== rows) return;
+        const canvas = document.querySelector<HTMLCanvasElement>('.zur-world');
+        const debug = document.querySelector('.zur-debug output')?.textContent ?? '';
+        if (canvas && canvas.width && canvas.height) {
+          const r = canvas.getBoundingClientRect();
+          const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+          let sx = 0,
+            sy = 0,
+            n = 0;
+          for (let y = 0; y < canvas.height; y += 1) {
+            let row = 0;
+            for (let x = 0; x < canvas.width; x += 1) if (data[(y * canvas.width + x) * 4 + 3]! > 128) row += 1;
+            if (row > canvas.width / 2) continue;
+            for (let x = 0; x < canvas.width; x += 1) {
+              const i = (y * canvas.width + x) * 4;
+              if (data[i + 3]! > 128 && data[i]! > 128) {
+                sx += x;
+                sy += y;
+                n += 1;
+              }
+            }
+          }
+          rows.push({ debug, x: n ? sx / n : NaN, y: n ? sy / n : NaN, n, width: canvas.width, left: r.left, top: r.top });
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await page.mouse.move(entry.x + entry.width / 2, entry.y + entry.height / 2);
+    await page.mouse.down();
+    // Al apoyar: la activa es Procesar, con su morado y el orbe de particulas (main.tsx:24,30).
+    await expect(app(page)).toHaveAttribute('data-active', 'process');
+    await expect(app(page)).toHaveClass(/\bprocess-highlight\b/);
+    await expect(page.locator('.aurora .hero-orb .thinking-orb canvas')).toHaveCount(1);
+    // La entrada del orbe (WAAPI), en su instante 0, como en la grabacion de Aurora.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const orb = document.querySelector('.aurora .hero-orb');
+          const running = orb?.getAnimations() ?? [];
+          running.forEach((a) => {
+            a.pause();
+            a.currentTime = 0;
+          });
+          return running.length;
+        })
+      )
+      .toBeGreaterThan(0);
+    await page.mouse.up();
+    await expect(app(page)).toHaveClass(/\bprocess-mode\b/);
+    // Los sitios que toma captureProcessingEntry del orbe, contados desde main (las bandas).
+    const vars = await app(page).evaluate((el: HTMLElement) => ({
+      heading: parseFloat(el.style.getPropertyValue('--process-heading-y')),
+      scene: parseFloat(el.style.getPropertyValue('--process-scene-y')),
+    }));
+    expect(Math.abs(vars.heading - ref.variables['--process-heading-y']), `el sitio del titulo: ${vars.heading}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(vars.scene - ref.variables['--process-scene-y']), `el sitio de la escena: ${vars.scene}`).toBeLessThanOrEqual(1);
+    await processLanded(page);
+    const aurora = (vt: string) => grains(decodePng(readFileSync(new URL(`./aurora/${ref.lienzos[vt]!}`, import.meta.url))));
+    const { rows, orb } = (await page.evaluate(() => {
+      const w = window as unknown as { __bmsFila21: unknown[] | null; __bmsOrb: unknown };
+      const out = { rows: w.__bmsFila21, orb: w.__bmsOrb };
+      w.__bmsFila21 = null;
+      return out;
+    })) as { rows: { debug: string; x: number; y: number; n: number; width: number; left: number; top: number }[]; orb: { x: number; y: number }[] | null };
+    // Las particulas salen de donde estaba el orbe: en el primer cuadro de la caida (los granos
+    // aun quietos, cada uno en su punto), el centro de los granos que se ven en el lienzo es el de
+    // los puntos del orbe que caen dentro de el (±3 px). A 400 px el orbe esta encima de la
+    // escena: ningun grano en el lienzo al salir (Aurora tampoco los tiene hasta los 600 ms).
+    expect(orb?.length ?? 0, 'los puntos del orbe de particulas al soltar').toBeGreaterThan(0);
+    const first = rows.find((r) => /partículas cayendo/.test(r.debug));
+    expect(first, 'el primer cuadro de la caida').toBeDefined();
+    const inside = orb!.filter((p) => p.y >= first!.top && p.y < first!.top + 200 && p.x >= first!.left && p.x < first!.left + first!.width);
+    if (aurora('0').n === 0) {
+      expect(first!.n, 'al salir, los granos aun fuera del lienzo, como en Aurora').toBe(0);
+      expect(inside.length, 'los puntos del orbe, encima del lienzo').toBe(0);
+    } else {
+      const at = { x: first!.x + first!.left, y: first!.y + first!.top };
+      const want = { x: inside.reduce((a, p) => a + p.x, 0) / inside.length, y: inside.reduce((a, p) => a + p.y, 0) / inside.length };
+      const text = `al salir, los granos en (${at.x.toFixed(1)}, ${at.y.toFixed(1)}); los puntos del orbe en (${want.x.toFixed(1)}, ${want.y.toFixed(1)})`;
+      expect(Math.abs(at.x - want.x), text).toBeLessThanOrEqual(3);
+      expect(Math.abs(at.y - want.y), text).toBeLessThanOrEqual(3);
+    }
+    // Posadas: el monticulo donde el de Aurora (a los 1400 ms): su centro ±6 px (cuantos granos lo
+    // forman depende del cuadro del orbe que se tomo).
+    const mound = rows.find((r) => /montículo formado/.test(r.debug));
+    const theirs = aurora('1400');
+    expect(mound, 'el monticulo').toBeDefined();
+    const text = `el monticulo: ${mound!.n} pixeles en (${mound!.x.toFixed(0)}, ${mound!.y.toFixed(0)}); Aurora ${theirs.n} en (${theirs.x.toFixed(0)}, ${theirs.y.toFixed(0)})`;
+    expect(Math.abs(mound!.x - theirs.x), text).toBeLessThanOrEqual(6);
+    expect(Math.abs(mound!.y - theirs.y), text).toBeLessThanOrEqual(6);
+    expect(mound!.n, text).toBeGreaterThan(0);
+    const seen = rows.map((r) => r.debug).filter((d, i, all) => d && d !== all[i - 1]);
+    expect(seen.slice(0, ref.entrada.length), 'la entrada, en el orden de Aurora').toEqual(ref.entrada.map((s) => s.debug));
+    // Las cajas, con la cabeza esperando, sin las bandas del servidor (main baja lo que miden).
+    const main = (await box(page.locator('main'))).y;
+    const sel = { h1: '.welcome-line h1', p: '.welcome-line p', world: '.zur-world', flow: '.flow-button', note: '.processing-demo', reading: '.pc-reading' } as const;
+    const boxes: string[] = [];
+    for (const [name, selector] of Object.entries(sel) as [keyof typeof sel, string][]) {
+      const b = await box(page.locator(selector).first());
+      const ours = [b.x, b.y - main, b.width, b.height];
+      const want = ref.cajas[name];
+      // La linea, la nota y la lectura llevan nuestros textos (I, D): de ellas, donde empiezan.
+      const keys = name === 'p' || name === 'note' || name === 'reading' ? [1] : [0, 1, 2, 3];
+      for (const k of keys) if (Math.abs(ours[k]! - want[k]!) > 4) boxes.push(`${name}[${k}]: ${Math.round(ours[k]!)} (Aurora ${want[k]})`);
+    }
+    expect(boxes, 'las cajas de Procesar por el camino de la fila 21').toEqual([]);
+    expect(await title(page).evaluate((el) => getComputedStyle(el).fontSize)).toBe(ref.h1);
+    await expectAlone(page, 'Procesar por la fila 21');
   });
 }

@@ -284,7 +284,10 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await expect(app(page)).toHaveAttribute('data-active', 'payables');
     await c.click(entryButton(page, 'process'));
     // Procesar (E7): el espacio central con la suricata, sin vuelo; pedir la lectura es un clic mas.
+    // Al apoyar el raton, Verwerken paso a ser la activa (como en Aurora) y el orbe de particulas
+    // dio sus sitios al titulo y a la escena (procesar.spec.ts, «la fila 21», lo mide contra Aurora).
     await processLanded(page);
+    await expect(app(page)).toHaveAttribute('style', /--process-scene-y/);
     expect(c.total).toBeLessThanOrEqual(4);
     expect(c.steps).toBeLessThanOrEqual(2);
   });

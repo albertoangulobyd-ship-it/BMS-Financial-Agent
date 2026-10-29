@@ -1,5 +1,5 @@
 {
- "_nota": "Del prototipo de Aurora del dueno (entrega del 28-10-2026), grabado con reloj virtual (herramientas/reloj.cjs del paso 17, E1: Playwright clock, pasos de 40 ms en la entrada, 200 ms en la espera y 80 ms en el trabajo): las transiciones de la linea de depuracion del motor (loader-engine.ts) desde el clic en Procesar, las acciones de cada etapa en orden y cuatro recortes de la escena (el lienzo del mundo, en pixeles de la pantalla) que compara e2e/procesar.spec.ts: la cabeza esperando (vt 3400 ms) y la suricata entera revisando la pila de 1 papel. No se editan a mano. «reducido»: la secuencia de la linea de depuracion con prefers-reduced-motion (procesar-reloj-*-reduce).",
+ "_nota": "Del prototipo de Aurora del dueno (entrega del 28-10-2026), grabado con reloj virtual (herramientas/reloj.cjs del paso 17, E1: Playwright clock, pasos de 40 ms en la entrada, 200 ms en la espera y 80 ms en el trabajo): las transiciones de la linea de depuracion del motor (loader-engine.ts) desde el clic en Procesar, las acciones de cada etapa en orden y cuatro recortes de la escena (el lienzo del mundo, en pixeles de la pantalla) que compara e2e/procesar.spec.ts: la cabeza esperando (vt 3400 ms) y la suricata entera revisando la pila de 1 papel. No se editan a mano. «reducido»: la secuencia de la linea de depuracion con prefers-reduced-motion (procesar-reloj-*-reduce). «fila21»: el camino de la fila 21 de la especificacion (§2.6: el menu, dos pasos de rueda y el clic en Procesar, dos filas por debajo del centro), grabado igual con herramientas/reloj-fila21.cjs (paso 17, cierre de la puerta), con el orbe de particulas en su primer cuadro al soltar (escala 0,35 y giro -25 grados: lo que toma Aurora con el reloj de verdad): los sitios que toma captureProcessingEntry, las transiciones de la entrada, los pixeles del lienzo de la escena al salir (0 ms) y con el monticulo (1400 ms) y las cajas a los 3,4 s (x, y, ancho y alto, sin bandas).",
  "mundo": {
   "1440": [
    400,
@@ -219,5 +219,167 @@
    "Etapa 5/5 · cabeza fuera del hoyo · frame 6 · pila 5",
    "Etapa 5/5 · centinela · frame 6 · pila 5"
   ]
+ },
+ "fila21": {
+  "1440": {
+   "seleccionada": "Cuentas por cobrar",
+   "variables": {
+    "--process-heading-y": 138.0,
+    "--process-scene-y": 294.18511962890625
+   },
+   "entrada": [
+    {
+     "vt": 0,
+     "debug": "Etapa 1/5 · partículas cayendo · frame 2 · pila 0"
+    },
+    {
+     "vt": 1440,
+     "debug": "Etapa 1/5 · montículo formado · frame 2 · pila 0"
+    },
+    {
+     "vt": 1680,
+     "debug": "Entrada · asomando la cabeza · frame 1"
+    },
+    {
+     "vt": 1840,
+     "debug": "Entrada · asomando la cabeza · frame 2"
+    },
+    {
+     "vt": 2000,
+     "debug": "Entrada · asomando la cabeza · frame 3"
+    },
+    {
+     "vt": 2080,
+     "debug": "Entrada · asomando la cabeza · frame 4"
+    },
+    {
+     "vt": 2640,
+     "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0"
+    }
+   ],
+   "lienzos": {
+    "0": "suricata/fila21-1440-0000.png",
+    "1400": "suricata/fila21-1440-1400.png"
+   },
+   "cajas": {
+    "h1": [
+     385,
+     138,
+     670,
+     38
+    ],
+    "p": [
+     455,
+     191,
+     530,
+     38
+    ],
+    "world": [
+     400,
+     372,
+     640,
+     141
+    ],
+    "flow": [
+     623,
+     684,
+     195,
+     48
+    ],
+    "note": [
+     400,
+     746,
+     640,
+     16
+    ],
+    "reading": [
+     545,
+     538,
+     350,
+     107
+    ]
+   },
+   "h1": "28px"
+  },
+  "400": {
+   "seleccionada": "Cuentas por cobrar",
+   "variables": {
+    "--process-heading-y": 145.390625,
+    "--process-scene-y": 278.36688232421875
+   },
+   "entrada": [
+    {
+     "vt": 0,
+     "debug": "Etapa 1/5 · partículas cayendo · frame 2 · pila 0"
+    },
+    {
+     "vt": 1440,
+     "debug": "Etapa 1/5 · montículo formado · frame 2 · pila 0"
+    },
+    {
+     "vt": 1680,
+     "debug": "Entrada · asomando la cabeza · frame 1"
+    },
+    {
+     "vt": 1840,
+     "debug": "Entrada · asomando la cabeza · frame 2"
+    },
+    {
+     "vt": 2000,
+     "debug": "Entrada · asomando la cabeza · frame 3"
+    },
+    {
+     "vt": 2080,
+     "debug": "Entrada · asomando la cabeza · frame 4"
+    },
+    {
+     "vt": 2640,
+     "debug": "Etapa 1/5 · cabeza fuera del hoyo · frame 2 · pila 0"
+    }
+   ],
+   "lienzos": {
+    "0": "suricata/fila21-400-0000.png",
+    "1400": "suricata/fila21-400-1400.png"
+   },
+   "cajas": {
+    "h1": [
+     20,
+     145,
+     360,
+     38
+    ],
+    "p": [
+     20,
+     198,
+     360,
+     40
+    ],
+    "world": [
+     16,
+     356,
+     368,
+     94
+    ],
+    "flow": [
+     103,
+     633,
+     195,
+     48
+    ],
+    "note": [
+     16,
+     695,
+     368,
+     16
+    ],
+    "reading": [
+     25,
+     487,
+     350,
+     107
+    ]
+   },
+   "h1": "28px"
+  }
  }
 }

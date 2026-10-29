@@ -6,7 +6,8 @@
 // - B: la entrada (L0) es este mismo inicio: el saludo pide el codigo, la caja lo recoge y el
 //   idioma va donde ira "Presiona para navegar"; al entrar cambia el saludo (0,3 s) y nada mas;
 // - B: ocho entradas en la rueda (§1.4); con un panel abierto la rueda se oculta y `active` no
-//   se mueve (§1.1); el clic se queda en la fila donde se apoyo el raton;
+//   se mueve (§1.1); al apoyar el raton en una fila pasa lo de Aurora (la activa va a ella) y el
+//   clic abre esa fila aunque se suelte sobre otra;
 // - D: la conversacion la contesta el asistente local; la busqueda va a /api/v2/buscar;
 // - R: Documentos se abre con el vuelo del orbe (root.tsx);
 // - D: Procesar (processMode, main.tsx:23,40) es la lectura de verdad (processing/); como en
@@ -185,6 +186,10 @@ export function App() {
   const [searchThinking, setSearchThinking] = useState(false);
   const [processView, setProcessView] = useState<ProcessView>(() => introView('ready', null, t));
   const wheelTime = useRef(0);
+  // La fila de la rueda donde se apoyo el raton (§1.4): al apoyarlo, la activa pasa a ella (el
+  // onFocus de Aurora, main.tsx:32) y la pista se desliza; el clic abre esa fila aunque se suelte
+  // sobre otra o sobre la pista.
+  const pressed = useRef<number | null>(null);
   const loginState = useLogin();
   const api = session?.api;
   const chat = useConversation(
@@ -466,7 +471,20 @@ export function App() {
             </button>
           )}
           {loggedIn && open && !chatting && (
-            <section className='navigation' aria-label={t.aurora.home.sections}>
+            <section
+              className='navigation'
+              aria-label={t.aurora.home.sections}
+              onMouseDownCapture={() => {
+                pressed.current = null;
+              }}
+              onClick={(e) => {
+                // Soltado sobre otra fila o sobre la pista (se ha deslizado): la de antes.
+                const at = pressed.current;
+                if (at === null || e.detail === 0 || (e.target as Element).closest('.nav-item')) return;
+                pressed.current = null;
+                enter(at);
+              }}
+            >
               <TextMarquee
                 active={active}
                 onActive={(i) => dispatch({ type: 'focusEntry', index: i })}
@@ -481,10 +499,22 @@ export function App() {
                     aria-current={active === i ? 'true' : undefined}
                     data-entry={id}
                     onFocus={() => dispatch({ type: 'focusEntry', index: i })}
-                    // El clic se queda donde se apoyo: sin foco al pulsar, la pista no se mueve
-                    // bajo el raton antes de soltar (§1.4).
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => enter(i)}
+                    // Al apoyar el raton, lo de Aurora (onFocus, main.tsx:32): la activa pasa a
+                    // esta fila, la pista se desliza y, con Procesar, sale el orbe de particulas
+                    // (del que captureProcessingEntry toma las particulas y los sitios). Sin mover
+                    // el foco: no se ve y la ventana no se desplaza.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      if (e.button !== 0) return;
+                      pressed.current = i;
+                      dispatch({ type: 'focusEntry', index: i });
+                    }}
+                    // El clic abre la fila donde se apoyo (§1.4); con el teclado, esta.
+                    onClick={(e) => {
+                      const at = e.detail > 0 && pressed.current !== null ? pressed.current : i;
+                      pressed.current = null;
+                      enter(at);
+                    }}
                   >
                     <span>{entryLabel(t, id)}</span>
                   </button>

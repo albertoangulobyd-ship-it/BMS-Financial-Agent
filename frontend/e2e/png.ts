@@ -102,3 +102,25 @@ export function opaqueColumns(sprite: Bitmap, cell = 76): { from: number; to: nu
       }
   return { from, to };
 }
+
+/** Donde estan los granos de un lienzo de la escena (sus pixeles, con alfa): el centro de los
+ *  pixeles blancos y cuantos son, sin la linea del suelo (las filas con mas de la mitad pintada). */
+export function grains(canvas: Bitmap): { x: number; y: number; n: number } {
+  let sx = 0,
+    sy = 0,
+    n = 0;
+  for (let y = 0; y < canvas.height; y += 1) {
+    let row = 0;
+    for (let x = 0; x < canvas.width; x += 1) if (canvas.data[(y * canvas.width + x) * 4 + 3]! > 128) row += 1;
+    if (row > canvas.width / 2) continue;
+    for (let x = 0; x < canvas.width; x += 1) {
+      const i = (y * canvas.width + x) * 4;
+      if (canvas.data[i + 3]! > 128 && canvas.data[i]! > 128) {
+        sx += x;
+        sy += y;
+        n += 1;
+      }
+    }
+  }
+  return n ? { x: sx / n, y: sy / n, n } : { x: NaN, y: NaN, n: 0 };
+}

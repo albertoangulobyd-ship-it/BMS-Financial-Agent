@@ -196,8 +196,11 @@ estado y etapa de Procesar se anuncian (un `role="status"` oculto).
 650, `#eee5fa`; las demás, `#544e60`). Las ocho, en este orden: **Instellingen, Zoeken,
 Documenten, Start, Te ontvangen, Te betalen, Btw y Verwerken**. Al abrirla por primera vez
 en una sesión, Start está en el centro; después, la última que se usó. **Un clic en
-cualquier entrada a la vista la abre a la primera** (en Aurora la centraba y el clic se
-perdía); las que quedan fuera de la ventana no se pueden pulsar, como en Aurora, y se
+cualquier entrada a la vista la abre a la primera.** Al apoyar el ratón pasa lo de Aurora (su
+`onFocus`): la entrada pasa a ser la activa, la pista se desliza y, con Verwerken, sale el orbe
+de partículas, del que Procesar toma las partículas y los sitios del título y de la escena. El
+clic abre la entrada donde se apoyó aunque se suelte encima de otra (en Aurora ese clic se
+perdía). Las que quedan fuera de la ventana no se pueden pulsar, como en Aurora, y se
 alcanzan con un paso de la rueda del ratón (un paso por gesto, sin dar la vuelta), las
 flechas, Inicio y Fin (el foco va con la entrada activa; con el foco en la rueda, Intro la abre),
 Tab (centra la entrada que recibe el foco) o el dedo (un paso por gesto): Instellingen
