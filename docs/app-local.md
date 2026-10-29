@@ -962,7 +962,7 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | `src/aurora/` | La app de Aurora (paso 17): `root.tsx` (las dos pantallas y el vuelo del orbe), `app.tsx` (el inicio: L0 a E5 y E7), `estado.ts` (la máquina de estados, pura: también el sitio de cada panel y de Documentos), `navigation.ts` (abrir una factura o Documentos con el vuelo), `panels.tsx` (E2) y `panels/` (cada panel: `home-panel`, `money-panel`, `vat-panel`, `import-panel`, `settings-panel`; sus piezas de Aurora en `pieces.tsx`; la tarjeta de una factura, `invoice-card`; las órdenes de las excepciones y de los pagos, `exception-orders` y `payment-orders`; y lo puro, con sus pruebas: `panel-model`, `money-model`, `iban-model` y `weeks`), `orders.tsx` (una orden en una tarjeta: su botón, su formulario, su «sí» y su error), `documents/` (Documentos: `document-workspace.tsx` del dueño, `glass-folder-cards`, `tree-view`, la hoja de una factura `invoice-sheet.tsx` y las demás `sheets.tsx`, la pastilla `status.tsx`, y lo puro: `documents-model`, `sheet-model`, `analysis`), `processing/` (Procesar: `processing-workspace.tsx` del dueño, la tarjeta `processing-card.tsx`, el cargador `document-loader.tsx`, el motor de la suricata `loader-engine.ts` con sus PNG `loader-sprites.ts`, la entrada de las partículas `processing-entry.ts`, el `flow-button.tsx`, y lo puro, con sus pruebas: `reading-model.ts`, lo que se ve y lo que se le pide al motor según la lectura, y `process-texts.ts`, sus textos), `assistant.ts` (lo que contesta la conversación), `chat/`, `finance/` (el resumen general), `search/` (E5), `orb/` y `thinking-orb/`, `text-marquee.tsx` (la rueda), `composer.tsx`, `logo.tsx`, `due.ts` y `use-load.ts`; las hojas del dueño tal cual (`styles.css`, `workspace-layout.css` y las de cada pieza), `bms.css` (lo que añade BMS) y `claro.css` (el tema claro, generado por `scripts/aurora-claro.mjs`) |
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila y si pide a una persona (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que encuentra la conversación (`quick-search.ts`: entradas, grupos, relaciones y facturas) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`), `fmt` y `countText` (una cifra con su palabra, §5) en `index.tsx`, y, para las pruebas, las listas de restos de otro idioma (`leftovers.ts`) y el glosario del castellano (`glossary.ts`) |
-| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, los paneles, las migas, Instellingen, Procesar) con los nombres de los diccionarios; `aurora/referencia.json` (las medidas del prototipo), `aurora/suricata.json` y `aurora/suricata/` (lo grabado de la suricata de Aurora con el reloj virtual: las transiciones de la entrada, las acciones de cada etapa y dos recortes de la escena) y `aurora/contraste.json` (los grises de Aurora que no llegan a 4,5:1, apuntados); `png.ts`, leer un PNG sin dependencias para comparar esos recortes; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
+| `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, los paneles, las migas, Instellingen, Procesar) con los nombres de los diccionarios; `aurora/referencia.json` (las medidas del prototipo, también con «menos movimiento») y `aurora/cajas.ts` (medirlas igual en BMS y compararlas, con la captura de cada estado), `aurora/tiempos.json` (los tiempos de Aurora, medidos con la misma herramienta) y `aurora/cruces.ts` (esa herramienta: cada animación del navegador, parada y llevada a cada instante, y los cruces del 5, 50 y 95 %), `aurora/visible.ts` (qué se ve en un cuadro: caja en la ventana, `visibility` y opacidad efectiva; con su propia prueba), `aurora/hojas.mjs` (las hojas de contactos Aurora | BMS de cada estado: `node e2e/aurora/hojas.mjs --aurora <grabaciones de Aurora>`), `aurora/suricata.json` y `aurora/suricata/` (lo grabado de la suricata de Aurora con el reloj virtual: las transiciones de la entrada, las acciones de cada etapa y dos recortes de la escena) y `aurora/contraste.json` (los grises de Aurora que no llegan a 4,5:1, apuntados); `png.ts`, leer un PNG sin dependencias para comparar esos recortes; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
 
 **Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
 respuestas inventados. Se trajo a `src/aurora/` lo que la revisión quiere conservar, con
@@ -1071,16 +1071,30 @@ ratón, las flechas, Tab, el dedo y «menos movimiento»; los paneles con su ✕
 orbe; el vuelo a una pantalla de trabajo y de vuelta; cada pantalla de la app en los tres
 idiomas; las migas y Alt+←; Instellingen y salir; recargar y la sesión que caduca; el
 teclado; 1024 px y el móvil (400 × 860 y 360 × 740). `e2e/exclusividad.spec.ts` prueba la
-regla del dueño (o el menú o una pantalla) en cada estado, en cada cuadro de cada transición
-y en cinco anchos, también por dentro de los paneles (una vista, una tarjeta con su orden
-abierta, importar), E5-p, la hoja de una factura con una orden abierta (E6-h, E6-o) y
-Procesar (E7, con la entrada de la suricata);
-`e2e/aurora-paridad.spec.ts` compara las cajas, la letra, el color y la escala de L0, E0, E1, E2
-(en reposo y con una tarjeta) y Documentos (todo, una carpeta y la hoja) a 1440 y 400 px con las
-medidas del prototipo (`e2e/aurora/referencia.json`, ±4 px; en Documentos la `y` desde la marca),
-lo que se desplaza cada panel (53 y 213 px como mucho) y cada hoja de factura (anotado; 300 px
-como mucho con cuatro filas o menos) y los tiempos del orbe (abrir la rueda y el vuelo, por los
-cruces del 5, 50 y 95 %); `e2e/conversacion.spec.ts` el resumen general en los tres idiomas (lo
+regla del dueño (o el menú o una pantalla) con la visibilidad de §1.1 (`e2e/aurora/visible.ts`:
+caja en la ventana, `visibility` y opacidad efectiva) en cada estado, en cada cuadro de cada
+transición y en cinco anchos, también por dentro de los paneles (una vista, una tarjeta con su
+orden abierta, importar), Ctrl+K, las fichas de un cliente y de un proveedor, un Object y una
+PO, E5-p, la hoja de una factura con una orden abierta (E6-h, E6-o) y Procesar (E7, con la
+entrada de la suricata): la pantalla que se va solo se funde (su opacidad no sube y acaba en
+0,18 s), no recibe clics y no deja ver la rueda; con «menos movimiento», sin solaparse; la rueda
+escondida no manda (diez pasos hacia abajo y diez hacia arriba sobre el orbe, el hueco y el
+saludo); y F8 y F9 en un solo cambio. El ayudante se prueba a sí mismo con las animaciones a
+una décima de su velocidad;
+`e2e/aurora-paridad.spec.ts` compara las cajas, la letra, el color y la escala de L0, E0, E1 (y
+con Procesar en el centro), E2-C y E2-P (en reposo, con la vista de un grupo y con una tarjeta),
+E3, E4, E4-b, E5 (sola, con resultados y con filtros) y Documentos (todo, una carpeta y la hoja)
+a 1440 y 400 px con las medidas del prototipo (`e2e/aurora/referencia.json`, ±4 px; en Documentos
+la `y` desde la marca; lo que Aurora no tiene en la página tampoco debe verse), y con «menos
+movimiento» los estados que Aurora grabó así; lo que se desplaza cada panel (53 y 213 px como
+mucho) y cada hoja de factura (anotado; 300 px como mucho con cuatro filas o menos); y que nada
+salte al aterrizar el vuelo a Documentos y de vuelta. Cada comparación deja su captura
+(`CAPTURAS_DIR/<tema>/aurora-<estado>-<ancho>.png`) para las hojas de contactos de
+`e2e/aurora/hojas.mjs`; `e2e/aurora-tiempos.spec.ts` mide las transiciones de la tabla de
+tiempos (T01 a T33, salvo T31, que va en `procesar.spec.ts`) en la línea de tiempo de cada
+animación, por los cruces del 5, 50 y 95 %, contra la curva del código del dueño (±10 % o una
+muestra); el texto que se escribe y la cifra de puntos, con el reloj virtual; los muelles, contra
+lo medido en Aurora; `e2e/conversacion.spec.ts` el resumen general en los tres idiomas (lo
 pendiente de la cartera al céntimo, «saldos pendientes», a 1440 y a 400 px);
 `e2e/search.spec.ts` la búsqueda de Aurora; `e2e/clicks.spec.ts` cuenta los clics de cada tarea
 de la tabla de la especificación (§4, «Los clics») y que la sexta fila y la última de un grupo
@@ -1113,8 +1127,11 @@ cinco etapas en orden y cada una solo cuando la pide la lectura, el % cuadro a c
 no pasa del techo de la lectura ni de lo que lleva la pila) y la centinela; «Ver en Documentos»
 sin vuelo e «Ir a la cola de trabajo»; no leer, caducar y nada que leer con la misma cabeza; el
 aislamiento mal y la lectura que falla leyendo, con el fundido de 0,3 s; el 409 de una
-estimación que cambió y el sí que no llega; parar sin nada leído; el tope; «menos movimiento»;
-en cada estado, solo Procesar a la vista; y, **con el reloj virtual de Playwright, lo mismo que
+estimación que cambió y el sí que no llega; parar sin nada leído; el tope; «menos movimiento» a 1440
+y 400 px; en cada estado, solo Procesar a la vista; las cajas de P0, P4 y P5 contra las de
+Aurora (también con «menos movimiento»); la centinela y el fundido del final (T31); la fila 21
+(dos pasos de rueda y Procesar dos filas por debajo del centro, por el mismo camino que en
+Aurora); y, **con el reloj virtual de Playwright, lo mismo que
 Aurora** a 1440 y 400 px: las transiciones de la entrada (±40 ms), la cabeza esperando píxel a
 píxel, las acciones de cada etapa y la suricata revisando la pila (`e2e/aurora/suricata.json`). Van en orden y cambian la base, así
 que comprueban cambios, no cifras sueltas. En
