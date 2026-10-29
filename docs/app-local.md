@@ -237,7 +237,8 @@ centro, y falla si un camino crece. Un grupo de un panel cuesta 3 (la rueda, la 
 grupo); una tarjeta, 4; una orden, 5 como mucho; Procesar, dos pasos de la rueda y un clic; lo
 que se busca por su número o su nombre va por la conversación (escribirlo no cuesta; abrir su
 hoja, 1). Y en un grupo de más de cinco filas, la sexta y la última se alcanzan escribiendo en
-su campo, sin ningún clic más.
+su campo, sin ningún clic más. En la hoja de una factura con más de cuatro filas, lo plegado
+cuesta un clic más (desplegarla): anotar un pago de VD26-306 por la caja, 4 en lugar de 3.
 
 ### 4.1 Los paneles (E2)
 
@@ -294,7 +295,7 @@ listas y el panel, sin que nada salte a «Laden…».
 | Dónde | Qué hay | Órdenes |
 | --- | --- | --- |
 | **Start › Eerst y Werklijst** | Las facturas que piden a una persona (una prioridad que no es normal, un hallazgo pendiente, una excepción abierta o campos por verificar): la empresa, el número («1 van 2» si otra lo comparte), el importe y la prioridad en el texto de la fila | La tarjeta de la factura (arriba); su hoja, con todo lo demás |
-| **La hoja de una factura** (E6-h, en Documentos) | El papel de Aurora dibujado desde el registro (número, empresa, fecha, vencimiento, base, IVA, total, lo que queda y el pago **siempre con su fuente**: «volgens de bank», «volgens Exact» o «met de hand … door Ana», con K3 si el banco no lo trae), «Origineel downloaden» y **una sola tabla, «Wat je kunt doen»**: una fila por cosa pendiente, la más urgente primero (cada hallazgo con su nombre, cada pago propuesto, cada relación propuesta, la excepción abierta y la revisión si falta) y siempre «Gelezen gegevens» y «Betalingen, notities en geschiedenis». Cada fila, dos líneas (qué es y su estado); al pulsarla, su tarjeta se abre debajo de la tabla y el diálogo se desplaza lo justo para enseñarla | En la tarjeta de un hallazgo: aceptarlo con un motivo de 10 caracteres o más (`anular_hallazgo`, con la segunda firma de otra persona cuando la pide), dar la segunda firma (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`) y verificar o cambiar los campos a los que apunta (antes de guardar se ve «Nu → Nieuw»); en la de la revisión, `marcar_revisada` (con la huella de lo que se vio) o `devolver_factura`; en la de la excepción, las suyas; en la de un pago propuesto, Bevestigen y Niet deze; en la de una relación, Bevestigen y Afwijzen, con motivo; en «Gelezen gegevens», cada campo con su fuente y su calidad, y verificar, cambiar o deshacer; en «Betalingen, notities en geschiedenis», cada pago (Intrekken con motivo en lo que no es de Exact), **Betaling vastleggen**, «Notitie toevoegen», «Uitzondering openen» y la historia en palabras normales |
+| **La hoja de una factura** (E6-h, en Documentos) | El papel de Aurora dibujado desde el registro (número, empresa, fecha, vencimiento, base, IVA, total, lo que queda y el pago **siempre con su fuente**: «volgens de bank», «volgens Exact» o «met de hand … door Ana», con K3 si el banco no lo trae), «Origineel downloaden» y **una sola tabla, «Wat je kunt doen»**: una fila por cosa pendiente, la más urgente primero (cada hallazgo con su nombre, cada pago propuesto, cada relación propuesta, la excepción abierta y la revisión si falta) y siempre «Gelezen gegevens» y «Betalingen, notities en geschiedenis». Con más de cuatro filas, la tabla se abre **plegada**: las tres más urgentes y, en la cuarta línea, «En nog N regels» (con «· K vragen aandacht» si detrás hay hallazgos o la excepción); «Minder tonen» la vuelve a plegar. Cada fila, dos líneas (qué es y su estado); al pulsarla, su tarjeta se abre debajo de la tabla y el diálogo se desplaza lo justo para enseñarla | En la tarjeta de un hallazgo: aceptarlo con un motivo de 10 caracteres o más (`anular_hallazgo`, con la segunda firma de otra persona cuando la pide), dar la segunda firma (`firmar_anulacion`), cerrar uno que ya no se ve (`cerrar_hallazgo`) y verificar o cambiar los campos a los que apunta (antes de guardar se ve «Nu → Nieuw»); en la de la revisión, `marcar_revisada` (con la huella de lo que se vio) o `devolver_factura`; en la de la excepción, las suyas; en la de un pago propuesto, Bevestigen y Niet deze; en la de una relación, Bevestigen y Afwijzen, con motivo; en «Gelezen gegevens», cada campo con su fuente y su calidad, y verificar, cambiar o deshacer; en «Betalingen, notities en geschiedenis», cada pago (Intrekken con motivo en lo que no es de Exact), **Betaling vastleggen**, «Notitie toevoegen», «Uitzondering openen» y la historia en palabras normales |
 | **Start › Uitzonderingen** | Las abiertas, la más urgente primero: qué pasa (el hallazgo más urgente, en palabras normales), de qué va y quién la lleva | Zelf oppakken, Toewijzen, Wachten op anderen (a quién y hasta cuándo), Oplossen (cómo acabó y qué se hizo); «Factuur openen» |
 | **Start › IBAN te controleren** | Cada cuenta nueva o cambiada (los avisos F de las facturas y las del registro sin verificar): de qué proveedor es, el IBAN encontrado, **lo que falta en una frase** cuando ya se verificó por teléfono, en qué factura y el teléfono **de los datos maestros**; las heredadas sin confirmar, aparte | Verificar por teléfono (`verificar_iban`): llamar a ese número, nunca a uno de la factura; el IBAN que lee el proveedor **se teclea** (el campo va vacío) y la tarjeta dice si es el mismo que el encontrado; quién contestó y una nota. Rechazar (`rechazar_iban`). Confirmar las heredadas (`atestar_iban`) |
 
@@ -537,10 +538,24 @@ hoja de una factura) son puros.
   con sus tarjetas y sus órdenes (§4.2). De un Object, lo facturado, lo que costó, el margen y
   las horas; de una PO, lo pedido, lo facturado, lo que queda y la previsión; en su tabla, sus
   facturas (cada una abre su hoja). Se cierra con la ✕, Escape o un clic fuera.
-- **El desplazamiento de la hoja** se mide en cada factura de la base de prueba
-  (`e2e/aurora-paridad.spec.ts`): con cuatro filas o menos no pasa de 300 px a 1440 × 900; la
-  peor, DBO-2026-0417, con ocho filas, se desplaza 586 px (punto para el dueño, registro del
-  paso 17 B2).
+- **La tabla de una factura, plegada** (decisión del dueño del 29-10-2026: «que se vea lo más
+  minimalista y limpio posible»). Con cuatro filas o menos, la tabla entera, sin nada más. Con
+  más, la hoja se abre siempre plegada: se ven las tres filas más urgentes y, en la cuarta línea,
+  **un solo control** con el botón discreto de la cabecera de la tabla de Aurora
+  (`.ws-table-head button`): «En nog 5 regels» («Y 5 líneas más», «And 5 more lines») y, si
+  entre lo plegado hay hallazgos o la excepción abierta, cuántos («· 1 vraagt aandacht», «· 1 pide
+  atención», «· 1 needs attention»). Es un botón de verdad (`aria-expanded`, `aria-controls` a la
+  tabla, Intro o espacio); al desplegar, el foco pasa a la primera fila que estaba plegada y el
+  control dice «Minder tonen» («Ver menos», «Show fewer»), que vuelve a plegar (la tarjeta de una
+  fila plegada se cierra con ella). Desplegar es de esa vez: cada hoja se abre plegada. El papel
+  con sus totales (base, IVA, total, lo que queda) no se pliega nunca, y la cabecera sigue
+  contando todas las filas. Lo puro (qué filas se ven, el texto y los avisos) está en
+  `foldRows` y `foldLabel` (`src/aurora/documents/sheet-model.ts`).
+- **El desplazamiento de la hoja** se mide en cada factura de la base de prueba, plegada como
+  se abre (`e2e/aurora-paridad.spec.ts`): no pasa de 300 px a 1440 × 900 ni a 400 × 860, en
+  oscuro y en claro. Las plegadas, 246 px como mucho a 1440 (DBO-2026-0417 y KT-202609) y
+  273 a 400 (KT-202608 y KT-202609); antes de plegar, DBO-2026-0417 (ocho filas) se desplazaba
+  586 y 594 px. La que más, JV-2026-006, con cuatro filas y sin plegar como antes: 292 y 300.
 - **Vacíos y errores.** Sin clientes ni proveedores, lo vacío de Aurora (`.ws-empty`), sin
   suricata (D-44). Una carpeta o una ficha que no se pudo leer lo dice, con su reintento.
 - **Lo que no hay**: «Agregar muestra», «Descargar muestra TXT», los datos de demostración en
@@ -1075,7 +1090,8 @@ regla del dueño (o el menú o una pantalla) con la visibilidad de §1.1 (`e2e/a
 caja en la ventana, `visibility` y opacidad efectiva) en cada estado, en cada cuadro de cada
 transición y en cinco anchos, también por dentro de los paneles (una vista, una tarjeta con su
 orden abierta, importar), Ctrl+K, las fichas de un cliente y de un proveedor, un Object y una
-PO, E5-p, la hoja de una factura con una orden abierta (E6-h, E6-o) y Procesar (E7, con la
+PO, E5-p, la hoja de una factura con una orden abierta (E6-h, E6-o), plegada y desplegada
+(cada cuadro del control), y Procesar (E7, con la
 entrada de la suricata): la pantalla que se va solo se funde (su opacidad no sube y acaba en
 0,18 s), no recibe clics y no deja ver la rueda; con «menos movimiento», sin solaparse; la rueda
 escondida no manda (diez pasos hacia abajo y diez hacia arriba sobre el orbe, el hueco y el
@@ -1087,7 +1103,7 @@ E3, E4, E4-b, E5 (sola, con resultados y con filtros) y Documentos (todo, una ca
 a 1440 y 400 px con las medidas del prototipo (`e2e/aurora/referencia.json`, ±4 px; en Documentos
 la `y` desde la marca; lo que Aurora no tiene en la página tampoco debe verse), y con «menos
 movimiento» los estados que Aurora grabó así; lo que se desplaza cada panel (53 y 213 px como
-mucho) y cada hoja de factura (anotado; 300 px como mucho con cuatro filas o menos); y que nada
+mucho) y cada hoja de factura, plegada (300 px como mucho a 1440 y a 400 px, en los dos temas); y que nada
 salte al aterrizar el vuelo a Documentos y de vuelta. Cada comparación deja su captura
 (`CAPTURAS_DIR/<tema>/aurora-<estado>-<ancho>.png`) para las hojas de contactos de
 `e2e/aurora/hojas.mjs`; `e2e/aurora-tiempos.spec.ts` mide las transiciones de la tabla de
@@ -1101,7 +1117,10 @@ de la tabla de la especificación (§4, «Los clics») y que la sexta fila y la 
 se alcanzan escribiendo; `e2e/status.spec.ts` cada estado en su color de Aurora en los dos
 temas, el latido solo donde toca y el plazo del BTW pasado en rojo; `e2e/documents.spec.ts` el
 archivo de Aurora sobre la base de prueba: las carpetas en su orden contra la API, el árbol con
-el teclado, la carpeta abierta con su ficha y su tabla, la hoja y la descarga auditada, las doce
+el teclado, la carpeta abierta con su ficha y su tabla, la hoja y la descarga auditada, la hoja
+plegada de DBO-2026-0417 (con el ratón y con el teclado, el foco, el texto contra la API, axe,
+otra vez plegada al volver a abrirla, las de cuatro filas o menos sin control y, en castellano a
+400 px y con «menos movimiento», sin animación), las doce
 primeras y las demás en el árbol, una carpeta que no se pudo leer con su reintento y el archivo
 vacío (respuestas cambiadas con `page.route`), y las capturas en los tres idiomas, en los dos
 temas y en el móvil; `e2e/daily.spec.ts` el trabajo diario con órdenes de verdad en las tarjetas
@@ -1176,9 +1195,9 @@ da el sí, pero no lo arranca (no lanza programas). Que se arranque solo, con un
 Windows en horario de oficina cuando hay una lectura pedida y un tope al mes, es la decisión 8B
 de la revisión, del dueño; el sí lo seguiría dando una persona en la app.
 
-Puntos para el dueño (registro del paso 17): el diálogo de una factura con muchas filas se
-desplaza más de 300 px (plegar el papel o dejarlo así), y el techo del avance de Procesar, lo
-único de Procesar que no es de Aurora (el % no va por delante de la lectura de verdad).
+Punto para el dueño (registro del paso 17): el techo del avance de Procesar, lo único de
+Procesar que no es de Aurora (el % no va por delante de la lectura de verdad). El del diálogo de
+una factura con muchas filas lo decidió el 29-10-2026: plegar lo que pasa de cuatro filas.
 
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
 natural, y mirar en el ordenador del dueño que Edge abre la ventana `--app`.

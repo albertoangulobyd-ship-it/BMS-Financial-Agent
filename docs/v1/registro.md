@@ -9045,6 +9045,10 @@ parecida, con sus clases. Se sigue la especificación del paso 17 (§2 y §3).
    de siete a 494 y la peor, DBO-2026-0417 con ocho, a 586 px. La prueba lo anota todo y falla solo
    con cuatro filas o menos. Es un punto para el dueño (§7.14): plegar el papel cuando hay filas o
    dejar que el diálogo se desplace, como hace hoy.
+   **Resuelta el 29-10-2026 por el dueño** («Decide tú, que se vea lo más minimalista y limpio
+   posible»): con más de cuatro filas, la tabla se abre plegada (tres filas y un solo control en
+   la cuarta línea) y ninguna factura de la base de prueba pasa de 300 px, a 1440 ni a 400 px
+   (las plegadas, 246 y 273 px como mucho). La regla y las medidas, en «Paso 17 · la hoja plegada».
 2. **La base de prueba no se completó a siete filas por grupo**: la Werklijst (14) y las excepciones
    (13) pasan de cinco y prueban el campo de buscar; los demás grupos tienen menos, y la prueba se
    salta los que no llegan.
@@ -9595,4 +9599,113 @@ manda: lo que se ve y cómo se mueve es lo de Aurora, y nunca el menú y una pan
 - `e2e/aurora/hojas.mjs` con las capturas de esta pasada: **70 hojas**; las de E0 con «menos
   movimiento» salen sin la de Aurora (desviación 7). Las cajas coinciden; difieren los textos y
   las cifras (son datos) y la banda de datos de prueba.
+- `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · la hoja plegada: la decisión del dueño sobre el diálogo de una factura (29-10-2026)
+
+La desviación 1 de B2 (el diálogo de una factura con más de cuatro filas se desplazaba de 331 a
+586 px, por encima de los 300 de §6.1) era un punto para el dueño: plegar o dejarlo así. Su
+respuesta, el 29-10-2026: «Decide tú, que se vea lo más minimalista y limpio posible». Se pliega.
+
+### La regla
+
+- **Qué se pliega, y por qué ahí**: las filas de «Wat je kunt doen». Medido antes, en cada
+  factura de la base de prueba, cada fila mide 74 px (87 a 400 px cuando su nota ocupa dos
+  líneas) y es lo único que crece con la factura: el papel de arriba (§2.3) mide 585 o 604 px a
+  1440 en todas (la línea de los pagos ocupa una o dos) y la descarga, siempre lo mismo. Las de
+  cuatro filas o menos quedaban en
+  292 px a 1440 y en 300 a 400; cada fila de más suma 74. «Gelezen gegevens» no hace desplazarse
+  la hoja: su lista solo se ve en su tarjeta, al pedirla. **El papel con sus totales (base, IVA,
+  total, lo que queda, los pagos) no se pliega nunca.**
+- **Con cuatro filas o menos**, nada cambia: ni control ni nada plegado.
+- **Con más**, la hoja se abre siempre plegada: se ven las tres más urgentes (el orden de §2.3:
+  hallazgos, pagos y enlaces propuestos, la excepción, la revisión y las dos de siempre) y, en la
+  cuarta línea, **un solo control**: el botón discreto de la cabecera de la tabla de Aurora
+  (`.ws-table-head button`, 9 px, el morado apagado, con su chevron), sin estilo nuevo. Tres y no
+  cuatro: con cuatro filas y el control, las peores (DBO-2026-0417 y KT-202609) quedaban en 290 y
+  292 px más los 27 del control, por encima de 300.
+- **El texto**: «En nog 5 regels», «Y 5 líneas más», «And 5 more lines» (en singular, «En nog 1
+  regel», «Y 1 línea más», «And 1 more line»), como «Y {n} líneas más.» del banco. **Un aviso
+  nunca se pliega sin decirlo**: si entre lo plegado hay hallazgos (abiertos o desaparecidos sin
+  cerrar) o la excepción abierta, el control lo cuenta («· 1 vraagt aandacht», «· 1 pide
+  atención», «· 1 needs attention»). Es lo más limpio: una sola línea, y las tres filas de arriba
+  ya son las más urgentes. Un pago o un enlace propuesto y la revisión no cuentan como aviso.
+- **Desplegar es de la persona**: el control es un botón de verdad (`aria-expanded`,
+  `aria-controls` a la tabla, Intro o espacio); al desplegar, el foco pasa a la primera fila que
+  estaba plegada y el control dice «Minder tonen» («Ver menos», «Show fewer»); plegar vuelve a lo
+  de siempre y cierra la tarjeta de una fila que se pliega. Desplegada, la hoja puede
+  desplazarse. Es de esa vez: cerrada y abierta otra vez, la hoja vuelve plegada.
+- **Lo puro**, `foldRows` y `foldLabel` en `src/aurora/documents/sheet-model.ts`.
+
+### Lo que se midió (antes y después)
+
+El desplazamiento del diálogo (`scrollHeight − clientHeight` de `dialog.ws-dialog[open]`), en
+cada factura de la base de prueba, a 1440 × 900 y a 400 × 860, igual en oscuro y en claro:
+
+| Factura | Filas | Antes, 1440 / 400 | Después (plegada), 1440 / 400 |
+| --- | --- | --- | --- |
+| DBO-2026-0417 | 8 | 586 / 594 | 246 / 254 |
+| JV-2026-007 (las dos) | 7 | 494 / 521 | 228 / 254 |
+| DGG-2026-118, PW2609-01, DBN-CR-2026-09 | 6 | 421 / 447 | 228 / 254 |
+| KT-202609 | 5 | 366 / 392 | 246 / 273 |
+| KT-202608 | 5 | 347 / 392 | 228 / 273 |
+| DBN-2026-09 | 5 | 347 / 374 | 228 / 254 |
+| VD26-0111, VD26-0113 | 5 | 349 / 357 | 230 / 238 |
+| VD26-306 | 5 | 331 / 376 | 211 / 256 |
+| JV-2026-006 | 4 | 292 / 300 | 292 / 300 |
+| VD26-309, VD26-209 | 4 | 276 / 297 | 276 / 297 |
+| VD26-0112 | 4 | 257 / 284 | 257 / 284 |
+| las 12 de tres filas | 3 | 184–219 / 224–261 | las mismas |
+| las 8 de dos filas | 2 | 129–145 / 169–185 | las mismas |
+
+Las 23 de cuatro filas o menos son las mismas que antes, caja a caja: cada elemento del diálogo
+(su sitio, su tamaño y su texto) en los dos anchos y los dos temas, medido antes y después con la
+misma herramienta.
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Todas las filas de «Wat je kunt doen», y el diálogo se desplazaba hasta 594 px | Con más de cuatro, tres y «En nog N regels»; nunca más de 300 px al abrirla | La decisión del dueño |
+| 2 | Anotar un pago de VD26-306 por la caja: 3 clics | 4 (desplegar es uno); con cuatro filas o menos, 3 | Lo plegado se alcanza con un clic más; la tabla de §2.6 se midió sin plegar |
+
+### Las pruebas
+
+- **vitest**, `sheet-model.test.ts` (cinco nuevas): con cuatro filas o menos, todas y sin control;
+  con más, las tres primeras y el control en la cuarta línea; desplegada, todas; qué cuenta como
+  aviso (un hallazgo abierto o desaparecido, la excepción; no un pago, la revisión ni las dos de
+  siempre); el texto en los tres idiomas, en singular y en plural; y las filas de `sheetRows` de
+  una factura de verdad, plegadas.
+- **`e2e/aurora-paridad.spec.ts`**: la prueba que anotaba la desviación ahora **falla con
+  cualquier factura por encima de 300 px**, plegada como se abre, a 1440 y a 400 px (el mismo
+  diálogo en los dos anchos), en oscuro y en claro; con cuatro filas o menos, sin control y con
+  todas sus filas; con más, tres.
+- **`e2e/documents.spec.ts`** (nueva): DBO-2026-0417 plegada (tres filas, la cabecera con las
+  ocho, el texto contra lo que dice la API, `aria-controls`, los totales del papel a la vista),
+  axe plegada y desplegada; con el ratón (las ocho, el foco en la cuarta, «Minder tonen», la
+  tarjeta de una fila plegada se cierra al plegar); con el teclado (Intro despliega, Tab recorre
+  las cinco que estaban plegadas y llega al control, Espacio pliega y el foco se queda); otra vez
+  plegada al volver a abrirla; JV-2026-006 y JV-2026-003, sin control; en castellano a 400 px y
+  con «menos movimiento», sin ninguna animación al desplegar.
+- **`e2e/exclusividad.spec.ts`**: la hoja plegada y desplegada, y cada cuadro del control, en los
+  cinco anchos: nunca la rueda con el diálogo.
+- **`e2e/clicks.spec.ts`**: la fila 12 por la caja, con la hoja plegada, 4 (antes 3).
+- **`e2e/nav.ts`**: `sheetFold` y `unfold`; `openSheetRow` despliega si la fila está plegada (como
+  haría una persona); `daily.spec.ts` abre cada hoja entera.
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1352 pasan** en 27 ficheros (antes 1347: las
+  cinco nuevas de `sheet-model.test.ts`).
+- `npm run build` dos veces, lo mismo byte a byte (`fuente.json` 5f8cfd4a…); `npm run fuente` al
+  día; `claro.css` al día (la regla es de Aurora: nada nuevo que invertir).
+- Playwright sobre una base de prueba recién creada, con lo construido que va en el commit:
+  primero las de la hoja (`documents.spec.ts` 6, y `aurora-paridad`, `exclusividad`, `clicks` y
+  `daily` juntas, 38), y después la suite entera: **116 pasan** en 15 ficheros (1,4 h), sin
+  violaciones de la CSP, errores en la consola, peticiones fuera de 127.0.0.1 ni avisos serios de
+  axe.
+- `pytest -q`: **2626 pasan, 12 se saltan** con Python 3.11 (9 min 23 s); el motor no cambia.
+- Las capturas, miradas: DBO-2026-0417 plegada y desplegada a 1440 y a 400 px, en oscuro y en
+  claro (el control debajo de la tercera fila, en la letra y el morado de la cabecera, y «Minder
+  tonen» debajo de la octava), y JV-2026-006 (cuatro filas), igual que antes.
 - `git status` limpio después de construir y de las pruebas.
