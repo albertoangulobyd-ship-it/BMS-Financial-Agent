@@ -9220,3 +9220,222 @@ sí, salida apagada pase lo que pase.
   lectura, la matriz de órdenes, el alcance y la pasada, también con Python 3.13.
 - `vitest`: **1266 pasan** (sin cambios); `npm run build` con los catálogos nuevos y
   `fuente.json` al día.
+
+## Paso 17 · B3: Procesar de Aurora con la suricata, sobre la lectura de verdad
+
+Lo que pidió el dueño en B1 («Necesito que te apegues a las animaciones y diseño de esta
+aplicación, no quiero que hagas algo diferente. No pueden vivir las pantallas y el menú al
+mismo tiempo»), ahora en Procesar: la pantalla del prototipo, con su suricata, sus partículas,
+su tarjeta y sus tiempos, pero contando la lectura de verdad que hace el lector del escritorio
+(la parte del motor y del lector, en la sección anterior). La app sigue sin red y sin lanzar
+nada: pide la lectura, enseña lo que costaría, da el sí con su tope (o el no) y sigue la
+pasada. Se sigue la especificación del paso 17 (§4 y §5) y el traspaso del dueño
+(`PROMPT-PARA-CLAUDE-CODE.md`, «Procesar y suricata: requisitos esenciales»).
+
+### Qué se construyó
+
+- **Las piezas de Procesar del dueño, tal cual** (`src/aurora/processing/`): el motor de la
+  suricata `loader-engine.ts` (los mismos tiempos, estados, poses, `drawImage` por fotograma de
+  los PNG aprobados sin suavizado y a escala entera: FPS 8, escala 3 o 2, área de 640 px,
+  `walkSpeed` 85, `pileX` 550 limitado al ancho, celdas de 76 × 47 con el ancla en 35,41, caída
+  de partículas de 1400 ms y montículo de 220 ms, sostén final de 120 ms y las duraciones de cada
+  pose), `loader-sprites.ts` (los ocho PNG, byte a byte), `processing-entry.ts` (la captura de
+  las partículas del orbe antes del cambio), `processing-card.tsx` y su hoja, `document-loader.tsx`
+  (una sola instancia del motor entre la intro con la cabeza y las etapas con el cuerpo),
+  `flow-button.tsx` y `processing-workspace.tsx` con su hoja entera. Los únicos cambios, los de
+  la especificación §4.2, dichos arriba de cada fichero: la escena nodo a nodo en lugar de
+  `innerHTML` y las funciones del módulo (`setStage`, `finish`, `hide`, `dispose`) en lugar de
+  `window.setLoaderStage`, `finishLoader` y `hideLoader` (C); los datos de la lectura de verdad
+  (D); los textos del diccionario en los tres idiomas (I); y los sitios de la entrada contados
+  desde `main`, que baja con las bandas del servidor (B).
+- **Procesar es el inicio en `processMode`**, como en Aurora (`main.tsx:23,40`), no una pantalla
+  de trabajo: sin orbe, rueda ni caja; el saludo dice el título y la línea de cada estado con su
+  cambio de 0,3 s; «Volver al inicio» arriba. `estado.ts` gana `processMode`, `enterProcess`,
+  `leaveProcess` y `processToQueue` (F8: el panel Start con su Werklijst, en un solo cambio).
+- **Los estados P0 a P8 de la especificación §5.4**, movidos por `GET /api/v2/lectura` cada
+  2 s (`reading-model.ts`, puro): «Pedir lectura» (`pedir_lectura`) con lo gastado y lo que
+  cuesta cada factura; la instrucción de abrir «BMS Finanzas - Leer facturas» (la app no lanza
+  nada); lo que contó el lector con su plazo; «Empezar» (`aprobar_lectura` con la huella de la
+  estimación que se vio y el tope del extremo alto) y «No leer» (`cancelar_lectura`); las cinco
+  etapas; «Parar la lectura»; el resultado (nuevas, repetidas —ya leídas y posibles duplicados—
+  y con problemas, cada fila a su hoja en Documentos) con «Ver en Documentos» (sin vuelo) e «Ir
+  a la cola de trabajo»; el error con su motivo y «Volver a pedir»; y en P0 la nota de la última
+  lectura. El sitio del botón no se mueve: oculto con su caja (`visibility: hidden`, `inert`)
+  cuando no hay nada que pulsar.
+- **La suricata sigue a la lectura** (§5.5): el cuerpo sale solo con el sí aceptado por el
+  servidor (el 200, o la consulta que ve `aprobada`); cada fase de `pasada_lectura` pide su etapa
+  (`setStage`) en orden, sin saltar ninguna, y `hecha` (o el tope, o parada con algo leído) pide
+  el final (`finish`); el título y «Paso N de 5» los pone el motor al empezar cada etapa, con la
+  línea de datos de verdad que la app le pasa; el % es `min(motor, techo)`; las líneas de debajo,
+  las de la lectura; lo que acaba mal con la escena a la vista se funde (`hide`, 0,3 s) y deja el
+  error o un motor nuevo con su nube de reserva y la cabeza.
+- **Fuera**: la pantalla vieja de la lectura (`screens/read-invoices.tsx`), el marco de pantalla
+  de trabajo que solo ella usaba (`aurora/work-screen.tsx`) y sus piezas (`page-header`,
+  `data-table`, `fact-strip`, `states`, `values`); las marcas de nueva y repetida de Documentos
+  vienen ahora de `processing-workspace.css` del dueño, entera, y se va la copia de
+  `file-analysis.css` (desviación 7 de B2). Esa hoja, como en el prototipo, se carga siempre, así
+  que también valen ya sus reglas de la búsqueda (`.search-mode`) y de las filas de la rejilla de
+  Documentos (`.ws-layout`); las pruebas de paridad con Aurora siguen pasando.
+- **Las pruebas en el navegador de Procesar** (`e2e/procesar.spec.ts`, abajo), con lo grabado de
+  la suricata de Aurora (`e2e/aurora/suricata.json` y dos recortes por ancho en
+  `e2e/aurora/suricata/`, sacados de `aurora2/frames/aurora` con `herramientas/reloj.cjs`) y un
+  lector de PNG sin dependencias (`e2e/png.ts`); `nav.ts` sabe entrar en Procesar
+  (`processLanded`) y salir («Volver al inicio»).
+- **El tema claro en Procesar**: Procesar es negro con la suricata blanca en los dos temas
+  (`document-loader.css` lo pinta con `!important`; el animal blanco no se vería sobre claro), y
+  `aurora-claro.mjs` no invierte sus reglas. Faltaba la marca: en claro, «finance» y su raya
+  salían casi negros sobre el negro de Procesar; ahora siguen como en el oscuro (a mano en el
+  script, con su prueba).
+- **Las marcas de nueva y repetida, quietas en Documentos**: con lecturas de verdad, las
+  carpetas llevan las marcas de la última (`FolderAnalysisStatus` de Aurora) y su punto latía;
+  en Documentos no late nada (B2, desviación 3), así que va quieto, como el de la prioridad.
+- **La base de las pruebas en el navegador, a final de mes** (`scripts/crear_demo_e2e.py`,
+  desviación 6).
+- **`docs/app-local.md` reescrito** con la estructura de Aurora: los estados L0 a E7, la regla
+  del dueño, el orbe como puerta, los paneles, el trabajo diario, Importeren, **Procesar** (§4.5),
+  Documentos con las relaciones, la conversación y la búsqueda, Instellingen y los estados.
+
+### Cambios de comportamiento
+
+| # | Antes | Ahora | Por qué |
+| --- | --- | --- | --- |
+| 1 | Verwerken abría «Facturen lezen», una pantalla de trabajo con el vuelo, que decía lo que costaba leer y que se empezaba fuera de la app, sin ningún botón | Procesar de Aurora en el espacio central: las partículas del orbe caen, asoma la cabeza de la suricata, y la app **pide** la lectura, enseña lo contado, da el sí con un tope o el no, y sigue la pasada | La especificación §5 y `revision.md` §8.5: la app pide y da el sí; quien lee sigue siendo el lector |
+| 2 | El resultado de una lectura solo se veía en Documentos (las marcas) | Además, al acabar, en Procesar: nuevas, repetidas y con problemas, cada una a su hoja | Aurora (`processing-workspace.tsx`, *complete*) |
+| 3 | Procesar no estaba en la regla del dueño | E7 en `exclusividad.spec.ts`: ni la rueda, ni el orbe, ni otra pantalla, en cada cuadro de la entrada | §6.4 |
+| 4 | La base de las pruebas en el navegador se caía del 29 al 31 de cada mes | `crear_demo_e2e.py` la hace con el reloj de un día antes si a la de hoy le falta una factura abierta del extracto | Ver desviación 6 |
+
+### Las pruebas
+
+- **`e2e/procesar.spec.ts`** (10), con el lector de las pruebas (`scripts/simular_lector.py`
+  sobre la misma base, paso a paso cuando la prueba lo pide):
+  - **pedir → contado → sí → avance → hecho** a 1440 px: P0 a P3 con sus textos, el sitio del
+    botón y de la nota quietos (±1 px), solo la cabeza hasta el sí; con el sí retenido en el
+    camino (`page.route`), el cuerpo no sale hasta que llega el 200; las cinco etapas en orden,
+    cada una solo cuando el techo de la lectura la deja, el % cuadro a cuadro (no baja, es
+    `min(motor, techo)`, no pasa de `20 × pila + 17`), el título y «Paso N de 5» juntos, la
+    centinela; nuevas 3 y repetidas 2 (una ya leída y un posible duplicado) contra la API; las
+    líneas de debajo con los PDF de verdad; «Ir a la cola de trabajo» (F8);
+  - **una lectura de golpe a 400 px**: las cinco etapas aunque las fases lleguen juntas, «Ver en
+    Documentos» sin vuelo y, en otra visita, P0 con «La última lectura: hoy a las …»;
+  - **no leer, caducar, el no de la ventana y nada que leer** (en claro): la misma cabeza, sin
+    fundido ni otro motor;
+  - **el aislamiento mal** (400 px, claro): fundido de 0,3 s, el error con su motivo y «Volver a
+    pedir» con un motor nuevo que entra con su nube de partículas;
+  - **el 409 de una estimación que cambió** (el lector vuelve a contar mientras la pantalla
+    enseña lo de antes), **el sí que no llega** (503) y **parar sin nada leído** (fundido y la
+    cabeza de un motor nuevo);
+  - **la lectura que falla leyendo**: fundido, lo ya leído en el error y la nota en otra visita;
+  - **el tope**: el lector para en él, la nota lo dice y una fila del resultado abre su hoja;
+  - **«menos movimiento»**: la secuencia del motor igual que la de Aurora con «reduce»
+    (`suricata.json`, `reducido`);
+  - **con el reloj virtual de Playwright, a 1440 y a 400 px, lo mismo que Aurora**: el lienzo de
+    la escena en el mismo sitio, las transiciones de la entrada (partículas, montículo, la
+    cabeza asomando fotograma a fotograma) a ±40 ms de las de Aurora, **la cabeza esperando
+    píxel a píxel** (0 píxeles distintos), las acciones de cada etapa en el mismo orden y **la
+    suricata revisando la pila de un papel, píxel a píxel** (la pila, con el margen de su desvío
+    al azar; desviación 5);
+  - y en cada estado, **solo Procesar** a la vista (ni la rueda, ni el orbe, ni un panel, la
+    conversación, la búsqueda o Documentos).
+  Cada prueba acaba sin ninguna lectura viva (lo comprueba un `afterEach`).
+- **Migradas** (§6.6): `screens.spec.ts` («Facturen lezen sin botón» pasa a lo que cuesta y
+  pedir la lectura en neerlandés y en inglés, con «Niet lezen»), `shell.spec.ts` (de Procesar se
+  vuelve con «Terug naar start», no con el orbe de la esquina, que no hay), `clicks.spec.ts`
+  (fila 21: Procesar con la entrada de la suricata hecha) y `exclusividad.spec.ts` (E7, en los
+  cinco anchos, cuadro a cuadro al entrar y al salir); `nav.ts` vuelve al inicio desde Procesar.
+  Y dos que ahora ven lo que deja Procesar en la base: `status.spec.ts` (las marcas de nueva y
+  repetida de las carpetas, en verde y en naranja) y `screens.spec.ts` (Verwerken puede abrir en
+  P7 si la última se canceló). En `shell.spec.ts`, la ✕ del panel se pulsa con el panel ya
+  quieto: pulsada mientras entraba, Playwright desplazaba la página para alcanzarla.
+- **vitest** (de `work/test-new-loader.cjs` del dueño y de §5.6): `loader-engine.test.ts` (11:
+  la intro con solo la cabeza, la escala 2 a 700 px, cinco etapas y la pila de 5 con el progreso
+  que no baja y siempre de cuerpo entero junto a la pila, «menos movimiento», ninguna etapa sin
+  pedir, la etapa en curso que se vuelve a anunciar, `finish` que juega las que faltan, la espera
+  larga con la cueva, nunca la cabeza justo después del cuerpo, `dispose` y `hide`),
+  `reading-model.test.ts` (20: cada estado de la petición, el techo, el %, las líneas, el
+  resultado, la visita, y cada fila de «Cuando algo sale mal»), `process-texts.test.ts` (13) y
+  `processing-entry.test.ts` (4); `estado.test.ts` con Procesar y F8; `aurora-claro.test.mjs`
+  con las hojas de Procesar.
+
+### Desviaciones, y por qué
+
+1. **El techo del %** (especificación §7, punto 12) es lo único de Procesar que no es de Aurora:
+   el % es `min(motor, techo)` para que no vaya por delante de la lectura de verdad. Con una
+   lectura larga, la suricata deja su segundo papel y espera (vigila, cava o entra en la cueva)
+   mientras el % sube de 20 a 40 con cada documento; una corta dura como mínimo la animación
+   entera (unos 55 s desde «Empezar» a 1440 px).
+2. **«Volver al inicio» también leyendo**: en Aurora decía «Cancelar análisis» mientras corría;
+   aquí salir no para la lectura (la hace el lector), así que dice «Volver al inicio», y parar es
+   «Parar la lectura», en la nota (§5.4, P4; §7, punto 4).
+3. **La pantalla, en el navegador y no en vitest con la API simulada** (§5.6): lo que hace la
+   pantalla con cada respuesta está en `reading-model.ts`, puro, con sus pruebas fila a fila; y
+   el cuerpo que no sale sin el 200, el 409, el 503 y cada final malo se prueban con el motor de
+   verdad, el servidor de verdad y el lector de las pruebas en `procesar.spec.ts`.
+4. **«Vigilando» dura distinto que en Aurora**: allí la etapa siguiente llega sola a los 0,7 s
+   (`auto`); aquí llega cuando la pide la lectura. La comparación de las acciones de cada etapa
+   con el reloj virtual deja fuera «vigilando»; todo lo demás va en el mismo orden. Y el
+   resultado, que lo pinta motion con WAAPI, no sigue al reloj virtual (tampoco en la grabación
+   de Aurora: «se toma del recorrido en tiempo real»): esa prueba mira en la API que la lectura
+   acabó con sus cinco documentos, y el resultado en pantalla lo miran las de tiempo real. Y la
+   primera búsqueda de la etapa 1 sale de donde estaba el orbe, dentro de la franja en la que el
+   motor elige el hoyo al azar: si cae a menos de 7 px, el paseo dura menos que un paso de 80 ms
+   y no sale en la muestra; esa acción, solo esa y solo ahí, puede faltar.
+5. **La pila se compara con margen**: cada papel cae con un desvío al azar de −1, 0 o 1 px de la
+   escala (`deposited`, `Math.random`, en el motor del dueño) y rebota con una transición de
+   CSS; la suricata junto a la pila se compara píxel a píxel y la pila con 120 píxeles de margen.
+6. **La base de las pruebas en el navegador, a final de mes**: el escenario de la base de prueba
+   va respecto a hoy, y del 29 al 31 la factura mensual de la Stichting ya está cobrada; el
+   extracto de las pruebas de cobrar y pagar la necesita abierta y `crear_demo_e2e.py` se caía
+   antes de la primera prueba (lo vio esta parte el 29 de octubre en Amsterdam). Ahora, si a la
+   base de hoy le falta alguna de esas facturas, la hace con el reloj de un día antes, hasta una
+   semana, y lo dice (`dias_atras`). `bms-agent demo crear` no cambia.
+7. **El título largo de P3** («12 facturas nuevas, entre $ 0,68 y $ 0,75.») ocupa dos líneas a
+   400 px, en el sitio del saludo de Aurora: es el texto de la especificación, con cifras de
+   verdad, y el bloque de la intro no se mueve por ello (§5.4, «El sitio del botón»).
+8. **El resultado se desplaza**: con cinco filas, «Ver en Documentos» y la nota quedan debajo del
+   borde a 1440 × 900, como en el prototipo (su grabación `procesar-tr-final-resultado` tampoco
+   los enseña); la página se desplaza para llegar a ellos.
+
+9. **Los tiempos del vuelo (T11 y T17) no se pueden medir hoy en este contenedor.**
+   `aurora-paridad.spec.ts` descarta una medida con un cuadro de más de 100 ms, y en los vuelos
+   a Documentos y de vuelta salen cuadros de unos 200 ms en los tres intentos de una de las dos
+   (en la última pasada entera, T11; en las anteriores, T17): cuando se va o vuelve a pintar la
+   onda (la del vuelo y la del orbe que aterriza, las dos en WebGL por software). El perfil de la
+   CPU lo pone en el trabajo nativo de pintar (1,9 s de «program» durante el vuelo; el
+   JavaScript, unos 60 ms), y pasa igual con lo construido de B2 (la prueba falla también con
+   él, aquí y hoy), así que no viene de Procesar. La prueba no se ha tocado; T01 sigue en lo de
+   Aurora (104 / 413 ms; en teoría, 106 / 427), T11 midió 214 / 601 ms y 215 / 608 ms cuando no
+   hubo cuadros atascados, y T17 midió 209 / 607 ms en la pasada de B2.
+
+### Lo que deben saber los pasos siguientes
+
+- **El motor no se toca**: si el dueño cambia la suricata, se vuelven a copiar
+  `loader-engine.ts` y `loader-sprites.ts` de su entrega con los cambios C de arriba, y se
+  vuelve a grabar lo de `e2e/aurora/suricata.json` y `suricata/` en el prototipo con el reloj
+  virtual, como dice su `_nota` (no se edita a mano); la app no llama nunca a `start()`.
+- **Una fase nueva de la lectura** va en `reading-model.ts` (`stageOf` y `ceilingOf`) con su
+  prueba; un texto nuevo de un estado, en `process-texts.ts` y en los tres diccionarios.
+- **Puntos para el dueño**: el techo del % (desviación 1), «Volver al inicio» leyendo
+  (desviación 2), y la decisión 8B de la revisión (que el lector arranque solo con una tarea de
+  Windows; el sí lo seguiría dando una persona en la app).
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1338 pasan** en 26 ficheros (con
+  `codigo-muerto.test.mjs`: nada sin usar; `aurora-claro.test.mjs`, con Procesar).
+- `npm run build`: lo construido es el mismo byte a byte en dos construcciones (`fuente.json`
+  a998e93c…); `npm run fuente` al día.
+- Playwright sobre una base de prueba recién creada (hecha con el reloj de un día antes: la
+  pasada empezó el 29 de octubre de madrugada en Amsterdam): **90 pasan y 1 falla** en 14
+  ficheros (1 h), con lo construido que va en el commit. La que falla es la de los tiempos del
+  vuelo del orbe (desviación 9), que falla igual con lo construido de B2. `procesar.spec.ts`
+  (10) pasa entera; las dos con el reloj virtual, en 18 y 12 s.
+- `pytest -q`: **2622 pasan, 12 se saltan** (8 min 34 s).
+- Las capturas, en `app-capturas/paso17/procesar` (dark/ 26 y light/ 7: P0 a P8 a 1440 y
+  400 px, el tope, «menos movimiento», Procesar en los tres idiomas y los recortes de la escena,
+  `procesar-cabeza-*` y `procesar-pila1-*`), miradas al lado de las grabaciones de Aurora
+  (`procesar-espera-cabeza`, `procesar-etapas`, `procesar-tr-final-resultado`): la misma
+  composición, la misma tarjeta y la misma suricata, con el saludo 29 px más abajo por la banda
+  de los datos de prueba; la cabeza esperando y la suricata junto a la pila, iguales píxel a
+  píxel salvo el hoyo, que el motor pone al azar. En claro, Procesar sigue negro, con la marca
+  blanca.
+- `git status` limpio después de construir y de las pruebas.
