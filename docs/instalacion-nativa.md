@@ -246,7 +246,9 @@ mismas carpetas que el entorno de Docker: la tabla está en
   6. lee **solo las facturas que contó** (un PDF que llega mientras tanto espera a la
      próxima) y **nunca por encima del tope** que se aprobó (por defecto, el extremo alto
      de la horquilla): antes de pagar cada factura mira si lo gastado más lo que puede
-     costar esa cabe; si no, para y lo dice. La app ve cada factura según se lee, y si
+     costar esa cabe; si no, para y lo dice. Y cada factura se pide con una salida máxima
+     que no deja pasar del tope: una que salga más larga de lo estimado se corta ahí y se
+     queda para la próxima lectura. La app ve cada factura según se lee, y si
      alguien dice «Parar la lectura» en la app, para después de la factura en curso;
   7. apaga la salida al acabar (también si algo falla, si se dice que no o con Ctrl+C), y
      si la lectura se quedó a medias la deja terminada con su motivo. Si cierras la

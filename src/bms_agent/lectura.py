@@ -34,10 +34,13 @@ Lo del lector son las ordenes `bms-agent lectura ...` (cli.py), que llaman los
 leer-facturas.ps1 de windows/ y de docker/: tomar, contar, esperar, leer y cerrar. El lector
 no firma como persona: sus eventos los firma el usuario de sistema "extractor".
 
-El tope: antes de pagar cada documento se mira si lo gastado mas lo que puede costar ese
-documento (el extremo alto de su estimacion, con su entrada contada) cabe en el tope. Si no
-cabe, ni ese ni los siguientes se pagan, y la pasada termina en "tope". Lo gastado es el uso
-de cada respuesta, tambien de un rechazo; de un fallo sin uso se cuenta su extremo alto.
+El tope no se pasa: antes de pagar cada documento se mira si lo gastado mas lo que puede
+costar ese documento (el extremo alto de su estimacion, con su entrada contada) cabe en el
+tope. Si no cabe, ni ese ni los siguientes se pagan, y la pasada termina en "tope". Si cabe,
+la llamada lleva como max_tokens la salida que aun cabe en el tope con esa entrada (como
+mucho, la de la configuracion): una respuesta mas larga que su estimacion se corta ahi, y
+lo peor que puede costar es lo que quedaba. Lo gastado es el uso de cada respuesta, tambien
+de un rechazo o de una cortada; de un fallo sin uso se cuenta lo peor que podia costar.
 
 Nada de aqui habla con la API por su cuenta ni lanza procesos: contar y leer reciben el
 cliente de quien los llama (el lector, despues de su puerta, nativo.exigir_lectura).
@@ -676,6 +679,30 @@ def esperar(conn: sqlite3.Connection, solicitud_id: int, *,
 
 # ---- leer
 
+def salida_que_cabe(modelo: str, entrada: int, queda: int) -> tuple[int, int]:
+    """El max_tokens de una llamada con esta entrada para que lo peor que pueda costar (su
+    entrada y toda su salida) no pase de `queda` (millonesimas), como mucho el de la
+    configuracion; y ese peor coste. El precio crece con la salida: se busca por mitades con
+    la misma tarifa que cuenta lo gastado (pricing.estimate_cost)."""
+    from . import config
+    from .pricing import estimate_cost
+
+    def peor(salida: int) -> int | None:
+        return micro(estimate_cost(modelo, entrada, salida))
+
+    maximo = config.max_tokens()
+    if (peor(maximo) or 0) <= queda:
+        return maximo, peor(maximo) or 0
+    bajo, alto = 0, maximo
+    while bajo < alto:
+        medio = (bajo + alto + 1) // 2
+        if (peor(medio) or 0) <= queda:
+            bajo = medio
+        else:
+            alto = medio - 1
+    return bajo, peor(bajo) or 0
+
+
 class _Seguimiento:
     """Lo que el lector apunta en pasada_lectura mientras lee (extract.Seguimiento), y el tope.
 
@@ -685,16 +712,20 @@ class _Seguimiento:
 
     def __init__(self, conn: sqlite3.Connection, solicitud_id: int, pasada_id: int, *,
                  modelo: str, tope: int, altos: dict[str, int],
+                 entradas: dict[str, int] | None = None,
                  imprimir: Callable[[str, str, str], None] | None = None) -> None:
         self.conn, self.solicitud_id, self.pasada_id = conn, solicitud_id, pasada_id
         self.modelo, self.tope, self.altos = modelo, tope, altos
+        self.entradas = entradas or {}
         self.imprimir = imprimir or (lambda _t, _n, _d: None)
         self.gastado = 0
         self.parada: str | None = None
         self.motivo_parada: str | None = None
         self.estados: dict[str, str] = {}
         self.orden: list[str] = []
-        self._alto_actual = 0
+        # La llamada que acaba de caber: su max_tokens y lo peor que puede costar.
+        self._salida_actual: int | None = None
+        self._peor_actual = 0
 
     # -- la fila
 
@@ -756,8 +787,13 @@ class _Seguimiento:
                                   f"{dolares(self.gastado)} gastados mas lo que puede costar "
                                   f"este ({dolares(alto)})")
             return self.motivo_parada
-        self._alto_actual = alto
+        entrada = self.entradas.get(doc.sha256, 0)
+        self._salida_actual, self._peor_actual = salida_que_cabe(
+            self.modelo, entrada, self.tope - self.gastado)
         return None
+
+    def salida_maxima(self) -> int | None:
+        return self._salida_actual
 
     def pagado(self, uso: dict[str, Any] | None) -> None:
         from .pricing import estimate_cost
@@ -768,8 +804,9 @@ class _Seguimiento:
             if isinstance(entrada, int) and isinstance(salida, int):
                 coste = micro(estimate_cost(self.modelo, entrada, salida,
                                             lote=uso.get("service_tier") == "batch"))
-        # Sin uso no se sabe si se cobro: se cuenta como si si, por lo que podia costar.
-        self.gastado += coste if coste is not None else self._alto_actual
+        # Sin uso no se sabe si se cobro: se cuenta como si si, por lo peor que podia costar
+        # (su entrada y todo su max_tokens de salida, que cabian en el tope).
+        self.gastado += coste if coste is not None else self._peor_actual
         self._escribir(coste_usd_micro=self.gastado)
 
     def sin_pagar(self, nombre: str, motivo: str) -> None:
@@ -864,8 +901,9 @@ def empezar(conn: sqlite3.Connection, solicitud_id: int, total: int, *,
     con que se lee. EstadoNoValido si ya no esta aprobada."""
     fila = _fila(conn, solicitud_id)
     estimacion = json.loads(fila["estimacion_json"] or "{}")
-    altos = {d["sha256"]: d["alto_usd_micro"] for d in estimacion.get("documentos", ())
-             if d["sha256"] and d["clase"] == "nuevo"}
+    nuevos = [d for d in estimacion.get("documentos", ()) if d["sha256"] and d["clase"] == "nuevo"]
+    altos = {d["sha256"]: d["alto_usd_micro"] for d in nuevos}
+    entradas = {d["sha256"]: d.get("entrada") or 0 for d in nuevos}
     ahora = marca(_ahora(conn))
     with transaccion(conn):
         _pasar(conn, solicitud_id, ("aprobada",), "leyendo", tipo="lectura_empezada",
@@ -876,7 +914,8 @@ def empezar(conn: sqlite3.Connection, solicitud_id: int, total: int, *,
             (solicitud_id, total, json_canonico([{"fase": "cargando", "en": ahora}]),
              ahora, ahora)).lastrowid
     return _Seguimiento(conn, solicitud_id, pasada_id, modelo=estimacion.get("modelo", ""),
-                        tope=fila["tope_usd_micro"], altos=altos, imprimir=imprimir)
+                        tope=fila["tope_usd_micro"], altos=altos, entradas=entradas,
+                        imprimir=imprimir)
 
 
 def terminar(conn: sqlite3.Connection, seguimiento: _Seguimiento,

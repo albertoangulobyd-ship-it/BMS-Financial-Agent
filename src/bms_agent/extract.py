@@ -161,17 +161,20 @@ def _mensajes(doc: SourceDocument) -> list[dict[str, Any]]:
     ]
 
 
-def build_request(doc: SourceDocument, model: str | None = None) -> dict[str, Any]:
+def build_request(doc: SourceDocument, model: str | None = None,
+                  max_tokens: int | None = None) -> dict[str, Any]:
     """Construye los argumentos de la llamada. Sin herramientas, a proposito.
 
     output_config lleva el esfuerzo, siempre explicito (config.effort); el SDK
     le anade el esquema de output_format al mandarla (messages.parse). No hay
     `thinking`: en Opus 5.5 no se puede apagar, y pedirlo seria pedir algo
-    que la API no deja cambiar.
+    que la API no deja cambiar. `max_tokens`, el tope de salida de esta
+    llamada: por defecto el de la configuracion; la lectura pedida desde la
+    app (lectura.py) lo baja a lo que aun cabe en el tope que se aprobo.
     """
     return {
         "model": model or config.model_id(),
-        "max_tokens": config.max_tokens(),
+        "max_tokens": max_tokens or config.max_tokens(),
         "system": EXTRACTION_SYSTEM_PROMPT,
         "messages": _mensajes(doc),
         "output_format": InvoiceExtraction,
@@ -216,19 +219,42 @@ class Rechazado(RuntimeError):
         self.uso = uso or {}
 
 
+class Cortado(RuntimeError):
+    """La respuesta llego a su max_tokens sin la factura (stop_reason max_tokens).
+
+    Tambien se cobra, entera: `uso` lleva sus tokens. Lo que trae no se guarda como una
+    lectura (le falta el final). No es un rechazo: se puede volver a pedir igual."""
+
+    def __init__(self, mensaje: str, uso: dict[str, Any] | None = None) -> None:
+        super().__init__(mensaje)
+        self.uso = uso or {}
+
+
 def extract_invoice(
-    client: Any, doc: SourceDocument, model: str | None = None
+    client: Any, doc: SourceDocument, model: str | None = None, *,
+    max_tokens: int | None = None,
 ) -> ExtractionRecord:
-    """Extrae una factura. El cliente se inyecta para poder sustituirlo en tests."""
-    request = build_request(doc, model=model)
+    """Extrae una factura. El cliente se inyecta para poder sustituirlo en tests.
+
+    `max_tokens`, el tope de salida de esta llamada (ver build_request)."""
+    request = build_request(doc, model=model, max_tokens=max_tokens)
     response = client.messages.parse(**request)
+    uso = _uso(getattr(response, "usage", None), max_tokens=request["max_tokens"])
 
     if getattr(response, "stop_reason", None) == "refusal":
         details = getattr(response, "stop_details", None)
         raise Rechazado(
             f"El modelo rechazo el documento {doc.path.name}: "
             f"{getattr(details, 'category', 'sin categoria')}",
-            uso=_uso(getattr(response, "usage", None)),
+            uso=uso,
+        )
+    if getattr(response, "stop_reason", None) == "max_tokens" and response.parsed_output is None:
+        # Cortado antes del texto (el razonamiento tambien es salida); un JSON cortado a
+        # medias ya lo rechaza messages.parse al validarlo.
+        raise Cortado(
+            f"La respuesta sobre {doc.path.name} se corto en su tope de salida "
+            f"({request['max_tokens']} tokens): no se guarda",
+            uso=uso,
         )
 
     return ExtractionRecord(
@@ -239,7 +265,7 @@ def extract_invoice(
         schema_version=config.SCHEMA_VERSION,
         extracted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         extraction=response.parsed_output,
-        usage=_uso(getattr(response, "usage", None)),
+        usage=uso,
         request_id=getattr(response, "_request_id", None),
     )
 
@@ -417,11 +443,15 @@ class Seguimiento(Protocol):
     paga (los ya leidos siguen, que no cuestan). `pagado(uso)` va despues de cada llamada,
     tambien de un rechazo (que se cobra); con None, una llamada que fallo sin decir su uso.
     `sin_pagar(nombre, motivo)` dice que un documento se quedo sin leer por `cabe`.
+    `salida_maxima()` es el max_tokens de la llamada que `cabe` acaba de dejar pagar: lo que
+    aun cabe en el tope (None: el de la configuracion).
     """
 
     def empieza(self, nombre: str, que: str) -> None: ...
 
     def cabe(self, doc: SourceDocument) -> str | None: ...
+
+    def salida_maxima(self) -> int | None: ...
 
     def pagado(self, uso: dict[str, Any] | None) -> None: ...
 
@@ -626,7 +656,9 @@ def extraer_pasada(
                 continue
             seguimiento.empieza(ruta_pdf.name, "leyendo")
         try:
-            record = extract_invoice(client, doc, model=model)
+            record = extract_invoice(
+                client, doc, model=model,
+                max_tokens=seguimiento.salida_maxima() if seguimiento is not None else None)
         except Exception as exc:  # una pasada no se detiene por un documento
             if seguimiento is not None:
                 # Un rechazo se cobra y trae su uso; un fallo sin uso no se sabe si se cobro.

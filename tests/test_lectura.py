@@ -584,6 +584,117 @@ def test_el_tope_para_la_lectura(almacen, gente, buzon) -> None:
     assert (pasada["leidas"], pasada["ya_leidas"]) == (1, 1)
 
 
+class ClienteQueSeAlarga(ClienteQueCuenta):
+    """La API cuando una factura sale mucho mas larga que su estimacion: quiere `salida`
+    tokens de salida y la API nunca da mas que el max_tokens de la peticion; si no le
+    alcanza, la respuesta llega cortada (stop_reason max_tokens, sin factura) y se cobra
+    entera. La entrada que cobra es la que cuenta count_tokens. Con `sin_uso`, la llamada
+    falla sin decir su uso (como un JSON cortado que rechaza messages.parse)."""
+
+    ENTRADA = 6000
+
+    def __init__(self, salida: int, sin_uso: bool = False) -> None:
+        super().__init__()
+        self.salida, self.sin_uso = salida, sin_uso
+        self.max_tokens: list[int] = []
+
+    def count_tokens(self, **_peticion):
+        self.conteos += 1
+        return type("C", (), {"input_tokens": self.ENTRADA})()
+
+    def parse(self, **peticion):
+        respuesta = super().parse(**peticion)
+        tope = peticion["max_tokens"]
+        self.max_tokens.append(tope)
+        if self.salida <= tope:
+            respuesta.usage = type("U", (), {"input_tokens": self.ENTRADA,
+                                             "output_tokens": self.salida})()
+            return respuesta
+        if self.sin_uso:
+            raise ValueError("JSON cortado: no valida contra el esquema")
+        respuesta.stop_reason, respuesta.parsed_output = "max_tokens", None
+        respuesta.usage = type("U", (), {"input_tokens": self.ENTRADA, "output_tokens": tope})()
+        return respuesta
+
+
+@pytest.mark.parametrize("sin_uso", [False, True])
+def test_el_tope_no_se_pasa_aunque_una_factura_salga_larga(almacen, gente, buzon,
+                                                            sin_uso) -> None:
+    """El tope es duro: una factura que quiere toda la salida de la configuracion (16.000
+    tokens, muy por encima de su extremo alto) llega como mucho a lo que aun cabe en el tope,
+    con su max_tokens; se cobra entera y no se guarda, y la siguiente ya no cabe."""
+    from bms_agent import config
+    from bms_agent.pricing import estimate_cost
+
+    conn = almacen.conn
+    carpeta, out = buzon
+    client = ClienteQueSeAlarga(config.max_tokens(), sin_uso=sin_uso)
+    solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
+    fila = _fila(conn, solicitud)
+    tope = fila["coste_max_usd_micro"]
+    lectura.aprobar(conn, gente["ana"], solicitud, fila["huella_estimacion"])
+    leida = _leer(almacen, solicitud, carpeta, out, client)
+    pasada = _pasada(conn, solicitud)
+    assert pasada["coste_usd_micro"] == leida.gastado_usd_micro <= tope
+    assert client.leidos == ["nueva-1"]
+    # La llamada llevo como max_tokens lo que cabia, no los 16.000 de la configuracion: lo
+    # que costo (o, sin uso, lo peor que podia costar) es lo que quedaba del tope.
+    (max_tokens,) = client.max_tokens
+    assert max_tokens < config.max_tokens()
+    modelo = json.loads(fila["estimacion_json"])["modelo"]
+    peor = lectura.micro(estimate_cost(modelo, ClienteQueSeAlarga.ENTRADA, max_tokens))
+    assert pasada["coste_usd_micro"] == peor
+    assert peor <= tope < lectura.micro(estimate_cost(modelo, ClienteQueSeAlarga.ENTRADA,
+                                                      max_tokens + 1))
+    assert (leida.fase, {r["nombre"]: r["estado"] for r in leida.resultado}) == (
+        "tope", {"nueva-1.pdf": "fallida", "vieja.pdf": "ya_leida"})
+
+
+def test_cada_llamada_lleva_como_max_tokens_lo_que_queda_del_tope(almacen, gente,
+                                                                    buzon) -> None:
+    """Lo que cabe se mira llamada a llamada: la primera, con todo el tope por delante; la
+    segunda, con lo que dejo la primera. Ninguna con mas que la configuracion."""
+    from bms_agent import config
+    from bms_agent.pricing import estimate_cost
+
+    conn = almacen.conn
+    carpeta, out = buzon
+    client = ClienteQueSeAlarga(700)
+    solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
+    fila = _fila(conn, solicitud)
+    tope = fila["coste_max_usd_micro"]
+    modelo = json.loads(fila["estimacion_json"])["modelo"]
+    lectura.aprobar(conn, gente["ana"], solicitud, fila["huella_estimacion"])
+    leida = _leer(almacen, solicitud, carpeta, out, client)
+    assert (leida.estado, leida.fase, client.leidos) == ("hecha", "hecha", ["nueva-1", "nueva-2"])
+    una = lectura.micro(estimate_cost(modelo, ClienteQueSeAlarga.ENTRADA, 700))
+    assert client.max_tokens == [
+        lectura.salida_que_cabe(modelo, ClienteQueSeAlarga.ENTRADA, tope)[0],
+        lectura.salida_que_cabe(modelo, ClienteQueSeAlarga.ENTRADA, tope - una)[0]]
+    assert 700 < client.max_tokens[1] < client.max_tokens[0] < config.max_tokens()
+    assert _pasada(conn, solicitud)["coste_usd_micro"] == 2 * una <= tope
+    # Lo que se apunta de cada lectura es el max_tokens con que se pidio.
+    usos = [json.loads(u) for (u,) in conn.execute(
+        "SELECT e.uso_json FROM extraccion AS e JOIN documento AS d ON d.id = e.documento_id "
+        "WHERE d.nombre_original LIKE 'nueva-%' ORDER BY e.id")]
+    assert [u["max_tokens"] for u in usos] == client.max_tokens
+
+
+def test_salida_que_cabe() -> None:
+    from bms_agent import config
+    from bms_agent.pricing import estimate_cost
+
+    modelo = config.model_id()
+    precio = lambda e, s: lectura.micro(estimate_cost(modelo, e, s))  # noqa: E731
+    holgado = precio(5000, config.max_tokens()) + 1
+    assert lectura.salida_que_cabe(modelo, 5000, holgado) == (
+        config.max_tokens(), precio(5000, config.max_tokens()))
+    justo = precio(5000, 1234)
+    salida, peor = lectura.salida_que_cabe(modelo, 5000, justo)
+    assert precio(5000, salida) == peor <= justo < precio(5000, salida + 1)
+    assert lectura.salida_que_cabe(modelo, 5000, 0) == (0, precio(5000, 0))
+
+
 def test_parar_leyendo_para_despues_del_documento_en_curso(almacen, gente, buzon) -> None:
     conn = almacen.conn
     carpeta, out = buzon

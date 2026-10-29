@@ -779,8 +779,8 @@ terminada, o `null`), con la misma forma:
                                 // organizando, y al final hecha | fallida | cancelada | tope
  "terminada",
  "total", "leidas", "ya_leidas", "fallidas",       // solo suben
- "coste_usd_micro",             // lo gastado hasta ahora (solo sube; nunca pasa del tope
-                                // más lo que se desvíe la última factura de su estimación)
+ "coste_usd_micro",             // lo gastado hasta ahora (solo sube; nunca pasa del tope:
+                                // cada factura se pide con la salida que aún cabe en él)
  "documento_actual", "documento_fase",             // el PDF de ahora y lo que se hace con él:
                                                    // comparando | leyendo | guardando
  "recientes",                   // los dos últimos terminados (nombres)
@@ -806,7 +806,11 @@ puede ver `comparando` y, la siguiente, `organizando` o `hecha`. `fases` lo cuen
 con su hora. Una app que mueve algo por fases tiene que saber saltar las que no vio.
 
 Lo que no hace nada de esto: leer sin un sí de verdad, leer algo que no se contó (un PDF
-que llega después espera a la próxima), pagar dos veces lo ya leído o pasar del tope.
+que llega después espera a la próxima), pagar dos veces lo ya leído o pasar del tope. El
+tope es duro: antes de cada factura se mira si cabe su extremo alto, y si cabe se pide con
+un `max_tokens` que es la salida que aún cabe en el tope con su entrada contada (como mucho,
+el de la configuración). Una respuesta más larga que su estimación se corta ahí, se cobra
+lo que costó (nunca más de lo que quedaba) y la factura queda `fallida`, para la próxima.
 
 ### Importar desde la app (`POST /api/v2/importar`)
 
