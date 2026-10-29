@@ -674,6 +674,13 @@ def test_la_carpeta_de_un_proveedor(archivo) -> None:
     _e, _c, lista = _leer(puerto, "/api/v2/proveedores", tokens["dora"])
     [fila] = [p for p in lista["proveedores"] if p["id"] == ids["proveedor"]]
     assert fila["documentos"] == carpeta["total"]
+    # Y cuantos de esos son facturas, de la misma carpeta (2.5): nunca mas que sus documentos,
+    # aunque la empresa tenga facturas sin PDF (las de Exact).
+    assert fila["documentos_factura"] == sum(
+        1 for d in carpeta["documentos"] if d["vinculo"]["tabla"] == "factura")
+    assert 0 < fila["documentos_factura"] < fila["documentos"]
+    for parte in lista["proveedores"]:
+        assert 0 <= parte["documentos_factura"] <= parte["documentos"]
 
 
 def test_un_documento_se_descarga_auditado_y_solo_desde_la_app(archivo) -> None:

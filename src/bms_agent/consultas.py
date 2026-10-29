@@ -1407,6 +1407,9 @@ def _lista(conn: sqlite3.Connection, tabla: str) -> list[dict[str, Any]]:
             "razones": razones.get(fila["id"], []),
             # Contrato 2.2: cuantos documentos tiene su carpeta (GET .../N/documentos).
             "documentos": len(documentos.get(fila["id"], [])),
+            # 2.5: cuantos de esos son facturas (o abonos): las dos cifras, de la misma carpeta.
+            "documentos_factura": sum(1 for d in documentos.get(fila["id"], [])
+                                      if d["vinculo"]["tabla"] == "factura"),
         })
         claves[fila["id"]] = prioridad.clave_orden(
             p["nivel"], p["puntos"], date.fromisoformat(p["vencimiento"])

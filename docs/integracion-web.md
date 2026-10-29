@@ -415,7 +415,11 @@ quita:
   `pedir_lectura`, `aprobar_lectura` y `cancelar_lectura`. Ninguna lee ni habla con la
   API (la app no tiene red): lo hace el lector, `leer-facturas.bat`. Dar el sí a una
   lectura es aceptar lo que cobra la API por leer esas facturas, con un tope; no aprueba
-  ninguna factura ni ningún pago.
+  ninguna factura ni ningún pago;
+- cada fila de las listas de **proveedores** y **clientes** lleva, además de `documentos`,
+  `documentos_factura`: cuántos de los documentos de su carpeta son facturas o abonos. Las
+  dos cifras salen de la misma carpeta (`documentos_factura` ≤ `documentos`); `facturas`
+  cuenta también las que no tienen PDF (las que vienen de Exact), así que no se comparan.
 
 ### Cuatro reglas que valen para todo
 
@@ -578,10 +582,10 @@ aparte. Las categorías de `atencion` son, en este orden: `iban`, `duplicados`,
 
 ```
 "proveedores": [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", "documentos",
+                  "razones", "documentos", "documentos_factura",          // 2.5: arriba
                   "deuda_cent", "abonos_sin_enlazar_cent", ...} ],   // 2.4: arriba
 "clientes":    [ {"id", "nombre", "facturas", "pendiente_cent", "vencido_cent", "nivel",
-                  "razones", "documentos",
+                  "razones", "documentos", "documentos_factura",
                   "deuda_cent", "abonos_sin_enlazar_cent", ...} ],
 "objetos": {
   "objetos": [ {"id", "codigo", "nombre", "cliente", "siempre", "ano", "nivel", "razones"} ],
