@@ -43,6 +43,7 @@ import {
 } from './nav';
 import { sources } from '../src/aurora/processing/loader-sprites';
 import { decodePng, differingPixels, grains, opaqueColumns } from './png';
+import { renderViolations, startRenders, takeRenders } from './aurora/visible';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -429,12 +430,18 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   await expectAlone(page, 'P5');
   await capture(page, 'procesar-p5-1440');
 
-  // F8: «Ir a la cola de trabajo», el panel de Inicio en su vista.
+  // F8: «Ir a la cola de trabajo», el panel de Inicio en su vista, en un solo cambio (§1.5, §6.4):
+  // ningun render con la rueda sin .has-panel ni con Procesar y el panel a la vez.
+  await startRenders(page);
   await textButton(page, p.queue).click();
   await expect(app(page)).toHaveClass(/\bhas-panel\b/);
   await expect(panelTitle(page)).toHaveText(t.nav['work-queue'].label);
   await expect(workspace(page)).toHaveCount(0);
   await expect(page.locator('.navigation .nav-item').first()).not.toBeVisible();
+  await page.waitForTimeout(600);
+  const renders = await takeRenders(page);
+  expect(renders.length, 'renders medidos').toBeGreaterThan(3);
+  expect(renderViolations(renders), 'E7 → E2-I (F8)').toEqual([]);
 });
 
 test('una lectura rapida a 400 px: las cinco etapas en orden, «Ver en Documentos» sin vuelo y la ultima lectura en P0', async ({ page, baseUrl, request }) => {
