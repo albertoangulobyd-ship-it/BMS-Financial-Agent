@@ -1470,6 +1470,9 @@ export const es: Messages = {
       navigate: 'Presiona para navegar',
       open: 'Abrir navegación',
       close: 'Cerrar navegación',
+      // El orbe, cuando lo que hace no es abrir o cerrar la rueda (solo para el lector de pantalla).
+      backHome: 'Volver al inicio',
+      openWhat: 'Abrir {what}',
       stage: 'Aurora y navegación',
       sections: 'Secciones',
       marquee: 'Menú de navegación. Usa las flechas o desplázate',

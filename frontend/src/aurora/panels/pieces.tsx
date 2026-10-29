@@ -7,7 +7,7 @@
 // dentro: la tarjeta, la vista y, si no hay nada abierto, el panel (como su ✕). Una vista se abre
 // arriba del todo; al volver, el panel recupera el desplazamiento que tenia (F6).
 import { FileText, Search, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { fmt, useT } from '@/i18n';
 import { paths, type Panel } from '@/lib/api';
 import { formatDate } from '@/lib/format';
@@ -65,9 +65,13 @@ export function PanelFrame({ title, description, view, onEscape, children }: Pan
   const escape = useRef(onEscape);
   escape.current = onEscape;
 
+  const titleId = useId();
+
   useEffect(() => {
+    // Escape, y Alt+← (la salida visible: lo mismo que la ✕, lo de dentro primero; §1.6).
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const back = e.altKey && !e.ctrlKey && e.key === 'ArrowLeft';
+      if ((e.key !== 'Escape' && !back) || e.defaultPrevented) return;
       // Un desplegable (fecha, lista) se cierra solo.
       if (document.querySelector('[data-radix-popper-content-wrapper]')) return;
       e.preventDefault();
@@ -88,14 +92,17 @@ export function PanelFrame({ title, description, view, onEscape, children }: Pan
   }, [view]);
 
   return (
-    <aside className='panel' ref={ref}>
+    <aside className='panel' ref={ref} aria-labelledby={titleId}>
       <div className='panel-top'>
         <span>{t.aurora.panel.workspace}</span>
         <button aria-label={t.aurora.panel.close} onClick={() => dispatch({ type: 'closePanel' })}>
           <X size={19} />
         </button>
       </div>
-      <h2>{title}</h2>
+      {/* El foco llega aqui al abrirse (root.tsx): el lector de pantalla dice que panel es. */}
+      <h2 id={titleId} tabIndex={-1}>
+        {title}
+      </h2>
       <p className='panel-desc'>{description}</p>
       <div className='sample-label'>
         <i /> {sample}

@@ -10,6 +10,7 @@ import { setNonce } from 'get-nonce';
 // utilities) antes que las hojas de Aurora que importan los componentes.
 import './index.css';
 import { App } from './App';
+import { trackModality } from './lib/modality';
 import { stickServerBands } from './lib/server-bands';
 import { DEVICE_THEME_KEY, loadTheme } from './lib/storage';
 import { DEFAULT_THEME, applyInitialTheme } from './lib/theme';
@@ -26,6 +27,8 @@ if (nonce) setNonce(nonce);
 applyInitialTheme(loadTheme(DEVICE_THEME_KEY) ?? DEFAULT_THEME);
 // Las bandas del servidor, a la vista al desplazar la pagina (y la cabecera, debajo).
 stickServerBands();
+// Con que se mueve la persona (teclado o raton), para el foco que solo se ve con el teclado.
+trackModality();
 
 const root = document.getElementById('root');
 if (root) {

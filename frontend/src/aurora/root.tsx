@@ -6,7 +6,10 @@
 // - R: sin direcciones. La pantalla es estado de la app (aurora/estado.ts) y el vuelo se dispara
 //   igual que captureNavigation, con cada accion de "ir a una pantalla" o "volver al inicio";
 // - B: la pantalla que sale no recibe clics mientras se funde (la rueda que se va, §1.1);
-// - M: sin vuelo con "menos movimiento" (useReducedMotion, como Aurora).
+// - M: sin vuelo con "menos movimiento" (useReducedMotion, como Aurora);
+// - A: el foco que se pierde en un cambio (lo que lo tenia se desmonta, se esconde o se va con la
+//   pantalla que se funde) vuelve a lo que la persona tiene delante (focusTarget), sin moverse
+//   nada (preventScroll) y sin anillo con el raton (:focus-visible).
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useSession } from '@/lib/session';
@@ -37,6 +40,27 @@ export function useAurora(): AuroraValue {
   const value = useContext(AuroraContext);
   if (!value) throw new Error('useAurora must be used within Root');
   return value;
+}
+
+/** A donde va el foco en cada estado si se perdio: la pantalla de trabajo, su titulo; un panel,
+ *  su titulo; Procesar, "Volver al inicio"; la rueda, la entrada activa; si no, el orbe (o el
+ *  codigo, en la entrada). */
+function focusTarget(state: AuroraState, shown: 'home' | 'work'): HTMLElement | null {
+  const screen = document.querySelector<HTMLElement>(`[data-aurora-root] > .app-screen[data-screen="${shown}"]`);
+  const q = (selector: string) => screen?.querySelector<HTMLElement>(selector) ?? null;
+  if (shown === 'work') return q('#contenido');
+  if (state.panel !== null) return q('.panel h2');
+  if (state.processMode) return q('.processing-back');
+  if (state.open) return q('.nav-item.selected');
+  return q('button.aurora:not([aria-hidden])') ?? q('#token');
+}
+
+/** El foco se perdio: en la pagina, en algo que ya no esta o no se ve, o en la pantalla que se va. */
+function focusLost(shown: 'home' | 'work'): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || el === document.body || !el.isConnected || el.getClientRects().length === 0) return true;
+  const screen = el.closest('[data-aurora-root] > .app-screen');
+  return screen !== null && screen.getAttribute('data-screen') !== shown;
 }
 
 type FlightPoint = { x: number; y: number; scale: number };
@@ -117,6 +141,21 @@ export function Root() {
     const timer = setTimeout(() => setFlight((current) => (current?.id === flightId ? null : current)), 1050 + 650);
     return () => clearTimeout(timer);
   }, [flightId]);
+
+  // El foco perdido, despues de pintar (lo escondido ya no lo tiene). Lo que tarda en montarse
+  // (un panel que lee sus datos) o en dejarse enfocar (el orbe, oculto mientras vuela su copia)
+  // se espera, como mucho 3 s.
+  useEffect(() => {
+    const until = performance.now() + 3000;
+    let raf = 0;
+    const fix = () => {
+      if (!focusLost(shown)) return;
+      focusTarget(state, shown)?.focus({ preventScroll: true });
+      if (focusLost(shown) && performance.now() < until) raf = requestAnimationFrame(fix);
+    };
+    raf = requestAnimationFrame(fix);
+    return () => cancelAnimationFrame(raf);
+  }, [state, shown]);
 
   const value = useMemo(() => ({ state, dispatch, go }), [state, go]);
   const key = shown;

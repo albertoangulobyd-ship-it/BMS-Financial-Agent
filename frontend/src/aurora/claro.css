@@ -273,6 +273,8 @@ html:not(.dark) .tree-view .tree-branch{border-left:1px solid #01010114}
 html:not(.dark) .ws-companion:focus-visible{outline:1px solid #6e5181}
 html:not(.dark) .discreet-languages button[aria-pressed=true]{color:#292033}
 html:not(.dark) .siri-wave-fallback,html:not(.dark) .aurora canvas.siri-wave-fallback{background:radial-gradient(ellipse 46% 9% at 50% 50%,#1b0932cc,#1f2d8755 55%,transparent 72%)}
+html:not(.dark) .aurora:focus-visible::after{box-shadow:0 0 0 1px #41346a}
+html:not(.dark) [data-modality=keyboard] .composer:focus-within{border-color:#41346a}
 html:not(.dark) .balance-line{background:linear-gradient(90deg,#3f2d52 var(--balance-share,68%),#c7c1d3 var(--balance-share,68%))}
 html:not(.dark) .doc-end small.blocked{color:#7b0009}
 html:not(.dark) .order-error{color:#7b0009!important}

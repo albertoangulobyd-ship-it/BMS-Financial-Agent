@@ -28,6 +28,15 @@
 /* Sin WebGL: un degradado fijo con los colores de la onda (siri-wave.tsx). */
 .siri-wave-fallback,.aurora canvas.siri-wave-fallback{background:radial-gradient(ellipse 46% 9% at 50% 50%,#d9c8ffcc,#7d9bff55 55%,transparent 72%)}
 
+/* El foco con el teclado, a la vista (WCAG 2.4.7): en reposo y con el raton no cambia nada.
+   - el orbe: el aro del lila de Aurora (#9e92d0, el de button:focus-visible de styles.css) en su
+     zona de clic, ademas de la sombra de Aurora, que casi no se ve;
+   - "Volver al inicio" de Procesar, sobre negro: el contorno claro (el #333 de Aurora no se ve);
+   - la caja (y la del codigo): el borde lila al llegar con Tab; sus campos no tienen contorno. */
+.aurora:focus-visible::after{box-shadow:0 0 0 1px #9e92d0}
+.process-mode .processing-back:focus-visible{outline-color:#bbb}
+[data-modality=keyboard] .composer:focus-within{border-color:#9e92d0}
+
 /* "Ir al contenido": solo con el teclado. */
 .skip-link{position:absolute;left:12px;top:-48px;z-index:200;padding:8px 12px;border-radius:8px;background:#c2aed7;color:#21182c;font-size:12px}
 .skip-link:focus{top:calc(8px + var(--bms-bandas,0px))}

@@ -6,7 +6,10 @@
 // - deslizar el dedo arriba o abajo da un paso, como un gesto de la rueda: sin raton ni flechas
 //   (el movil) ninguna entrada se queda sin alcanzar;
 // - el nombre accesible (un grupo) sale del diccionario;
-// - la ventana no se desplaza al recibir una entrada el foco (la pista ya la centra).
+// - la ventana no se desplaza al recibir una entrada el foco (la pista ya la centra);
+// - el teclado: las flechas, Inicio y Fin mueven la activa y, si el foco esta en una fila, el foco
+//   va con ella (la de antes puede quedar fuera de la ventana); con el foco en la rueda, Intro o
+//   Espacio abren la activa (onEnter).
 import { useEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +21,8 @@ interface Props {
   height?: number;
   active?: number;
   onActive?: (i: number) => void;
+  /** Intro o Espacio con el foco en la rueda: abrir la activa. */
+  onEnter?: (i: number) => void;
   label: string;
 }
 
@@ -25,7 +30,7 @@ interface Props {
 const SWIPE_STEP = 28;
 
 // Interactive adaptation: scrolling remains under the user's control.
-export function TextMarquee({ children, className, prefix, height = 310, active = 0, onActive, label }: Props) {
+export function TextMarquee({ children, className, prefix, height = 310, active = 0, onActive, onEnter, label }: Props) {
   const last = useRef(0);
   const box = useRef<HTMLDivElement>(null);
   const current = useRef({ active, count: children.length, onActive });
@@ -89,9 +94,18 @@ export function TextMarquee({ children, className, prefix, height = 310, active 
       className={cn('marquee', className)}
       style={{ height }}
       onKeyDown={(e) => {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const last = children.length - 1;
+        const step = e.key === 'ArrowDown' ? active + 1 : e.key === 'ArrowUp' ? active - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? last : undefined;
+        if (step !== undefined) {
           e.preventDefault();
-          onActive?.(Math.max(0, Math.min(children.length - 1, active + (e.key === 'ArrowDown' ? 1 : -1))));
+          const next = Math.max(0, Math.min(last, step));
+          onActive?.(next);
+          if (e.target !== e.currentTarget) (box.current?.querySelector('.marquee-track')?.children[next] as HTMLElement | undefined)?.focus({ preventScroll: true });
+          return;
+        }
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && onEnter) {
+          e.preventDefault();
+          onEnter(active);
         }
       }}
       tabIndex={0}

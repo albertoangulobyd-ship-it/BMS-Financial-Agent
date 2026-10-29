@@ -1467,6 +1467,8 @@ export const en: Messages = {
       navigate: 'Press to navigate',
       open: 'Open navigation',
       close: 'Close navigation',
+      backHome: 'Back to home',
+      openWhat: 'Open {what}',
       stage: 'Aurora and navigation',
       sections: 'Sections',
       marquee: 'Navigation menu. Use the arrows or scroll',

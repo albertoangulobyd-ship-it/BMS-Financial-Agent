@@ -176,7 +176,20 @@ vuelo: una copia de la onda va del centro del orbe grande al pequeño de la esqu
 vuelo inverso (con «menos movimiento», sin vuelo). En **Procesar** el orbe no viaja: sus
 partículas caen desde donde estaban y forman el montículo del que asoma la suricata (§4.5), y
 «Terug naar start» vuelve al inicio, donde el orbe aparece otra vez. Alt+← y el botón de atrás
-del ratón vuelven un paso (en Documentos; en Procesar, al inicio).
+del ratón son la salida que se ve en cada estado: en la rueda, la cierran; en un panel, lo mismo
+que Escape o su ✕ (primero lo de dentro); en la conversación, «Terug naar de werkruimte»; en la
+búsqueda o con algo escrito en la caja, el orbe (al inicio); en Documentos, un paso atrás; en
+Procesar, al inicio. El nombre del orbe para el lector de pantalla dice lo que hace su clic
+(«Navigatie openen», «Navigatie sluiten», «Terug naar start» o «Verwerken openen»).
+
+**El teclado.** Lo que se ve no cambia; lo que se oye y adónde va el foco, sí. Cuando un cambio
+deja el foco en el aire (la entrada que abrió un panel se esconde, el panel se cierra, el orbe
+entra en Procesar, se vuela a Documentos o se vuelve), el foco va a lo que se tiene delante: el
+título del panel (que nombra el panel), la entrada activa de la rueda, «Terug naar start» en
+Procesar, el título de Documentos o el orbe. Los anillos de foco solo se ven con el teclado: el
+orbe con un aro lila en su zona de clic, «Terug naar start» en claro sobre el negro de Procesar y
+la caja con su borde lila al llegar con Tab. La respuesta terminada de la conversación y cada
+estado y etapa de Procesar se anuncian (un `role="status"` oculto).
 
 **La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
 240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso
@@ -186,7 +199,8 @@ en una sesión, Start está en el centro; después, la última que se usó. **Un
 cualquier entrada a la vista la abre a la primera** (en Aurora la centraba y el clic se
 perdía); las que quedan fuera de la ventana no se pueden pulsar, como en Aurora, y se
 alcanzan con un paso de la rueda del ratón (un paso por gesto, sin dar la vuelta), las
-flechas, Tab (centra la entrada que recibe el foco) o el dedo (un paso por gesto): Instellingen
+flechas, Inicio y Fin (el foco va con la entrada activa; con el foco en la rueda, Intro la abre),
+Tab (centra la entrada que recibe el foco) o el dedo (un paso por gesto): Instellingen
 y Btw están a un paso, Verwerken a dos. Con Verwerken en el centro, el morado de Aurora y el
 orbe de partículas. Sin el permiso `importar_datos` la rueda tiene siete (sin Verwerken). La
 decisión de dejar la ventana de cinco de Aurora (y no las ocho a la vista) es del dueño, que
@@ -629,8 +643,9 @@ los colores sueltos y los puntos de antes se quitaron.
   nunca eligen un color.
 - **Late solo lo que pide hacer algo ya**: el **aislamiento** que falla, falta o es viejo (en
   su tarjeta de Instellingen) y, donde haya pastilla, lo bloqueado, lo urgente y una cuenta
-  por verificar. Documentos va **quieto** entero (`PingScope`): el archivo es tranquilo. Quien
-  pide menos movimiento en el sistema (`prefers-reduced-motion`) no ve latir nada.
+  por verificar. En Documentos, la prioridad de una carpeta va **quieta** (`PingScope`); las
+  marcas de nueva y repetida de la última lectura laten, como en Aurora. Quien pide menos
+  movimiento en el sistema (`prefers-reduced-motion`) no ve latir nada.
 - **Cada pastilla dice una cosa, y la misma cosa tiene un solo color.** La prioridad dice
   cuánto corre una factura; el pago, si está pagada; la gravedad de un aviso, qué hace con
   la factura. Por eso KT-202608 puede ser «Urgent» (naranja) con el pago «Vervallen»
@@ -986,7 +1001,9 @@ y su `DEMO_BATCH`, y la escena vieja de la suricata (`meerkat-scene.tsx`), que y
   sombreadores, sus constantes y su bucle. Lo único que se le cambia: se para con la ventana
   oculta o con el lienzo fuera de la vista y sigue al volver, y sin WebGL es un degradado fijo.
   Con «menos movimiento» sigue moviéndose, como en Aurora (la imagen fija es un punto para el
-  dueño, especificación §7, punto 2). El orbe de partículas (`thinking-orb/`) es el de Verwerken
+  dueño, especificación §7, punto 2); lo que mueve motion alrededor (el orbe de partículas que
+  gira y crece al llegar a Verwerken, la onda que crece y el saludo que sube) cambia sin
+  moverse. El orbe de partículas (`thinking-orb/`) es el de Verwerken
   en el centro de la rueda y el de «Even denken…»; sus partículas son las que caen al entrar
   en Procesar (§4.5).
 - **Los textos** de las piezas están en la sección `aurora` de los tres diccionarios; cada

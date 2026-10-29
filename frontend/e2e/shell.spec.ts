@@ -18,6 +18,7 @@ import {
   crumbsNav,
   entryButton,
   entryLabel,
+  fill,
   greeting,
   landed,
   openCard,
@@ -30,6 +31,8 @@ import {
   orb,
   panel,
   panelRow,
+  panelTitle,
+  processLanded,
   profileRow,
   readCount,
   setLang,
@@ -602,6 +605,139 @@ test('el teclado llega a todo y se ve donde esta', async ({ page, baseUrl }) => 
   await settled(page);
 });
 
+/** El contraste de dos colores CSS (rgb o rgba sobre opaco), como lo cuenta WCAG. */
+function contrast(a: string, b: string): number {
+  const lum = (css: string) => {
+    const [r, g, bl] = css.match(/[\d.]+/g)!.slice(0, 3).map((v) => Number(v) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+  return (x! + 0.05) / (y! + 0.05);
+}
+
+/** Lo que tiene el foco: su etiqueta, su clase y su texto (para los mensajes). */
+const focused = (page: Page) =>
+  page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return el ? `${el.tagName.toLowerCase()}.${el.className} «${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 40)}»` : 'nada';
+  });
+
+test('solo con el teclado: la rueda, el nombre del orbe, a donde va el foco, Alt+← y lo que se oye', async ({ page, baseUrl }) => {
+  test.setTimeout(240_000);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  // E0: el orbe abre la rueda.
+  await expect(orb(page)).toHaveAccessibleName(t.aurora.home.open);
+  // «Druk om te navigeren» con Intro: el boton se va y el foco pasa a la entrada activa.
+  await page.getByRole('button', { name: t.aurora.home.navigate }).focus();
+  await page.keyboard.press('Enter');
+  await expect(wheel(page)).toBeVisible();
+  await expect(entryButton(page, 'home')).toBeFocused();
+  await expect(orb(page)).toHaveAccessibleName(t.aurora.home.close);
+  // Dos flechas abajo: la activa es la resaltada y el foco va con ella (la de antes queda fuera).
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeEntry(page)).toBe('payables');
+  await expect(entryButton(page, 'payables')).toBeFocused();
+  // Intro abre la resaltada, y el foco va al titulo del panel, que lo nombra.
+  await page.keyboard.press('Enter');
+  await expect(panelTitle(page)).toHaveText(entryLabel('payables'));
+  await expect(panelTitle(page)).toBeFocused();
+  await expect(page.getByRole('complementary', { name: entryLabel('payables') })).toBeVisible();
+  await expect(orb(page)).toHaveAccessibleName(t.aurora.home.backHome);
+  // Escape lo cierra y el foco vuelve a su entrada de la rueda.
+  await page.keyboard.press('Escape');
+  await expect(panel(page)).toHaveCount(0);
+  await expect(entryButton(page, 'payables')).toBeFocused();
+  // Con el foco en la rueda (el grupo), las flechas y Fin/Inicio mueven la activa e Intro la abre.
+  await page.locator('.marquee').focus();
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeEntry(page)).toBe('receivables');
+  await page.keyboard.press('Enter');
+  await expect(panelTitle(page)).toHaveText(entryLabel('receivables'));
+  // Alt+←: en un panel, lo mismo que Escape; en la rueda, la cierra (E0), con el foco en el orbe.
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(panel(page)).toHaveCount(0);
+  await expect(wheel(page)).toBeVisible();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(wheel(page)).toHaveCount(0);
+  await expect(orb(page)).toBeFocused();
+  // Con Verwerken en el centro, el orbe entra en Procesar, y lo dice; dentro, el foco va a
+  // «Terug naar start», y el estado se anuncia.
+  await page.keyboard.press('Enter');
+  await expect(wheel(page)).toBeVisible();
+  await page.locator('.marquee').focus();
+  await page.keyboard.press('End');
+  await expect.poll(() => activeEntry(page)).toBe('process');
+  await expect(orb(page)).toHaveAccessibleName(fill(t.aurora.home.openWhat, { what: entryLabel('process') }));
+  await orb(page).focus();
+  await page.keyboard.press('Enter');
+  await processLanded(page);
+  await expect(page.locator('.processing-back')).toBeFocused();
+  await expect(page.locator('main [role=status].sr-only')).toContainText(await page.locator('.welcome-line h1').innerText());
+  // «Terug naar start» sobre el negro de Procesar: el contorno del foco se ve (3:1).
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.processing-back')).toBeFocused();
+  const back = await page.locator('.processing-back').evaluate((el) => [getComputedStyle(el).outlineColor, getComputedStyle(el).outlineStyle]);
+  expect(back[1]).not.toBe('none');
+  expect(contrast(back[0]!, 'rgb(0, 0, 0)'), `el contorno ${back[0]} sobre negro`).toBeGreaterThanOrEqual(3);
+  await page.keyboard.press('Enter');
+  await expect(app(page)).not.toHaveClass(/\bprocess-mode\b/);
+  await expect(orb(page)).toBeFocused();
+  // El orbe con el foco: su aro se ve sobre el fondo (3:1).
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(orb(page)).toBeFocused();
+  const ring = await orb(page).evaluate((el) => getComputedStyle(el, '::after').boxShadow);
+  expect(ring).not.toBe('none');
+  expect(contrast(ring, 'rgb(8, 9, 11)'), `el aro del orbe, ${ring}`).toBeGreaterThanOrEqual(3);
+  // La caja, al llegar con Tab: su borde se ve (3:1); con el raton no cambia.
+  const ask = page.getByRole('textbox', { name: t.aurora.composer.askLabel });
+  const border = () => page.locator('.composer-area .composer').evaluate((el) => getComputedStyle(el).borderTopColor);
+  const rest = await border();
+  for (let i = 0; i < 6 && !(await ask.evaluate((el) => el === document.activeElement)); i += 1) await page.keyboard.press('Tab');
+  await expect(ask).toBeFocused();
+  expect(contrast(await border(), 'rgb(8, 9, 11)'), `el borde de la caja con el foco`).toBeGreaterThanOrEqual(3);
+  await page.mouse.click(5, 300);
+  await ask.click();
+  expect(await border()).toBe(rest);
+  // Escribiendo (E3): el orbe vuelve al inicio, y Alt+← tambien.
+  await ask.fill('IVA');
+  await expect(orb(page)).toHaveAccessibleName(t.aurora.home.backHome);
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(app(page)).not.toHaveClass(/\bchatting\b/);
+  // La conversacion (E4): la respuesta terminada se anuncia; Alt+← es «Terug naar de werkruimte».
+  await ask.fill('Wat is een Object?');
+  await ask.press('Enter');
+  await expect(page.locator('.conversation')).toBeVisible();
+  await expect(page.locator('.typing-dots')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator('.conversation [role=status].sr-only')).not.toBeEmpty();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(page.locator('.conversation')).toHaveCount(0);
+  await expect(wheel(page)).toBeVisible();
+  // La busqueda (E5): el orbe vuelve al inicio, y Alt+← tambien.
+  await centre(page, 'search');
+  await entryButton(page, 'search').press('Enter');
+  await expect(app(page)).toHaveClass(/\bsearch-mode\b/);
+  await expect(orb(page)).toHaveAccessibleName(t.aurora.home.backHome);
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(app(page)).not.toHaveClass(/\bsearch-mode\b/);
+  await expect(wheel(page)).toHaveCount(0);
+  // Documentos con Intro en su entrada: despues del vuelo, el foco en su titulo; Alt+← vuelve y
+  // el foco queda en el orbe.
+  await page.getByRole('button', { name: t.aurora.home.navigate }).press('Enter');
+  await centre(page, 'documents');
+  await entryButton(page, 'documents').press('Enter');
+  await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'work');
+  await landed(page);
+  await expect(page.locator('#contenido')).toBeFocused();
+  await page.keyboard.press('Alt+ArrowLeft');
+  await expect(auroraRoot(page)).toHaveAttribute('data-screen', 'home');
+  await landed(page);
+  await expect.poll(() => focused(page)).toContain('button.aurora');
+});
+
 test('con «menos movimiento» no hay vuelo y la rueda gira sin animacion', async ({ page, baseUrl }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`${baseUrl}/app`);
@@ -610,6 +746,16 @@ test('con «menos movimiento» no hay vuelo y la rueda gira sin animacion', asyn
   const instant = (el: Element) => getComputedStyle(el).transitionDuration.split(',').every((d) => parseFloat(d) < 0.001);
   expect(await page.locator('.marquee-track').evaluate(instant)).toBe(true);
   expect(await orb(page).evaluate(instant)).toBe(true);
+  // Lo que mueve motion tampoco se mueve: con Verwerken en el centro, el orbe de particulas sale
+  // ya en su sitio (sin girar ni crecer) y el saludo cambia sin desplazarse.
+  await entryButton(page, 'process').focus();
+  await expect(page.locator('.hero-orb')).toHaveCount(1);
+  const still = await page.locator('.hero-orb').evaluate((el) => ({
+    running: el.getAnimations().filter((a) => a.playState === 'running').length,
+    transform: getComputedStyle(el).transform,
+  }));
+  expect(still.running, 'el orbe de particulas, sin animacion').toBe(0);
+  expect(['none', 'matrix(1, 0, 0, 1, 0, 0)']).toContain(still.transform);
   await entryButton(page, 'documents').focus();
   await expect.poll(() => activeEntry(page)).toBe('documents');
   await entryButton(page, 'documents').click();

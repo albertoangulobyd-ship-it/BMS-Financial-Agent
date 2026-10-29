@@ -13,7 +13,7 @@
 //   Aurora, el saludo dice su titulo, no hay orbe ni caja y el espacio central es suyo;
 // - I: todos los textos del diccionario.
 // El estado vive en aurora/estado.ts: cada clic es una accion.
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { LANGS, fmt, useT, type Lang, type Messages } from '@/i18n';
@@ -174,6 +174,9 @@ function ProcessTitle({ view }: { view: ProcessView }) {
 
 export function App() {
   const { t } = useT();
+  // Con "menos movimiento", lo que mueve motion (el saludo, el orbe de particulas y la onda)
+  // cambia sin moverse: el CSS de Aurora para las animaciones de CSS no le llega.
+  const reduced = useReducedMotion();
   const { resolved } = useTheme();
   const { session } = useSession();
   const can = useCan();
@@ -244,6 +247,39 @@ export function App() {
     dispatch({ type: 'orb' });
   }
 
+  // Alt+← y el boton "atras" del raton: la salida visible de cada estado (§1.6). En un panel, lo
+  // hace el panel (como Escape: lo de dentro primero); en Procesar y en Documentos, los suyos.
+  const back = useRef<() => boolean>(() => false);
+  back.current = () => {
+    if (!loggedIn || panel !== null || processMode) return false;
+    if (conversation) {
+      clearChat();
+      dispatch({ type: 'backToSpace' });
+      return true;
+    }
+    if (open || chatting || searchMode) {
+      clearChat();
+      dispatch({ type: 'orb' });
+      return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.key !== 'ArrowLeft' || e.defaultPrevented) return;
+      if (back.current()) e.preventDefault();
+    };
+    const onMouse = (e: MouseEvent) => {
+      if (e.button === 3 && back.current()) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mouseup', onMouse);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mouseup', onMouse);
+    };
+  }, []);
+
   function send(e: FormEvent) {
     e.preventDefault();
     if (!text.trim() || chat.pending) return;
@@ -283,6 +319,17 @@ export function App() {
     : t.aurora.login.prompt;
   const welcomeKey = !loggedIn ? `login:${message ?? ''}` : processMode ? `process:${processView.title}` : searchMode ? 'search' : 'welcome';
   const highlight = active === LAST_ENTRY && open && panel === null;
+  // El nombre del orbe dice lo que hace su clic (orbClick y la accion 'orb'): volver al inicio
+  // desde un panel, la busqueda o la caja; entrar en Procesar si esta en el centro; si no, abrir
+  // o cerrar la rueda. No cambia nada a la vista.
+  const orbLabel =
+    panel !== null || searchMode || chatting
+      ? t.aurora.home.backHome
+      : highlight
+        ? fmt(t.aurora.home.openWhat, { what: entryLabel(t, 'process') })
+        : open
+          ? t.aurora.home.close
+          : t.aurora.home.open;
 
   return (
     <div
@@ -335,7 +382,12 @@ export function App() {
           {!chatting && (
             <div className='welcome-line'>
               <AnimatePresence mode='wait' initial={false}>
-                <motion.div key={welcomeKey} initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -7 }}>
+                <motion.div
+                  key={welcomeKey}
+                  initial={reduced ? false : { opacity: 0, y: 7 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: -7 }}
+                >
                   <h1>
                     {!loggedIn ? (
                       t.aurora.login.welcome
@@ -372,7 +424,7 @@ export function App() {
           {!processMode && (
           <button
             className={'aurora' + (loggedIn ? '' : ' aurora-locked')}
-            aria-label={open ? t.aurora.home.close : t.aurora.home.open}
+            aria-label={orbLabel}
             aria-hidden={loggedIn ? undefined : true}
             tabIndex={loggedIn ? undefined : -1}
             onClick={orbClick}
@@ -383,10 +435,10 @@ export function App() {
                   <motion.span
                     key='orb'
                     className='hero-orb'
-                    initial={{ opacity: 0, scale: 0.35, rotate: -25 }}
+                    initial={reduced ? false : { opacity: 0, scale: 0.35, rotate: -25 }}
                     animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                    exit={{ opacity: 0, scale: 0.65 }}
-                    transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                    exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.65 }}
+                    transition={reduced ? { duration: 0 } : { duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
                   >
                     {/* En Aurora, 'ink' (solo hay tema oscuro); en el claro (T), 'paper'. */}
                     <OrbWorking surface={resolved === 'dark' ? 'ink' : 'paper'} size={240} scale={0.72} caption={t.aurora.orb} summary={t.aurora.orbWorking} />
@@ -395,10 +447,10 @@ export function App() {
                   <motion.span
                     key='wave'
                     className='hero-wave'
-                    initial={{ opacity: 0, scale: 0.8 }}
+                    initial={reduced ? false : { opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.55 }}
-                    transition={{ duration: 0.65 }}
+                    exit={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.55 }}
+                    transition={{ duration: reduced ? 0 : 0.65 }}
                   >
                     <SiriWave size={440} renderScale={1} variant='wave' flowPhase={flowPhase(active)} />
                   </motion.span>
@@ -415,7 +467,13 @@ export function App() {
           )}
           {loggedIn && open && !chatting && (
             <section className='navigation' aria-label={t.aurora.home.sections}>
-              <TextMarquee active={active} onActive={(i) => dispatch({ type: 'focusEntry', index: i })} height={240} label={t.aurora.home.marquee}>
+              <TextMarquee
+                active={active}
+                onActive={(i) => dispatch({ type: 'focusEntry', index: i })}
+                onEnter={enter}
+                height={240}
+                label={t.aurora.home.marquee}
+              >
                 {entries.map((id, i) => (
                   <button
                     key={id}
@@ -436,6 +494,11 @@ export function App() {
           )}
         </section>
         {loggedIn && panel !== null && <PanelFor entry={ENTRIES[panel]!} />}
+        {/* Procesar, para el lector de pantalla: cada estado y cada etapa (el saludo cambia de
+            golpe, con su clave). Siempre montado, para que se oiga el primero. */}
+        <p className='sr-only' role='status'>
+          {processMode ? `${processView.title} ${processView.detail}` : ''}
+        </p>
         <section className='composer-area'>
           {!loggedIn ? (
             <LoginComposer login={loginState} />

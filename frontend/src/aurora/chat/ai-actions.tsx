@@ -9,7 +9,8 @@
 //   ni "Alberto"); "Aurora • Demo" pasa a "Aurora";
 // - I: todos los textos del diccionario;
 // - A: el orbe de cada respuesta es una imagen con su nombre (role="img") y los tres puntos, un
-//   estado (role="status"): una etiqueta sin papel no la lee nadie (axe, aria-prohibited-attr).
+//   estado (role="status"): una etiqueta sin papel no la lee nadie (axe, aria-prohibited-attr);
+//   la respuesta terminada va tambien en un estado oculto, para que el lector de pantalla la diga.
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, Check, CopyIcon, Download, FileText, FolderOpen, RefreshCcwIcon, ShareIcon, SlidersHorizontal, Square, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react';
 import { useT } from '@/i18n';
@@ -283,6 +284,11 @@ export function Example({
           </Message>
         ))}
       </ConversationContent>
+      {/* La respuesta terminada, para el lector de pantalla: el texto llega de 4 en 4 caracteres
+          y no se lee mientras tanto (A). */}
+      <p className='sr-only' role='status'>
+        {!pending && messages.at(-1)?.from === 'assistant' ? messages.at(-1)!.content : ''}
+      </p>
       {pending && (
         <button className='chat-stop' onClick={onStop}>
           <Square size={10} /> {c.stop}

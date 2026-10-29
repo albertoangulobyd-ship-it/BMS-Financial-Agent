@@ -1473,6 +1473,8 @@ export const nl = {
       navigate: 'Druk om te navigeren',
       open: 'Navigatie openen',
       close: 'Navigatie sluiten',
+      backHome: 'Terug naar start',
+      openWhat: '{what} openen',
       stage: 'Aurora en navigatie',
       sections: 'Onderdelen',
       marquee: 'Navigatiemenu. Gebruik de pijltjes of scroll',
