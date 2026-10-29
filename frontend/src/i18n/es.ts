@@ -1396,6 +1396,11 @@ export const es: Messages = {
       openOther: 'Abrir {number}',
       withdrawPayment: 'Retirar el pago del {date} ({amount})',
       revertThis: 'Deshacer: {field}',
+      foldMore: 'Y {n} líneas más',
+      foldMoreOne: 'Y 1 línea más',
+      foldAttention: '{n} piden atención',
+      foldAttentionOne: '1 pide atención',
+      foldLess: 'Ver menos',
     },
     money: {
       total: 'Total pendiente',

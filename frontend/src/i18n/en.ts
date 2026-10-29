@@ -1393,6 +1393,11 @@ export const en: Messages = {
       openOther: 'Open {number}',
       withdrawPayment: 'Withdraw the payment of {date} ({amount})',
       revertThis: 'Undo: {field}',
+      foldMore: 'And {n} more lines',
+      foldMoreOne: 'And 1 more line',
+      foldAttention: '{n} need attention',
+      foldAttentionOne: '1 needs attention',
+      foldLess: 'Show fewer',
     },
     money: {
       total: 'Total outstanding',

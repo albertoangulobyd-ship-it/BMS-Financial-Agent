@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "efc0526cf36ad36f70a572fd61cb664a801fc95965c3c54a00a1b11326ccdfc2",
+  "sha256": "5f8cfd4a76431257b21738aa4ee5a0a37dee61db20d4248fa312b403f6b6de4c",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -30,9 +30,9 @@
     "frontend/src/aurora/documents/folder-docs.ts": "d837990d29f01816c5cfa25bb674fa8baa9955a140d2ee5d26719d9f2144970f",
     "frontend/src/aurora/documents/glass-folder-cards.css": "f6eb4d7d6f686687cdd86792b22d39136c209862e1b9d27836c8645564773908",
     "frontend/src/aurora/documents/glass-folder-cards.tsx": "a83509b9f0ad2409cb3abf1c763326e0727e0ffdc78eff560da082c10a9dc1bf",
-    "frontend/src/aurora/documents/invoice-sheet.tsx": "ddd16859088dd052729c116c03a66be17d9ea0e2a3572c3992f576bc8fd76acc",
-    "frontend/src/aurora/documents/sheet-model.ts": "5e5ac28f09ad906225c943e1c5a1993395bcad9f4e1166333f77f03586b06178",
-    "frontend/src/aurora/documents/sheets.tsx": "ab966be9b578ba7f0ac050569e3886e2205c79829cbe46867292b8c84e1183ea",
+    "frontend/src/aurora/documents/invoice-sheet.tsx": "3a03ab8ca5b66e9a6c6daed67ade5e0b2bbb0fcebd05272edde19933158f9849",
+    "frontend/src/aurora/documents/sheet-model.ts": "34b78590ff97eebe835319b85cb8acfa86cd24fa3778c32b2534f397ad2243f2",
+    "frontend/src/aurora/documents/sheets.tsx": "c68b8b34bf361966258425d22ed85dbdc73e3744b66ebafe7c4164a5f5223358",
     "frontend/src/aurora/documents/status.tsx": "e0d109762761c95fbcfec88bc78a0d407c2f1b3a0b22c47fb769c39ba257ad7b",
     "frontend/src/aurora/documents/tree-view.tsx": "477cb2a9ca417ab4299ae6a374481869286afd14445d4fb688a263b7b12c200c",
     "frontend/src/aurora/due.ts": "a851b6e6969191cacc1c758eec7bf57e4d0e00087ac6e825c3baf92d73ee3a58",
@@ -102,14 +102,14 @@
     "frontend/src/components/ui/tooltip.tsx": "e8e74b0ffba3db903abecb8470a1d07ce9cb4756e2eee23dbbc6151d5cd6040d",
     "frontend/src/favicon.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "frontend/src/i18n/domain.ts": "9945d8e5295f907aa8c99cb512ea413f872a48eef3723cb7a2ca6a329844e7d6",
-    "frontend/src/i18n/en.ts": "c33c1fed02f04ac7749d8af59cd09122ce6303a3e09150d1fe0112e83bf53556",
-    "frontend/src/i18n/es.ts": "18c49fda8659f49bac82207ea4bb764ebc4bc9de55d52dd8ffbc1cd5275252a1",
+    "frontend/src/i18n/en.ts": "39f9ce201cc37613a29a9753898838c26c0e8e6cbc7692abd88b5dc005112d58",
+    "frontend/src/i18n/es.ts": "00858827fe56863aa2960fc536e82c9071a743aaddbbe289feb152b3b8e9d875",
     "frontend/src/i18n/glossary.ts": "0a2d75b9c024532cf0d06d5444b27f55a1034843263b1bf17fd5d97696f865b1",
     "frontend/src/i18n/index.tsx": "41ccc9109f76ad67574a7d7fab4adefa9f31976514f38b574e11f373d6d7c674",
     "frontend/src/i18n/langs.ts": "d8739067f8322a395d4bde6baeccd45a838e0cb0cce91195e2cea5ae66851a5c",
     "frontend/src/i18n/leftovers.ts": "cec1be18c2de04dcfab426856ea893a9bce52dc45626f1c6d8b087cbb5b173c1",
     "frontend/src/i18n/messages.ts": "f7c2e6913082af51ea27b768a486965308c2f081845eb7c753f63d066cf86279",
-    "frontend/src/i18n/nl.ts": "fc06c44eb65ff128d41689a746f4b589a4cbd6d07128dd8abeaa19d6445edeb4",
+    "frontend/src/i18n/nl.ts": "1c0b73fbdb69c9ed447a25460f340605eacaef21dd6ed1287060617137c45bd6",
     "frontend/src/i18n/templates.ts": "ad84c20e9b91a83a0610f4841a65e7510c55607213746810f0f46bfbc3b72faf",
     "frontend/src/index.css": "3eb1039ba12cf34aeded38384aeb013d98b99c81973632df5868867ea113d1e1",
     "frontend/src/lib/actions.ts": "34653ec861358ee8ec78915fa5520e88c0e935883b4d788cab7525bac382340c",
@@ -139,10 +139,10 @@
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-DfmKTk1m.js": "0d88d7f5f84710cfc60527da8e34fd9beb99573b860666ae5d71ca203c2434f4",
+    "assets/index-D-1NuDIw.js": "07951834b0707e1233eca453c637069eb104e2dc8949d0110d4dc8b76a93943b",
     "assets/style-W1ai4pbV.css": "db70ac5309ccc2a59c71d67d6faeb3dba1b9ffb5f680b0cb6af0d3ece646d008",
     "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
-    "assets/vendor-DZbmtkxJ.js": "557b77e7e62d47c35590bf28e47189c724cafabef4ab22160bffab17c6c8133d",
-    "index.html": "2b24a0b2dca89fcf839051eaf50ff5a59c30dd8bd80c7182ed64c8ec497fe360"
+    "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
+    "index.html": "90e14917d10a88d827dfe49039d8b597ddc7fae55bae2fbdd5258f1844c2673b"
   }
 }

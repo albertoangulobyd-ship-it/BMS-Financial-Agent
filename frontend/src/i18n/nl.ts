@@ -1399,6 +1399,11 @@ export const nl = {
       openOther: '{number} openen',
       withdrawPayment: 'Betaling van {date} ({amount}) intrekken',
       revertThis: 'Ongedaan maken: {field}',
+      foldMore: 'En nog {n} regels',
+      foldMoreOne: 'En nog 1 regel',
+      foldAttention: '{n} vragen aandacht',
+      foldAttentionOne: '1 vraagt aandacht',
+      foldLess: 'Minder tonen',
     },
     money: {
       total: 'Totaal openstaand',

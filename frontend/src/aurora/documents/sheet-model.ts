@@ -47,6 +47,49 @@ export function sheetRows(f: InvoiceDetail): SheetRow[] {
   return rows;
 }
 
+/** Cuantas filas se ven como mucho con la hoja plegada (decision del dueno, 29-10-2026). */
+export const FOLD_ROWS = 4;
+
+/** La tabla de la hoja, plegada o no: lo que se ve y lo que dice el control de plegar. */
+export interface SheetFold {
+  /** Las filas que se ven, en su orden. */
+  shown: SheetRow[];
+  /** Cuantas quedan plegadas ahora (0 desplegada o sin nada que plegar). */
+  hidden: number;
+  /** De las plegadas, cuantas son un aviso abierto (un hallazgo o la excepcion). */
+  attention: number;
+  /** Si hay control de plegar: solo cuando hay mas de FOLD_ROWS filas. */
+  foldable: boolean;
+}
+
+/** Un aviso que nunca se pliega sin decirlo: un hallazgo (abierto o desaparecido sin cerrar) o
+ *  la excepcion abierta. */
+export function needsAttention(row: SheetRow): boolean {
+  return row.kind === 'finding' || row.kind === 'exception';
+}
+
+/**
+ * Con FOLD_ROWS filas o menos, todas y sin control (como antes). Con mas, plegada se ven las
+ * FOLD_ROWS - 1 primeras (las mas urgentes) y el control ocupa la cuarta linea; desplegada,
+ * todas. Lo plegado cuenta sus avisos para que el control los diga.
+ */
+export function foldRows(rows: readonly SheetRow[], expanded: boolean): SheetFold {
+  if (rows.length <= FOLD_ROWS) return { shown: [...rows], hidden: 0, attention: 0, foldable: false };
+  if (expanded) return { shown: [...rows], hidden: 0, attention: 0, foldable: true };
+  const shown = rows.slice(0, FOLD_ROWS - 1);
+  const rest = rows.slice(FOLD_ROWS - 1);
+  return { shown, hidden: rest.length, attention: rest.filter(needsAttention).length, foldable: true };
+}
+
+/** El texto del control: "Y 5 lineas mas · 2 piden atencion" plegada, "Ver menos" desplegada. */
+export function foldLabel(t: Messages, fold: SheetFold): string {
+  const s = t.aurora.sheet;
+  if (fold.hidden === 0) return s.foldLess;
+  const more = fold.hidden === 1 ? s.foldMoreOne : fmt(s.foldMore, { n: fold.hidden });
+  if (fold.attention === 0) return more;
+  return `${more} · ${fold.attention === 1 ? s.foldAttentionOne : fmt(s.foldAttention, { n: fold.attention })}`;
+}
+
 /** "2902,79" -> 290279 con la escala del campo, sin floats; null si no se entiende. */
 export function toScaled(text: string, scale: number): string | null {
   let s = text.replace(/\s/g, '');

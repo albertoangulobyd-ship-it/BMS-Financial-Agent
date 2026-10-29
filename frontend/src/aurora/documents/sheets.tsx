@@ -7,7 +7,7 @@
 // facturado) y una orden de compra (lo pedido, lo facturado y lo que queda). Sin ordenes: hoy
 // tampoco las tienen. Sus facturas, en la tabla de la ficha (ws-file-table), abren su hoja.
 import { ChevronRight, Download, FileText, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { fmt, useT, type Messages } from '@/i18n';
 import { paymentStateLabel, ruleText, stateLabel } from '@/i18n/domain';
 import { paths } from '@/lib/api';
@@ -157,9 +157,21 @@ export function FileRow({
 }
 
 /** La cabecera de una tabla de la ficha o de la hoja (ws-table-head) y sus filas. */
-export function FileTable({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+export function FileTable({
+  title,
+  count,
+  id,
+  tableRef,
+  children,
+}: {
+  title: string;
+  count?: number;
+  id?: string;
+  tableRef?: Ref<HTMLDivElement>;
+  children: ReactNode;
+}) {
   return (
-    <div className='ws-file-table'>
+    <div className='ws-file-table' id={id} ref={tableRef}>
       <div className='ws-table-head'>
         <span>{title}</span>
         {count !== undefined && <span>{count}</span>}

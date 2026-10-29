@@ -9,7 +9,8 @@
 // con sus ordenes (orders.tsx), y el dialogo se desplaza lo justo para ensenarla. Sin permiso
 // para ninguna orden de una fila, la fila se ve igual y su tarjeta no tiene botones. Las ordenes
 // y sus reglas son las de la ficha de antes (pasos 15 y 16).
-import { useEffect, useState, type MutableRefObject } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { catalogFor, fieldLabel, findingDetail, paymentStateLabel, qualityText, ruleText, sourceText, stateLabel, verdict } from '@/i18n/domain';
 import { MIN_ACCEPT_REASON, permissionFor } from '@/lib/actions';
@@ -30,7 +31,7 @@ import { useLoad } from '../use-load';
 import type { AnalysisStatus } from './analysis';
 import { paidSource } from './documents-model';
 import { DownloadOriginal, Fact, FileRow, FileTable, Paper, SheetTop, typeLabel } from './sheets';
-import { asProposal, historyEntries, sheetRows, toScaled, type SheetRow } from './sheet-model';
+import { asProposal, foldLabel, foldRows, historyEntries, sheetRows, toScaled, type SheetRow } from './sheet-model';
 
 /** Verificar tiene sentido donde hay una duda; en los demas campos el boton seria ruido. */
 const NEEDS_CHECK = new Set(['dudoso', 'discrepancia', 'anomalia']);
@@ -197,6 +198,11 @@ export function InvoiceSheet({
   const { session } = useSession();
   const { version } = useRefresh();
   const [open, setOpen] = useState<string | null>(null);
+  // Plegada al abrir (el <dialog> monta una hoja nueva cada vez: document-workspace.tsx).
+  const [expanded, setExpanded] = useState(false);
+  const tableId = useId();
+  const table = useRef<HTMLDivElement>(null);
+  const firstFolded = useRef<number | null>(null);
   const [state] = useLoad(
     () =>
       Promise.all([
@@ -215,6 +221,12 @@ export function InvoiceSheet({
     if (invoice) onLoaded(invoice);
     // Solo al llegar la factura.
   }, [invoice?.id, invoice?.rev]);
+  // Al desplegar, el foco va a la primera fila que estaba plegada (con el teclado se sigue ahi).
+  useEffect(() => {
+    if (firstFolded.current === null) return;
+    table.current?.querySelectorAll<HTMLElement>(':scope > a')[firstFolded.current]?.focus();
+    firstFolded.current = null;
+  }, [expanded]);
 
   if (!invoice || state.status !== 'ready') {
     return (
@@ -231,7 +243,19 @@ export function InvoiceSheet({
   const paid = paidSource(f);
   const payments = paymentsInOrder(f.pagos ?? []);
   const rows = sheetRows(f);
-  const current = rows.find((r) => r.key === open) ?? null;
+  const fold = foldRows(rows, expanded);
+  const current = fold.shown.find((r) => r.key === open) ?? null;
+  const toggle = () => {
+    if (expanded) {
+      setExpanded(false);
+      // Una tarjeta de una fila que se pliega se cierra con ella.
+      const folded = foldRows(rows, false);
+      if (open !== null && !folded.shown.some((r) => r.key === open)) setOpen(null);
+    } else {
+      firstFolded.current = fold.shown.length;
+      setExpanded(true);
+    }
+  };
   const late = e?.dias_vencida
     ? fmt(e.dias_vencida === 1 ? t.why.overdueDaysOne : t.why.overdueDays, {
         n: e.dias_vencida,
@@ -280,10 +304,18 @@ export function InvoiceSheet({
       </Paper>
       <DownloadOriginal path={paths.invoiceOriginal(f.id)} name={`${f.numero ?? 'factura'}.pdf`} kept={Boolean(f.original?.guardado)} />
       {f.anulada && <p className='ws-paper-disclaimer'>{t.invoice.cancelled}</p>}
-      <FileTable title={t.aurora.sheet.canDo} count={rows.length}>
-        {rows.map((row) => (
+      <FileTable title={t.aurora.sheet.canDo} count={rows.length} id={tableId} tableRef={table}>
+        {fold.shown.map((row) => (
           <SheetRowView key={row.key} row={row} invoice={f} current={row.key === open} onOpen={() => setOpen(open === row.key ? null : row.key)} />
         ))}
+        {fold.foldable && (
+          // El control de plegar, con el boton discreto de la cabecera de la tabla de Aurora.
+          <div className='ws-table-head' data-testid='sheet-fold'>
+            <button type='button' aria-expanded={expanded} aria-controls={tableId} onClick={toggle}>
+              {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {foldLabel(t, fold)}
+            </button>
+          </div>
+        )}
       </FileTable>
       {current && <RowCard key={current.key} row={current} invoice={f} people={people} onClose={() => setOpen(null)} onOpenInvoice={onOpenInvoice} />}
     </>
