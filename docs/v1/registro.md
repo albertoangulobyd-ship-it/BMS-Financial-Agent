@@ -9439,3 +9439,78 @@ pasada. Se sigue la especificación del paso 17 (§4 y §5) y el traspaso del du
   píxel salvo el hoyo, que el motor pone al azar. En claro, Procesar sigue negro, con la marca
   blanca.
 - `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · revisión: lo que salió al mirar el paso 17 (21 puntos)
+
+La revisión del paso 17 (B1, B2, B3 y la lectura de verdad) dejó 21 puntos. Cada uno se
+comprobó; los 20 que eran de verdad se arreglaron con una prueba que falla antes y pasa
+después, y uno no lo era (abajo, con su medida). Lo que se ve sigue siendo lo de Aurora: nada
+de lo arreglado cambia una pantalla en reposo ni sus movimientos.
+
+### Lo que se arregló
+
+| # | Punto | Qué pasaba | Qué se hizo | La prueba |
+| --- | --- | --- | --- | --- |
+| 1 | El vuelo y las bandas del servidor | Con la banda de datos de prueba (o la del aislamiento), al aterrizar en Documentos, y al volver, toda la pantalla bajaba de golpe el alto de la banda: 29 px a 1440 y 47 a 400 (las migas, de 112 a 141; a la vuelta, el saludo, el orbe y la caja). Las pantallas absolutas del vuelo se colocaban desde lo alto de la página | `[data-aurora-root]{position:relative}` (`bms.css`): las pantallas se colocan desde la raíz de Aurora, que empieza debajo de las bandas, también mientras vuela el orbe; la marca y «Terug naar Aurora» ya no necesitan su margen | `aurora-paridad.spec.ts`: en cada cuadro de los dos vuelos, a 1440 y a 400 px, la `y` de las migas y del orbe pequeño (a la ida) y del orbe y la marca (a la vuelta) no cambia hasta después de aterrizar (antes, 112 → 141 y 110 → 157) |
+| 2 y 9 | El resumen general: documentos y facturas | «Documentos 17 · 35 facturas en el archivo» y la composición 17 con las cápsulas 35 / 0: los documentos eran los de las carpetas y las facturas, todas (también las de Exact sin PDF) | La API da, por cada empresa, `documentos_factura`: cuántos de los documentos de su carpeta son facturas o abonos (contrato 2.5, una clave más). El resumen cuenta las dos cifras de las mismas carpetas (`archiveCounts`) y las cápsulas suman la cifra grande | `test_cartera.py` (la clave, de la misma carpeta, y nunca más que los documentos); `finance-bento.test.ts` (la base de las pruebas, las cápsulas suman, un servidor sin la clave); `conversacion.spec.ts` (las tarjetas contra la API) |
+| 3 | Las coincidencias de una propuesta del banco | El ✓ o el ✗ de cada «Referentie: ja» quedaba en una línea suya (el `svg` es `display:block` en la base de Tailwind) | `.order-matches svg{display:inline-block;vertical-align:-1px}` | `payments.spec.ts`: cada icono a la altura de su texto y delante de él |
+| 4 | Los idiomas de la entrada | «Español·  Nederlands·  English»: el espacio antes del punto se perdía (cada idioma era un elemento de un `flex`) | La línea, en línea, como el `.discreet` de Aurora | `shell.spec.ts`: el mismo aire a los dos lados de cada punto (±1 px) |
+| 5 | Las marcas de nueva y repetida de Documentos | Su punto no latía (`still`, del paso 17 B3); en Aurora late | `<StatusIndicator />`, como Aurora; con «menos movimiento», quieto (la regla de Aurora). La prioridad de la carpeta (de BMS) sigue quieta | `status.spec.ts`: en Documentos, las marcas laten y la prioridad no; con «menos movimiento», nada |
+| 7 | El tope de la lectura | El tope se miraba con el extremo alto de cada factura, pero la llamada podía usar todo el `max_tokens` (16.000): una factura larga dejaba lo gastado por encima del tope aprobado (con la prueba de la revisión, 344.000 sobre 290.568 millonésimas) | El tope es duro: cada llamada lleva como `max_tokens` la salida que aún cabe en el tope con su entrada contada (`lectura.salida_que_cabe`, como mucho la de la configuración); un fallo sin uso cuenta lo peor que podía costar esa llamada; una respuesta cortada sin factura es `Cortado` (con su uso) y no se guarda; lo que se apunta de cada lectura es el `max_tokens` con que se pidió. `integracion-web.md` e `instalacion-nativa.md` lo dicen | `test_lectura.py`: una factura que quiere 16.000 tokens se corta en lo que cabe y lo gastado no pasa del tope (con uso y sin él); cada llamada lleva lo que queda; `salida_que_cabe` |
+| 8 | La última revisión del resumen | Salía de `pasada_en_curso`: con una lectura nueva pedida (o caducada, cancelada o sin nada que leer) decía que no había ninguna, y leyendo contaba lo que iba leído | La misma pasada que Documentos (`finishedRows`): la de ahora solo si terminó; si no, `ultima_pasada`; y solo los estados finales | `finance-bento.test.ts` (sin lectura, una pedida después de una terminada, leyendo); `conversacion.spec.ts` (contra la API) |
+| 10 | Los tiempos del orbe | T11 o T17 fallaba en cada pasada en este contenedor: los tres intentos tenían un cuadro de más de 100 ms (la onda en WebGL por software) | Las curvas se miden en la línea de tiempo de su animación: el vuelo (WAAPI, de motion) y la transición del orbe (CSS) se paran nada más empezar, se llevan a cada instante de 5 en 5 ms para leer el centro y siguen. Un cuadro lento ya no cambia la medida | T01 106 / 427 ms, T11 210 / 609 y T17 210 / 609 (en teoría, 106 / 427 y 210 / 609), en cada pasada |
+| 11 | La pila de la suricata | Se comparaba con 120 píxeles de margen y una vez de cada diez no bastaba: la hoja cae con un desvío al azar | Sin margen: fuera de la franja por donde puede caer la hoja, tal cual; dentro, con la hoja movida lo que pueden separarse el desvío de Aurora y el de aquí. El rebote de la hoja (CSS, tiempo de verdad, que el reloj parado deja a medias) se da por acabado antes de la captura | `procesar.spec.ts`, 10 de 10 seguidas con 0 píxeles distintos |
+| 12 | La rueda con el teclado | Las flechas movían la activa pero no el foco (la fila con el foco quedaba fuera de la ventana e Intro abría esa, no la resaltada); Intro en la rueda no hacía nada | Con el foco en una fila, el foco va con la activa; Inicio y Fin van a los extremos; con el foco en la rueda, Intro o Espacio abren la activa. Tab sigue recorriendo las ocho (B1, desviación 1) | `shell.spec.ts`, «solo con el teclado» |
+| 13 | El nombre del orbe | Decía «Navigatie sluiten» con Verwerken en el centro (el clic entra en Procesar) y «Navigatie openen» en la búsqueda o escribiendo (el clic vuelve al inicio) | El nombre sale de lo que hace el clic: «Terug naar start» con un panel, la búsqueda o la caja; «Verwerken openen» con Verwerken en el centro; si no, abrir o cerrar la rueda | `shell.spec.ts` |
+| 14 | El foco | Se perdía (quedaba en la página) con Intro en «Druk om te navigeren», al abrir y cerrar un panel, al entrar en Procesar, al volar a Documentos y al volver | `Root`: cuando un cambio deja el foco en el aire, va a lo que se tiene delante (el título del panel, que ahora nombra el panel; la entrada activa; «Terug naar start»; el título de Documentos; el orbe), sin mover nada (`preventScroll`) y sin anillo con el ratón | `shell.spec.ts` |
+| 15 | Alt+← | Solo en Documentos y en Procesar | En todos los estados, la salida que se ve: la rueda se cierra; un panel, como Escape (lo de dentro primero); la conversación, «Terug naar de werkruimte»; la búsqueda o la caja, el orbe. También el botón de atrás del ratón | `shell.spec.ts` |
+| 16 | Los anillos de foco | El del orbe casi no se veía (1,3:1), el de «Terug naar start» era `#333` sobre negro y la caja no tenía ninguno | Solo con el teclado: el aro lila de Aurora (`#9e92d0`) en la zona de clic del orbe, «Terug naar start» en `#bbb` y el borde lila de la caja al llegar con Tab (`lib/modality.ts`: con qué se mueve la persona; con el ratón la caja no cambia) | `shell.spec.ts`: 3:1 o más en los tres; con el ratón, el borde de la caja igual |
+| 17 | «Menos movimiento» y motion | El CSS de Aurora no llega a lo que anima motion: el orbe de partículas giraba y crecía, la onda crecía y el saludo subía | Con `useReducedMotion`, esos tres cambian sin moverse. La onda WebGL sigue como en Aurora (§7, punto 2) | `shell.spec.ts`: con «reduce», el orbe de partículas sin animación y sin giro |
+| 18 | Lo que se oye | La respuesta de la conversación y cada estado y etapa de Procesar no se anunciaban | Un `role="status"` oculto con la respuesta terminada (el texto llega de 4 en 4 caracteres y no se lee mientras tanto) y otro con el título y la línea de Procesar | `shell.spec.ts` |
+| 19 | Neerlandés e inglés | «Bij», «Terug naar de ruimte», «Back to the space», «suppliers», «Dubbel» para las repetidas, «inbox», «maximum aan kosten» y comillas «…» | «Niets openstaand», «Terug naar de werkruimte», «Back to the workspace», providers, herhaald, postbus / mailbox, plafond, “…”; el nombre del acceso directo con `lang="es"` | `i18n.test.ts`: el glosario de neerlandés e inglés (la app y los catálogos); `screens.spec.ts` y `procesar.spec.ts` (el `lang`) |
+| 20 | El castellano de Aurora | La pista del árbol, «Abrir/Cerrar la carpeta» y «Documentos de …» reescritas | Las del prototipo, letra a letra | `i18n.test.ts`: las frases de Aurora que usa la app, contra las del dueño |
+
+### Lo que no era
+
+- **6. El arte de las carpetas al llegar a Documentos.** Se midió en las dos apps con la misma
+  sonda (cuándo tiene su arte cada carpeta, desde el clic, a 1440 × 900, en este contenedor):
+  la primera fila de la nuestra, a 0,9 / 1,5–2,3 / 2,4–3,1 s; la de Aurora, a 0,85 / 2,0 /
+  3,0 s. La cola es la misma (la del dueño), va en el orden de la página con la misma prioridad
+  para cada carpeta, y las hojas van después: las carpetas de más (la tercera fila) llegan
+  después de la primera y no la retrasan. En Aurora el mármol de los clientes también se pinta
+  poco a poco; la captura de la revisión salió de una pasada con la máquina más cargada.
+
+### Desviaciones, y por qué
+
+1. **La rueda no es una lista con un solo elemento tabulable** (lo que proponía la revisión):
+   Tab sigue recorriendo las ocho entradas, como dice la especificación (§6.6, «clic, rueda del
+   ratón, flechas y Tab») y B1 (desviación 1). Lo que se arregla es que las flechas lleven el
+   foco con la activa e Intro en la rueda abra la activa.
+2. **«Menos movimiento» va más allá de Aurora** en lo que mueve motion (el orbe de partículas,
+   la onda que crece y el saludo): la especificación (D-54) copiaba lo de Aurora, que lo deja
+   moverse; el traspaso del dueño pide respetar `prefers-reduced-motion`. La onda WebGL sigue
+   como en Aurora hasta que el dueño elija (§7, punto 2).
+3. **El borde de la caja con el foco** solo con el teclado (`data-modality` en `<body>`): con el
+   ratón la caja sigue como en Aurora (D-52), sin cambio al enfocar.
+4. **`documentos_factura` entra en el contrato 2.5**, que es de este mismo paso y aún no ha
+   salido: una clave más, ninguna cambia.
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1344 pasan** en 26 ficheros.
+- `npm run build`: lo construido es el mismo byte a byte en dos construcciones (`fuente.json`
+  4f88acd8…); `npm run fuente` al día.
+- `pytest -q`: **2626 pasan, 12 se saltan** (8 min 49 s); con Python 3.13, las 151 de la
+  instalación nativa pasan.
+- Playwright sobre una base de prueba recién creada, con lo construido que va en el commit:
+  **94 pasan** en 14 ficheros (1,1 h). La pasada anterior dio 92 y 2 que fallaron por las
+  pruebas, no por la app, y se arreglaron (pasan 3 de 3 seguidas y en la pasada entera):
+  - `shell.spec.ts`, la rueda: Playwright, al pulsar la entrada del borde de la rueda, la
+    acerca a la vista y desplazó la página los 29 px de la banda de datos de prueba (la traza
+    lo dice: «scrolling into view if needed»); lo que se mide después es que la rueda del ratón
+    no mueva la página, y ahora se mide desde arriba.
+  - `documents.spec.ts`, la ficha: al abrirla, la rejilla cambia de categoría (la de antes se
+    va con su fundido y luego entra la otra) y se medía en medio; ahora, en reposo.
+- Los tiempos del orbe, en la línea de tiempo de cada animación: T01 106 / 427 ms, T11 y T17
+  210 / 609 ms (los de Aurora).
+- `git status` limpio después de construir y de las pruebas.
