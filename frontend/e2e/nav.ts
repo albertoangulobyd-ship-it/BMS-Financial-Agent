@@ -316,8 +316,21 @@ export function invoiceRow(page: Page, title: string | RegExp): Locator {
   return sheetDialog(page).locator('.ws-file-table > a').filter({ has: strong });
 }
 
-/** Abre la tarjeta de una fila de la hoja y la devuelve. */
+/** El control de plegar de la hoja abierta (con mas de cuatro filas): "En nog N regels". */
+export const sheetFold = (page: Page) => sheetDialog(page).getByTestId('sheet-fold').getByRole('button');
+
+/** Despliega la hoja abierta como una persona (su control), si esta plegada; si no, nada. */
+export async function unfold(page: Page): Promise<void> {
+  const fold = sheetFold(page);
+  if ((await fold.count()) === 0 || (await fold.getAttribute('aria-expanded')) === 'true') return;
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+}
+
+/** Abre la tarjeta de una fila de la hoja y la devuelve (despliega la hoja si la fila esta
+ *  plegada: asi tambien lo de despues ve todas las filas). */
 export async function openSheetRow(page: Page, title: string | RegExp): Promise<Locator> {
+  if ((await invoiceRow(page, title).count()) === 0) await unfold(page);
   const row = invoiceRow(page, title).first();
   // La fila de la tarjeta abierta la cerraria: si ya esta abierta, se queda.
   if ((await row.getAttribute('aria-current')) !== 'true') await row.click();

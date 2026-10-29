@@ -21,7 +21,7 @@
 //   la conversacion y el panel, ni con el panel y la busqueda (F8, E7 → E2-I, en procesar.spec).
 // Los paneles por dentro (vista de grupo, tarjeta, orden e importar), la busqueda con filtros
 // (E5-p), las fichas de un cliente y de un proveedor, un Object, una PO y la hoja de una factura
-// con una orden abierta (E6-h, E6-o) cuentan como su pantalla.
+// con una orden abierta (E6-h, E6-o), plegada y desplegada, cuentan como su pantalla.
 import type { Page } from '@playwright/test';
 import { expect, login, settled, test } from './fixtures';
 import {
@@ -36,6 +36,7 @@ import {
   openEntry,
   openFolder,
   openGroup,
+  openInvoice,
   openMenu,
   openSettingsRow,
   openSheetRow,
@@ -44,6 +45,7 @@ import {
   processLanded,
   profileRow,
   sheetDialog,
+  sheetFold,
   toHome,
 } from './nav';
 import { goneViolations, installVisible, renderViolations, seen, startFrames, startRenders, takeFrames, takeRenders, type Frame } from './aurora/visible';
@@ -248,6 +250,17 @@ for (const width of [1440, 1151, 1150, 1024, 400] as const) {
     await expect(more.locator('.order-form')).toBeVisible();
     await expectRule(page, 'E6-o', { menu: false, screen: 'work' });
     await more.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
+    await closeSheet(page);
+
+    // E6-h plegada y desplegada (la de ocho filas): el control de plegar no trae la rueda.
+    await openInvoice(page, 'DBO-2026-0417');
+    await expectRule(page, 'E6-h plegada', { menu: false, screen: 'work' });
+    await expectRuleWhile(page, 'E6-h desplegar', () => sheetFold(page).click(), 600);
+    await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'true');
+    await expectRule(page, 'E6-h desplegada', { menu: false, screen: 'work' });
+    await expectRuleWhile(page, 'E6-h plegar', () => sheetFold(page).click(), 600);
+    await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'false');
+    await expectRule(page, 'E6-h plegada otra vez', { menu: false, screen: 'work' });
     await closeSheet(page);
     await toHome(page);
     await expectRule(page, 'E0 al final', { menu: false, home: true });

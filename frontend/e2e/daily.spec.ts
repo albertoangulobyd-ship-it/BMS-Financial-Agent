@@ -23,7 +23,7 @@ import {
   openCard,
   openEntry,
   openGroup,
-  openInvoice,
+  openInvoice as openSheet,
   openMenu,
   openSheetRow,
   panel,
@@ -33,6 +33,7 @@ import {
   sheetDialog,
   signOut,
   toHome,
+  unfold,
 } from './nav';
 
 const t = TEXTS.nl;
@@ -68,6 +69,14 @@ async function twinNumber(page: Page): Promise<string> {
   const number = /JV-\d{4}-\d{3}/.exec((await row.textContent()) ?? '')?.[0];
   if (!number) throw new Error('la Werklijst no trae la factura repetida');
   return number;
+}
+
+/** La hoja de una factura, entera: con mas de cuatro filas se abre plegada y aqui se despliega
+ *  (su control, como una persona), para ver y abrir todas sus filas. */
+async function openInvoice(page: Page, number: string, options: { lang?: 'nl' | 'en' | 'es'; nth?: number } = {}): Promise<Locator> {
+  const sheet = await openSheet(page, number, options);
+  await unfold(page);
+  return sheet;
 }
 
 /** El veredicto de la hoja: la linea pequena de "Gelezen gegevens". */

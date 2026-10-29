@@ -6,10 +6,12 @@
 // rejilla, con sus documentos, sus Objects y sus PO; la hoja en el <dialog> (dibujada desde el
 // registro), que se cierra con la ✕, Escape o un clic fuera; "Origineel downloaden" (el PDF de
 // verdad, que queda en la auditoria); un error con su reintento. Capturas en los tres idiomas y
-// los dos temas, y en el movil.
+// los dos temas, y en el movil. La hoja de una factura con mas de cuatro filas, plegada al abrirla
+// tras un solo control (decision del dueno del 29-10-2026), con el raton y con el teclado.
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Download, Page } from '@playwright/test';
-import type { PartyRow } from '../src/lib/api-types';
+import type { InvoiceRow } from '../src/lib/api';
+import type { InvoiceDetail, PartyRow } from '../src/lib/api-types';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token } from './fixtures';
 import {
   TEXTS,
@@ -26,10 +28,12 @@ import {
   landed,
   openDocuments,
   openFolder,
+  openInvoice,
   openMenu,
   profileRow,
   setLang,
   sheetDialog,
+  sheetFold,
   treeItem,
 } from './nav';
 
@@ -333,6 +337,123 @@ test('las doce primeras, todas en el arbol; una carpeta que no se pudo leer; el 
   await openDocuments(page);
   await expect(page.locator('.ws-empty')).toContainText(t.documents.noFolders);
   await expect(page.locator('.meerkat, [class*="meerkat"]')).toHaveCount(0);
+});
+
+/** Lo que dice el control plegado de una factura de la API: cuantas filas quedan detras y cuantas
+ *  de ellas son un aviso (un hallazgo abierto o desaparecido, o la excepcion abierta). Las filas
+ *  van de la mas urgente a la menos (especificacion §2.3): hallazgos, pagos y enlaces propuestos,
+ *  la excepcion, la revision y las dos de siempre. */
+function foldExpected(f: InvoiceDetail, lang: 'nl' | 'es' | 'en'): { rows: number; label: string } {
+  const s = TEXTS[lang].aurora.sheet;
+  const findings = f.hallazgos.filter((h) => h.estado === 'abierto' || h.estado === 'desaparecido').length;
+  const before = findings + (f.pagos ?? []).filter((p) => p.estado === 'propuesta').length + f.relaciones.filter((r) => !r.retirada && r.estado === 'propuesta').length;
+  const exception = f.excepcion && f.excepcion.estado !== 'resuelta' ? 1 : 0;
+  const review = !f.anulada && f.estado?.estado_revision !== 'revisada' ? 1 : 0;
+  const rows = before + exception + review + 2;
+  const hidden = rows - 3;
+  const attention = Math.max(0, findings - 3) + (exception && before >= 3 ? 1 : 0);
+  const more = hidden === 1 ? s.foldMoreOne : fill(s.foldMore, { n: hidden });
+  const label = attention === 0 ? more : `${more} · ${attention === 1 ? s.foldAttentionOne : fill(s.foldAttention, { n: attention })}`;
+  return { rows, label };
+}
+
+test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un solo control, con el raton y con el teclado', async ({ page, baseUrl, request }) => {
+  test.setTimeout(300_000);
+  const headers = { 'X-BMS-Token': token('ana') };
+  const list = ((await (await request.get(`${baseUrl}/api/v2/facturas`, { headers })).json()) as { facturas: InvoiceRow[] }).facturas;
+  const id = list.find((f) => f.numero === 'DBO-2026-0417')!.id;
+  const dbo = ((await (await request.get(`${baseUrl}/api/v2/facturas/${id}`, { headers })).json()) as { factura: InvoiceDetail }).factura;
+  const expected = foldExpected(dbo, 'nl');
+  expect(expected.rows).toBe(8);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+
+  // Plegada: tres filas, la cuenta de todas en la cabecera y el control en la cuarta linea; el
+  // papel con sus totales, entero encima.
+  let sheet = await openInvoice(page, 'DBO-2026-0417');
+  const rows = sheet.locator('.ws-file-table > a');
+  const fold = sheetFold(page);
+  await expect(rows).toHaveCount(3);
+  await expect(sheet.locator('.ws-file-table > .ws-table-head').first().locator('span').last()).toHaveText('8');
+  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  await expect(fold).toHaveText(expected.label);
+  const controls = await fold.getAttribute('aria-controls');
+  expect(await sheet.locator('.ws-file-table').getAttribute('id')).toBe(controls);
+  for (const label of [t.documents.base, t.documents.vat, t.documents.total, t.parties.outstanding]) {
+    await expect(sheet.getByRole('term').filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })).toBeVisible();
+  }
+  await expectAccessible(page, 'hoja plegada');
+  await expectNoLeftovers(page, 'nl', 'hoja plegada');
+  await capture(page, 'nl-hoja-plegada');
+
+  // Con el raton: se despliega (las ocho, el foco en la primera que estaba plegada) y se pliega.
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await expect(fold).toHaveText(t.aurora.sheet.foldLess);
+  await expect(rows).toHaveCount(8);
+  await expect(rows.nth(3)).toBeFocused();
+  await expectAccessible(page, 'hoja desplegada');
+  await capture(page, 'nl-hoja-desplegada');
+  // La tarjeta de una fila que se pliega se cierra con ella.
+  await rows.last().click();
+  await expect(sheet.locator('.detail')).toBeVisible();
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  await expect(rows).toHaveCount(3);
+  await expect(sheet.locator('.detail')).toHaveCount(0);
+  await expect(fold).toHaveText(expected.label);
+
+  // Con el teclado: Intro despliega; Tab recorre las cinco que estaban plegadas y llega al
+  // control; Espacio pliega y el foco se queda en el.
+  await fold.focus();
+  await page.keyboard.press('Enter');
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await expect(rows.nth(3)).toBeFocused();
+  for (let i = 4; i < 8; i += 1) {
+    await page.keyboard.press('Tab');
+    await expect(rows.nth(i)).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(fold).toBeFocused();
+  await page.keyboard.press(' ');
+  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  await expect(rows).toHaveCount(3);
+  await expect(fold).toBeFocused();
+
+  // Desplegar es de esa vez: cerrada y vuelta a abrir, otra vez plegada.
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(sheetDialog(page)).toHaveCount(0);
+  sheet = await openInvoice(page, 'DBO-2026-0417');
+  await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(sheet.locator('.ws-file-table > a')).toHaveCount(3);
+
+  // Con cuatro filas o menos, como antes: todas y ningun control.
+  for (const [number, n] of [['JV-2026-006', 4], ['JV-2026-003', 3]] as const) {
+    sheet = await openInvoice(page, number);
+    await expect(sheet.locator('.ws-file-table > a')).toHaveCount(n);
+    await expect(sheet.getByTestId('sheet-fold')).toHaveCount(0);
+  }
+
+  // En castellano, en el movil y con «menos movimiento»: lo mismo, sin animacion al plegar.
+  await setLang(page, 'es');
+  await page.setViewportSize({ width: 400, height: 860 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  sheet = await openInvoice(page, 'DBO-2026-0417', { lang: 'es' });
+  await expect(sheetFold(page)).toHaveText(foldExpected(dbo, 'es').label);
+  await capture(page, 'es-movil-hoja-plegada');
+  await sheetFold(page).click();
+  await expect(sheet.locator('.ws-file-table > a')).toHaveCount(8);
+  expect(await sheet.evaluate((d) => d.getAnimations({ subtree: true }).filter((a) => a.playState === 'running').length)).toBe(0);
+  await expect(sheetFold(page)).toHaveText(TEXTS.es.aurora.sheet.foldLess);
+  await expectAccessible(page, 'hoja desplegada en el movil');
+  await capture(page, 'es-movil-hoja-desplegada');
+  await sheetFold(page).click();
+  await expect(sheet.locator('.ws-file-table > a')).toHaveCount(3);
+  await page.emulateMedia({ reducedMotion: null });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await setLang(page, 'nl');
 });
 
 test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', async ({ page, baseUrl }) => {

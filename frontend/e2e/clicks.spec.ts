@@ -12,7 +12,7 @@ import type { AccountRow, ExceptionRow } from '../src/lib/api-types';
 import { accountStep, buildChecks } from '../src/aurora/panels/iban-model';
 import { needsPerson } from '../src/lib/why';
 import { expect, login, settled, test, token } from './fixtures';
-import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, processLanded, sheetDialog, toHome, treeItem } from './nav';
+import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, processLanded, sheetDialog, sheetFold, toHome, treeItem } from './nav';
 
 const t = TEXTS.nl;
 
@@ -159,17 +159,21 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await card(page).locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   });
 
-  await test.step('12 · Anotar un pago ya hecho, con motivo: 3 + escribir (por la caja); 5 por el panel', async () => {
+  await test.step('12 · Anotar un pago ya hecho, con motivo: 3 + escribir (por la caja; 4 con la hoja plegada); 5 por el panel', async () => {
     await c.fromHome();
     await ask(page, 'VD26-306');
     await c.click(answerRow(page, 'VD26-306'));
     await landed(page);
+    // VD26-306 tiene cinco filas: la hoja se abre plegada (decision del dueno del 29-10-2026) y
+    // "Pagos, notas e historial", la ultima, esta detras de "En nog 3 regels": un clic mas.
+    await expect(sheetDialog(page).locator('.ws-file-table > a')).toHaveCount(3);
+    await c.click(sheetFold(page));
     await c.click(sheetDialog(page).locator('.ws-file-table > a').filter({ hasText: t.aurora.sheet.more }));
     const more = sheetDialog(page).locator('.detail');
     await c.click(more.getByRole('button', { name: t.payments.record, exact: true }));
     await expect(more).toContainText('Er wordt niets betaald');
     await expect(more.getByLabel(t.payments.reasonField)).toBeVisible();
-    expect(c.total).toBeLessThanOrEqual(3);
+    expect(c.total).toBeLessThanOrEqual(4);
     await more.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
     await c.fromHome();
     await c.menu();

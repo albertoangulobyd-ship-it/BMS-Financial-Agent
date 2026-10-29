@@ -11,13 +11,14 @@
 // la pagina en un estado tampoco debe verse en BMS.
 // Y el desplazamiento (§6.1): cada panel en reposo, cada vista de grupo e importar sin fichero no
 // pasan de 53 px a 1440 × 900 ni de 213 px a 400 × 860; el del dialogo de cada factura de la base
-// de prueba se mide y se anota (falla si pasa de 300 px una hoja de cuatro filas o menos). Y que
+// de prueba, plegado como se abre, no pasa de 300 px a 1440 × 900 ni a 400 × 860, en los dos
+// temas (con cuatro filas o menos, sin control y como antes). Y que
 // nada salte al aterrizar el vuelo a Documentos y de vuelta (sus tiempos, T11 y T17, y el del orbe
 // al abrir el menu, T01, se miden en aurora-tiempos.spec.ts con la herramienta de §6.2).
 import type { Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import { expect, login, settled, test, token } from './fixtures';
-import { TEXTS, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, toHome, treeItem } from './nav';
+import { TEXTS, chooseTheme, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, sheetFold, toHome, treeItem } from './nav';
 import { expectLikeAurora, measure } from './aurora/cajas';
 
 const es = TEXTS.es;
@@ -240,28 +241,53 @@ for (const size of [
   });
 }
 
-test('el dialogo de cada factura: cuanto se desplaza a 1440 × 900 (§6.1)', async ({ page, baseUrl, request }) => {
-  test.setTimeout(600_000);
-  const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
-  const invoices = ((await response.json()) as { facturas: InvoiceRow[] }).facturas.filter((f) => f.numero);
-  await page.goto(`${baseUrl}/app`);
-  await login(page);
-  const seen: { number: string; rows: number; px: number }[] = [];
-  const nth = new Map<string, number>();
-  for (const f of invoices) {
-    const number = f.numero!;
-    const n = nth.get(number) ?? 0;
-    nth.set(number, n + 1);
-    const sheet = await openInvoice(page, number, { nth: n });
-    seen.push({ number, rows: await sheet.locator('.ws-file-table > a').count(), px: await overflow(page, 'dialog.ws-dialog[open]') });
-  }
-  seen.sort((a, b) => b.px - a.px);
-  // Para el registro: la peor y el reparto.
-  console.log(`dialogo de factura a 1440 px: ${seen.map((s) => `${s.number} (${s.rows} filas) ${s.px}`).join(' · ')}`);
-  expect(seen.length).toBe(invoices.length);
-  // Con cuatro filas o menos (lo de una factura sin mucho que mirar), dentro del limite de Aurora.
-  expect(seen.filter((s) => s.rows <= 4 && s.px > 300).map((s) => `${s.number}: ${s.px} px`)).toEqual([]);
-});
+// La hoja de cada factura, plegada como se abre (decision del dueno del 29-10-2026: lo que pasa de
+// cuatro filas se pliega tras un solo control), no se desplaza mas de 300 px, a 1440 × 900 y a
+// 400 × 860, en oscuro y en claro: lo mismo que el limite de §6.1. Con cuatro filas o menos, ni
+// control ni nada plegado (como antes); con mas, tres filas y el control en la cuarta linea.
+for (const theme of ['dark', 'light'] as const) {
+  test(`el dialogo de cada factura, plegado, no se desplaza mas de 300 px a 1440 y a 400 px, en ${theme} (§6.1)`, async ({ page, baseUrl, request }) => {
+    test.setTimeout(900_000);
+    const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
+    const invoices = ((await response.json()) as { facturas: InvoiceRow[] }).facturas.filter((f) => f.numero);
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    await chooseTheme(page, theme);
+    const seen: { number: string; rows: number; shown: number; px: Record<number, number> }[] = [];
+    const nth = new Map<string, number>();
+    for (const f of invoices) {
+      const number = f.numero!;
+      const n = nth.get(number) ?? 0;
+      nth.set(number, n + 1);
+      await page.setViewportSize(SIZES[0]);
+      const sheet = await openInvoice(page, number, { nth: n });
+      const total = Number(await sheet.locator('.ws-table-head > span').last().textContent());
+      const shown = await sheet.locator('.ws-file-table > a').count();
+      const fold = sheetFold(page);
+      if (total <= 4) {
+        await expect(fold, `${number}: sin control con ${total} filas`).toHaveCount(0);
+        expect(shown, `${number}: todas sus filas`).toBe(total);
+      } else {
+        await expect(fold, `${number}: plegada al abrirla`).toHaveAttribute('aria-expanded', 'false');
+        expect(shown, `${number}: tres filas y el control`).toBe(3);
+      }
+      // El mismo <dialog> en los dos anchos (su ancho y su alto maximo son los de la ventana).
+      const px: Record<number, number> = {};
+      for (const size of SIZES) {
+        await page.setViewportSize(size);
+        await settled(page);
+        px[size.width] = await overflow(page, 'dialog.ws-dialog[open]');
+      }
+      seen.push({ number, rows: total, shown, px });
+    }
+    await page.setViewportSize(SIZES[0]);
+    seen.sort((a, b) => Math.max(b.px[1440]!, b.px[400]!) - Math.max(a.px[1440]!, a.px[400]!));
+    // Para el registro: la peor y el reparto.
+    console.log(`dialogo de factura plegado (${theme}, 1440 / 400 px): ${seen.map((s) => `${s.number} (${s.rows} filas) ${s.px[1440]} / ${s.px[400]}`).join(' · ')}`);
+    expect(seen.length).toBe(invoices.length);
+    expect(seen.flatMap((s) => SIZES.filter((z) => s.px[z.width]! > 300).map((z) => `${s.number} a ${z.width} px: ${s.px[z.width]} px`))).toEqual([]);
+  });
+}
 
 /** Un vuelo del orbe: en cada cuadro de verdad, la `y` de lo que no debe moverse (`still`), desde
  *  el clic hasta despues de aterrizar. */
