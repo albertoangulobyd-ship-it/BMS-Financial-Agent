@@ -39,7 +39,8 @@ import {
   setLang,
   sheetDialog,
 } from './nav';
-import { decodePng, differingPixels } from './png';
+import { sources } from '../src/aurora/processing/loader-sprites';
+import { decodePng, differingPixels, opaqueColumns } from './png';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -757,7 +758,16 @@ for (const width of [1440, 400] as const) {
       await run(80);
       const debug = await engineState(page);
       work.push(debug);
-      if (!pileShot && debug === pile.debug) pileShot = await page.screenshot({ clip: world, animations: 'allow', caret: 'initial' });
+      if (!pileShot && debug === pile.debug) {
+        // El rebote de la hoja: sube la escala y, en el cuadro siguiente, baja con una transicion
+        // CSS de 120 ms de tiempo de verdad, que el reloj parado deja a medias. Aqui, la hoja
+        // posada (lo que deja el motor al acabar el rebote), como en el cuadro de Aurora.
+        await page.locator('.zur-pile').evaluate((el: HTMLElement) => {
+          el.style.transition = 'none';
+          el.style.transform = 'translateY(0)';
+        });
+        pileShot = await page.screenshot({ clip: world, animations: 'allow', caret: 'initial' });
+      }
       gone = !debug && (await page.locator('.zur-loader').count()) === 0;
     }
     expect(gone, 'la escena se va al final').toBe(true);
@@ -780,9 +790,10 @@ for (const width of [1440, 400] as const) {
     expect(stages['5']?.at(-1), 'al final, la centinela').toBe('centinela');
 
     // La suricata entera revisando la pila de 1 papel. La hoja de la pila cae con un desvio al
-    // azar de -1, 0 o 1 px de la suricata (deposited: Math.random) y rebota con una transicion
-    // CSS: se compara la suricata (a la izquierda de la pila) pixel a pixel, y la pila con ese
-    // margen.
+    // azar de -1, 0 o 1 veces la escala (deposited: Math.random): se compara la suricata (a la
+    // izquierda de la pila) pixel a pixel; y la pila tambien: fuera de la franja por donde puede
+    // caer la hoja, tal cual, y dentro, con la hoja movida lo que pueden separarse los dos
+    // desvios al azar (el de Aurora y el de aqui).
     expect(pileShot, `«${pile.debug}»`).not.toBeNull();
     keepFrame(`procesar-pila1-${w}`, pileShot!);
     const pileRef = decodePng(readFileSync(new URL(`./aurora/${pile.fichero}`, import.meta.url)));
@@ -797,7 +808,14 @@ for (const width of [1440, 400] as const) {
     const holeRight = Math.round(leftMost + Math.max(1, Math.min(aw * 0.34, nearPile - 80) - leftMost)) + 41 * scale;
     const pileLeft = pileX - 35 - scale;
     expect(differingPixels(shot, pileRef, { from: holeRight + 1, to: pileLeft }), 'la suricata junto a la pila, como en Aurora').toBe(0);
-    expect(differingPixels(shot, pileRef, { from: pileLeft }), 'la pila, con su desvio').toBeLessThanOrEqual(120);
+    // La hoja (Paper.png a escala 1, como la pinta el motor) en pileX - 35 mas su desvio.
+    const sheet = opaqueColumns(decodePng(Buffer.from(sources.Paper.split(',')[1]!, 'base64')));
+    const band = { from: pileX - 35 + sheet.from - scale, to: pileX - 35 + sheet.to + 1 + scale };
+    expect(differingPixels(shot, pileRef, { from: pileLeft, to: band.from }), 'la pila, a la izquierda de la hoja').toBe(0);
+    expect(differingPixels(shot, pileRef, { from: band.to }), 'la pila, a la derecha de la hoja').toBe(0);
+    const shifts = [-2, -1, 0, 1, 2].map((k) => k * scale);
+    const best = Math.min(...shifts.map((shift) => differingPixels(shot, pileRef, { ...band, shift })));
+    expect(best, 'la hoja de la pila, con los desvios al azar').toBe(0);
     // El resultado lo pinta motion con WAAPI, que no sigue al reloj virtual (en la grabacion de
     // Aurora tampoco): lo miran las pruebas en tiempo real. Aqui, que la lectura acabo con las 5.
     const status = await reading(request, baseUrl);

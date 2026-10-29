@@ -63,17 +63,42 @@ export function decodePng(buffer: Buffer): Bitmap {
 
 /** Los pixeles que no son iguales (algun canal difiere en mas de `tolerance`), en las columnas
  *  [from, to) de los dos recortes (del mismo tamano). */
-export function differingPixels(a: Bitmap, b: Bitmap, options: { from?: number; to?: number; tolerance?: number } = {}): number {
+export function differingPixels(
+  a: Bitmap,
+  b: Bitmap,
+  options: { from?: number; to?: number; tolerance?: number; shift?: number } = {}
+): number {
   if (a.width !== b.width || a.height !== b.height) throw new Error(`tamanos distintos: ${a.width}x${a.height} y ${b.width}x${b.height}`);
   const from = options.from ?? 0,
     to = options.to ?? a.width,
-    tolerance = options.tolerance ?? 24;
+    tolerance = options.tolerance ?? 24,
+    // `shift`: la columna x de `b` se compara con la x + shift de `a` (fuera de `a`, negro).
+    shift = options.shift ?? 0;
   let count = 0;
   for (let y = 0; y < a.height; y += 1) {
     for (let x = from; x < to; x += 1) {
-      const i = (y * a.width + x) * 4;
-      if (Math.abs(a.data[i]! - b.data[i]!) > tolerance || Math.abs(a.data[i + 1]! - b.data[i + 1]!) > tolerance || Math.abs(a.data[i + 2]! - b.data[i + 2]!) > tolerance) count += 1;
+      const ax = x + shift;
+      const i = (y * a.width + ax) * 4;
+      const j = (y * b.width + x) * 4;
+      const inside = ax >= 0 && ax < a.width;
+      const ar = inside ? a.data[i]! : 0,
+        ag = inside ? a.data[i + 1]! : 0,
+        ab = inside ? a.data[i + 2]! : 0;
+      if (Math.abs(ar - b.data[j]!) > tolerance || Math.abs(ag - b.data[j + 1]!) > tolerance || Math.abs(ab - b.data[j + 2]!) > tolerance) count += 1;
     }
   }
   return count;
+}
+
+/** Las columnas con algo pintado (alfa) de la primera celda (76 px) de un sprite. */
+export function opaqueColumns(sprite: Bitmap, cell = 76): { from: number; to: number } {
+  let from = cell,
+    to = -1;
+  for (let y = 0; y < sprite.height; y += 1)
+    for (let x = 0; x < cell; x += 1)
+      if (sprite.data[(y * sprite.width + x) * 4 + 3]! > 0) {
+        from = Math.min(from, x);
+        to = Math.max(to, x);
+      }
+  return { from, to };
 }
