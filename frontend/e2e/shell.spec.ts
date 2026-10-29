@@ -209,8 +209,11 @@ test('cada entrada a la vista se abre con el primer clic, y la rueda del raton, 
   await expect(panel(page)).toHaveCount(0);
   expect(await activeEntry(page)).toBe('vat');
 
-  // La rueda del raton gira un paso por gesto y la pagina no se mueve.
+  // La rueda del raton gira un paso por gesto y la pagina no se mueve. (Playwright, al pulsar una
+  // entrada del borde de la rueda, la acerca a la vista y puede desplazar la pagina lo que ocupan
+  // las bandas del servidor, lo unico que sobra: se mide desde arriba.)
   await settled(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
   const marquee = await box(page.locator('.marquee'));
   await page.mouse.move(marquee.x + marquee.width / 2, marquee.y + marquee.height / 2);
   await page.mouse.wheel(0, 120);

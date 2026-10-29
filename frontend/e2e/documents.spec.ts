@@ -115,6 +115,10 @@ test('el archivo de Aurora: el vuelo, el companero, el arbol, las doce carpetas 
   const profile = folderProfile(page, JV);
   await expect(profile).toBeVisible();
   expect(await crumbs(page)).toEqual([t.nav.documents.label, t.documents.providers, JV]);
+  // La rejilla cambia de categoria (la de antes se va con su fundido y despues entra la otra):
+  // se mide la que queda.
+  await settled(page);
+  await expect(page.locator('.ws-grid')).toBeVisible();
   const grid = (await page.locator('.ws-grid').boundingBox())!;
   const box = (await profile.boundingBox())!;
   expect(box.y).toBeGreaterThan(grid.y);
