@@ -170,6 +170,9 @@ test('cada entrada a la vista se abre con el primer clic, y la rueda del raton, 
   await entryButton(page, 'payables').click();
   await expect(panel(page).getByRole('heading', { level: 2, name: entryLabel('payables') })).toBeVisible();
   // La ✕ vuelve a la rueda con esa entrada en el centro; la de al lado, tambien a la primera.
+  // (Con el panel ya quieto: si Playwright pulsa la ✕ mientras el panel entra, la busca
+  // desplazando la pagina, y la prueba de abajo mira que la pagina no se mueva.)
+  await settled(page);
   await panel(page).getByRole('button', { name: t.aurora.panel.close }).click();
   await expect(wheel(page)).toBeVisible();
   expect(await activeEntry(page)).toBe('payables');

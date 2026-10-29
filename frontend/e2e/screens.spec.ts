@@ -462,8 +462,9 @@ test('facturen verwerken: wat het kost en hoe je de lezer start; de app vraagt h
     const p = TEXTS[lang].aurora.process;
     await setLang(page, lang);
     await openEntry(page, 'process', lang);
-    await expect(title).toHaveText(p.ready.title);
-    await expect(line).toHaveText(p.ready.line);
+    // Sin lectura viva: P0, o como acabo la ultima sin leer (P7, P8); el mismo boton y la misma nota.
+    await expect(flow).toHaveText(p.request);
+    expect([p.ready.title, p.cancelled.title, p.expired.title, p.nothing.title]).toContain(await title.textContent());
     await expect(note).toContainText(lang === 'nl' ? /^Uitgegeven tot nu toe: \$\s\d+,\d{2} · Per factuur tussen \$\s0,\d{3} en \$\s0,\d{3}/ : /^Spent so far: \$\s\d+,\d{2} · Each invoice, between \$\s0,\d{3} and \$\s0,\d{3}/);
     await check(page, lang, 'process-ready');
     // Aanvragen: de app start niets; ze zegt welke snelkoppeling je opent (in het Spaans, zoals

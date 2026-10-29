@@ -67,8 +67,12 @@ async function pills(page: Page, scope: string): Promise<Pill[]> {
       .filter((p) => p.getBoundingClientRect().width > 0)
       .map((p) => {
         const ping = p.querySelector('[data-slot="status-indicator"] .animate-ping');
+        // Sin data-variant (las nuevas y las repetidas de la ultima lectura, FolderAnalysisStatus
+        // de Aurora): el tono por la clase de la pastilla.
+        const byClass = { online: 'success', degraded: 'warning', offline: 'error', maintenance: 'info' } as Record<string, string>;
+        const cls = Object.keys(byClass).find((c) => p.classList.contains(c));
         return {
-          variant: p.dataset.variant ?? '',
+          variant: p.dataset.variant ?? (cls ? byClass[cls]! : ''),
           label: (p.querySelector('[data-slot="status-label"]')?.textContent ?? '').trim(),
           color: getComputedStyle(p).color,
           pings: ping !== null && getComputedStyle(ping).animationName !== 'none',
@@ -106,6 +110,10 @@ async function visit(page: Page, theme: Theme) {
     expect(p.color, `${theme}: ${p.label}`).toBe(PILL[theme][p.variant as keyof (typeof PILL)['dark']]);
     expect(p.pings, `${theme}: ${p.label} late en Documentos`).toBe(false);
   }
+  // Las nuevas en verde y las repetidas en naranja (la ultima lectura de Procesar: en la pasada
+  // entera, procesar.spec.ts ya leyo; sola, puede no haber ninguna).
+  for (const p of folders.filter((f) => / nieuw$/.test(f.label))) expect(p.variant, p.label).toBe('success');
+  for (const p of folders.filter((f) => / herhaald$/.test(f.label))) expect(p.variant, p.label).toBe('warning');
   await capture(page, 'nl-status-documents');
 }
 
