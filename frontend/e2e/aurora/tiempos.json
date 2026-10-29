@@ -1,0 +1,667 @@
+{
+ "_nota": "Los tiempos del prototipo de Aurora del dueno (entrega del 28-10-2026), medidos con la misma herramienta que usa e2e/aurora-tiempos.spec.ts (e2e/aurora/cruces.ts: cada animacion del navegador se para y se lleva a cada instante, de 5 en 5 ms; la cifra de puntos y el texto que se escribe, cuadro a cuadro con el reloj virtual de 16 ms), con herramientas/tiempos-aurora.mts del paso 17 (cierre de la puerta), a 1440 x 900. Por cada transicion de la tabla de la especificacion §6.2: los dos intervalos medidos (5 -> 50 y 5 -> 95 % del cambio, en ms) y los de la curva del codigo. Validan la herramienta y la tabla antes de medir BMS: donde la curva de la tabla no era la del codigo, manda el codigo (T06 la onda, T10, T13 la opacidad, T19 el aura, T25, T27 y T33). El muelle del titulo (T26 y T32) y la cifra de puntos (T24) se comparan con lo medido aqui. T17 no se pudo medir en esta pasada (el vuelo de vuelta de Aurora no siempre sale en esta maquina): vale lo grabado en el paso 17 E1 (documentos-1440, docs-exit, 181 / 586 ms; la curva, 210 / 609). No se edita a mano.",
+ "T01": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T02": {
+  "measured": {
+   "to50": 136.1,
+   "to95": 393.3,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 136.1,
+   "to95": 393.3
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 600
+ },
+ "T03": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.8,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T04": {
+  "measured": {
+   "to50": 76.5,
+   "to95": 325.1,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 76.5,
+   "to95": 325.1
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 650
+ },
+ "T05": {
+  "measured": {
+   "to50": 68.8,
+   "to95": 196.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 68.1,
+   "to95": 196.6
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 300
+ },
+ "T06-onda": {
+  "measured": {
+   "to50": 203.1,
+   "to95": 515.1,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 203.1,
+   "to95": 515.1
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 650
+ },
+ "T06-escala": {
+  "measured": {
+   "to50": 84.1,
+   "to95": 375.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 84.1,
+   "to95": 375.5
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 900
+ },
+ "T06-opacidad": {
+  "measured": {
+   "to50": 84.1,
+   "to95": 375.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 84.1,
+   "to95": 375.5
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 900
+ },
+ "T07": {
+  "measured": {
+   "to50": 101.1,
+   "to95": 293.4,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 102.1,
+   "to95": 295.0
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 450
+ },
+ "T08": {
+  "measured": {
+   "to50": 113.5,
+   "to95": 327.8,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 113.4,
+   "to95": 327.7
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 500
+ },
+ "T09-x": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.6,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T09-escala": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T10": {
+  "measured": {
+   "to50": 192.9,
+   "to95": 557.2,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 192.8,
+   "to95": 557.1
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T11": {
+  "measured": {
+   "to50": 210.3,
+   "to95": 609.0,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 210.2,
+   "to95": 608.9
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.4, 0, 0.15, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T12": {
+  "measured": {
+   "to50": 147.5,
+   "to95": 426.1,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 147.5,
+   "to95": 426.0
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 300,
+  "iterations": 1
+ },
+ "T13-y": {
+  "measured": {
+   "to50": 48.0,
+   "to95": 182.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 48.0,
+   "to95": 182.4
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T13-y-tercera": {
+  "measured": {
+   "to50": 48.0,
+   "to95": 182.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 48.0,
+   "to95": 182.4
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T13-opacidad": {
+  "measured": {
+   "to50": 100.0,
+   "to95": 253.6,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 100.0,
+   "to95": 253.6
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T13-opacidad-tercera": {
+  "measured": {
+   "to50": 100.0,
+   "to95": 253.6,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 100.0,
+   "to95": 253.6
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 90,
+  "iterations": 1
+ },
+ "T14-opacidad": {
+  "measured": {
+   "to50": 33.6,
+   "to95": 127.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 33.6,
+   "to95": 127.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T15": {
+  "measured": {
+   "to50": 103.2,
+   "to95": 281.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 103.2,
+   "to95": 281.4
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.34, 1.36, 0.5, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T16": {
+  "measured": {
+   "to50": 87.5,
+   "to95": 221.9,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 87.5,
+   "to95": 221.9
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T17": {
+  "grabacion": "documentos-1440/curvas.json docs-exit",
+  "measured": {
+   "to50": 181,
+   "to95": 586
+  },
+  "theory": {
+   "to50": 210.2,
+   "to95": 609
+  },
+  "ok": true
+ },
+ "T18": {
+  "on": 11640,
+  "off": 15841.30000000447,
+  "length": 4201.30000000447
+ },
+ "T19-escala": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T19-aura": {
+  "measured": {
+   "to50": 192.7,
+   "to95": 557.5,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 192.8,
+   "to95": 557.1
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T20-conversacion": {
+  "measured": {
+   "to50": 70.6,
+   "to95": 300.1,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 70.6,
+   "to95": 300.1
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 600
+ },
+ "T20-caja": {
+  "measured": {
+   "to50": 136.1,
+   "to95": 393.4,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 136.1,
+   "to95": 393.3
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 600
+ },
+ "T21": {
+  "measured": {
+   "to50": 90.8,
+   "to95": 262.3,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 90.7,
+   "to95": 262.2
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 400
+ },
+ "T22": {
+  "measured": null,
+  "theory": null,
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": null,
+  "duration": 1100
+ },
+ "T23": {
+  "charsPerSecond": 250,
+  "firstText": 651
+ },
+ "T24-cifra": {
+  "measured": {
+   "to50": 167.4,
+   "to95": 543.4,
+   "gap": 16
+  },
+  "theory": {
+   "to50": 170.4,
+   "to95": 553.1
+  },
+  "ok": true,
+  "samples": 75
+ },
+ "T24-tarjetas": [
+  {
+   "opacity": "1",
+   "delay": "0ms",
+   "anims": 0
+  },
+  {
+   "opacity": "1",
+   "delay": "45ms",
+   "anims": 0
+  },
+  {
+   "opacity": "1",
+   "delay": "90ms",
+   "anims": 0
+  }
+ ],
+ "T24-puntos": [
+  {
+   "delay": "0s",
+   "duration": "0.26s, 0.26s"
+  },
+  {
+   "delay": "0.007s",
+   "duration": "0.26s, 0.26s"
+  },
+  {
+   "delay": "0.07s",
+   "duration": "0.26s, 0.26s"
+  }
+ ],
+ "T25": {
+  "measured": {
+   "to50": 192.9,
+   "to95": 557.2,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 192.8,
+   "to95": 557.1
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T26-titulo-opacidad": {
+  "measured": {
+   "to50": 78.0,
+   "to95": 205.4,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 77.9,
+   "to95": 205.3
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.25, 0.1, 0.35, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 300
+ },
+ "T26-titulo-muelle": {
+  "measured": {
+   "to50": 42.0,
+   "to95": 89.6,
+   "gap": 5
+  },
+  "theory": null,
+  "ok": true,
+  "easing": "linear(0 0%, 0.0671 4.1667%, 0.1601 8.33",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 238.5
+ },
+ "T26-orbe": {
+  "measured": {
+   "to50": 106.2,
+   "to95": 426.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 106.2,
+   "to95": 426.7
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.22, 0.8, 0.2, 1)",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 850
+ },
+ "T26-glifo": {
+  "measured": {
+   "to50": 56.3,
+   "to95": 142.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 56.2,
+   "to95": 142.6
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 180
+ },
+ "T27-opacidad": {
+  "measured": {
+   "to50": 78.1,
+   "to95": 198.1,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 78.1,
+   "to95": 198.1
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 250
+ },
+ "T28": {
+  "measured": {
+   "to50": 41.0,
+   "to95": 118.2,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 40.8,
+   "to95": 118.0
+  },
+  "ok": true,
+  "easing": "linear",
+  "delay": 0,
+  "iterations": 1,
+  "duration": 180
+ },
+ "T29": {
+  "measured": {
+   "to50": 102.1,
+   "to95": 295,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 102.1,
+   "to95": 295.0
+  },
+  "ok": true,
+  "easing": "ease",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T30": {
+  "measured": {
+   "to50": 76.5,
+   "to95": 310.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 76.5,
+   "to95": 310.6
+  },
+  "ok": true,
+  "easing": "cubic-bezier(0.19, 1, 0.22, 1)",
+  "delay": 0,
+  "iterations": 1
+ },
+ "T31": {
+  "measured": {
+   "to50": 68.1,
+   "to95": 196.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 68.1,
+   "to95": 196.6
+  },
+  "ok": true,
+  "sentinelToFade": 1215.6000000014901
+ },
+ "T33": {
+  "measured": {
+   "to50": 56.3,
+   "to95": 142.7,
+   "gap": 5
+  },
+  "theory": {
+   "to50": 56.2,
+   "to95": 142.6
+  },
+  "ok": true,
+  "easing": "ease-out",
+  "delay": 0,
+  "iterations": 1
+ }
+}

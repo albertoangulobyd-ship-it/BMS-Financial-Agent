@@ -44,12 +44,18 @@ import {
 import { sources } from '../src/aurora/processing/loader-sprites';
 import { decodePng, differingPixels, grains, opaqueColumns } from './png';
 import { renderViolations, startRenders, takeRenders } from './aurora/visible';
+import { CURVES, curveErrors, measured, seekWhenRunning, theory, type SeekSpec } from './aurora/cruces';
 
 test.describe.configure({ mode: 'serial' });
 
 const t = TEXTS.es;
 const p = t.aurora.process;
 const NBSP = ' ';
+/** T31 medido en el prototipo de Aurora (e2e/aurora/tiempos.json). */
+const AURORA_T31 = (JSON.parse(readFileSync(new URL('./aurora/tiempos.json', import.meta.url), 'utf8')) as Record<string, unknown>).T31 as {
+  measured: { to50: number; to95: number };
+  sentinelToFade: number;
+};
 const STAGE_TITLES = [p.stageTitles.loading, p.stageTitles.reading, p.stageTitles.comparing, p.stageTitles.analyzing, p.stageTitles.organizing];
 
 /** Lo grabado de Aurora (herramientas/reloj.cjs): ver el _nota del fichero. */
@@ -400,6 +406,22 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   await expect(card(page).locator('.pc-label')).toContainText(p.card.running);
   expect(await stateOf(request, baseUrl)).toBe('aprobada');
 
+  // T31 (§6.2): la centinela, 1,2 s, y el fundido de 0,3 s (ease) de la escena, medidos como en
+  // Aurora (e2e/aurora/tiempos.json: 1216 ms de la centinela al fundido, y la curva del codigo).
+  const sentinel = page.evaluate(async () => {
+    const t0 = performance.now();
+    let at = -1;
+    while (performance.now() - t0 < 150_000) {
+      await new Promise((r) => requestAnimationFrame(r));
+      const debug = document.querySelector('.zur-debug output')?.textContent ?? '';
+      const loader = document.querySelector<HTMLElement>('.zur-loader');
+      if (at < 0 && / · centinela · /.test(debug)) at = performance.now();
+      if (at >= 0 && loader && loader.style.opacity === '0') return performance.now() - at;
+    }
+    return -1;
+  });
+  const fade = page.evaluate(seekWhenRunning, { selector: '.zur-loader', duration: 300, property: 'opacity', measure: 'opacity', timeout: 150_000 } satisfies SeekSpec & { timeout: number });
+
   // La lectura de verdad, documento a documento: la suricata va detras.
   const done = readerInBackground('leer', '--pausa', '0.8', '--duplicados', '1');
   await expect(title(page)).toHaveText(STAGE_TITLES[1]!, { timeout: 60_000 });
@@ -409,6 +431,13 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   await expect(workspace(page).locator('.processing-complete')).toBeVisible({ timeout: 120_000 });
   const frames = await recorded(page);
   checkRun(frames, 'P4');
+  const [wait, found] = await Promise.all([sentinel, fade]);
+  expect(found, 'T31: el fundido de la escena').not.toBeNull();
+  const m = measured(found!.series);
+  console.log(`T31: de la centinela al fundido, ${wait.toFixed(0)} ms (Aurora ${AURORA_T31.sentinelToFade.toFixed(0)}); el fundido, ${m?.to50.toFixed(0)} / ${m?.to95.toFixed(0)} ms (Aurora ${AURORA_T31.measured.to50} / ${AURORA_T31.measured.to95})`);
+  expect(Math.abs(wait - 1200), 'T31: la centinela, 1,2 s').toBeLessThanOrEqual(120);
+  expect(curveErrors('T31 el fundido', theory(CURVES.ease, 300), found!.series)).toEqual([]);
+
 
   // P5: lo que encontro, de la pasada de verdad.
   const status = await reading(request, baseUrl);
