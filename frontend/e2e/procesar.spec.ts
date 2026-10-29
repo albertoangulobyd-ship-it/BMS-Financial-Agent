@@ -45,6 +45,7 @@ import { sources } from '../src/aurora/processing/loader-sprites';
 import { decodePng, differingPixels, grains, opaqueColumns } from './png';
 import { renderViolations, startRenders, takeRenders } from './aurora/visible';
 import { CURVES, curveErrors, measured, seekWhenRunning, theory, type SeekSpec } from './aurora/cruces';
+import { expectLikeAurora } from './aurora/cajas';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -340,6 +341,8 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   await expect(card(page).locator('.pc-reading')).toHaveText(p.card.idle + p.card.idleNote);
   await expectHeadOnly(page, 'P0');
   await expectAlone(page, 'P0');
+  // Las cajas de P0, P4 y P5, contra las de Aurora (§6.1; e2e/aurora/cajas.ts).
+  await expectLikeAurora(page, 'E7-P0@1440');
   await capture(page, 'procesar-p0-1440');
   const button0 = await box(flow(page));
   const note0 = await box(note(page));
@@ -426,6 +429,7 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   const done = readerInBackground('leer', '--pausa', '0.8', '--duplicados', '1');
   await expect(title(page)).toHaveText(STAGE_TITLES[1]!, { timeout: 60_000 });
   await expectAlone(page, 'P4');
+  await expectLikeAurora(page, 'E7-P4@1440');
   await capture(page, 'procesar-p4-1440');
   await done;
   await expect(workspace(page).locator('.processing-complete')).toBeVisible({ timeout: 120_000 });
@@ -437,7 +441,6 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   console.log(`T31: de la centinela al fundido, ${wait.toFixed(0)} ms (Aurora ${AURORA_T31.sentinelToFade.toFixed(0)}); el fundido, ${m?.to50.toFixed(0)} / ${m?.to95.toFixed(0)} ms (Aurora ${AURORA_T31.measured.to50} / ${AURORA_T31.measured.to95})`);
   expect(Math.abs(wait - 1200), 'T31: la centinela, 1,2 s').toBeLessThanOrEqual(120);
   expect(curveErrors('T31 el fundido', theory(CURVES.ease, 300), found!.series)).toEqual([]);
-
 
   // P5: lo que encontro, de la pasada de verdad.
   const status = await reading(request, baseUrl);
@@ -457,6 +460,7 @@ test('pedir, contar, empezar, leer y el resultado: la suricata sigue la lectura 
   await expect(workspace(page).locator('.zur-loader')).toHaveCount(0);
   await expect(note(page)).toHaveText(`${p.complete.note} · ${p.queue}`);
   await expectAlone(page, 'P5');
+  await expectLikeAurora(page, 'E7-P5@1440');
   await capture(page, 'procesar-p5-1440');
 
   // F8: «Ir a la cola de trabajo», el panel de Inicio en su vista, en un solo cambio (§1.5, §6.4):
@@ -477,6 +481,7 @@ test('una lectura rapida a 400 px: las cinco etapas en orden, «Ver en Documento
   test.setTimeout(180_000);
   await enter(page, baseUrl, { width: 400 });
   await expectAlone(page, 'P0 a 400');
+  await expectLikeAurora(page, 'E7-P0@400');
   await capture(page, 'procesar-p0-400');
   await requestReading(page);
   await counted(page, '--nuevas', '2', '--ya-leidas', '0');
@@ -490,11 +495,13 @@ test('una lectura rapida a 400 px: las cinco etapas en orden, «Ver en Documento
   reader('leer', '--pausa', '0');
   await expect(title(page)).toHaveText(STAGE_TITLES[2]!, { timeout: 60_000 });
   await expectAlone(page, 'P4 a 400');
+  await expectLikeAurora(page, 'E7-P4@400');
   await capture(page, 'procesar-p4-400');
   await expect(workspace(page).locator('.processing-complete')).toBeVisible({ timeout: 120_000 });
   checkRun(await recorded(page), 'P4 a 400');
   await expect(workspace(page).locator('.analysis-entry.new')).toHaveCount(2);
   await expectAlone(page, 'P5 a 400');
+  await expectLikeAurora(page, 'E7-P5@400');
   await capture(page, 'procesar-p5-400');
 
   // F5: «Ver en Documentos», sin el vuelo del orbe (Procesar no tiene orbe).
@@ -692,23 +699,31 @@ test('el tope aprobado: el lector para en el, la nota lo dice y cada factura lle
   await expect(sheetDialog(page)).toContainText(number);
 });
 
-test('reduce motion: sin particulas ni paseos, las etapas como en Aurora y el resultado (1440)', async ({ page, baseUrl, request }) => {
-  test.setTimeout(150_000);
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await enter(page, baseUrl);
-  await record(page);
-  await requestReading(page);
-  await counted(page, '--nuevas', '2', '--ya-leidas', '0');
-  await flow(page).click();
-  await expect.poll(() => stateOf(request, baseUrl)).toBe('aprobada');
-  reader('leer', '--pausa', '0.3');
-  await expect(workspace(page).locator('.processing-complete')).toBeVisible({ timeout: 120_000 });
-  const frames = await recorded(page);
-  const seen = frames.map((f) => f.debug).filter((d, i, all) => d && d !== all[i - 1]);
-  expect(seen.filter((d) => /partículas|montículo|Entrada|emerge|buscando|moving|regresando|soltando/.test(d)), 'sin movimiento').toEqual([]);
-  expect(seen, 'lo mismo que Aurora con reduce motion').toEqual(AURORA.reducido['1440']);
-  await capture(page, 'procesar-p5-reduce-1440');
-});
+for (const width of [1440, 400] as const) {
+  test(`reduce motion a ${width} px: sin particulas ni paseos, las etapas como en Aurora, sus cajas y el resultado`, async ({ page, baseUrl, request }) => {
+    test.setTimeout(150_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await enter(page, baseUrl, { width });
+    await record(page);
+    await requestReading(page);
+    await counted(page, '--nuevas', '2', '--ya-leidas', '0');
+    await flow(page).click();
+    await expect.poll(() => stateOf(request, baseUrl)).toBe('aprobada');
+    // Cada factura, 3 s: «Leyendo los datos» se queda lo bastante para medirlo.
+    reader('leer', '--pausa', '3');
+    // P4 y P5 con las cajas de Aurora con menos movimiento (P0, en aurora-paridad.spec.ts).
+    await page.waitForFunction((want) => document.querySelector('.welcome-line h1')?.textContent === want, STAGE_TITLES[1]!, { polling: 'raf', timeout: 60_000 });
+    await expectLikeAurora(page, `E7-P4-reduce@${width}`);
+    await expect(workspace(page).locator('.processing-complete'), 'P4 se midio antes del resultado').toHaveCount(0);
+    await expect(workspace(page).locator('.processing-complete')).toBeVisible({ timeout: 120_000 });
+    const frames = await recorded(page);
+    const seen = frames.map((f) => f.debug).filter((d, i, all) => d && d !== all[i - 1]);
+    expect(seen.filter((d) => /partículas|montículo|Entrada|emerge|buscando|moving|regresando|soltando/.test(d)), 'sin movimiento').toEqual([]);
+    expect(seen, 'lo mismo que Aurora con reduce motion').toEqual(AURORA.reducido[String(width)]);
+    await expectLikeAurora(page, `E7-P5-reduce@${width}`);
+    await capture(page, `procesar-p5-reduce-${width}`);
+  });
+}
 
 // ------------------------------------------------------------------ con el reloj de Aurora
 

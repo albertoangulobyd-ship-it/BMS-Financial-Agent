@@ -1,193 +1,192 @@
-// El inicio, el menu y el vuelo del orbe contra Aurora (paso 17, especificacion §6.1 y §6.2). Las
-// cajas, la letra, el color y la escala de cada elemento de L0, E0, E1 (recien abierto y con
-// Procesar en el centro) y E2 (Cuentas por cobrar), a 1440 × 900 y a 400 × 860, contra las
-// medidas del prototipo del dueno (e2e/aurora/referencia.json): x, y y ancho ±4 px (a `y` se le
-// resta el alto de las bandas del servidor); el alto ±4 px salvo en el panel (que depende de los
-// datos: solo que no pase de su tope); letra y color exactos; escala ±0,01. En E2 la rueda no se
-// compara: no esta (§1.1). Y los tiempos: el orbe al abrir el menu (T01, 0,85 s con
-// cubic-bezier(.22,.8,.2,1)) y el vuelo a Documentos y de vuelta (T11 y T17, 1,05 s con
-// cubic-bezier(.4,0,.15,1)), por los cruces del 5, 50 y 95 % de su recorrido (como
-// herramientas/cruces.py); los vuelos, en su propia linea de tiempo (la animacion del navegador,
-// llevada a cada instante), y con lo que no debe moverse quieto hasta despues de aterrizar (sin
-// el salto del alto de las bandas del servidor).
-// Paso 17 B2: tambien E2 con una tarjeta, Documentos (todo, una carpeta abierta y la hoja de una
-// factura): en Documentos la `y` se cuenta desde la marca (la pagina se desplaza al abrir); lo
-// que va debajo de los datos (la tarjeta) y el dialogo centrado dependen de los datos en su `y`.
+// Las cajas de BMS contra las de Aurora (paso 17, especificacion §6.1): la caja, la letra, el
+// color y la escala de cada elemento, a 1440 × 900 y a 400 × 860, contra las medidas del prototipo
+// del dueno (e2e/aurora/referencia.json, con e2e/aurora/cajas.ts): x, y y ancho ±4 px (a `y` se le
+// resta el alto de las bandas del servidor); el alto ±4 px salvo en lo que depende de los datos
+// (solo que no pase de su tope); letra y color exactos; escala ±0,01. Los estados: L0 y E0, E1
+// (recien abierto y con Procesar en el centro), E2-C y E2-P (en reposo, con la vista de un grupo y
+// con una tarjeta; la rueda no se compara: no esta, §1.1), E3, E4, E4-b, E5 (sola, con resultados y
+// con filtros) y E6 (todo, una carpeta abierta y la hoja de una factura: la `y` se cuenta desde la
+// marca, la pagina se desplaza al abrir); y, con menos movimiento, los que Aurora grabo asi. E7 (P0,
+// P4 y P5) se compara en procesar.spec.ts, con el lector de las pruebas. Lo que Aurora no tiene en
+// la pagina en un estado tampoco debe verse en BMS.
 // Y el desplazamiento (§6.1): cada panel en reposo, cada vista de grupo e importar sin fichero no
 // pasan de 53 px a 1440 × 900 ni de 213 px a 400 × 860; el del dialogo de cada factura de la base
-// de prueba se mide y se anota (falla si pasa de 300 px una hoja de cuatro filas o menos).
-import { readFileSync } from 'node:fs';
+// de prueba se mide y se anota (falla si pasa de 300 px una hoja de cuatro filas o menos). Y que
+// nada salte al aterrizar el vuelo a Documentos y de vuelta (sus tiempos, T11 y T17, y el del orbe
+// al abrir el menu, T01, se miden en aurora-tiempos.spec.ts con la herramienta de §6.2).
 import type { Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import { expect, login, settled, test, token } from './fixtures';
-import { TEXTS, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, treeItem } from './nav';
+import { TEXTS, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, toHome, treeItem } from './nav';
+import { expectLikeAurora, measure } from './aurora/cajas';
 
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  font: string;
-  ls: string;
-  color: string;
-  scale: number;
-  display?: string;
-  maxH?: number;
-}
-type State = Record<string, Box | { display: 'none' } | number>;
-const REF = JSON.parse(readFileSync(new URL('./aurora/referencia.json', import.meta.url), 'utf8')) as Record<string, State>;
+const es = TEXTS.es;
 
-const SEL: Record<string, string> = {
-  brand: '.bms-brand',
-  aurora: '.aurora',
-  welcomeH1: '.welcome-line h1',
-  welcomeP: '.welcome-line p',
-  composer: '.composer',
-  discreet: '.discreet',
-  navigation: '.navigation',
-  navSelected: '.nav-item.selected',
-  heroOrb: '.hero-orb',
-  panel: '.panel',
-  detail: '.detail',
-  companion: '.ws-companion',
-  wsTitle: '.ws-title-line h1',
-  wsGrid: '.ws-grid',
-  wsSidebar: '.ws-sidebar',
-  wsProfile: '.ws-profile',
-  dialog: '.ws-dialog',
-};
-/** Lo que depende de los datos: solo el tope de su alto. */
-const DATA_HEIGHT = new Set(['panel', 'detail', 'wsGrid', 'wsSidebar', 'wsProfile', 'dialog']);
-/** Lo que depende de los datos tambien en su `y`: la tarjeta va debajo de las filas del panel y
- *  el dialogo se centra segun su alto. */
-const DATA_Y = new Set(['detail', 'dialog']);
-
-/** Las medidas de la app, como capture.cjs mide Aurora (menos las bandas en `y`). */
-async function measure(page: Page): Promise<Record<string, Box | { display: 'none' }>> {
-  await page.mouse.move(1, 1);
-  await settled(page);
-  return page.evaluate((sel) => {
-    const bands = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bms-bandas')) || 0;
-    const out: Record<string, unknown> = {};
-    for (const [name, s] of Object.entries(sel)) {
-      const el = document.querySelector(s);
-      if (!el) continue;
-      const cs = getComputedStyle(el);
-      if (cs.display === 'none') {
-        out[name] = { display: 'none' };
-        continue;
-      }
-      const r = el.getBoundingClientRect();
-      const m = /matrix\(([-\d.e]+),\s*([-\d.e]+)/.exec(cs.transform);
-      const scale = m ? Math.hypot(Number(m[1]), Number(m[2])) : 1;
-      const hidden = r.width === 0 && r.height === 0;
-      out[name] = {
-        x: Math.round(r.x),
-        y: Math.round(r.y - (hidden ? 0 : bands)),
-        w: Math.round(r.width),
-        h: Math.round(r.height),
-        font: `${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily.split(',')[0]!.replace(/"/g, '')}`,
-        ls: cs.letterSpacing,
-        color: cs.color,
-        scale,
-        maxH: parseFloat(cs.maxHeight) || undefined,
-      };
-    }
-    return out as Record<string, Box | { display: 'none' }>;
-  }, SEL);
-}
-
-/** Cada elemento contra Aurora, con las tolerancias de §6.1. Con `anchor`, la `y` de cada uno se
- *  cuenta desde la de ese elemento (en Documentos, la marca: la pagina se desplaza). */
-function compare(state: string, ours: Record<string, Box | { display: 'none' }>, skip: string[] = [], anchor?: string): string[] {
-  const ref = REF[state];
-  expect(ref, state).toBeDefined();
-  const out: string[] = [];
-  const origin = (m: Record<string, unknown>) => (anchor ? ((m[anchor] as Box | undefined)?.y ?? 0) : 0);
-  const [refY, ourY] = [origin(ref!), origin(ours)];
-  for (const name of Object.keys(SEL)) {
-    if (skip.includes(name)) continue;
-    const a = ref![name] as Box | { display: 'none' } | undefined;
-    if (!a) continue;
-    const b = ours[name];
-    if ('display' in a && a.display === 'none') {
-      // Que no se vea: con display:none o sin montar (el <dialog> cerrado).
-      if (b && !('display' in b) && b.w > 0) out.push(`${name}: en Aurora no se ve`);
-      continue;
-    }
-    const want = a as Box;
-    if (!b || 'display' in b) {
-      out.push(`${name}: no esta`);
-      continue;
-    }
-    const near = (k: 'x' | 'y' | 'w' | 'h') => Math.abs(k === 'y' ? b.y - ourY - (want.y - refY) : b[k] - want[k]) <= 4;
-    for (const k of ['x', 'y', 'w'] as const) {
-      if (k === 'y' && (DATA_Y.has(name) || name === anchor)) continue;
-      if (!near(k)) out.push(`${name}.${k}: ${b[k]} (Aurora ${want[k]})`);
-    }
-    if (DATA_HEIGHT.has(name)) {
-      if (b.maxH !== undefined && b.h > b.maxH + 1) out.push(`${name}.h: ${b.h} pasa de su tope ${b.maxH}`);
-    } else if (!near('h')) out.push(`${name}.h: ${b.h} (Aurora ${want.h})`);
-    if (b.font !== want.font) out.push(`${name}.font: ${b.font} (Aurora ${want.font})`);
-    if (b.ls !== want.ls) out.push(`${name}.ls: ${b.ls} (Aurora ${want.ls})`);
-    if (b.color !== want.color) out.push(`${name}.color: ${b.color} (Aurora ${want.color})`);
-    if (Math.abs(b.scale - want.scale) > 0.01) out.push(`${name}.scale: ${b.scale} (Aurora ${want.scale})`);
-  }
-  return out;
-}
-
-for (const size of [
+const SIZES = [
   { width: 1440, height: 900 },
   { width: 400, height: 860 },
-] as const) {
-  test(`L0, E0, E1 y E2 como Aurora a ${size.width} px`, async ({ page, baseUrl }) => {
+] as const;
+
+for (const size of SIZES) {
+  test(`L0, E0, E1, E2-C y E6 como Aurora a ${size.width} px`, async ({ page, baseUrl }) => {
     await page.setViewportSize(size);
     await page.goto(`${baseUrl}/app`);
     // En castellano, como se midio Aurora (el ancho de «Presiona para navegar» es de su texto).
     await setLang(page, 'es');
     const w = size.width;
     // L0 contra el inicio: el saludo, el orbe, la caja y la marca (la linea del idioma es nuestra).
-    expect(compare(`E0@${w}`, await measure(page), ['discreet', 'navigation', 'navSelected', 'heroOrb', 'panel']), 'L0').toEqual([]);
+    await expectLikeAurora(page, `E0@${w}`, { skip: ['discreet', 'navigation', 'navSelected', 'heroOrb', 'panel'], as: 'L0' });
     await login(page);
-    expect(compare(`E0@${w}`, await measure(page)), 'E0').toEqual([]);
-    await page.getByRole('button', { name: TEXTS.es.aurora.home.navigate }).click();
+    await expectLikeAurora(page, `E0@${w}`);
+    await page.getByRole('button', { name: es.aurora.home.navigate }).click();
     await expect(page.locator('.navigation')).toBeVisible();
-    expect(compare(`E1@${w}`, await measure(page)), 'E1').toEqual([]);
+    await expectLikeAurora(page, `E1@${w}`);
     // Procesar en el centro: el morado y el orbe de particulas.
     await entryButton(page, 'process').focus();
     await expect(page.locator('.hero-orb')).toBeVisible();
-    expect(compare(`E1-procesar@${w}`, await measure(page)), 'E1 con Procesar').toEqual([]);
-    // E2: Cuentas por cobrar. La rueda no esta (§1.1): en lugar de su caja, que no se ve.
-    await entryButton(page, 'receivables').focus();
-    await settled(page);
-    await entryButton(page, 'receivables').click();
-    await expect(page.locator('aside.panel')).toBeVisible();
-    const e2 = await measure(page);
-    expect(e2.navigation, 'E2: la rueda').toEqual({ display: 'none' });
-    expect(compare(`E2-cobrar@${w}`, e2, ['navigation', 'navSelected']), 'E2').toEqual([]);
-    // E2 con una tarjeta (la de Aurora es la de una fila del panel; la nuestra, la de una fila de
-    // la vista de un grupo): la tarjeta en su sitio, con su letra y su color.
-    await panel(page).locator('.doc-list button.doc').first().click();
-    await settled(page);
-    await panel(page).locator('.doc-list button.doc').first().click();
-    await expect(panel(page).locator('.detail')).toBeVisible();
-    expect(compare(`E2-cobrar-tarjeta@${w}`, await measure(page), ['navigation', 'navSelected']), 'E2 con tarjeta').toEqual([]);
+    await expectLikeAurora(page, `E1-procesar@${w}`);
+    // E2: Cuentas por cobrar, en reposo, con la vista de un grupo y con una tarjeta (la de Aurora es
+    // la de una fila del panel; la nuestra, la de una fila de la vista de un grupo).
+    await panelStates(page, 'receivables', `E2-cobrar{}@${w}`);
 
     // Documentos: todo, una carpeta abierta (la categoria de los clientes, tres como en Aurora) y la
-    // hoja de un documento suyo.
-    await page.locator('button.aurora').click();
-    await openEntry(page, 'documents', 'es');
-    await landed(page);
-    expect(compare(`E6@${w}`, await measure(page), [], 'brand'), 'E6').toEqual([]);
-    await treeItem(page, TEXTS.es.documents.clients).first().click();
-    await treeItem(page, 'Demo Havenbedrijf BV').first().click();
-    await expect(page.locator('.ws-profile')).toBeVisible();
-    expect(compare(`E6-carpeta@${w}`, await measure(page), [], 'brand'), 'E6 con una carpeta').toEqual([]);
-    await page.locator('.ws-profile .ws-file-table > a').first().click();
-    await expect(sheetDialog(page)).toBeVisible();
-    // De la hoja, el dialogo (lo de detras ya esta en E6 con una carpeta).
-    const sheet = await measure(page);
-    expect(compare(`E6-h@${w}`, sheet, ['companion', 'wsTitle', 'wsGrid', 'wsSidebar', 'wsProfile'], 'brand'), 'E6-h').toEqual([]);
+    // hoja de un documento suyo (de la hoja, el dialogo: lo de detras ya esta en la carpeta).
+    await documentStates(page, '', w);
+  });
+}
+
+/** La caja de escribir del inicio (y de la conversacion). */
+const askBox = (page: Page) => page.getByRole('textbox', { name: es.aurora.composer.askLabel });
+
+/** Entra en castellano, como se midio Aurora, a `size`. */
+async function enter(page: Page, baseUrl: string, size: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(size);
+  await page.goto(`${baseUrl}/app`);
+  await setLang(page, 'es');
+  await login(page);
+}
+
+/** E2 con un panel: en reposo, con la vista de su primer grupo y con la tarjeta de su primera fila.
+ *  La rueda no se compara: no esta (§1.1). */
+async function panelStates(page: Page, entry: 'receivables' | 'payables', state: string): Promise<void> {
+  const skip = ['navigation', 'navSelected'];
+  await openMenu(page, 'es');
+  await entryButton(page, entry).focus();
+  await settled(page);
+  await entryButton(page, entry).click();
+  await expect(page.locator('aside.panel')).toBeVisible();
+  expect((await measure(page)).navigation, `${state}: la rueda`).toEqual({ display: 'none' });
+  await expectLikeAurora(page, state.replace('{}', ''), { skip });
+  await panel(page).locator('.doc-list button.doc').first().click();
+  await settled(page);
+  // La vista de un grupo es el mismo panel de Aurora (§2.2).
+  await expectLikeAurora(page, state.replace('{}', ''), { skip, as: `${state.replace('{}', '').split('@')[0]}-grupo` });
+  await panel(page).locator('.doc-list button.doc').first().click();
+  await expect(panel(page).locator('.detail')).toBeVisible();
+  await expectLikeAurora(page, state.replace('{}', '-tarjeta'), { skip });
+}
+
+/** Escribe como una persona en la caja del inicio (E3) y espera a que la caja este quieta. */
+async function typeAsk(page: Page, text: string): Promise<void> {
+  await askBox(page).pressSequentially(text, { delay: 20 });
+  await settled(page);
+}
+
+/** Envia lo escrito y espera la respuesta entera (E4). */
+async function send(page: Page): Promise<void> {
+  await askBox(page).press('Enter');
+  await expect(page.locator('.conversation')).toBeVisible();
+  await expect(page.locator('.typing-dots')).toHaveCount(0, { timeout: 15_000 });
+}
+
+/** E5: la busqueda sola, con los resultados de lo escrito y con los filtros abiertos. */
+async function searchStates(page: Page, suffix: string, w: number): Promise<void> {
+  await openEntry(page, 'search', 'es');
+  await expectLikeAurora(page, `E5${suffix}@${w}`);
+  const box = page.getByRole('textbox', { name: es.aurora.composer.searchLabel });
+  await box.pressSequentially('Demo', { delay: 20 });
+  await box.press('Enter');
+  await expect(page.locator('.search-results')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
+  await expectLikeAurora(page, `E5-resultados${suffix}@${w}`);
+  await page.getByRole('button', { name: new RegExp(`^${es.aurora.search.filters}( \\d+)?$`) }).click();
+  await expect(page.locator('.search-filters')).toBeVisible();
+  await expectLikeAurora(page, `E5-filtros${suffix}@${w}`);
+}
+
+/** E6: todo, una carpeta abierta (la de un cliente, como en Aurora) y la hoja de un documento suyo. */
+async function documentStates(page: Page, suffix: string, w: number): Promise<void> {
+  await openEntry(page, 'documents', 'es');
+  await landed(page);
+  await expectLikeAurora(page, `E6${suffix}@${w}`, { anchor: 'brand' });
+  await treeItem(page, es.documents.clients).first().click();
+  await treeItem(page, 'Demo Havenbedrijf BV').first().click();
+  await expect(page.locator('.ws-profile')).toBeVisible();
+  await expectLikeAurora(page, `E6-carpeta${suffix}@${w}`, { anchor: 'brand' });
+  await page.locator('.ws-profile .ws-file-table > a').first().click();
+  await expect(sheetDialog(page)).toBeVisible();
+  await expectLikeAurora(page, `E6-h${suffix}@${w}`, { skip: ['companion', 'wsTitle', 'wsGrid', 'wsSidebar', 'wsProfile'], anchor: 'brand' });
+}
+
+for (const size of SIZES) {
+  const w = size.width;
+  test(`E2-P, E3, E4 y E4-b como Aurora a ${w} px`, async ({ page, baseUrl }) => {
+    test.setTimeout(180_000);
+    await enter(page, baseUrl, size);
+    // E2-P: Cuentas por pagar, como el panel de Aurora.
+    await panelStates(page, 'payables', `E2-pagar{}@${w}`);
+    // E3: escribiendo desde el inicio (el orbe pequeno junto a la caja; ni saludo ni rueda).
+    await toHome(page);
+    await typeAsk(page, '¿Cuánto tengo por cobrar?');
+    await expectLikeAurora(page, `E3@${w}`);
+    // E4: la respuesta, en la conversacion de Aurora.
+    await send(page);
+    await expectLikeAurora(page, `E4@${w}`);
+    // E4-b: el resumen general (Finance Bento), en una conversacion nueva como la de Aurora.
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    await expect(askBox(page)).toBeVisible();
+    await typeAsk(page, 'Dame un resumen general');
+    await send(page);
+    await expect(page.locator('.finance-bento')).toBeVisible();
+    await expectLikeAurora(page, `E4-b@${w}`);
+  });
+
+  test(`E5: la busqueda sola, con resultados y con filtros, como Aurora a ${w} px`, async ({ page, baseUrl }) => {
+    test.setTimeout(120_000);
+    await enter(page, baseUrl, size);
+    await searchStates(page, '', w);
+  });
+
+  test(`con menos movimiento, los estados que Aurora grabo asi a ${w} px`, async ({ page, baseUrl }) => {
+    test.setTimeout(300_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await enter(page, baseUrl, size);
+    await expectLikeAurora(page, `E0-reduce@${w}`);
+    await page.getByRole('button', { name: es.aurora.home.navigate }).click();
+    await expect(page.locator('.navigation')).toBeVisible();
+    await expectLikeAurora(page, `E1-reduce@${w}`);
+    await entryButton(page, 'process').focus();
+    await expect(page.locator('.hero-orb')).toBeVisible();
+    await expectLikeAurora(page, `E1-procesar-reduce@${w}`);
+    if (w === 1440) {
+      // Aurora grabo con menos movimiento Cuentas por cobrar, la conversacion y la busqueda a 1440.
+      await panelStates(page, 'receivables', `E2-cobrar{}-reduce@${w}`);
+      await toHome(page);
+      await typeAsk(page, '¿Cuánto tengo por cobrar?');
+      await expectLikeAurora(page, `E3-reduce@${w}`);
+      await send(page);
+      await expectLikeAurora(page, `E4-reduce@${w}`);
+      await page.goto(`${baseUrl}/app`);
+      await login(page);
+      await expect(askBox(page)).toBeVisible();
+      await searchStates(page, '-reduce', w);
+    }
+    await documentStates(page, '-reduce', w);
+    // Procesar en P0 (la cabeza esperando): P4 y P5, con el lector, en procesar.spec.ts.
+    await openEntry(page, 'process', 'es');
+    await expect(page.locator('.processing-workspace .flow-button')).toHaveText(es.aurora.process.request);
+    await expectLikeAurora(page, `E7-P0-reduce@${w}`);
   });
 }
 
@@ -264,71 +263,9 @@ test('el dialogo de cada factura: cuanto se desplaza a 1440 × 900 (§6.1)', asy
   expect(seen.filter((s) => s.rows <= 4 && s.px > 300).map((s) => `${s.number}: ${s.px} px`)).toEqual([]);
 });
 
-/** Una curva medida en cada cuadro: [t en ms, valor]. */
-type Series = [number, number][];
-
-/** Los instantes en que el cambio pasa por el 5, 50 y 95 % (con el hueco entre las muestras). */
-function crossings(s: Series): Record<'p5' | 'p50' | 'p95', { t: number; gap: number }> | null {
-  const v0 = s[0]![1];
-  const v1 = s[s.length - 1]![1];
-  const d = v1 - v0;
-  if (Math.abs(d) < 1e-6) return null;
-  const at = (level: number) => {
-    const target = v0 + d * level;
-    for (let i = 1; i < s.length; i += 1) {
-      const [ta, va] = s[i - 1]!;
-      const [tb, vb] = s[i]!;
-      if ((va - target) * (vb - target) <= 0 && va !== vb) return { t: ta + ((target - va) / (vb - va)) * (tb - ta), gap: tb - ta };
-    }
-    return null;
-  };
-  const p5 = at(0.05);
-  const p50 = at(0.5);
-  const p95 = at(0.95);
-  return p5 && p50 && p95 ? { p5, p50, p95 } : null;
-}
-
-/** La curva de una animacion del navegador de `selector` (la que dura `duration` ms y, si se dice,
- *  la de `property`), en su propia linea de tiempo: se para, se lleva a cada instante (de 5 en 5
- *  ms) para leer el centro del elemento y sigue donde estaba. Un cuadro que el navegador tarda
- *  en pintar (la onda en WebGL por software, en esta maquina) no cambia la curva. */
-async function seekCurve(page: Page, selector: string, duration: number, property?: string): Promise<Series> {
-  const args = { sel: selector, ms: duration, prop: property ?? null };
-  const found = (x: typeof args) =>
-    document
-      .querySelector(x.sel)
-      ?.getAnimations()
-      .some((a) => a.effect?.getTiming().duration === x.ms && (!x.prop || (a as CSSTransition).transitionProperty === x.prop)) ?? false;
-  await expect.poll(() => page.evaluate(found, args), { timeout: 5_000 }).toBe(true);
-  return page.evaluate((x) => {
-    const el = document.querySelector(x.sel)!;
-    const anim = el.getAnimations().find((a) => a.effect?.getTiming().duration === x.ms && (!x.prop || (a as CSSTransition).transitionProperty === x.prop))!;
-    const was = anim.currentTime;
-    anim.pause();
-    const rows: [number, number][] = [];
-    for (let t = 0; t <= x.ms; t += 5) {
-      anim.currentTime = t;
-      const r = el.getBoundingClientRect();
-      rows.push([t, r.x + r.width / 2]);
-    }
-    anim.currentTime = was;
-    anim.play();
-    return rows;
-  }, args);
-}
-
-test('los tiempos del orbe: abrir el menu (T01)', async ({ page, baseUrl }) => {
-  await page.goto(`${baseUrl}/app`);
-  await login(page);
-  // T01: el orbe va a la izquierda en 0,85 s con (.22,.8,.2,1): 0,125 y 0,502 de la duracion.
-  await page.getByRole('button', { name: TEXTS.nl.aurora.home.navigate }).click();
-  expectCurve('T01', { to50: 106, to95: 427 }, await seekCurve(page, '.aurora', 850, 'left'));
-});
-
-/** Un vuelo del orbe: su curva, en su propia linea de tiempo (es una animacion del navegador,
- *  WAAPI, que pone motion); y en cada cuadro de verdad, la `y` de lo que no debe moverse
- *  (`still`), desde el clic hasta despues de aterrizar. */
-async function flight(page: Page, click: () => Promise<void>, still: string[]): Promise<{ curve: Series; ys: Record<string, number[]> }> {
+/** Un vuelo del orbe: en cada cuadro de verdad, la `y` de lo que no debe moverse (`still`), desde
+ *  el clic hasta despues de aterrizar. */
+async function flight(page: Page, click: () => Promise<void>, still: string[]): Promise<Record<string, number[]>> {
   await page.evaluate((sels) => {
     const w = window as unknown as { __bmsStill: (number | null)[][] | null };
     const rows: (number | null)[][] = [];
@@ -340,7 +277,7 @@ async function flight(page: Page, click: () => Promise<void>, still: string[]): 
     requestAnimationFrame(tick);
   }, still);
   await click();
-  const curve = await seekCurve(page, '.aurora-route-flight', 1050);
+  await expect(page.locator('.aurora-route-flight')).toHaveCount(1);
   await landed(page);
   await page.waitForTimeout(400);
   const rows = (await page.evaluate(() => {
@@ -349,8 +286,7 @@ async function flight(page: Page, click: () => Promise<void>, still: string[]): 
     w.__bmsStill = null;
     return out;
   })) as (number | null)[][];
-  const ys: Record<string, number[]> = Object.fromEntries(still.map((sel, i) => [sel, rows.map((r) => r[i]).filter((y): y is number => y !== null)]));
-  return { curve, ys };
+  return Object.fromEntries(still.map((sel, i) => [sel, rows.map((r) => r[i]).filter((y): y is number => y !== null)]));
 }
 
 /** Lo que no debe moverse no se mueve: desde que aparece hasta despues de aterrizar, la misma `y`
@@ -363,35 +299,19 @@ function expectStill(what: string, ys: Record<string, number[]>): void {
 }
 
 for (const width of [1440, 400] as const) {
-  test(`el vuelo a Documentos y de vuelta (T11, T17) a ${width} px: los tiempos de Aurora y nada salta al aterrizar`, async ({ page, baseUrl }) => {
+  test(`el vuelo a Documentos y de vuelta a ${width} px: nada salta al aterrizar`, async ({ page, baseUrl }) => {
     test.setTimeout(240_000);
     await page.setViewportSize({ width, height: width === 400 ? 860 : 900 });
     await page.goto(`${baseUrl}/app`);
     await login(page);
     await expect(page.locator('#datos-de-prueba')).toBeVisible();
-    // T11: el vuelo a Documentos, 1,05 s con (.4,0,.15,1): 0,200 y 0,580 de la duracion.
+    // A Documentos: las migas y el companero, quietos desde que aparecen.
     await openMenu(page);
     await entryButton(page, 'documents').focus();
     await settled(page);
-    const there = await flight(page, () => entryButton(page, 'documents').click(), ['.ws-breadcrumbs', '.ws-companion']);
-    expectStill(`a Documentos, ${width} px`, there.ys);
-    if (width === 1440) expectCurve('T11', { to50: 210, to95: 609 }, there.curve);
-    // T17: el vuelo de vuelta, igual; el orbe del inicio y la marca, quietos.
+    expectStill(`a Documentos, ${width} px`, await flight(page, () => entryButton(page, 'documents').click(), ['.ws-breadcrumbs', '.ws-companion']));
+    // De vuelta: el orbe del inicio y la marca, quietos.
     await settled(page);
-    const back = await flight(page, () => page.locator('a.ws-home').click(), ['button.aurora', '.app > .bms-brand']);
-    expectStill(`de vuelta, ${width} px`, back.ys);
-    if (width === 1440) expectCurve('T17', { to50: 210, to95: 609 }, back.curve);
+    expectStill(`de vuelta, ${width} px`, await flight(page, () => page.locator('a.ws-home').click(), ['button.aurora', '.app > .bms-brand']));
   });
-}
-
-/** Los dos intervalos de una curva medida en la linea de tiempo del vuelo contra los del codigo
- *  (§6.2): sin cuadros atascados que descartar, con la tolerancia del 10 % o una muestra. */
-function expectCurve(what: string, theory: { to50: number; to95: number }, s: Series): void {
-  const c = crossings(s);
-  expect(c, `${what}: la curva cruza el 5, el 50 y el 95 %`).not.toBeNull();
-  const to50 = c!.p50.t - c!.p5.t;
-  const to95 = c!.p95.t - c!.p5.t;
-  console.log(`${what}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50}), 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95}), en la linea de tiempo de la animacion`);
-  expect(Math.abs(to50 - theory.to50), `${what}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50})`).toBeLessThanOrEqual(Math.max(theory.to50 * 0.1, c!.p5.gap, c!.p50.gap));
-  expect(Math.abs(to95 - theory.to95), `${what}: 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95})`).toBeLessThanOrEqual(Math.max(theory.to95 * 0.1, c!.p5.gap, c!.p95.gap));
 }
