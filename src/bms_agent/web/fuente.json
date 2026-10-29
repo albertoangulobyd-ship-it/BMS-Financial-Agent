@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "2331722737661ed38b9018d6dce9235d964c3c0173b8fb00b9488787252b8342",
+  "sha256": "a998e93cb525aca0083a0d0d2fb88de3751d68b8978d293eae76a48c4e6389cb",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -26,7 +26,7 @@
     "frontend/src/aurora/documents/document-workspace.css": "ae9f3a61558f3b88791e41e0698b62be918421639e42fa7b0e5a8b7bd302af9d",
     "frontend/src/aurora/documents/document-workspace.tsx": "ef9dce962cfda004d37cc9ac91933d0d09d041510f21ff59bae91b0b349b263b",
     "frontend/src/aurora/documents/documents-model.ts": "a9f066c0b5cf46096affb21cada87e2ba1803b2a613aa0a597dae33bddafacd9",
-    "frontend/src/aurora/documents/folder-analysis-status.tsx": "39c9062c2dd84f1fa1727b409df9c2cb9606d1a32f84238796d1521932a1a4d1",
+    "frontend/src/aurora/documents/folder-analysis-status.tsx": "99ff43de41e95c042fd9eaffa4380cef18dc615f47bfcfaef063bb89de2bc4d9",
     "frontend/src/aurora/documents/folder-docs.ts": "d837990d29f01816c5cfa25bb674fa8baa9955a140d2ee5d26719d9f2144970f",
     "frontend/src/aurora/documents/glass-folder-cards.css": "f6eb4d7d6f686687cdd86792b22d39136c209862e1b9d27836c8645564773908",
     "frontend/src/aurora/documents/glass-folder-cards.tsx": "a83509b9f0ad2409cb3abf1c763326e0727e0ffdc78eff560da082c10a9dc1bf",
@@ -138,10 +138,10 @@
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-CLq-gV0n.js": "30ebdc250ec12209488ee65d35d9803d58c6fea35bc3b431cc39993765bad8ff",
+    "assets/index-DuZBMQR5.js": "029b2a178102db2d15d052b8f86a9a87e26c38430ef38e95485fbae7fbb5b255",
     "assets/style-C_GAq5nz.css": "7ab8a59a4fde7dd3cfe2bff004c8190e7298a38109ef6a1e3a7e094d892c32f0",
     "assets/textos-l6omhw9Q.js": "d2dc126731d5d62057006660cff891a950537c98170923bf74aa8111b10a93a5",
     "assets/vendor-DZbmtkxJ.js": "557b77e7e62d47c35590bf28e47189c724cafabef4ab22160bffab17c6c8133d",
-    "index.html": "00d1f16881098ab974199624dcf7de1966cbc8093bd6f5ddda1f7a87c730dae2"
+    "index.html": "91396321b686987b78a46197712e79b15c81f6b0cd8fe37546ff3e9e3652e8e3"
   }
 }
