@@ -9655,7 +9655,7 @@ cada factura de la base de prueba, a 1440 × 900 y a 400 × 860, igual en oscuro
 | JV-2026-006 | 4 | 292 / 300 | 292 / 300 |
 | VD26-309, VD26-209 | 4 | 276 / 297 | 276 / 297 |
 | VD26-0112 | 4 | 257 / 284 | 257 / 284 |
-| las 12 de tres filas | 3 | 184–219 / 224–261 | las mismas |
+| las 11 de tres filas | 3 | 184–219 / 224–261 | las mismas |
 | las 8 de dos filas | 2 | 129–145 / 169–185 | las mismas |
 
 Las 23 de cuatro filas o menos son las mismas que antes, caja a caja: cada elemento del diálogo
