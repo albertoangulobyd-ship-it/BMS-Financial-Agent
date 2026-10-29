@@ -9514,3 +9514,85 @@ de lo arreglado cambia una pantalla en reposo ni sus movimientos.
 - Los tiempos del orbe, en la línea de tiempo de cada animación: T01 106 / 427 ms, T11 y T17
   210 / 609 ms (los de Aurora).
 - `git status` limpio después de construir y de las pruebas.
+
+## Paso 17 · cierre de la puerta: lo que faltaba de la aceptación (G1 a G4)
+
+La puerta del paso 17 dejó cuatro puntos sin cumplir de la aceptación (especificación §6):
+la exclusividad no se miraba en todos los estados ni en el fundido (G1), faltaban cajas y
+tiempos contra Aurora (G2), quedaban restos de lo que ya no existe (G3) y Procesar por la fila
+21 no salía como en Aurora (G4). Cada uno se arregló con su prueba. La petición del dueño
+manda: lo que se ve y cómo se mueve es lo de Aurora, y nunca el menú y una pantalla a la vez.
+
+### Lo que faltaba y lo que se hizo
+
+| Punto | Lo que faltaba | Qué se hizo | La prueba |
+| --- | --- | --- | --- |
+| G4 · la fila 21 | Con dos pasos de rueda y Procesar dos filas por debajo del centro, el clic entraba sin el orbe de partículas: las partículas salían de una nube de reserva en el centro de la tarjeta, la escena quedaba 41 px más abajo y el título 96 | Al apoyar el ratón en una entrada pasa lo de Aurora (su `onFocus`): la entrada pasa a ser la activa y, con Procesar, sale el orbe del que `captureProcessingEntry` toma las partículas y los sitios del título y de la escena. El clic abre la fila donde se apoyó aunque se suelte sobre otra (`app.tsx`) | `procesar.spec.ts`, «la fila 21» a 1440 y 400 px contra Aurora por el mismo camino (`e2e/aurora/suricata.json`, `fila21`): las dos variables de sitio (±1 px), los primeros granos contra los puntos del orbe, el centro del montículo (±6 px), el orden de la entrada y las cajas del título, la línea, la escena, el botón, la nota y la lectura (±4 px); `shell.spec.ts`, el clic que se suelta sobre otra fila; `clicks.spec.ts`, la fila 21 |
+| G3 · «Cargando…» | El árbol y la tabla de una carpeta de Documentos decían «Cargando…» (§6.5) | Una carpeta cuyos documentos no han llegado es una rama que se abre sin texto (`lazy` en `tree-view`); la tabla queda vacía hasta que llegan. Lo que falla se sigue diciendo | `documents-model.test.ts`; `exclusividad.spec.ts` (ningún «Cargando…» en ningún cuadro) |
+| G3 · claves muertas | `shell.searchShortcut` («Ctrl K») y `common.loading` seguían en los tres diccionarios | Fuera | `i18n.test.ts`: ni el atajo ni el texto de carga |
+| G3 · `styles.css` | La base del dueño iba dentro de `@layer base` (un cambio que §4.2 no permite) | `:root`, `*`, `body`, `button` e `input` como en el prototipo, sin capa. Los estilos calculados de cada botón, campo y texto en 20 estados son los mismos antes y después | `styles.test.ts` (nueva): lo de antes de la regla de §1.1 es el fichero del dueño letra a letra (su huella, sin el `@import`), sin capa; las cajas de G2 |
+| G3 · el dedo en la rueda | El gesto del dedo de `text-marquee.tsx` no estaba entre los cambios permitidos | Se queda, explicado como parte del cambio B (ocho entradas: sin él, en el móvil no se llega a todas) | `shell.spec.ts`, el dedo |
+| G1 · la gira | No pasaba por las fichas de un cliente y de un proveedor, un Object ni una PO | La gira de `exclusividad.spec.ts` las suma, con Ctrl+K (que no abre nada), a 1440, 1151, 1150, 1024 y 400 px | `exclusividad.spec.ts` |
+| G1 · el fundido | La pantalla que se va se descartaba al medir: no se comprobaba que solo se fundiera, ni el 0,18 s, ni «menos movimiento» | `e2e/aurora/visible.ts`: lo que se ve de verdad (§1.1: la caja en la ventana, `visibility` y la opacidad efectiva, la del elemento por la de sus padres), cuadro a cuadro. La rueda que se va solo puede coincidir con la pantalla nueva dentro del fundido de `Root`: su opacidad no sube, llega a 0 en 0,18 s (más un cuadro), no recibe clics y lo que queda bajo su fila activa no es la rueda. Con «menos movimiento», ningún cuadro con las dos | `exclusividad.spec.ts`; el ayudante se prueba a sí mismo con las animaciones a una décima de su velocidad (la opacidad propia de la rueda en 1 y la efectiva de 1 a 0) |
+| G1 · la rueda escondida | Solo tres gestos | Diez pasos hacia abajo y diez hacia arriba sobre el orbe, el hueco y el saludo, las flechas y Tab, a 1440 y 1024 px: la activa, `aria-current`, la fase de la onda y el morado no cambian; el orbe lleva a E0 | `exclusividad.spec.ts` |
+| G1 · F8 y F9 | (Se suma, con el mismo ayudante) | Cada render se apunta: «Ir a la cola de trabajo» (F8), E4 → E2 y E2 → E5-p (F9) en un solo cambio, sin la rueda sin `.has-panel` ni dos pantallas | `procesar.spec.ts` (F8) y `exclusividad.spec.ts` (F9) |
+| G2 · las cajas | Faltaban E2-P, E3, E4, E4-b, E5 con resultados y con filtros, E7 en P0, P4 y P5 y los estados con «menos movimiento» | `e2e/aurora/cajas.ts` (la medida de `capture.cjs` y las tolerancias de §6.1, para `aurora-paridad.spec.ts` y `procesar.spec.ts`). Lo que Aurora no tiene en la página en un estado tampoco debe verse en BMS. `referencia.json` suma los estados nuevos de las grabaciones; P4 (a media lectura, con el saludo quieto) se midió en Aurora con `herramientas/medir-p4.cjs`; los «-reduce», de las grabaciones con menos movimiento | `aurora-paridad.spec.ts`: E2-C y E2-P en reposo, con la vista de un grupo y con tarjeta, E3, E4, E4-b, E5 (sola, con resultados y con filtros) y E6, a 1440 y 400; con «menos movimiento», E0, E1, E1 con Procesar, E6 y P0 a los dos anchos, y E2-C, E3, E4 y E5 a 1440. `procesar.spec.ts`: P0, P4 y P5 a 1440 y 400, y P4 y P5 con «menos movimiento» a los dos |
+| G2 · los tiempos | Faltaban T03, T06, T08–T10, T19–T24, T26–T28 y T29–T31 | `e2e/aurora/cruces.ts`: cada animación del navegador se para y se lleva a cada instante (de 5 en 5 ms) y se miran los cruces del 5, 50 y 95 %, contra la curva del código del dueño (±10 % o una muestra); el texto que se escribe y la cifra de puntos, con el reloj virtual; los muelles, contra lo medido en Aurora. La misma herramienta se pasó antes por el prototipo (`e2e/aurora/tiempos.json`) | `aurora-tiempos.spec.ts` (T01–T30, T32 y T33); `procesar.spec.ts` (T31: la centinela, 1,2 s, y el fundido de 0,3 s; Aurora, 1216 ms) |
+| G2 · las hojas de contactos | No había `hojas.mjs` | `e2e/aurora/hojas.mjs`: por cada estado, la captura de Aurora al lado de la que deja la comparación de BMS (`CAPTURAS_DIR/<tema>/aurora-<estado>-<ancho>.png`) | 70 hojas, miradas: las cajas coinciden; difieren los textos y las cifras (son datos) y la banda de datos de prueba |
+
+### Desviaciones, y por qué
+
+1. **Donde la tabla de tiempos (§6.2) decía otra curva, manda el código del dueño**: T06 (la
+   onda), T10, T13 (la opacidad), T19 (el aura), T25, T27 y T33 son `ease` o `ease-out` en el
+   prototipo, no la del orbe ni `easeInOut`. La herramienta, pasada por Aurora, da lo del código
+   en todas las filas (`tiempos.json`).
+2. **T17 de Aurora** no siempre sale en este contenedor (el vuelo de vuelta del prototipo a
+   veces no arranca con la herramienta): vale lo grabado en el paso 17 E1 (181 / 586 ms; la
+   curva, 210 / 609).
+3. **Las tarjetas de Finance Bento (T24)** no tienen transición en ninguna de las dos apps: se
+   comprueba que en BMS tampoco la tienen; la cifra de puntos sí, contra Aurora.
+4. **T13**: motion empieza la `y` de cada carpeta al acabar su espera, así que ese retraso no va
+   en la animación del navegador (ni en Aurora ni aquí); el de la opacidad sí, y se comprueba.
+5. **La fila 21 en Aurora** se midió en tiempo real con las animaciones del orbe retenidas en su
+   instante 0 al apoyar el ratón: con el reloj virtual, motion arranca su animación un cuadro
+   más tarde y las transiciones CSS van en tiempo real. Se comparan los centros de los granos y
+   del montículo, no los píxeles (el orbe se pinta a su ritmo).
+6. **«Volver al inicio» leyendo** (Aurora dice «Cancelar análisis», punto 4 para el dueño): en P4
+   no se comparan su ancho ni su `x` (va centrado y son los de su texto); sí su `y`, su alto, su
+   letra y su color.
+7. **E0 con «menos movimiento»** no tiene captura de Aurora (la grabación del menú no la hizo):
+   sus cajas se comparan; su hoja de contactos sale sin la de Aurora.
+8. **Las curvas de T01, T11 y T17** pasan de `aurora-paridad.spec.ts` a
+   `aurora-tiempos.spec.ts`, con la herramienta de todas; en `aurora-paridad.spec.ts` se queda
+   que nada salte al aterrizar el vuelo.
+9. **P4 con «menos movimiento»**: la prueba deja cada factura 3 s para que «Leyendo los datos»
+   dure lo bastante para medirlo (con menos movimiento las etapas saltan).
+10. **El gesto del dedo** en la rueda se queda (G3): es lo que deja llegar a las ocho entradas en
+    el móvil (cambio B).
+
+### Resultado
+
+- `npm run typecheck` sin errores; `vitest`: **1347 pasan** en 27 ficheros (la nueva,
+  `styles.test.ts`).
+- `npm run build`: lo construido es el mismo byte a byte que lo del commit (`fuente.json`
+  efc0526c…); `npm run fuente` al día.
+- `pytest -q`: **2626 pasan, 12 se saltan** con Python 3.11 (9 min 55 s) y lo mismo con 3.13
+  (10 min 11 s), cada una con la máquina sin otra carga (`test_rendimiento` dentro de su límite).
+- Playwright sobre una base de prueba recién creada, con lo construido que va en el commit:
+  **114 pasan** en 15 ficheros (1,3 h), sin violaciones de la CSP, errores en la consola,
+  peticiones fuera de 127.0.0.1 ni avisos serios de axe (lo exigen las fixtures). Las de la
+  aceptación: `exclusividad.spec.ts` 10, `aurora-paridad.spec.ts` 13, `aurora-tiempos.spec.ts`
+  6 y `procesar.spec.ts` 13.
+- Los tiempos, por los cruces del 5, 50 y 95 %, iguales a la curva del código del dueño en todas
+  las filas; por ejemplo T11 y T17 210 / 609 ms, T12 147 / 426, T13 48 / 182 (la `y`) y 100 / 254
+  (la opacidad), T29 102 / 295 y T30 77 / 311. T31: de la centinela al fundido 1217 ms (Aurora
+  1216) y el fundido 68 / 197 ms (Aurora 68,1 / 196,7).
+- La fila 21, medida aparte con la herramienta de la puerta (`measure2.cjs`, dos pasos de rueda y
+  el clic en Procesar) a 1440 × 900 con la banda de 29 px: el título en y 167 con 28 px (antes
+  263 y 27 px), la escena en 400 con 141 de alto (antes 442) y el botón en 712 (antes 754).
+  Aurora por el mismo camino, sin banda: 138, 372 y 684; la diferencia es la banda (±1 px). A
+  400 px, lo mismo con la banda de 47 px: 192, 402 y 679 contra 145, 356 y 633.
+- `e2e/aurora/hojas.mjs` con las capturas de esta pasada: **70 hojas**; las de E0 con «menos
+  movimiento» salen sin la de Aurora (desviación 7). Las cajas coinciden; difieren los textos y
+  las cifras (son datos) y la banda de datos de prueba.
+- `git status` limpio después de construir y de las pruebas.
