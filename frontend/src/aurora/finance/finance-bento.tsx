@@ -2,8 +2,9 @@
 // pregunta que lo pide, el texto que lo acompana y el Finance Bento con su pie. Cambios (§4.1):
 // - D: los datos salen de las lecturas de verdad (no de localStorage): la cartera de cobrar y
 //   la de pagar (lo pendiente, la misma cifra que sus paneles), los clientes y los proveedores
-//   (lo que queda de cada uno y cuantos documentos tiene su carpeta) y la ultima lectura de
-//   facturas, si la hay. Son saldos pendientes: nunca historia, rentabilidad ni caja;
+//   (lo que queda de cada uno y cuantos documentos tiene su carpeta, y cuantos de ellos son
+//   facturas) y la ultima lectura de facturas terminada, si la hay. Son saldos pendientes:
+//   nunca historia, rentabilidad ni caja;
 // - E: euros desde centimos (lib/format.ts);
 // - I: la pregunta se reconoce en castellano, neerlandes e ingles, y los textos son los del
 //   diccionario (en castellano, los de Aurora).
@@ -12,6 +13,7 @@ import { countText, fmt, useT, type Messages } from '@/i18n';
 import { paths, type ApiClient } from '@/lib/api';
 import type { Cartera, PartyRow } from '@/lib/api-types';
 import { formatDate, formatMoney } from '@/lib/format';
+import { finishedRows, statusOf } from '../documents/analysis';
 // La hoja del resumen antes que la del componente: en Aurora, el <style> del componente iba despues.
 import './finance-bento.css';
 import { FinanceBento as SuppliedFinanceBento, type FinanceBentoData, type FinanceBentoTexts } from './finance-bento-component';
@@ -26,14 +28,32 @@ export const summaryRequested = (prompt: string) =>
   /\b(overzicht|samenvatting)\b|hoe staan (we|wij) ervoor|financiele situatie/.test(fold(prompt)) ||
   /\b(summary|overview)\b|how are we doing|financial situation/.test(fold(prompt));
 
-/** Lo que dice la ultima lectura de facturas, si la API ya lo cuenta (nuevas y repetidas). */
-function lastReading(reading: unknown): FinanceBentoData['analysis'] {
-  const pass = (reading as { pasada_en_curso?: { resultado?: { estado: string }[] } } | null)?.pasada_en_curso;
-  const rows = pass?.resultado;
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const newCount = rows.filter((r) => r.estado === 'nueva').length;
-  const duplicateCount = rows.filter((r) => r.estado === 'ya_leida' || r.estado === 'posible_duplicado').length;
+// Los estados de un documento al acabar una pasada (contrato 2.5); `leida` es de mientras lee.
+const FINAL_STATES = new Set(['nueva', 'ya_leida', 'posible_duplicado', 'fallida']);
+
+/** Lo que dice la ultima lectura de facturas terminada (nuevas y repetidas), la misma que
+ *  marca Documentos (analysis.ts): una lectura pedida o en curso no la borra ni la cambia. */
+export function lastReading(reading: unknown): FinanceBentoData['analysis'] {
+  const rows = finishedRows(reading).filter((r) => FINAL_STATES.has(String(r.estado)));
+  if (rows.length === 0) return null;
+  const newCount = rows.filter((r) => statusOf(r.estado) === 'new').length;
+  const duplicateCount = rows.filter((r) => statusOf(r.estado) === 'duplicate').length;
   return { total: rows.length, newCount, duplicateCount };
+}
+
+type PartyLike = Pick<PartyRow, 'documentos' | 'documentos_factura'>;
+
+/** Los documentos del archivo y cuantos son facturas, de las mismas carpetas (contrato 2.5):
+ *  `facturas` de una parte cuenta tambien las que no tienen PDF, asi que no se mezcla. */
+export function archiveCounts(parties: readonly PartyLike[]): { documents: number; invoices: number } {
+  let documents = 0;
+  let invoices = 0;
+  for (const p of parties) {
+    const total = Math.max(0, p.documentos ?? 0);
+    documents += total;
+    invoices += Math.min(total, Math.max(0, p.documentos_factura ?? 0));
+  }
+  return { documents, invoices };
 }
 
 export interface FinanceSummary {
@@ -66,8 +86,7 @@ export async function loadFinanceSummary(api: ApiClient): Promise<FinanceSummary
       capturedAt: new Date().toISOString(),
       receivable: Math.max(0, receivable.totales.pendiente_cent),
       payable: Math.max(0, payable.totales.pendiente_cent),
-      documents: rows.reduce((sum, p) => sum + p.documents, 0),
-      invoices: [...clients, ...providers].reduce((sum, p) => sum + p.facturas, 0),
+      ...archiveCounts([...clients, ...providers]),
       parties: rows,
       analysis: lastReading(reading),
     },

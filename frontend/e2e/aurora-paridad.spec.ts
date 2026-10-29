@@ -5,8 +5,11 @@
 // resta el alto de las bandas del servidor); el alto ±4 px salvo en el panel (que depende de los
 // datos: solo que no pase de su tope); letra y color exactos; escala ±0,01. En E2 la rueda no se
 // compara: no esta (§1.1). Y los tiempos: el orbe al abrir el menu (T01, 0,85 s con
-// cubic-bezier(.22,.8,.2,1)) y el vuelo a Documentos (T11, 1,05 s con cubic-bezier(.4,0,.15,1)),
-// por los cruces del 5, 50 y 95 % de su recorrido (como herramientas/cruces.py).
+// cubic-bezier(.22,.8,.2,1)) y el vuelo a Documentos y de vuelta (T11 y T17, 1,05 s con
+// cubic-bezier(.4,0,.15,1)), por los cruces del 5, 50 y 95 % de su recorrido (como
+// herramientas/cruces.py); los vuelos, en su propia linea de tiempo (la animacion del navegador,
+// llevada a cada instante), y con lo que no debe moverse quieto hasta despues de aterrizar (sin
+// el salto del alto de las bandas del servidor).
 // Paso 17 B2: tambien E2 con una tarjeta, Documentos (todo, una carpeta abierta y la hoja de una
 // factura): en Documentos la `y` se cuenta desde la marca (la pagina se desplaza al abrir); lo
 // que va debajo de los datos (la tarjeta) y el dialogo centrado dependen de los datos en su `y`.
@@ -285,94 +288,110 @@ function crossings(s: Series): Record<'p5' | 'p50' | 'p95', { t: number; gap: nu
   return p5 && p50 && p95 ? { p5, p50, p95 } : null;
 }
 
-/** Muestrea la x de un elemento en cada cuadro mientras pasa `action`. */
-async function sample(page: Page, selector: string, action: () => Promise<void>, ms: number): Promise<Series> {
-  await page.evaluate((sel) => {
+/** La curva de una animacion del navegador de `selector` (la que dura `duration` ms y, si se dice,
+ *  la de `property`), en su propia linea de tiempo: se para, se lleva a cada instante (de 5 en 5
+ *  ms) para leer el centro del elemento y sigue donde estaba. Un cuadro que el navegador tarda
+ *  en pintar (la onda en WebGL por software, en esta maquina) no cambia la curva. */
+async function seekCurve(page: Page, selector: string, duration: number, property?: string): Promise<Series> {
+  const args = { sel: selector, ms: duration, prop: property ?? null };
+  const found = (x: typeof args) =>
+    document
+      .querySelector(x.sel)
+      ?.getAnimations()
+      .some((a) => a.effect?.getTiming().duration === x.ms && (!x.prop || (a as CSSTransition).transitionProperty === x.prop)) ?? false;
+  await expect.poll(() => page.evaluate(found, args), { timeout: 5_000 }).toBe(true);
+  return page.evaluate((x) => {
+    const el = document.querySelector(x.sel)!;
+    const anim = el.getAnimations().find((a) => a.effect?.getTiming().duration === x.ms && (!x.prop || (a as CSSTransition).transitionProperty === x.prop))!;
+    const was = anim.currentTime;
+    anim.pause();
     const rows: [number, number][] = [];
-    (window as unknown as { __bmsCurve: [number, number][] | null }).__bmsCurve = rows;
-    const tick = () => {
-      const el = document.querySelector(sel);
-      if (el) {
-        const r = el.getBoundingClientRect();
-        rows.push([performance.now(), r.x + r.width / 2]);
-      }
-      if ((window as unknown as { __bmsCurve: unknown }).__bmsCurve === rows) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, selector);
-  await action();
-  await page.waitForTimeout(ms);
-  return page.evaluate(() => {
-    const w = window as unknown as { __bmsCurve: [number, number][] | null };
-    const rows = w.__bmsCurve ?? [];
-    w.__bmsCurve = null;
+    for (let t = 0; t <= x.ms; t += 5) {
+      anim.currentTime = t;
+      const r = el.getBoundingClientRect();
+      rows.push([t, r.x + r.width / 2]);
+    }
+    anim.currentTime = was;
+    anim.play();
     return rows;
-  });
+  }, args);
 }
 
-/** Los dos intervalos contra los de la curva del codigo (§6.2), con hasta tres intentos. */
-async function expectTiming(what: string, theory: { to50: number; to95: number }, run: () => Promise<Series>): Promise<void> {
-  const notes: string[] = [];
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const s = await run();
-    const c = crossings(s);
-    if (!c) {
-      notes.push(`intento ${attempt}: sin cruces (${s.length} muestras)`);
-      continue;
-    }
-    // Un cuadro atascado (mas de 100 ms) mientras se mueve: la medida no vale y se repite.
-    const moving = s.filter(([t]) => t >= c.p5.t - 120 && t <= c.p95.t + 120);
-    const stalled = moving.some(([t], i) => i > 0 && t - moving[i - 1]![0] > 100);
-    if (stalled) {
-      notes.push(`intento ${attempt}: un cuadro atascado`);
-      continue;
-    }
-    const to50 = c.p50.t - c.p5.t;
-    const to95 = c.p95.t - c.p5.t;
-    const ok50 = Math.abs(to50 - theory.to50) <= Math.max(theory.to50 * 0.1, c.p5.gap, c.p50.gap);
-    const ok95 = Math.abs(to95 - theory.to95) <= Math.max(theory.to95 * 0.1, c.p5.gap, c.p95.gap);
-    if (ok50 && ok95) {
-      // Para el registro: lo medido en esta maquina.
-      console.log(`${what}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50}), 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95}), intento ${attempt}`);
-      return;
-    }
-    notes.push(`intento ${attempt}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50}), 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95})`);
-  }
-  expect(notes, `${what}: los tiempos de Aurora`).toEqual([]);
-}
-
-test('los tiempos del orbe: abrir el menu (T01) y el vuelo a Documentos y de vuelta (T11, T17)', async ({ page, baseUrl }) => {
+test('los tiempos del orbe: abrir el menu (T01)', async ({ page, baseUrl }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
   // T01: el orbe va a la izquierda en 0,85 s con (.22,.8,.2,1): 0,125 y 0,502 de la duracion.
-  await expectTiming('T01', { to50: 106, to95: 427 }, async () => {
-    if (await page.locator('.navigation').count()) {
-      await page.locator('button.aurora').click();
-      await settled(page);
-    }
-    return sample(page, '.aurora', () => page.getByRole('button', { name: TEXTS.nl.aurora.home.navigate }).click(), 1300);
-  });
-  // T11: el vuelo a Documentos, 1,05 s con (.4,0,.15,1): 0,200 y 0,580 de la duracion.
-  await expectTiming('T11', { to50: 210, to95: 609 }, async () => {
-    await openMenu(page);
-    await entryButton(page, 'documents').focus();
-    await settled(page);
-    const s = await sample(page, '.aurora-route-flight', () => entryButton(page, 'documents').click(), 1600);
-    await landed(page);
-    await page.locator('a.ws-home').click();
-    await landed(page);
-    return s;
-  });
-  // T17: el vuelo de vuelta, igual.
-  await expectTiming('T17', { to50: 210, to95: 609 }, async () => {
-    await openMenu(page);
-    await entryButton(page, 'documents').focus();
-    await settled(page);
-    await entryButton(page, 'documents').click();
-    await landed(page);
-    await settled(page);
-    const s = await sample(page, '.aurora-route-flight', () => page.locator('a.ws-home').click(), 1600);
-    await landed(page);
-    return s;
-  });
+  await page.getByRole('button', { name: TEXTS.nl.aurora.home.navigate }).click();
+  expectCurve('T01', { to50: 106, to95: 427 }, await seekCurve(page, '.aurora', 850, 'left'));
 });
+
+/** Un vuelo del orbe: su curva, en su propia linea de tiempo (es una animacion del navegador,
+ *  WAAPI, que pone motion); y en cada cuadro de verdad, la `y` de lo que no debe moverse
+ *  (`still`), desde el clic hasta despues de aterrizar. */
+async function flight(page: Page, click: () => Promise<void>, still: string[]): Promise<{ curve: Series; ys: Record<string, number[]> }> {
+  await page.evaluate((sels) => {
+    const w = window as unknown as { __bmsStill: (number | null)[][] | null };
+    const rows: (number | null)[][] = [];
+    w.__bmsStill = rows;
+    const tick = () => {
+      rows.push(sels.map((sel) => document.querySelector(sel)?.getBoundingClientRect().y ?? null));
+      if (w.__bmsStill === rows) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, still);
+  await click();
+  const curve = await seekCurve(page, '.aurora-route-flight', 1050);
+  await landed(page);
+  await page.waitForTimeout(400);
+  const rows = (await page.evaluate(() => {
+    const w = window as unknown as { __bmsStill: (number | null)[][] | null };
+    const out = w.__bmsStill ?? [];
+    w.__bmsStill = null;
+    return out;
+  })) as (number | null)[][];
+  const ys: Record<string, number[]> = Object.fromEntries(still.map((sel, i) => [sel, rows.map((r) => r[i]).filter((y): y is number => y !== null)]));
+  return { curve, ys };
+}
+
+/** Lo que no debe moverse no se mueve: desde que aparece hasta despues de aterrizar, la misma `y`
+ *  (con las bandas del servidor encima: la de datos de prueba esta en esta base). */
+function expectStill(what: string, ys: Record<string, number[]>): void {
+  for (const [sel, values] of Object.entries(ys)) {
+    expect(values.length, `${what}: ${sel} a la vista`).toBeGreaterThan(10);
+    expect(Math.max(...values) - Math.min(...values), `${what}: ${sel} no salta (${[...new Set(values.map(Math.round))].join(' → ')})`).toBeLessThanOrEqual(0.5);
+  }
+}
+
+for (const width of [1440, 400] as const) {
+  test(`el vuelo a Documentos y de vuelta (T11, T17) a ${width} px: los tiempos de Aurora y nada salta al aterrizar`, async ({ page, baseUrl }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width, height: width === 400 ? 860 : 900 });
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    await expect(page.locator('#datos-de-prueba')).toBeVisible();
+    // T11: el vuelo a Documentos, 1,05 s con (.4,0,.15,1): 0,200 y 0,580 de la duracion.
+    await openMenu(page);
+    await entryButton(page, 'documents').focus();
+    await settled(page);
+    const there = await flight(page, () => entryButton(page, 'documents').click(), ['.ws-breadcrumbs', '.ws-companion']);
+    expectStill(`a Documentos, ${width} px`, there.ys);
+    if (width === 1440) expectCurve('T11', { to50: 210, to95: 609 }, there.curve);
+    // T17: el vuelo de vuelta, igual; el orbe del inicio y la marca, quietos.
+    await settled(page);
+    const back = await flight(page, () => page.locator('a.ws-home').click(), ['button.aurora', '.app > .bms-brand']);
+    expectStill(`de vuelta, ${width} px`, back.ys);
+    if (width === 1440) expectCurve('T17', { to50: 210, to95: 609 }, back.curve);
+  });
+}
+
+/** Los dos intervalos de una curva medida en la linea de tiempo del vuelo contra los del codigo
+ *  (§6.2): sin cuadros atascados que descartar, con la tolerancia del 10 % o una muestra. */
+function expectCurve(what: string, theory: { to50: number; to95: number }, s: Series): void {
+  const c = crossings(s);
+  expect(c, `${what}: la curva cruza el 5, el 50 y el 95 %`).not.toBeNull();
+  const to50 = c!.p50.t - c!.p5.t;
+  const to95 = c!.p95.t - c!.p5.t;
+  console.log(`${what}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50}), 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95}), en la linea de tiempo de la animacion`);
+  expect(Math.abs(to50 - theory.to50), `${what}: 5→50 ${to50.toFixed(0)} ms (teorico ${theory.to50})`).toBeLessThanOrEqual(Math.max(theory.to50 * 0.1, c!.p5.gap, c!.p50.gap));
+  expect(Math.abs(to95 - theory.to95), `${what}: 5→95 ${to95.toFixed(0)} ms (teorico ${theory.to95})`).toBeLessThanOrEqual(Math.max(theory.to95 * 0.1, c!.p5.gap, c!.p95.gap));
+}

@@ -1,9 +1,10 @@
 // La conversacion de Aurora (E4, paso 17): «Geef me een overzicht», «Dame un resumen general» y
 // «Give me an overview» traen el resumen general (el Finance Bento de Aurora) con los datos de
 // verdad. Lo de cobrar y lo de pagar son los pendientes de la cartera (GET /api/v2/cartera, al
-// centimo) y el resumen dice que son saldos pendientes, no dinero disponible. Con axe y sin
-// restos de otro idioma, a 1440 y a 400 px, y sin la rueda (la regla del dueno). «Terug naar
-// de ruimte» vuelve a la rueda.
+// centimo) y el resumen dice que son saldos pendientes, no dinero disponible; los documentos y
+// sus facturas salen de las mismas carpetas, y la ultima revision es la ultima lectura
+// terminada. Con axe y sin restos de otro idioma, a 1440 y a 400 px, y sin la rueda (la regla
+// del dueno). «Terug naar de ruimte» vuelve a la rueda.
 import type { APIRequestContext, Page } from '@playwright/test';
 import type { Cartera } from '../src/lib/api-types';
 import type { Lang } from '../src/i18n/langs';
@@ -22,6 +23,34 @@ async function pending(request: APIRequestContext, baseUrl: string, sentido: 'sa
   const response = await request.get(`${baseUrl}/api/v2/cartera?sentido=${sentido}`, { headers: { 'X-BMS-Token': token('ana') } });
   expect(response.status()).toBe(200);
   return Math.max(0, ((await response.json()) as { cartera: Cartera }).cartera.totales.pendiente_cent);
+}
+
+/** Los documentos del archivo y cuantos son facturas, de las carpetas de la API (contrato 2.5);
+ *  y la ultima lectura terminada (nuevas y repetidas), como la cuenta Documentos. */
+async function archive(request: APIRequestContext, baseUrl: string) {
+  const headers = { 'X-BMS-Token': token('ana') };
+  let documents = 0;
+  let invoices = 0;
+  for (const key of ['clientes', 'proveedores'] as const) {
+    const response = await request.get(`${baseUrl}/api/v2/${key}`, { headers });
+    expect(response.status()).toBe(200);
+    for (const p of ((await response.json()) as Record<string, { documentos: number; documentos_factura: number }[]>)[key]!) {
+      expect(p.documentos_factura).toBeLessThanOrEqual(p.documentos);
+      documents += p.documentos;
+      invoices += p.documentos_factura;
+    }
+  }
+  const reading = await request.get(`${baseUrl}/api/v2/lectura`, { headers });
+  const lectura = ((await reading.json()) as { lectura: { pasada_en_curso?: { terminada?: boolean; resultado?: { estado: string }[] } | null; ultima_pasada?: { resultado?: { estado: string }[] } | null } }).lectura;
+  const pass = lectura.pasada_en_curso?.terminada ? lectura.pasada_en_curso : lectura.ultima_pasada;
+  const rows = pass?.resultado ?? [];
+  return {
+    documents,
+    invoices,
+    reading: rows.length
+      ? { fresh: rows.filter((r) => r.estado === 'nueva').length, repeated: rows.filter((r) => r.estado === 'ya_leida' || r.estado === 'posible_duplicado').length }
+      : null,
+  };
 }
 
 /** Pregunta en la caja del inicio y espera a que conteste. */
@@ -43,6 +72,7 @@ test('el resumen general (Finance Bento) con la cartera de verdad, en los tres i
   test.setTimeout(240_000);
   const receivable = await pending(request, baseUrl, 'saliente');
   const payable = await pending(request, baseUrl, 'entrante');
+  const files = await archive(request, baseUrl);
   await page.goto(`${baseUrl}/app`);
   await login(page);
   for (const [lang, question] of QUESTIONS) {
@@ -57,6 +87,13 @@ test('el resumen general (Finance Bento) con la cartera de verdad, en los tres i
     await expect(bento).toContainText(b.pendingNote);
     await expect(bento).toContainText(euro(receivable));
     await expect(bento).toContainText(euro(payable));
+    // Los documentos y sus facturas, de las mismas carpetas: las capsulas suman la cifra grande.
+    await expect(bento.locator('#pay .big')).toHaveText(String(files.documents));
+    await expect(bento.locator('#stocks .big')).toHaveText(String(files.documents));
+    await expect(bento.locator('#stocks .capsule-chart > div > b')).toHaveText([String(files.invoices), String(files.documents - files.invoices)]);
+    // La ultima revision, la de la ultima lectura terminada (la misma que marca Documentos).
+    if (files.reading) await expect(bento.locator('#crypto .review-values strong')).toHaveText([String(files.reading.fresh), String(files.reading.repeated)]);
+    else await expect(bento.locator('#crypto')).toContainText(b.noReview);
     // Mientras se conversa, la rueda no esta.
     await expect(wheel(page)).toHaveCount(0);
     await settled(page);

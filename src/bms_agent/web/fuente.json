@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "a998e93cb525aca0083a0d0d2fb88de3751d68b8978d293eae76a48c4e6389cb",
+  "sha256": "fd79f95fe7c0c832676d5041d5e4526dc83ed8f325ce5b7460f0c9e1ae894710",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -13,7 +13,7 @@
     "frontend/src/App.tsx": "6c07893fb69a220fd187bd28785390b522e0952dcbb997acb88278c4d5970442",
     "frontend/src/aurora/app.tsx": "147df8c298ffad214afc58664994df1139934d5c1f75420df42ed72ed7f5ba2d",
     "frontend/src/aurora/assistant.ts": "6cd3602a65ce0f592fbb07864836f857fc6d731924048b4060b75c2e146d3231",
-    "frontend/src/aurora/bms.css": "ac17b52b98b0038cba6c5fd5220c0ae2e3ff9a795e5f805706abd3fdbd3a9363",
+    "frontend/src/aurora/bms.css": "21e4b120f34ac7df05bab5621ce2b1e35a8c85311e5995f1a55a75f7b1f232f9",
     "frontend/src/aurora/chat/actions.tsx": "6b1edd54f586df09ff77a45499a8d53e08b25b8be8760f9eb279b9b0b6696a4b",
     "frontend/src/aurora/chat/ai-actions.css": "d11d9d6423e34af2ba0de4206253b10d8eb547782be7f0a64d92f688a24b57f8",
     "frontend/src/aurora/chat/ai-actions.tsx": "08896cc19e76b756151ce091f103f2402ca1b2f50108129afc010d08c1964b98",
@@ -21,12 +21,12 @@
     "frontend/src/aurora/chat/message.tsx": "fed670fd71ea560007f336ebe9267e366cedd3daf51054d27e5a38aeabd78f48",
     "frontend/src/aurora/claro.css": "cc92134e546de27ae1a2ce781817a4997734adc916c48923a4691627de2598c2",
     "frontend/src/aurora/composer.tsx": "9e46f53358707fabc4bf6813520773e7e476117d67dca5c5793d2f9d1330a588",
-    "frontend/src/aurora/documents/analysis.ts": "ffdab0d7456a16a66baabbfada74497bb7e07d3fa6cf58f3117451efd255cddd",
+    "frontend/src/aurora/documents/analysis.ts": "129434876f5c43b07cb3f12e40e33975a288c52bdc29b56a5efd3298dc083c0b",
     "frontend/src/aurora/documents/badge.tsx": "efd8bec85efb45f43b59957ed02ab1d5f26fddfbd06243403dff67ecb4ebe962",
     "frontend/src/aurora/documents/document-workspace.css": "ae9f3a61558f3b88791e41e0698b62be918421639e42fa7b0e5a8b7bd302af9d",
     "frontend/src/aurora/documents/document-workspace.tsx": "ef9dce962cfda004d37cc9ac91933d0d09d041510f21ff59bae91b0b349b263b",
     "frontend/src/aurora/documents/documents-model.ts": "a9f066c0b5cf46096affb21cada87e2ba1803b2a613aa0a597dae33bddafacd9",
-    "frontend/src/aurora/documents/folder-analysis-status.tsx": "99ff43de41e95c042fd9eaffa4380cef18dc615f47bfcfaef063bb89de2bc4d9",
+    "frontend/src/aurora/documents/folder-analysis-status.tsx": "2d249149ac9805023ab5cd933dbdb711fdad2ca8e0324f763cdbcfbeb3cdd3a7",
     "frontend/src/aurora/documents/folder-docs.ts": "d837990d29f01816c5cfa25bb674fa8baa9955a140d2ee5d26719d9f2144970f",
     "frontend/src/aurora/documents/glass-folder-cards.css": "f6eb4d7d6f686687cdd86792b22d39136c209862e1b9d27836c8645564773908",
     "frontend/src/aurora/documents/glass-folder-cards.tsx": "a83509b9f0ad2409cb3abf1c763326e0727e0ffdc78eff560da082c10a9dc1bf",
@@ -40,7 +40,7 @@
     "frontend/src/aurora/finance/finance-bento-component.css": "398a9d6d2771748e22fdc32b1b21bc63f5c43627c5fccaa71374cc73d2cdfcf4",
     "frontend/src/aurora/finance/finance-bento-component.tsx": "9937ca0a23231e5e59ae6c3310e9e1930aae6d1a577defc2c807ae95def3c735",
     "frontend/src/aurora/finance/finance-bento.css": "0547653155d9fcc5243727e09dd6c608a532b0bea16d0deaf53613305fc0450a",
-    "frontend/src/aurora/finance/finance-bento.tsx": "e8df1f6cd4e7d8de7fd7483a9ce0aa85f17ea7eb9e433bc94766739f5a4f9f42",
+    "frontend/src/aurora/finance/finance-bento.tsx": "41d1f6a785c7e4156cc415872b5f261dd276f059583fbd25b20eef9784b4d20a",
     "frontend/src/aurora/logo.tsx": "e0cf6cea1fce4ff364914a1eee8db70c47d3f4cb347bbb5c60edfef345edac45",
     "frontend/src/aurora/navigation.ts": "9587f637f5727f4d0bfbe9900e4b4d3e4de060ab36e10566a4f565555dc2276f",
     "frontend/src/aurora/orb/siri-wave.tsx": "b777af7e50c569b1e85efeefea78f813f58462d7f187162cbe695c3544c7325a",
@@ -113,7 +113,7 @@
     "frontend/src/i18n/templates.ts": "ad84c20e9b91a83a0610f4841a65e7510c55607213746810f0f46bfbc3b72faf",
     "frontend/src/index.css": "3eb1039ba12cf34aeded38384aeb013d98b99c81973632df5868867ea113d1e1",
     "frontend/src/lib/actions.ts": "34653ec861358ee8ec78915fa5520e88c0e935883b4d788cab7525bac382340c",
-    "frontend/src/lib/api-types.ts": "1220ab4c329a6df8fae2e8141f987a95e00d30ec59e7d81218dae9d9581536e1",
+    "frontend/src/lib/api-types.ts": "59eecefbc0e659fa0bc6982057b970c516024e395ea94bbfc15613456f3ec444",
     "frontend/src/lib/api.ts": "99bf6bbe05ba5903b41aea8c841e283b1a9d00277dd7d15e1b7881a723d541d8",
     "frontend/src/lib/field-format.ts": "c63f23ebca841bf2793ed307c48a5e425a41542eff1309047231914d4ad9d130",
     "frontend/src/lib/format.ts": "8faa5085ea4a20d8373c7d8f9f3db175d262b7db3b5a489f4507b2927a1455b8",
@@ -138,10 +138,10 @@
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-DuZBMQR5.js": "029b2a178102db2d15d052b8f86a9a87e26c38430ef38e95485fbae7fbb5b255",
-    "assets/style-C_GAq5nz.css": "7ab8a59a4fde7dd3cfe2bff004c8190e7298a38109ef6a1e3a7e094d892c32f0",
+    "assets/index-DxDwD0qD.js": "027b828ded93362025dacb81f280124aa373315a8745c379277eb92ca144404c",
+    "assets/style-Cfg-pN0B.css": "dcfe056271b01152e32f9e3668ebc3e58820acbe89fa78f11c3d9dea09274678",
     "assets/textos-l6omhw9Q.js": "d2dc126731d5d62057006660cff891a950537c98170923bf74aa8111b10a93a5",
     "assets/vendor-DZbmtkxJ.js": "557b77e7e62d47c35590bf28e47189c724cafabef4ab22160bffab17c6c8133d",
-    "index.html": "91396321b686987b78a46197712e79b15c81f6b0cd8fe37546ff3e9e3652e8e3"
+    "index.html": "b2143be4547a51f22d9655cc06fb6574c72daf9cd4d0ba7f16be97efb69f04c0"
   }
 }

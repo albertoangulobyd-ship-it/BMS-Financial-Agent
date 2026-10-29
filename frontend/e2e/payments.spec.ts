@@ -158,6 +158,22 @@ test('confirmar un cobro que propuso el banco y decir que otro no es', async ({ 
   await expect(cardA).toContainText(a.movimiento!.concepto!);
   await expect(cardA.getByLabel(t.bank.matches)).toContainText(`${t.bank.match.referencia}: ${t.bank.yes}`);
   await expect(cardA.getByLabel(t.bank.matches)).toContainText(`${t.bank.match.contraparte}: ${t.bank.no}`);
+  // Cada coincidencia en su linea: el ✓ o el ✗ delante de su texto, a su altura (no encima).
+  const matches = await cardA.getByLabel(t.bank.matches).locator('span').evaluateAll((spans) =>
+    spans.map((span) => {
+      const icon = span.querySelector('svg')!.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(Array.from(span.childNodes).filter((n) => n.nodeType === Node.TEXT_NODE).pop()!);
+      const text = range.getBoundingClientRect();
+      return { iconMid: icon.y + icon.height / 2, textTop: text.y, textBottom: text.y + text.height, iconRight: icon.right, textLeft: text.x };
+    })
+  );
+  expect(matches).toHaveLength(3);
+  for (const m of matches) {
+    expect(m.iconMid, 'el icono, en la linea de su texto').toBeGreaterThan(m.textTop);
+    expect(m.iconMid, 'el icono, en la linea de su texto').toBeLessThan(m.textBottom);
+    expect(m.iconRight, 'el icono, delante del texto').toBeLessThanOrEqual(m.textLeft + 1);
+  }
   await expectAccessible(page, 'te bevestigen');
   await capture(page, 'nl-bank-in');
 

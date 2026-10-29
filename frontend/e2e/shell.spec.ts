@@ -74,6 +74,29 @@ test('la entrada: en el sitio del inicio, en neerlandes por defecto, en ingles y
   await expect(orb(page)).toHaveAttribute('aria-hidden', 'true');
   await expect(page.getByRole('button', { name: t.aurora.home.navigate })).toHaveCount(0);
   await expect(wheel(page)).toHaveCount(0);
+  // Los idiomas, en la linea discreta de Aurora: «Español · Nederlands · English», con el mismo
+  // aire a los dos lados de cada punto.
+  const gaps = await page.locator('.discreet-languages').evaluate((group) => {
+    const buttons = Array.from(group.querySelectorAll('button')).map((b) => b.getBoundingClientRect());
+    const dots: DOMRect[] = [];
+    const walker = document.createTreeWalker(group, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      const at = node.data.indexOf('·');
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      dots.push(range.getBoundingClientRect());
+    }
+    return dots.map((d, i) => ({ before: d.left - buttons[i]!.right, after: buttons[i + 1]!.left - d.right, y: Math.abs(d.y + d.height / 2 - (buttons[i]!.y + buttons[i]!.height / 2)) }));
+  });
+  expect(gaps).toHaveLength(2);
+  for (const g of gaps) {
+    expect(g.before, 'aire antes del punto').toBeGreaterThan(1);
+    expect(Math.abs(g.before - g.after), `el mismo aire a los dos lados (${g.before.toFixed(1)} y ${g.after.toFixed(1)} px)`).toBeLessThanOrEqual(1);
+    expect(g.y, 'el punto, en la misma linea').toBeLessThanOrEqual(2);
+  }
   await expectAccessible(page, 'entrada nl');
   await capture(page, 'nl-login');
 

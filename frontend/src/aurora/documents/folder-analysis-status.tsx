@@ -1,8 +1,9 @@
 // FolderAnalysisStatus de Aurora (components/ui/folder-analysis-status.tsx, entrega del
 // 28-10-2026), tal cual: cuantas facturas nuevas (verde) y repetidas (naranja) hay en la carpeta,
 // de la ultima lectura de los PDF. Cambios: (I) los textos del diccionario; (B) delante, la
-// prioridad de la empresa cuando pide algo (especificacion D-41: en el sitio de gf-statuses);
-// (B) el punto quieto: en Documentos no late nada (paso 17 B2, desviacion 3).
+// prioridad de la empresa cuando pide algo (especificacion D-41: en el sitio de gf-statuses).
+// El punto de las marcas late, como en Aurora; con "menos movimiento" se para
+// (workspace-layout.css). La prioridad de delante sigue la regla de los pasos 15 y 16.
 import type { ReactNode } from 'react';
 import { fmt, useT } from '@/i18n';
 import type { FolderFile } from './glass-folder-cards';
@@ -19,13 +20,13 @@ export function FolderAnalysisStatus({ files, before }: { files: FolderFile[]; b
       {before}
       {added > 0 && (
         <Status status='online' variant='outline' title={fmt(added === 1 ? f.freshTitleOne : f.freshTitle, { n: added })}>
-          <StatusIndicator still />
+          <StatusIndicator />
           <StatusLabel>{fmt(added === 1 ? f.freshOne : f.fresh, { n: added })}</StatusLabel>
         </Status>
       )}
       {repeated > 0 && (
         <Status status='degraded' variant='outline' title={fmt(repeated === 1 ? f.repeatedTitleOne : f.repeatedTitle, { n: repeated })}>
-          <StatusIndicator still />
+          <StatusIndicator />
           <StatusLabel>{fmt(repeated === 1 ? f.repeatedOne : f.repeated, { n: repeated })}</StatusLabel>
         </Status>
       )}

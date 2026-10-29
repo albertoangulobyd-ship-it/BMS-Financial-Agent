@@ -3,7 +3,8 @@
 // #93b4a4 lo pagado o en orden y, para lo bloqueado, el rojo de .ui-status.offline, #f87171); en
 // una pastilla (.ui-status de Aurora), el punto y SIEMPRE su texto, en verde, naranja, rojo o azul.
 // El punto late solo en lo que pide hacer algo ya (el aislamiento que falla o falta) y deja de
-// latir para quien pide menos movimiento; en Documentos, todo quieto (el archivo es tranquilo).
+// latir para quien pide menos movimiento; en Documentos, la prioridad quieta y las marcas de nueva
+// y repetida latiendo, como las de Aurora.
 // En claro, los mismos tonos con el contraste de claro.css. Capturas en NL y EN.
 import type { Page } from '@playwright/test';
 import { capture, expect, expectAccessible, login, test } from './fixtures';
@@ -99,19 +100,21 @@ async function visit(page: Page, theme: Theme) {
   for (const r of blocked) expect(r.text).toBe('Geblokkeerd');
   for (const r of queue.filter((q) => q.tone !== 'blocked')) expect(r.text).not.toBe('Geblokkeerd');
   await capture(page, 'nl-status-work-queue');
-  // Documentos: las pastillas de las carpetas (la prioridad), con el color de su tono y quietas.
+  // Documentos: las pastillas de las carpetas, con el color de su tono. La prioridad (de BMS)
+  // va quieta; las marcas de la ultima lectura (FolderAnalysisStatus de Aurora) laten, como en
+  // Aurora: las nuevas en verde y las repetidas en naranja (en la pasada entera,
+  // procesar.spec.ts ya leyo; sola, puede no haber ninguna).
   await openDocuments(page);
   const folders = await pills(page, '.ws-grid');
   expect(folders.length).toBeGreaterThan(0);
   expect(folders.some((p) => p.variant === 'error')).toBe(true);
   expect(folders.some((p) => p.variant === 'warning')).toBe(true);
+  const analysis = (p: { label: string }) => / (nieuw|herhaald)$/.test(p.label);
   for (const p of folders) {
     expect(p.label, 'una pastilla sin texto').not.toBe('');
     expect(p.color, `${theme}: ${p.label}`).toBe(PILL[theme][p.variant as keyof (typeof PILL)['dark']]);
-    expect(p.pings, `${theme}: ${p.label} late en Documentos`).toBe(false);
+    expect(p.pings, `${theme}: ${p.label} ${analysis(p) ? 'late, como en Aurora' : 'va quieta'}`).toBe(analysis(p));
   }
-  // Las nuevas en verde y las repetidas en naranja (la ultima lectura de Procesar: en la pasada
-  // entera, procesar.spec.ts ya leyo; sola, puede no haber ninguna).
   for (const p of folders.filter((f) => / nieuw$/.test(f.label))) expect(p.variant, p.label).toBe('success');
   for (const p of folders.filter((f) => / herhaald$/.test(f.label))) expect(p.variant, p.label).toBe('warning');
   await capture(page, 'nl-status-documents');
@@ -208,6 +211,11 @@ test('quien pide menos movimiento no ve latir nada', async ({ page, baseUrl }) =
   const shown = await pills(page, 'aside.panel .detail');
   expect(shown.some((p) => p.variant === 'error')).toBe(true);
   expect(shown.filter((p) => p.pings)).toEqual([]);
+  // Ni las marcas de nueva y repetida de Documentos (workspace-layout.css de Aurora las para).
+  await openDocuments(page);
+  const folders = await pills(page, '.ws-grid');
+  expect(folders.length).toBeGreaterThan(0);
+  expect(folders.filter((p) => p.pings)).toEqual([]);
 });
 
 test('un plazo del btw pasado sin aangifte: su fila de IVA lo dice, en rojo', async ({ page, baseUrl }) => {

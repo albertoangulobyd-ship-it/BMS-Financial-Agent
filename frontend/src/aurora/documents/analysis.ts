@@ -13,7 +13,7 @@ export interface Analysis {
 
 export const NO_ANALYSIS: Analysis = { byDocument: new Map(), byInvoice: new Map() };
 
-interface PassRow {
+export interface PassRow {
   documento_id?: unknown;
   factura_id?: unknown;
   estado?: unknown;
@@ -31,12 +31,18 @@ export function statusOf(estado: unknown): AnalysisStatus | null {
   return null;
 }
 
-/** Las marcas de la ultima pasada terminada que cuenta la lectura. */
-export function analysisOf(reading: unknown): Analysis {
+/** Las filas de la ultima pasada terminada que cuenta la lectura: la de ahora solo si ya
+ *  termino; si no (una lectura pedida, leyendo, o que acabo sin leer nada), la anterior. */
+export function finishedRows(reading: unknown): PassRow[] {
   const r = (reading ?? {}) as { pasada_en_curso?: Pass | null; ultima_pasada?: Pass | null };
   const current = r.pasada_en_curso && r.pasada_en_curso.terminada === true ? r.pasada_en_curso : null;
   const pass = current ?? r.ultima_pasada ?? null;
-  const rows = Array.isArray(pass?.resultado) ? (pass.resultado as PassRow[]) : [];
+  return Array.isArray(pass?.resultado) ? (pass.resultado as PassRow[]) : [];
+}
+
+/** Las marcas de la ultima pasada terminada que cuenta la lectura. */
+export function analysisOf(reading: unknown): Analysis {
+  const rows = finishedRows(reading);
   const byDocument = new Map<number, AnalysisStatus>();
   const byInvoice = new Map<number, AnalysisStatus>();
   for (const row of rows) {

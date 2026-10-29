@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MESSAGES } from '@/i18n';
 import { formatMoney } from '@/lib/format';
 import { mountFinanceBento, type FinanceBentoData } from './finance-bento-component';
-import { bentoTexts, summaryRequested, summaryText } from './finance-bento';
+import { archiveCounts, bentoTexts, lastReading, summaryRequested, summaryText } from './finance-bento';
 
 class FakeNode {
   tag: string;
@@ -172,6 +172,56 @@ describe('Finance Bento', () => {
       expect(summaryRequested(q), q).toBe(true);
     }
     for (const q of ['IVA', 'FAC-2026-01', '¿Qué es un Object?']) expect(summaryRequested(q), q).toBe(false);
+  });
+
+  it('los documentos y sus facturas salen de las mismas carpetas, y las capsulas suman la cifra', () => {
+    // La base de las pruebas en el navegador: los clientes tienen facturas de Exact sin PDF (12, 4
+    // y 2) y ningun documento; los proveedores, 17 documentos con 17 facturas.
+    const parties = [
+      { documentos: 0, documentos_factura: 0, facturas: 12 },
+      { documentos: 0, documentos_factura: 0, facturas: 4 },
+      { documentos: 0, documentos_factura: 0, facturas: 2 },
+      { documentos: 12, documentos_factura: 9, facturas: 9 },
+      { documentos: 8, documentos_factura: 8, facturas: 8 },
+    ];
+    const counts = archiveCounts(parties);
+    expect(counts).toEqual({ documents: 20, invoices: 17 });
+    // Un servidor anterior al 2.5 (sin documentos_factura): nunca mas facturas que documentos.
+    expect(archiveCounts([{ documentos: 3 }, {}])).toEqual({ documents: 3, invoices: 0 });
+    expect(archiveCounts([{ documentos: 2, documentos_factura: 5 }])).toEqual({ documents: 2, invoices: 2 });
+
+    const root = new FakeNode('div');
+    mountFinanceBento(root as unknown as HTMLElement, { data: data(counts), texts: texts('es'), title: 'T', subtitle: 'S' });
+    run();
+    const composition = root.querySelector('#stocks')!;
+    expect(composition.querySelector('.big')!.textContent).toBe('20');
+    const capsules = composition.querySelector('.capsule-chart')!.children.map((box) => Number(box.children[0]!.textContent));
+    expect(capsules).toEqual([17, 3]);
+    expect(capsules[0]! + capsules[1]!).toBe(20);
+    expect(root.querySelector('#pay')!.textContent).toBe(`${MESSAGES.es.aurora.bento.documents}20${MESSAGES.es.aurora.bento.invoicesInArchive.replace('{what}', '17 facturas')}`);
+  });
+
+  it('la ultima revision es la ultima lectura terminada, como en Documentos', () => {
+    const done = { terminada: true, resultado: [
+      { documento_id: 1, estado: 'nueva' },
+      { documento_id: 2, estado: 'nueva' },
+      { documento_id: 3, estado: 'ya_leida' },
+      { documento_id: 4, estado: 'posible_duplicado' },
+      { documento_id: 5, estado: 'fallida' },
+    ] };
+    const finished = { total: 5, newCount: 2, duplicateCount: 2 };
+    // Sin ninguna lectura.
+    expect(lastReading(null)).toBeNull();
+    expect(lastReading({ solicitud: null, pasada_en_curso: null, ultima_pasada: null })).toBeNull();
+    // La de ahora, ya terminada.
+    expect(lastReading({ pasada_en_curso: done, ultima_pasada: done })).toEqual(finished);
+    // Una lectura nueva pedida (o caducada, cancelada o sin nada que leer: sin pasada) no borra
+    // la anterior.
+    expect(lastReading({ solicitud: { estado: 'pedida' }, pasada_en_curso: null, ultima_pasada: done })).toEqual(finished);
+    // Leyendo: lo que va leido aun no es la ultima revision.
+    const reading = { terminada: false, resultado: [{ documento_id: 9, estado: 'leida' }, { documento_id: 8, estado: 'nueva' }] };
+    expect(lastReading({ solicitud: { estado: 'leyendo' }, pasada_en_curso: reading, ultima_pasada: done })).toEqual(finished);
+    expect(lastReading({ pasada_en_curso: reading, ultima_pasada: null })).toBeNull();
   });
 
   it('el texto dice que son saldos pendientes y que la diferencia no es efectivo', () => {

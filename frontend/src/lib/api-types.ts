@@ -288,6 +288,8 @@ export interface PartyRow {
   razones?: Reason[];
   /** Contrato 2.2 (paso 16): cuantos documentos tiene su carpeta. */
   documentos?: number;
+  /** Contrato 2.5: cuantos de los documentos de su carpeta son facturas (o abonos). */
+  documentos_factura?: number;
   /** Contrato 2.4: lo que queda de sus facturas, la cifra de la cartera ("Openstaand"). */
   deuda_cent: number;
   /** Contrato 2.4: lo que acreditan sus abonos sin enlazar (cero o negativo), aparte. */

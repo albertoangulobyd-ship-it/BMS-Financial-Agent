@@ -4,13 +4,17 @@
      "Presiona para navegar", con la letra de .discreet.
    - La pantalla que sale (el fundido de 0,18 s de Root) no recibe clics (§1.1).
    - Las filas de una respuesta (E4-r), con el sangrado del texto del mensaje.
-   - La marca baja con las bandas del servidor (datos de prueba, aislamiento), como todo lo demas.
+   - Las bandas del servidor (datos de prueba, aislamiento) van encima de la app y todo baja con
+     ellas, tambien en el vuelo del orbe: las pantallas se colocan desde la raiz de Aurora, que
+     empieza debajo de las bandas, y no desde lo alto de la pagina. Asi las pantallas que el
+     vuelo saca del flujo (.aurora-route-moving>.app-screen, absolutas) quedan donde quedaran al
+     aterrizar, y la marca y "Volver" (absolutas) no necesitan otro margen.
    El orbe de particulas de E1 con Procesar en el centro (.hero-orb) va en
    processing/processing-workspace.css, la hoja del dueno tal cual. */
-.app>.bms-brand,.workspace>.bms-brand,.workspace>.ws-home{margin-top:var(--bms-bandas,0px)}
+[data-aurora-root]{position:relative}
 .aurora-locked::after{pointer-events:none}
 .token-input{-webkit-text-security:disc}
-.discreet-languages{display:flex;gap:0;white-space:nowrap}
+.discreet-languages{white-space:nowrap}
 .discreet-languages button{padding:0 2px;color:inherit}
 .discreet-languages button[aria-pressed=true]{color:#c3b7d1}
 [data-aurora-root][data-screen=work]>.app-screen[data-screen=home],[data-aurora-root][data-screen=home]>.app-screen[data-screen=work]{pointer-events:none}
@@ -44,6 +48,7 @@
 .order-field .composer{border-radius:10px;padding:4px 8px}
 .order-error{color:#f87171!important}
 .order-matches span{margin-right:10px;white-space:nowrap}
+.order-matches svg{display:inline-block;vertical-align:-1px}
 .detail .chat-export,.ws-dialog .chat-export{position:relative;bottom:auto;right:auto;max-width:none;margin-top:16px;box-shadow:none;backdrop-filter:none}
 
 /* Las hojas (paso 17 · B2, especificacion §2.3): debajo del papel o de "Descargar original" va
