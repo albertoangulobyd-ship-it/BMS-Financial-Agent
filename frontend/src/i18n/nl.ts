@@ -12,7 +12,6 @@ export const nl = {
   },
   common: {
     twin: '{n} van {of}',
-    loading: 'Laden…',
     retry: 'Opnieuw proberen',
     reload: 'Opnieuw laden',
     open: 'Openen',
@@ -163,7 +162,6 @@ export const nl = {
     backTo: 'Terug naar {what}',
     breadcrumbs: 'Waar je bent',
     search: 'Zoeken',
-    searchShortcut: 'Ctrl K',
     wheel: 'Kies waar je begint. De pijltjes, het scrollwiel of vegen draaien het wiel; Enter opent.',
     skipToContent: 'Naar de inhoud',
   },

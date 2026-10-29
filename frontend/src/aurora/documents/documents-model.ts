@@ -121,7 +121,6 @@ export interface TreeTexts {
   all: string;
   clients: string;
   providers: string;
-  loading: string;
   failed: string;
   docLabel: (d: PartyDocument) => string;
   /** Nueva o repetida en la ultima lectura (el tono de su fila). */
@@ -131,8 +130,9 @@ export interface TreeTexts {
 export const TREE_HOME = 'home';
 
 /** Inicio; Documentos con los dos grupos; cada carpeta con lo que tiene. Los documentos de
- *  una carpeta se leen al abrirla en el arbol (cargando por partes): hasta entonces, una hoja
- *  que dice que carga. Una carpeta sin documentos es una hoja. */
+ *  una carpeta se leen al abrirla en el arbol (cargando por partes): hasta entonces es una rama
+ *  que se puede abrir y no ensena nada (nada de «Cargando…», §6.5); si fallo, lo dice. Una
+ *  carpeta sin documentos es una hoja. */
 export function archiveTree(folders: readonly Folder[], docs: ReadonlyMap<string, DocsEntry>, texts: TreeTexts): TreeNode[] {
   const total = folders.reduce((sum, f) => sum + (f.row.documentos ?? 0), 0);
   const group = (side: Side): TreeNode => {
@@ -156,7 +156,8 @@ function folderNode(f: Folder, entry: DocsEntry | undefined, texts: TreeTexts): 
   if (entry?.status === 'ready') {
     if (entry.docs.length > 0) node.children = entry.docs.map((d) => ({ id: `${f.key}/${docKey(d)}`, label: texts.docLabel(d), proper: true, tone: texts.docTone?.(d) }));
   } else if (count > 0) {
-    node.children = [{ id: `${f.key}/…`, label: entry?.status === 'error' ? texts.failed : texts.loading }];
+    if (entry?.status === 'error') node.children = [{ id: `${f.key}/…`, label: texts.failed }];
+    else node.lazy = true;
   }
   return node;
 }

@@ -235,7 +235,6 @@ export function DocumentWorkspace({ place }: { place: DocsPlace }) {
           all: t.nav.documents.label,
           clients: t.documents.clients,
           providers: t.documents.providers,
-          loading: t.common.loading,
           failed: t.documents.treeFailed,
           docLabel: (d) => docName(t, d),
           docTone: toneOf,
@@ -739,7 +738,7 @@ function FolderProfile({
         {facts}
       </div>
       <FileTable title={a.folderDocuments} count={docs.length + objects.length + orders.length}>
-        {entry?.status === 'loading' && <p className='ws-paper-disclaimer'>{t.common.loading}</p>}
+        {/* Mientras llegan sus documentos, la tabla vacia: nada de «Cargando…» (§6.5). */}
         {/* Lo vacio de Aurora (ws-empty) con su boton: lo que fallo y volver a probar. */}
         {entry?.status === 'error' && (
           <div className='ws-empty'>

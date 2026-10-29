@@ -4,7 +4,8 @@
 // ARIA, y lo anima framer-motion (quieto con "menos movimiento"). Cambia: la ayuda para lectores
 // de pantalla sale de los diccionarios, los tipos aguantan noUncheckedIndexedAccess y una
 // etiqueta que viene de los datos lo dice (proper). Desde el paso 17 vuelve el tono de lo nuevo o
-// lo repetido de la ultima lectura (tone), como en el prototipo.
+// lo repetido de la ultima lectura (tone), como en el prototipo. Y una rama puede abrirse antes de
+// que lleguen sus hijos (lazy), sin ningun texto de carga.
 import { useCallback, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useT } from "@/i18n";
@@ -31,6 +32,9 @@ export type TreeNode = {
   /** Nueva o repetida en la ultima lectura (tree-tone-new, tree-tone-duplicate). */
   tone?: "new" | "duplicate";
   children?: TreeNode[];
+  /** Una rama cuyos hijos aun se estan leyendo (D: los datos llegan de la API): se puede abrir
+   *  y, mientras, no ensena nada; sus hijos entran al llegar. Sin texto de carga (§6.5). */
+  lazy?: boolean;
 };
 export type TreeRow = {
   node: TreeNode;
@@ -50,7 +54,7 @@ function flatten(
 ): TreeRow[] {
   nodes.forEach((node, i) => {
     const children = node.children ?? [],
-      branch = children.length > 0,
+      branch = children.length > 0 || node.lazy === true,
       open = branch && openSet.has(node.id);
     out.push({
       node,

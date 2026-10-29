@@ -49,6 +49,13 @@ describe('los textos de la app', () => {
     }
   });
 
+  it('no guardan lo que ya no existe (especificacion §6.5): ni el atajo de la paleta ni un texto de carga', () => {
+    for (const lang of LANGS) {
+      const found = [...dictionaries[lang]].filter(([key, value]) => /searchShortcut|^common\.loading$/.test(key) || /Ctrl ?K|^(Cargando|Laden|Loading)…$/.test(String(value)));
+      expect(found.map(([key, value]) => `${key}: ${value}`), lang).toEqual([]);
+    }
+  });
+
   it('no llevan restos de otro idioma: cada uno libre de las palabras de los otros dos', () => {
     expect(sharedWords(), 'una palabra en dos listas').toEqual([]);
     const found: string[] = [];

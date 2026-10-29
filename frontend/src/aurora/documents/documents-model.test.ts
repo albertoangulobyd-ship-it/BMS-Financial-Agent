@@ -176,7 +176,6 @@ describe('el arbol', () => {
     all: 'Documenten',
     clients: 'Klanten',
     providers: 'Leveranciers',
-    loading: 'Laden…',
     failed: 'Niet gelukt',
     docLabel: (d: PartyDocument) => `${d.tipo} ${d.numero}`,
   };
@@ -192,9 +191,12 @@ describe('el arbol', () => {
     ]);
     const [client] = tree[1]!.children![0]!.children!;
     const [provider] = tree[1]!.children![1]!.children!;
-    // Sin documentos, una hoja; con documentos aun sin leer, una rama que dice que carga.
+    // Sin documentos, una hoja; con documentos aun sin leer, una rama que se puede abrir y no
+    // ensena nada mientras (nada de «Cargando…», §6.5).
     expect(client!.children).toBeUndefined();
-    expect(provider!.children).toEqual([{ id: 'provider:2/…', label: 'Laden…' }]);
+    expect(client!.lazy).toBeUndefined();
+    expect(provider!.children).toBeUndefined();
+    expect(provider!.lazy).toBe(true);
   });
 
   it('una carpeta leida ensena sus documentos; si fallo, lo dice', () => {

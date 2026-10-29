@@ -10,7 +10,6 @@ export const en: Messages = {
   },
   common: {
     twin: '{n} of {of}',
-    loading: 'Loading…',
     retry: 'Try again',
     reload: 'Reload',
     open: 'Open',
@@ -159,7 +158,6 @@ export const en: Messages = {
     backTo: 'Back to {what}',
     breadcrumbs: 'Where you are',
     search: 'Search',
-    searchShortcut: 'Ctrl K',
     wheel: 'Choose where to start. The arrow keys, the scroll wheel or a swipe turn the wheel; Enter opens.',
     skipToContent: 'Skip to content',
   },

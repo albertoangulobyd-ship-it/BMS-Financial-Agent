@@ -3,8 +3,10 @@
 // (especificacion §1.4), ninguno se ve:
 // - la rueda del raton va con un listener nativo no pasivo (el onWheel de React es pasivo: la
 //   pagina se desplazaba y la consola se quejaba);
-// - deslizar el dedo arriba o abajo da un paso, como un gesto de la rueda: sin raton ni flechas
-//   (el movil) ninguna entrada se queda sin alcanzar;
+// - B (las ocho entradas, §1.4): deslizar el dedo arriba o abajo da un paso, como un gesto de la
+//   rueda. Aurora tiene cinco entradas en su ventana de cinco y todas se ven; con ocho, sin raton
+//   ni flechas (el movil) Ajustes, IVA y Procesar se quedarian sin alcanzar. Se mueve igual que con
+//   la rueda del raton;
 // - el nombre accesible (un grupo) sale del diccionario;
 // - la ventana no se desplaza al recibir una entrada el foco (la pista ya la centra);
 // - el teclado: las flechas, Inicio y Fin mueven la activa y, si el foco esta en una fila, el foco

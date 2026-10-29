@@ -13,7 +13,6 @@ export const es: Messages = {
   },
   common: {
     twin: '{n} de {of}',
-    loading: 'Cargando…',
     retry: 'Volver a intentar',
     reload: 'Volver a cargar',
     open: 'Abrir',
@@ -162,7 +161,6 @@ export const es: Messages = {
     backTo: 'Volver a {what}',
     breadcrumbs: 'Dónde estás',
     search: 'Buscar',
-    searchShortcut: 'Ctrl K',
     wheel: 'Elige por dónde empezar. Las flechas, la rueda del ratón o deslizar el dedo giran la rueda; Intro abre.',
     skipToContent: 'Ir al contenido',
   },
