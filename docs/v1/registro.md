@@ -9709,3 +9709,70 @@ misma herramienta.
   claro (el control debajo de la tercera fila, en la letra y el morado de la cabecera, y «Minder
   tonen» debajo de la octava), y JV-2026-006 (cuatro filas), igual que antes.
 - `git status` limpio después de construir y de las pruebas.
+
+### La zona táctil del control (petición del dueño del 30-10-2026)
+
+Al dueño se le ofreció agrandar la zona que se pulsa del control («En nog N regels», «Y N
+líneas más», «And N more lines»; «Minder tonen», «Ver menos», «Show fewer») **sin cambiar cómo
+se ve**. Su respuesta, el 30-10-2026: «Sí, amplía la zona táctil».
+
+- **Antes**: el control reutiliza el botón de la cabecera de la tabla de Aurora (`.ws-table-head
+  button`, 9 px) y su caja medía 167 × 13,5 px plegada (DBO-2026-0417) y 74 × 13,5 desplegada:
+  por debajo de los 24 × 24 de WCAG 2.2 (2.5.8) y lejos de los 44 de un dedo.
+- **Ahora**: una capa transparente (`.sheet-fold button::before`, posición absoluta, en nuestra
+  `src/aurora/bms.css`; el botón pasa a `position: relative` y su línea lleva la clase
+  `sheet-fold`) que lo agranda **hacia abajo y nunca hacia arriba**: encima está pegada la fila
+  de antes (su borde de abajo es el de arriba del control). Con ratón ocupa la línea entera del
+  control (el botón y los 14 px de debajo, que son de la misma línea); con `pointer: coarse`, 44
+  px de alto. El ancho es el del texto (al menos 24 y 44 px). Ninguna hoja de Aurora cambia y
+  `claro.css` sigue al día (la regla no lleva color).
+- **Dónde cabe**: debajo del control solo hay aire. Sin tarjeta abierta, el margen del diálogo
+  (24 px a 1440, 18 a 400): la línea más el margen dan 51,5 y 45,5 px; con la tarjeta de una
+  fila abierta, sus 20 px de margen: 47,5. Los 44 caben en los tres casos (sobran 7,5, 1,5 y
+  3,5 px) sin pisar nada ni desplazar más el diálogo: la capa no pasa del final de su caja con
+  margen. Medido a 400 px con el dedo, el desplazamiento del diálogo no cambia hasta 45 px de
+  alto y crece desde 46 (1 px más por cada px): 44 es lo más alto que cabe con un margen redondo.
+
+Lo medido en DBO-2026-0417 (`e2e/documents.spec.ts`; ancho × alto en px; igual en oscuro y en
+claro). La zona, según su estilo; entre paréntesis, la que da `document.elementFromPoint`, que
+redondea el punto al píxel:
+
+| Puntero | Ancho de la ventana | Plegada (el texto, 167,02 × 13,5) | Desplegada (el texto, 74,45 × 13,5) |
+| --- | --- | --- | --- |
+| Ratón | 1440 | 167,02 × 27,5 (168 × 28,25) | 74,45 × 27,5 (75,25 × 28,25) |
+| Ratón | 400 | 167,02 × 27,5 (168 × 28,25) | 74,45 × 27,5 (75,25 × 28,25) |
+| Dedo (`pointer: coarse`) | 1440 | 167,02 × 44 (168 × 44,75) | 74,45 × 44 (75,25 × 44,75) |
+| Dedo (`pointer: coarse`) | 400 | 167,02 × 44 (168 × 44,75) | 74,45 × 44 (75,25 × 44,75) |
+
+Con la tarjeta de una fila abierta debajo, lo mismo.
+
+#### Las pruebas
+
+- **Nada cambia a la vista**, contra lo construido en 931c8c3: 66 capturas del diálogo, cada
+  una igual **píxel a píxel** (0 píxeles distintos en las 66): DBO-2026-0417 plegada (arriba,
+  abajo, con el ratón encima del control y con el anillo del foco del teclado) y desplegada
+  (abajo, con el ratón encima y con el foco), VD26-306 (cinco filas) plegada y desplegada y
+  JV-2026-006 (cuatro filas, sin control), a 1440 × 900 y a 400 × 860, en oscuro y en claro con
+  el ratón (44), y a 400 × 860 con el dedo (`isMobile`, `hasTouch`), en oscuro y en claro (22).
+  En la suite, `documents.spec.ts` compara el diálogo con la zona y sin ella (la regla anulada),
+  en los mismos estados.
+- **El desplazamiento no cambia** (`aurora-paridad.spec.ts`, nueva): en cada una de las 35
+  facturas de la base de prueba, a 1440 y a 400 px, con ratón y con el dedo, plegada y
+  desplegada (o entera, con cuatro filas o menos), `scrollHeight`, `clientHeight`, `scrollWidth`
+  y `clientWidth` del diálogo son los mismos con la zona y sin ella: 188 medidas, 0 distintas. La
+  de los 300 px sigue igual.
+- **No pisa nada** (`documents.spec.ts`, nueva, con `e2e/zona-tactil.ts`): en DBO-2026-0417, a
+  1440 y a 400, en los dos temas y con los dos punteros, plegada y desplegada, con y sin la
+  tarjeta de una fila debajo, una rejilla de puntos (cada 2 px de alto y 4 de ancho, y a 1 px de
+  los bordes) con `elementFromPoint`: cada punto de la zona es del control; la fila de antes (a 2
+  y a 8 px por encima), lo de al lado, lo de debajo, el borde de la tarjeta y su ✕, y la ✕ del
+  diálogo siguen siendo suyos. Empieza donde el texto, y la caja medida es la del estilo, al
+  píxel.
+- **Con el dedo** (`documents.spec.ts`, nueva, `isMobile` y `hasTouch` a 400 × 860): un toque en
+  el texto y luego otro cerca de cada borde de abajo de la zona (más de 20 px por debajo de la
+  caja del texto) despliegan y pliegan igual: `aria-expanded` cambia, al desplegar el foco pasa a
+  la primera fila que estaba plegada y al plegar queda donde lo deja un toque en el texto; axe,
+  sin avisos serios.
+- Miradas con la zona pintada (un contorno rojo metido solo en la página de la prueba, nunca en
+  el commit), a 1440 y a 400, con ratón y con el dedo: debajo del texto, del ancho del texto, sin
+  subir a la fila de antes; con el dedo a 400, a 1,5 px del borde del diálogo.

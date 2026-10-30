@@ -551,6 +551,15 @@ hoja de una factura) son puros.
   con sus totales (base, IVA, total, lo que queda) no se pliega nunca, y la cabecera sigue
   contando todas las filas. Lo puro (qué filas se ven, el texto y los avisos) está en
   `foldRows` y `foldLabel` (`src/aurora/documents/sheet-model.ts`).
+- **La zona táctil del control** (petición del dueño del 30-10-2026: «Sí, amplía la zona
+  táctil»). El botón se ve como antes (9 px de letra, 13,5 px de alto), pero se pulsa en más
+  sitio: una capa transparente (`.sheet-fold button::before`, en `src/aurora/bms.css`; las hojas
+  de Aurora no se tocan) lo agranda hacia abajo, nunca hacia arriba, donde está pegada la fila de
+  antes. Con ratón, toda su línea: **27,5 px de alto** (WCAG 2.5.8 pide 24) por el ancho del
+  texto; con el dedo (`pointer: coarse`), **44 px**, que bajan 16,5 px por el aire de debajo (el
+  margen del diálogo, 24 px a 1440 y 18 a 400, o los 20 de la tarjeta de una fila abierta). No
+  pisa nada ni desplaza más el diálogo, y nada cambia a la vista, ni el anillo del foco; lo
+  comprueban `e2e/documents.spec.ts` y `e2e/aurora-paridad.spec.ts` (con `e2e/zona-tactil.ts`).
 - **El desplazamiento de la hoja** se mide en cada factura de la base de prueba, plegada como
   se abre (`e2e/aurora-paridad.spec.ts`): no pasa de 300 px a 1440 × 900 ni a 400 × 860, en
   oscuro y en claro. Las plegadas, 246 px como mucho a 1440 (DBO-2026-0417 y KT-202609) y
