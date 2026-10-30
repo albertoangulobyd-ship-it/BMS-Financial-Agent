@@ -112,8 +112,9 @@ test('het begin: wat aandacht vraagt, eerst het geblokkeerde en urgente, in NL e
   const twin = rows.filter({ hasText: /JV-\d{4}-\d{3}/ });
   await expect(twin).toHaveCount(1);
   await expect(twin).toContainText(fill(t.overview.nextUp.sameNumber, { n: 2 }));
-  // La primera, con por que pide atencion, y su hoja a un clic.
-  const card = await openCard(page, rows.first());
+  // La de otra moneda, bloqueada, con por que pide atencion, y su hoja a un clic. Entre las
+  // bloqueadas el orden depende del dia: a fin de mes la de Proefwacht vence en pocos dias y sube.
+  const card = await openCard(page, rows.filter({ hasText: 'DGG-2026-118' }));
   await expect(card).toContainText(fill(t.aurora.card.why, { why: 'Andere valuta dan euro' }));
   await expectAccessible(page, 'eerst nl');
   await capture(page, 'daily-nl-first');
@@ -122,7 +123,7 @@ test('het begin: wat aandacht vraagt, eerst het geblokkeerde en urgente, in NL e
   await openEntry(page, 'home', 'en');
   await expect(panel(page).getByTestId('balance')).toContainText(TEXTS.en.aurora.home.attention);
   await openGroup(page, TEXTS.en.aurora.home.first);
-  const en = await openCard(page, panel(page).locator('.doc-list button.doc').first());
+  const en = await openCard(page, panel(page).locator('.doc-list button.doc').filter({ hasText: 'DGG-2026-118' }));
   await expect(en).toContainText(fill(TEXTS.en.aurora.card.why, { why: 'Currency other than euro' }));
   await capture(page, 'daily-en-first');
   // "Open the invoice": su hoja, con el vuelo, en la carpeta de su empresa.
