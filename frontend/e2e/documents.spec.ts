@@ -7,12 +7,16 @@
 // registro), que se cierra con la ✕, Escape o un clic fuera; "Origineel downloaden" (el PDF de
 // verdad, que queda en la auditoria); un error con su reintento. Capturas en los tres idiomas y
 // los dos temas, y en el movil. La hoja de una factura con mas de cuatro filas, plegada al abrirla
-// tras un solo control (decision del dueno del 29-10-2026), con el raton y con el teclado.
+// tras un solo control (decision del dueno del 29-10-2026), con el raton y con el teclado; la zona
+// tactil de ese control (peticion del dueno del 30-10-2026), que no se ve ni pisa nada, con el raton
+// y con el dedo.
 import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Download, Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { InvoiceDetail, PartyRow } from '../src/lib/api-types';
 import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token } from './fixtures';
+import { decodePng, differingPixels } from './png';
+import { coarsePointer, probeHitArea, size as boxSize, withoutHitArea, type HitProbe } from './zona-tactil';
 import {
   TEXTS,
   auroraRoot,
@@ -454,6 +458,150 @@ test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un sol
   await page.emulateMedia({ reducedMotion: null });
   await page.setViewportSize({ width: 1440, height: 900 });
   await setLang(page, 'nl');
+});
+
+/** El dialogo de la hoja con la zona tactil del control y sin ella: los mismos pixeles. */
+async function sameWithoutHitArea(page: Page, what: string): Promise<void> {
+  const shot = async () => {
+    await settled(page);
+    const box = (await sheetDialog(page).boundingBox())!;
+    return decodePng(await page.screenshot({ clip: box, caret: 'hide', animations: 'disabled' }));
+  };
+  const withArea = await shot();
+  await withoutHitArea(page, true);
+  const without = await shot();
+  await withoutHitArea(page, false);
+  expect(differingPixels(withArea, without, { tolerance: 0 }), `${what}: los pixeles que cambian`).toBe(0);
+}
+
+/** El foco del teclado en el control: desde la fila de antes, con Tab (asi se ve su anillo). */
+async function tabToFold(page: Page): Promise<void> {
+  await sheetDialog(page).getByTestId('sheet-fold').evaluate((line) => (line.previousElementSibling as HTMLElement).focus());
+  await page.keyboard.press('Tab');
+  await expect(sheetFold(page)).toBeFocused();
+}
+
+// La zona tactil del control (peticion del dueno del 30-10-2026, bms.css): con el raton, 24 px de
+// alto o mas (WCAG 2.5.8); con el dedo, 44. En DBO-2026-0417, a 1440 y a 400 px, en los dos temas
+// y con los dos punteros, plegada y desplegada, con y sin la tarjeta de una fila debajo: cada punto
+// de la zona es del control, la fila de antes, lo de debajo, lo de al lado y las ✕ siguen siendo
+// suyos, y el dialogo se ve igual pixel a pixel que sin ella (tambien con el raton encima y con el
+// anillo del foco del teclado).
+test('el control de la hoja plegada: su zona tactil, que no se ve ni pisa nada', async ({ page, baseUrl }) => {
+  test.setTimeout(600_000);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  const sizes: string[] = [];
+  for (const theme of ['light', 'dark'] as const) {
+    await chooseTheme(page, theme);
+    for (const size of [
+      { width: 1440, height: 900 },
+      { width: 400, height: 860 },
+    ]) {
+      await page.setViewportSize(size);
+      for (const pointer of ['raton', 'dedo'] as const) {
+        await coarsePointer(page, pointer === 'dedo');
+        const sheet = await openInvoice(page, 'DBO-2026-0417');
+        const rows = sheet.locator('.ws-file-table > a');
+        const fold = sheetFold(page);
+        const where = `${theme}, ${size.width} px, ${pointer}`;
+        const check = async (state: string): Promise<HitProbe> => {
+          const p = await probeHitArea(fold);
+          expect(p.misses, `${where}, ${state}`).toEqual([]);
+          const least = pointer === 'dedo' ? 44 : 24;
+          expect(p.area.height, `${where}, ${state}: alto`).toBeGreaterThanOrEqual(least);
+          expect(p.area.width, `${where}, ${state}: ancho`).toBeGreaterThanOrEqual(Math.max(least, p.text.width) - 0.01);
+          // Empieza donde el texto, nunca encima (alli esta la fila de antes).
+          expect(p.area.y, `${where}, ${state}: arriba`).toBeCloseTo(p.text.y, 2);
+          // Lo que da elementFromPoint es esa caja, al pixel.
+          for (const k of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(p.measured[k] - p.area[k]), `${where}, ${state}: ${k} medido`).toBeLessThanOrEqual(1.25);
+          if (theme === 'dark') sizes.push(`${size.width} px, ${pointer}, ${state}: el texto ${boxSize(p.text)}, la zona ${boxSize(p.area)} (medida al pixel, ${boxSize(p.measured)})`);
+          return p;
+        };
+        // Plegada: en reposo, con el raton encima y con el foco del teclado.
+        const p = await check('plegada');
+        await sameWithoutHitArea(page, `${where}, plegada`);
+        await page.mouse.move(p.text.x + p.text.width / 2, p.text.y + p.text.height / 2);
+        await sameWithoutHitArea(page, `${where}, plegada, con el raton encima`);
+        await page.mouse.move(1, 1);
+        await tabToFold(page);
+        await sameWithoutHitArea(page, `${where}, plegada, con el foco`);
+        // Con la tarjeta de la primera fila abierta debajo de la tabla.
+        await rows.first().click();
+        await expect(sheet.locator('.detail')).toBeVisible();
+        await settled(page);
+        await check('plegada, con una tarjeta debajo');
+        await rows.first().click();
+        await expect(sheet.locator('.detail')).toHaveCount(0);
+        // Desplegada: el foco pasa a la primera fila que estaba plegada, como antes.
+        await fold.click();
+        await expect(fold).toHaveAttribute('aria-expanded', 'true');
+        await expect(rows.nth(3)).toBeFocused();
+        await settled(page);
+        await check('desplegada');
+        await sameWithoutHitArea(page, `${where}, desplegada`);
+        await tabToFold(page);
+        await sameWithoutHitArea(page, `${where}, desplegada, con el foco`);
+        await rows.last().click();
+        await expect(sheet.locator('.detail')).toBeVisible();
+        await settled(page);
+        await check('desplegada, con una tarjeta debajo');
+      }
+      await coarsePointer(page, false);
+    }
+  }
+  // Para el registro: lo medido.
+  console.log(`la zona tactil del control: ${sizes.join(' · ')}`);
+});
+
+// Con el dedo, a 400 px (pointer: coarse): un toque cerca del borde de la zona, fuera de la caja del
+// texto, despliega y pliega como un toque en el texto, y el foco hace lo mismo.
+test.describe('con el dedo, a 400 px', () => {
+  test.use({ viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true });
+
+  test('un toque en la zona tactil del control, fuera de su texto, despliega y pliega la hoja', async ({ page, baseUrl }) => {
+    test.setTimeout(300_000);
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    const sheet = await openInvoice(page, 'DBO-2026-0417');
+    const rows = sheet.locator('.ws-file-table > a');
+    const fold = sheetFold(page);
+    const focused = () => page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      return el?.matches('[data-testid=sheet-fold] button') ? 'control' : el?.matches('.ws-file-table > a') ? `fila ${Array.prototype.indexOf.call(el.parentElement!.querySelectorAll(':scope > a'), el)}` : el?.tagName ?? null;
+    });
+    const tap = async (where: 'texto' | 'abajo-izquierda' | 'abajo-derecha') => {
+      const p = await probeHitArea(fold);
+      expect(p.misses, where).toEqual([]);
+      expect(p.area.height).toBeGreaterThanOrEqual(44);
+      const bottom = p.area.y + p.area.height - 2;
+      const [x, y] =
+        where === 'texto' ? [p.text.x + p.text.width / 2, p.text.y + p.text.height / 2] : [where === 'abajo-izquierda' ? p.area.x + 2 : p.area.x + p.area.width - 2, bottom];
+      // Lejos del texto: mas de 20 px por debajo de su caja.
+      if (where !== 'texto') expect(y - (p.text.y + p.text.height)).toBeGreaterThan(20);
+      await page.touchscreen.tap(x, y);
+    };
+    // Primero en el texto (lo de siempre) y luego en el borde de la zona: lo mismo.
+    await tap('texto');
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await expect(rows).toHaveCount(8);
+    await expect(rows.nth(3)).toBeFocused();
+    await tap('texto');
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await expect(rows).toHaveCount(3);
+    const afterFold = await focused();
+    await tap('abajo-izquierda');
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await expect(rows).toHaveCount(8);
+    await expect(rows.nth(3)).toBeFocused();
+    await expectAccessible(page, 'hoja desplegada con el dedo');
+    await tap('abajo-derecha');
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await expect(rows).toHaveCount(3);
+    expect(await focused()).toBe(afterFold);
+    await expectAccessible(page, 'hoja plegada con el dedo');
+  });
 });
 
 test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', async ({ page, baseUrl }) => {

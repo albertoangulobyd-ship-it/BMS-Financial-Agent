@@ -12,7 +12,8 @@
 // Y el desplazamiento (§6.1): cada panel en reposo, cada vista de grupo e importar sin fichero no
 // pasan de 53 px a 1440 × 900 ni de 213 px a 400 × 860; el del dialogo de cada factura de la base
 // de prueba, plegado como se abre, no pasa de 300 px a 1440 × 900 ni a 400 × 860, en los dos
-// temas (con cuatro filas o menos, sin control y como antes). Y que
+// temas (con cuatro filas o menos, sin control y como antes); la zona tactil del control de plegar
+// (peticion del dueno del 30-10-2026) no lo cambia en ninguna. Y que
 // nada salte al aterrizar el vuelo a Documentos y de vuelta (sus tiempos, T11 y T17, y el del orbe
 // al abrir el menu, T01, se miden en aurora-tiempos.spec.ts con la herramienta de §6.2).
 import type { Page } from '@playwright/test';
@@ -20,6 +21,7 @@ import type { InvoiceRow } from '../src/lib/api';
 import { expect, login, settled, test, token } from './fixtures';
 import { TEXTS, chooseTheme, entryButton, landed, openEntry, openGroup, openInvoice, openMenu, panel, panelRow, setLang, sheetDialog, sheetFold, toHome, treeItem } from './nav';
 import { expectLikeAurora, measure } from './aurora/cajas';
+import { coarsePointer, withoutHitArea } from './zona-tactil';
 
 const es = TEXTS.es;
 
@@ -288,6 +290,53 @@ for (const theme of ['dark', 'light'] as const) {
     expect(seen.flatMap((s) => SIZES.filter((z) => s.px[z.width]! > 300).map((z) => `${s.number} a ${z.width} px: ${s.px[z.width]} px`))).toEqual([]);
   });
 }
+
+// La zona tactil del control de plegar (bms.css: con el dedo baja 16,5 px por debajo de la tabla)
+// no desplaza el dialogo: en cada factura de la base de prueba, a 1440 × 900 y a 400 × 860, con el
+// raton y con el dedo (pointer: coarse), plegada y desplegada, el alto y el ancho de lo que se
+// desplaza y de lo que se ve son los mismos con ella y sin ella (sin ella, como en 931c8c3).
+test('la zona tactil del control de plegar no cambia el desplazamiento del dialogo de ninguna factura', async ({ page, baseUrl, request }) => {
+  test.setTimeout(900_000);
+  const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
+  const invoices = ((await response.json()) as { facturas: InvoiceRow[] }).facturas.filter((f) => f.numero);
+  await page.goto(`${baseUrl}/app`);
+  await login(page);
+  const scroll = () => page.locator('dialog.ws-dialog[open]').evaluate((d) => `${d.scrollHeight}/${d.clientHeight}/${d.scrollWidth}/${d.clientWidth}`);
+  const changed: string[] = [];
+  let measured = 0;
+  const nth = new Map<string, number>();
+  for (const f of invoices) {
+    const number = f.numero!;
+    const n = nth.get(number) ?? 0;
+    nth.set(number, n + 1);
+    await page.setViewportSize(SIZES[0]);
+    await openInvoice(page, number, { nth: n });
+    const foldable = (await sheetFold(page).count()) > 0;
+    for (const state of foldable ? ['plegada', 'desplegada'] : ['entera']) {
+      if (state === 'desplegada') {
+        await sheetFold(page).click();
+        await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'true');
+      }
+      for (const size of SIZES) {
+        await page.setViewportSize(size);
+        for (const coarse of [false, true]) {
+          await coarsePointer(page, coarse);
+          await settled(page);
+          const withArea = await scroll();
+          await withoutHitArea(page, true);
+          const without = await scroll();
+          await withoutHitArea(page, false);
+          measured += 1;
+          if (withArea !== without) changed.push(`${number} ${state} a ${size.width} px ${coarse ? 'con el dedo' : 'con el raton'}: ${without} sin la zona, ${withArea} con ella`);
+        }
+        await coarsePointer(page, false);
+      }
+    }
+  }
+  await page.setViewportSize(SIZES[0]);
+  console.log(`zona tactil: ${measured} medidas de ${invoices.length} facturas, ${changed.length} distintas`);
+  expect(changed).toEqual([]);
+});
 
 /** Un vuelo del orbe: en cada cuadro de verdad, la `y` de lo que no debe moverse (`still`), desde
  *  el clic hasta despues de aterrizar. */
