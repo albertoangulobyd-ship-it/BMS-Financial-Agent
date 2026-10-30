@@ -9776,3 +9776,9 @@ Con la tarjeta de una fila abierta debajo, lo mismo.
 - Miradas con la zona pintada (un contorno rojo metido solo en la página de la prueba, nunca en
   el commit), a 1440 y a 400, con ratón y con el dedo: debajo del texto, del ancho del texto, sin
   subir a la fila de antes; con el dedo a 400, a 1,5 px del borde del diálogo.
+- Las suites: typecheck; vitest, 1352; la construcción (`fuente.json` al día, `git status`
+  limpio); e2e entera, 119 de 119 tras un arreglo de `daily.spec.ts` que no es de la zona: abría
+  la primera fila de «Eerst» esperando DGG-2026-118, y la base de prueba fecha relativo a hoy; el
+  30-10-2026 la última de Proefwacht (bloqueada) vence en tres días y pasa delante. Fallaba igual
+  con lo construido en 931c8c3; ahora abre la de DGG-2026-118 por su número. Python, 2626 y 12
+  saltadas.
