@@ -309,8 +309,9 @@ export function InvoiceSheet({
           <SheetRowView key={row.key} row={row} invoice={f} current={row.key === open} onOpen={() => setOpen(open === row.key ? null : row.key)} />
         ))}
         {fold.foldable && (
-          // El control de plegar, con el boton discreto de la cabecera de la tabla de Aurora.
-          <div className='ws-table-head' data-testid='sheet-fold'>
+          // El control de plegar, con el boton discreto de la cabecera de la tabla de Aurora y su
+          // zona tactil (sheet-fold, en bms.css), que no se ve.
+          <div className='ws-table-head sheet-fold' data-testid='sheet-fold'>
             <button type='button' aria-expanded={expanded} aria-controls={tableId} onClick={toggle}>
               {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {foldLabel(t, fold)}
             </button>
