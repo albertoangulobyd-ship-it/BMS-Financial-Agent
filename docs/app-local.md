@@ -560,6 +560,10 @@ hoja de una factura) son puros.
   margen del diálogo, 24 px a 1440 y 18 a 400, o los 20 de la tarjeta de una fila abierta). No
   pisa nada ni desplaza más el diálogo, y nada cambia a la vista, ni el anillo del foco; lo
   comprueban `e2e/documents.spec.ts` y `e2e/aurora-paridad.spec.ts` (con `e2e/zona-tactil.ts`).
+  Lo único que cambia, con el dedo: un toque en esa franja del margen, bajo el control, ya no
+  cierra la hoja (como cualquier toque fuera de ella), sino que la pliega o despliega; y también
+  uno que caiga unos pocos px fuera del diálogo justo debajo, porque el navegador acerca el
+  toque al control. Con ratón no cambia nada.
 - **El desplazamiento de la hoja** se mide en cada factura de la base de prueba, plegada como
   se abre (`e2e/aurora-paridad.spec.ts`): no pasa de 300 px a 1440 × 900 ni a 400 × 860, en
   oscuro y en claro. Las plegadas, 246 px como mucho a 1440 (DBO-2026-0417 y KT-202609) y

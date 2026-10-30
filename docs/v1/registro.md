@@ -9726,12 +9726,23 @@ se ve**. Su respuesta, el 30-10-2026: «Sí, amplía la zona táctil».
   control (el botón y los 14 px de debajo, que son de la misma línea); con `pointer: coarse`, 44
   px de alto. El ancho es el del texto (al menos 24 y 44 px). Ninguna hoja de Aurora cambia y
   `claro.css` sigue al día (la regla no lleva color).
-- **Dónde cabe**: debajo del control solo hay aire. Sin tarjeta abierta, el margen del diálogo
-  (24 px a 1440, 18 a 400): la línea más el margen dan 51,5 y 45,5 px; con la tarjeta de una
-  fila abierta, sus 20 px de margen: 47,5. Los 44 caben en los tres casos (sobran 7,5, 1,5 y
-  3,5 px) sin pisar nada ni desplazar más el diálogo: la capa no pasa del final de su caja con
-  margen. Medido a 400 px con el dedo, el desplazamiento del diálogo no cambia hasta 45 px de
-  alto y crece desde 46 (1 px más por cada px): 44 es lo más alto que cabe con un margen redondo.
+- **Dónde cabe**: debajo del control solo hay aire (nada que se pulse). Sin tarjeta abierta, el
+  margen del diálogo (24 px a 1440, 18 a 400): la línea más el margen dan 51,5 y 45,5 px; con
+  la tarjeta de una fila abierta, sus 20 px de margen: 47,5. Los 44 caben en los tres casos
+  (sobran 7,5, 1,5 y 3,5 px) sin pisar nada ni desplazar más el diálogo: la capa no pasa del
+  final de su caja con margen. Medido a 400 px con el dedo, el desplazamiento del diálogo no
+  cambia hasta 45 px de alto y crece desde 46 (1 px más por cada px): 44 es lo más alto que
+  cabe con un margen redondo.
+- **Lo que sí cambia** (lo encontró la revisión independiente): ese margen no se pulsa, pero un
+  clic o un toque en él cierra la hoja, como cualquiera fuera de ella (en
+  `document-workspace.tsx`, el clic cuyo destino es el propio diálogo). Con el dedo, en la franja
+  del ancho del control que ahora ocupa la zona (con la hoja al final y sin tarjeta abierta), un
+  toque pliega o despliega en vez de cerrar. Además, Chromium acerca el toque al objetivo más
+  próximo: a 400 px, los toques hasta unos 6 px por debajo del borde del diálogo (unos 12 con un
+  dedo de radio 16), justo bajo el control, también pliegan o despliegan; a 1440, hasta el borde
+  del diálogo (unos 6 px más allá con radio 16). Con ratón no cambia nada: su zona es solo la
+  línea del control, que ya no cerraba la hoja. Se deja así: un toque que casi da en el control
+  ya no cierra la hoja por error.
 
 Lo medido en DBO-2026-0417 (`e2e/documents.spec.ts`; ancho × alto en px; igual en oscuro y en
 claro). La zona, según su estilo; entre paréntesis, la que da `document.elementFromPoint`, que
