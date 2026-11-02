@@ -81,3 +81,60 @@
 .sheet-fold button{position:relative}
 .sheet-fold button::before{content:'';position:absolute;left:0;top:0;bottom:-14px;width:100%;min-width:24px}
 @media(pointer:coarse){.sheet-fold button::before{bottom:auto;height:44px;min-width:44px}}
+
+/* Las zonas tactiles de los demas controles pequenos (peticion del dueno del 02-11-2026: «Si,
+   amplia tambien esos controles»; WCAG 2.2, 2.5.8): lo que se pulsa crece sin moverse ni verse;
+   con raton, 24 x 24 px como poco, y con el dedo (pointer: coarse), 44 donde cabe. De dos maneras:
+   - un relleno y un margen negativo iguales: la caja crece por los cuatro lados y nada se mueve
+     (no tienen fondo ni borde); el anillo del foco se acerca otro tanto y queda donde estaba (en
+     px enteros: el navegador ajusta la caja al pixel antes de pintar el anillo). Asi
+     las ✕ del panel y de una hoja, «Volver al espacio», «Filters wissen», «Abrir la ficha» de una
+     carpeta, las migas y el buscador de una lista (con el dedo, toda su fila; un input no tiene
+     ::before). Con position: relative, alguno se pintaba distinto (el texto de «Abrir la ficha»,
+     el brillo de detras de la hoja, un pixel de una miga): por eso no.
+   - una capa transparente (::before, posicion absoluta), como la del control de la hoja plegada,
+     en los que ya estaban posicionados (la ✕ de la tarjeta de una fila, «Volver a Aurora»,
+     «Volver al inicio») y en los que no pueden crecer igual por los cuatro lados: los idiomas de la
+     entrada (pegados entre si) y los tiradores del importe (estos dos pasan a position:
+     relative). En el centro del control (inset con min(): solo crece lo que no llega).
+   Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
+   - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
+     (fuera, en la hoja, un clic cierra la hoja entera);
+   - las migas, con el dedo: 30 de alto (dos lineas de migas quedan a 10 px) y 10 px mas anchas;
+   - los tiradores crecen hacia fuera (el de abajo a la izquierda, el de arriba a la derecha), para
+     no pisarse; con el dedo, 44 de alto y 29,5 de ancho: al final de la pista, a 400 px, quedan 16
+     hasta el borde de la ventana. */
+.panel-top button,.ws-dialog-top button{padding:3px;margin:-3px}
+.panel-top button:focus-visible,.ws-dialog-top button:focus-visible{outline-offset:3px}
+.conversation-top button{padding:5px;margin:-5px}
+.conversation-top button:focus-visible{outline-offset:1px}
+.filters-reset{padding:6px;margin:-6px -6px -6px auto}
+.filters-reset:focus-visible{outline-offset:0}
+.ws-folder-caption>a{padding:5px;margin:-5px}
+.ws-folder-caption>a:focus-visible{outline-offset:-3px}
+.ws-breadcrumbs a{padding:2px;margin:-2px}
+.ws-breadcrumbs a:focus-visible{outline-offset:0}
+.ui-command-input input{padding:3px;margin:-3px}
+.ui-command-input input:focus-visible{outline-offset:3px}
+.discreet-languages button,.amount-thumb{position:relative}
+.discreet-languages button::before,.detail-close::before,.ws-home::before,.processing-back::before{content:'';position:absolute;inset:min(0px,calc(50% - 12px))}
+.amount-thumb::before{content:'';position:absolute;top:min(0px,calc(50% - 12px));bottom:min(0px,calc(50% - 12px));width:24px}
+.amount-slider>span:nth-child(2)>.amount-thumb::before{right:0}
+.amount-slider>span:nth-child(3)>.amount-thumb::before{left:0}
+@media(pointer:coarse){
+  .panel-top button,.ws-dialog-top button{padding:13px;margin:-13px}
+  .panel-top button:focus-visible,.ws-dialog-top button:focus-visible{outline-offset:-7px}
+  .conversation-top button{padding:15px;margin:-15px}
+  .conversation-top button:focus-visible{outline-offset:-9px}
+  .filters-reset{padding:16px;margin:-16px -16px -16px auto}
+  .filters-reset:focus-visible{outline-offset:-10px}
+  .ui-command-input input{padding:13px;margin:-13px}
+  .ui-command-input input:focus-visible{outline-offset:-7px}
+  .ws-folder-caption>a{padding:15px;margin:-15px}
+  .ws-folder-caption>a:focus-visible{outline-offset:-13px}
+  .ws-breadcrumbs a{padding:5px;margin:-5px}
+  .ws-breadcrumbs a:focus-visible{outline-offset:-3px}
+  .discreet-languages button::before,.ws-home::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
+  .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px}
+  .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
+}
