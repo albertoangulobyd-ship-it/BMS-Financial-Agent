@@ -455,7 +455,7 @@ export const DESIGN = {
   '.process-highlight .nav-item.selected': { color: v('accent'), 'text-shadow': 'none' },
   // El orbe en process-highlight: el mismo color que en el resto (scripts/aurora-claro-mano.css),
   // sin el brillo de fuera.
-  '.process-highlight .aurora canvas': { filter: 'hue-rotate(var(--aura-hue,0deg)) saturate(1.25)' },
+  '.process-highlight .aurora canvas': { filter: 'hue-rotate(var(--aura-hue,0deg)) saturate(1.15)' },
   '.aurora:focus-visible': { 'box-shadow': `0 0 0 2px ${v('focus-ring')}` },
   '.bms-brand>span': { 'border-left': `1px solid ${v('line-strong')}` },
   '.bms-brand': { color: v('ink-1') },
@@ -572,6 +572,8 @@ export const DESIGN = {
   '.is-running .pc-outline': { 'border-color': v('line-strong') },
   '.pc-label': { color: v('ink-2') },
   // Documentos.
+  '.ws-tabs>a': { color: v('ink-2') },
+  '.ws-heading>div>p:last-child': { color: v('ink-2') },
   '.ws-tabs>a[aria-current=page]': { background: v('surface'), color: v('ink-1'), 'box-shadow': `0 0 0 1px ${v('line-soft')},${v('shadow-1')}` },
   '.ws-folder-active': { 'border-color': v('line'), background: v('surface') },
   '.ws-breadcrumbs [aria-current=page]': { color: v('ink-1') },

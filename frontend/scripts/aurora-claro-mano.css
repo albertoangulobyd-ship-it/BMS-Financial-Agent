@@ -46,10 +46,11 @@ html:not(.dark) .ui-status.maintenance .ui-status-indicator>span{background:var(
 
 /* -- Los orbes sobre la pagina clara. El sombreador suma luz (su centro es blanco y en el claro
    se pierde): un poco mas de color, sin contraste (da el arcoiris de caramelo) ni halo (deja una
-   mancha gris). El hue-rotate es el de Aurora (styles.css: .aurora canvas), asi su transicion
+   mancha gris). 1,15 y no 1,25: a 1,25, tres fotogramas por estado (inicio, rueda, panel y
+   Documentos, a 1440 y a 400) daban a veces un rojo y un naranja dominantes. El hue-rotate es el de Aurora (styles.css: .aurora canvas), asi su transicion
    sigue igual. La aura pequena de la conversacion, sin screen (sobre blanco desaparece). */
-html:not(.dark) .aurora canvas{filter:hue-rotate(var(--aura-hue,0deg)) saturate(1.25)}
-html:not(.dark) .aurora-route-flight canvas,html:not(.dark) .ws-companion canvas,html:not(.dark) .hero-wave canvas{filter:saturate(1.25)}
+html:not(.dark) .aurora canvas{filter:hue-rotate(var(--aura-hue,0deg)) saturate(1.15)}
+html:not(.dark) .aurora-route-flight canvas,html:not(.dark) .ws-companion canvas,html:not(.dark) .hero-wave canvas{filter:saturate(1.15)}
 html:not(.dark) .chat-aura canvas{mix-blend-mode:normal}
 
 /* -- El resumen pinta en atributos (finance-bento-component.tsx): los puntos de la cifra, las
@@ -104,6 +105,9 @@ html:not(.dark) .process-mode .analysis-new{color:var(--l-ok)!important}
 html:not(.dark) .process-mode .analysis-duplicate{color:var(--l-warn)!important}
 html:not(.dark) .process-mode .processing-progress span{background:var(--l-subtle-2)}
 html:not(.dark) .processing-card{color:var(--l-ink-1)}
+/* "Terug naar start" en el secundario (document-loader.css lo pone en #888 con el pie del coste,
+   que se queda en el terciario). */
+html:not(.dark) .process-mode .processing-back{color:var(--l-ink-2)!important}
 
 /* -- La busqueda: el "borrar x" del rango sin rango que borrar (disabled), en el gris de lo
    inactivo; la x de un filtro puesto, en el terciario. */
