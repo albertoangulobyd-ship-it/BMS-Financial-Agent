@@ -78,7 +78,12 @@ html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art{filter:blur(14px) s
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art[data-ready]{filter:blur(0) saturate(1) saturate(.72) brightness(1.3) contrast(.86)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art{filter:blur(10px) saturate(.72) brightness(1.3) contrast(.86)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art[data-ready]{filter:blur(0) saturate(.72) brightness(1.3) contrast(.86)}
-html:not(.dark) .gf-root:not([data-tone=dark]){--gf-ink-soft:rgba(20,20,22,.74)}
+/* La meta de una carpeta ("0 documenten", monoespaciada de 12 px y trazo fino): a 0,74 se mide en
+   pixeles a 3,0-3,3 (el suavizado no llega a la tinta); a 0,96, a 4,5 o mas en cada estado. */
+html:not(.dark) .gf-root:not([data-tone=dark]){--gf-ink-soft:rgba(20,20,22,.96)}
+/* La meta de una hoja de la carpeta abierta (#18181b80 sobre su papel blanco: 3,35) va en la tinta
+   suave de la carpeta (7,9); la de una hoja con arte sigue blanca. */
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-sheet:not(.gf-sheet--art) .gf-sheet-meta{color:var(--gf-ink-soft)}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-tint{background:linear-gradient(rgba(255,255,255,.28),rgba(255,255,255,.80) 46%,rgba(255,255,255,.94))}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-front-rim path{stroke:rgba(17,17,26,.10)}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-back{background:linear-gradient(#f0f0f3,#e6e6eb)}

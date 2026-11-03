@@ -429,7 +429,19 @@ export const DESIGN = {
   '.detail': { border: `1px solid ${v('line')}`, background: v('subtle') },
   '.detail p,.detail>span': { color: v('ink-2') },
   '.detail h3': { color: v('ink-1') },
-  '.panel-top': { color: v('ink-3') },
+  // Las cejas de 7-9 px en mayusculas (o con mucho espaciado): en ink-3 se miden en pixeles por
+  // debajo de 4,5 (el suavizado de una letra tan pequena), asi que van en ink-2
+  // (e2e/claro.spec.ts las mide).
+  '.panel-top': { color: v('ink-2') },
+  '.list-title': { color: v('ink-2') },
+  '.search-eyebrow': { color: v('ink-2') },
+  '[cmdk-group-heading]': { color: v('ink-2') },
+  '.fb-eyebrow': { color: v('ink-2') },
+  '.processing-eyebrow': { color: v('ink-2') },
+  '.zur-reading-top': { color: v('ink-2') },
+  '.ws-eyebrow': { color: v('ink-2') },
+  '.ws-party-type': { color: v('ink-2') },
+  '.ws-dialog-top': { color: v('ink-2') },
   '.panel-top button': { color: v('ink-2') },
   '.order-field .composer': { 'box-shadow': 'none', 'border-color': v('field') },
   '.filter-label': { color: v('ink-3') },
@@ -554,10 +566,11 @@ export const DESIGN = {
   '.zur-debug button:hover': { 'border-color': v('ink-1') },
   '.pc-progress i.filled': { color: v('ink-1') },
   '.pc-progress i': { color: v('line-strong') },
-  // El marco de la tarjeta de Procesar y su cabecera ("AURORA / DOCUMENTEN" y el estado).
+  // El marco de la tarjeta de Procesar y su cabecera ("AURORA / DOCUMENTEN" y el estado, 7 px:
+  // en ink-2, como las cejas).
   '.pc-outline': { 'border-color': v('line') },
   '.is-running .pc-outline': { 'border-color': v('line-strong') },
-  '.pc-label': { color: v('ink-3') },
+  '.pc-label': { color: v('ink-2') },
   // Documentos.
   '.ws-tabs>a[aria-current=page]': { background: v('surface'), color: v('ink-1'), 'box-shadow': `0 0 0 1px ${v('line-soft')},${v('shadow-1')}` },
   '.ws-folder-active': { 'border-color': v('line'), background: v('surface') },
@@ -685,7 +698,7 @@ export const RAW_OK = {
   'rgba(17,17,26,.10)': 'el canto del frente de una carpeta (un color solido sobre cristal blanco)',
   'rgba(16,16,24,.16)': 'la sombra difusa bajo una carpeta (.gf-shadow, con su blur de Aurora)',
   'rgba(16,16,24,.18)': 'la sombra de una hoja de una carpeta (.gf-sheet)',
-  'rgba(20,20,22,.74)': '--gf-ink-soft: la meta de una carpeta, 7,9:1 sobre blanco',
+  'rgba(20,20,22,.96)': '--gf-ink-soft: la meta de una carpeta (monoespaciada fina), 4,5 o mas medida en pixeles',
 };
 
 /** Las clases de un texto CSS (.xxx), sin las de dentro de comillas ni de atributos. */

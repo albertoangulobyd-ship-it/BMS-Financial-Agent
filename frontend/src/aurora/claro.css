@@ -20,14 +20,14 @@ html:not(.dark) .send{border:1px solid transparent;background:var(--l-accent);co
 html:not(.dark) .response{color:var(--l-ink-2)}
 html:not(.dark) .response button{color:var(--l-ink-3)}
 html:not(.dark) .panel{background:var(--l-surface);border:1px solid var(--l-line);scrollbar-color:var(--l-scroll) transparent;box-shadow:var(--l-shadow-2)}
-html:not(.dark) .panel-top{color:var(--l-ink-3)}
+html:not(.dark) .panel-top{color:var(--l-ink-2)}
 html:not(.dark) .panel-top button{color:var(--l-ink-2)}
 html:not(.dark) .panel-desc{color:var(--l-ink-3)}
 html:not(.dark) .sample-label{color:var(--l-ink-3)}
 html:not(.dark) .sample-label i{background:var(--l-ink-3)}
 html:not(.dark) .search{border:1px solid var(--l-line);color:var(--l-ink-3)}
 html:not(.dark) .search input{background:none;border:0;outline:none}
-html:not(.dark) .list-title{color:var(--l-ink-3)}
+html:not(.dark) .list-title{color:var(--l-ink-2)}
 html:not(.dark) .doc{border-bottom:1px solid var(--l-line-soft)}
 html:not(.dark) .doc-icon{background:var(--l-subtle);border:1px solid var(--l-line-soft);color:var(--l-ink-2)}
 html:not(.dark) .doc small{color:var(--l-ink-3)}
@@ -96,7 +96,7 @@ html:not(.dark) .nav-item{color:var(--l-ink-3)}
 html:not(.dark) .search-workspace{background:var(--l-page);color:var(--l-ink-1)}
 html:not(.dark) .search-workspace a{color:inherit}
 html:not(.dark) .search-back{color:var(--l-ink-3)!important}
-html:not(.dark) .search-eyebrow{color:var(--l-ink-3)}
+html:not(.dark) .search-eyebrow{color:var(--l-ink-2)}
 html:not(.dark) .search-intro h1{color:var(--l-ink-1)}
 html:not(.dark) .search-intro>p:last-child{color:var(--l-ink-3)}
 html:not(.dark) .search-hero{border:1px solid var(--l-line);background:var(--l-surface);box-shadow:var(--l-shadow-2)}
@@ -126,7 +126,7 @@ html:not(.dark) .ui-command-item[data-selected=true]{background:var(--l-veil-2);
 html:not(.dark) .ui-command-item>svg:last-child{color:var(--l-accent)}
 html:not(.dark) .party-option small{color:var(--l-ink-3)}
 html:not(.dark) [cmdk-empty]{color:var(--l-ink-3)}
-html:not(.dark) [cmdk-group-heading]{color:var(--l-ink-3)}
+html:not(.dark) [cmdk-group-heading]{color:var(--l-ink-2)}
 html:not(.dark) .calendar-header{color:var(--l-ink-3)}
 html:not(.dark) .calendar-month strong{color:var(--l-ink-1)}
 html:not(.dark) .calendar-month button{color:var(--l-ink-3)}
@@ -171,7 +171,7 @@ html:not(.dark) .ui-badge{border:1px solid var(--l-line)}
 html:not(.dark) .search-thinking{color:var(--l-ink-2)}
 html:not(.dark) .search-thinking small{color:var(--l-ink-3)}
 html:not(.dark) .finance-bento{color:var(--l-ink-1)}
-html:not(.dark) .fb-eyebrow{color:var(--l-ink-3)}
+html:not(.dark) .fb-eyebrow{color:var(--l-ink-2)}
 html:not(.dark) .fb-header h2 span{color:var(--l-ink-3)}
 html:not(.dark) .fb-stamp{color:var(--l-ink-3)}
 html:not(.dark) .fb-card{border:1px solid var(--l-line-soft);background:var(--l-surface);box-shadow:var(--l-shadow-2)}
@@ -255,7 +255,7 @@ html:not(.dark) .flow-success .flow-circle{background:var(--l-ok-dot)}
 html:not(.dark) .aurora .hero-orb canvas{filter:none!important}
 html:not(.dark) .processing-workspace{color:var(--l-ink-1)}
 html:not(.dark) .processing-back{color:var(--l-ink-3)}
-html:not(.dark) .processing-eyebrow{color:var(--l-ink-3)}
+html:not(.dark) .processing-eyebrow{color:var(--l-ink-2)}
 html:not(.dark) .processing-workspace h1{color:var(--l-ink-1)}
 html:not(.dark) .processing-description{color:var(--l-ink-3)}
 html:not(.dark) .processing-plan{color:var(--l-ink-3)}
@@ -297,7 +297,7 @@ html:not(.dark) .inline-search-close{color:var(--l-ink-3)}
 html:not(.dark) .processing-card{color:var(--l-ink-1)}
 html:not(.dark) .pc-outline{border:1px solid var(--l-line-soft);border-color:var(--l-line)}
 html:not(.dark) .is-running .pc-outline{border-color:var(--l-line-strong)}
-html:not(.dark) .pc-label{color:var(--l-ink-3)}
+html:not(.dark) .pc-label{color:var(--l-ink-2)}
 html:not(.dark) .pc-texture{color:var(--l-ink-1)}
 html:not(.dark) .pc-reading{color:var(--l-ink-3)}
 html:not(.dark) .pc-reading p{color:var(--l-ink-2)}
@@ -331,6 +331,7 @@ html:not(.dark) .process-mode .analysis-entry small{color:var(--l-ink-3)!importa
 html:not(.dark) .process-mode .analysis-entry{border-color:var(--l-line)!important}
 html:not(.dark) .processing-embedded .processing-complete{scrollbar-color:var(--l-scroll) transparent}
 html:not(.dark) .zur-reading{color:var(--l-ink-3)}
+html:not(.dark) .zur-reading-top{color:var(--l-ink-2)}
 html:not(.dark) .zur-percent{color:var(--l-ink-1)}
 html:not(.dark) .zur-progress{border:0;background:var(--l-subtle-2);color:var(--l-ink-1)}
 html:not(.dark) .zur-progress::-webkit-progress-bar{background:var(--l-subtle-2)}
@@ -343,7 +344,7 @@ html:not(.dark) .ws-home{color:var(--l-ink-3)!important}
 html:not(.dark) .ws-breadcrumbs{color:var(--l-ink-3)}
 html:not(.dark) .ws-breadcrumbs a:hover{color:var(--l-ink-1)}
 html:not(.dark) .ws-breadcrumbs [aria-current=page]{color:var(--l-ink-1)}
-html:not(.dark) .ws-eyebrow{color:var(--l-ink-3)}
+html:not(.dark) .ws-eyebrow{color:var(--l-ink-2)}
 html:not(.dark) .ws-heading>div>p:last-child{color:var(--l-ink-3)}
 html:not(.dark) .ws-demo{border:1px solid var(--l-line);color:var(--l-ink-3);background:var(--l-surface);box-shadow:var(--l-shadow-1)}
 html:not(.dark) .ws-demo i{background:var(--l-ink-4)}
@@ -356,7 +357,7 @@ html:not(.dark) .ws-search input{border:0;background:none;outline:none;color:var
 html:not(.dark) .ws-gallery-meta{color:var(--l-ink-3)}
 html:not(.dark) .ws-folder-cell{border:1px solid transparent}
 html:not(.dark) .ws-folder-active{border-color:var(--l-line);background:var(--l-surface)}
-html:not(.dark) .ws-party-type{color:var(--l-ink-3)}
+html:not(.dark) .ws-party-type{color:var(--l-ink-2)}
 html:not(.dark) .ws-party-type>span{color:var(--l-ink-3)}
 html:not(.dark) .ws-folder-caption{color:var(--l-ink-3)}
 html:not(.dark) .ws-folder-caption>a{color:var(--l-ink-2)}
@@ -375,7 +376,7 @@ html:not(.dark) .ws-empty button{color:var(--l-accent)}
 html:not(.dark) .ws-footnote{color:var(--l-ink-3)}
 html:not(.dark) .ws-dialog{border:1px solid var(--l-line);background:var(--l-surface);color:var(--l-ink-1);box-shadow:var(--l-shadow-3)}
 html:not(.dark) .ws-dialog::backdrop{background:var(--l-scrim)}
-html:not(.dark) .ws-dialog-top{color:var(--l-ink-3)}
+html:not(.dark) .ws-dialog-top{color:var(--l-ink-2)}
 html:not(.dark) .ws-paper{background:var(--l-surface);color:var(--l-ink-1);box-shadow:0 0 0 1px var(--l-line-strong),var(--l-shadow-1)}
 html:not(.dark) .ws-paper>p{color:var(--l-ink-3)}
 html:not(.dark) .ws-paper hr{border:0;border-top:1px solid var(--l-line)}
@@ -495,7 +496,12 @@ html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art{filter:blur(14px) s
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art[data-ready]{filter:blur(0) saturate(1) saturate(.72) brightness(1.3) contrast(.86)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art{filter:blur(10px) saturate(.72) brightness(1.3) contrast(.86)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art[data-ready]{filter:blur(0) saturate(.72) brightness(1.3) contrast(.86)}
-html:not(.dark) .gf-root:not([data-tone=dark]){--gf-ink-soft:rgba(20,20,22,.74)}
+/* La meta de una carpeta ("0 documenten", monoespaciada de 12 px y trazo fino): a 0,74 se mide en
+   pixeles a 3,0-3,3 (el suavizado no llega a la tinta); a 0,96, a 4,5 o mas en cada estado. */
+html:not(.dark) .gf-root:not([data-tone=dark]){--gf-ink-soft:rgba(20,20,22,.96)}
+/* La meta de una hoja de la carpeta abierta (#18181b80 sobre su papel blanco: 3,35) va en la tinta
+   suave de la carpeta (7,9); la de una hoja con arte sigue blanca. */
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-sheet:not(.gf-sheet--art) .gf-sheet-meta{color:var(--gf-ink-soft)}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-tint{background:linear-gradient(rgba(255,255,255,.28),rgba(255,255,255,.80) 46%,rgba(255,255,255,.94))}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-front-rim path{stroke:rgba(17,17,26,.10)}
 html:not(.dark) .gf-root:not([data-tone=dark]) .gf-back{background:linear-gradient(#f0f0f3,#e6e6eb)}
