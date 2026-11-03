@@ -5,23 +5,25 @@
 // El punto late solo en lo que pide hacer algo ya (el aislamiento que falla o falta) y deja de
 // latir para quien pide menos movimiento; en Documentos, la prioridad quieta y las marcas de nueva
 // y repetida latiendo, como las de Aurora.
-// En claro, los mismos tonos con el contraste de claro.css. Capturas en NL y EN.
+// En claro, los tonos de estado de la paleta clara (scripts/aurora-claro.mjs: --l-warn, --l-ok,
+// --l-danger y --l-info, texto oscuro del mismo tono sobre su tinte). Capturas en NL y EN.
 import type { Page } from '@playwright/test';
 import { capture, expect, expectAccessible, login, test } from './fixtures';
 import { TEXTS, chooseTheme, openDocuments, openEntry, openGroup, openSettingsRow, panel, panelRow, setLang } from './nav';
 
 const t = TEXTS.nl;
 
-/** El color del texto de una fila, por su clase (styles.css:9, bms.css y claro.css). */
+/** El color del texto de una fila, por su clase (styles.css:9, bms.css y, en claro, la paleta de
+ *  scripts/aurora-claro.mjs). */
 const ROW = {
   dark: { '': 'rgb(181, 154, 118)', paid: 'rgb(147, 180, 164)', blocked: 'rgb(248, 113, 113)' },
-  light: { '': 'rgb(79, 56, 21)', paid: 'rgb(28, 58, 45)', blocked: 'rgb(123, 0, 9)' },
+  light: { '': 'rgb(148, 82, 10)', paid: 'rgb(23, 114, 63)', blocked: 'rgb(184, 38, 28)' },
 } as const;
 
-/** El color de una pastilla, por su tono (workspace-layout.css:39-42 y claro.css). */
+/** El color de una pastilla, por su tono (workspace-layout.css:39-42 y, en claro, la paleta). */
 const PILL = {
   dark: { error: 'rgb(248, 113, 113)', warning: 'rgb(223, 173, 114)', success: 'rgb(137, 214, 165)', info: 'rgb(147, 185, 238)' },
-  light: { error: 'rgb(123, 0, 9)', warning: 'rgb(69, 28, 0)', success: 'rgb(0, 46, 7)', info: 'rgb(7, 40, 83)' },
+  light: { error: 'rgb(184, 38, 28)', warning: 'rgb(148, 82, 10)', success: 'rgb(23, 114, 63)', info: 'rgb(29, 91, 191)' },
 } as const;
 
 type Theme = keyof typeof ROW;

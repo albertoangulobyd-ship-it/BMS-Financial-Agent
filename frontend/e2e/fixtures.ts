@@ -12,6 +12,7 @@ import { expect, test as base, type Page } from '@playwright/test';
 import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
 import { glossaryMisses } from '../src/i18n/glossary';
 import { leftoversIn } from '../src/i18n/leftovers';
+import { decodePng } from './png';
 
 interface Watch {
   external: string[];
@@ -241,6 +242,159 @@ export async function expectStatusContrast(page: Page, what: string): Promise<vo
     return out;
   });
   expect(low, `contraste de las pastillas: ${what}`).toEqual([]);
+}
+
+/** Los campos de formulario (WCAG 1.4.11): su unica marca visible es el borde, que tiene que
+ *  llegar a 3:1 frente a lo de fuera y lo de dentro (docs/app-local.md, «El tema claro»). */
+export const FORM_FIELDS = '.order-field .composer, .filter-combo-trigger, .filter-date-trigger, .ui-button, .ws-search';
+
+/**
+ * El borde de cada campo de formulario a la vista (FORM_FIELDS), compuesto como lo pinta Chromium
+ * sobre los fondos que tiene detras (el mismo lienzo que expectStatusContrast): 3:1 o mas frente
+ * al fondo de fuera y frente al suyo.
+ */
+export async function expectFieldBoundary(page: Page, what: string, min = 3): Promise<number> {
+  const result = await page.evaluate(
+    ({ selector, min }) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      const paint = (colors: string[]): [number, number, number] => {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, 2, 2);
+        for (const color of colors) {
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, 2, 2);
+        }
+        const d = ctx.getImageData(0, 0, 1, 1).data;
+        return [d[0]!, d[1]!, d[2]!];
+      };
+      const luminance = ([r, g, b]: [number, number, number]) => {
+        const f = (v: number) => {
+          const c = v / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const ratio = (a: [number, number, number], b: [number, number, number]) => {
+        const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+        return (hi + 0.05) / (lo + 0.05);
+      };
+      const backgrounds = (from: Element | null) => {
+        const layers: string[] = [];
+        for (let el = from as HTMLElement | null; el; el = el.parentElement) {
+          const bg = getComputedStyle(el).backgroundColor;
+          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') layers.unshift(bg);
+        }
+        return layers;
+      };
+      const low: string[] = [];
+      let seen = 0;
+      for (const field of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+        const box = field.getBoundingClientRect();
+        const style = getComputedStyle(field);
+        if (box.width === 0 || box.height === 0 || style.visibility === 'hidden' || parseFloat(style.borderTopWidth) === 0) continue;
+        if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) continue;
+        seen += 1;
+        const outside = backgrounds(field.parentElement);
+        const inside = backgrounds(field);
+        const border = paint([...inside, style.borderTopColor]);
+        const worst = Math.min(ratio(border, paint(outside)), ratio(border, paint(inside)));
+        if (worst < min) low.push(`${field.className || field.tagName} (${style.borderTopColor}): ${worst.toFixed(2)}`);
+      }
+      return { low, seen };
+    },
+    { selector: FORM_FIELDS, min }
+  );
+  expect(result.low, `el borde de los campos: ${what}`).toEqual([]);
+  return result.seen;
+}
+
+/**
+ * El contraste de un texto medido en pixeles (lo que axe no mide: el texto sobre un cristal, un
+ * lienzo o un desenfoque): el recorte del texto (su trozo mas largo) de cada elemento a la vista
+ * y sin tapar, su fondo
+ * (el color que mas se repite) y su texto (la media del 2 % de pixeles mas lejos del fondo).
+ * Devuelve los medidos.
+ */
+export async function expectPixelContrast(page: Page, selector: string, min: number, what: string): Promise<number[]> {
+  const ratios: number[] = [];
+  const items = page.locator(selector);
+  const count = Math.min(await items.count(), 6);
+  for (let i = 0; i < count; i += 1) {
+    const item = items.nth(i);
+    // La caja del texto, ajustada (Range): una fila ancha con una palabra pequena no cuenta su
+    // hueco como fondo de mas. Un elemento sin texto, o transparente, no se mide.
+    const box = await item.evaluate((el) => {
+      if (!el.textContent?.trim()) return null;
+      for (let e: Element | null = el; e; e = e.parentElement) if (getComputedStyle(e).opacity === '0') return null;
+      // El trozo de texto mas largo del elemento (una ceja con su cuenta al otro lado, separados
+      // por un hueco, cuenta solo la ceja): su caja ajustada.
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let longest: Text | null = null;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if ((n.textContent?.trim().length ?? 0) > (longest?.textContent?.trim().length ?? 0)) longest = n as Text;
+      }
+      if (!longest) return null;
+      const range = document.createRange();
+      range.selectNodeContents(longest);
+      const r = range.getBoundingClientRect();
+      // Lo que tapa otra capa (el fundido del final de la conversacion, un dialogo) no se lee. Lo
+      // que no recibe el raton (pointer-events:none, como el nombre de una carpeta) se mira igual.
+      const passive: HTMLElement[] = [];
+      for (let e = longest.parentElement; e; e = e.parentElement) if (getComputedStyle(e).pointerEvents === 'none') passive.push(e);
+      const before = passive.map((e) => e.style.pointerEvents);
+      passive.forEach((e) => (e.style.pointerEvents = 'auto'));
+      const stack = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      passive.forEach((e, k) => (e.style.pointerEvents = before[k]!));
+      // Lo que queda encima del texto tapa si pinta algo: un fondo con color o una imagen (un
+      // degradado); una capa transparente o un lienzo (la escena de Procesar) no.
+      const own = stack.findIndex((e) => e === longest.parentElement || el.contains(e));
+      if (own < 0) return null;
+      const covers = stack.slice(0, own).some((e) => {
+        if (e.tagName === 'CANVAS') return false;
+        const cs = getComputedStyle(e);
+        const alpha = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor)?.[1].split(',')[3];
+        return cs.backgroundImage !== 'none' || (cs.backgroundColor !== 'transparent' && (alpha === undefined || parseFloat(alpha) > 0.05));
+      });
+      if (covers) return null;
+      return { x: Math.floor(r.left), y: Math.floor(r.top), width: Math.ceil(r.width) + 1, height: Math.ceil(r.height) + 1 };
+    });
+    const view = page.viewportSize();
+    if (!box || box.width < 2 || box.height < 2 || !view) continue;
+    if (box.y + box.height <= 0 || box.y >= view.height || box.x + box.width <= 0 || box.x >= view.width) continue;
+    if (!(await item.isVisible())) continue;
+    const shot = decodePng(await page.screenshot({ clip: box, animations: 'disabled', caret: 'hide' }));
+    const counts = new Map<number, number>();
+    const px = shot.data;
+    for (let p = 0; p < px.length; p += 4) {
+      const key = (px[p]! << 16) | (px[p + 1]! << 8) | px[p + 2]!;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const bgKey = [...counts].sort((a, b) => b[1] - a[1])[0]![0];
+    const bg = [(bgKey >> 16) & 255, (bgKey >> 8) & 255, bgKey & 255];
+    const far: { d: number; c: number[] }[] = [];
+    for (let p = 0; p < px.length; p += 4) {
+      const c = [px[p]!, px[p + 1]!, px[p + 2]!];
+      far.push({ d: Math.hypot(c[0]! - bg[0]!, c[1]! - bg[1]!, c[2]! - bg[2]!), c });
+    }
+    far.sort((a, b) => b.d - a.d);
+    const top = far.slice(0, Math.max(1, Math.round(far.length * 0.02)));
+    const ink = [0, 1, 2].map((k) => top.reduce((n, x) => n + x.c[k]!, 0) / top.length);
+    const lum = (c: number[]) =>
+      c
+        .map((v) => {
+          const x = v / 255;
+          return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        })
+        .reduce((n, x, k) => n + x * [0.2126, 0.7152, 0.0722][k]!, 0);
+    const [hi, lo] = [lum(bg), lum(ink)].sort((a, b) => b - a) as [number, number];
+    const ratio = (hi + 0.05) / (lo + 0.05);
+    ratios.push(ratio);
+    expect.soft(ratio, `contraste en pixeles de ${selector} (${i + 1}): ${what}`).toBeGreaterThanOrEqual(min);
+  }
+  return ratios;
 }
 
 /** El tema que se ve: la clase .dark de <html> (lib/theme.tsx), la unica que lo decide. */

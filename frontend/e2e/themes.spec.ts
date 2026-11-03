@@ -99,6 +99,20 @@ test('oscuro por defecto; claro y "Volg Windows" se eligen y se guardan por pers
   await expect(html).toHaveAttribute('data-theme', 'light');
   await expectAccessible(page, 'inicio en claro');
   await capture(page, 'nl-home');
+  // El claro rehecho (scripts/aurora-claro.mjs): la pagina #f5f5f7 en el inicio, en Documentos
+  // y en Procesar (la misma en todas partes), y el enviar sin nada que enviar, gris y opaco (no
+  // el acento a 0,3).
+  const background = (selector: string) => page.locator(selector).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  await settled(page);
+  expect(await background('html')).toBe('rgb(245, 245, 247)');
+  const send = page.locator('.composer .send');
+  await expect(send).toBeDisabled();
+  expect(await send.evaluate((el) => [getComputedStyle(el).opacity, getComputedStyle(el).backgroundColor])).toEqual(['1', 'rgb(236, 236, 240)']);
+  await openDocuments(page);
+  expect(await background('.workspace')).toBe('rgb(245, 245, 247)');
+  await openEntry(page, 'process');
+  expect(await background('.app.process-mode')).toBe('rgb(245, 245, 247)');
+  await openEntry(page, 'home');
 
   // "Volg Windows": sigue al sistema, tambien si cambia con la app abierta.
   await chooseTheme(page, 'system');
