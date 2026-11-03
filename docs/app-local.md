@@ -191,6 +191,30 @@ orbe con un aro lila en su zona de clic, «Terug naar start» en claro sobre el 
 la caja con su borde lila al llegar con Tab. La respuesta terminada de la conversación y cada
 estado y etapa de Procesar se anuncian (un `role="status"` oculto).
 
+**Las zonas táctiles** (peticiones del dueño del 30-10-2026 y del 02-11-2026: «Sí, amplía
+también esos controles»). Los controles pequeños de Aurora se ven como en Aurora, pero se pulsan
+en más sitio: con ratón, **24 × 24 px** como poco (WCAG 2.2, 2.5.8), y con el dedo (`pointer:
+coarse`), **44 × 44** donde cabe. Todo está en nuestra `src/aurora/bms.css` (las hojas de Aurora
+no se tocan) y de dos maneras que no cambian nada a la vista ni lo que se desplaza: un relleno y
+un margen negativo iguales (la caja crece por los cuatro lados sin mover nada, y el anillo del
+foco se acerca otro tanto para quedar donde estaba) o una capa transparente (`::before`). Son la
+✕ de un panel («Paneel sluiten») y la de la hoja de un documento («Voorbeeld sluiten»), 19 × 19
+(25 × 25 con ratón, 45 × 45 con el dedo); la ✕ de la tarjeta de una fila («Detail sluiten»),
+16 × 16 (24 × 24, y con el dedo 44 × 44 en la esquina de la tarjeta, por dentro y redondeada como
+ella); «Terug naar de werkruimte» de la conversación, «Terug naar Aurora» y las migas de
+Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
+entrada, «Filters wissen» de la búsqueda, los dos tiradores del importe y el buscador de las
+listas de los filtros, de 12 a 21 px de alto (de 24 a 26 con ratón y de 44 a 46 con el dedo); y
+el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro: las migas, 30 de
+alto con el dedo (dos líneas de migas quedan a 10 px en la ficha de una carpeta), y los
+tiradores, 29,5 de ancho (crecen hacia fuera, para no pisarse; al final de la pista, a 400 px,
+quedan 16 hasta el borde de la ventana). Lo que cambia al pulsar está en `docs/v1/registro.md`
+(«Las zonas táctiles de los demás controles»): un toque junto a la ✕ de una hoja, en su margen,
+la cierra con la ✕ (antes, con el clic en el margen: lo mismo), y uno junto a un tirador lo
+agarra en vez de moverlo hasta ese punto. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
+principal, a 400 × 860 con ratón y con el dedo, nada que se pulse mide menos de 24 × 24 (medido
+con `document.elementFromPoint`, no con su caja).
+
 **La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
 240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso
 650, `#eee5fa`; las demás, `#544e60`). Las ocho, en este orden: **Instellingen, Zoeken,
@@ -563,7 +587,8 @@ hoja de una factura) son puros.
   Lo único que cambia, con el dedo: un toque en esa franja del margen, bajo el control, ya no
   cierra la hoja (como cualquier toque fuera de ella), sino que la pliega o despliega; y también
   uno que caiga unos pocos px fuera del diálogo justo debajo, porque el navegador acerca el
-  toque al control. Con ratón no cambia nada.
+  toque al control. Con ratón no cambia nada. Los demás controles pequeños tienen la suya
+  (arriba, «Las zonas táctiles», en el apartado 4).
 - **El desplazamiento de la hoja** se mide en cada factura de la base de prueba, plegada como
   se abre (`e2e/aurora-paridad.spec.ts`): no pasa de 300 px a 1440 × 900 ni a 400 × 860, en
   oscuro y en claro. Las plegadas, 246 px como mucho a 1440 (DBO-2026-0417 y KT-202609) y
@@ -1136,8 +1161,14 @@ otra vez plegada al volver a abrirla, las de cuatro filas o menos sin control y,
 400 px y con «menos movimiento», sin animación), las doce
 primeras y las demás en el árbol, una carpeta que no se pudo leer con su reintento y el archivo
 vacío (respuestas cambiadas con `page.route`), y las capturas en los tres idiomas, en los dos
-temas y en el móvil; `e2e/daily.spec.ts` el trabajo diario con órdenes de verdad en las tarjetas
-de Start y en la hoja (los motivos de las bloqueadas en los dos idiomas, aceptar un hallazgo con
+temas y en el móvil; `e2e/objetivos.spec.ts` (con `e2e/objetivos.ts` y `e2e/zona-tactil.ts`)
+las zonas táctiles: en los 71 estados principales, a 400 × 860 con ratón y con el dedo, ningún
+objetivo de menos de 24 × 24, y en cada uno, contra lo de 1cc96b0 (las zonas nuevas quitadas),
+los mismos píxeles, las mismas medidas de desplazamiento y ningún clic que cambie de dueño salvo
+los apuntados; cada zona a 1440 y 400, con los dos punteros y en los dos temas (su tamaño, en
+reposo, con el ratón encima y con el foco, píxel a píxel), y con el dedo un toque en su borde,
+fuera de lo que se ve, hace lo que uno en el control; `e2e/daily.spec.ts` el trabajo diario con
+órdenes de verdad en las tarjetas de Start y en la hoja (los motivos de las bloqueadas en los dos idiomas, aceptar un hallazgo con
 la segunda firma de otra persona y resolver una excepción, marcar como gecontroleerd, una `rev`
 vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos personas,
 y que quien solo mira no ve ningún botón); `e2e/payments.spec.ts` cobrar y pagar en E2-C, E2-P y

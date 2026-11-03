@@ -9793,3 +9793,158 @@ Con la tarjeta de una fila abierta debajo, lo mismo.
   30-10-2026 la última de Proefwacht (bloqueada) vence en tres días y pasa delante. Fallaba igual
   con lo construido en 931c8c3; ahora abre la de DGG-2026-118 por su número. Python, 2626 y 12
   saltadas.
+
+### Las zonas táctiles de los demás controles (petición del dueño del 02-11-2026)
+
+Tras la zona del control de la hoja plegada, un barrido independiente a 400 × 860 (ratón) listó
+otros controles que se pulsaban en menos de 24 × 24 px, y al dueño se le ofreció agrandarlos de
+la misma manera, **sin cambiar cómo se ven**. Su respuesta, el 02-11-2026: «Sí, amplía también
+esos controles».
+
+#### El barrido
+
+Un barrido propio sobre lo construido en 1cc96b0 (`e2e/objetivos.ts`: cada elemento que se pulsa
+—`button`, `a[href]`, `input`, `select`, `summary`, los roles de control, los nodos del árbol y
+todo lo que tiene `tabindex` ≥ 0— y la zona en que un clic le llega de verdad, medida con
+`document.elementFromPoint` punto a punto y no con su caja), en la gira de los estados
+principales: la entrada con sus idiomas, el inicio, la rueda, Ajustes con el idioma, el tema, la
+cuenta y el sistema, cada panel en reposo y en cada vista de grupo con la tarjeta de su primera
+fila y su orden, Importeren, la búsqueda con sus filtros, el calendario y las dos listas, la
+conversación con el resumen y una respuesta con filas, Documentos (la rejilla, el árbol abierto,
+las fichas de un proveedor y de un cliente, la hoja de una factura, un Object, una PO, la hoja
+plegada, desplegada, con una tarjeta y con una orden) y Procesar: 73 estados, a 1440 × 900 y a
+400 × 860, con ratón y con el dedo, en oscuro (el tamaño no cambia con el tema). A la lista
+ofrecida al dueño se sumaron **los idiomas de la entrada**, **«Filters wissen»** de la búsqueda,
+**los dos tiradores del importe**, **el buscador de las dos listas de los filtros** (la empresa y
+el tipo), **todas las migas** de Documentos (también las de la ficha de una carpeta) y **los
+«Kaart … openen/bekijken»** de cada carpeta y de la ficha de un cliente. Nada más se quedaba por
+debajo de 24 × 24.
+
+#### Cómo
+
+Todo en nuestra `src/aurora/bms.css` (ninguna hoja de Aurora cambia; `claro.css` sigue al día
+porque ninguna regla lleva color), sin clases nuevas en el TSX, de dos maneras:
+
+- **Un relleno y un margen negativo iguales** (la caja crece por los cuatro lados y nada se
+  mueve: no tienen fondo ni borde; el anillo del foco se acerca otro tanto con `outline-offset`
+  y queda donde estaba): las ✕ de un panel y de una hoja (3 px; con el dedo, 13), «Terug naar de
+  werkruimte» (5; 15), «Filters wissen» (6; 16), «Kaart … openen» (5; 15), las migas (2; 5) y el
+  buscador de una lista (3; 13; un campo no tiene `::before`). Con `position: relative`, alguno
+  se pintaba distinto (el texto de «Kaart … openen», el brillo de detrás de la hoja, un píxel de
+  una miga): por eso no.
+- **Una capa transparente** (`::before`, en posición absoluta, centrada con `inset:
+  min(0px, calc(50% - 12px))`, de modo que solo crece lo que no llega): la ✕ de la tarjeta de una
+  fila, «Terug naar Aurora», «Terug naar start» de Procesar, los idiomas de la entrada (pegados
+  entre sí: crecen hacia arriba y hacia abajo) y los tiradores del importe (crecen hacia fuera,
+  el de abajo a la izquierda y el de arriba a la derecha, para no pisarse). Los idiomas y los
+  tiradores pasan a `position: relative`.
+
+Con el dedo, la ✕ de la tarjeta de una fila tiene 44 × 44 **en la esquina de la tarjeta, por
+dentro, y redondeada como ella** (11 px, el radio de 12 menos su borde): cuadrada, los pocos
+puntos de fuera del arco eran, en la hoja de una factura, del propio diálogo, y un toque ahí, que
+cerraba la hoja, habría cerrado solo la tarjeta (lo encontró la prueba de abajo; arreglado en
+3f4cc95).
+
+#### Lo medido
+
+La caja que se ve (en neerlandés, como en la base de prueba) y la zona medida con
+`elementFromPoint` (ancho × alto en px, el mínimo de todos los estados en que aparece, en oscuro y
+en claro); entre paréntesis, la de 1cc96b0:
+
+| Control | Lo que se ve | Ratón, 1440 | Ratón, 400 | Dedo, 1440 | Dedo, 400 |
+| --- | --- | --- | --- | --- | --- |
+| ✕ de un panel («Paneel sluiten», «Cerrar panel») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
+| ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
+| ✕ de la hoja («Voorbeeld sluiten», «Cerrar documento») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
+| «Terug naar de werkruimte» («Volver al espacio») | 143,72 × 15 (145 × 16) | 153,72 × 25 | 153,72 × 25 | 173,72 × 45 | 173,72 × 45 |
+| «Terug naar Aurora» (`a.ws-home`) | 118,2 × 16,5 a 1440, 101,08 × 15 a 400 (119 × 17, 102 × 16) | 119 × 25 | 102 × 25 | 119 × 45 | 102 × 45 |
+| Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 32,55 × 30 | 32,55 × 30 |
+| Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 70,25 × 30 | 70,25 × 30 |
+| Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 70,84 y 150,97 × 30 | igual |
+| «Kaart van … openen» (`.ws-folder-caption a`) | 82,56 × 15 (83-84 × 16) | 92,56 × 25 | 92,56 × 25 | 112,56 × 45 | 112,56 × 45 |
+| «Terug naar start» de Procesar (`.processing-back`) | 87,73 × 13,5 (89 × 14) | 89 × 25 | 89 × 25 | 89 × 45 | 89 × 45 |
+| Idiomas: «Español», «Nederlands», «English» | 41,22, 58,14 y 38,19 × 12,59 (42, 60 y 39 × 13-14) | 42, 60 y 39 × 25 | igual | 45, 60 y 45 × 45 | igual |
+| «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 107,2 × 45,5 | 100,73 × 44 |
+| Tiradores del importe («Minimumbedrag», «Maximumbedrag») | 15 × 15 (16 × 16) | 27 × 25 | 27 × 25 | 32 × 45 | 32 × 45 |
+| Buscador de una lista («Zoek een klant of leverancier») | 296 × 19,8 (297 × 21) | 302 × 25,8 | 302 × 25,8 | 322 × 45,8 | 322 × 45,8 |
+| Control de la hoja plegada (del 30-10-2026) | 74,45 × 13,5 | 75 × 29 | 75 × 29 | 75 × 45 | 75 × 45 |
+
+Donde 44 no cabe: **las migas**, con el dedo, 30 de alto, porque en la ficha de una carpeta a
+400 px van en dos líneas a 10 px y más alto pisaría la de la otra línea (de ancho, solo 5 px por
+lado: los separadores están a 10); y **los tiradores**, 29,5 px de ancho de capa (32 medidos con
+el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana. Las
+dos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control queda en la
+lista de excepciones de la guarda.
+
+#### Lo que cambia al pulsar
+
+Comparado punto a punto (`hitChanges`, en cada estado de las pruebas: la ventana cada 3 px y
+cada zona con su alrededor cada píxel) a dónde iba un clic en 1cc96b0 y a dónde va ahora. Casi
+todo lo que pasa a ser de una zona no era de nadie: ni un control ni algo cuyo clic hiciera algo
+(se miran los manejadores de React del punto y de lo de encima, salvo los de captura de Radix y
+de la rueda, que solo apuntan dónde se apoyó, y el del diálogo de una hoja, que solo cierra con el
+clic en el mismo diálogo). Dos casos sí hacían algo, y se dejan:
+
+- **El margen del diálogo junto a su ✕** (482 puntos a 400 y 914 a 1440 con ratón; 3206 y 6120
+  con el dedo, en los estados de la prueba): un clic ahí cerraba la hoja (el clic en el propio
+  diálogo) y ahora la cierra la ✕. Lo mismo para quien pulsa.
+- **La pista del importe junto a un tirador** (474 puntos a 400 y 644 a 1440, con los dos
+  punteros): un clic ahí movía el tirador más cercano hasta ese punto (el importe saltaba unos
+  euros) y ahora lo agarra sin moverlo (el foco, y arrastrar sigue igual). Mejor para quien casi
+  da en el tirador; lo comprueba el toque de la prueba con el dedo (`aria-valuenow` no cambia).
+
+Además, como con el control de la hoja plegada, Chromium acerca un toque al objetivo más próximo:
+en la ficha de una carpeta a 400 px, las dos líneas de migas lindan (sus zonas se tocan) y un
+toque en el borde de abajo de una miga de la primera línea puede ir a la de debajo, como antes
+uno entre las dos (la de debajo es la página en que se está y no hace nada). Con ratón no pasa.
+
+#### Las pruebas
+
+- **Lo de 1cc96b0, exacto**: las pruebas comparan con las zonas nuevas quitadas (una hoja
+  construida que deja el relleno, el margen, la posición, el `::before` y el anillo del foco como
+  en las hojas de Aurora; `e2e/zona-tactil.ts`, `withoutHitArea(page, true, 'nuevas')`). Que eso
+  es 1cc96b0 se comprobó contra lo construido en 1cc96b0 (un clon en el scratchpad, la misma gira
+  corta): cada estilo calculado de cada control con zona, de su `::before` y `::after`, su caja y
+  su estilo con el foco del teclado, en 12 estados a 1440 y 400 con los dos punteros: 1260
+  comparaciones, 0 distintas.
+- **La guarda** (`e2e/objetivos.spec.ts`, nueva): la gira entera (71 estados hoy; cuántos
+  depende de los grupos con filas el día de la prueba) a 400 × 860 con ratón y con el dedo
+  (`isMobile`, `hasTouch`): de 803 a 811 objetivos medidos en cada pasada y **0 de menos de 24 ×
+  24**; y
+  en cada estado, contra 1cc96b0, los mismos píxeles en reposo, las mismas medidas de
+  desplazamiento (`scrollWidth`, `scrollHeight`, `clientWidth` y `clientHeight` de la página y de
+  todo lo que se desplaza o recorta con `overflow`, paneles y diálogos incluidos) y **ningún clic
+  que cambie de dueño** salvo los dos casos de arriba. Lo tapado en parte por una lista abierta
+  (el calendario, las dos listas) no cuenta mientras está abierta.
+- **Cada zona** (nueva), a 1440 × 900 y a 400 × 860, con ratón y con el dedo (`pointer: coarse`),
+  en oscuro y en claro, en los 12 estados donde están: su tamaño medido (lo de la tabla), que no
+  pisa a nadie, las mismas medidas de desplazamiento y **los mismos píxeles en reposo, con el
+  ratón encima de cada control y con el anillo del foco del teclado** (cada control traído a la
+  vista): 144 a 1440 y 140 a 400 con ratón, 84 y 82 con el dedo, todas iguales al píxel.
+- **Con el dedo** (nueva, `isMobile` y `hasTouch` a 400 × 860): un toque a 2 px del borde de cada
+  zona, fuera de lo que se ve, hace lo que uno en el control: los idiomas cambian la lengua, la ✕
+  del panel vuelve a la rueda, la ✕ de la tarjeta la cierra (en un panel y en la hoja, que
+  sigue), los tiradores se agarran sin moverse, el buscador toma el foco, «Filters wissen» quita
+  los filtros, «Terug naar de werkruimte» vuelve, «Kaart … openen» abre la ficha, la miga
+  «Documenten» vuelve a la rejilla, la ✕ de la hoja la cierra, «Terug naar Aurora» y «Terug naar
+  start» vuelven al inicio; axe sin avisos serios en Documentos y en el inicio. El gris de «Druk
+  om te navigeren» (`.discreet`, #77717f sobre #08090b, 4,22:1, de Aurora) se apunta en
+  `e2e/aurora/contraste.json`: axe lo mide sobre el fondo a 400 px con el dedo.
+- Miradas con las zonas pintadas (un contorno y un fondo rojos en la capa, verdes en la caja que
+  crece, metidos solo en la página de la prueba), a 1440 y a 400, con ratón y con el dedo: cada
+  zona donde se esperaba, sin tocar a la de al lado.
+
+#### Resultado
+
+- Commits: 186f907 (las zonas, en `bms.css`), 2024d5b y 23dd417 (la guarda y las pruebas),
+  3f4cc95 (la esquina redondeada de la ✕ de una tarjeta) y este.
+- Las suites: typecheck; vitest, 1352 (con `scripts/aurora-claro.test.mjs` y las comprobaciones
+  letra a letra de las hojas de Aurora); `node scripts/aurora-claro.mjs --comprobar`, al día; la
+  construcción (`fuente.json` al día, `git status` limpio); `e2e/objetivos.spec.ts`, 7 de 7; la
+  e2e entera, 122 de 126 a la primera, con la CPU compartida: T26 de `aurora-tiempos.spec.ts`
+  (un muelle medido 10 ms antes, con la carga) pasa sola; las otras tres fallan igual con lo
+  construido en 1cc96b0 (un clon limpio, el mismo día) porque la base de prueba fecha relativo a
+  hoy, y no son de las zonas: `aurora-paridad.spec.ts`, el desplazamiento de las hojas sin plegar
+  a 400 px (JV-2026-006 332 px, VD26-309 y VD26-209 316, en los dos temas; el 30-10-2026, 300 como
+  mucho), y `daily.spec.ts`, «een tramo» (KT-202608 ya no está en el tramo de 61 a 90 días el
+  03-11-2026). Quedan para otro paso. Python, 2626 y 12 saltadas.
