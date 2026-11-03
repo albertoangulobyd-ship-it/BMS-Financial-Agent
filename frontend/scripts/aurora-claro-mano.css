@@ -1,0 +1,106 @@
+
+/* ==== A mano (scripts/aurora-claro-mano.css; aurora-claro.mjs la pega al final de claro.css).
+   Lo que no sale de una hoja de SHEETS o no se ve desde ella: los estados que Aurora no tiene
+   (encima, pulsado, inactivo), los lienzos, los atributos SVG del resumen, las carpetas de
+   cristal y Procesar. Cada clase de aqui tiene que existir en una hoja o en un .tsx de
+   src/aurora (si no, build() falla). Solo tokens --l-* o colores de RAW_OK. */
+
+/* -- La pagina: la seleccion de texto y el logo (un PNG que un filtro pinta de blanco; en el
+   claro, en la tinta: invert(.91) da #171717). */
+html:not(.dark) ::selection{background:var(--l-selection);color:var(--l-ink-1)}
+html:not(.dark) .bms-brand svg{filter:invert(.91)}
+
+/* -- Las acciones principales: un solo color (el acento) con su encima, su pulsado y su
+   inactivo neutro (nunca el lila a 0,3). Con aria-busy, el principal se queda en el acento. */
+html:not(.dark) .send:hover:not(:disabled),html:not(.dark) .search-submit:hover:not(:disabled),html:not(.dark) .primary:hover:not(:disabled),html:not(.dark) .ws-download:hover{background:var(--l-accent-hover)}
+html:not(.dark) .send:active:not(:disabled),html:not(.dark) .search-submit:active:not(:disabled),html:not(.dark) .primary:active:not(:disabled),html:not(.dark) .ws-download:active{background:var(--l-accent-press)}
+html:not(.dark) .send:disabled,html:not(.dark) .primary:disabled:not([aria-busy=true]){opacity:1;background:var(--l-subtle-2);color:var(--l-ink-4)}
+html:not(.dark) .search-submit:disabled:not([aria-busy=true]){opacity:1;background:var(--l-subtle-2);color:var(--l-ink-4)}
+html:not(.dark) .primary[aria-busy=true]{background:var(--l-accent);color:var(--l-on-fill)}
+
+/* -- Los secundarios (.outline) llevan tambien el contorno de Tailwind en el color del texto,
+   pegado a su borde: dos lineas. En el claro, una sola (la del borde), sobre blanco y con su
+   sombra minima. El foco con el teclado vuelve a pintar el anillo (va despues y pesa mas). */
+html:not(.dark) .outline{outline-color:transparent;background:var(--l-surface);box-shadow:var(--l-shadow-1)}
+html:not(.dark) .outline:hover:not(:disabled){background:var(--l-subtle)}
+html:not(.dark) .outline:focus-visible{outline-color:var(--l-focus)}
+
+/* -- El foco con el teclado en una fila (un boton sin fondo, de lado a lado): 2 px del acento a
+   4 px, con las esquinas redondas (no roza la cifra ni el estado pegados al borde derecho). */
+html:not(.dark) .doc:focus-visible,html:not(.dark) .search-result:focus-visible,html:not(.dark) .ws-file-table>a:focus-visible{outline:2px solid var(--l-focus);outline-offset:4px;border-radius:12px}
+
+/* -- El "si" de una orden: flota en la conversacion (cristal casi opaco, con su respaldo sin
+   desenfoque); dentro de un panel, de una tarjeta o de la hoja, plano. La orden, en el acento
+   (el mismo color de accion que .primary); "Annuleren", en gris. */
+html:not(.dark) .panel .chat-export,html:not(.dark) .detail .chat-export,html:not(.dark) .ws-dialog .chat-export{background:var(--l-surface);border-color:var(--l-line);box-shadow:none}
+html:not(.dark) .chat-export button[data-order-confirm]{color:var(--l-accent)}
+html:not(.dark) .chat-export button:not([data-order-confirm]){color:var(--l-ink-2)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){html:not(.dark) .chat-export{background:var(--l-surface)}}
+
+/* -- Las pastillas: el punto (y su latido) en el tono de la paleta (status.tsx le pone los de
+   Tailwind: emerald, amber, red y blue 500). */
+html:not(.dark) .ui-status.online .ui-status-indicator>span{background:var(--l-ok-dot)}
+html:not(.dark) .ui-status.degraded .ui-status-indicator>span{background:var(--l-warn-dot)}
+html:not(.dark) .ui-status.offline .ui-status-indicator>span{background:var(--l-danger-dot)}
+html:not(.dark) .ui-status.maintenance .ui-status-indicator>span{background:var(--l-info-dot)}
+
+/* -- Los orbes sobre la pagina clara. El sombreador suma luz (su centro es blanco y en el claro
+   se pierde): un poco mas de color, sin contraste (da el arcoiris de caramelo) ni halo (deja una
+   mancha gris). El hue-rotate es el de Aurora (styles.css: .aurora canvas), asi su transicion
+   sigue igual. La aura pequena de la conversacion, sin screen (sobre blanco desaparece). */
+html:not(.dark) .aurora canvas{filter:hue-rotate(var(--aura-hue,0deg)) saturate(1.25)}
+html:not(.dark) .aurora-route-flight canvas,html:not(.dark) .ws-companion canvas,html:not(.dark) .hero-wave canvas{filter:saturate(1.25)}
+html:not(.dark) .chat-aura canvas{mix-blend-mode:normal}
+
+/* -- El resumen pinta en atributos (finance-bento-component.tsx): los puntos de la cifra, las
+   marcas del reparto y su porcentaje, y las barras de cobrar y pagar. Monocromo en tinta. */
+html:not(.dark) .fpb .dots circle{fill:var(--l-ink-1)}
+html:not(.dark) .fpb .alg line[stroke="#efedf1"]{stroke:var(--l-ink-1)}
+html:not(.dark) .fpb .alg line[stroke="#504b56"]{stroke:var(--l-tick)}
+html:not(.dark) .fpb .alg text[fill=white]{fill:var(--l-ink-1)}
+html:not(.dark) .fpb .alg text[fill="#999"]{fill:var(--l-ink-3)}
+html:not(.dark) .fpb .balance-row:first-child i{background:var(--l-ink-1)!important}
+html:not(.dark) .fpb .balance-row:last-child i{background:var(--l-ink-4)!important}
+html:not(.dark) .fpb #asof,html:not(.dark) .fpb .muted,html:not(.dark) .fpb .mono{color:var(--l-ink-3)}
+html:not(.dark) .fpb .cap{color:var(--l-ink-2)}
+
+/* -- Documentos: el arbol en el movil es una caja que se desplaza (200 px); en el claro, su
+   borde de abajo se funde en vez de cortarse (en el oscuro corta igual que siempre). El foco
+   en una fila del arbol es su anillo de dentro, sin el contorno general. */
+@media(max-width:600px){html:not(.dark) .ws-sidebar{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}}
+html:not(.dark) .tree-selected .tree-meta{color:var(--l-ink-2)}
+
+/* -- Las carpetas de cristal: el tono claro del dueno (data-tone light, la hoja tal cual) sobre
+   su marmol, aclarado (violeta y acero del arte, sin la perla invertida). El desenfoque y la
+   saturacion de antes de estar listo son los de glass-folder-cards.css, asi su transicion
+   (filter 1.2s y .9s) va de uno a otro sin saltos. */
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art{filter:blur(14px) saturate(.6) saturate(.72) brightness(1.3) contrast(.86)}
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art[data-ready]{filter:blur(0) saturate(1) saturate(.72) brightness(1.3) contrast(.86)}
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art{filter:blur(10px) saturate(.72) brightness(1.3) contrast(.86)}
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art[data-ready]{filter:blur(0) saturate(.72) brightness(1.3) contrast(.86)}
+html:not(.dark) .gf-root:not([data-tone=dark]){--gf-ink-soft:rgba(20,20,22,.74)}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-tint{background:linear-gradient(rgba(255,255,255,.28),rgba(255,255,255,.80) 46%,rgba(255,255,255,.94))}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-front-rim path{stroke:rgba(17,17,26,.10)}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-back{background:linear-gradient(#f0f0f3,#e6e6eb)}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-back-rim path{stroke:rgba(255,255,255,.7)}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-shadow{background:rgba(16,16,24,.16)}
+html:not(.dark) .gf-root:not([data-tone=dark]) .gf-sheet{box-shadow:inset 0 1px 0 var(--l-highlight),0 0 0 1px var(--l-line),0 10px 24px -10px rgba(16,16,24,.18)}
+html:not(.dark) .gf-front:has(.gf-hit:focus-visible) .gf-front-rim path{stroke:var(--l-focus);stroke-width:3}
+html:not(.dark) .gf-sheet:focus-visible,html:not(.dark) .gf-key:focus-visible{outline-color:var(--l-focus)}
+html:not(.dark) .gf-sheet--new .gf-sheet-name{color:var(--l-ok)!important}
+html:not(.dark) .gf-sheet--duplicate .gf-sheet-name{color:var(--l-warn)!important}
+
+/* -- Procesar: la superficie blanca del dueno (meerkat-scene.css: "the approved black PNGs live
+   on a clean white processing surface"). El motor pinta la suricata, el suelo y los papeles en
+   blanco sobre el lienzo (loader-engine.ts): invertidos, en la tinta (#171717). Lo nuevo y lo
+   repetido, en su tono (document-loader.css los pone en blanco). */
+html:not(.dark) .zur-world,html:not(.dark) .zur-pile{filter:invert(.91)}
+html:not(.dark) .process-mode .analysis-new{color:var(--l-ok)!important}
+html:not(.dark) .process-mode .analysis-duplicate{color:var(--l-warn)!important}
+html:not(.dark) .process-mode .processing-progress span{background:var(--l-subtle-2)}
+html:not(.dark) .processing-card{color:var(--l-ink-1)}
+
+/* -- La busqueda: el "borrar x" del rango sin rango que borrar (disabled), en el gris de lo
+   inactivo; la x de un filtro puesto, en el terciario. */
+html:not(.dark) .amount-heading>button:disabled{opacity:1;color:var(--l-ink-4)}
+html:not(.dark) .active-filter-chips button svg{color:var(--l-ink-3)}
