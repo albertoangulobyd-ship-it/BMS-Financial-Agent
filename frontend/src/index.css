@@ -35,66 +35,69 @@
 /* La letra es la de Aurora (styles.css: Inter, 'Segoe UI', sans-serif) sin servir ninguna: en el
    PC del dueno, Inter si la tiene y Segoe UI si no, como en su prototipo (especificacion D-49). */
 
-/* El tema claro: la pareja de Aurora con el mismo matiz lavanda. */
+/* El tema claro (rehecho el 02-11-2026, "Aurora claro · linea fina"): la paleta de
+   scripts/aurora-claro.mjs, la misma que pinta las hojas de Aurora en claro (aurora/claro.css):
+   la pagina #f5f5f7, superficies blancas con lineas finas neutras, grises neutros y un solo
+   color de accion (#6550c4). */
 :root {
   color-scheme: light;
   --radius: 0.625rem;
 
-  --background: #f5f4f8;
-  --foreground: #18161e;
-  --card: #fcfbfe;
-  --card-foreground: #18161e;
+  --background: #f5f5f7;
+  --foreground: #17171c;
+  --card: #ffffff;
+  --card-foreground: #17171c;
   --popover: #ffffff;
-  --popover-foreground: #18161e;
-  --primary: #5b4890;
+  --popover-foreground: #17171c;
+  --primary: #6550c4;
   --primary-foreground: #ffffff;
-  --secondary: #ebe8f1;
-  --secondary-foreground: #2a2633;
-  --muted: #edebf2;
-  --muted-foreground: #5c5768;
-  --accent: #e6e2ee;
-  --accent-foreground: #18161e;
-  --destructive: #a3261a;
+  --secondary: #ececf0;
+  --secondary-foreground: #17171c;
+  --muted: #f0f0f3;
+  --muted-foreground: #686871;
+  --accent: #f0edfb;
+  --accent-foreground: #17171c;
+  --destructive: #b8261c;
   --destructive-foreground: #ffffff;
-  --border: #dfdbe6;
-  --input: #c9c4d3;
-  --ring: #5b4890;
+  --border: #e4e4e9;
+  --input: #8a8a93;
+  --ring: #6550c4;
   /* Texto secundario pero mas fuerte que muted (lo que explica una fila). */
-  --soft-foreground: #45404f;
+  --soft-foreground: #484851;
   /* Lineas entre filas, la fila bajo el raton y la cabecera de una tabla. */
-  --divider: #e6e3ec;
-  --row-hover: #f0eef5;
-  --table-head: #efedf4;
+  --divider: #ececf0;
+  --row-hover: #f6f6f8;
+  --table-head: #f5f5f7;
   /* El borde de un estado vacio (discontinuo). */
-  --border-strong: #d0cbd9;
+  --border-strong: #d6d6dc;
   /* Un aviso dentro de una pantalla o un dialogo (no un estado: lo que no se deshace). */
-  --notice: #fbf1e6;
-  --notice-border: #e3c3a8;
-  --notice-foreground: #4a2205;
+  --notice: #fdf3e3;
+  --notice-border: #f0d4a6;
+  --notice-foreground: #5c3800;
   /* Las iniciales de la persona. */
-  --avatar: #e3dfeb;
-  --avatar-foreground: #2a2633;
+  --avatar: #ececf0;
+  --avatar-foreground: #484851;
 
   /* El marco del componente de navegacion: barra lateral y tira de pestanas. */
-  --sidebar: #efedf4;
-  --sidebar-foreground: #2a2633;
-  --sidebar-primary: #5b4890;
+  --sidebar: #f5f5f7;
+  --sidebar-foreground: #484851;
+  --sidebar-primary: #6550c4;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fcfbfe;
-  --sidebar-accent-foreground: #4a3a78;
-  --sidebar-border: #dfdbe6;
-  --sidebar-ring: #5b4890;
-  --sidebar-tab-active: #e3dfeb;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #17171c;
+  --sidebar-border: #e4e4e9;
+  --sidebar-ring: #6550c4;
+  --sidebar-tab-active: #ececf0;
 
   /* La insignia de la Werklijst cuando hay facturas bloqueadas (una cuenta, no un estado). */
-  --pill-blocked: #8a3a0c;
+  --pill-blocked: #b8261c;
   --pill-blocked-foreground: #ffffff;
 
   /* El icono de "nada pendiente"; los avisos de error de un formulario y las cifras que van
      mal (un importe vencido, un margen negativo). Un estado en palabras nunca: ese va en la
      pastilla (components/status-pill.tsx). */
-  --ok-foreground: #1d5229;
-  --late-foreground: #6e2f07;
+  --ok-foreground: #17723f;
+  --late-foreground: #b8261c;
   /* La banda TESTGEGEVENS que pone el servidor (.bms-banda-prueba): igual en los dos temas. */
   --testdata: #f6dc8a;
   --testdata-foreground: #3f2e00;
