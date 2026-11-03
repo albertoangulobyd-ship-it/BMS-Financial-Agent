@@ -99,7 +99,7 @@
      relative). En el centro del control (inset con min(): solo crece lo que no llega).
    Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
    - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
-     (fuera, en la hoja, un clic cierra la hoja entera);
+     y redondeada como ella (fuera, en la hoja, un clic cierra la hoja entera);
    - las migas, con el dedo: 30 de alto (dos lineas de migas quedan a 10 px) y 10 px mas anchas;
    - los tiradores crecen hacia fuera (el de abajo a la izquierda, el de arriba a la derecha), para
      no pisarse; con el dedo, 44 de alto y 29,5 de ancho: al final de la pista, a 400 px, quedan 16
@@ -135,6 +135,6 @@
   .ws-breadcrumbs a{padding:5px;margin:-5px}
   .ws-breadcrumbs a:focus-visible{outline-offset:-3px}
   .discreet-languages button::before,.ws-home::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
-  .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px}
+  .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px;border-top-right-radius:11px}
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
 }
