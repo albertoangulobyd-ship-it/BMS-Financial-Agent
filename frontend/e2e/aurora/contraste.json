@@ -8,6 +8,12 @@
       "donde": "las entradas apagadas de la rueda (styles.css: .nav-item)"
     },
     {
+      "selector": "\\.discreet",
+      "fg": "#77717f",
+      "bg": "#08090b",
+      "donde": "«Druk om te navigeren» del inicio (styles.css: .discreet); a 400 px con el dedo, axe lo mide sobre el fondo"
+    },
+    {
       "selector": "\\.panel-top",
       "fg": "#77717f",
       "bg": "#101015",

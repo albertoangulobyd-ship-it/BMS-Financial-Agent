@@ -1,16 +1,16 @@
 // Las zonas tactiles (peticiones del dueno del 30-10-2026, el control de la hoja plegada, y del
-// 02-11-2026, los demas controles pequenos; bms.css): capas transparentes (::before) que agrandan
-// lo que se pulsa sin verse ni mover nada, y el buscador de una lista, cuya caja crece con un
-// margen negativo. Las ayudas de sus pruebas: quitarlas (para comparar con lo de antes, pixel a
-// pixel y medida a medida), el puntero grueso (el de una pantalla tactil, con la emulacion de
-// Chromium) y la sonda del control de la hoja plegada, que lo mide con document.elementFromPoint:
-// su caja, que cada punto de dentro es del control y que los vecinos (la fila de antes, lo de
-// debajo y al lado, la ✕ del dialogo) siguen siendo suyos.
+// 02-11-2026, los demas controles pequenos; bms.css): lo que se pulsa crece sin verse ni mover
+// nada, con una capa transparente (::before) o con un relleno y un margen negativo iguales. Las
+// ayudas de sus pruebas: quitarlas (lo de 1cc96b0 y de antes, para comparar pixel a pixel y medida
+// a medida), el puntero grueso (el de una pantalla tactil, con la emulacion de Chromium) y la
+// sonda del control de la hoja plegada, que lo mide con document.elementFromPoint: su caja, que
+// cada punto de dentro es del control y que los vecinos (la fila de antes, lo de debajo y al lado,
+// la ✕ del dialogo) siguen siendo suyos.
 import type { CDPSession, Locator, Page } from '@playwright/test';
 
 /** Cada control con su zona: lo que es (para los mensajes), su selector, si la regla le pone
- *  position: relative (los que ya estaban posicionados no) y, si su zona es la caja misma (el
- *  buscador de una lista, que no tiene ::before, y «Abrir la ficha»), lo que la deja como antes. */
+ *  position: relative (los que ya estaban posicionados no) y, si su zona es la caja misma (los que
+ *  crecen con relleno y margen negativo), lo que la deja como antes. */
 export interface Zone {
   name: string;
   selector: string;
@@ -42,30 +42,39 @@ export const ZONES: readonly Zone[] = [
 /** Todas las zonas a la vez, en un selector. */
 export const ZONE_SELECTOR = ZONES.map((z) => z.selector).join(', ');
 
-/** La regla que las quita: lo de antes de bms.css, tal cual. */
-const OFF = [
-  `${ZONES.filter((z) => z.relative).map((z) => z.selector).join(',')}{position:static!important}`,
-  `${ZONES.filter((z) => !z.box).map((z) => `${z.selector}::before`).join(',')}{content:none!important}`,
-  ...ZONES.map((z) => z.box ?? ''),
-  // El anillo del foco, donde lo ponen las hojas de Aurora (6 px los botones, 2 lo demas).
-  '.panel-top button:focus-visible,.ws-dialog-top button:focus-visible,.conversation-top button:focus-visible,.filters-reset:focus-visible{outline-offset:6px!important}',
-  '.ws-folder-caption>a:focus-visible{outline-offset:2px!important}',
-].join('');
+/** La regla que quita las zonas de `zones`: lo de antes de bms.css, tal cual. */
+function offRule(zones: readonly Zone[]): string {
+  const names = new Set(zones.map((z) => z.name));
+  return [
+    `${zones.filter((z) => z.relative).map((z) => z.selector).join(',')}{position:static!important}`,
+    `${zones.filter((z) => !z.box).map((z) => `${z.selector}::before`).join(',')}{content:none!important}`,
+    ...zones.map((z) => z.box ?? ''),
+    // El anillo del foco, donde lo ponen las hojas de Aurora (6 px los botones, 2 lo demas).
+    ...(names.has('la ✕ del panel') ? ['.panel-top button:focus-visible,.ws-dialog-top button:focus-visible,.conversation-top button:focus-visible,.filters-reset:focus-visible{outline-offset:6px!important}', '.ws-folder-caption>a:focus-visible{outline-offset:2px!important}'] : []),
+  ].join('');
+}
+
+/** Que zonas se quitan: todas (lo de antes del 30-10-2026) o las nuevas, las del 02-11-2026 (lo
+ *  de 1cc96b0, con la del control de la hoja plegada). */
+export type Which = 'todas' | 'nuevas';
+const OFF: Record<Which, string> = { todas: offRule(ZONES), nuevas: offRule(ZONES.slice(1)) };
 
 /** Sin las zonas tactiles (las reglas de bms.css anuladas), o con ellas otra vez. Una hoja
  *  construida (adoptedStyleSheets): la CSP de la app no deja meter un <style>. */
-export async function withoutHitArea(page: Page, off: boolean): Promise<void> {
+export async function withoutHitArea(page: Page, off: boolean, which: Which = 'todas'): Promise<void> {
   await page.evaluate(
-    ([off, css]) => {
-      const w = window as unknown as { __bmsSinZona?: CSSStyleSheet };
-      if (!w.__bmsSinZona) {
-        w.__bmsSinZona = new CSSStyleSheet();
-        w.__bmsSinZona.replaceSync(css as string);
+    ([off, which, css]) => {
+      const w = window as unknown as { __bmsSinZona?: Record<string, CSSStyleSheet> };
+      w.__bmsSinZona ??= {};
+      if (!w.__bmsSinZona[which]) {
+        w.__bmsSinZona[which] = new CSSStyleSheet();
+        w.__bmsSinZona[which].replaceSync(css);
       }
-      const sheet = w.__bmsSinZona;
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets.filter((s) => s !== sheet), ...(off ? [sheet] : [])];
+      const sheets = Object.values(w.__bmsSinZona);
+      const sheet = w.__bmsSinZona[which];
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets.filter((s) => !sheets.includes(s)), ...(off ? [sheet] : [])];
     },
-    [off, OFF] as const
+    [off, which, OFF[which]] as const
   );
 }
 

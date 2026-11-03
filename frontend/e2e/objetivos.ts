@@ -158,11 +158,6 @@ export async function measureTargets(page: Page): Promise<Target[]> {
   }, { selector: INTERACTIVE, zones: ZONES.map((z) => ({ name: z.name, selector: z.selector })) });
 }
 
-/** Los que no llegan: la zona de menos de `least` px de ancho o de alto. */
-export async function smallTargets(page: Page, least = 24): Promise<Target[]> {
-  return (await measureTargets(page)).filter((t) => t.hit.width < least || t.hit.height < least);
-}
-
 const HAVEN = 'Demo Havenbedrijf BV';
 const JV = 'J. Voorbeeld Beveiliging (zzp)';
 
@@ -364,19 +359,20 @@ export interface HitChanges {
 }
 
 /**
- * Compara, punto a punto, a donde va un clic con las zonas y sin ellas (la regla anulada, como en
- * 1cc96b0): la ventana entera cada 3 px y la zona de cada control (y 3 px alrededor) cada pixel.
+ * Compara, punto a punto, a donde va un clic con las zonas y sin las nuevas (como en 1cc96b0, con
+ * la del control de la hoja plegada): la ventana entera cada 3 px y la zona de cada control (y 3 px alrededor) cada pixel.
  * Un punto solo puede pasar a ser de una zona si antes no era de nadie o era algo que hacia lo
  * mismo: el propio dialogo para la ✕ de una hoja (un clic en el margen del dialogo tambien la
  * cierra) y la pista del importe para sus tiradores (un clic en ella mueve el tirador mas
  * cercano; en la zona, se agarra sin saltar). Lo demas, en `wrong`.
  */
 export async function hitChanges(page: Page): Promise<HitChanges> {
-  await withoutHitArea(page, true);
-  await withoutHitArea(page, false);
+  // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
+  await withoutHitArea(page, true, 'nuevas');
+  await withoutHitArea(page, false, 'nuevas');
   return page.evaluate(
     ({ selector, zones }) => {
-      const sheet = (window as unknown as { __bmsSinZona: CSSStyleSheet }).__bmsSinZona;
+      const sheet = (window as unknown as { __bmsSinZona: Record<string, CSSStyleSheet> }).__bmsSinZona['nuevas']!;
       const ids = new Map<Element, number>();
       const id = (e: Element) => (ids.has(e) ? ids.get(e)! : (ids.set(e, ids.size), ids.size - 1));
       const zoneOf = (e: Element) => zones.find((z) => e.matches(z.selector));
@@ -395,9 +391,28 @@ export async function hitChanges(page: Page): Promise<HitChanges> {
         if (h.matches('dialog')) return 'dialogo';
         if (h.closest('.amount-slider')) return 'pista';
         if (h.closest('.navigation')) return 'rueda';
+        // Algo que no es un control pero cuyo clic hace algo: un manejador de React (onClick,
+        // onMouseDown...) en el elemento o en uno de los de encima. No cuentan los de captura (los
+        // de Radix, que solo apuntan que el clic fue dentro, y el de la rueda, que olvida la fila
+        // apoyada) ni el del dialogo de una hoja, que solo cierra con el clic en el mismo dialogo
+        // (document-workspace.tsx: e.target === e.currentTarget; eso es 'dialogo', arriba).
+        for (let e: Element | null = h; e; e = e.parentElement) {
+          if (e.matches('dialog.ws-dialog')) continue;
+          const key = Object.keys(e).find((k) => k.startsWith('__reactProps$'));
+          const props = key ? ((e as unknown as Record<string, Record<string, unknown>>)[key] ?? {}) : {};
+          if (Object.keys(props).some((k) => /^on(Click|MouseDown|MouseUp|PointerDown|PointerUp|TouchStart|TouchEnd)$/.test(k) && props[k])) {
+            const cls = typeof e.className === 'string' ? e.className.split(/\s+/)[0] : '';
+            return `manejador:${e.tagName.toLowerCase()}${cls ? '.' + cls : ''}`;
+          }
+        }
         return 'nada';
       };
-      const name = (c: string) => (c.startsWith('#') ? describe(Array.from(ids.keys())[Number(c.slice(1))]!) : { nada: 'nada', dialogo: 'el dialogo (cierra la hoja)', pista: 'la pista del importe', rueda: 'la rueda' }[c] ?? c);
+      const name = (c: string) =>
+        c.startsWith('#')
+          ? describe(Array.from(ids.keys())[Number(c.slice(1))]!)
+          : c.startsWith('manejador:')
+            ? `${c.slice(10)} (su clic hace algo)`
+            : ({ nada: 'nada', dialogo: 'el dialogo (cierra la hoja)', pista: 'la pista del importe', rueda: 'la rueda' }[c] ?? c);
       // Los puntos: la ventana cada 3 px y cada zona (con 3 px alrededor) cada pixel.
       const pts: [number, number][] = [];
       for (let y = 1.5; y < innerHeight; y += 3) for (let x = 1.5; x < innerWidth; x += 3) pts.push([x, y]);
@@ -431,13 +446,14 @@ export async function hitChanges(page: Page): Promise<HitChanges> {
   );
 }
 
-/** Las medidas de desplazamiento de la pagina y de todo lo que se desplaza. */
+/** Las medidas de desplazamiento de la pagina y de todo lo que se desplaza o recorta. */
 export async function scrollSizes(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = [];
     for (const el of [document.scrollingElement!, ...Array.from(document.querySelectorAll('*'))]) {
       const s = getComputedStyle(el);
-      if (el !== document.scrollingElement && !/(auto|scroll)/.test(s.overflowX + s.overflowY)) continue;
+      // Tambien lo de overflow: hidden (scrollIntoView lo desplaza).
+      if (el !== document.scrollingElement && !/(auto|scroll|hidden)/.test(s.overflowX + s.overflowY)) continue;
       const cls = typeof el.className === 'string' ? el.className.split(/\s+/).slice(0, 2).join('.') : '';
       out.push(`${el.tagName.toLowerCase()}.${cls} ${el.scrollWidth}×${el.scrollHeight} (${el.clientWidth}×${el.clientHeight})`);
     }

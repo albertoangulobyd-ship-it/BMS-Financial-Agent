@@ -35,7 +35,7 @@ import {
   toHome,
   wheel,
 } from './nav';
-import { areaOf, hitChanges, measureTargets, scrollSizes, smallTargets, tour, zoneTour, type Target } from './objetivos';
+import { areaOf, hitChanges, measureTargets, scrollSizes, tour, zoneTour, type Target } from './objetivos';
 import { decodePng, differingPixels } from './png';
 import { coarsePointer, withoutHitArea, ZONES } from './zona-tactil';
 
@@ -54,24 +54,42 @@ for (const pointer of ['raton', 'dedo'] as const) {
   test.describe(`a 400 × 860, con el ${pointer}`, () => {
     test.use(pointer === 'dedo' ? { viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true } : { viewport: { width: 400, height: 860 } });
 
-    test(`nada que se pulse mide menos de 24 × 24 en la gira (${pointer})`, async ({ page, baseUrl }) => {
-      test.setTimeout(1_200_000);
+    test(`nada que se pulse mide menos de 24 × 24 en la gira, y las zonas no pisan, no desplazan ni se ven (${pointer})`, async ({ page, baseUrl }) => {
+      test.setTimeout(1_800_000);
       await page.goto(`${baseUrl}/app`);
       expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(pointer === 'dedo');
       const small: string[] = [];
+      const wrong: string[] = [];
+      const taken: Record<string, number> = {};
       let states = 0;
       let measured = 0;
       await tour(page, async (state) => {
         states += 1;
-        measured += (await measureTargets(page)).length;
-        for (const s of await smallTargets(page, 24)) {
+        const all = await measureTargets(page);
+        measured += all.length;
+        for (const s of all.filter((x) => x.hit.width < 24 || x.hit.height < 24)) {
           if (s.underPopover || EXCEPTIONS.some((e) => e.what.test(s.what))) continue;
           small.push(`${state}: ${s.what}, su caja ${s.box.width} × ${s.box.height}, su zona ${s.hit.width} × ${s.hit.height}`);
         }
+        // En cada estado de la gira, como en 1cc96b0 (las zonas nuevas quitadas): a donde va un clic
+        // (salvo lo permitido), las medidas de desplazamiento y los pixeles en reposo.
+        const changes = await hitChanges(page);
+        wrong.push(...changes.wrong.map((w) => `${state}: ${w}`));
+        for (const [k, n] of Object.entries(changes.taken)) taken[k] = (taken[k] ?? 0) + n;
+        const scrolled = await scrollSizes(page);
+        await withoutHitArea(page, true, 'nuevas');
+        const before = await scrollSizes(page);
+        await withoutHitArea(page, false, 'nuevas');
+        if (JSON.stringify(before) !== JSON.stringify(scrolled)) wrong.push(`${state}: las medidas de desplazamiento cambian`);
+        await page.mouse.move(1, 1);
+        await samePixels(page, state);
       });
       console.log(`la guarda (${pointer}): ${states} estados, ${measured} objetivos medidos, ${small.length} de menos de 24 × 24${small.map((x) => `\n  ${x}`).join('')}`);
+      console.log(`lo que pasa a ser de una zona en la gira: ${Object.entries(taken).map(([k, n]) => `${k}: ${n}`).join(' · ')}`);
+      console.log(`lo que no deberia: ${wrong.length}${wrong.map((x) => `\n  ${x}`).join('')}`);
       expect(states).toBeGreaterThan(60);
       expect(small).toEqual([]);
+      expect(wrong).toEqual([]);
     });
   });
 }
@@ -98,9 +116,9 @@ async function samePixels(page: Page, what: string): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await settled(page);
     const withArea = await shot();
-    await withoutHitArea(page, true);
+    await withoutHitArea(page, true, 'nuevas');
     const without = await shot();
-    await withoutHitArea(page, false);
+    await withoutHitArea(page, false, 'nuevas');
     const n = differingPixels(withArea, without, { tolerance: 0 });
     if (n === 0) return;
     // Lo que cambia solo (una animacion): otra captura con la zona, distinta de la primera.
@@ -118,23 +136,30 @@ async function samePixels(page: Page, what: string): Promise<void> {
   expect(message, what).toBe('');
 }
 
-/** Los controles con zona que se ven en la ventana (su centro es suyo), tres de cada como mucho;
- *  primero los de una lista abierta (el foco en otro sitio la cierra). */
+/** Los controles con zona nueva que se ven, tres de cada como mucho; primero los de una lista
+ *  abierta (el foco en otro sitio la cierra). Cada uno se trae a la vista al mirarlo (`inView`). */
 async function zoneControls(page: Page): Promise<{ zone: string; el: Locator }[]> {
   const out: { zone: string; el: Locator }[] = [];
-  for (const z of [...ZONES].sort((a, b) => Number(!a.selector.includes('ui-command')) - Number(!b.selector.includes('ui-command')))) {
+  for (const z of ZONES.slice(1).sort((a, b) => Number(!a.selector.includes('ui-command')) - Number(!b.selector.includes('ui-command')))) {
     const all = page.locator(z.selector);
     for (let i = 0, n = 0; i < (await all.count()) && n < 3; i += 1) {
       const el = all.nth(i);
-      const mine = await el.evaluate((e) => {
-        const r = e.getBoundingClientRect();
-        const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
-        return r.width > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && e.contains(document.elementFromPoint(x, y));
-      });
-      if (mine) (out.push({ zone: z.name, el }), (n += 1));
+      if (await el.evaluate((e) => e.checkVisibility({ visibilityProperty: true }) && e.getBoundingClientRect().width > 0)) (out.push({ zone: z.name, el }), (n += 1));
     }
   }
   return out;
+}
+
+/** El control en el centro de la vista (a 400 px, los tiradores y las carpetas quedan debajo):
+ *  si su centro es suyo, se puede mirar. */
+async function inView(page: Page, el: Locator): Promise<boolean> {
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
+  await settled(page);
+  return el.evaluate((e) => {
+    const r = e.getBoundingClientRect();
+    const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+    return x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && e.contains(document.elementFromPoint(x, y));
+  });
 }
 
 for (const size of [
@@ -165,11 +190,12 @@ for (const size of [
           for (const [k, n] of Object.entries(changes.taken)) taken[k] = (taken[k] ?? 0) + n;
           // Lo que se desplaza, igual.
           const scrolled = await scrollSizes(page);
-          await withoutHitArea(page, true);
+          await withoutHitArea(page, true, 'nuevas');
           expect(await scrollSizes(page), `${where}: las medidas de desplazamiento`).toEqual(scrolled);
-          await withoutHitArea(page, false);
+          await withoutHitArea(page, false, 'nuevas');
           // Su tamano medido.
-          for (const m of (await measureTargets(page)).filter((x) => x.zone)) {
+          // (Lo tapado en parte por una lista abierta no cuenta, como en la guarda.)
+          for (const m of (await measureTargets(page)).filter((x) => x.zone && !x.underPopover)) {
             const need = least(m.zone!, coarse);
             expect(Math.min(m.hit.width, m.hit.height), `${where}: ${m.what} (${m.zone}) mide ${m.hit.width} × ${m.hit.height}`).toBeGreaterThanOrEqual(need);
             const seen = sizes.get(`${m.zone}: ${m.what}`);
@@ -180,7 +206,7 @@ for (const size of [
           await samePixels(page, where);
           compared += 1;
           for (const { zone, el } of await zoneControls(page)) {
-            if (!(await el.isVisible())) continue;
+            if (!(await inView(page, el))) continue;
             const label = `${where}, ${await el.evaluate((e) => e.getAttribute('aria-label') ?? (e as HTMLElement).innerText.trim())}`;
             const box = (await el.boundingBox())!;
             if (!coarse) {
@@ -201,8 +227,8 @@ for (const size of [
         });
       }
       await coarsePointer(page, false);
-      // Cada zona, comparada con su foco (el control de la hoja plegada, en documents.spec.ts).
-      expect([...focused].sort()).toEqual(ZONES.map((z) => z.name).filter((n) => n !== ZONES[0]!.name).sort());
+      // Cada zona nueva, comparada con su foco (la del control de la hoja plegada, en documents.spec.ts).
+      expect([...focused].sort()).toEqual(ZONES.slice(1).map((z) => z.name).sort());
       // Para el registro.
       console.log(`a ${size.width} px con el ${pointer}: ${compared} capturas iguales; ${[...sizes].map(([k, v]) => `${k} ${v.width} × ${v.height}`).join(' · ')}`);
       console.log(`lo que pasa a ser de una zona: ${Object.entries(taken).map(([k, n]) => `${k}: ${n}`).join(' · ')}`);
@@ -291,7 +317,9 @@ test.describe('con el dedo, a 400 px', () => {
     await expect(folderProfile(page, name)).toBeVisible();
     // La miga «Documenten»: la rejilla, sin ficha.
     await openFolder(page, JV, 'provider');
-    await tapEdge(page, page.locator('.ws-breadcrumbs a').nth(1), 'abajo-derecha');
+    // Por arriba: a 400 px, la ficha deja las migas en dos lineas que lindan (sus zonas se tocan) y
+    // Chromium acerca un toque del borde de abajo a la miga de debajo, como antes uno entre las dos.
+    await tapEdge(page, page.locator('.ws-breadcrumbs a').nth(1), 'arriba-derecha');
     await expect(page.locator('.ws-profile')).toHaveCount(0);
     await expect(page.locator('.ws-breadcrumbs [aria-current=page]')).toHaveText(t.nav.documents.label);
     // La ✕ de la tarjeta de una fila de la hoja: se cierra la tarjeta y la hoja sigue.
@@ -313,6 +341,8 @@ test.describe('con el dedo, a 400 px', () => {
     await processLanded(page);
     await tapEdge(page, page.locator('.processing-back'));
     await expect(page.locator('[data-aurora-root] .app')).not.toHaveClass(/\bprocess-mode\b/);
+    // Con el inicio ya quieto (el texto discreto entra con un fundido).
+    await settled(page);
     await expectAccessible(page, 'el inicio con el dedo');
   });
 });
