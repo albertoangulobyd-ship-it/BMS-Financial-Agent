@@ -1,23 +1,72 @@
-// La zona tactil del control de la hoja plegada (peticion del dueno del 30-10-2026; bms.css,
-// .sheet-fold button::before): una capa transparente que agranda el boton hacia abajo. Las ayudas
-// de sus pruebas: quitarla (para comparar con lo de antes, pixel a pixel y medida a medida), el
-// puntero grueso (el de una pantalla tactil, con la emulacion de Chromium) y la sonda que la mide
-// con document.elementFromPoint: su caja, que cada punto de dentro es del control y que los
-// vecinos (la fila de antes, lo de debajo y al lado, la ✕ del dialogo) siguen siendo suyos.
+// Las zonas tactiles (peticiones del dueno del 30-10-2026, el control de la hoja plegada, y del
+// 02-11-2026, los demas controles pequenos; bms.css): capas transparentes (::before) que agrandan
+// lo que se pulsa sin verse ni mover nada, y el buscador de una lista, cuya caja crece con un
+// margen negativo. Las ayudas de sus pruebas: quitarlas (para comparar con lo de antes, pixel a
+// pixel y medida a medida), el puntero grueso (el de una pantalla tactil, con la emulacion de
+// Chromium) y la sonda del control de la hoja plegada, que lo mide con document.elementFromPoint:
+// su caja, que cada punto de dentro es del control y que los vecinos (la fila de antes, lo de
+// debajo y al lado, la ✕ del dialogo) siguen siendo suyos.
 import type { CDPSession, Locator, Page } from '@playwright/test';
 
-/** Sin la zona tactil (la regla de bms.css anulada), o con ella otra vez. Una hoja construida
- *  (adoptedStyleSheets): la CSP de la app no deja meter un <style>. */
+/** Cada control con su zona: lo que es (para los mensajes), su selector, si la regla le pone
+ *  position: relative (los que ya estaban posicionados no) y, si su zona es la caja misma (el
+ *  buscador de una lista, que no tiene ::before, y «Abrir la ficha»), lo que la deja como antes. */
+export interface Zone {
+  name: string;
+  selector: string;
+  relative: boolean;
+  box?: string;
+}
+
+export const ZONES: readonly Zone[] = [
+  { name: 'el control de la hoja plegada', selector: '.sheet-fold button', relative: true },
+  { name: 'los idiomas de la entrada', selector: '.discreet-languages button', relative: true },
+  { name: 'la ✕ del panel', selector: '.panel-top button', relative: false, box: '.panel-top button{padding:0!important;margin:0!important}' },
+  { name: 'la ✕ de la tarjeta de una fila', selector: '.detail-close', relative: false },
+  { name: '«Filters wissen» de la busqueda', selector: '.filters-reset', relative: false, box: '.filters-reset{padding:0!important;margin:0 0 0 auto!important}' },
+  { name: 'los tiradores del importe', selector: '.amount-thumb', relative: true },
+  {
+    name: 'el buscador de una lista',
+    selector: '.ui-command-input input',
+    relative: false,
+    box: '.ui-command-input input{padding:0!important;margin:0!important}.ui-command-input input:focus-visible{outline-offset:6px!important}',
+  },
+  { name: '«Volver al espacio» de la conversacion', selector: '.conversation-top button', relative: false, box: '.conversation-top button{padding:0!important;margin:0!important}' },
+  { name: '«Volver a Aurora» de Documentos', selector: 'a.ws-home', relative: false },
+  { name: 'las migas de Documentos', selector: '.ws-breadcrumbs a', relative: false, box: '.ws-breadcrumbs a{padding:0!important;margin:0!important}.ws-breadcrumbs a:focus-visible{outline-offset:2px!important}' },
+  { name: '«Abrir la ficha» de una carpeta', selector: '.ws-folder-caption > a', relative: false, box: '.ws-folder-caption>a{padding:0!important;margin:0!important}' },
+  { name: 'la ✕ de una hoja', selector: '.ws-dialog-top button', relative: false, box: '.ws-dialog-top button{padding:0!important;margin:0!important}' },
+  { name: '«Volver al inicio» de Procesar', selector: '.processing-back', relative: false },
+];
+
+/** Todas las zonas a la vez, en un selector. */
+export const ZONE_SELECTOR = ZONES.map((z) => z.selector).join(', ');
+
+/** La regla que las quita: lo de antes de bms.css, tal cual. */
+const OFF = [
+  `${ZONES.filter((z) => z.relative).map((z) => z.selector).join(',')}{position:static!important}`,
+  `${ZONES.filter((z) => !z.box).map((z) => `${z.selector}::before`).join(',')}{content:none!important}`,
+  ...ZONES.map((z) => z.box ?? ''),
+  // El anillo del foco, donde lo ponen las hojas de Aurora (6 px los botones, 2 lo demas).
+  '.panel-top button:focus-visible,.ws-dialog-top button:focus-visible,.conversation-top button:focus-visible,.filters-reset:focus-visible{outline-offset:6px!important}',
+  '.ws-folder-caption>a:focus-visible{outline-offset:2px!important}',
+].join('');
+
+/** Sin las zonas tactiles (las reglas de bms.css anuladas), o con ellas otra vez. Una hoja
+ *  construida (adoptedStyleSheets): la CSP de la app no deja meter un <style>. */
 export async function withoutHitArea(page: Page, off: boolean): Promise<void> {
-  await page.evaluate((off) => {
-    const w = window as unknown as { __bmsSinZona?: CSSStyleSheet };
-    if (!w.__bmsSinZona) {
-      w.__bmsSinZona = new CSSStyleSheet();
-      w.__bmsSinZona.replaceSync('.sheet-fold button{position:static!important}.sheet-fold button::before{content:none!important}');
-    }
-    const sheet = w.__bmsSinZona;
-    document.adoptedStyleSheets = [...document.adoptedStyleSheets.filter((s) => s !== sheet), ...(off ? [sheet] : [])];
-  }, off);
+  await page.evaluate(
+    ([off, css]) => {
+      const w = window as unknown as { __bmsSinZona?: CSSStyleSheet };
+      if (!w.__bmsSinZona) {
+        w.__bmsSinZona = new CSSStyleSheet();
+        w.__bmsSinZona.replaceSync(css as string);
+      }
+      const sheet = w.__bmsSinZona;
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets.filter((s) => s !== sheet), ...(off ? [sheet] : [])];
+    },
+    [off, OFF] as const
+  );
 }
 
 const sessions = new WeakMap<Page, CDPSession>();
