@@ -9871,7 +9871,8 @@ en claro); entre paréntesis, la de 1cc96b0:
 
 Donde 44 no cabe: **las migas**, con el dedo, 30 de alto, porque en la ficha de una carpeta a
 400 px van en dos líneas a 10 px y más alto pisaría la de la otra línea (de ancho, solo 5 px por
-lado: los separadores están a 10); y **los tiradores**, 29,5 px de ancho de capa (32 medidos con
+lado: los separadores están a 10; tras la segunda verificación, 24 de alto y 4 más anchas, como
+con ratón, y «Kaart … openen» 41 de alto con el dedo: abajo); y **los tiradores**, 29,5 px de ancho de capa (32 medidos con
 el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana. Las
 dos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control queda en la
 lista de excepciones de la guarda.
@@ -9883,7 +9884,11 @@ cada zona con su alrededor cada píxel) a dónde iba un clic en 1cc96b0 y a dón
 todo lo que pasa a ser de una zona no era de nadie: ni un control ni algo cuyo clic hiciera algo
 (se miran los manejadores de React del punto y de lo de encima, salvo los de captura de Radix y
 de la rueda, que solo apuntan dónde se apoyó, y el del diálogo de una hoja, que solo cierra con el
-clic en el mismo diálogo). Dos casos sí hacían algo, y se dejan:
+clic en el mismo diálogo). Esto es lo que pulsa el **ratón** (`elementFromPoint`); con el dedo,
+Chromium además acerca el toque al objetivo que mejor cae bajo el dedo, y eso no lo ve esta
+comparación: lo mira otra prueba, con toques de verdad (abajo, «Tras la segunda verificación
+independiente», donde están los casos con el dedo). Con ratón, dos casos sí hacían algo, y se
+dejan:
 
 - **El margen del diálogo junto a su ✕** (482 puntos a 400 y 914 a 1440 con ratón; 3206 y 6120
   con el dedo, en los estados de la prueba): un clic ahí cerraba la hoja (el clic en el propio
@@ -9893,10 +9898,10 @@ clic en el mismo diálogo). Dos casos sí hacían algo, y se dejan:
   euros) y ahora lo agarra sin moverlo (el foco, y arrastrar sigue igual). Mejor para quien casi
   da en el tirador; lo comprueba el toque de la prueba con el dedo (`aria-valuenow` no cambia).
 
-Además, como con el control de la hoja plegada, Chromium acerca un toque al objetivo más próximo:
-en la ficha de una carpeta a 400 px, las dos líneas de migas lindan (sus zonas se tocan) y un
-toque en el borde de abajo de una miga de la primera línea puede ir a la de debajo, como antes
-uno entre las dos (la de debajo es la página en que se está y no hace nada). Con ratón no pasa.
+Además, como con el control de la hoja plegada, Chromium acerca un toque al objetivo más próximo.
+Lo que se escribió aquí de las migas no era exacto (un toque del borde de abajo de una miga de la
+primera línea que antes navegaba iba a la de debajo, que no hace nada) y se corrigió: abajo, «Tras
+la segunda verificación independiente».
 
 #### Las pruebas
 
@@ -10006,3 +10011,76 @@ px y los del control de la hoja plegada de `documents`); typecheck, vitest (1352
 (2626 y 12 saltadas). No se pasó la e2e entera: con la carga, cada fichero tarda de 15 a 40
 minutos, y lo cambiado solo toca a «Terug naar Aurora» con el dedo y a las pruebas de las
 zonas.
+
+#### Tras la segunda verificación independiente
+
+El verificador dio por mala la entrega (2080d4d) por dos cambios con el dedo que nadie había
+mirado y por lo que la documentación no decía. Su sondeo tocaba de verdad (`page.touchscreen.tap`
+con `isMobile` y `hasTouch`, a 400 × 860) cada punto alrededor de una zona, con la hoja de 1cc96b0
+y con la de ahora, con los clics parados. Con el dedo, Chromium no manda el toque al elemento del
+punto: lo acerca al objetivo que mejor cae bajo el dedo (cuenta la caja de cada uno, sin su
+`::before`, y lo que solapa con el dedo pesa más que la distancia), y después pulsa lo que hay en
+el punto acercado. `elementFromPoint`, con lo que mide la guarda, no lo ve. Lo encontrado, lo
+arreglado y lo que queda:
+
+- **Los tiradores bajo una lista abierta.** A 400 px, la lista de las empresas (y la de los tipos;
+  el calendario, según dónde se abra) tapa el tirador de abajo entero por su borde izquierdo
+  (los dos empiezan en x = 18), y su capa (`::before`, 29,5 px hacia la izquierda con el dedo)
+  asomaba a su lado. Un toque en el borde izquierdo de la lista, junto a una fila, que en 1cc96b0
+  Chromium daba a la fila («Gemeente Demodorp», «Stichting Voorbeeld»: la elegía), iba al
+  tirador asomado o a la lista sin fila (nada). Ahora, mientras una lista de los filtros está
+  abierta (`.filters-fields:has([aria-expanded=true])`), los tiradores son como en 1cc96b0: sin
+  capa y sin `position: relative` (`bms.css`). Un toque fuera de la lista la cierra, como antes.
+  Mientras, miden lo de 1cc96b0 (16 × 16): la guarda no los cuenta, como lo tapado por una lista.
+  Medido con un sondeo (cada 3 px de ancho y 2 de alto): con la capa, alrededor del tirador de
+  abajo, 15 toques pasaban de una fila a nada y 2 de una fila al tirador; sin la capa pero con
+  `position: relative`, aún cambiaban algunos alrededor del de arriba, del tirador a nada y al
+  revés (el `z-index: 2` de Aurora cuenta con la posición); con lo de ahora, en la prueba, 0 de
+  1150.
+- **Las dos líneas de migas.** En la ficha de un proveedor a 400 px, las migas van en dos líneas a
+  10 px, y la de abajo es la página en que se está (no hace nada). Con 30 de alto (5 px por lado)
+  las zonas se tocaban, y la de abajo, ancha (151 px), se llevaba toques de los 2 o 3 px de abajo
+  de las zonas de arriba, que en 1cc96b0 navegaban («Documenten», «Start», «Leveranciers»): 21 de
+  1008 en el sondeo, cada 5 px. Se probaron, tocando, 4, 3 y 2 px por lado, y 2 solo para la de la
+  página con 5 o 4 para las demás: crecer menos la de abajo da la vuelta al problema (toques dentro
+  de la miga de la página, hasta en lo que se ve, iban a las de arriba y navegaban: de 36 a 62).
+  Lo menos distinto de 1cc96b0 es crecer igual, lo mínimo: **las migas, 24 de alto también con el
+  dedo** (2 px por lado, como con ratón; el anillo del foco, donde estaba). Queda la frontera en el
+  hueco de 6 px entre las dos líneas, que no es de ninguna zona: se mueve un píxel o dos según x.
+  En la prueba (cada 5 px de ancho y cada píxel de alto, 1175 toques), 5 toques del hueco cambian
+  de miga: 4 que iban a una de arriba van a la de la página y 1 al revés. Ninguno dentro de una
+  zona. Con 44 no se puede (pisaría la otra línea) y con 30 no se debe: se dejan en 24, el mínimo
+  de 2.5.8.
+- **«Kaart … openen» bajo la carpeta.** El verificador vio que un toque en la franja de arriba de
+  su zona, justo bajo la carpeta, iba en 1cc96b0 a la carpeta (`button.gf-hit`) y ahora a «Kaart …
+  openen»: los dos llaman a `onOpen` y abren la misma ficha (cambia solo el foco). Se deja y se
+  apunta. Pero al tocarlo de verdad salió otra cosa: la sombra de la carpeta (`.gf-shadow`, de
+  Aurora, sin manejador) pinta encima de lo que no está posicionado y baja hasta 13,34 px por
+  encima del texto de «Kaart … openen»; con 15 de relleno, la zona la pisaba 1,66 px, y un toque
+  en esa franja que antes Chromium daba a la carpeta (abría la ficha) iba a la sombra y no hacía
+  nada (27 toques en el sondeo, cada 5 px). Con 13, la zona quedaba 0,34 px por debajo de la
+  sombra, y aún 12 en la prueba: Chromium pulsa el punto acercado redondeado al píxel, que caía en
+  la sombra. Ahora, con el dedo, **12 px de relleno: 106,56 × 39** (el anillo del foco, con
+  `outline-offset: -10px`, donde estaba). Con ratón (5 px) no llega a la sombra.
+- **«Lo que cambia al pulsar»** decía que solo dos casos hacían algo antes, y «comparado punto a
+  punto» valía para el ratón y no para el dedo. Corregido arriba: la comparación de `hitChanges`
+  es la del ratón; con el dedo, lo de este apartado.
+- **La guarda medía la fila y la columna más largas**, no si cabe un cuadrado de 24: los días del
+  calendario (círculos de 30) y los botones de una respuesta (26 × 26, redondeados) daban 31 × 30
+  y 27 × 27 y solo les cabe uno de 23. No es de las zonas (igual en 1cc96b0). Ahora
+  `measureTargets` (`e2e/objetivos.ts`) mide además el mayor cuadrado de puntos suyos y, si no
+  llega a 24, la excepción del espaciado de 2.5.8 (un círculo de 24 en el centro de su caja que
+  no toca otro objetivo, ni el círculo de otro así); la guarda falla si no cabe el cuadrado y no
+  vale la excepción. Los dos casos pasan por el espaciado (23 de cuadrado) y la guarda lo apunta.
+  Cada zona pide además un cuadrado de 24.
+
+La prueba nueva (`e2e/objetivos.spec.ts`, «los toques junto a las zonas van adonde iban en
+1cc96b0, o a la zona si no hacían nada», con `tapChanges` de `e2e/objetivos.ts`): con el dedo a
+400 × 860, toca de verdad cada punto, con las zonas y sin las nuevas, con los clics parados en la
+ventana antes que nadie, alrededor de los dos tiradores con la lista de las empresas abierta (cada
+3 px), en la franja entre la primera carpeta y su «Kaart … openen» (cada 5 px de ancho y cada
+píxel de alto) y entre las dos líneas de migas de la ficha de un proveedor (igual); cada toque
+tiene que ir adonde iba o, si antes no hacía nada (nada, o la miga de la página), a una zona. Lo
+permitido aparte: lo que iba a la carpeta y va a su «Kaart … openen» (el mismo `onOpen`, si la
+carpeta no está abierta) y la frontera en el hueco entre dos migas, fuera de sus zonas. Con la
+hoja de 2080d4d falla en los tres sitios (las filas de la lista, la sombra y las migas).

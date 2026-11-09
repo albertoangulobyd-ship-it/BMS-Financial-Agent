@@ -208,15 +208,25 @@ próxima sin contar su capa, y uno en el borde de abajo se iba a la miga de deba
 conversación, «Terug naar Aurora» y las migas de Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
 entrada, «Filters wissen» de la búsqueda, los dos tiradores del importe y el buscador de las
 listas de los filtros, de 12 a 21 px de alto (de 24 a 26 con ratón y de 44 a 46 con el dedo); y
-el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro: las migas, 30 de
-alto con el dedo (dos líneas de migas quedan a 10 px en la ficha de una carpeta), y los
-tiradores, 29,5 de ancho (crecen hacia fuera, para no pisarse; al final de la pista, a 400 px,
-quedan 16 hasta el borde de la ventana). Lo que cambia al pulsar está en `docs/v1/registro.md`
-(«Las zonas táctiles de los demás controles»): un toque junto a la ✕ de una hoja, en su margen,
-la cierra con la ✕ (antes, con el clic en el margen: lo mismo), y uno junto a un tirador lo
-agarra en vez de moverlo hasta ese punto. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
-principal, a 400 × 860 con ratón y con el dedo, nada que se pulse mide menos de 24 × 24 (medido
-con `document.elementFromPoint`, no con su caja).
+el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro ni
+cambiar lo que hace un toque: las migas, 24 de alto también con el dedo (dos líneas de migas
+quedan a 10 px en la ficha de una carpeta, y más altas, Chromium daba a la de abajo, la página
+en que se está, toques que antes navegaban); «Kaart … openen», 39 de alto con el dedo (encima
+pinta la sombra de la carpeta, que no hace nada); y los tiradores, 29,5 de ancho (crecen hacia
+fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana).
+Mientras una lista de los filtros está abierta, los tiradores no tienen zona (la lista los tapa,
+y la zona que asomaba se llevaba toques del borde de la lista). Lo que cambia al pulsar está en
+`docs/v1/registro.md` («Las zonas táctiles de los demás controles» y «Tras la segunda
+verificación independiente»): un toque junto a la ✕ de una hoja, en su margen, la cierra con la
+✕ (antes, con el clic en el margen: lo mismo); uno junto a un tirador lo agarra en vez de
+moverlo hasta ese punto; con el dedo, uno justo bajo una carpeta puede ir a su «Kaart … openen»
+en vez de a la carpeta (abren la misma ficha), y en el hueco entre dos líneas de migas la
+frontera se mueve un píxel o dos. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
+principal, a 400 × 860 con ratón y con el dedo, a nada que se pulse le falta un cuadrado de
+24 × 24 de puntos suyos (medido con `document.elementFromPoint`, no con su caja), salvo con la
+excepción del espaciado (los días del calendario y los botones de una respuesta, como en
+1cc96b0); y con el dedo, donde una zona linda con otra cosa, cada toque de verdad va adonde iba
+o, si antes no hacía nada, a la zona.
 
 **La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
 240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso
@@ -1166,11 +1176,14 @@ primeras y las demás en el árbol, una carpeta que no se pudo leer con su reint
 vacío (respuestas cambiadas con `page.route`), y las capturas en los tres idiomas, en los dos
 temas y en el móvil; `e2e/objetivos.spec.ts` (con `e2e/objetivos.ts` y `e2e/zona-tactil.ts`)
 las zonas táctiles: en los 71 estados principales, a 400 × 860 con ratón y con el dedo, ningún
-objetivo de menos de 24 × 24, y en cada uno, contra lo de 1cc96b0 (las zonas nuevas quitadas),
+objetivo sin un cuadrado de 24 × 24 (o la excepción del espaciado), y en cada uno, contra lo de
+1cc96b0 (las zonas nuevas quitadas),
 los mismos píxeles, las mismas medidas de desplazamiento y ningún clic que cambie de dueño salvo
 los apuntados; cada zona a 1440 y 400, con los dos punteros y en los dos temas (su tamaño, en
-reposo, con el ratón encima y con el foco, píxel a píxel), y con el dedo un toque en su borde,
-fuera de lo que se ve, hace lo que uno en el control; `e2e/daily.spec.ts` el trabajo diario con
+reposo, con el ratón encima y con el foco, píxel a píxel), con el dedo un toque en su borde,
+fuera de lo que se ve, hace lo que uno en el control, y donde una zona linda con otra cosa (la
+lista de las empresas sobre los tiradores, «Kaart … openen» bajo su carpeta, dos líneas de migas)
+cada toque de verdad va adonde iba en 1cc96b0 o, si no hacía nada, a la zona; `e2e/daily.spec.ts` el trabajo diario con
 órdenes de verdad en las tarjetas de Start y en la hoja (los motivos de las bloqueadas en los dos idiomas, aceptar un hallazgo con
 la segunda firma de otra persona y resolver una excepción, marcar como gecontroleerd, una `rev`
 vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos personas,

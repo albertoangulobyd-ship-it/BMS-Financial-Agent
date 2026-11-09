@@ -103,9 +103,10 @@
    Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
    - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
      y redondeada como ella (fuera, en la hoja, un clic cierra la hoja entera);
-   - «Abrir la ficha» de una carpeta, con el dedo: 41 de alto. Encima pinta la sombra de la
-     carpeta (.gf-shadow, sin manejador), 1,66 px por debajo de los 15 de antes: un toque alli
-     iba a la carpeta (Chromium lo acercaba) y con la zona, a la sombra, sin hacer nada;
+   - «Abrir la ficha» de una carpeta, con el dedo: 39 de alto. Encima pinta la sombra de la
+     carpeta (.gf-shadow, sin manejador), 13,34 px por encima de su texto: un toque alli iba a la
+     carpeta (Chromium lo acercaba), y si la zona llega a menos de un pixel de la sombra, Chromium
+     lo lleva a la zona por un punto (al pixel) que cae en la sombra y no hace nada;
    - las migas, con el dedo como con raton: 24 de alto. En la ficha de una carpeta, a 400 px, van
      en dos lineas a 10 px, y la de abajo es la pagina en que se esta (no hace nada): Chromium da
      un toque del hueco a la miga que mas cae bajo el dedo, y con mas alto (30) se llevaba la
@@ -139,8 +140,8 @@
   .filters-reset:focus-visible{outline-offset:-10px}
   .ui-command-input input{padding:13px;margin:-13px}
   .ui-command-input input:focus-visible{outline-offset:-7px}
-  .ws-folder-caption>a{padding:13px;margin:-13px}
-  .ws-folder-caption>a:focus-visible{outline-offset:-11px}
+  .ws-folder-caption>a{padding:12px;margin:-12px}
+  .ws-folder-caption>a:focus-visible{outline-offset:-10px}
   .discreet-languages button::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
   .ws-home::before{content:none}
   .ws-home{padding:14px;margin:-14px}

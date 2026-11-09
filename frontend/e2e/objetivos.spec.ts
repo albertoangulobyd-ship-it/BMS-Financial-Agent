@@ -120,7 +120,7 @@ function least(zone: string, coarse: boolean): number {
   // Los tiradores: el de abajo, al principio de la pista, llega al borde de la ventana a 400 px.
   if (zone === 'los tiradores del importe') return 24;
   // «Abrir la ficha»: encima pinta la sombra de la carpeta (bms.css).
-  if (zone === '«Abrir la ficha» de una carpeta') return 41;
+  if (zone === '«Abrir la ficha» de una carpeta') return 39;
   return 44;
 }
 
@@ -254,13 +254,13 @@ for (const size of [
 // ------------------------------------------------------------------ con el dedo
 
 /** Un toque cerca del borde de la zona (a 2 px de su esquina de abajo a la derecha, o de la que
- *  se pida), fuera de lo que se ve: el punto es del control. */
-async function tapEdge(page: Page, control: Locator, corner: 'abajo-derecha' | 'abajo-izquierda' | 'arriba-derecha' = 'abajo-derecha'): Promise<void> {
+ *  se pida, o a `inset`), fuera de lo que se ve: el punto es del control. */
+async function tapEdge(page: Page, control: Locator, corner: 'abajo-derecha' | 'abajo-izquierda' | 'arriba-derecha' = 'abajo-derecha', inset = 2): Promise<void> {
   await control.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await settled(page);
   const { box, area } = await areaOf(control);
-  const x = corner === 'abajo-izquierda' ? area.x + 2 : area.x + area.width - 2;
-  const y = corner === 'arriba-derecha' ? area.y + 2 : area.y + area.height - 2;
+  const x = corner === 'abajo-izquierda' ? area.x + inset : area.x + area.width - inset;
+  const y = corner === 'arriba-derecha' ? area.y + inset : area.y + area.height - inset;
   const outside = x < box.x || x > box.x + box.width || y < box.y || y > box.y + box.height;
   expect(outside, `el toque (${x.toFixed(1)}, ${y.toFixed(1)}) cae fuera de lo que se ve`).toBe(true);
   expect(await control.evaluate((e, [px, py]) => e.contains(document.elementFromPoint(px!, py!)), [x, y]), 'el punto es del control').toBe(true);
@@ -375,9 +375,10 @@ test.describe('con el dedo, a 400 px', () => {
     await expect(folderProfile(page, HAVEN)).toBeVisible();
     // La miga «Documenten»: la rejilla, sin ficha.
     await openFolder(page, JV, 'provider');
-    // Por arriba: a 400 px, la ficha deja las migas en dos lineas a 10 px (sus zonas, a 6) y un
-    // toque del hueco va a la que mas cae bajo el dedo (abajo, la prueba de los toques junto a las zonas).
-    await tapEdge(page, page.locator('.ws-breadcrumbs a').nth(1), 'arriba-derecha');
+    // Por arriba (sus zonas crecen 2 px: el toque, a 1 del borde): a 400 px, la ficha deja las
+    // migas en dos lineas a 10 px (sus zonas, a 6) y un toque del hueco va a la que mas cae bajo el
+    // dedo (abajo, la prueba de los toques junto a las zonas).
+    await tapEdge(page, page.locator('.ws-breadcrumbs a').nth(1), 'arriba-derecha', 1);
     await expect(page.locator('.ws-profile')).toHaveCount(0);
     await expect(page.locator('.ws-breadcrumbs [aria-current=page]')).toHaveText(t.nav.documents.label);
     // La ✕ de la tarjeta de una fila de la hoja: se cierra la tarjeta y la hoja sigue.
@@ -442,7 +443,8 @@ test.describe('con el dedo, a 400 px', () => {
         groups.set(k, [...(groups.get(k) ?? []), c]);
       }
       wrong.push(...[...groups].map(([k, v]) => `${where}: ${k} (${v.length} puntos, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
-      console.log(`${where}: ${points} toques, ${fine} pasan a una zona (o a la ficha de la misma carpeta), ${moved} en el hueco entre dos zonas cambian de una a otra, ${changes.length - fine - moved} sin permiso${changes.map((c) => `\n  (${c.x}, ${c.y}) ${c.before} → ${c.after}`).join('')}`);
+      const shown = changes.filter((c) => !(nothing(c.before) && c.after.endsWith('[zona]')) && !sameFolder(c));
+      console.log(`${where}: ${points} toques, ${fine} pasan a una zona (o a la ficha de la misma carpeta), ${moved} en el hueco entre dos zonas cambian de una a otra, ${changes.length - fine - moved} sin permiso${shown.map((c) => `\n  (${c.x}, ${c.y}) ${c.before} → ${c.after}`).join('')}`);
       moved = 0;
     };
     // La busqueda con la lista de las empresas abierta sobre los tiradores (a 400 px, el de abajo
