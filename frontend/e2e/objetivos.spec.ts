@@ -2,8 +2,9 @@
 // «Sí, amplía también esos controles»). Las zonas tactiles de bms.css agrandan los controles
 // pequenos sin que nada cambie a la vista:
 // - la guarda: en cada estado de la gira (e2e/objetivos.ts), a 400 × 860 con el raton y con el
-//   dedo, ningun elemento que se pulse tiene una zona (medida con elementFromPoint) de menos de
-//   24 × 24, salvo los apuntados abajo con su razon (hoy, ninguno);
+//   dedo, a ningun elemento que se pulse le falta un cuadrado de 24 × 24 de puntos suyos (medidos
+//   con elementFromPoint) salvo con la excepcion del espaciado, ni a los apuntados abajo con su
+//   razon (hoy, ninguno);
 // - cada zona, a 1440 y a 400, con el raton y con el dedo (pointer: coarse), en oscuro y en claro:
 //   su tamano medido (24 o mas; con el dedo, 44 donde cabe), que no pisa a nadie (a donde va un
 //   clic, punto a punto, con las zonas y sin ellas: solo cambian puntos que no eran de nadie, o del
@@ -11,12 +12,16 @@
 //   de desplazamiento y los mismos pixeles (en reposo, con el raton encima y con el foco del
 //   teclado) que sin ellas;
 // - con el dedo (isMobile, hasTouch, 400 × 860): un toque cerca del borde de cada zona, fuera de lo
-//   que se ve, hace lo mismo que uno en el control.
+//   que se ve, hace lo mismo que uno en el control; y donde una zona linda con otra cosa (la lista
+//   de las empresas sobre los tiradores, «Kaart … openen» bajo su carpeta, dos lineas de migas),
+//   cada toque de verdad va adonde iba en 1cc96b0, o a la zona si antes no hacia nada (Chromium
+//   acerca un toque al objetivo que mejor cae bajo el dedo: elementFromPoint no lo ve).
 import type { Locator, Page } from '@playwright/test';
 import { expect, expectAccessible, login, settled, test } from './fixtures';
 import {
   TEXTS,
   ask,
+  fill,
   chooseTheme,
   detail,
   folderProfile,
@@ -35,7 +40,7 @@ import {
   toHome,
   wheel,
 } from './nav';
-import { areaOf, hitChanges, measureTargets, scrollChanges, tour, zoneTour, type Target } from './objetivos';
+import { areaOf, grid, hitChanges, measureTargets, scrollChanges, tapChanges, tour, zoneTour, type TapChange, type Target } from './objetivos';
 import { decodePng, differingPixels } from './png';
 import { coarsePointer, withoutHitArea, ZONES } from './zona-tactil';
 
@@ -43,10 +48,13 @@ const t = TEXTS.nl;
 const JV = 'J. Voorbeeld Beveiliging (zzp)';
 const HAVEN = 'Demo Havenbedrijf BV';
 
-/** Los que pueden quedarse por debajo de 24 × 24, con su razon (la excepcion del espaciado de
- *  WCAG 2.5.8 u otra). Hoy ninguno: cada control pequeno tiene su zona. Aparte, lo que tapa en
- *  parte una lista abierta (el calendario, la de las empresas, la de los tipos) no cuenta mientras
- *  esta abierta: se ve debajo, y un clic fuera de la lista la cierra (Radix). */
+/** Los que pueden quedarse por debajo de 24 × 24, con su razon. Hoy ninguno: cada control
+ *  pequeno tiene su zona, y a lo que no le cabe un cuadrado de 24 de puntos suyos (los dias del
+ *  calendario, los botones de una respuesta) le vale la excepcion del espaciado de 2.5.8, que se
+ *  mide (objetivos.ts). Aparte, lo que tapa en parte una lista abierta (el calendario, la de las
+ *  empresas, la de los tipos) no cuenta mientras esta abierta: se ve debajo, y un clic fuera de la
+ *  lista la cierra (Radix); tampoco los tiradores del importe mientras una lista de los filtros
+ *  esta abierta (sin zona, como en 1cc96b0: bms.css). */
 const EXCEPTIONS: { what: RegExp; why: string }[] = [];
 
 // ------------------------------------------------------------------ la guarda
@@ -60,6 +68,7 @@ for (const pointer of ['raton', 'dedo'] as const) {
       await page.goto(`${baseUrl}/app`);
       expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(pointer === 'dedo');
       const small: string[] = [];
+      const spaced = new Set<string>();
       const wrong: string[] = [];
       const taken: Record<string, number> = {};
       let states = 0;
@@ -68,9 +77,16 @@ for (const pointer of ['raton', 'dedo'] as const) {
         states += 1;
         const all = await measureTargets(page);
         measured += all.length;
-        for (const s of all.filter((x) => x.hit.width < 24 || x.hit.height < 24)) {
+        // Cabe un cuadrado de 24 de puntos suyos; si no, la excepcion del espaciado (los dias del
+        // calendario, circulos de 30, y los botones de una respuesta, de 26 redondeados: les cabe uno
+        // de 23, igual que en 1cc96b0).
+        for (const s of all.filter((x) => x.square < 24)) {
           if (s.underPopover || EXCEPTIONS.some((e) => e.what.test(s.what))) continue;
-          small.push(`${state}: ${s.what}, su caja ${s.box.width} × ${s.box.height}, su zona ${s.hit.width} × ${s.hit.height}`);
+          if (s.spacing) {
+            spaced.add(`${s.what.replace(/«.*»/, '«…»')} ${s.square}`);
+            continue;
+          }
+          small.push(`${state}: ${s.what}, su caja ${s.box.width} × ${s.box.height}, su zona ${s.hit.width} × ${s.hit.height}, su mayor cuadrado ${s.square}`);
         }
         // En cada estado de la gira, como en 1cc96b0 (las zonas nuevas quitadas): a donde va un clic
         // (salvo lo permitido), las medidas de desplazamiento y los pixeles en reposo.
@@ -82,6 +98,7 @@ for (const pointer of ['raton', 'dedo'] as const) {
         await samePixels(page, state);
       });
       console.log(`la guarda (${pointer}): ${states} estados, ${measured} objetivos medidos, ${small.length} de menos de 24 × 24${small.map((x) => `\n  ${x}`).join('')}`);
+      console.log(`por debajo de 24 con la excepcion del espaciado: ${[...spaced].join(' · ')}`);
       console.log(`lo que pasa a ser de una zona en la gira: ${Object.entries(taken).map(([k, n]) => `${k}: ${n}`).join(' · ')}`);
       console.log(`lo que no deberia: ${wrong.length}${wrong.map((x) => `\n  ${x}`).join('')}`);
       expect(states).toBeGreaterThan(60);
@@ -97,10 +114,13 @@ for (const pointer of ['raton', 'dedo'] as const) {
  *  24 con el raton y 44 con el dedo, salvo donde no cabe. */
 function least(zone: string, coarse: boolean): number {
   if (!coarse) return 24;
-  // Las migas: dos lineas de migas quedan a 10 px (a 400 px, la ficha de un proveedor).
-  if (zone === 'las migas de Documentos') return 30;
+  // Las migas: 24, como con raton (bms.css): dos lineas de migas quedan a 10 px (a 400 px, la
+  // ficha de un proveedor), y mas alto, Chromium daba a la de abajo toques de las de arriba.
+  if (zone === 'las migas de Documentos') return 24;
   // Los tiradores: el de abajo, al principio de la pista, llega al borde de la ventana a 400 px.
   if (zone === 'los tiradores del importe') return 24;
+  // «Abrir la ficha»: encima pinta la sombra de la carpeta (bms.css).
+  if (zone === '«Abrir la ficha» de una carpeta') return 41;
   return 44;
 }
 
@@ -192,6 +212,7 @@ for (const size of [
           for (const m of (await measureTargets(page)).filter((x) => x.zone && !x.underPopover)) {
             const need = least(m.zone!, coarse);
             expect(Math.min(m.hit.width, m.hit.height), `${where}: ${m.what} (${m.zone}) mide ${m.hit.width} × ${m.hit.height}`).toBeGreaterThanOrEqual(need);
+            expect(m.square, `${where}: ${m.what} (${m.zone}), su mayor cuadrado`).toBeGreaterThanOrEqual(24);
             const seen = sizes.get(`${m.zone}: ${m.what}`);
             if (!seen || m.hit.width * m.hit.height < seen.width * seen.height) sizes.set(`${m.zone}: ${m.what}`, m.hit);
           }
@@ -310,12 +331,12 @@ test.describe('con el dedo, a 400 px', () => {
     await tapEdge(page, caption);
     await expect(folderProfile(page, name)).toBeVisible();
     // «Terug naar Aurora» sobre la miga de la pagina (a 400 px, la ficha de un cliente): sus zonas
-    // lindan sin pisarse, y un toque a 1,5-2,5 px del borde de abajo de la de «Terug naar Aurora»
-    // le llega, de punta a punta salvo la esquina de abajo a la izquierda; uno igual de cerca del
-    // borde de arriba de la miga, a la miga. Con la capa (::before), Chromium acercaba muchos a la
-    // miga de debajo (cuenta la caja de cada uno, no su ::before); con relleno y margen (bms.css),
-    // la caja es la zona. En la esquina (sus 6 px), lo mas del dedo cae en la miga y Chromium se lo
-    // da a ella, como en dos zonas cualesquiera que lindan. Los clics, parados.
+    // quedan a 3 px sin pisarse, y un toque a 1,5-2,5 px del borde de abajo de la de «Terug naar
+    // Aurora» le llega, de punta a punta salvo la esquina de abajo a la izquierda; uno igual de
+    // cerca del borde de arriba de la miga, a la miga. Con la capa (::before), Chromium acercaba
+    // muchos a la miga de debajo (cuenta la caja de cada uno, no su ::before); con relleno y margen
+    // (bms.css), la caja es la zona. En la esquina (sus 6 px), lo mas del dedo cae en la miga y
+    // Chromium se lo da a ella, como en dos zonas cualesquiera que lindan. Los clics, parados.
     await openFolder(page, HAVEN, 'client');
     const home = page.locator('a.ws-home');
     await home.evaluate((e) => e.scrollIntoView({ block: 'center' }));
@@ -323,7 +344,9 @@ test.describe('con el dedo, a 400 px', () => {
     const crumb = page.locator('.ws-breadcrumbs a[aria-current=page]');
     const { area: homeArea } = await areaOf(home);
     const { area: crumbArea } = await areaOf(crumb);
-    expect(Math.abs(homeArea.y + homeArea.height - crumbArea.y), 'la zona llega a la de la miga').toBeLessThan(0.05);
+    const gap = crumbArea.y - (homeArea.y + homeArea.height);
+    expect(gap, 'la zona queda a 3 px de la de la miga, sin pisarla').toBeGreaterThan(2.95);
+    expect(gap, 'la zona queda a 3 px de la de la miga, sin pisarla').toBeLessThan(3.05);
     await page.evaluate(() => {
       const w = window as unknown as { __toques: string[]; __toque: (e: Event) => void; __para: (e: Event) => void };
       w.__toques = [];
@@ -352,8 +375,8 @@ test.describe('con el dedo, a 400 px', () => {
     await expect(folderProfile(page, HAVEN)).toBeVisible();
     // La miga «Documenten»: la rejilla, sin ficha.
     await openFolder(page, JV, 'provider');
-    // Por arriba: a 400 px, la ficha deja las migas en dos lineas que lindan (sus zonas se tocan) y
-    // Chromium acerca un toque del borde de abajo a la miga de debajo, como antes uno entre las dos.
+    // Por arriba: a 400 px, la ficha deja las migas en dos lineas a 10 px (sus zonas, a 6) y un
+    // toque del hueco va a la que mas cae bajo el dedo (abajo, la prueba de los toques junto a las zonas).
     await tapEdge(page, page.locator('.ws-breadcrumbs a').nth(1), 'arriba-derecha');
     await expect(page.locator('.ws-profile')).toHaveCount(0);
     await expect(page.locator('.ws-breadcrumbs [aria-current=page]')).toHaveText(t.nav.documents.label);
@@ -379,6 +402,84 @@ test.describe('con el dedo, a 400 px', () => {
     // Con el inicio ya quieto (el texto discreto entra con un fundido).
     await settled(page);
     await expectAccessible(page, 'el inicio con el dedo');
+  });
+  // Lo que elementFromPoint no ve (la guarda): Chromium acerca un toque al objetivo que mejor cae
+  // bajo el dedo, su caja entera, aunque el punto sea de otro. Donde una zona linda con otra cosa,
+  // se toca punto a punto con las zonas y sin ellas (como en 1cc96b0), con los clics parados: cada
+  // toque va adonde iba, o a una zona si antes no hacia nada (nada, o la miga de la pagina en que
+  // se esta). Una sola excepcion, igual para quien toca: bajo la carpeta, lo que iba a la carpeta
+  // y ahora va a su «Kaart … openen» abre la misma ficha (las dos llaman a onOpen).
+  test('los toques junto a las zonas van adonde iban en 1cc96b0, o a la zona si no hacian nada', async ({ page, baseUrl }) => {
+    test.setTimeout(1_500_000);
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    const wrong: string[] = [];
+    const nothing = (s: string) => s.startsWith('nada') || s.startsWith('sin clic (nada') || s.endsWith('(la pagina en que se esta)');
+    const [pre, post] = t.aurora.archive.openProfileNamed.split('{name}') as [string, string];
+    const sameFolder = (c: TapChange) => {
+      const m = c.after.match(/^a «(.*)» \[zona\]$/);
+      if (!m || !m[1]!.startsWith(pre) || !m[1]!.endsWith(post)) return false;
+      const name = m[1]!.slice(pre.length, m[1]!.length - post.length);
+      return c.before.startsWith(`button.gf-hit «${name} `) && c.after === `a «${fill(t.aurora.archive.openProfileNamed, { name })}» [zona]`;
+    };
+    // En el hueco entre dos zonas (de ninguna), la frontera entre las dos puede moverse.
+    let gaps: DOMRect[] = [];
+    let moved = 0;
+    const inGap = (c: TapChange) => c.before.endsWith('[zona]') && c.after.endsWith('[zona]') && !gaps.some((r) => c.x >= r.left && c.x <= r.right && c.y >= r.top && c.y <= r.bottom);
+    const check = (where: string, changes: TapChange[], points: number) => {
+      const groups = new Map<string, TapChange[]>();
+      let fine = 0;
+      for (const c of changes) {
+        if ((nothing(c.before) && c.after.endsWith('[zona]')) || sameFolder(c)) {
+          fine += 1;
+          continue;
+        }
+        if (inGap(c)) {
+          moved += 1;
+          continue;
+        }
+        const k = `${c.before} → ${c.after}`;
+        groups.set(k, [...(groups.get(k) ?? []), c]);
+      }
+      wrong.push(...[...groups].map(([k, v]) => `${where}: ${k} (${v.length} puntos, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
+      console.log(`${where}: ${points} toques, ${fine} pasan a una zona (o a la ficha de la misma carpeta), ${moved} en el hueco entre dos zonas cambian de una a otra, ${changes.length - fine - moved} sin permiso${changes.map((c) => `\n  (${c.x}, ${c.y}) ${c.before} → ${c.after}`).join('')}`);
+      moved = 0;
+    };
+    // La busqueda con la lista de las empresas abierta sobre los tiradores (a 400 px, el de abajo
+    // queda debajo de su borde izquierdo): alrededor de cada tirador.
+    await openEntry(page, 'search');
+    await page.locator('.filters-toggle').click();
+    await expect(page.locator('#search-filters')).toBeVisible();
+    await page.locator('#search-filters .party-combobox button').click();
+    await expect(page.locator('.ui-popover')).toBeVisible();
+    await settled(page);
+    await page.locator('.amount-thumb').first().evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settled(page);
+    for (const i of [0, 1]) {
+      const b = (await page.locator('.amount-thumb').nth(i).boundingBox())!;
+      const points = grid(b.x - 30, b.x + b.width + 30, 3, b.y - 30, b.y + b.height + 30, 3);
+      check(`la lista de las empresas, el tirador ${i + 1}`, await tapChanges(page, points), points.length);
+    }
+    await expect(page.locator('.ui-popover')).toBeVisible();
+    await page.keyboard.press('Escape');
+    // Documentos: «Kaart … openen» bajo la primera carpeta (y la carpeta encima).
+    await openDocuments(page);
+    const caption = page.locator('.ws-folder-caption > a').first();
+    await caption.evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settled(page);
+    const { box, area } = await areaOf(caption);
+    const band = grid(area.x - 10, area.x + area.width + 10, 5, area.y - 16, box.y + 2, 1);
+    check('la rejilla, «Kaart … openen»', await tapChanges(page, band), band.length);
+    // La ficha de un proveedor: las migas en dos lineas, a 10 px (sus zonas, a 6).
+    await openFolder(page, JV, 'provider');
+    const crumbs = await page.locator('.ws-breadcrumbs a').evaluateAll((all) => all.map((a) => a.getBoundingClientRect().toJSON() as DOMRect));
+    const last = crumbs[crumbs.length - 1]!;
+    expect(last.top - crumbs[0]!.top, 'las migas, en dos lineas').toBeGreaterThan(20);
+    const border = Math.max(...crumbs.filter((c) => c.top < last.top - 5).map((c) => c.bottom));
+    const lines = grid(0, Math.max(...crumbs.map((c) => c.right)) + 5, 5, border - 12, border + 12, 1);
+    gaps = crumbs;
+    check('la ficha de un proveedor, las dos lineas de migas', await tapChanges(page, lines), lines.length);
+    expect(wrong).toEqual([]);
   });
 });
 

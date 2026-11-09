@@ -103,7 +103,13 @@
    Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
    - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
      y redondeada como ella (fuera, en la hoja, un clic cierra la hoja entera);
-   - las migas, con el dedo: 30 de alto (dos lineas de migas quedan a 10 px) y 10 px mas anchas;
+   - «Abrir la ficha» de una carpeta, con el dedo: 41 de alto. Encima pinta la sombra de la
+     carpeta (.gf-shadow, sin manejador), 1,66 px por debajo de los 15 de antes: un toque alli
+     iba a la carpeta (Chromium lo acercaba) y con la zona, a la sombra, sin hacer nada;
+   - las migas, con el dedo como con raton: 24 de alto. En la ficha de una carpeta, a 400 px, van
+     en dos lineas a 10 px, y la de abajo es la pagina en que se esta (no hace nada): Chromium da
+     un toque del hueco a la miga que mas cae bajo el dedo, y con mas alto (30) se llevaba la
+     ancha de abajo toques del borde de las de arriba que antes navegaban;
    - los tiradores crecen hacia fuera (el de abajo a la izquierda, el de arriba a la derecha), para
      no pisarse; con el dedo, 44 de alto y 29,5 de ancho: al final de la pista, a 400 px, quedan 16
      hasta el borde de la ventana. */
@@ -133,10 +139,8 @@
   .filters-reset:focus-visible{outline-offset:-10px}
   .ui-command-input input{padding:13px;margin:-13px}
   .ui-command-input input:focus-visible{outline-offset:-7px}
-  .ws-folder-caption>a{padding:15px;margin:-15px}
-  .ws-folder-caption>a:focus-visible{outline-offset:-13px}
-  .ws-breadcrumbs a{padding:5px;margin:-5px}
-  .ws-breadcrumbs a:focus-visible{outline-offset:-3px}
+  .ws-folder-caption>a{padding:13px;margin:-13px}
+  .ws-folder-caption>a:focus-visible{outline-offset:-11px}
   .discreet-languages button::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
   .ws-home::before{content:none}
   .ws-home{padding:14px;margin:-14px}
@@ -144,8 +148,15 @@
   .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px;border-top-right-radius:11px}
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
 }
+/* Mientras una lista de los filtros esta abierta (la empresa, el tipo o la fecha), los tiradores
+   como en 1cc96b0, sin capa: la lista los tapa (a 400 px, el de abajo entero, por su borde
+   izquierdo), y la capa que asomaba por su lado hacia que Chromium llevara al tirador, o a la
+   lista sin fila, un toque del borde de la lista que antes iba a una fila. Un toque fuera de la
+   lista la cierra, como antes. */
+.filters-fields:has([aria-expanded=true])~.filter-amount-section .amount-thumb{position:static}
+.filters-fields:has([aria-expanded=true])~.filter-amount-section .amount-thumb::before{content:none}
 /* A 650 px o menos, «Volver a Aurora» mide 15 de alto (16,5 en lo mas ancho): con 14 de relleno, 43,
-   y su caja llega justo a la zona de las migas, sin pisarla; el pixel que falta, por arriba (no hay
+   y su caja queda a 3 px de la zona de las migas, sin pisarla; el pixel que falta, por arriba (no hay
    nada), con la capa. */
 @media(pointer:coarse) and (max-width:650px){
   .ws-home::before{content:'';inset:-1px 0 0}

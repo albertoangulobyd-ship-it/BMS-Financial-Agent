@@ -43,9 +43,17 @@ export interface Target {
   box: { width: number; height: number };
   /** La zona en que un clic le llega: la fila y la columna de puntos mas largas (px, al pixel). */
   hit: { width: number; height: number };
+  /** El lado del mayor cuadrado de puntos suyos (px, al pixel): lo que pide 2.5.8 (24 × 24). Una
+   *  fila y una columna largas no bastan: un circulo de 30 tiene filas de 30 y le cabe uno de 21. */
+  square: number;
+  /** Por debajo de 24 de cuadrado, pero con la excepcion del espaciado de 2.5.8: un circulo de 24
+   *  de diametro en el centro de su caja no toca otro objetivo ni el circulo de otro asi. */
+  spacing?: true;
   /** Si tiene zona tactil (bms.css), cual. */
   zone?: string;
-  /** Tapado en parte por una lista abierta (un calendario, un desplegable) de la que no es. */
+  /** Tapado en parte por una lista abierta (un calendario, un desplegable) de la que no es, o un
+   *  tirador del importe mientras una lista de los filtros esta abierta (sin zona, como en
+   *  1cc96b0: bms.css; la lista lo tapa en parte). */
   underPopover?: true;
 }
 
@@ -53,7 +61,8 @@ export interface Target {
  * Cada elemento que se pulsa en la pantalla de ahora y su zona medida. Solo cuenta lo que se
  * puede pulsar en algun punto (lo tapado entero, lo de una pantalla que se va y lo inerte, no).
  * Con caja de 24 × 24 o mas, basta con que los puntos de un cuadrado de 24 en su centro sean
- * suyos; si no, se mide la zona entera (32 px alrededor de la caja, punto a punto).
+ * suyos; si no, se mide la zona entera (32 px alrededor de la caja, punto a punto): la fila y la
+ * columna mas largas y el mayor cuadrado. Si no cabe uno de 24, se mira la excepcion del espaciado.
  */
 export async function measureTargets(page: Page): Promise<Target[]> {
   return page.evaluate(({ selector, zones }) => {
@@ -63,6 +72,8 @@ export async function measureTargets(page: Page): Promise<Target[]> {
     bands.replaceSync('.bms-banda{visibility:hidden!important}');
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, bands];
     const out: Target[] = [];
+    // El centro de cada uno que se queda por debajo de 24 con el espaciado, y su sitio en `out`.
+    const centres: [number, number, number][] = [];
     const vw = innerWidth;
     const vh = innerHeight;
     const describe = (el: Element) => {
@@ -112,6 +123,7 @@ export async function measureTargets(page: Page): Promise<Target[]> {
       }
       const ours = (x: number, y: number) => targetAt(x, y) === el;
       let hit = { width: 0, height: 0 };
+      let side = 0;
       // Un cuadrado de 24 en el centro, entero suyo: basta. No en los de zona, que se miden
       // enteros (su capa puede pasar de su caja: «Volver a Aurora» con el dedo a 400 px).
       const cx = r.left + r.width / 2;
@@ -120,40 +132,72 @@ export async function measureTargets(page: Page): Promise<Target[]> {
       if (square) {
         for (let i = -11.5; i <= 11.5 && square; i += 5.75) for (let j = -11.5; j <= 11.5 && square; j += 5.75) if (!ours(cx + i, cy + j)) square = false;
       }
-      if (square) hit = { width: r.width, height: r.height };
+      if (square) (hit = { width: r.width, height: r.height }), (side = Math.min(r.width, r.height));
       else {
-        // La zona entera: las filas y las columnas de puntos, al pixel (en su centro).
+        // La zona entera, punto a punto (en el centro de cada pixel): las filas y las columnas mas
+        // largas y el mayor cuadrado (el lado de cada punto como esquina de abajo a la derecha).
         const x0 = Math.max(0, Math.floor(r.left - 32));
         const x1 = Math.min(vw - 1, Math.ceil(r.right + 32));
         const y0 = Math.max(0, Math.floor(r.top - 32));
         const y1 = Math.min(vh - 1, Math.ceil(r.bottom + 32));
-        const rowStep = Math.max(1, Math.ceil((y1 - y0) / 80));
-        const colStep = Math.max(1, Math.ceil((x1 - x0) / 80));
-        for (let y = y0; y <= y1; y += rowStep) {
+        const W = x1 - x0 + 1;
+        const cols = new Uint16Array(W);
+        let up = new Uint16Array(W);
+        for (let y = y0; y <= y1; y += 1) {
+          const row = new Uint16Array(W);
           let run = 0;
-          for (let x = x0; x <= x1; x += 1) {
-            run = ours(x + 0.5, y + 0.5) ? run + 1 : 0;
-            if (run > hit.width) hit.width = run;
+          for (let i = 0; i < W; i += 1) {
+            if (!ours(x0 + i + 0.5, y + 0.5)) {
+              run = 0;
+              cols[i] = 0;
+              continue;
+            }
+            run += 1;
+            cols[i]! += 1;
+            row[i] = i > 0 ? Math.min(up[i]!, up[i - 1]!, row[i - 1]!) + 1 : 1;
+            hit.width = Math.max(hit.width, run);
+            hit.height = Math.max(hit.height, cols[i]!);
+            side = Math.max(side, row[i]!);
           }
+          up = row;
         }
-        for (let x = x0; x <= x1; x += colStep) {
-          let run = 0;
-          for (let y = y0; y <= y1; y += 1) {
-            run = ours(x + 0.5, y + 0.5) ? run + 1 : 0;
-            if (run > hit.height) hit.height = run;
+      }
+      // La excepcion del espaciado (2.5.8): un circulo de 24 de diametro en el centro de su caja
+      // no toca otro objetivo (el de otro asi, despues: los centros a 24 o mas).
+      let spaced = false;
+      if (side > 0 && side < 24) {
+        const [ox, oy] = [r.left + r.width / 2, r.top + r.height / 2];
+        spaced = true;
+        for (let dy = -12; dy <= 12 && spaced; dy += 1)
+          for (let dx = -12; dx <= 12 && spaced; dx += 1) {
+            if (dx * dx + dy * dy > 144) continue;
+            const t = targetAt(ox + dx, oy + dy);
+            if (t && t !== el) spaced = false;
           }
-        }
+        if (spaced) centres.push([ox, oy, out.length]);
       }
       if (restore) for (const [p, top, left] of restore) (p.scrollTop = top), (p.scrollLeft = left);
       // Lo que no se pulsa en ningun punto no es un objetivo (tapado, o de una pantalla que se va).
       if (hit.width === 0 || hit.height === 0) continue;
       const zone = zones.find((z) => el.matches(z.selector))?.name;
-      const under = Array.from(document.querySelectorAll('.ui-popover')).some((p) => {
+      const listOpen = el.matches('.amount-thumb') && !!document.querySelector('.filters-fields [aria-expanded=true]');
+      const under = listOpen || Array.from(document.querySelectorAll('.ui-popover')).some((p) => {
         const q = p.getBoundingClientRect();
         return !p.contains(el) && q.left < r.right && q.right > r.left && q.top < r.bottom && q.bottom > r.top;
       });
-      out.push({ what: describe(el), box: { width: Math.round(r.width * 100) / 100, height: Math.round(r.height * 100) / 100 }, hit, ...(zone ? { zone } : {}), ...(under ? { underPopover: true as const } : {}) });
+      out.push({
+        what: describe(el),
+        box: { width: Math.round(r.width * 100) / 100, height: Math.round(r.height * 100) / 100 },
+        hit,
+        square: Math.round(side * 100) / 100,
+        ...(spaced ? { spacing: true as const } : {}),
+        ...(zone ? { zone } : {}),
+        ...(under ? { underPopover: true as const } : {}),
+      });
     }
+    // Los circulos de dos objetivos por debajo de 24 no se tocan (cada centro, donde se midio).
+    for (const [ax, ay, i] of centres)
+      for (const [bx, by, j] of centres) if (i !== j && Math.hypot(ax - bx, ay - by) < 24) delete out[i]!.spacing;
     document.adoptedStyleSheets = document.adoptedStyleSheets.filter((x) => x !== bands);
     return out;
   }, { selector: INTERACTIVE, zones: ZONES.map((z) => ({ name: z.name, selector: z.selector })) });
@@ -572,4 +616,98 @@ export async function zoneTour(page: Page, visit: (state: string) => Promise<voi
   await openEntry(page, 'process');
   await visit('Procesar');
   await toHome(page);
+}
+
+/** Un toque que cambia de sitio con las zonas: a donde iba sin las nuevas (como en 1cc96b0) y a
+ *  donde va con ellas. */
+export interface TapChange {
+  x: number;
+  y: number;
+  before: string;
+  after: string;
+}
+
+/**
+ * A donde va un toque de verdad (page.touchscreen.tap, con el dedo) en cada punto, sin las zonas
+ * nuevas y con ellas. Chromium acerca un toque al objetivo que mejor cae bajo el dedo (su caja,
+ * no su ::before, y lo que solapa con el dedo cuenta mas que la distancia): elementFromPoint, que
+ * mide la guarda, no lo ve. Los toques no hacen nada: pointerdown, mousedown, click y los demas
+ * se paran en la ventana, antes que nadie (React, Radix), y se apunta a quien iba el clic. Lo que
+ * no es un control es «nada» (el nombre de lo que hay entre corchetes); lo demas, su etiqueta y lo
+ * que dice o su aria-label, «(la pagina en que se esta)» si es la miga de la pagina (no hace nada)
+ * y «[zona]» si tiene zona tactil. Devuelve solo los puntos que cambian.
+ */
+export async function tapChanges(page: Page, points: [number, number][]): Promise<TapChange[]> {
+  // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
+  await withoutHitArea(page, true, 'nuevas');
+  await withoutHitArea(page, false, 'nuevas');
+  await page.evaluate(({ selector, zones }) => {
+    const w = window as unknown as { __toque?: { on: boolean; click: string | null; down: string | null; off: (o: boolean) => void } };
+    if (w.__toque) return;
+    const describe = (h: Element | null) => {
+      if (!h) return 'nada [ninguno]';
+      const t = h.closest(selector);
+      if (!t) return `nada [${h.tagName.toLowerCase()}${typeof h.className === 'string' && h.className ? '.' + h.className.split(/\s+/)[0] : ''}]`;
+      const label = t.getAttribute('aria-label') ?? (t as HTMLElement).innerText ?? '';
+      const current = t.getAttribute('aria-current') === 'page' ? ' (la pagina en que se esta)' : '';
+      const zone = zones.some((z) => t.matches(z)) ? ' [zona]' : '';
+      return `${t.tagName.toLowerCase()}${typeof t.className === 'string' && t.className ? '.' + t.className.split(/\s+/)[0] : ''} «${label.replace(/\s+/g, ' ').trim().slice(0, 80)}»${current}${zone}`;
+    };
+    const sheet = (window as unknown as { __bmsSinZona: Record<string, CSSStyleSheet> }).__bmsSinZona['nuevas']!;
+    const state = {
+      on: false,
+      click: null as string | null,
+      down: null as string | null,
+      off: (o: boolean) => {
+        const base = document.adoptedStyleSheets.filter((s) => s !== sheet);
+        document.adoptedStyleSheets = o ? [...base, sheet] : base;
+        state.click = null;
+        state.down = null;
+        state.on = true;
+      },
+    };
+    w.__toque = state;
+    const stop = (e: Event) => {
+      if (!state.on) return;
+      if (e.type === 'click') state.click = describe(e.target as Element);
+      if (e.type === 'pointerdown') state.down = describe(e.target as Element);
+      if (['mousedown', 'click', 'contextmenu', 'auxclick', 'dblclick'].includes(e.type)) e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave', 'gotpointercapture', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'click', 'dblclick', 'auxclick', 'contextmenu', 'touchstart', 'touchend', 'touchmove'])
+      window.addEventListener(type, stop, { capture: true, passive: false });
+  }, { selector: INTERACTIVE, zones: ZONES.map((z) => z.selector) });
+  const tap = async (x: number, y: number, off: boolean) => {
+    await page.evaluate((o) => (window as unknown as { __toque: { off: (o: boolean) => void } }).__toque.off(o), off);
+    await page.touchscreen.tap(x, y);
+    return page.evaluate(() => {
+      const s = (window as unknown as { __toque: { on: boolean; click: string | null; down: string | null } }).__toque;
+      s.on = false;
+      return s.click ?? `sin clic (${s.down})`;
+    });
+  };
+  const out: TapChange[] = [];
+  try {
+    for (const [x, y] of points) {
+      const before = await tap(x, y, true);
+      const after = await tap(x, y, false);
+      // «Nada» es nada, sea lo que sea lo que hay debajo.
+      if (before !== after && !(before.startsWith('nada') && after.startsWith('nada'))) out.push({ x, y, before, after });
+    }
+  } finally {
+    await page.evaluate(() => {
+      const s = (window as unknown as { __toque: { off: (o: boolean) => void; on: boolean } }).__toque;
+      s.off(false);
+      s.on = false;
+    });
+  }
+  return out;
+}
+
+/** Los puntos de una rejilla: de x0 a x1 cada `dx` y de y0 a y1 cada `dy` (en el centro de cada
+ *  pixel). */
+export function grid(x0: number, x1: number, dx: number, y0: number, y1: number, dy: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let y = Math.floor(y0) + 0.5; y <= y1; y += dy) for (let x = Math.max(0, Math.floor(x0)) + 0.5; x <= x1; x += dx) out.push([x, y]);
+  return out;
 }
