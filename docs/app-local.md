@@ -197,12 +197,15 @@ en más sitio: con ratón, **24 × 24 px** como poco (WCAG 2.2, 2.5.8), y con el
 coarse`), **44 × 44** donde cabe. Todo está en nuestra `src/aurora/bms.css` (las hojas de Aurora
 no se tocan) y de dos maneras que no cambian nada a la vista ni lo que se desplaza: un relleno y
 un margen negativo iguales (la caja crece por los cuatro lados sin mover nada, y el anillo del
-foco se acerca otro tanto para quedar donde estaba) o una capa transparente (`::before`). Son la
+foco se acerca otro tanto para quedar donde estaba) o una capa transparente (`::before`; con el
+dedo, «Terug naar Aurora» crece con relleno, porque Chromium acerca un toque a la caja más
+próxima sin contar su capa, y uno en el borde de abajo se iba a la miga de debajo). Son la
 ✕ de un panel («Paneel sluiten») y la de la hoja de un documento («Voorbeeld sluiten»), 19 × 19
 (25 × 25 con ratón, 45 × 45 con el dedo); la ✕ de la tarjeta de una fila («Detail sluiten»),
-16 × 16 (24 × 24, y con el dedo 44 × 44 en la esquina de la tarjeta, por dentro y redondeada como
-ella); «Terug naar de werkruimte» de la conversación, «Terug naar Aurora» y las migas de
-Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
+16 × 16 (una capa de 24 × 24 que, en posiciones fraccionarias, se pulsa en 25 × 25; con el dedo,
+44 × 44 en la esquina de la tarjeta, por dentro y redondeada como ella: medida, de 45 × 44 a
+45 × 45, y el mayor cuadrado que cabe dentro, 41 × 41); «Terug naar de werkruimte» de la
+conversación, «Terug naar Aurora» y las migas de Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
 entrada, «Filters wissen» de la búsqueda, los dos tiradores del importe y el buscador de las
 listas de los filtros, de 12 a 21 px de alto (de 24 a 26 con ratón y de 44 a 46 con el dedo); y
 el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro: las migas, 30 de

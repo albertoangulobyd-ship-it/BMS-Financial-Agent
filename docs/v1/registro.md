@@ -9857,7 +9857,7 @@ en claro); entre paréntesis, la de 1cc96b0:
 | ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
 | ✕ de la hoja («Voorbeeld sluiten», «Cerrar documento») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
 | «Terug naar de werkruimte» («Volver al espacio») | 143,72 × 15 (145 × 16) | 153,72 × 25 | 153,72 × 25 | 173,72 × 45 | 173,72 × 45 |
-| «Terug naar Aurora» (`a.ws-home`) | 118,2 × 16,5 a 1440, 101,08 × 15 a 400 (119 × 17, 102 × 16) | 119 × 25 | 102 × 25 | 119 × 45 | 102 × 45 |
+| «Terug naar Aurora» (`a.ws-home`) | 118,2 × 16,5 a 1440, 101,08 × 15 a 400 (119 × 17, 102 × 16) | 119 × 25 | 102 × 25 | 147 × 45 | 130 × 45 |
 | Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 32,55 × 30 | 32,55 × 30 |
 | Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 70,25 × 30 | 70,25 × 30 |
 | Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 70,84 y 150,97 × 30 | igual |
@@ -9948,3 +9948,61 @@ uno entre las dos (la de debajo es la página en que se está y no hace nada). C
   a 400 px (JV-2026-006 332 px, VD26-309 y VD26-209 316, en los dos temas; el 30-10-2026, 300 como
   mucho), y `daily.spec.ts`, «een tramo» (KT-202608 ya no está en el tramo de 61 a 90 días el
   03-11-2026). Quedan para otro paso. Python, 2626 y 12 saltadas.
+
+#### Tras la verificación independiente
+
+El verificador dio por mala la entrega (5a14f5d) por tres cosas, arregladas en a0b59d8 (un
+arreglo a medias, guardado al cortarse la sesión), 0f11101, 2ad2ecf y este:
+
+- **La guarda se adelantaba a la búsqueda** (`objetivos.spec.ts`, «las zonas tactiles a 400 px
+  con el dedo», 2 de 2 veces con la CPU cargada): las medidas de desplazamiento se tomaban con
+  las zonas y sin ellas en dos llamadas al navegador, y entre una y otra se iba el orbe de la
+  búsqueda al terminar de pensar (su `figcaption.sr-only`, 424 × 24, estaba en la primera lista
+  y no en la segunda). No eran las zonas. Ahora `scrollChanges` (`e2e/objetivos.ts`) mide con
+  las zonas, sin ellas y con ellas otra vez **en una sola tarea** del navegador (nada de la app
+  puede cambiar la página en medio), con las transiciones quitadas mientras tanto, y compara
+  elemento a elemento; lo que mide distinto con las zonas las dos veces también se apunta. (Al
+  terminarlo salió un fallo propio: `document.adoptedStyleSheets` es un arreglo vivo, y sin
+  copiarlo la hoja que quita las zonas se quedaba puesta.)
+- **«Terug naar Aurora» y la miga de debajo, con el dedo**: Chromium acerca un toque al objetivo
+  cuya caja queda más cerca, y la caja de «Terug naar Aurora» no contaba su `::before`; a 400 px,
+  en la ficha de un cliente, un toque en el borde de abajo de su zona iba a la miga de debajo
+  («Demo Havenbedrijf BV», la página en que se está: no hacía nada). Además, la capa de 44 pisaba
+  medio píxel la zona de 30 de las migas (el punto y = 152). Ahora, con el dedo, crece con relleno
+  y margen negativo (14 px, como las ✕; ya estaba posicionado: nada se mueve y el anillo del foco
+  se queda donde estaba con `outline-offset: -12px`), y su caja es su zona. A 650 px o menos mide
+  15 de alto, 43 con el relleno: el píxel que falta, por arriba (no hay nada), con un `::before`
+  de 1 px. Su caja linda con la zona de las migas sin pisarla. (Al medirlo salió un fallo de la
+  medida: a lo que tiene en su centro un cuadrado de 24 entero suyo, `measureTargets` le daba el
+  tamaño de su caja sin mirar más; a los controles con zona ahora los mide enteros.) La prueba con el dedo toca a 1,5, 2 y 2,5 px del borde de abajo de
+  «Terug naar Aurora», cada 6 px, y a lo mismo del borde de arriba de la miga de debajo: cada
+  toque, en el suyo (con la capa, muchos del borde de abajo iban a la miga). Salvo en la esquina
+  de abajo a la izquierda de «Terug naar Aurora» (sus 6 px): ahí casi todo el dedo cae en la miga
+  y Chromium se lo da a ella, como en dos zonas cualesquiera que lindan; la miga es la página en
+  que se está y no hace nada.
+- **El tamaño de la ✕ de una tarjeta en `docs/app-local.md`**: decía 24 × 24 con ratón; es una
+  capa de 24 que, en posiciones fraccionarias, se pulsa en 25 × 25 (lo de la tabla). Con el
+  dedo, la esquina redondeada de 44 × 44 se mide de 45 × 44 a 45 × 45, y el mayor cuadrado que
+  cabe dentro es de 41 × 41 (por la curva de 11 px): sigue por encima de 24.
+
+En la tabla de arriba, «Terug naar Aurora» con el dedo pasa de 119 × 45 y 102 × 45 a **147 × 45
+a 1440 y 130 × 45 a 400** (el relleno lo ensancha 14 px por lado; a la derecha quedan 10 px hasta
+el borde de la ventana a 400, y nada que pisar).
+
+La base de las pruebas e2e: el 09-11-2026, `scripts/crear_demo_e2e.py` no encuentra en los 8
+últimos días uno en que la base tenga las tres facturas abiertas del puerto que pide el extracto
+(hace falta irse 12 días atrás), y ninguna prueba e2e arranca. No es de las zonas ni se toca
+aquí: para verificar, la base se hizo con un envoltorio de Python en el scratchpad
+(`BMS_PYTHON`) que busca hasta 30 días atrás. Queda para quien arregla lo que deriva con el
+calendario.
+
+Resultado: `e2e/objetivos.spec.ts`, 7 de 7, con la CPU compartida (carga de 9 a 12 en 4 CPU): la
+guarda, 71 estados y 817 objetivos medidos con ratón y con el dedo, 0 de menos de 24 × 24 y 0 que
+no deberían cambiar; cada zona, 144 y 84 capturas iguales a 1440 (ratón y dedo), 140 y 82 a 400,
+con las medidas de desplazamiento sin una diferencia; y los toques con el dedo. Además, `shell`,
+`documents` y `exclusividad` (37 de 37, entre ellas los toques con el dedo de `shell` a 400 y 360
+px y los del control de la hoja plegada de `documents`); typecheck, vitest (1352),
+`aurora-claro.mjs --comprobar` y su prueba, la construcción con `fuente.json` al día, y Python
+(2626 y 12 saltadas). No se pasó la e2e entera: con la carga, cada fichero tarda de 15 a 40
+minutos, y lo cambiado solo toca a «Terug naar Aurora» con el dedo y a las pruebas de las
+zonas.
