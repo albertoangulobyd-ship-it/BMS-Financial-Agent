@@ -66,14 +66,23 @@ instalación nativa) no necesita Node para nada.
 El aspecto es el de Aurora: **tema oscuro por defecto** (desde el paso 17, el de sus hojas
 tal cual: fondo `#08090b`, texto `#e8e5ee`, la rueda en `#544e60` y `#eee5fa`, el panel en
 `#101015`), la letra del sistema, títulos finos, líneas finas y sin sombras salvo en lo que
-flota (menús, avisos). Hay también un **tema claro** con la misma paleta (fondo `#f5f4f8`,
-tarjetas `#fcfbfe`, acento `#5b4890`) y **«Volg Windows»**, que sigue al modo de Windows y
+flota (menús, avisos). Hay también un **tema claro**, «Aurora claro · línea fina» (rehecho el
+03-11-2026 a petición del dueño): la misma app de Aurora, con la misma composición, letra,
+tamaños, movimiento y textos, dibujada para fondo claro. La página es un gris muy claro y
+neutro (`#f5f5f7`, la misma en el inicio, en Documentos y en Procesar); encima, las superficies
+blancas de Aurora con su línea fina neutra y una sombra suave de dos capas solo en lo que flota;
+la tinta en tres grises neutros (`#17171c`, `#484851` y `#686871`), sin lila; un solo color de
+acción, el lila de Aurora oscurecido para el claro (`#6550c4`); las pastillas teñidas con tinta
+oscura de su tono; y Procesar, una sala clara. El detalle, en «El tema claro» (§4.10), y
+**«Volg Windows»**, que sigue al modo de Windows y
 cambia en vivo si Windows cambia. Lo elige cada persona en el menú de su cuenta o en
 Ajustes (paso 17: el panel de la entrada «Instellingen» de la rueda), y se guarda como el
 idioma: por persona y entorno, y la entrada sale con el último de ese ordenador. En las
-hojas de Aurora, el claro es su inversión (`src/aurora/claro.css`, que escribe
-`scripts/aurora-claro.mjs`: cada color con su luminosidad invertida en OKLab y el mismo
-matiz; las hojas del dueño no se tocan). Los dos temas son variables CSS que usa toda la app
+hojas de Aurora, el claro sale del **papel** de cada color en el oscuro (`src/aurora/claro.css`,
+que escribe `scripts/aurora-claro.mjs` desde su paleta `PALETTE`, sus sustituciones `DESIGN` y
+la capa a mano `scripts/aurora-claro-mano.css`): nada se invierte; lo que flota en el oscuro es
+blanco en el claro, un velo blanco es un velo de tinta y una sombra sigue siendo una sombra.
+Las hojas del dueño no se tocan. Los dos temas son variables CSS que usa toda la app
 (`src/index.css`: las claras en `:root`, las oscuras en `:root.dark`) y los dos pasan WCAG
 AA (axe y la medida de cada pastilla en cada pantalla, §7). El tema lo decide **solo la
 clase `.dark` de `<html>`** (`frontend/src/lib/theme.tsx`, que la pone antes de pintar
@@ -187,7 +196,8 @@ deja el foco en el aire (la entrada que abrió un panel se esconde, el panel se 
 entra en Procesar, se vuela a Documentos o se vuelve), el foco va a lo que se tiene delante: el
 título del panel (que nombra el panel), la entrada activa de la rueda, «Terug naar start» en
 Procesar, el título de Documentos o el orbe. Los anillos de foco solo se ven con el teclado: el
-orbe con un aro lila en su zona de clic, «Terug naar start» en claro sobre el negro de Procesar y
+orbe con un aro lila en su zona de clic, «Terug naar start» en claro sobre el negro de Procesar
+(el negro es solo del oscuro: en el tema claro, el anillo del acento sobre la sala clara) y
 la caja con su borde lila al llegar con Tab. La respuesta terminada de la conversación y cada
 estado y etapa de Procesar se anuncian (un `role="status"` oculto).
 
@@ -708,10 +718,12 @@ los colores sueltos y los puntos de antes se quitaron.
 - **Paso 17 B2: los colores de Aurora** (especificación D-31). **En una fila de un panel no
   hay pastilla**: el estado va en el texto de la derecha (`doc-end small`) con el color de
   Aurora: `#b59a76` lo pendiente, `#93b4a4` lo pagado o en orden y, para lo bloqueado (y el
-  plazo del BTW pasado), el rojo de `.ui-status.offline`, `#f87171` (en claro, `#4f3815`,
-  `#1c3a2d` y `#7b0009`). **En una pastilla** (las carpetas de Documentos, las cuentas de una
+  plazo del BTW pasado), el rojo de `.ui-status.offline`, `#f87171` (en claro, el ámbar
+  `#94520a`, el verde `#17723f` y el rojo `#b8261c` de la paleta, «El tema claro», §4.10). **En una pastilla** (las carpetas de Documentos, las cuentas de una
   ficha, la tarjeta de la afscherming), la `.ui-status` de Aurora (`workspace-layout.css`):
-  verde, naranja, rojo o azul, con su punto y su texto; lo neutro va solo en texto (Aurora no
+  verde, naranja, rojo o azul, con su punto y su texto (en claro, texto oscuro del tono sobre su
+  tinte suave y una línea del mismo tono: `#17723f` sobre `#e9f6ee`, `#94520a` sobre `#fdf3e3`,
+  `#b8261c` sobre `#fdeeed`, `#1d5bbf` sobre `#ebf2fd`); lo neutro va solo en texto (Aurora no
   tiene pastilla gris). Lo comprueba `e2e/status.spec.ts` en los dos temas.
 - **Dónde vive.** La pastilla de Aurora está en `frontend/src/aurora/documents/status.tsx`
   (su `components/ui/status.tsx`, con lo poco que se cambió arriba del fichero). La usa **una
@@ -883,6 +895,104 @@ color de la gravedad de su aviso (el dueño las había pedido naranja, y en rojo
 de su valor»: el mismo aviso salía así en dos colores en la misma ficha). Las señales
 llevan un texto corto (van entre las cifras de su ficha; el nombre entero de la regla está
 en sus avisos, justo debajo), y se añadieron `btw_config` y `empresa`.
+
+### 4.10 El tema claro
+
+«Aurora claro · línea fina» (petición del dueño del 02-11-2026: «No me gustó nada el tema
+blanco, por favor corrige, puedes guiarte de mobbin»). Es la misma app de Aurora: la composición,
+la letra, los tamaños, los espacios, el movimiento, las piezas y los textos no cambian; cambian
+solo los colores, las superficies, las líneas, las sombras, los cristales y los brillos. El oscuro
+es el de Aurora, el tema por defecto, y no cambia ni un píxel. Las referencias son los temas claros
+que cataloga Mobbin: las líneas finas de Linear y Stripe, la página `#f5f5f7` bajo lo blanco de
+Apple, un solo color de acción como Mercury y Revolut.
+
+**La paleta** (los tokens `--l-*`, definidos una vez en `PALETTE` de `scripts/aurora-claro.mjs`;
+contrastes WCAG 2.x, las alfas compuestas sobre blanco; «pág.» `#f5f5f7`, «sup.» `#ffffff`,
+«suave» el tinte del acento `#f0edfb`):
+
+| Papel | Token | Valor | Contraste |
+| --- | --- | --- | --- |
+| Página | `page` | `#f5f5f7` | 1,09 frente al blanco: da la elevación |
+| Superficie (lo que flota y el papel) | `surface` | `#ffffff` | — |
+| Lo hundido dentro de lo blanco | `subtle` | `#f5f5f7` | lo hundido deja ver la página |
+| Pistas, segmentado, lo inactivo | `subtle-2` | `#ececf0` | 1,08 frente a la página |
+| Texto principal y cifras | `ink-1` | `#17171c` | 16,40 pág. / 17,86 sup. / 15,49 suave |
+| Texto secundario | `ink-2` | `#484851` | 8,31 / 9,05 / 7,85 |
+| Texto terciario (meta, placeholders) | `ink-3` | `#686871` | 5,07 / 5,52 / 4,78 |
+| Solo lo inactivo y lo decorativo | `ink-4` | `#a0a0a8` | 2,38 / 2,60: **nunca texto** |
+| Líneas | `line-soft` / `line` / `line-strong` | tinta `rgb(17,17,26)` a 0,06 / 0,09 / 0,14 | 1,13 / 1,20 / 1,34 |
+| Borde de un campo de formulario | `field` | `#8a8a93` | 3,42 sup. / 3,14 pág.: WCAG 1.4.11 |
+| Acción | `accent` / `accent-hover` / `accent-press` | `#6550c4` / `#5a45b6` / `#4e3ca3` | blanco encima: 6,00 / 7,09 / 8,40 |
+| Lo elegido | `accent-soft` | `#f0edfb` | `accent` encima 5,21; `accent-hover` 6,15 |
+| Foco | `focus` | `#6550c4`, 2 px | ≥ 5,2 sobre cualquier fondo claro |
+| Selección de texto | `selection` | `#ddd6f6` con `ink-1` | 12,78 |
+| ok (`online`) | texto / tinte / línea / punto | `#17723f` / `#e9f6ee` / `#b9e0c7` / `#1f9a55` | 5,37 sobre su tinte; punto 3,25 |
+| atención (`degraded`) | | `#94520a` / `#fdf3e3` / `#f0d4a6` / `#bf7408` | 5,51; punto 3,34 |
+| bloqueado (`offline`) | | `#b8261c` / `#fdeeed` / `#f3c3bf` / `#e5483d` | 5,59 |
+| info (`maintenance`) | | `#1d5bbf` / `#ebf2fd` / `#bcd2f5` / `#3b7be8` | 5,65 |
+| Sombras | `shadow-1` / `shadow-2` / `shadow-3` | tinta `rgb(16,16,24)` | una capa / dos capas en lo que flota / lo que se abre encima |
+
+El significado de un estado lo lleva siempre la palabra de la pastilla, nunca el color solo. Los
+tokens claros de la app (`src/index.css`, el bloque `:root`; el `:root.dark` no se toca) son los
+mismos: `--background` `#f5f5f7`, `--primary` `#6550c4`, `--input` `#8a8a93`, `--notice-foreground`
+`#5c3800` sobre `#fdf3e3` (9,45).
+
+**Lo que flota y lo que se hunde.** Lo que flota sobre la página (el panel, la caja de escribir, la
+búsqueda grande, las tarjetas del resumen y el «sí» de la conversación) es blanco, con su línea fina
+y la sombra de dos capas (`shadow-2`); lo que se abre encima (la hoja, los menús, el aviso, la nota)
+lleva `shadow-3`, y el fondo atenuado de la hoja, una tinta neutra al 16 % con el desenfoque de
+Aurora. Lo hundido dentro de lo blanco (la tarjeta de una fila, los iconos, la burbuja del usuario)
+deja ver la página (`subtle`). Ninguna superficie con texto es translúcida por debajo de 0,96 y no
+hay ningún brillo blanco fuera de una pieza.
+
+**WCAG 1.4.11, los límites de los componentes.** Los campos de formulario (el texto de una orden,
+los desplegables y combos, la fecha, la búsqueda de Documentos) llevan el borde `field` a 3:1 o más:
+su única marca visible es el borde. Dos excepciones, deliberadas: las dos cajas grandes (la de
+escribir y la búsqueda grande) se quedan con la línea fina (1,20), porque son únicas en su pantalla
+y se identifican por su placeholder (`ink-3`, 5,52), por el botón relleno del acento que llevan
+dentro (6,00 sobre blanco, más de 3:1) y por su relleno blanco con sombra sobre la página; con el
+teclado se marcan con el borde del acento y su halo. Y los botones con texto (`.outline`, «Stop»,
+los disparadores de filtros), que identifica su texto (Understanding 1.4.11 no pide límite a un
+botón con texto). Si el dueño o una auditoría lo piden, las cajas grandes pasan a `field` con una
+línea de `DESIGN`. Lo mide `e2e/claro.spec.ts` en cada estado.
+
+**Procesar, una sala clara.** El dueño la dejó escrita en `meerkat-scene.css` («the approved black
+PNGs live on a clean white processing surface»): lo negro existe solo porque `document-loader.css`
+fuerza `#000 !important`. En el claro, la sala es la página, la suricata, el suelo y los papeles van
+en tinta (`invert(.91)`, `#171717`), el marco de la tarjeta en `line` (en marcha, `line-strong`) y
+su cabecera («AURORA / DOCUMENTEN», de 7 px) en `ink-2`, como las cejas pequeñas.
+
+**Las cejas de 7 a 9 px** («WERKRUIMTE», «WAT AANDACHT VRAAGT», «JE FINANCIËLE ARCHIEF», la
+cabecera de la hoja…) van en `ink-2`: en `ink-3` se miden en píxeles por debajo de 4,5 (3,8 a 4,3;
+el suavizado de una letra tan pequeña no llega a su tinta). La meta de una carpeta («0 documenten»,
+monoespaciada de 12 px y trazo fino) va en la tinta de la carpeta a 0,96: a 0,74 se medía a 3,0–3,3.
+
+**Las placas anchas del acento** («Origineel downloaden», «Factuur openen», «Betaling vastleggen»)
+son la misma pieza que en el oscuro, donde son un relleno lila a todo el ancho; el acento elegido es
+el más suave de los probados.
+
+**Cómo se produce `claro.css`.** `node scripts/aurora-claro.mjs` lo escribe; `--comprobar` sale con 1
+si no es el que saldría. Cada declaración con color de las hojas de `SHEETS` se repite bajo
+`html:not(.dark)` con su papel (texto por su luminosidad, fondo, línea, sombra, velo), y las de esas
+mismas propiedades sin color y las del contorno van tal cual, para que la cascada del claro sea la
+del oscuro (ninguna regla de después pierde por el prefijo, ninguna caja ni anillo de foco cambia).
+Después van `DESIGN` (las sustituciones por selector: cada clave tiene que existir en una hoja) y
+`scripts/aurora-claro-mano.css` (cada clase suya tiene que existir en una hoja o en un `.tsx` de
+`src/aurora`). No hay colores sueltos: todo es `var(--l-*)` salvo `RAW_OK`, cada uno con su porqué
+(el respaldo sin WebGL, la receta de cristal de las carpetas). **Cuando cambien las hojas de
+Aurora**, `node scripts/aurora-claro.mjs --papeles` lista cada color de las hojas con el papel y
+el token que le tocó: se revisa lo nuevo, se diseña lo que haga falta en `DESIGN` o a mano, y se
+vuelve a escribir.
+
+**Las guardas.** `scripts/aurora-claro.test.mjs`: el fichero es el que sale, todo bajo
+`html:not(.dark)`, la paleta en AA, los papeles, `DESIGN` y la capa a mano sin nombres huérfanos,
+ningún color suelto, ninguna superficie más oscura que la página, ninguna sombra ni brillo de fuera
+claro, lo inactivo gris frente al acento, Procesar claro y el bloque `:root.dark` de `index.css`
+con la misma huella que antes. `e2e/claro.spec.ts`: la gira de los estados principales en claro a
+1440 y a 400 px (axe sin excusas, pastillas, el borde de los campos, el texto sobre el cristal de
+las carpetas, bajo la marca TEST, las cejas pequeñas, la cabecera de Procesar y el resumen medidos
+en píxeles, un orbe como mucho) y el aviso fuera de la hoja. `e2e/themes.spec.ts`: la página
+`#f5f5f7` en el inicio, en Documentos y en Procesar, y el enviar inactivo gris y opaco.
 
 ## 5. Neerlandés, inglés y castellano
 
@@ -1070,11 +1180,13 @@ muerto»). De la entrega del dueño no se trae lo que solo era demostración: `i
 y su `DEMO_BATCH`, y la escena vieja de la suricata (`meerkat-scene.tsx`), que ya no montaba.
 
 - **Los estilos** son las hojas del dueño tal cual (`styles.css`, `workspace-layout.css`, las de
-  cada pieza); lo que añade BMS va aparte, en `bms.css`, y el tema claro en `claro.css`, que
-  escribe `scripts/aurora-claro.mjs` (cada color con su luminosidad invertida en OKLab; las
-  superficies claras de Aurora con su texto oscuro —el botón `.primary`, el papel de la hoja,
-  la descarga— se quedan como en el oscuro; `scripts/aurora-claro.test.mjs` comprueba que el
-  fichero es el que sale). `palette.css` del paso 16 se fue.
+  cada pieza); lo que añade BMS va aparte, en `bms.css`, y el tema claro en `claro.css`,
+  **generado por papeles**: lo escribe `scripts/aurora-claro.mjs` (cada color por el papel que
+  hace en el oscuro, con la paleta clara `--l-*`, y las sustituciones de `DESIGN`), y
+  `scripts/aurora-claro-mano.css` es la capa a mano (lo que no sale de una hoja: los estados que
+  Aurora no tiene, los lienzos, las carpetas de cristal, Procesar). `scripts/aurora-claro.test.mjs`
+  comprueba que el fichero es el que sale, que todo va bajo `html:not(.dark)`, que la paleta pasa
+  AA y las guardas de «El tema claro» (§4.10). `palette.css` del paso 16 se fue.
 - **El orbe** del inicio es la `SiriWave` de Aurora (`orb/siri-wave.tsx`), tal cual: sus dos
   sombreadores, sus constantes y su bucle. Lo único que se le cambia: se para con la ventana
   oculta o con el lienzo fuera de la vista y sigue al volver, y sin WebGL es un degradado fijo.
@@ -1235,7 +1347,9 @@ listas de `src/i18n/leftovers.ts`; no cuenta lo marcado con `data-proper-name` n
 bandas que pone el servidor, que van en dos idiomas a propósito). Antes de medir y de cada
 captura esperan a que la pantalla esté quieta (`settled`: ninguna animación con fin en
 marcha y el contenido de la vista entero, sin esperas fijas). Las demás pruebas van en el
-tema por defecto (el oscuro); `e2e/themes.spec.ts` recorre cada pantalla en claro en los
+tema por defecto (el oscuro); `e2e/claro.spec.ts` recorre los estados principales en claro a
+1440 y a 400 px con su guarda de contraste (axe sin excusas, el borde de los campos a 3:1, el texto
+sobre cristal medido en píxeles, el aviso fuera de la hoja); `e2e/themes.spec.ts` recorre cada pantalla en claro en los
 tres idiomas y en oscuro en castellano, las fichas en claro, cómo se elige y se guarda el
 tema por persona y «Volg Windows» cambiando en vivo, y el orbe: se mueve al ritmo de la
 pantalla y se para con la ventana oculta o fuera de la vista, sigue con «menos movimiento» (como
