@@ -28,6 +28,10 @@ html:not(.dark) .outline:focus-visible{outline-color:var(--l-focus)}
 /* -- El foco con el teclado en una fila (un boton sin fondo, de lado a lado): 2 px del acento a
    4 px, con las esquinas redondas (no roza la cifra ni el estado pegados al borde derecho). */
 html:not(.dark) .doc:focus-visible,html:not(.dark) .search-result:focus-visible,html:not(.dark) .ws-file-table>a:focus-visible{outline:2px solid var(--l-focus);outline-offset:4px;border-radius:12px}
+/* Los idiomas de la entrada van separados por un punto medio a 4 px del texto: a 4 px, el anillo
+   lo pisa. Con el desplazamiento de Aurora (6 px), el anillo cae entre el punto y el idioma de al
+   lado. */
+html:not(.dark) .discreet-languages button:focus-visible{outline-offset:6px}
 
 /* -- El "si" de una orden: flota en la conversacion (cristal casi opaco, con su respaldo sin
    desenfoque); dentro de un panel, de una tarjeta o de la hoja, plano. La orden, en el acento
