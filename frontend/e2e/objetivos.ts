@@ -478,7 +478,8 @@ export async function scrollChanges(page: Page): Promise<string[]> {
       const cls = typeof el.className === 'string' ? el.className.split(/\s+/).slice(0, 2).join('.') : '';
       return `${el.tagName.toLowerCase()}.${cls}`;
     };
-    const base = document.adoptedStyleSheets;
+    // Una copia: adoptedStyleSheets es un arreglo vivo.
+    const base = [...document.adoptedStyleSheets];
     document.adoptedStyleSheets = [...base, still];
     const withArea = measure();
     document.adoptedStyleSheets = [...base, still, sheet];
@@ -497,22 +498,27 @@ export async function scrollChanges(page: Page): Promise<string[]> {
   });
 }
 
-/** La caja de un control (lo que se ve) y la de su zona tactil (segun su estilo: su ::before, o
- *  la caja misma si no tiene, como el buscador de una lista). */
+/** La caja de un control (lo que se ve) y la de su zona tactil, segun su estilo: la caja misma si
+ *  crece con relleno y margen negativo (lo que se ve es su contenido), su ::before si lo tiene, o
+ *  las dos («Volver a Aurora» con el dedo a 650 px o menos: el relleno y un pixel de capa). */
 export async function areaOf(control: Locator): Promise<{ box: Box; area: Box }> {
   return control.evaluate((el) => {
     const r = el.getBoundingClientRect();
-    const box = { x: r.left, y: r.top, width: r.width, height: r.height };
+    const c = getComputedStyle(el);
+    const grows = parseFloat(c.marginTop) < 0 || parseFloat(c.marginBottom) < 0;
+    const [pt, pr, pb, pl] = [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].map(parseFloat) as [number, number, number, number];
+    const own = { x: r.left, y: r.top, width: r.width, height: r.height };
+    const content = { x: r.left + pl, y: r.top + pt, width: r.width - pl - pr, height: r.height - pt - pb };
     const s = getComputedStyle(el, '::before');
-    if (s.content === 'none' || s.position !== 'absolute') {
-      // El buscador y «Abrir la ficha»: lo que se ve es su contenido (antes no tenian relleno).
-      const c = getComputedStyle(el);
-      const [pt, pr, pb, pl] = [c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft].map(parseFloat) as [number, number, number, number];
-      return { box: { x: r.left + pl, y: r.top + pt, width: r.width - pl - pr, height: r.height - pt - pb }, area: box };
-    }
+    // El buscador y «Abrir la ficha»: sin ::before (antes no tenian relleno).
+    if (s.content === 'none' || s.position !== 'absolute') return { box: content, area: own };
     const x = r.left + el.clientLeft + parseFloat(s.left);
     const y = r.top + el.clientTop + parseFloat(s.top);
-    return { box, area: { x, y, width: parseFloat(s.width), height: parseFloat(s.height) } };
+    const before = { x, y, width: parseFloat(s.width), height: parseFloat(s.height) };
+    if (!grows) return { box: own, area: before };
+    const [x0, y0] = [Math.min(own.x, before.x), Math.min(own.y, before.y)];
+    const [x1, y1] = [Math.max(own.x + own.width, before.x + before.width), Math.max(own.y + own.height, before.y + before.height)];
+    return { box: content, area: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } };
   });
 }
 

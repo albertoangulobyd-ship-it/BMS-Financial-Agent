@@ -309,32 +309,44 @@ test.describe('con el dedo, a 400 px', () => {
     const name = (await caption.evaluate((a) => a.closest('[data-testid=folder-cell]')!.querySelector('.gf-title')!.textContent)) ?? '';
     await tapEdge(page, caption);
     await expect(folderProfile(page, name)).toBeVisible();
-    // «Terug naar Aurora» sobre la miga de la pagina (a 400 px, la ficha de un cliente): un toque a
-    // 1,5-2,5 px del borde de abajo de su zona, de punta a punta, le llega. Con la capa (::before),
-    // Chromium acercaba alguno a la miga de debajo (cuenta la caja de cada uno, no su ::before);
-    // con relleno y margen (bms.css), la caja es la zona. Los clics, parados: sin navegar.
+    // «Terug naar Aurora» sobre la miga de la pagina (a 400 px, la ficha de un cliente): sus zonas
+    // lindan sin pisarse, y un toque a 1,5-2,5 px del borde de abajo de la de «Terug naar Aurora»,
+    // de punta a punta, le llega; uno igual de cerca del borde de arriba de la miga, a la miga. Con
+    // la capa (::before), Chromium acercaba alguno a la miga de debajo (cuenta la caja de cada uno,
+    // no su ::before); con relleno y margen (bms.css), la caja es la zona. Los clics, parados.
     await openFolder(page, HAVEN, 'client');
     const home = page.locator('a.ws-home');
+    await home.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+    await settled(page);
+    const crumb = page.locator('.ws-breadcrumbs a[aria-current=page]');
     const { area: homeArea } = await areaOf(home);
-    expect(homeArea.y + homeArea.height, 'la zona llega a la de las migas').toBeGreaterThan((await page.locator('.ws-breadcrumbs a').last().boundingBox())!.y - 1);
+    const { area: crumbArea } = await areaOf(crumb);
+    expect(Math.abs(homeArea.y + homeArea.height - crumbArea.y), 'la zona llega a la de la miga').toBeLessThan(0.05);
     await page.evaluate(() => {
       const w = window as unknown as { __toques: string[]; __toque: (e: Event) => void; __para: (e: Event) => void };
       w.__toques = [];
-      w.__toque = (e) => w.__toques.push((e.target as Element).closest('a.ws-home') ? 'ws-home' : ((e.target as Element).closest('a, button')?.textContent ?? 'nada'));
+      w.__toque = (e) => {
+        const el = e.target as Element;
+        w.__toques.push(el.closest('a.ws-home') ? 'ws-home' : el.closest('.ws-breadcrumbs a[aria-current=page]') ? 'miga' : (el.closest('a, button')?.textContent ?? 'nada'));
+      };
       w.__para = (e) => (e.preventDefault(), e.stopPropagation());
       document.addEventListener('pointerdown', w.__toque, true);
       document.addEventListener('click', w.__para, true);
     });
-    let taps = 0;
+    const expected: string[] = [];
     for (let x = homeArea.x + 1.5; x <= homeArea.x + homeArea.width - 1.5; x += 6)
-      for (const d of [1.5, 2, 2.5]) (await page.touchscreen.tap(x, homeArea.y + homeArea.height - d), (taps += 1));
+      for (const d of [1.5, 2, 2.5]) {
+        await page.touchscreen.tap(x, homeArea.y + homeArea.height - d);
+        expected.push('ws-home');
+        if (x > crumbArea.x + 1.5 && x < crumbArea.x + crumbArea.width - 1.5) (await page.touchscreen.tap(x, crumbArea.y + d), expected.push('miga'));
+      }
     const homeTaps = await page.evaluate(() => {
       const w = window as unknown as { __toques: string[]; __toque: (e: Event) => void; __para: (e: Event) => void };
       document.removeEventListener('pointerdown', w.__toque, true);
       document.removeEventListener('click', w.__para, true);
       return w.__toques;
     });
-    expect(homeTaps, 'cada toque del borde de abajo, en «Terug naar Aurora»').toEqual(Array(taps).fill('ws-home'));
+    expect(homeTaps, 'los toques del borde de abajo, en «Terug naar Aurora»; los del borde de arriba de la miga, en ella').toEqual(expected);
     await expect(folderProfile(page, HAVEN)).toBeVisible();
     // La miga «Documenten»: la rejilla, sin ficha.
     await openFolder(page, JV, 'provider');

@@ -144,9 +144,9 @@
   .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px;border-top-right-radius:11px}
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
 }
-/* A 650 px o menos, «Volver a Aurora» mide 15 de alto (16,5 en lo mas ancho): 44 justos; su borde de
-   abajo queda a medio pixel de la zona de las migas (ningun punto de las dos). */
+/* A 650 px o menos, «Volver a Aurora» mide 15 de alto (16,5 en lo mas ancho): con 14 de relleno, 43,
+   y su caja llega justo a la zona de las migas, sin pisarla; el pixel que falta, por arriba (no hay
+   nada), con la capa. */
 @media(pointer:coarse) and (max-width:650px){
-  .ws-home{padding:14.5px;margin:-14.5px}
-  .ws-home:focus-visible{outline-offset:-12.5px}
+  .ws-home::before{content:'';inset:-1px 0 0}
 }
