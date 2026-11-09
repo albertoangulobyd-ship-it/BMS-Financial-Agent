@@ -10084,3 +10084,25 @@ tiene que ir adonde iba o, si antes no hacía nada (nada, o la miga de la págin
 permitido aparte: lo que iba a la carpeta y va a su «Kaart … openen» (el mismo `onOpen`, si la
 carpeta no está abierta) y la frontera en el hueco entre dos migas, fuera de sus zonas. Con la
 hoja de 2080d4d falla en los tres sitios (las filas de la lista, la sombra y las migas).
+
+Medido ahora con el dedo (la tabla de arriba, con `elementFromPoint`, al píxel): las migas,
+28 × 25, 65 × 25, 66 × 25 y 146 × 25 a 1440 y a 400 (como con ratón); «Kaart … openen», de
+107 × 40 a 108 × 40; lo demás, como estaba.
+
+Resultado (la base de prueba, con el envoltorio de 30 días del verificador en `BMS_PYTHON`, y la
+CPU compartida, con carga de 3 a 13): `e2e/objetivos.spec.ts`, 8 de 8. La guarda, 71 estados y
+818 objetivos con ratón y con el dedo, 0 sin su cuadrado de 24 y 0 que no deberían cambiar; por
+el espaciado, los días del calendario y los botones de una respuesta (23 de cuadrado). Cada zona,
+144 y 84 capturas iguales a 1440 (ratón y dedo) y 140 y 82 a 400, sin una diferencia en las
+medidas de desplazamiento. Los toques del borde de cada zona con el dedo. Y los toques de verdad:
+alrededor de los tiradores con la lista abierta, 0 de 1150 cambian; bajo la carpeta, 237 de 806
+pasan a «Kaart … openen» (de nada o de la carpeta, la misma ficha) y ninguno más; entre las migas,
+52 de 1175 pasan a una zona y 5 cambian de miga en el hueco. Con lo construido en 2080d4d (un
+worktree de ese commit con las pruebas nuevas), la misma prueba falla: 22 y 9 toques sin permiso
+alrededor de los tiradores, 27 bajo la carpeta y 19 entre las migas. Además, `shell`, `documents`,
+`cartera-partes`, `exclusividad` y `aurora-paridad`: pasa todo salvo cuatro de `aurora-paridad`
+que fallan igual con lo construido en 1cc96b0 (lo vio el verificador con la misma base): «no se
+desplaza más de 300 px» en los dos temas (JV-2026-006, VD26-309 y VD26-209, conocido) y «los
+paneles casi no se desplazan» a 1440 y a 400 (payables > Deze week, 68 y 221 px). Typecheck;
+vitest, 1352; `aurora-claro.mjs --comprobar`, al día (las reglas nuevas no llevan color); la
+construcción, con `fuente.json` al día; Python, 2626 y 12 saltadas.
