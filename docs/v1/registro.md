@@ -10209,3 +10209,299 @@ prueba: solo comentarios). Python, 2626 y 12 saltadas. `shell`, `documents` y `e
 con lo construido en 1cc96b0 (el clon del verificador, la misma base, el 10-11-2026): la
 conversación ya no encuentra JV-2026-006 en la base de prueba (la fecha; queda para quien arregla
 lo que deriva con el calendario).
+
+### El tema claro, rehecho (petición del dueño del 02-11-2026)
+
+#### La petición
+
+- 02-11-2026: «No me gustó nada el tema blanco, por favor corrige, puedes guiarte de mobbin».
+- Su gusto de siempre: «que se vea lo más minimalista y limpio posible»; y sobre Aurora: «Necesito
+  que te apegues a las animaciones y diseño de esta aplicación, no quiero que hagas algo diferente».
+
+De ahí, dos reglas: el claro es **la misma app de Aurora** (composición, letra, tamaños, espacios,
+movimiento, piezas y textos iguales; solo cambian colores, superficies, líneas, sombras, cristales y
+brillos), y el oscuro, el de Aurora y el tema por defecto, **no cambia ni un píxel**.
+
+#### Lo que no gustaba
+
+El claro de antes salía de invertir la luminosidad de cada color en OKLab: una página gris lavanda,
+un panel más oscuro y turbio que la página (`#d8d8e0`), grises teñidos de lila, la caja de escribir
+gris, velos negros donde el oscuro tenía reflejos blancos, cristales lavados y ninguna elevación.
+
+#### Las tres direcciones y los jueces
+
+Tres prototipos en clones aparte (mobbin.com no se alcanza desde aquí: las referencias son los temas
+claros que cataloga, de Apple, Linear, Notion, Stripe, Revolut y Mercury), capturados con la
+herramienta de capturas (25 estados en claro a 1440 y 400 px y 6 en oscuro) y juzgados por tres
+jueces:
+
+| Dirección | Dueño (minimalismo y fidelidad) | Legibilidad | Completitud | Suma |
+| --- | --- | --- | --- | --- |
+| A · Apple grouped | 7 | 6,5 | 8 | 21,5 |
+| **B · Crisp hairline** | **8** | 7 | 7,5 | **22,5** |
+| C · Aurora daylight glass | 6 | 7,5 | 6,5 | 20 |
+
+#### La decisión y los injertos
+
+Gana **B**, «Aurora claro · línea fina»: es la única que conserva cada pieza de Aurora tal cual (los
+secundarios con contorno, la caja con su línea, el panel con línea fina, el papel blanco dentro de la
+hoja) y solo cambia el material, con grises neutros y sin niebla lila. A sustituía piezas (placas
+grises, acciones negras, papel gris); C devolvía la niebla lila. De A: la página `#f5f5f7` y la
+sombra de dos capas en lo que flota, el mármol aclarado de las carpetas, el fundido del árbol a
+400 px, la jerarquía del «sí», el foco del canto de la carpeta, la aura de la conversación sin
+`screen`, la selección del árbol en el tinte del acento y `--papeles`. De C: el velo neutro al 16 %
+bajo la hoja, los filtros abiertos en el tinte del acento y las pruebas de «ninguna superficie más
+oscura que la página» y «ninguna sombra blanca». De los jueces: el borde de los campos a 3:1, la meta
+de las carpetas legible y ningún color suelto fuera de los tokens.
+
+#### La paleta
+
+| Papel | Valor | Contraste |
+| --- | --- | --- |
+| Página / superficie / hundido / pistas | `#f5f5f7` / `#ffffff` / `#f5f5f7` / `#ececf0` | la página, 1,09 frente al blanco |
+| Tinta 1 / 2 / 3 (texto) | `#17171c` / `#484851` / `#686871` | 17,86 / 9,05 / 5,52 sobre blanco; 16,40 / 8,31 / 5,07 sobre la página |
+| Tinta 4 (solo lo inactivo) | `#a0a0a8` | 2,60: nunca texto |
+| Líneas | tinta a 0,06 / 0,09 / 0,14 | 1,13 / 1,20 / 1,34 |
+| Borde de un campo | `#8a8a93` | 3,42 sobre blanco, 3,14 sobre la página |
+| Acción / encima / pulsado | `#6550c4` / `#5a45b6` / `#4e3ca3` | blanco encima 6,00 / 7,09 / 8,40 |
+| Lo elegido | `#f0edfb` | el acento encima, 5,21 |
+| Estados (texto sobre su tinte) | ok `#17723f`/`#e9f6ee`, atención `#94520a`/`#fdf3e3`, bloqueado `#b8261c`/`#fdeeed`, info `#1d5bbf`/`#ebf2fd` | 5,37 / 5,51 / 5,59 / 5,65; cada punto a 3:1 sobre su tinte |
+
+La tabla entera, con las sombras y los tokens de `index.css`, en `docs/app-local.md` («El tema
+claro», §4.10).
+
+#### Cómo se produce `claro.css` ahora
+
+`frontend/scripts/aurora-claro.mjs` (el generador por papeles de B) escribe `src/aurora/claro.css`:
+
+- `PALETTE`: los tokens `--l-*`, una vez, al principio (más los nuevos `field`, `glass`,
+  `accent-press`, `highlight` y `tick`).
+- Cada declaración con color de las hojas de `SHEETS`, con su papel (texto por su luminosidad, fondo,
+  línea, velo, sombra). Una sombra negra es `shadow`; un brillo claro de fuera, nada; un reflejo
+  claro de dentro, `highlight`; una superficie translúcida, la misma superficie con su alfa
+  (`color-mix`, sin un color suelto).
+- **Nuevo, la cascada del oscuro:** las declaraciones de esas mismas propiedades sin color (`none`,
+  `0`, `inherit`, una variable) y las del contorno (`outline-offset`…) van también, tal cual. Con el
+  prefijo `html:not(.dark)`, cada regla generada pesa más que las de las hojas; si solo fueran las de
+  color, una regla de después sin color perdería en el claro (`.primary{border:0}` de Aurora habría
+  dejado al principal con el borde de `.outline,.primary`; `.detail .chat-export{box-shadow:none}`,
+  con la sombra del «sí» flotante; `.search input{outline:none}`, con un anillo). Así la cascada del
+  claro es la del oscuro y ninguna caja cambia.
+- `DESIGN`: 171 sustituciones por selector (cada clave tiene que existir en una hoja, o
+  `build()` falla).
+- `scripts/aurora-claro-mano.css`: la capa a mano, ahora un CSS que se lee como CSS, con el prefijo
+  explícito; cada clase suya tiene que existir en una hoja de `SHEETS`, en `glass-folder-cards.css` o
+  en un `.tsx` de `src/aurora`, o `build()` falla.
+- **Ningún color suelto**: todo es `var(--l-*)` salvo `RAW_OK` (13 entradas, cada una con su
+  porqué: el respaldo sin WebGL, el subtítulo de la tarjeta sólida del resumen y la receta de cristal
+  de las carpetas). `build()` falla si aparece otro.
+- `--comprobar` y `--papeles` (cada color de las hojas con el papel y el token que le tocó, para
+  revisar cuando cambien las hojas de Aurora).
+
+#### Las reglas por superficie
+
+- **Página** `#f5f5f7` en todas partes (el inicio, la búsqueda, Documentos y Procesar), sin lavado
+  radial ni lila; el logo en tinta (`invert(.91)`, `#171717`).
+- **Lo que flota** (el panel, la caja de escribir, la búsqueda grande, las tarjetas del resumen, el
+  «sí» de la conversación): blanco, línea `line`, sombra de dos capas. **Lo que se abre encima** (la
+  hoja, los menús, el aviso, la nota): `shadow-3`; bajo la hoja, el velo neutro al 16 % con el
+  desenfoque de Aurora.
+- **Lo hundido** (la tarjeta de una fila, los iconos de las filas, la burbuja del usuario): `subtle`,
+  que deja ver la página; iconos neutros, sin fichas lilas.
+- **Las acciones**: un solo color, el acento, en `.primary`, enviar, la búsqueda, «Origineel
+  downloaden», la confirmación del «sí» y el día elegido; encima, pulsado, e inactivo neutro (gris
+  `#ececf0` con la flecha en `ink-4`, opaco: nunca el lila a 0,3). Los secundarios, blancos con una
+  sola línea (el contorno de Tailwind, transparente).
+- **El foco**: el anillo de Aurora (1 px a 6 px) pasa a 2 px del acento a 4 px; en una fila, a 4 px
+  con las esquinas redondas (no roza la cifra ni el estado del borde derecho, comprobado en focus-rij
+  a 1440 y a 400); en el árbol, el anillo de dentro; las demás reglas de foco de las hojas conservan
+  su `outline-offset`.
+- **El «sí» de una orden**: flota en la conversación (cristal a 0,96, con respaldo opaco sin
+  `backdrop-filter`); dentro de un panel, una tarjeta o la hoja, plano; la orden en el acento y
+  «Annuleren» en gris.
+- **Los campos**: borde `field`; la búsqueda grande y la caja de escribir, con su línea fina
+  (decisión de 1.4.11, abajo).
+- **La búsqueda**: los filtros abiertos en el tinte del acento, su contador en el acento, el «borrar ×»
+  del rango en `ink-3` (inactivo, en `ink-4`), la ✕ de un filtro puesto en `ink-3`.
+- **Documentos**: el árbol, la ficha y la pestaña activa en blanco con su sombra mínima; lo elegido
+  del árbol en el tinte del acento; a 400 px la caja del árbol se funde por abajo (solo en claro).
+- **Las carpetas de cristal**: el mármol del dueño aclarado (`saturate(.72) brightness(1.3)
+  contrast(.86)`), con el desenfoque y la saturación de Aurora antes de estar listo
+  (`blur(14px) saturate(.6)` y `blur(10px)` en las hojas), así la transición de 1,2 s y 0,9 s no
+  salta; el frente más limpio arriba, un canto sólido y el foco del canto en el acento a 3 px.
+- **El resumen**: monocromo en tinta, como el de Aurora (tarjetas blancas, barras de cobrar en
+  `ink-1` y de pagar en `ink-4`, los atributos SVG sobrescritos desde el CSS).
+- **La hoja**: el papel blanco con un anillo `line-strong` (se lee como hoja dentro del diálogo
+  blanco); la marca TEST, tenue como en el oscuro.
+- **Procesar**, una sala clara (la superficie blanca que el dueño dejó en `meerkat-scene.css`): la
+  suricata y el suelo en tinta, el marco de la tarjeta visible.
+- **El orbe**: solo `saturate(1.15)`, sin `contrast()` ni halo, y con el `hue-rotate` de Aurora
+  delante (su transición sigue igual); la aura pequeña de la conversación, sin `screen`.
+
+#### Las decisiones deliberadas
+
+- **WCAG 1.4.11.** Los campos de formulario llevan el borde `field` (3,14 a 3,42). Las dos cajas
+  grandes (la de escribir y la búsqueda grande) se quedan con su línea fina: son únicas en su
+  pantalla y se identifican por su placeholder (5,52), por el botón relleno del acento que llevan
+  dentro (6,00) y por su blanco con sombra sobre la página; con el teclado, el borde del acento y su
+  halo. Los botones con texto, por su texto. Documentado en `docs/app-local.md`.
+- **Procesar claro**, en las tres direcciones: lo negro solo existe porque `document-loader.css`
+  fuerza `#000 !important`.
+- **Las placas anchas del acento** («Origineel downloaden», «Betaling vastleggen»…): la misma pieza
+  que en el oscuro (un relleno lila a todo el ancho), con el acento más suave de los probados.
+
+#### Desviaciones de la especificación, y por qué
+
+- **El foco general**: la especificación lo escribe como
+  `:is(button,a,input,select,textarea,[tabindex]):focus-visible{outline:2px solid;outline-offset:4px}`.
+  Así, pondría un anillo donde Aurora no lo tiene a propósito (la caja de escribir, las cajas de
+  búsqueda, las filas del árbol, el orbe: `outline:none`). Se hace sobre la regla de foco de Aurora
+  (`button:focus-visible,input:focus-visible`, en `DESIGN`), con la cascada del oscuro repetida: el
+  mismo resultado donde Aurora pinta un anillo y nada donde no.
+- **Las cejas de 7 a 9 px** (`.panel-top`, `.list-title`, `.ws-eyebrow`, `.ws-dialog-top`,
+  `.ws-party-type`, `.fb-eyebrow`, `.search-eyebrow`, `.processing-eyebrow`, la cabecera de los
+  menús y la de Procesar) van en `ink-2`: en `ink-3`, la guarda las midió en píxeles a 3,81 («WERKRUIMTE»)
+  y de 3,9 a 4,3 («WAT AANDACHT VRAAGT»). Es la regla de la propia especificación (§3.2), aplicada
+  también a `.pc-label`, que mide lo mismo.
+- **La meta de las carpetas** (`--gf-ink-soft`) a 0,96 y no a 0,74: monoespaciada de 12 px y trazo
+  fino, a 0,74 se midió en píxeles a 3,0–3,3 (el suavizado no llega a la tinta), a 0,92 a 4,3–4,6 y
+  a 1 a 5,1–5,4. El mismo valor vale para la meta de las hojas de la carpeta abierta
+  (`#18181b80` de Aurora sobre su papel blanco: 3,35 en axe), que ahora la usa.
+- **El mármol**: los pasos del desenfoque son los de Aurora (`blur(14px) saturate(.6)` antes de
+  estar listo y `blur(10px)` en las hojas), no el `blur(12px)` de B, y la lista de funciones es la
+  misma antes y después, para que el filtro se interpole.
+- **El orbe a `saturate(1.15)` y no a 1,25**: la especificación pide mirar tres fotogramas por
+  estado y bajar a 1,15 si sale caramelo. Con 1,25, de los 24 fotogramas (inicio, rueda, panel y
+  Documentos, a 1440 y a 400) varios daban un rojo y un naranja dominantes; con 1,15 la onda sigue
+  recorriendo sus colores (la de Aurora también pasa por el naranja y el verde en el oscuro: es el
+  sombreador), pero sin saturarlos más que en el oscuro.
+- **El calendario**: no hay «hoy» ni días de fuera del mes en la app (no hay clases para ellos): no
+  se pintan.
+- **El aviso fuera de la hoja**: la prueba responde a la orden en la propia prueba (`page.route`), sin
+  tocar la base que comparten las demás, y cierra el diálogo en el acto para ver el aviso en sus
+  2,6 s.
+
+#### Lo que se arregló sin estar previsto
+
+- La meta de las hojas de una carpeta abierta (axe la medía a 3,35 en documenten-leverancier).
+- El enviar y la búsqueda inactivos, y el principal con `aria-busy`, en su color (`:disabled` de
+  Aurora los dejaba a 0,3).
+- Las sombras del panel y del «sí» dentro de una tarjeta, y el borde del principal: los arregla la
+  cascada repetida (arriba), no una regla a mano.
+- Lo que la especificación nombra y B no tenía: las pestañas no elegidas de Documentos y el
+  subtítulo («Klanten, leveranciers…») en `ink-2`; «Terug naar start» en `ink-2` (el pie del coste
+  sigue en `ink-3`); el mes del calendario, las cifras del rango, el texto escrito en las cajas de
+  búsqueda y los títulos de los resultados y de la tabla de archivos en `ink-1`; los puntos de
+  escribir en `ink-3`.
+- La medida en píxeles, afinada al escribirla: mide el trozo de texto más largo de cada elemento
+  (una ceja con su cuenta al otro lado no cuenta el hueco como fondo), salta lo que tapa otra capa
+  que pinta (el fundido del final de la conversación) y no lo que es transparente (la capa de la
+  escena de Procesar, los lienzos), y mira igual lo que no recibe el ratón (el nombre de una
+  carpeta). La cuenta de orbes cuenta orbes, no lienzos (un orbe lleva a veces dos).
+- El foco de los idiomas de la entrada (09-11-2026): la guarda de las zonas táctiles
+  (`objetivos.spec.ts`, a 400 px, con el ratón y con el dedo) vio 4 píxeles que cambiaban con la
+  zona de «Español» con el foco del teclado. El anillo claro (2 px a 4 px) caía justo sobre el
+  punto medio que separa los idiomas, y la zona (`position:relative`) lo pintaba encima o debajo
+  del punto. En el claro, los idiomas llevan el desplazamiento de Aurora (6 px): el anillo cae
+  entre el punto y el idioma de al lado, sin pisarlo (comprobado en píxeles).
+
+#### Lo que se midió, antes y después
+
+- **axe en claro** (la herramienta de capturas, 25 estados a 1440 y a 400 px, sin excusas): antes
+  (el claro invertido, `1cc96b0`), 10 faltas de contraste (8 en `gesprek-bento` a 1440 y 2 a 400);
+  ahora, **0 faltas de contraste, 0 incidencias serias o críticas, 0 pastillas por debajo de 4,5 y
+  0 violaciones de la CSP** en las 50 capturas en claro. En oscuro, las mismas 50 faltas de
+  contraste que antes (los grises de Aurora que excusa `e2e/aurora/contraste.json`), ni una más.
+- **En píxeles** (`expectPixelContrast`, lo que axe no mide), todo a 4,5 o más en cada estado de
+  la gira a 1440 y a 400 px: las cejas de 8–9 px del panel («WERKRUIMTE», «WAT AANDACHT VRAAGT»;
+  en `ink-3` medían 3,81 y de 3,9 a 4,3), el resumen (`#asof`, `.muted`, `.cap`, el «56 %»), el
+  nombre y la meta de las carpetas sobre la peor parte del cristal (la meta medía 2,7 en las tres
+  direcciones y 3,0–3,3 a 0,74), los valores del papel bajo la marca TEST (E6-h plegada y Object),
+  la cabecera de Procesar y el aviso fuera de la hoja.
+- **Los campos** (`expectFieldBoundary`): cada campo visible de la gira, con su borde compuesto
+  sobre lo que tiene detrás, a 3:1 o más (3,14 a 3,42).
+- **El oscuro, idéntico**: `comparar.mjs` entre `5a14f5d` (un worktree limpio) y esta rama,
+  capturados el mismo día (09-11-2026), con lo construido final: **«12 capturas en oscuro, 0
+  distintas»** (en `gesprek-bento` a 400 px, 6 píxeles en las esquinas de las tarjetas del Finance
+  Bento, por debajo del umbral de 20: el temblor que documenta la herramienta; en una pasada
+  anterior del mismo día, 15 y 6). Además, el bloque `:root.dark` de
+  `src/index.css` tiene la misma huella SHA-256 que en `5a14f5d` (prueba de vitest), ninguna hoja
+  verbatim ni ningún `.tsx` cambia (`git diff 5a14f5d` sobre ellas, vacío) y todo selector de
+  `claro.css` empieza por `html:not(.dark)`.
+- **Mirado**: las 62 capturas, junto al claro de antes, a B y al oscuro: sin niebla lila, ninguna
+  superficie gris donde va blanco, el orbe en su familia (violeta, azul, turquesa; el naranja y el
+  verde que pasan son los del sombreador, como en el oscuro), las carpetas con canto, el papel como
+  hoja dentro del diálogo blanco, el «sí» con su jerarquía y el foco sin pisar texto.
+
+#### Las pruebas nuevas
+
+- `scripts/aurora-claro.test.mjs` (13): el fichero es el que sale; todo bajo `html:not(.dark)`; la
+  paleta en AA (tintas, acento, `on-fill`, estados y sus puntos, foco, `field`,
+  `--notice-foreground`); los papeles; `DESIGN` y la capa a mano sin nombres huérfanos (una clave y
+  una clase falsas hacen fallar `build()`); ningún color suelto fuera de `RAW_OK`; ninguna
+  superficie más oscura que la página; ninguna sombra ni brillo de fuera claro; lo diseñado (lo
+  que flota, la caja, el papel, los campos, la selección del árbol); lo inactivo gris y opaco
+  frente al acento; Procesar claro; el bloque `:root.dark` con la huella de antes.
+- `e2e/claro.spec.ts` (3): la gira de `e2e/objetivos.ts` en claro a 1440 × 900 y a 400 × 860, con
+  axe sin excusas y las pastillas, el borde de los campos, lo medido en píxeles, un orbe como mucho
+  y ninguna violación de la CSP ni error de consola; y el aviso fuera de la hoja (blanco, opaco y
+  legible).
+- `e2e/fixtures.ts`: `expectFieldBoundary` y `expectPixelContrast` (sobre `e2e/png.ts`).
+- `e2e/themes.spec.ts`: la página `#f5f5f7` en el inicio, en Documentos y en Procesar, y el
+  enviar inactivo gris (`rgb(236, 236, 240)`) y opaco. `e2e/status.spec.ts`: los colores claros de
+  las filas y de las pastillas, a los de la paleta (los oscuros no se tocan).
+
+#### Lo que queda
+
+- **S10**, el aviso bajo el modal: la hoja es la capa de arriba del navegador y el aviso queda
+  debajo. Es un defecto de la app, no del tema: tarea aparte. Su estilo se comprueba fuera de la
+  hoja.
+- **El árbol del oscuro a 400 px** sigue cortándose (en el claro se funde): igualarlo es tocar el
+  oscuro, y eso solo con el permiso del dueño.
+- **Las carpetas de cristal** siguen siendo lo más blando: una paleta de mármol propia del claro
+  sería TSX y cambiaría el oscuro.
+- **Las dos cajas grandes**, por debajo de 3:1 en su línea, por decisión (arriba); si se pide, una
+  línea de `DESIGN`.
+- **El orbe sobre blanco** nunca brilla como sobre negro (el sombreador suma luz):
+  `saturate(1.15)` es el compromiso.
+- **La base de prueba del 09-11-2026**: `scripts/crear_demo_e2e.py` no encuentra hoy, en ninguno
+  de los 8 últimos días, las facturas abiertas que pide el extracto de las pruebas («2 facturas
+  abiertas del puerto, y hacen falta tres»; otros días, la del gemeentehuis o la de la Stichting),
+  así que ninguna e2e ni la herramienta de capturas arrancan. No es del tema y no se cambia aquí:
+  para verificar, un envoltorio fuera del repositorio (`BMS_PYTHON` apuntando a un script que llama
+  al mismo `crear_demo_e2e.py` con 31 días hacia atrás; hoy encuentra uno 12 días atrás). Queda para
+  quien arregla las pruebas que dependen de la fecha.
+
+#### Resultado
+
+- Commits (rama `claro-impl`, sobre `5a14f5d`): 6899204 (los tokens claros de `index.css`),
+  79b06f4 (el generador por papeles y la capa a mano), c23aa0c (las cejas pequeñas y la meta de
+  las carpetas, medidas en píxeles), 5f3567a (el orbe a `saturate(1.15)`, las pestañas y «Terug
+  naar start»), d60efb2 (la guarda de contraste del claro), 4175f5b (lo construido), 5d94579
+  (`docs/app-local.md`), d00db10 (el foco de los idiomas de la entrada, con lo construido) y este.
+- Las suites, el 09-11-2026: typecheck; vitest, 1360 (con las 13 de
+  `scripts/aurora-claro.test.mjs` y las comprobaciones letra a letra de las hojas de Aurora);
+  `node scripts/aurora-claro.mjs --comprobar` y `node scripts/fuente.mjs --comprobar`, al día;
+  la construcción (`git status` limpio). Python: 2625 pasadas y 12 saltadas; la única que falla,
+  `tests/test_scoring.py::test_score_no_puntua_en_una_extraccion_v1_lo_que_v1_no_pidio`, necesita
+  `ground_truth/respuestas-ejemplo.yaml`, que no está en git (solo pasa en el clon principal);
+  `tests/test_app_local.py`, 56 de 56 con lo construido final.
+- La e2e (con la base de prueba de 12 días atrás, arriba): `e2e/claro.spec.ts`, 3 de 3;
+  `themes`, `status`, `objetivos` (las zonas táctiles en los dos temas), `documents`, `exclusividad`,
+  `clicks`, `procesar`, `conversacion`, `search`, `shell`, `screens`, `cartera-partes`,
+  `aurora-tiempos` y el resto de `aurora-paridad`, verdes. La pasada entera llegó a 116 de 129 en
+  las 2 h de límite (las 13 que faltaban, `status` y `themes`, pasan aparte con lo construido
+  final; las 7 de `payments` que se saltan tras el primer fallo de su grupo, también). Fallan igual
+  con `5a14f5d` (un worktree limpio, la misma base, el mismo día), y no son del tema:
+  `aurora-paridad` «los paneles casi no se desplazan» a 1440 y 400 (Deze week, 68 y 221 px) y «el
+  diálogo… no se desplaza más de 300 px» en los dos temas (JV-2026-006 332 px, VD26-309 y
+  VD26-209 316); `daily` «een schone factuur markeren als gecontroleerd», «IBAN-controles» y
+  «een tramo»; `payments` «las cifras de cobrar y pagar». Una carrera de la guarda de las zonas
+  (`objetivos.spec.ts`, la gira a 400 px con el dedo, solo en oscuro: «las medidas de
+  desplazamiento cambian» en E2-A system y en Kasstroom) pasó en la pasada entera y falló al
+  repetirla con la máquina cargada; es la que arregla `a0b59d8` en la rama principal («la guarda
+  sin carreras»). `themes` «cada pantalla en claro: en» falló una vez por el disco lleno de la
+  máquina (ENOSPC) y pasa al repetirla.
+- La herramienta de capturas sobre lo construido final (`d00db10`): 62 capturas, 0 fallos; en
+  claro, 0 incidencias serias, 0 faltas de contraste, 0 pastillas por debajo de 4,5 y 0
+  violaciones de la CSP; el oscuro, 12 de 12 iguales a `5a14f5d`.
