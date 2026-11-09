@@ -310,10 +310,12 @@ test.describe('con el dedo, a 400 px', () => {
     await tapEdge(page, caption);
     await expect(folderProfile(page, name)).toBeVisible();
     // «Terug naar Aurora» sobre la miga de la pagina (a 400 px, la ficha de un cliente): sus zonas
-    // lindan sin pisarse, y un toque a 1,5-2,5 px del borde de abajo de la de «Terug naar Aurora»,
-    // de punta a punta, le llega; uno igual de cerca del borde de arriba de la miga, a la miga. Con
-    // la capa (::before), Chromium acercaba alguno a la miga de debajo (cuenta la caja de cada uno,
-    // no su ::before); con relleno y margen (bms.css), la caja es la zona. Los clics, parados.
+    // lindan sin pisarse, y un toque a 1,5-2,5 px del borde de abajo de la de «Terug naar Aurora»
+    // le llega, de punta a punta salvo la esquina de abajo a la izquierda; uno igual de cerca del
+    // borde de arriba de la miga, a la miga. Con la capa (::before), Chromium acercaba muchos a la
+    // miga de debajo (cuenta la caja de cada uno, no su ::before); con relleno y margen (bms.css),
+    // la caja es la zona. En la esquina (sus 6 px), lo mas del dedo cae en la miga y Chromium se lo
+    // da a ella, como en dos zonas cualesquiera que lindan. Los clics, parados.
     await openFolder(page, HAVEN, 'client');
     const home = page.locator('a.ws-home');
     await home.evaluate((e) => e.scrollIntoView({ block: 'center' }));
@@ -334,7 +336,7 @@ test.describe('con el dedo, a 400 px', () => {
       document.addEventListener('click', w.__para, true);
     });
     const expected: string[] = [];
-    for (let x = homeArea.x + 1.5; x <= homeArea.x + homeArea.width - 1.5; x += 6)
+    for (let x = homeArea.x + 7.5; x <= homeArea.x + homeArea.width - 1.5; x += 6)
       for (const d of [1.5, 2, 2.5]) {
         await page.touchscreen.tap(x, homeArea.y + homeArea.height - d);
         expected.push('ws-home');

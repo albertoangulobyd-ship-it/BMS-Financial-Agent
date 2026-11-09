@@ -112,10 +112,11 @@ export async function measureTargets(page: Page): Promise<Target[]> {
       }
       const ours = (x: number, y: number) => targetAt(x, y) === el;
       let hit = { width: 0, height: 0 };
-      // Un cuadrado de 24 en el centro, entero suyo: basta.
+      // Un cuadrado de 24 en el centro, entero suyo: basta. No en los de zona, que se miden
+      // enteros (su capa puede pasar de su caja: «Volver a Aurora» con el dedo a 400 px).
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
-      let square = r.width >= 24 && r.height >= 24;
+      let square = r.width >= 24 && r.height >= 24 && !zones.some((z) => el.matches(z.selector));
       if (square) {
         for (let i = -11.5; i <= 11.5 && square; i += 5.75) for (let j = -11.5; j <= 11.5 && square; j += 5.75) if (!ours(cx + i, cy + j)) square = false;
       }
