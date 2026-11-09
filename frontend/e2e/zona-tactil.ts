@@ -32,7 +32,13 @@ export const ZONES: readonly Zone[] = [
     box: '.ui-command-input input{padding:0!important;margin:0!important}.ui-command-input input:focus-visible{outline-offset:6px!important}',
   },
   { name: '«Volver al espacio» de la conversacion', selector: '.conversation-top button', relative: false, box: '.conversation-top button{padding:0!important;margin:0!important}' },
-  { name: '«Volver a Aurora» de Documentos', selector: 'a.ws-home', relative: false },
+  // Con raton, una capa (::before); con el dedo, relleno y margen (bms.css): lo de antes, sin nada.
+  {
+    name: '«Volver a Aurora» de Documentos',
+    selector: 'a.ws-home',
+    relative: false,
+    box: 'a.ws-home::before{content:none!important}a.ws-home{padding:0!important;margin:0!important}a.ws-home:focus-visible{outline-offset:2px!important}',
+  },
   { name: 'las migas de Documentos', selector: '.ws-breadcrumbs a', relative: false, box: '.ws-breadcrumbs a{padding:0!important;margin:0!important}.ws-breadcrumbs a:focus-visible{outline-offset:2px!important}' },
   { name: '«Abrir la ficha» de una carpeta', selector: '.ws-folder-caption > a', relative: false, box: '.ws-folder-caption>a{padding:0!important;margin:0!important}' },
   { name: 'la ✕ de una hoja', selector: '.ws-dialog-top button', relative: false, box: '.ws-dialog-top button{padding:0!important;margin:0!important}' },

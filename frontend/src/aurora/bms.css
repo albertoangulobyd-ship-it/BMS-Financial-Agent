@@ -97,6 +97,9 @@
      «Volver al inicio») y en los que no pueden crecer igual por los cuatro lados: los idiomas de la
      entrada (pegados entre si) y los tiradores del importe (estos dos pasan a position:
      relative). En el centro del control (inset con min(): solo crece lo que no llega).
+     Con el dedo, «Volver a Aurora» crece con relleno y margen (ya posicionado, nada se mueve):
+     Chromium acerca un toque al objetivo cuya caja queda mas cerca, sin contar su ::before, y
+     uno en el borde de abajo de la capa se iba a la miga de debajo.
    Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
    - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
      y redondeada como ella (fuera, en la hoja, un clic cierra la hoja entera);
@@ -134,7 +137,16 @@
   .ws-folder-caption>a:focus-visible{outline-offset:-13px}
   .ws-breadcrumbs a{padding:5px;margin:-5px}
   .ws-breadcrumbs a:focus-visible{outline-offset:-3px}
-  .discreet-languages button::before,.ws-home::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
+  .discreet-languages button::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}
+  .ws-home::before{content:none}
+  .ws-home{padding:14px;margin:-14px}
+  .ws-home:focus-visible{outline-offset:-12px}
   .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px;border-top-right-radius:11px}
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
+}
+/* A 650 px o menos, «Volver a Aurora» mide 15 de alto (16,5 en lo mas ancho): 44 justos; su borde de
+   abajo queda a medio pixel de la zona de las migas (ningun punto de las dos). */
+@media(pointer:coarse) and (max-width:650px){
+  .ws-home{padding:14.5px;margin:-14.5px}
+  .ws-home:focus-visible{outline-offset:-12.5px}
 }

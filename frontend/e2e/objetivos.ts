@@ -446,18 +446,54 @@ export async function hitChanges(page: Page): Promise<HitChanges> {
   );
 }
 
-/** Las medidas de desplazamiento de la pagina y de todo lo que se desplaza o recorta. */
-export async function scrollSizes(page: Page): Promise<string[]> {
+/**
+ * Lo que cambia en las medidas de desplazamiento (scrollWidth, scrollHeight, clientWidth y
+ * clientHeight) de la pagina y de todo lo que se desplaza o recorta, con las zonas y sin las
+ * nuevas (como en 1cc96b0). Las tres medidas (con, sin y con otra vez) van en una sola tarea, sin
+ * esperar entre ellas: nada de la app (React, un temporizador, un observador) puede cambiar la
+ * pagina en medio, como el orbe de la busqueda, que se va al terminar de pensar y antes se colaba
+ * entre dos medidas. Las transiciones, quitadas mientras tanto (si no, un relleno que cambia
+ * empezaria en su valor de antes y las dos medidas saldrian iguales). Se compara elemento a
+ * elemento; uno que no mide igual con las zonas las dos veces tambien se apunta.
+ */
+export async function scrollChanges(page: Page): Promise<string[]> {
+  // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
+  await withoutHitArea(page, true, 'nuevas');
+  await withoutHitArea(page, false, 'nuevas');
   return page.evaluate(() => {
-    const out: string[] = [];
-    for (const el of [document.scrollingElement!, ...Array.from(document.querySelectorAll('*'))]) {
-      const s = getComputedStyle(el);
-      // Tambien lo de overflow: hidden (scrollIntoView lo desplaza).
-      if (el !== document.scrollingElement && !/(auto|scroll|hidden)/.test(s.overflowX + s.overflowY)) continue;
+    const sheet = (window as unknown as { __bmsSinZona: Record<string, CSSStyleSheet> }).__bmsSinZona['nuevas']!;
+    const still = new CSSStyleSheet();
+    still.replaceSync('*,*::before,*::after{transition:none!important}');
+    const measure = (): Map<Element, string> => {
+      const out = new Map<Element, string>();
+      for (const el of [document.scrollingElement!, ...Array.from(document.querySelectorAll('*'))]) {
+        const s = getComputedStyle(el);
+        // Tambien lo de overflow: hidden (scrollIntoView lo desplaza).
+        if (el !== document.scrollingElement && !/(auto|scroll|hidden)/.test(s.overflowX + s.overflowY)) continue;
+        out.set(el, `${el.scrollWidth}×${el.scrollHeight} (${el.clientWidth}×${el.clientHeight})`);
+      }
+      return out;
+    };
+    const name = (el: Element) => {
       const cls = typeof el.className === 'string' ? el.className.split(/\s+/).slice(0, 2).join('.') : '';
-      out.push(`${el.tagName.toLowerCase()}.${cls} ${el.scrollWidth}×${el.scrollHeight} (${el.clientWidth}×${el.clientHeight})`);
+      return `${el.tagName.toLowerCase()}.${cls}`;
+    };
+    const base = document.adoptedStyleSheets;
+    document.adoptedStyleSheets = [...base, still];
+    const withArea = measure();
+    document.adoptedStyleSheets = [...base, still, sheet];
+    const without = measure();
+    document.adoptedStyleSheets = [...base, still];
+    const again = measure();
+    document.adoptedStyleSheets = base;
+    const wrong: string[] = [];
+    if (withArea.size !== without.size || withArea.size !== again.size) wrong.push(`lo que se desplaza: ${withArea.size} elementos con las zonas, ${without.size} sin ellas`);
+    for (const [el, a] of withArea) {
+      const [b, c] = [without.get(el), again.get(el)];
+      if (b !== a) wrong.push(`${name(el)}: ${a} con las zonas, ${b ?? 'no se desplaza'} sin ellas`);
+      else if (c !== a) wrong.push(`${name(el)}: ${a} y luego ${c ?? 'no se desplaza'}, con las zonas las dos veces`);
     }
-    return out;
+    return wrong;
   });
 }
 

@@ -35,12 +35,13 @@ import {
   toHome,
   wheel,
 } from './nav';
-import { areaOf, hitChanges, measureTargets, scrollSizes, tour, zoneTour, type Target } from './objetivos';
+import { areaOf, hitChanges, measureTargets, scrollChanges, tour, zoneTour, type Target } from './objetivos';
 import { decodePng, differingPixels } from './png';
 import { coarsePointer, withoutHitArea, ZONES } from './zona-tactil';
 
 const t = TEXTS.nl;
 const JV = 'J. Voorbeeld Beveiliging (zzp)';
+const HAVEN = 'Demo Havenbedrijf BV';
 
 /** Los que pueden quedarse por debajo de 24 × 24, con su razon (la excepcion del espaciado de
  *  WCAG 2.5.8 u otra). Hoy ninguno: cada control pequeno tiene su zona. Aparte, lo que tapa en
@@ -76,11 +77,7 @@ for (const pointer of ['raton', 'dedo'] as const) {
         const changes = await hitChanges(page);
         wrong.push(...changes.wrong.map((w) => `${state}: ${w}`));
         for (const [k, n] of Object.entries(changes.taken)) taken[k] = (taken[k] ?? 0) + n;
-        const scrolled = await scrollSizes(page);
-        await withoutHitArea(page, true, 'nuevas');
-        const before = await scrollSizes(page);
-        await withoutHitArea(page, false, 'nuevas');
-        if (JSON.stringify(before) !== JSON.stringify(scrolled)) wrong.push(`${state}: las medidas de desplazamiento cambian`);
+        wrong.push(...(await scrollChanges(page)).map((w) => `${state}: las medidas de desplazamiento, ${w}`));
         await page.mouse.move(1, 1);
         await samePixels(page, state);
       });
@@ -189,10 +186,7 @@ for (const size of [
           expect(changes.wrong, `${where}: lo que cambia y no deberia`).toEqual([]);
           for (const [k, n] of Object.entries(changes.taken)) taken[k] = (taken[k] ?? 0) + n;
           // Lo que se desplaza, igual.
-          const scrolled = await scrollSizes(page);
-          await withoutHitArea(page, true, 'nuevas');
-          expect(await scrollSizes(page), `${where}: las medidas de desplazamiento`).toEqual(scrolled);
-          await withoutHitArea(page, false, 'nuevas');
+          expect(await scrollChanges(page), `${where}: las medidas de desplazamiento`).toEqual([]);
           // Su tamano medido.
           // (Lo tapado en parte por una lista abierta no cuenta, como en la guarda.)
           for (const m of (await measureTargets(page)).filter((x) => x.zone && !x.underPopover)) {
@@ -315,6 +309,33 @@ test.describe('con el dedo, a 400 px', () => {
     const name = (await caption.evaluate((a) => a.closest('[data-testid=folder-cell]')!.querySelector('.gf-title')!.textContent)) ?? '';
     await tapEdge(page, caption);
     await expect(folderProfile(page, name)).toBeVisible();
+    // «Terug naar Aurora» sobre la miga de la pagina (a 400 px, la ficha de un cliente): un toque a
+    // 1,5-2,5 px del borde de abajo de su zona, de punta a punta, le llega. Con la capa (::before),
+    // Chromium acercaba alguno a la miga de debajo (cuenta la caja de cada uno, no su ::before);
+    // con relleno y margen (bms.css), la caja es la zona. Los clics, parados: sin navegar.
+    await openFolder(page, HAVEN, 'client');
+    const home = page.locator('a.ws-home');
+    const { area: homeArea } = await areaOf(home);
+    expect(homeArea.y + homeArea.height, 'la zona llega a la de las migas').toBeGreaterThan((await page.locator('.ws-breadcrumbs a').last().boundingBox())!.y - 1);
+    await page.evaluate(() => {
+      const w = window as unknown as { __toques: string[]; __toque: (e: Event) => void; __para: (e: Event) => void };
+      w.__toques = [];
+      w.__toque = (e) => w.__toques.push((e.target as Element).closest('a.ws-home') ? 'ws-home' : ((e.target as Element).closest('a, button')?.textContent ?? 'nada'));
+      w.__para = (e) => (e.preventDefault(), e.stopPropagation());
+      document.addEventListener('pointerdown', w.__toque, true);
+      document.addEventListener('click', w.__para, true);
+    });
+    let taps = 0;
+    for (let x = homeArea.x + 1.5; x <= homeArea.x + homeArea.width - 1.5; x += 6)
+      for (const d of [1.5, 2, 2.5]) (await page.touchscreen.tap(x, homeArea.y + homeArea.height - d), (taps += 1));
+    const homeTaps = await page.evaluate(() => {
+      const w = window as unknown as { __toques: string[]; __toque: (e: Event) => void; __para: (e: Event) => void };
+      document.removeEventListener('pointerdown', w.__toque, true);
+      document.removeEventListener('click', w.__para, true);
+      return w.__toques;
+    });
+    expect(homeTaps, 'cada toque del borde de abajo, en «Terug naar Aurora»').toEqual(Array(taps).fill('ws-home'));
+    await expect(folderProfile(page, HAVEN)).toBeVisible();
     // La miga «Documenten»: la rejilla, sin ficha.
     await openFolder(page, JV, 'provider');
     // Por arriba: a 400 px, la ficha deja las migas en dos lineas que lindan (sus zonas se tocan) y
