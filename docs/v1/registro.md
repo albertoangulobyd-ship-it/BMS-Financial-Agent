@@ -10603,9 +10603,19 @@ como lo pide la persona. Vitest: la regla de siempre con `fit` sin límite, el c
 JV-2026-006 (332 px → tres filas) y, para cada combinación de hasta ocho filas altas y bajas y de
 lo que sobra, que lo quitado libera lo que sobra y no quita una de más.
 
-**Medido** con lo construido nuevo: JV-2026-006 de la base del 28-10, 332 → 286 px (tres filas y el
-control). Base de hoy (10-11): sin cambios, la que más 297 px a 400 (VD26-310 y VD26-210, cuatro
-filas que caben).
+**Medido** con lo construido nuevo (`aurora-paridad`, cada factura, a 1440 y 400 px, en los dos
+temas; `BMS_E2E_HOY` hace la base de otro día, abierta el 10-11):
+
+| Base | Facturas | La que más a 400 px | Las de cuatro filas que se pliegan a 400 |
+| --- | --- | --- | --- |
+| 10-11-2026 (hoy) | 30 | 297 (VD26-310, cuatro filas, caben) | ninguna |
+| 28-10-2026 | 35 | 286 (JV-2026-006, antes 332) | JV-2026-006, VD26-309 y VD26-209 (316 → 270) |
+| 01-10-2026 | 33 | 273 (DGG-2026-118) | VD26-308, VD26-208 y VD26-0111 |
+| 07-09-2026 | 33 | 292 (DBN-2026-07, ya plegada por la regla de siempre) | VD26-307 (289), VD26-207 y VD26-0111 |
+| 14-08-2026 | 30 | 292 (DBN-2026-07) | VD26-307, VD26-207 y VD26-0109 |
+
+A 1440 px nada cambia: ninguna pasa de 292 y ninguna de cuatro filas se pliega. Las ocho pasadas
+(cuatro bases, dos temas) pasan.
 
 #### 4. La prueba del BTW (`screens.spec`) no tenía trimestre que recorrer
 
@@ -10628,3 +10638,31 @@ de la fecha de hoy.
 KT-202608 había salido de 61–90. Como en `c76258f`: la prueba elige el tramo atrasado de compras
 con facturas (el más atrasado), comprueba que la búsqueda dice cuántas y que trae una de ellas
 (de la API, por su vencimiento entre los límites del tramo).
+
+#### 6. El grupo «Te bevestigen» de Te betalen se quedaba vacío (`payments`)
+
+**Causa.** Salió al pasar la suite entera con la base de hoy: «capturas de cobrar, pagar y el
+banco» abre «Te bevestigen» de Te betalen después de que otra prueba retire la propuesta de Oost.
+El extracto pagaba la primera abierta de J. Voorbeeld: en octubre, una sola (el banco la propone
+por importe y cuenta); desde noviembre la única abierta es la repetida (B2), dos con el mismo
+importe, el banco no sabe cuál y no propone nada. Sin propuestas, el grupo no sale y la prueba
+espera hasta agotarse (10 min).
+
+**Arreglo.** El extracto paga la primera de Voorbeeld con un número que solo lleva ella o, si no
+hay, la de Noord del mes pasado (siempre abierta: su abono está por confirmar). El plan lo pide
+igual. Con la base de hoy, seis propuestas (cuatro cobros, Oost y Noord); con la del 28-10, las
+mismas seis de antes (con JV-2026-006).
+
+#### Las pruebas
+
+Todo con la base de hoy (10-11-2026) y sin el envoltorio que buscaba 31 días atrás:
+`crear_demo_e2e.py` la hace el mismo día (`dias_atras` 0).
+
+- Python entero: 2633 pasan, 12 se saltan (`tests/test_crear_demo_e2e.py`, 7, nuevo).
+- typecheck; vitest, 1364 (4 nuevas en `sheet-model.test.ts`); la construcción, con
+  `fuente.json` al día; `test_app_local`, 56.
+- La suite e2e entera menos `objetivos`: 121 de 122 a la primera (1,4 h). Falló «capturas de
+  cobrar, pagar y el banco» (la causa 6); tras el arreglo, `payments`, `daily`, `documents` y
+  `cartera-partes` otra vez: 29 de 29. `screens` (BTW, castellano, solo lectura) 3 de 3 aparte.
+- `aurora-paridad`, la hoja a 300 px: con la base de hoy y con las del 28-10, 01-10, 07-09 y 14-08,
+  en los dos temas: 10 de 10.

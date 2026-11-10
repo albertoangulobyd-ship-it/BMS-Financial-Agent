@@ -629,9 +629,11 @@ hoja de una factura) son puros.
   (arriba, «Las zonas táctiles», en el apartado 4).
 - **El desplazamiento de la hoja** se mide en cada factura de la base de prueba, plegada como
   se abre (`e2e/aurora-paridad.spec.ts`): no pasa de 300 px a 1440 × 900 ni a 400 × 860, en
-  oscuro y en claro. Las plegadas, 246 px como mucho a 1440 (DBO-2026-0417 y KT-202609) y
-  273 a 400 (KT-202608 y KT-202609); antes de plegar, DBO-2026-0417 (ocho filas) se desplazaba
-  586 y 594 px. La que más, JV-2026-006, con cuatro filas y sin plegar como antes: 292 y 300.
+  oscuro y en claro; y como abre cada factura cuántas filas ve, a cada ancho. Antes de plegar,
+  DBO-2026-0417 (ocho filas) se desplazaba 586 y 594 px. Con la base de prueba del 10-11-2026, la
+  que más, 276 y 297 px (VD26-310, cuatro filas, que caben); con bases del 28-10, 01-10, 07-09 y
+  14-08 abiertas el 10-11 (`BMS_E2E_HOY`), las de cuatro filas vencidas se pliegan a 400 px a tres
+  y el control (JV-2026-006, de 332 a 286 px), y ninguna pasa de 292.
 - **Vacíos y errores.** Sin clientes ni proveedores, lo vacío de Aurora (`.ws-empty`), sin
   suricata (D-44). Una carpeta o una ficha que no se pudo leer lo dice, con su reintento.
 - **Lo que no hay**: «Agregar muestra», «Descargar muestra TXT», los datos de demostración en
