@@ -215,14 +215,14 @@ cambiar lo que hace un toque: las migas, 24 de alto también con el dedo (dos l�
 quedan a 10 px en la ficha de una carpeta, y más altas, Chromium daba a la de abajo, la página
 en que se está, toques que antes navegaban); «Kaart … openen», 39 de alto con el dedo (encima
 pinta la sombra de la carpeta, que no hace nada); «Filters wissen», 32 de alto con el dedo (con
-44, Chromium le daba toques del borde de arriba del campo de la empresa, que está debajo, y un
-toque que abría la lista quitaba los filtros); y los tiradores, 29,5 de ancho (crecen hacia
+44, Chromium le daba los toques de justo encima de la etiqueta del campo de la empresa, que está
+debajo, y un toque que abría la lista quitaba los filtros); y los tiradores, 29,5 de ancho (crecen hacia
 fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana).
 Mientras una lista de los filtros está abierta, los tiradores no tienen zona (la lista los tapa,
 y la zona que asomaba se llevaba toques del borde de la lista). Lo que cambia al pulsar está en
-`docs/v1/registro.md` («Las zonas táctiles de los demás controles» y «Tras la segunda
-verificación independiente»): un toque junto a la ✕ de una hoja, en su margen, la cierra con la
-✕ (antes, con el clic en el margen: lo mismo); uno junto a un tirador lo agarra en vez de
+`docs/v1/registro.md` («Las zonas táctiles de los demás controles», «Tras la segunda
+verificación independiente» y «Tras la tercera…»): un toque junto a la ✕ de una hoja, en su
+margen, la cierra con la ✕ (antes, con el clic en el margen: lo mismo); uno junto a un tirador lo agarra en vez de
 moverlo hasta ese punto; con el dedo, uno justo bajo una carpeta puede ir a su «Kaart … openen»
 en vez de a la carpeta (abren la misma ficha), uno en el icono o el título de una tarjeta, junto a
 su ✕, la cierra (antes no hacía nada), y en el hueco entre dos líneas de migas la frontera se
@@ -234,7 +234,8 @@ excepción del espaciado (los días del calendario y los botones de una respuest
 otra cosa que se han probado tocando de verdad (los tiradores bajo la lista de las empresas,
 «Filters wissen» sobre el campo de la empresa, la esquina de la ✕ de una tarjeta en un panel y en
 la hoja, «Kaart … openen» bajo su carpeta y dos líneas de migas), cada toque va adonde iba o, si
-antes no hacía nada, a la zona (cerrar la hoja con un toque en su margen cuenta como hacer algo).
+antes no hacía nada, a la zona (cerrar la hoja con un toque en su margen cuenta como hacer algo,
+y un toque en la etiqueta de un campo, como uno en el campo).
 
 **La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
 240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso

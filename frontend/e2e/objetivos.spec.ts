@@ -17,7 +17,8 @@
 //   de la ✕ de una tarjeta en un panel y en la hoja, «Kaart … openen» bajo su carpeta, dos lineas
 //   de migas), cada toque de verdad va adonde iba en 1cc96b0, o a la zona si antes no hacia nada
 //   (Chromium acerca un toque al objetivo que mejor cae bajo el dedo: elementFromPoint no lo ve;
-//   el clic en el margen de una hoja la cierra, y eso no es nada).
+//   el clic en el margen de una hoja la cierra, y eso no es nada; el de una etiqueta es el de su
+//   control).
 import type { Locator, Page } from '@playwright/test';
 import { expect, expectAccessible, login, settled, test } from './fixtures';
 import {

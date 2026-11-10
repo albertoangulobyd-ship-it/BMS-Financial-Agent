@@ -9853,23 +9853,24 @@ tercera verificación independiente».)
 La caja que se ve (en neerlandés, como en la base de prueba) y la zona medida con
 `elementFromPoint` (ancho × alto en px, el mínimo de todos los estados en que aparece, en oscuro y
 en claro); entre paréntesis, la de 1cc96b0. Con el dedo, lo de ahora, tras las tres
-verificaciones (las migas, «Kaart … openen», «Filters wissen» y la ✕ de una tarjeta cambiaron; lo
-medido al píxel, abajo, en cada «Tras la … verificación»):
+verificaciones (las migas, «Kaart … openen», «Filters wissen» y la ✕ de una tarjeta cambiaron;
+en esas cuatro filas, lo medido al píxel en la última pasada de las pruebas, en «Tras la tercera
+verificación independiente»):
 
 | Control | Lo que se ve | Ratón, 1440 | Ratón, 400 | Dedo, 1440 | Dedo, 400 |
 | --- | --- | --- | --- | --- | --- |
 | ✕ de un panel («Paneel sluiten», «Cerrar panel») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
-| ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 44 × 44 | 44 × 44 |
+| ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
 | ✕ de la hoja («Voorbeeld sluiten», «Cerrar documento») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
 | «Terug naar de werkruimte» («Volver al espacio») | 143,72 × 15 (145 × 16) | 153,72 × 25 | 153,72 × 25 | 173,72 × 45 | 173,72 × 45 |
 | «Terug naar Aurora» (`a.ws-home`) | 118,2 × 16,5 a 1440, 101,08 × 15 a 400 (119 × 17, 102 × 16) | 119 × 25 | 102 × 25 | 147 × 45 | 130 × 45 |
-| Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 26,55 × 24 | 26,55 × 24 |
-| Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 64,25 × 24 | 64,25 × 24 |
-| Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 64,84 y 144,97 × 24 | igual |
-| «Kaart van … openen» (`.ws-folder-caption a`) | 82,56 × 15 (83-84 × 16) | 92,56 × 25 | 92,56 × 25 | 106,56 × 39 | 106,56 × 39 |
+| Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 28 × 25 | 28 × 25 |
+| Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 65 × 25 | 65 × 25 |
+| Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 66 y 146 × 25 | igual |
+| «Kaart van … openen» (`.ws-folder-caption a`) | 82,56 × 15 (83-84 × 16) | 92,56 × 25 | 92,56 × 25 | 108 × 40 | 108 × 40 |
 | «Terug naar start» de Procesar (`.processing-back`) | 87,73 × 13,5 (89 × 14) | 89 × 25 | 89 × 25 | 89 × 45 | 89 × 45 |
 | Idiomas: «Español», «Nederlands», «English» | 41,22, 58,14 y 38,19 × 12,59 (42, 60 y 39 × 13-14) | 42, 60 y 39 × 25 | igual | 45, 60 y 45 × 45 | igual |
-| «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 95,2 × 33,5 | 88,73 × 32 |
+| «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 96 × 34 | 90 × 33 |
 | Tiradores del importe («Minimumbedrag», «Maximumbedrag») | 15 × 15 (16 × 16) | 27 × 25 | 27 × 25 | 32 × 45 | 32 × 45 |
 | Buscador de una lista («Zoek een klant of leverancier») | 296 × 19,8 (297 × 21) | 302 × 25,8 | 302 × 25,8 | 322 × 45,8 | 322 × 45,8 |
 | Control de la hoja plegada (del 30-10-2026) | 74,45 × 13,5 | 75 × 29 | 75 × 29 | 75 × 45 | 75 × 45 |
@@ -9879,8 +9880,9 @@ migas**, 24 de alto también con el dedo (2 px por lado, como con ratón), porqu
 carpeta a 400 px van en dos líneas a 10 px y, más altas, Chromium daba a la de abajo toques de las
 de arriba que antes navegaban; **«Kaart … openen»**, 39 de alto con el dedo (12 px por lado;
 106,56 × 39, medido 108 × 40), porque encima pinta la sombra de la carpeta; **«Filters wissen»**, 32
-de alto con el dedo (10 px por lado), porque con 44 Chromium le daba toques del borde de arriba
-del campo de la empresa, que está debajo; y **los tiradores**, 29,5 px de ancho de capa (32
+de alto con el dedo (10 px por lado; medido 96 × 34 y 90 × 33), porque con 44 Chromium le daba
+los toques de justo encima de la etiqueta del campo de la empresa, que está debajo y abre su
+lista; y **los tiradores**, 29,5 px de ancho de capa (32
 medidos con el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la
 ventana. Todos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control
 queda en la lista de excepciones de la guarda.
@@ -9895,8 +9897,8 @@ de la rueda, que solo apuntan dónde se apoyó, y el del diálogo de una hoja, q
 clic en el mismo diálogo). Esto es lo que pulsa el **ratón** (`elementFromPoint`); con el dedo,
 Chromium además acerca el toque al objetivo que mejor cae bajo el dedo, y eso no lo ve esta
 comparación: lo mira otra prueba, con toques de verdad (abajo, «Tras la segunda verificación
-independiente», donde están los casos con el dedo). Con ratón, dos casos sí hacían algo, y se
-dejan:
+independiente» y «Tras la tercera…», donde están los casos con el dedo). Con ratón, dos casos
+sí hacían algo, y se dejan:
 
 - **El margen del diálogo junto a su ✕** (482 puntos a 400 y 914 a 1440 con ratón; 3206 y 6120
   con el dedo, en los estados de la prueba): un clic ahí cerraba la hoja (el clic en el propio
@@ -10114,3 +10116,92 @@ desplaza más de 300 px» en los dos temas (JV-2026-006, VD26-309 y VD26-209, co
 paneles casi no se desplazan» a 1440 y a 400 (payables > Deze week, 68 y 221 px). Typecheck;
 vitest, 1352; `aurora-claro.mjs --comprobar`, al día (las reglas nuevas no llevan color); la
 construcción, con `fuente.json` al día; Python, 2626 y 12 saltadas.
+
+#### Tras la tercera verificación independiente
+
+El verificador dio por mala la entrega (7d6b4f7): con el dedo, dos zonas cambiaban lo que hacían
+toques que antes hacían algo, y ninguna lo decía la documentación; la gira de la guarda no fallaba
+si se quitaban zonas; y la documentación tenía cuentas viejas. Su sondeo: rejillas densas de
+toques de verdad, con la hoja de 1cc96b0 y la de ahora (A/B) y con la de 1cc96b0 las dos veces
+(A/A, el ruido: 0 en todas), y toques sin parar nada para ver lo que hacen. Arreglado en 1dc729f (las
+dos zonas, la guarda y la prueba), fab9939 (la documentación, a medias al cortarse la sesión),
+e8417b4 (la prueba ve el clic en una etiqueta) y este:
+
+- **La ✕ de la tarjeta de una fila, con el dedo.** La ✕ (16 × 16) queda a 10 px del borde de
+  arriba de la tarjeta y a 10 del de la derecha; la zona era un cuadrado de 44 en la esquina de la
+  tarjeta, hasta su borde, redondeado como ella. Con toques de verdad, lo contrario de lo que se
+  escribió aquí («Cómo»): Chromium da por tocado el control cuyo `::before` toca el dedo y le acerca
+  los toques de unos 9 px alrededor; un toque justo encima de la tarjeta, que en la hoja de una
+  factura cerraba la hoja entera (el clic en el propio diálogo), pasaba a cerrar solo la tarjeta
+  (469 puntos en su rejilla), y en lo redondeado de la esquina unos iban a la hoja, otros a nada
+  (y en un panel, de 9 a 16 puntos de la esquina que cerraban la tarjeta, a nada). Ahora la zona
+  crece **desde la esquina de arriba a la derecha de la ✕, hacia la izquierda y hacia abajo**
+  (`inset: 0 0 auto auto`, 44 × 44): sobre el icono y el título de la tarjeta, y nunca más cerca
+  de su borde que la ✕. Un toque en el icono o el título, junto a la ✕, la cierra (antes no hacía
+  nada); fuera de la tarjeta, todo como en 1cc96b0. Medido: 45 × 45.
+- **«Filters wissen», con el dedo.** Debajo, unos 33 px por debajo de su texto, está la etiqueta
+  del campo de la empresa («Klant of leverancier», un `<label for>`: un toque en ella abre la
+  lista). Con 16 px por lado (44 de alto), su zona quedaba a 17 px de la etiqueta, y Chromium le
+  daba los toques de en medio, los de justo encima de la etiqueta, que en 1cc96b0 iban a ella:
+  quitaba todos los filtros en vez de abrir la lista. Ahora, **10 px por lado: 32 de alto** (el
+  anillo del foco, con `outline-offset: -4px`, donde estaba), y quedan 23 px hasta la etiqueta.
+  Medido: 96 × 34 a 1440 y 90 × 33 a 400.
+- **La prueba de los toques de verdad no lo veía.** `tapChanges` (`e2e/objetivos.ts`) daba por
+  «nada» todo lo que no es un control: el clic en el margen de una hoja, que la cierra, y el de
+  una etiqueta, que va a su control. Ahora el primero es «cierra la hoja» (puede pasar a la ✕ de
+  la hoja, que hace lo mismo, y a nada más) y el segundo es el del control. Y toca también
+  alrededor de «Filters wissen» con los filtros abiertos (cada 3 px de ancho y 2 de alto, de 24 px
+  por encima a 32 por debajo de su zona) y de la esquina de la ✕ de una tarjeta, en un panel y en
+  la hoja de una factura (cada 3 px y 2, de 46 px a la izquierda a 20 a la derecha y de 20 por
+  encima a 46 por debajo).
+- **La guarda no fallaba sin zonas.** Desde la segunda verificación, a lo que no le cabe un
+  cuadrado de 24 le vale la excepción del espaciado de 2.5.8, y una ✕ sola en su esquina pasaba
+  por ella sin su zona. Ahora a un control con zona no le vale. Y la gira, con la CPU cargada, se
+  saltaba los grupos cuyas filas no habían llegado (63 estados en vez de 71, sin fallar): ahora
+  espera las filas de cada panel.
+- **La documentación**: «Cómo» decía «Kaart … openen» (5; 15) y las migas (2; 5) con el dedo, y
+  son 12 y 2; la tabla daba con el dedo lo de antes de la segunda verificación para las migas y
+  «Kaart … openen» (30 de alto, 112,56 × 45), y «41 de alto» en «Donde 44 no cabe» (son 39 de
+  caja, 40 medidos); y `docs/app-local.md` decía que, con el dedo, cada toque de verdad junto a
+  una zona va adonde iba, cuando solo se había probado en tres sitios. Corregido: la tabla da lo
+  medido ahora con el dedo, y `app-local.md` dice en qué sitios se ha probado.
+
+Las pruebas de que se arregla, con toques de verdad:
+
+- **Las rejillas del verificador** (sus herramientas, en su clon de 7d6b4f7, con la hoja
+  construida de este arreglo en vez de la de 7d6b4f7): alrededor de la ✕ de la tarjeta en la hoja
+  de una factura y en un panel (cada 2 px, 1722 toques en cada uno, a 400 con `isMobile` y a 1440
+  con `hasTouch`) y alrededor de «Filters wissen» con los filtros abiertos (897 toques cada 3 px y
+  754 cada 2 px, a 400; 1025 a 1440): **0 toques que hacían algo y ahora hacen otra cosa o nada**;
+  lo que cambia es nada → la zona (672 en cada esquina, todo dentro de la tarjeta; de 265 a 314
+  alrededor de «Filters wissen»). Con la de 1cc96b0 las dos veces, 0 (sus A/A).
+- **Toques sin parar nada** (su `zz-r2-punto`, cada toque desde el estado recién abierto) en los
+  22 puntos que dio el verificador (en px desde la esquina de arriba a la izquierda de la caja del
+  control): los 22 hacen lo mismo con la hoja de 1cc96b0 y con la de
+  ahora. En la hoja de una factura, (24, −9) y (25, −8) cierran la tarjeta, (30, −14) y
+  (28, −17) cierran la hoja; con los filtros abiertos, (−12, 36), (30, 37) y (60, 38) abren la
+  lista de las empresas, y solo (34, 6), en el propio botón, quita los filtros.
+- **`e2e/objetivos.spec.ts` con lo de 7d6b4f7** (un worktree con la hoja de 7d6b4f7 y las pruebas
+  nuevas): la prueba de los toques falla en los dos sitios. Alrededor de «Filters wissen», 7
+  toques de la etiqueta de la empresa (y 3 del buscador de arriba) pasan a «Filters wissen»; en la
+  esquina de la ✕ de la tarjeta, en la hoja, 172 que cerraban la hoja la cierran a ella, 5 que la
+  cerraban pasan a nada y 1 de la ✕ cierra la hoja; en un panel, 1 de la ✕ a nada. Con la
+  `tapChanges` de antes (sin la etiqueta), la de «Filters wissen» solo veía los 3 del buscador.
+- **La gira sin zonas** (un worktree de 1dc729f sin el relleno de las migas, el de las ✕ de un
+  panel y de una hoja y la capa de la ✕ de una tarjeta): «nada que se pulse… (raton)» falla con
+  87 objetivos de menos de 24 × 24 (las migas, las ✕); antes del arreglo, la misma mutación
+  pasaba con 0.
+
+Resultado (la base de prueba con el envoltorio de 31 días en `BMS_PYTHON`, la CPU compartida):
+`e2e/objetivos.spec.ts`, 8 de 8 sobre lo construido. La guarda, 71 estados con ratón y con el
+dedo (788 y 791 objetivos), 0 sin su cuadrado de 24 y 0 que no deberían cambiar; por el
+espaciado, solo los días del calendario y los botones de una respuesta (23 de cuadrado). Cada
+zona, 144 y 84 capturas iguales a 1440 (ratón y dedo) y 140 y 82 a 400, sin una diferencia en
+las medidas de desplazamiento. Los toques del borde de cada zona. Y los toques de verdad, con la
+`tapChanges` nueva: alrededor de los tiradores con la lista abierta, 0 de 1150 cambian;
+alrededor de «Filters wissen», 456 de 1980 pasan de nada a la zona y ninguno más; en la esquina
+de la ✕ de una tarjeta, 456 de 1176 en un panel y 456 de 1176 en la hoja, de nada a la zona (el
+icono y el título) y ninguno más; bajo la carpeta, 237 de 806, y entre las migas, 52 de 1175 y
+los 5 del hueco, como antes. Typecheck; vitest, 1352; `aurora-claro.mjs --comprobar`, al día;
+la construcción, con `fuente.json` al día (la hoja construida no cambia con este arreglo de la
+prueba: solo comentarios). Python y las demás e2e, abajo (en curso).
