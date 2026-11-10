@@ -481,8 +481,9 @@ test.describe('con el dedo, a 400 px', () => {
     }
     await expect(page.locator('.ui-popover')).toBeVisible();
     await page.keyboard.press('Escape');
-    // «Filters wissen» con los filtros abiertos: debajo, a 24 px, el campo de la empresa (con 44 de
-    // alto, Chromium le daba toques del borde de arriba del campo: quitaba los filtros).
+    // «Filters wissen» con los filtros abiertos: 33 px por debajo, la etiqueta del campo de la
+    // empresa (un toque en ella abre la lista). Con 44 de alto, Chromium le daba los toques de
+    // encima de la etiqueta, que en 1cc96b0 iban a ella: quitaba los filtros.
     await openEntry(page, 'receivables');
     await panelRow(page, t.aurora.money.overdue).click();
     await expect(page.locator('.active-filter-chips')).toBeVisible();

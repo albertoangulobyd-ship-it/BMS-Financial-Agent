@@ -640,10 +640,11 @@ export interface TapChange {
  * gana el de la caja mas cercana, sin su ::before): elementFromPoint, que mide la guarda, no lo
  * ve. Los toques no hacen nada: pointerdown, mousedown, click y los demas se paran en la ventana,
  * antes que nadie (React, Radix), y se apunta a quien iba el clic. El clic en el mismo dialogo de
- * una hoja es «cierra la hoja» (lo hace). Lo que
- * no es un control es «nada» (el nombre de lo que hay entre corchetes); lo demas, su etiqueta y lo
- * que dice o su aria-label, «(la pagina en que se esta)» si es la miga de la pagina (no hace nada)
- * y «[zona]» si tiene zona tactil. Devuelve solo los puntos que cambian.
+ * una hoja es «cierra la hoja» (lo hace), y el de una etiqueta (<label for>), el de su control
+ * (lo abre: la de la empresa, sobre su campo). Lo que no es un control es «nada» (el nombre de
+ * lo que hay entre corchetes); lo demas, su etiqueta y lo que dice o su aria-label, «(la pagina
+ * en que se esta)» si es la miga de la pagina (no hace nada) y «[zona]» si tiene zona tactil.
+ * Devuelve solo los puntos que cambian.
  */
 export async function tapChanges(page: Page, points: [number, number][]): Promise<TapChange[]> {
   // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
@@ -656,7 +657,8 @@ export async function tapChanges(page: Page, points: [number, number][]): Promis
       if (!h) return 'nada [ninguno]';
       // El clic en el mismo dialogo de una hoja (su margen) la cierra: no es nada.
       if (h.matches('dialog.ws-dialog')) return 'cierra la hoja [el dialogo]';
-      const t = h.closest(selector);
+      // Un clic en una etiqueta (<label for>) va a su control: es el del control.
+      const t = h.closest(selector) ?? (h.closest('label') as HTMLLabelElement | null)?.control ?? null;
       if (!t) return `nada [${h.tagName.toLowerCase()}${typeof h.className === 'string' && h.className ? '.' + h.className.split(/\s+/)[0] : ''}]`;
       const label = t.getAttribute('aria-label') ?? (t as HTMLElement).innerText ?? '';
       const current = t.getAttribute('aria-current') === 'page' ? ' (la pagina en que se esta)' : '';

@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "3f8dd6d5b31584c91f701ce69d0486a205fd2258949b36913e32feed38be5f2b",
+  "sha256": "860cf3459050c1e1701e59f931277b3ae72901375571dd21cdde896aa4cb309f",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -13,7 +13,7 @@
     "frontend/src/App.tsx": "6c07893fb69a220fd187bd28785390b522e0952dcbb997acb88278c4d5970442",
     "frontend/src/aurora/app.tsx": "3b93a9a0699be25fa6169417b40b263e7ef9edbeaeab9371aa4937695b221ff6",
     "frontend/src/aurora/assistant.ts": "6cd3602a65ce0f592fbb07864836f857fc6d731924048b4060b75c2e146d3231",
-    "frontend/src/aurora/bms.css": "b27b610a1788c5bf8af4e8f349d27c24b19cbedc45aea1f1bb3bbd1cc85081d5",
+    "frontend/src/aurora/bms.css": "0ff7684885169d9f8fb1b494716ee278a6607bbf414b31af9c8d267e157c725c",
     "frontend/src/aurora/chat/actions.tsx": "6b1edd54f586df09ff77a45499a8d53e08b25b8be8760f9eb279b9b0b6696a4b",
     "frontend/src/aurora/chat/ai-actions.css": "d11d9d6423e34af2ba0de4206253b10d8eb547782be7f0a64d92f688a24b57f8",
     "frontend/src/aurora/chat/ai-actions.tsx": "25938c93d07873bd01e753529ccf63911f20ce0890a0e8658c3a30700461b725",

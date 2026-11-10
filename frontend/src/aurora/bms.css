@@ -106,8 +106,8 @@
      cerca del borde de la tarjeta que la ✕: Chromium acerca a la zona los toques de unos 9 px
      alrededor, y fuera de la tarjeta un toque cierra la hoja entera (el clic en el dialogo);
    - «Filters wissen», con el dedo: 10 px por lado, 32 de alto. Con 16 (44), Chromium le daba
-     toques del borde de arriba del campo de la empresa, 24 px por debajo: quitaba los filtros
-     en vez de abrir la lista;
+     los toques de justo encima de la etiqueta del campo de la empresa (33 px por debajo; un
+     toque en ella abre la lista): quitaba los filtros en vez de abrir la lista;
    - «Abrir la ficha» de una carpeta, con el dedo: 39 de alto. Encima pinta la sombra de la
      carpeta (.gf-shadow, sin manejador), 13,34 px por encima de su texto: un toque alli iba a la
      carpeta (Chromium lo acercaba), y si la zona llega a menos de un pixel de la sombra, Chromium
