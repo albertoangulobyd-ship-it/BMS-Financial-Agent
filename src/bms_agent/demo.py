@@ -366,13 +366,17 @@ class Resumen:
 # ------------------------------------------------------------ crear
 
 def crear(ruta: str | Path | None = None, *, reloj: Reloj | None = None,
-          rehacer: bool = False) -> Resumen:
+          rehacer: bool = False, btw_sin_presentar: bool = False) -> Resumen:
     """Construye la base de prueba. Solo escribe en un fichero llamado demo.sqlite3.
 
     Si ya existe y es de prueba, no la toca (con `rehacer`, la borra con sus
     originales y sus anclas y la vuelve a hacer). Si existe y no lleva la
     marca, se niega: puede ser una base de verdad con el nombre cambiado, y
     nada de aqui la sobrescribe. DatosDePrueba en los dos casos de no.
+
+    Con `btw_sin_presentar`, el ultimo trimestre terminado queda listo para revisar y sin
+    presentar aunque su plazo haya pasado (la base de las pruebas en el navegador: su prueba
+    del BTW lo reabre, lo deja listo y anota su presentacion, sea el dia que sea).
     """
     destino = Path(ruta) if ruta is not None else ruta_demo()
     if destino.name != NOMBRE_DEMO:
@@ -395,7 +399,9 @@ def crear(ruta: str | Path | None = None, *, reloj: Reloj | None = None,
     reloj = reloj or RELOJ_SISTEMA
     try:
         with preparar(destino, reloj=reloj) as almacen:
-            resumen = _Escenario(almacen, reloj).construir()
+            escenario = _Escenario(almacen, reloj)
+            escenario.btw_sin_presentar = btw_sin_presentar
+            resumen = escenario.construir()
             resumen.ruta = destino
             from .auditoria import anclar
 
@@ -437,6 +443,7 @@ class _Escenario:
         self.reloj = reloj
         self.hoy = reloj.hoy()
         self.azar = random.Random(13)
+        self.btw_sin_presentar = False
         self.resumen = Resumen(Path(), creada=True)
         self.proveedor = {p.codigo: p for p in PROVEEDORES}
         self.cliente = {c.codigo: c for c in CLIENTES}
@@ -1174,8 +1181,9 @@ class _Escenario:
         para que la revise el asesor. El agente no presenta nada (regla 5)."""
         from . import btw
 
-        for t in sorted(btw.resumen(self.conn, self.hoy)["por_presentar"],
-                        key=lambda t: (t["ano"], t["trimestre"])):
+        pendientes = sorted(btw.resumen(self.conn, self.hoy)["por_presentar"],
+                            key=lambda t: (t["ano"], t["trimestre"]))
+        for t in pendientes:
             etiqueta = t["etiqueta"]
             try:
                 hoja = btw.hoja(self.conn, t["ano"], t["trimestre"])
@@ -1188,7 +1196,7 @@ class _Escenario:
                 "trimestre": etiqueta, "hoja_sha256": hoja.sha256,
                 "motivo": "Hoja preparada para el asesor"}, self.bram)
             limite = date.fromisoformat(t["limite_presentacion"])
-            if limite >= self.hoy:
+            if limite >= self.hoy or (self.btw_sin_presentar and t is pendientes[-1]):
                 continue
             periodo = self.conn.execute(
                 "SELECT rev FROM periodo_btw WHERE ano = ? AND trimestre = ?",

@@ -72,19 +72,40 @@ def test_el_plan_dice_lo_mismo_que_la_base_hecha(tmp_path, dia, falta):
     reloj = _reloj(dia)
     assert SCRIPT.falta_en_el_plan(reloj) == falta
     ruta = tmp_path / "demo.sqlite3"
-    demo.crear(ruta, reloj=reloj)
+    demo.crear(ruta, reloj=reloj, btw_sin_presentar=True)
     assert SCRIPT._falta_para_el_extracto(ruta) == falta
     if falta is None:
-        # Cada numero por papel es una factura de esa base.
         conn = sqlite3.connect(ruta)
         try:
             numeros = {fila[0] for fila in conn.execute("SELECT numero FROM factura")}
+            trimestres = dict(conn.execute(
+                "SELECT ano || '-T' || trimestre, estado FROM periodo_btw").fetchall())
         finally:
             conn.close()
         papeles = SCRIPT.numeros_de_las_pruebas(reloj)
+        # Cada numero por papel es una factura de esa base.
         for papel, valor in papeles.items():
+            if papel == "vatQuarter":
+                continue
             for numero in valor if isinstance(valor, list) else [valor]:
                 assert numero in numeros, (papel, numero)
+        # El ultimo trimestre terminado, listo y sin presentar aunque su plazo (31-10) paso; los
+        # de antes, presentados.
+        assert papeles["vatQuarter"] == "2026-T3"
+        assert trimestres == {"2026-T1": "presentado", "2026-T2": "presentado",
+                              "2026-T3": "listo_revision"}
+
+
+def test_sin_la_opcion_la_base_de_prueba_presenta_lo_vencido(tmp_path):
+    """`bms-agent demo crear` no cambia: lo que vencio, presentado."""
+    ruta = tmp_path / "demo.sqlite3"
+    demo.crear(ruta, reloj=_reloj(date(2026, 11, 10)))
+    conn = sqlite3.connect(ruta)
+    try:
+        estados = {fila[0] for fila in conn.execute("SELECT estado FROM periodo_btw")}
+    finally:
+        conn.close()
+    assert estados == {"presentado"}
 
 
 def test_los_numeros_por_papel_salen_todos_los_dias_de_un_ano():

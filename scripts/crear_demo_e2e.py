@@ -41,7 +41,10 @@ DIAS_ATRAS: tests/test_crear_demo_e2e.py demuestra, dia a dia y durante anos, qu
 
 Y "numeros" del JSON da el numero de cada factura que las pruebas abren por su papel (la
 vieja del gemeentehuis, la repetida de J. Voorbeeld...): los numeros cambian con el dia en
-que se hace la base (el mes y el ano van en ellos). `bms-agent demo crear` no cambia.
+que se hace la base (el mes y el ano van en ellos). Y el ultimo trimestre terminado del BTW
+queda listo para revisar y sin presentar aunque su plazo haya pasado (demo.crear con
+btw_sin_presentar), para que su prueba lo recorra cualquier dia; su etiqueta va en
+"numeros" (vatQuarter). `bms-agent demo crear` no cambia.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     falta = None
     for atras in dias_posibles(ahora):
         reloj = None if atras == 0 and not args.hoy else RelojFijo(ahora - timedelta(days=atras))
-        resumen = demo.crear(ruta, reloj=reloj, rehacer=True)
+        resumen = demo.crear(ruta, reloj=reloj, rehacer=True, btw_sin_presentar=True)
         # Lo dice el plan; la base hecha lo confirma (si no, el dia siguiente del plan).
         falta = _falta_para_el_extracto(ruta)
         if falta is None:
@@ -165,7 +168,7 @@ def dias_posibles(ahora: datetime) -> list[int]:
 def numeros_de_las_pruebas(reloj) -> dict[str, object]:
     """El numero de cada factura que las pruebas abren por su papel en la base de ese dia
     (los numeros llevan el mes y el ano: cambian con el dia en que se hace la base)."""
-    from bms_agent import demo
+    from bms_agent import btw, demo
 
     compras, ventas = demo.facturas(reloj)
 
@@ -196,6 +199,9 @@ def numeros_de_las_pruebas(reloj) -> dict[str, object]:
         "voorbeeldFirst": voorbeeld[0].numero,
         "voorbeeldTwin": voorbeeld[-1].numero,
         "voorbeeldEarlier": [c.numero for c in reversed(voorbeeld[:-1])],
+        # El trimestre del BTW que queda listo para revisar y sin presentar (btw_sin_presentar):
+        # el ultimo terminado, como "2026-T3".
+        "vatQuarter": btw.etiqueta(*btw.anterior(*btw.trimestre_de(reloj.hoy()))),
     }
 
 
