@@ -10505,3 +10505,28 @@ claro», §4.10).
 - La herramienta de capturas sobre lo construido final (`d00db10`): 62 capturas, 0 fallos; en
   claro, 0 incidencias serias, 0 faltas de contraste, 0 pastillas por debajo de 4,5 y 0
   violaciones de la CSP; el oscuro, 12 de 12 iguales a `5a14f5d`.
+
+#### En la rama principal
+
+Los nueve commits de `claro-impl` van, uno a uno y sin juntarlos, sobre `cbc351e` (las zonas
+táctiles terminadas). Lo que hubo que hacer a mano:
+
+- `claro.css` vuelve a salir de `node scripts/aurora-claro.mjs` sobre la `bms.css` de la rama
+  (con las zonas de después de `5a14f5d`): el generador copia, con el prefijo `html:not(.dark)`,
+  el `outline-offset` de cada regla de foco de `bms.css`, también los del dedo, así que en el claro
+  el anillo de una zona queda donde en el oscuro (con el dedo: «Filters wissen» a -4 px, «Kaart …
+  openen» a -10 y «Terug naar Aurora» a -12, que llegaron después de `5a14f5d`). No hay más
+  contacto: la capa clara (`DESIGN` y `aurora-claro-mano.css`) no toca rellenos, márgenes ni capas
+  (`::before`), y los idiomas de la entrada, que en el claro llevan el anillo a 6 px, crecen con su
+  capa, no con relleno.
+- Lo construido y `fuente.json` salen de `npm run build` en cada commit que los traía.
+- En este registro, las dos secciones van seguidas, cada una entera.
+
+Las pruebas, sobre lo construido final: typecheck; vitest, 1360; `aurora-claro.mjs
+--comprobar`, al día; la construcción, con `fuente.json` al día y `git status` limpio;
+`test_app_local`, 56. Con la base de prueba 31 días atrás (la de hoy no tiene el día que pide el
+extracto de prueba; queda para quien arregla lo que deriva con el calendario): `themes` 9 de 9,
+`status` 4 de 4, `claro` 3 de 3, `exclusividad` 10 de 10, `objetivos` 8 de 8 (las zonas en los dos
+temas, a 1440 y a 400, con ratón y con el dedo; los toques de verdad, 23,3 minutos) y
+`documents` 7 de 8: falla «la hoja de una factura con más de cuatro filas…», igual que con
+`1cc96b0` (la conversación ya no encuentra JV-2026-006 en la base de prueba; la fecha).
