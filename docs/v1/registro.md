@@ -9828,8 +9828,10 @@ porque ninguna regla lleva color), sin clases nuevas en el TSX, de dos maneras:
 - **Un relleno y un margen negativo iguales** (la caja crece por los cuatro lados y nada se
   mueve: no tienen fondo ni borde; el anillo del foco se acerca otro tanto con `outline-offset`
   y queda donde estaba): las ✕ de un panel y de una hoja (3 px; con el dedo, 13), «Terug naar de
-  werkruimte» (5; 15), «Filters wissen» (6; 16), «Kaart … openen» (5; 15), las migas (2; 5) y el
-  buscador de una lista (3; 13; un campo no tiene `::before`). Con `position: relative`, alguno
+  werkruimte» (5; 15), «Filters wissen» (6; 10), «Kaart … openen» (5; 12), las migas (2; 2) y el
+  buscador de una lista (3; 13; un campo no tiene `::before`). (Entre paréntesis, con ratón y con
+  el dedo, como quedaron tras las verificaciones: abajo, «Tras la segunda…» y «Tras la tercera
+  verificación independiente».) Con `position: relative`, alguno
   se pintaba distinto (el texto de «Kaart … openen», el brillo de detrás de la hoja, un píxel de
   una miga): por eso no.
 - **Una capa transparente** (`::before`, en posición absoluta, centrada con `inset:
@@ -9839,43 +9841,49 @@ porque ninguna regla lleva color), sin clases nuevas en el TSX, de dos maneras:
   el de abajo a la izquierda y el de arriba a la derecha, para no pisarse). Los idiomas y los
   tiradores pasan a `position: relative`.
 
-Con el dedo, la ✕ de la tarjeta de una fila tiene 44 × 44 **en la esquina de la tarjeta, por
-dentro, y redondeada como ella** (11 px, el radio de 12 menos su borde): cuadrada, los pocos
-puntos de fuera del arco eran, en la hoja de una factura, del propio diálogo, y un toque ahí, que
-cerraba la hoja, habría cerrado solo la tarjeta (lo encontró la prueba de abajo; arreglado en
-3f4cc95).
+Con el dedo, la ✕ de la tarjeta de una fila tiene 44 × 44 **desde su esquina de arriba a la
+derecha, hacia la izquierda y hacia abajo**: dentro de la tarjeta, sobre su icono y su título, y
+sin acercarse al borde de la tarjeta más que la ✕. (Primero fue un cuadrado de 44 en la esquina de
+la tarjeta, hasta su borde, y luego redondeado como ella, en 3f4cc95, para que los clics de fuera
+del arco siguieran cerrando la hoja; con toques de verdad no bastaba, y se cambió: abajo, «Tras la
+tercera verificación independiente».)
 
 #### Lo medido
 
 La caja que se ve (en neerlandés, como en la base de prueba) y la zona medida con
 `elementFromPoint` (ancho × alto en px, el mínimo de todos los estados en que aparece, en oscuro y
-en claro); entre paréntesis, la de 1cc96b0:
+en claro); entre paréntesis, la de 1cc96b0. Con el dedo, lo de ahora, tras las tres
+verificaciones (las migas, «Kaart … openen», «Filters wissen» y la ✕ de una tarjeta cambiaron; lo
+medido al píxel, abajo, en cada «Tras la … verificación»):
 
 | Control | Lo que se ve | Ratón, 1440 | Ratón, 400 | Dedo, 1440 | Dedo, 400 |
 | --- | --- | --- | --- | --- | --- |
 | ✕ de un panel («Paneel sluiten», «Cerrar panel») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
-| ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
+| ✕ de la tarjeta de una fila («Detail sluiten»), en un panel y en la hoja | 16 × 16 (17 × 17) | 25 × 25 | 25 × 25 | 44 × 44 | 44 × 44 |
 | ✕ de la hoja («Voorbeeld sluiten», «Cerrar documento») | 19 × 19 (20 × 20) | 25 × 25 | 25 × 25 | 45 × 45 | 45 × 45 |
 | «Terug naar de werkruimte» («Volver al espacio») | 143,72 × 15 (145 × 16) | 153,72 × 25 | 153,72 × 25 | 173,72 × 45 | 173,72 × 45 |
 | «Terug naar Aurora» (`a.ws-home`) | 118,2 × 16,5 a 1440, 101,08 × 15 a 400 (119 × 17, 102 × 16) | 119 × 25 | 102 × 25 | 147 × 45 | 130 × 45 |
-| Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 32,55 × 30 | 32,55 × 30 |
-| Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 70,25 × 30 | 70,25 × 30 |
-| Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 70,84 y 150,97 × 30 | igual |
-| «Kaart van … openen» (`.ws-folder-caption a`) | 82,56 × 15 (83-84 × 16) | 92,56 × 25 | 92,56 × 25 | 112,56 × 45 | 112,56 × 45 |
+| Migas: «Start» | 22,55 × 20 (24 × 21) | 26,55 × 24 | 26,55 × 24 | 26,55 × 24 | 26,55 × 24 |
+| Migas: «Documenten» | 60,25 × 20 (61 × 21) | 64,25 × 24 | 64,25 × 24 | 64,25 × 24 | 64,25 × 24 |
+| Migas: «Leveranciers», «J. Voorbeeld Beveiliging (zzp)» | 60,84 y 140,97 × 20 (62 y 142 × 21) | 64,84 y 144,97 × 24 | igual | 64,84 y 144,97 × 24 | igual |
+| «Kaart van … openen» (`.ws-folder-caption a`) | 82,56 × 15 (83-84 × 16) | 92,56 × 25 | 92,56 × 25 | 106,56 × 39 | 106,56 × 39 |
 | «Terug naar start» de Procesar (`.processing-back`) | 87,73 × 13,5 (89 × 14) | 89 × 25 | 89 × 25 | 89 × 45 | 89 × 45 |
 | Idiomas: «Español», «Nederlands», «English» | 41,22, 58,14 y 38,19 × 12,59 (42, 60 y 39 × 13-14) | 42, 60 y 39 × 25 | igual | 45, 60 y 45 × 45 | igual |
-| «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 107,2 × 45,5 | 100,73 × 44 |
+| «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 95,2 × 33,5 | 88,73 × 32 |
 | Tiradores del importe («Minimumbedrag», «Maximumbedrag») | 15 × 15 (16 × 16) | 27 × 25 | 27 × 25 | 32 × 45 | 32 × 45 |
 | Buscador de una lista («Zoek een klant of leverancier») | 296 × 19,8 (297 × 21) | 302 × 25,8 | 302 × 25,8 | 322 × 45,8 | 322 × 45,8 |
 | Control de la hoja plegada (del 30-10-2026) | 74,45 × 13,5 | 75 × 29 | 75 × 29 | 75 × 45 | 75 × 45 |
 
-Donde 44 no cabe: **las migas**, con el dedo, 30 de alto, porque en la ficha de una carpeta a
-400 px van en dos líneas a 10 px y más alto pisaría la de la otra línea (de ancho, solo 5 px por
-lado: los separadores están a 10; tras la segunda verificación, 24 de alto y 4 más anchas, como
-con ratón, y «Kaart … openen» 41 de alto con el dedo: abajo); y **los tiradores**, 29,5 px de ancho de capa (32 medidos con
-el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana. Las
-dos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control queda en la
-lista de excepciones de la guarda.
+Donde 44 no cabe (lo de ahora, tras las tres verificaciones independientes de abajo): **las
+migas**, 24 de alto también con el dedo (2 px por lado, como con ratón), porque en la ficha de una
+carpeta a 400 px van en dos líneas a 10 px y, más altas, Chromium daba a la de abajo toques de las
+de arriba que antes navegaban; **«Kaart … openen»**, 39 de alto con el dedo (12 px por lado;
+106,56 × 39, medido 108 × 40), porque encima pinta la sombra de la carpeta; **«Filters wissen»**, 32
+de alto con el dedo (10 px por lado), porque con 44 Chromium le daba toques del borde de arriba
+del campo de la empresa, que está debajo; y **los tiradores**, 29,5 px de ancho de capa (32
+medidos con el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la
+ventana. Todos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control
+queda en la lista de excepciones de la guarda.
 
 #### Lo que cambia al pulsar
 

@@ -203,8 +203,10 @@ próxima sin contar su capa, y uno en el borde de abajo se iba a la miga de deba
 ✕ de un panel («Paneel sluiten») y la de la hoja de un documento («Voorbeeld sluiten»), 19 × 19
 (25 × 25 con ratón, 45 × 45 con el dedo); la ✕ de la tarjeta de una fila («Detail sluiten»),
 16 × 16 (una capa de 24 × 24 que, en posiciones fraccionarias, se pulsa en 25 × 25; con el dedo,
-44 × 44 en la esquina de la tarjeta, por dentro y redondeada como ella: medida, de 45 × 44 a
-45 × 45, y el mayor cuadrado que cabe dentro, 41 × 41); «Terug naar de werkruimte» de la
+44 × 44 desde la esquina de arriba a la derecha de la ✕, hacia dentro de la tarjeta, sobre su
+icono y su título, sin acercarse al borde de la tarjeta más que la ✕: fuera de la tarjeta, en la
+hoja, un toque cierra la hoja entera, y Chromium acerca a una zona los toques de unos 9 px
+alrededor); «Terug naar de werkruimte» de la
 conversación, «Terug naar Aurora» y las migas de Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
 entrada, «Filters wissen» de la búsqueda, los dos tiradores del importe y el buscador de las
 listas de los filtros, de 12 a 21 px de alto (de 24 a 26 con ratón y de 44 a 46 con el dedo); y
@@ -212,7 +214,9 @@ el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar
 cambiar lo que hace un toque: las migas, 24 de alto también con el dedo (dos líneas de migas
 quedan a 10 px en la ficha de una carpeta, y más altas, Chromium daba a la de abajo, la página
 en que se está, toques que antes navegaban); «Kaart … openen», 39 de alto con el dedo (encima
-pinta la sombra de la carpeta, que no hace nada); y los tiradores, 29,5 de ancho (crecen hacia
+pinta la sombra de la carpeta, que no hace nada); «Filters wissen», 32 de alto con el dedo (con
+44, Chromium le daba toques del borde de arriba del campo de la empresa, que está debajo, y un
+toque que abría la lista quitaba los filtros); y los tiradores, 29,5 de ancho (crecen hacia
 fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana).
 Mientras una lista de los filtros está abierta, los tiradores no tienen zona (la lista los tapa,
 y la zona que asomaba se llevaba toques del borde de la lista). Lo que cambia al pulsar está en
@@ -220,13 +224,17 @@ y la zona que asomaba se llevaba toques del borde de la lista). Lo que cambia al
 verificación independiente»): un toque junto a la ✕ de una hoja, en su margen, la cierra con la
 ✕ (antes, con el clic en el margen: lo mismo); uno junto a un tirador lo agarra en vez de
 moverlo hasta ese punto; con el dedo, uno justo bajo una carpeta puede ir a su «Kaart … openen»
-en vez de a la carpeta (abren la misma ficha), y en el hueco entre dos líneas de migas la
-frontera se mueve un píxel o dos. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
+en vez de a la carpeta (abren la misma ficha), uno en el icono o el título de una tarjeta, junto a
+su ✕, la cierra (antes no hacía nada), y en el hueco entre dos líneas de migas la frontera se
+mueve un píxel o dos. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
 principal, a 400 × 860 con ratón y con el dedo, a nada que se pulse le falta un cuadrado de
 24 × 24 de puntos suyos (medido con `document.elementFromPoint`, no con su caja), salvo con la
 excepción del espaciado (los días del calendario y los botones de una respuesta, como en
-1cc96b0); y con el dedo, donde una zona linda con otra cosa, cada toque de verdad va adonde iba
-o, si antes no hacía nada, a la zona.
+1cc96b0; a un control con zona no le vale); y con el dedo, en los sitios donde una zona linda con
+otra cosa que se han probado tocando de verdad (los tiradores bajo la lista de las empresas,
+«Filters wissen» sobre el campo de la empresa, la esquina de la ✕ de una tarjeta en un panel y en
+la hoja, «Kaart … openen» bajo su carpeta y dos líneas de migas), cada toque va adonde iba o, si
+antes no hacía nada, a la zona (cerrar la hoja con un toque en su margen cuenta como hacer algo).
 
 **La rueda de Aurora** (`src/aurora/text-marquee.tsx`, su `TextMarquee`): una ventana de
 240 px con filas de 48 px; se ven cinco entradas y la del centro es la activa (23 px, peso
@@ -1182,8 +1190,9 @@ los mismos píxeles, las mismas medidas de desplazamiento y ningún clic que cam
 los apuntados; cada zona a 1440 y 400, con los dos punteros y en los dos temas (su tamaño, en
 reposo, con el ratón encima y con el foco, píxel a píxel), con el dedo un toque en su borde,
 fuera de lo que se ve, hace lo que uno en el control, y donde una zona linda con otra cosa (la
-lista de las empresas sobre los tiradores, «Kaart … openen» bajo su carpeta, dos líneas de migas)
-cada toque de verdad va adonde iba en 1cc96b0 o, si no hacía nada, a la zona; `e2e/daily.spec.ts` el trabajo diario con
+lista de las empresas sobre los tiradores, «Filters wissen» sobre el campo de la empresa, la
+esquina de la ✕ de una tarjeta en un panel y en la hoja, «Kaart … openen» bajo su carpeta, dos
+líneas de migas) cada toque de verdad va adonde iba en 1cc96b0 o, si no hacía nada, a la zona; `e2e/daily.spec.ts` el trabajo diario con
 órdenes de verdad en las tarjetas de Start y en la hoja (los motivos de las bloqueadas en los dos idiomas, aceptar un hallazgo con
 la segunda firma de otra persona y resolver una excepción, marcar como gecontroleerd, una `rev`
 vieja que da el aviso de conflicto, la verificación de un IBAN con la regla de las dos personas,
