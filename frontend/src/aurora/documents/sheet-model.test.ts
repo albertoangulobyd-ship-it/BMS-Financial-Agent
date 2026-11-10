@@ -5,7 +5,7 @@ import type { Finding, InvoiceDetail, InvoicePayment } from '@/lib/api-types';
 import { es } from '@/i18n/es';
 import { en } from '@/i18n/en';
 import { nl } from '@/i18n/nl';
-import { FOLD_ROWS, asProposal, foldLabel, foldRows, sheetRows, sortFindings, toScaled, type SheetRow } from './sheet-model';
+import { FOLD_ROWS, SHEET_SCROLL, asProposal, foldLabel, foldRows, rowsThatFit, sheetRows, sortFindings, toScaled, type SheetRow } from './sheet-model';
 
 const finding = (id: number, estado: string, severidad: string): Finding => ({ id, estado, severidad, regla: `R${id}` }) as unknown as Finding;
 const payment = (id: number, estado: string, extra: Partial<InvoicePayment> = {}): InvoicePayment =>
@@ -135,6 +135,77 @@ describe('la hoja de una factura', () => {
       const fold = foldRows(sheetRows(f), false);
       expect(keys(fold.shown)).toEqual(['h1', 'h2', 'h3']);
       expect(fold).toMatchObject({ hidden: 5, attention: 2 });
+    });
+  });
+
+  describe('la hoja nunca se desplaza mas de 300 px, sea el dia que sea (09-11-2026)', () => {
+    const rows = (...keys: string[]): SheetRow[] =>
+      keys.map((key) => (key.startsWith('p') ? ({ kind: 'payment', key, payment: payment(Number(key.slice(1)), 'propuesta') } as SheetRow) : ({ kind: key, key } as SheetRow)));
+    const keys = (r: readonly SheetRow[]) => r.map((x) => x.key);
+    // Lo medido a 400 px (registro, «Las pruebas y el calendario»): una fila mide 74 px, 87 si su
+    // nota da dos lineas; la cabecera de la tabla, 28 (el control, 27).
+    const ROW = 74;
+    const HEAD = 28;
+
+    it('si cabe, nada cambia: la regla de las cuatro filas de siempre', () => {
+      expect(SHEET_SCROLL).toBe(300);
+      expect(rowsThatFit([ROW, ROW, ROW, ROW], 0, HEAD)).toBe(4);
+      expect(rowsThatFit([ROW, ROW, ROW, ROW], -3, HEAD)).toBe(4);
+      const list = rows('p1', 'review', 'read', 'more');
+      expect(foldRows(list, false, Infinity)).toMatchObject({ hidden: 0, foldable: false });
+      expect(foldRows(list, false, 4)).toMatchObject({ hidden: 0, foldable: false });
+      // Con mas de cuatro, tres y el control, aunque quepan mas.
+      expect(keys(foldRows(rows('p1', 'p2', 'review', 'read', 'more'), false, 5).shown)).toEqual(['p1', 'p2', 'review']);
+    });
+
+    it('JV-2026-006 de la base del 28-10-2026 abierta el 10-11-2026: cuatro filas y 332 px a 400 px', () => {
+      // Un pago propuesto (otra linea en «Betalingen»), la nota de «Gelezen gegevens» en dos
+      // lineas, el boton del original y, vencida desde el 02-11, sus dias de retraso (otra linea,
+      // +18 px): 332 px. Plegada con el control, tres filas (unos 285).
+      const heights = [ROW, ROW, 87, ROW];
+      const n = rowsThatFit(heights, 332 - SHEET_SCROLL, HEAD);
+      expect(n).toBe(3);
+      const fold = foldRows(rows('p1', 'review', 'read', 'more'), false, n);
+      expect(keys(fold.shown)).toEqual(['p1', 'review', 'read']);
+      expect(fold).toMatchObject({ hidden: 1, attention: 0, foldable: true });
+      expect(foldLabel(nl, fold)).toBe('En nog 1 regel');
+      // Desplegada, todas: lo que la persona pide se ve, aunque se desplace.
+      expect(foldRows(rows('p1', 'review', 'read', 'more'), true, n)).toMatchObject({ hidden: 0, foldable: true });
+    });
+
+    it('cuanto mas larga la hoja (otro dia, otro idioma, otra anchura), menos filas; al menos una', () => {
+      // Ya plegada (el control ya esta): se quitan filas desde la ultima hasta liberar lo que sobra.
+      expect(rowsThatFit([ROW, ROW, ROW], 10, 0)).toBe(2);
+      expect(rowsThatFit([ROW, ROW, ROW], ROW + 1, 0)).toBe(1);
+      expect(rowsThatFit([ROW, ROW, ROW], 1000, 0)).toBe(1);
+      // Sin control aun, lo que cuesta el control tambien cuenta.
+      expect(rowsThatFit([ROW, ROW], ROW - HEAD + 1, HEAD)).toBe(1);
+      expect(rowsThatFit([ROW, ROW], ROW - HEAD, HEAD)).toBe(1);
+      expect(rowsThatFit([ROW], 500, HEAD)).toBe(1);
+      const fold = foldRows(rows('p1', 'p2', 'review', 'read', 'more'), false, 1);
+      expect(keys(fold.shown)).toEqual(['p1']);
+      expect(fold).toMatchObject({ hidden: 4, foldable: true });
+      expect(foldRows(rows('read', 'more'), false, 0).shown).toHaveLength(1);
+    });
+
+    it('cada combinacion de filas altas y bajas y de lo que sobra: lo que se quita libera lo que sobra', () => {
+      for (let count = 1; count <= 8; count += 1) {
+        for (let mask = 0; mask < 1 << count; mask += 1) {
+          const heights = Array.from({ length: count }, (_, i) => (mask & (1 << i) ? 87 : ROW));
+          for (const control of [0, HEAD]) {
+            for (let excess = 1; excess <= 700; excess += 13) {
+              const n = rowsThatFit(heights, excess, control);
+              expect(n).toBeGreaterThanOrEqual(1);
+              expect(n).toBeLessThanOrEqual(count);
+              const freed = heights.slice(n).reduce((a, b) => a + b, 0) - (n < count ? control : 0);
+              // O cabe, o ya solo queda una.
+              if (n > 1) expect(freed).toBeGreaterThanOrEqual(excess);
+              // Y no quita una de mas.
+              if (n < count) expect(freed - heights[n]!).toBeLessThan(excess);
+            }
+          }
+        }
+      }
     });
   });
 });

@@ -72,13 +72,40 @@ export function needsAttention(row: SheetRow): boolean {
  * Con FOLD_ROWS filas o menos, todas y sin control (como antes). Con mas, plegada se ven las
  * FOLD_ROWS - 1 primeras (las mas urgentes) y el control ocupa la cuarta linea; desplegada,
  * todas. Lo plegado cuenta sus avisos para que el control los diga.
+ *
+ * `fit`: cuantas filas caben sin que la hoja se desplace mas de SHEET_SCROLL px (rowsThatFit,
+ * medido en la hoja). Si caben menos, se pliega tambien con cuatro filas o menos, y se ven solo
+ * las que caben (al menos una).
  */
-export function foldRows(rows: readonly SheetRow[], expanded: boolean): SheetFold {
-  if (rows.length <= FOLD_ROWS) return { shown: [...rows], hidden: 0, attention: 0, foldable: false };
+export function foldRows(rows: readonly SheetRow[], expanded: boolean, fit = Infinity): SheetFold {
+  const keep = Math.max(1, Math.min(rows.length > FOLD_ROWS ? FOLD_ROWS - 1 : rows.length, fit));
+  if (keep >= rows.length) return { shown: [...rows], hidden: 0, attention: 0, foldable: false };
   if (expanded) return { shown: [...rows], hidden: 0, attention: 0, foldable: true };
-  const shown = rows.slice(0, FOLD_ROWS - 1);
-  const rest = rows.slice(FOLD_ROWS - 1);
+  const shown = rows.slice(0, keep);
+  const rest = rows.slice(keep);
   return { shown, hidden: rest.length, attention: rest.filter(needsAttention).length, foldable: true };
+}
+
+/** Lo que el dialogo de una hoja plegada se desplaza como mucho (especificacion §6.1). */
+export const SHEET_SCROLL = 300;
+
+/**
+ * Cuantas de las filas que se ven caben para que la hoja no se desplace mas de SHEET_SCROLL px:
+ * `heights`, las alturas de las filas que se ven, en su orden; `excess`, lo que el dialogo se
+ * desplaza de mas; `control`, lo que anade el control de plegar si aun no esta (0 si ya esta).
+ * Se quitan desde la ultima (la menos urgente) hasta liberar lo que sobra; queda al menos una.
+ * Lo largo de una hoja cambia con el dia (un vencimiento pasado anade sus dias de retraso) y con
+ * el ancho y el idioma: por eso se mide, y no se cuenta.
+ */
+export function rowsThatFit(heights: readonly number[], excess: number, control: number): number {
+  if (excess <= 0) return heights.length;
+  let n = heights.length;
+  let freed = -control;
+  while (n > 1 && freed < excess) {
+    n -= 1;
+    freed += heights[n]!;
+  }
+  return n;
 }
 
 /** El texto del control: "Y 5 lineas mas · 2 piden atencion" plegada, "Ver menos" desplegada. */

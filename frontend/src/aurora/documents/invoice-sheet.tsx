@@ -10,7 +10,7 @@
 // para ninguna orden de una fila, la fila se ve igual y su tarjeta no tiene botones. Las ordenes
 // y sus reglas son las de la ficha de antes (pasos 15 y 16).
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { catalogFor, fieldLabel, findingDetail, paymentStateLabel, qualityText, ruleText, sourceText, stateLabel, verdict } from '@/i18n/domain';
 import { MIN_ACCEPT_REASON, permissionFor } from '@/lib/actions';
@@ -31,7 +31,7 @@ import { useLoad } from '../use-load';
 import type { AnalysisStatus } from './analysis';
 import { paidSource } from './documents-model';
 import { DownloadOriginal, Fact, FileRow, FileTable, Paper, SheetTop, typeLabel } from './sheets';
-import { asProposal, foldLabel, foldRows, historyEntries, sheetRows, toScaled, type SheetRow } from './sheet-model';
+import { SHEET_SCROLL, asProposal, foldLabel, foldRows, historyEntries, rowsThatFit, sheetRows, toScaled, type SheetRow } from './sheet-model';
 
 /** Verificar tiene sentido donde hay una duda; en los demas campos el boton seria ruido. */
 const NEEDS_CHECK = new Set(['dudoso', 'discrepancia', 'anomalia']);
@@ -217,6 +217,29 @@ export function InvoiceSheet({
     return true;
   };
   const invoice = state.status === 'ready' ? state.data[0] : null;
+  // Cuantas filas caben sin que la hoja se desplace mas de SHEET_SCROLL px: se mide con la hoja
+  // plegada y sin tarjeta, y vale para esa factura y ese tamano de ventana (rowsThatFit).
+  const [viewport, setViewport] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
+  useEffect(() => {
+    const resize = () => setViewport(`${window.innerWidth}x${window.innerHeight}`);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const fitKey = `${invoice?.id}:${invoice?.rev}:${version}:${viewport}`;
+  const [fitted, setFitted] = useState<{ key: string; n: number }>({ key: '', n: Infinity });
+  const fit = fitted.key === fitKey ? fitted.n : Infinity;
+  useLayoutEffect(() => {
+    const el = table.current;
+    const dialog = el?.closest('dialog');
+    if (!el || !dialog || expanded || open !== null) return;
+    const excess = dialog.scrollHeight - dialog.clientHeight - SHEET_SCROLL;
+    if (excess <= 0) return;
+    const shown = Array.from(el.querySelectorAll<HTMLElement>(':scope > a'), (a) => a.getBoundingClientRect().height);
+    // Si aun no hay control, cuesta lo que la cabecera de la tabla (la misma linea).
+    const control = el.querySelector('.sheet-fold') ? 0 : (el.querySelector<HTMLElement>(':scope > .ws-table-head')?.getBoundingClientRect().height ?? 0);
+    const n = rowsThatFit(shown, excess, control);
+    if (n < shown.length) setFitted({ key: fitKey, n });
+  });
   useEffect(() => {
     if (invoice) onLoaded(invoice);
     // Solo al llegar la factura.
@@ -243,13 +266,13 @@ export function InvoiceSheet({
   const paid = paidSource(f);
   const payments = paymentsInOrder(f.pagos ?? []);
   const rows = sheetRows(f);
-  const fold = foldRows(rows, expanded);
+  const fold = foldRows(rows, expanded, fit);
   const current = fold.shown.find((r) => r.key === open) ?? null;
   const toggle = () => {
     if (expanded) {
       setExpanded(false);
       // Una tarjeta de una fila que se pliega se cierra con ella.
-      const folded = foldRows(rows, false);
+      const folded = foldRows(rows, false, fit);
       if (open !== null && !folded.shown.some((r) => r.key === open)) setOpen(null);
     } else {
       firstFolded.current = fold.shown.length;

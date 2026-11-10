@@ -246,7 +246,9 @@ for (const size of [
 // La hoja de cada factura, plegada como se abre (decision del dueno del 29-10-2026: lo que pasa de
 // cuatro filas se pliega tras un solo control), no se desplaza mas de 300 px, a 1440 × 900 y a
 // 400 × 860, en oscuro y en claro: lo mismo que el limite de §6.1. Con cuatro filas o menos, ni
-// control ni nada plegado (como antes); con mas, tres filas y el control en la cuarta linea.
+// control ni nada plegado (como antes) si cabe; con mas, tres filas y el control en la cuarta
+// linea. Si aun asi no cabe (el 09-11-2026, una de cuatro filas vencida desde hacia dias: 332 px
+// a 400), se ven menos filas: las que caben (sheet-model.ts, rowsThatFit).
 for (const theme of ['dark', 'light'] as const) {
   test(`el dialogo de cada factura, plegado, no se desplaza mas de 300 px a 1440 y a 400 px, en ${theme} (§6.1)`, async ({ page, baseUrl, request }) => {
     test.setTimeout(900_000);
@@ -255,7 +257,7 @@ for (const theme of ['dark', 'light'] as const) {
     await page.goto(`${baseUrl}/app`);
     await login(page);
     await chooseTheme(page, theme);
-    const seen: { number: string; rows: number; shown: number; px: Record<number, number> }[] = [];
+    const seen: { number: string; rows: number; shown: Record<number, number>; px: Record<number, number> }[] = [];
     const nth = new Map<string, number>();
     for (const f of invoices) {
       const number = f.numero!;
@@ -264,28 +266,34 @@ for (const theme of ['dark', 'light'] as const) {
       await page.setViewportSize(SIZES[0]);
       const sheet = await openInvoice(page, number, { nth: n });
       const total = Number(await sheet.locator('.ws-table-head > span').last().textContent());
-      const shown = await sheet.locator('.ws-file-table > a').count();
       const fold = sheetFold(page);
-      if (total <= 4) {
-        await expect(fold, `${number}: sin control con ${total} filas`).toHaveCount(0);
-        expect(shown, `${number}: todas sus filas`).toBe(total);
-      } else {
-        await expect(fold, `${number}: plegada al abrirla`).toHaveAttribute('aria-expanded', 'false');
-        expect(shown, `${number}: tres filas y el control`).toBe(3);
-      }
       // El mismo <dialog> en los dos anchos (su ancho y su alto maximo son los de la ventana).
       const px: Record<number, number> = {};
+      const shown: Record<number, number> = {};
       for (const size of SIZES) {
         await page.setViewportSize(size);
         await settled(page);
         px[size.width] = await overflow(page, 'dialog.ws-dialog[open]');
+        shown[size.width] = await sheet.locator('.ws-file-table > a').count();
+        const at = `${number} a ${size.width} px`;
+        if (total > 4) await expect(fold, `${at}: plegada al abrirla`).toHaveCount(1);
+        if (await fold.count()) {
+          await expect(fold, `${at}: plegada al abrirla`).toHaveAttribute('aria-expanded', 'false');
+          expect(shown[size.width], `${at}: tres filas o menos y el control`).toBeLessThanOrEqual(Math.min(3, total - 1));
+        } else {
+          expect(shown[size.width], `${at}: todas sus filas`).toBe(total);
+        }
       }
       seen.push({ number, rows: total, shown, px });
     }
     await page.setViewportSize(SIZES[0]);
     seen.sort((a, b) => Math.max(b.px[1440]!, b.px[400]!) - Math.max(a.px[1440]!, a.px[400]!));
     // Para el registro: la peor y el reparto.
-    console.log(`dialogo de factura plegado (${theme}, 1440 / 400 px): ${seen.map((s) => `${s.number} (${s.rows} filas) ${s.px[1440]} / ${s.px[400]}`).join(' · ')}`);
+    console.log(
+      `dialogo de factura plegado (${theme}, 1440 / 400 px; filas vistas de todas): ${seen
+        .map((s) => `${s.number} (${s.shown[1440]}/${s.rows} y ${s.shown[400]}/${s.rows} filas) ${s.px[1440]} / ${s.px[400]}`)
+        .join(' · ')}`
+    );
     expect(seen.length).toBe(invoices.length);
     expect(seen.flatMap((s) => SIZES.filter((z) => s.px[z.width]! > 300).map((z) => `${s.number} a ${z.width} px: ${s.px[z.width]} px`))).toEqual([]);
   });
