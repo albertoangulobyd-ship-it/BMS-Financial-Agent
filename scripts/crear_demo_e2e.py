@@ -30,10 +30,18 @@ Solo en la base de las pruebas: `bms-agent demo crear` no cambia, y sus pruebas 
 tampoco. Lo que entro va en "banco" del JSON.
 
 Paso 17: ese extracto necesita facturas que sigan abiertas, y el escenario va respecto a hoy:
-al final de cada mes (del 29 al 31 de octubre, por ejemplo) la factura mensual de la
-Stichting ya se cobro y no queda ninguna suya abierta. Entonces la base se hace con el reloj
-de un dia antes (y asi hasta una semana), como una base de prueba hecha ese dia y abierta hoy:
-"dias_atras" del JSON lo dice. `bms-agent demo crear` no cambia.
+al final de cada mes (del 29 al 31) la factura mensual de la Stichting ya se cobro y no queda
+ninguna suya abierta; en los primeros dias del mes, la del gemeentehuis se cobra "hoy" (la
+base siempre mueve algo en el mes en curso); y los lunes la factura semanal del puerto aun no
+ha salido y la semana olvidada (V6) cae entre las abiertas: quedan dos. Entonces la base se
+hace con el reloj de un dia antes, como una base de prueba hecha ese dia y abierta hoy:
+"dias_atras" del JSON lo dice. El dia se elige con las facturas que tendria la base
+(demo.facturas, puro, sin escribir nada), y la base hecha se comprueba igual. Hasta
+DIAS_ATRAS: tests/test_crear_demo_e2e.py demuestra, dia a dia y durante anos, que basta.
+
+Y "numeros" del JSON da el numero de cada factura que las pruebas abren por su papel (la
+vieja del gemeentehuis, la repetida de J. Voorbeeld...): los numeros cambian con el dia en
+que se hace la base (el mes y el ano van en ellos). `bms-agent demo crear` no cambia.
 """
 
 from __future__ import annotations
@@ -49,8 +57,9 @@ from pathlib import Path
 
 CONSULTA = "Cas Consulta"
 # Como mucho, cuantos dias antes de hoy se busca uno en el que la base tenga lo que pide el
-# extracto de las pruebas (las facturas abiertas de _facturas_del_extracto).
-DIAS_ATRAS = 7
+# extracto de las pruebas (las facturas abiertas de _facturas_del_extracto). Hace falta irse
+# hasta 12 (tests/test_crear_demo_e2e.py lo mide dia a dia de 2026 a 2033).
+DIAS_ATRAS = 14
 
 
 class _FaltaUnaFactura(Exception):
@@ -73,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--carpeta", required=True, help="donde va demo.sqlite3")
     parser.add_argument("--rehacer", action="store_true", help="si ya existe, se hace de nuevo")
+    parser.add_argument("--hoy", metavar="AAAA-MM-DD",
+                        help="hacerla como si hoy fuera ese dia (para probar otras fechas; la "
+                             "app la abre con el reloj de verdad)")
     args = parser.parse_args(argv)
 
     from bms_agent import demo
@@ -80,15 +92,18 @@ def main(argv: list[str] | None = None) -> int:
     from bms_agent.reloj import RelojFijo
 
     ruta = Path(args.carpeta) / NOMBRE_DEMO
+    if ruta.exists() and not args.rehacer:
+        print(json.dumps({"error": f"{ruta} ya existe: --rehacer para hacerla de nuevo"}),
+              file=sys.stderr)
+        return 2
+    ahora = datetime.now(timezone.utc)
+    if args.hoy:
+        ahora = datetime.combine(date.fromisoformat(args.hoy), ahora.timetz())
     falta = None
-    for atras in range(DIAS_ATRAS + 1):
-        reloj = (None if atras == 0
-                 else RelojFijo(datetime.now(timezone.utc) - timedelta(days=atras)))
-        resumen = demo.crear(ruta, reloj=reloj, rehacer=args.rehacer or atras > 0)
-        if not resumen.creada:
-            print(json.dumps({"error": f"{ruta} ya existe: --rehacer para hacerla de nuevo"}),
-                  file=sys.stderr)
-            return 2
+    for atras in dias_posibles(ahora):
+        reloj = None if atras == 0 and not args.hoy else RelojFijo(ahora - timedelta(days=atras))
+        resumen = demo.crear(ruta, reloj=reloj, rehacer=True)
+        # Lo dice el plan; la base hecha lo confirma (si no, el dia siguiente del plan).
         falta = _falta_para_el_extracto(ruta)
         if falta is None:
             break
@@ -97,13 +112,91 @@ def main(argv: list[str] | None = None) -> int:
                                    f"base lo que pide el extracto de las pruebas: {falta}"}),
               file=sys.stderr)
         return 3
+    numeros = numeros_de_las_pruebas(RelojFijo(ahora - timedelta(days=atras)))
     tokens = {**resumen.tokens, CONSULTA: _persona_de_consulta(ruta)}
     ficheros = _ficheros_de_importar(Path(args.carpeta))
     banco = _extracto_de_pagos(ruta, Path(args.carpeta))
     print(json.dumps({"db": str(ruta), "tokens": tokens, "cifras": resumen.cifras,
-                      "ficheros": ficheros, "banco": banco, "dias_atras": atras},
-                     ensure_ascii=False))
+                      "ficheros": ficheros, "banco": banco, "dias_atras": atras,
+                      "numeros": numeros}, ensure_ascii=False))
     return 0
+
+
+def falta_en_el_plan(reloj) -> str | None:
+    """Que le faltaria al extracto en la base hecha con ese reloj, sin hacerla: las mismas
+    facturas abiertas que pide _facturas_del_extracto, en demo.facturas (puro)."""
+    from bms_agent import demo
+
+    hoy = reloj.hoy()
+    compras, ventas = demo.facturas(reloj)
+
+    def abiertas(lista, codigo: str) -> list:
+        return [f for f in lista if f.pagar_el is None and f.total > 0
+                and f.tipo in ("Factuur", "invoice") and _parte(f) == codigo]
+
+    haven = abiertas(ventas, "10001")
+    if len(haven) < 3:
+        return f"{len(haven)} facturas abiertas del puerto, y hacen falta tres"
+    for nombre, falta in (
+            ("la Stichting", abiertas(ventas, "10002")),
+            ("el gemeentehuis (pendiente)", [f for f in abiertas(ventas, "10003")
+                                             if f.vence >= hoy]),
+            ("Oost", abiertas(compras, "30004")),
+            ("Voorbeeld", abiertas(compras, "30002"))):
+        if not falta:
+            return f"ninguna factura abierta de {nombre}"
+    return None
+
+
+def _parte(factura) -> str:
+    """El codigo del cliente de una venta o del proveedor de una compra del plan."""
+    return factura.cliente.codigo if hasattr(factura, "cliente") else factura.proveedor.codigo
+
+
+def dias_posibles(ahora: datetime) -> list[int]:
+    """Los dias atras (de 0 a DIAS_ATRAS) en los que la base tendria lo que pide el extracto,
+    del mas cercano a hoy al mas lejano."""
+    from bms_agent.reloj import RelojFijo
+
+    return [atras for atras in range(DIAS_ATRAS + 1)
+            if falta_en_el_plan(RelojFijo(ahora - timedelta(days=atras))) is None]
+
+
+def numeros_de_las_pruebas(reloj) -> dict[str, object]:
+    """El numero de cada factura que las pruebas abren por su papel en la base de ese dia
+    (los numeros llevan el mes y el ano: cambian con el dia en que se hace la base)."""
+    from bms_agent import demo
+
+    compras, ventas = demo.facturas(reloj)
+
+    def de(codigo: str, lista=compras) -> list:
+        return [f for f in lista if _parte(f) == codigo and getattr(f, "copia", 0) == 0]
+
+    gemeente = sorted((v for v in de("10003", ventas) if v.tipo == "Factuur"),
+                      key=lambda v: v.fecha)
+    testpersoon = sorted(de("30005"), key=lambda c: c.desde)
+    abono = next(c for c in de("30001") if c.tipo == "credit_note")
+    voorbeeld = de("30002")
+    return {
+        # La vieja del gemeentehuis, vencida hace mas de sesenta dias (urgente).
+        "municipalOld": gemeente[0].numero,
+        # K. Testpersoon: la de hace dos meses (vencida) y la del mes pasado (un dato dudoso).
+        "testpersoonOld": testpersoon[0].numero,
+        "testpersoonRecent": testpersoon[-1].numero,
+        # Noord: la del mes pasado y su abono (R5).
+        "noordCredited": abono.citadas[0],
+        "noordCredit": abono.numero,
+        # Proefwacht: la que trae otro IBAN (F2, F3).
+        "proefwachtNewIban": next(c.numero for c in de("30003") if c.iban == demo.IBAN_CAMBIADO),
+        # La de otra moneda (X1) y la del texto que pide cambiar el IBAN.
+        "otherCurrency": de("30006")[0].numero,
+        "oost": de("30004")[0].numero,
+        # J. Voorbeeld: la primera, la repetida (la ultima, B2) y las de antes, de la mas
+        # reciente a la mas vieja.
+        "voorbeeldFirst": voorbeeld[0].numero,
+        "voorbeeldTwin": voorbeeld[-1].numero,
+        "voorbeeldEarlier": [c.numero for c in reversed(voorbeeld[:-1])],
+    }
 
 
 def _camt(apuntes: list[tuple], inicial: Decimal, secuencia: int, dia: date) -> bytes:

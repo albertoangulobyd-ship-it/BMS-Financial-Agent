@@ -406,6 +406,13 @@ def crear(ruta: str | Path | None = None, *, reloj: Reloj | None = None,
     return resumen
 
 
+def facturas(reloj: Reloj) -> tuple[list[Compra], list[Venta]]:
+    """Las facturas que tendria la base de prueba hecha con ese reloj, y cuales estan pagadas
+    (pagar_el), sin escribir nada: lo mismo que decide crear() antes de hacerlas entrar."""
+    _turnos, compras, ventas = _Escenario(None, reloj).facturas()
+    return compras, ventas
+
+
 def _borrar_demo(destino: Path) -> None:
     """Borra la base de prueba, sus originales y sus anclas; nada que no lleve su nombre."""
     if destino.exists() and not es_demo(destino):
@@ -423,13 +430,13 @@ def _borrar_demo(destino: Path) -> None:
 class _Escenario:
     """Fabrica el escenario a partir de hoy y lo hace entrar por las puertas de siempre."""
 
-    def __init__(self, almacen: Almacen, reloj: Reloj) -> None:
+    def __init__(self, almacen: Almacen | None, reloj: Reloj) -> None:
+        # Sin almacen solo sirve para facturas(): lo que habria, sin escribir nada.
         self.almacen = almacen
-        self.conn = almacen.conn
+        self.conn = almacen.conn if almacen is not None else None
         self.reloj = reloj
         self.hoy = reloj.hoy()
         self.azar = random.Random(13)
-        self.trabajo = Path(tempfile.mkdtemp(prefix="bms-demo-"))
         self.resumen = Resumen(Path(), creada=True)
         self.proveedor = {p.codigo: p for p in PROVEEDORES}
         self.cliente = {c.codigo: c for c in CLIENTES}
@@ -441,14 +448,22 @@ class _Escenario:
 
     # ---- la orden entera
 
+    def facturas(self) -> tuple[list[Turno], list[Compra], list[Venta]]:
+        """Los turnos y las facturas de ese dia, con lo que ya esta pagado (pagar_el). Puro:
+        no escribe nada, y es lo mismo que construir() hace entrar."""
+        turnos = self._turnos()
+        compras = self._compras(turnos)
+        ventas = self._ventas(turnos)
+        self._pagos_de_hoy(compras, ventas)
+        return turnos, compras, ventas
+
     def construir(self) -> Resumen:
+        self.trabajo = Path(tempfile.mkdtemp(prefix="bms-demo-"))
         try:
             self._personas()
             self._politica()
             self._maestros()
-            turnos = self._turnos()
-            compras = self._compras(turnos)
-            ventas = self._ventas(turnos)
+            turnos, compras, ventas = self.facturas()
             self._ordenes_compra(ventas)
             self._planning(turnos)
             self._entrar_compras(compras)
@@ -993,11 +1008,9 @@ class _Escenario:
 
     # ---- el banco
 
-    def _banco(self, compras: list[Compra], ventas: list[Venta]) -> None:
-        """Un extracto por mes (CAMT.053) de la cuenta propia: los cobros y los pagos que ya
-        pasaron, con su numero de factura en el concepto, y la comision del banco (que no
-        es de ninguna factura). Hoy siempre se mueve algo: el mes en curso tiene cobros y
-        pagos aunque sea dia 1."""
+    def _pagos_de_hoy(self, compras: list[Compra], ventas: list[Venta]) -> None:
+        """Hoy siempre se mueve algo: el mes en curso tiene cobros y pagos aunque sea dia 1
+        (la ultima compra y la ultima venta que aun no se han pagado se pagan hoy)."""
         hoy = self.hoy
         frescas_c = [c for c in compras if c.pagar_el is None and c.tipo == "invoice"
                      and c.proveedor.codigo in ("30001", "30002") and c.copia == 0
@@ -1010,6 +1023,12 @@ class _Escenario:
         if frescas_v and not any(v.pagar_el and v.pagar_el.month == hoy.month
                                  and v.pagar_el.year == hoy.year for v in ventas):
             frescas_v[-1].pagar_el = hoy
+
+    def _banco(self, compras: list[Compra], ventas: list[Venta]) -> None:
+        """Un extracto por mes (CAMT.053) de la cuenta propia: los cobros y los pagos que ya
+        pasaron, con su numero de factura en el concepto, y la comision del banco (que no
+        es de ninguna factura). Lo que se paga hoy ya lo decidio _pagos_de_hoy."""
+        hoy = self.hoy
         apuntes = []
         for c in compras:
             if c.pagar_el is not None:
