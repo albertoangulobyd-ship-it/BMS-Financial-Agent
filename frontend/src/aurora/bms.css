@@ -101,8 +101,13 @@
      Chromium acerca un toque al objetivo cuya caja queda mas cerca, sin contar su ::before, y
      uno en el borde de abajo de la capa se iba a la miga de debajo.
    Donde no cabe todo (docs/v1/registro.md, «Las zonas tactiles de los demas controles»):
-   - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 en la esquina de la tarjeta, por dentro
-     y redondeada como ella (fuera, en la hoja, un clic cierra la hoja entera);
+   - la ✕ de la tarjeta de una fila, con el dedo: 44 x 44 desde su esquina de arriba a la derecha,
+     hacia la izquierda y hacia abajo (dentro de la tarjeta, sobre su icono y su titulo). No mas
+     cerca del borde de la tarjeta que la ✕: Chromium acerca a la zona los toques de unos 9 px
+     alrededor, y fuera de la tarjeta un toque cierra la hoja entera (el clic en el dialogo);
+   - «Filters wissen», con el dedo: 10 px por lado, 32 de alto. Con 16 (44), Chromium le daba
+     toques del borde de arriba del campo de la empresa, 24 px por debajo: quitaba los filtros
+     en vez de abrir la lista;
    - «Abrir la ficha» de una carpeta, con el dedo: 39 de alto. Encima pinta la sombra de la
      carpeta (.gf-shadow, sin manejador), 13,34 px por encima de su texto: un toque alli iba a la
      carpeta (Chromium lo acercaba), y si la zona llega a menos de un pixel de la sombra, Chromium
@@ -136,8 +141,8 @@
   .panel-top button:focus-visible,.ws-dialog-top button:focus-visible{outline-offset:-7px}
   .conversation-top button{padding:15px;margin:-15px}
   .conversation-top button:focus-visible{outline-offset:-9px}
-  .filters-reset{padding:16px;margin:-16px -16px -16px auto}
-  .filters-reset:focus-visible{outline-offset:-10px}
+  .filters-reset{padding:10px;margin:-10px -10px -10px auto}
+  .filters-reset:focus-visible{outline-offset:-4px}
   .ui-command-input input{padding:13px;margin:-13px}
   .ui-command-input input:focus-visible{outline-offset:-7px}
   .ws-folder-caption>a{padding:12px;margin:-12px}
@@ -146,7 +151,7 @@
   .ws-home::before{content:none}
   .ws-home{padding:14px;margin:-14px}
   .ws-home:focus-visible{outline-offset:-12px}
-  .detail-close::before{inset:auto;top:-10px;right:-10px;width:44px;height:44px;border-top-right-radius:11px}
+  .detail-close::before{inset:0 0 auto auto;width:44px;height:44px}
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
 }
 /* Mientras una lista de los filtros esta abierta (la empresa, el tipo o la fecha), los tiradores

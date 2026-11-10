@@ -13,9 +13,11 @@
 //   teclado) que sin ellas;
 // - con el dedo (isMobile, hasTouch, 400 × 860): un toque cerca del borde de cada zona, fuera de lo
 //   que se ve, hace lo mismo que uno en el control; y donde una zona linda con otra cosa (la lista
-//   de las empresas sobre los tiradores, «Kaart … openen» bajo su carpeta, dos lineas de migas),
-//   cada toque de verdad va adonde iba en 1cc96b0, o a la zona si antes no hacia nada (Chromium
-//   acerca un toque al objetivo que mejor cae bajo el dedo: elementFromPoint no lo ve).
+//   de las empresas sobre los tiradores, «Filters wissen» sobre el campo de la empresa, la esquina
+//   de la ✕ de una tarjeta en un panel y en la hoja, «Kaart … openen» bajo su carpeta, dos lineas
+//   de migas), cada toque de verdad va adonde iba en 1cc96b0, o a la zona si antes no hacia nada
+//   (Chromium acerca un toque al objetivo que mejor cae bajo el dedo: elementFromPoint no lo ve;
+//   el clic en el margen de una hoja la cierra, y eso no es nada).
 import type { Locator, Page } from '@playwright/test';
 import { expect, expectAccessible, login, settled, test } from './fixtures';
 import {
@@ -82,7 +84,9 @@ for (const pointer of ['raton', 'dedo'] as const) {
         // de 23, igual que en 1cc96b0).
         for (const s of all.filter((x) => x.square < 24)) {
           if (s.underPopover || EXCEPTIONS.some((e) => e.what.test(s.what))) continue;
-          if (s.spacing) {
+          // A un control con zona no le vale el espaciado: su zona tiene que dar el cuadrado (sin
+          // ella, la ✕ de una tarjeta, sola en su esquina, pasaria por el espaciado).
+          if (s.spacing && !s.zone) {
             spaced.add(`${s.what.replace(/«.*»/, '«…»')} ${s.square}`);
             continue;
           }
@@ -121,6 +125,8 @@ function least(zone: string, coarse: boolean): number {
   if (zone === 'los tiradores del importe') return 24;
   // «Abrir la ficha»: encima pinta la sombra de la carpeta (bms.css).
   if (zone === '«Abrir la ficha» de una carpeta') return 39;
+  // «Filters wissen»: mas alta, Chromium le daba toques del borde de arriba del campo de la empresa.
+  if (zone === '«Filters wissen» de la busqueda') return 32;
   return 44;
 }
 
@@ -423,6 +429,8 @@ test.describe('con el dedo, a 400 px', () => {
       const name = m[1]!.slice(pre.length, m[1]!.length - post.length);
       return c.before.startsWith(`button.gf-hit «${name} `) && c.after === `a «${fill(t.aurora.archive.openProfileNamed, { name })}» [zona]`;
     };
+    // El margen de una hoja junto a su ✕: el clic en el dialogo la cerraba y ahora la cierra la ✕.
+    const sameClose = (c: TapChange) => c.before.startsWith('cierra la hoja') && c.after === `button «${t.aurora.archive.closePreview}» [zona]`;
     // En el hueco entre dos zonas (de ninguna), la frontera entre las dos puede moverse.
     let gaps: DOMRect[] = [];
     let moved = 0;
@@ -431,7 +439,7 @@ test.describe('con el dedo, a 400 px', () => {
       const groups = new Map<string, TapChange[]>();
       let fine = 0;
       for (const c of changes) {
-        if ((nothing(c.before) && c.after.endsWith('[zona]')) || sameFolder(c)) {
+        if ((nothing(c.before) && c.after.endsWith('[zona]')) || sameFolder(c) || sameClose(c)) {
           fine += 1;
           continue;
         }
@@ -443,9 +451,18 @@ test.describe('con el dedo, a 400 px', () => {
         groups.set(k, [...(groups.get(k) ?? []), c]);
       }
       wrong.push(...[...groups].map(([k, v]) => `${where}: ${k} (${v.length} puntos, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
-      const shown = changes.filter((c) => !(nothing(c.before) && c.after.endsWith('[zona]')) && !sameFolder(c));
+      const shown = changes.filter((c) => !(nothing(c.before) && c.after.endsWith('[zona]')) && !sameFolder(c) && !sameClose(c));
       console.log(`${where}: ${points} toques, ${fine} pasan a una zona (o a la ficha de la misma carpeta), ${moved} en el hueco entre dos zonas cambian de una a otra, ${changes.length - fine - moved} sin permiso${shown.map((c) => `\n  (${c.x}, ${c.y}) ${c.before} → ${c.after}`).join('')}`);
       moved = 0;
+    };
+    // Alrededor de la caja de un control (traido al centro): de dx0 a dx1 y de dy0 a dy1 px de su
+    // esquina de arriba a la izquierda (o de la de abajo a la derecha, los positivos que pasan de
+    // su ancho o su alto se cuentan desde ahi).
+    const around = async (el: Locator, x0: number, x1: number, dx: number, y0: number, y1: number, dy: number) => {
+      await el.evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      await settled(page);
+      const b = (await el.boundingBox())!;
+      return grid(b.x + x0, b.x + b.width + x1, dx, b.y + y0, b.y + b.height + y1, dy);
     };
     // La busqueda con la lista de las empresas abierta sobre los tiradores (a 400 px, el de abajo
     // queda debajo de su borde izquierdo): alrededor de cada tirador.
@@ -464,6 +481,25 @@ test.describe('con el dedo, a 400 px', () => {
     }
     await expect(page.locator('.ui-popover')).toBeVisible();
     await page.keyboard.press('Escape');
+    // «Filters wissen» con los filtros abiertos: debajo, a 24 px, el campo de la empresa (con 44 de
+    // alto, Chromium le daba toques del borde de arriba del campo: quitaba los filtros).
+    await openEntry(page, 'receivables');
+    await panelRow(page, t.aurora.money.overdue).click();
+    await expect(page.locator('.active-filter-chips')).toBeVisible();
+    await page.locator('.filters-toggle').click();
+    await expect(page.locator('#search-filters')).toBeVisible();
+    await settled(page);
+    const reset = await around(page.locator('.filters-reset'), -30, 16, 3, -24, 32, 2);
+    check('«Filters wissen» sobre el campo de la empresa', await tapChanges(page, reset), reset.length);
+    await expect(page.locator('.active-filter-chips')).toBeVisible();
+    // La ✕ de la tarjeta de una fila en un panel: su esquina, dentro y fuera de la tarjeta.
+    await openEntry(page, 'home');
+    await openGroup(page, t.aurora.home.first);
+    await openCard(page, panel(page).locator('.doc-list button.doc').first());
+    const corner = (close: Locator) => around(close, -46, 20, 3, -20, 46, 2);
+    const inPanel = await corner(detail(page).locator('.detail-close'));
+    check('la ✕ de la tarjeta de una fila, en un panel', await tapChanges(page, inPanel), inPanel.length);
+    await expect(detail(page)).toBeVisible();
     // Documentos: «Kaart … openen» bajo la primera carpeta (y la carpeta encima).
     await openDocuments(page);
     const caption = page.locator('.ws-folder-caption > a').first();
@@ -481,6 +517,15 @@ test.describe('con el dedo, a 400 px', () => {
     const lines = grid(0, Math.max(...crumbs.map((c) => c.right)) + 5, 5, border - 12, border + 12, 1);
     gaps = crumbs;
     check('la ficha de un proveedor, las dos lineas de migas', await tapChanges(page, lines), lines.length);
+    gaps = [];
+    // La ✕ de la tarjeta de una fila de la hoja: fuera de la tarjeta, el margen del dialogo (un
+    // toque ahi cierra la hoja entera; con la zona hasta el borde de la tarjeta, Chromium se lo
+    // daba a la ✕, y uno en lo redondeado de su esquina, a la hoja).
+    await openInvoice(page, 'DBO-2026-0417');
+    const card = await openSheetRow(page, t.aurora.sheet.more);
+    const inSheet = await corner(card.locator('.detail-close'));
+    check('la ✕ de la tarjeta de una fila, en la hoja', await tapChanges(page, inSheet), inSheet.length);
+    await expect(card).toBeVisible();
     expect(wrong).toEqual([]);
   });
 });

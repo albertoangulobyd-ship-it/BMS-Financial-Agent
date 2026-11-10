@@ -256,8 +256,13 @@ export async function tour(page: Page, visit: (state: string) => Promise<void>):
     payables: [t.aurora.money.proposals, t.aurora.money.unmatched, t.aurora.money.week, t.money.week.held, t.money.ageing.title],
     vat: [t.aurora.vat.older],
   };
+  // Las filas llegan con los datos: sin esperarlas, con la CPU cargada, un grupo sin filas aun se
+  // saltaba y la gira media menos estados sin fallar.
+  const loaded = () => expect(panel(page).locator('.doc-list button.doc').first()).toBeVisible({ timeout: 30_000 });
   for (const [entry, labels] of Object.entries(groups) as [keyof typeof groups, string[]][]) {
     await openEntry(page, entry);
+    await loaded();
+    await settled(page);
     await visit(`E2 ${entry}`);
     const rest = panel(page).locator('.doc-list button.doc');
     for (const label of labels) {
@@ -291,6 +296,7 @@ export async function tour(page: Page, visit: (state: string) => Promise<void>):
         await settled(page);
       }
       if (!(await panel(page).count()) || (await panelTitle(page).textContent()) !== entryLabel(entry)) await openEntry(page, entry);
+      await loaded();
     }
     // Una fila del reposo que abre su tarjeta ahi mismo (IVA: el trimestre).
     if (entry === 'vat' && (await rest.count())) {
@@ -629,10 +635,12 @@ export interface TapChange {
 
 /**
  * A donde va un toque de verdad (page.touchscreen.tap, con el dedo) en cada punto, sin las zonas
- * nuevas y con ellas. Chromium acerca un toque al objetivo que mejor cae bajo el dedo (su caja,
- * no su ::before, y lo que solapa con el dedo cuenta mas que la distancia): elementFromPoint, que
- * mide la guarda, no lo ve. Los toques no hacen nada: pointerdown, mousedown, click y los demas
- * se paran en la ventana, antes que nadie (React, Radix), y se apunta a quien iba el clic. Lo que
+ * nuevas y con ellas. Chromium acerca un toque al objetivo que mejor cae bajo el dedo (lo medido:
+ * entra el que el dedo toca, tambien por su ::before, unos 9 px alrededor del punto, y entre dos
+ * gana el de la caja mas cercana, sin su ::before): elementFromPoint, que mide la guarda, no lo
+ * ve. Los toques no hacen nada: pointerdown, mousedown, click y los demas se paran en la ventana,
+ * antes que nadie (React, Radix), y se apunta a quien iba el clic. El clic en el mismo dialogo de
+ * una hoja es «cierra la hoja» (lo hace). Lo que
  * no es un control es «nada» (el nombre de lo que hay entre corchetes); lo demas, su etiqueta y lo
  * que dice o su aria-label, «(la pagina en que se esta)» si es la miga de la pagina (no hace nada)
  * y «[zona]» si tiene zona tactil. Devuelve solo los puntos que cambian.
@@ -646,6 +654,8 @@ export async function tapChanges(page: Page, points: [number, number][]): Promis
     if (w.__toque) return;
     const describe = (h: Element | null) => {
       if (!h) return 'nada [ninguno]';
+      // El clic en el mismo dialogo de una hoja (su margen) la cierra: no es nada.
+      if (h.matches('dialog.ws-dialog')) return 'cierra la hoja [el dialogo]';
       const t = h.closest(selector);
       if (!t) return `nada [${h.tagName.toLowerCase()}${typeof h.className === 'string' && h.className ? '.' + h.className.split(/\s+/)[0] : ''}]`;
       const label = t.getAttribute('aria-label') ?? (t as HTMLElement).innerText ?? '';
