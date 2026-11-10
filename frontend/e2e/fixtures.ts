@@ -8,7 +8,8 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test';
+import type { InvoiceRow } from '../src/lib/api';
 import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
 import { glossaryMisses } from '../src/i18n/glossary';
 import { leftoversIn } from '../src/i18n/leftovers';
@@ -81,6 +82,62 @@ export function token(who: Who = 'ana'): string {
   const value = { ana: process.env.BMS_E2E_TOKEN_ANA, bram: process.env.BMS_E2E_TOKEN_BRAM, cas: process.env.BMS_E2E_TOKEN_CAS }[who];
   if (!value) throw new Error('faltan los tokens de prueba (e2e/global-setup.ts)');
   return value;
+}
+
+/** Los numeros de las facturas que las pruebas abren por su papel en la base de prueba (los da
+ *  scripts/crear_demo_e2e.py: llevan el mes y el ano del dia en que se hace la base). */
+export interface DemoNumbers {
+  /** La vieja del gemeentehuis, vencida hace mas de sesenta dias (urgente). */
+  municipalOld: string;
+  /** K. Testpersoon: la de hace dos meses (vencida) y la del mes pasado (un dato dudoso). */
+  testpersoonOld: string;
+  testpersoonRecent: string;
+  /** Noord: la del mes pasado y su abono propuesto (R5). */
+  noordCredited: string;
+  noordCredit: string;
+  /** Proefwacht: la que trae otro IBAN (F2, F3). */
+  proefwachtNewIban: string;
+  /** La de otra moneda (X1) y la de Oost, con el texto que pide cambiar el IBAN. */
+  otherCurrency: string;
+  oost: string;
+  /** J. Voorbeeld: la primera, la repetida (B2) y las de antes, de la mas reciente a la mas vieja. */
+  voorbeeldFirst: string;
+  voorbeeldTwin: string;
+  voorbeeldEarlier: string[];
+  /** El ultimo trimestre terminado del BTW, listo para revisar y sin presentar: "2026-T3". */
+  vatQuarter: string;
+}
+
+let numbers: DemoNumbers | null = null;
+
+/** Los numeros por papel. Se leen al usarlos (no al cargar el fichero: la lista de pruebas se
+ *  hace antes de e2e/global-setup.ts). */
+export const N: DemoNumbers = new Proxy({} as DemoNumbers, {
+  get(_target, key: string) {
+    if (!numbers) {
+      const raw = process.env.BMS_E2E_NUMEROS;
+      if (!raw) throw new Error('faltan los numeros de la base de prueba (e2e/global-setup.ts)');
+      numbers = JSON.parse(raw) as DemoNumbers;
+    }
+    const value = numbers[key as keyof DemoNumbers];
+    if (value === undefined) throw new Error(`la base de prueba no da el numero «${key}»`);
+    return value;
+  },
+});
+
+/** Las facturas de J. Voorbeeld que se pueden marcar como revisadas sin mas: sin revisar, sin
+ *  nada abierto (ningun hallazgo, dato dudoso ni excepcion), de la mas reciente a la mas vieja.
+ *  Cuales son depende del dia de la base y de lo que ya hicieron otras pruebas. */
+export async function cleanToReview(request: APIRequestContext, baseUrl: string): Promise<string[]> {
+  const response = await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('ana') } });
+  expect(response.status()).toBe(200);
+  const rows = ((await response.json()) as { facturas: InvoiceRow[] }).facturas;
+  const clean = rows
+    .filter((f) => f.contraparte === 'J. Voorbeeld Beveiliging (zzp)' && f.numero && f.nivel === 'normal' && f.estado_revision !== 'revisada')
+    .filter((f) => !f.sin_resolver && !f.dudosos && !f.pendientes && !f.sin_datos && !f.excepcion)
+    .sort((a, b) => (b.fecha_factura ?? '').localeCompare(a.fecha_factura ?? ''));
+  expect(clean.length, 'la base de prueba tiene facturas limpias por revisar').toBeGreaterThan(0);
+  return clean.map((f) => f.numero!);
 }
 
 /** Entra con el token de una persona de prueba y espera al inicio (paso 17: el saludo de Aurora

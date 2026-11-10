@@ -49,7 +49,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const work = mkdtempSync(join(tmpdir(), 'bms-e2e-'));
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONPATH: join(repo, 'src'), PYTHONUTF8: '1' };
   delete env.BMS_DB;
-  const created = spawnSync(python(), [join(repo, 'scripts', 'crear_demo_e2e.py'), '--carpeta', join(work, 'datos')], {
+  // BMS_E2E_HOY=AAAA-MM-DD hace la base como si hoy fuera ese dia (la app sigue con el reloj de
+  // verdad): asi se prueban otras fechas del calendario.
+  const day = process.env.BMS_E2E_HOY ? ['--hoy', process.env.BMS_E2E_HOY] : [];
+  const created = spawnSync(python(), [join(repo, 'scripts', 'crear_demo_e2e.py'), '--carpeta', join(work, 'datos'), ...day], {
     cwd: work,
     env,
     encoding: 'utf8',
@@ -62,6 +65,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     db: string;
     tokens: Record<string, string>;
     ficheros: Record<string, string>;
+    numeros: Record<string, string | string[]>;
   };
 
   // Las ordenes del servidor van a esta base y a ninguna otra.
@@ -87,6 +91,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // Los ficheros que sube la prueba de Importeren (los deja scripts/crear_demo_e2e.py).
   process.env.BMS_E2E_FILE_CLIENTS = demo.ficheros.clientes;
   process.env.BMS_E2E_FILE_ODD = demo.ficheros.raro;
+  // Los numeros de las facturas que las pruebas abren por su papel: cambian con el dia en que
+  // se hace la base (e2e/fixtures.ts, N).
+  process.env.BMS_E2E_NUMEROS = JSON.stringify(demo.numeros);
   // El lector de las pruebas de Procesar (scripts/simular_lector.py) da sus pasos sobre esta
   // misma base, con este Python (paso 17).
   process.env.BMS_E2E_DB = demo.db;

@@ -15,7 +15,7 @@
 import type { Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { Lang } from '../src/i18n/langs';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, N, settled, test, token, type Who } from './fixtures';
 import {
   TEXTS,
   chooseTheme,
@@ -192,7 +192,8 @@ test('las fichas en claro, y una factura en castellano en los dos temas', async 
   }
   // La tarjeta de un trimestre del IVA y la de una excepcion.
   await openEntry(page, 'vat');
-  await openCard(page, panelRow(page, 'Q3 2026'));
+  // El que la base deja listo para revisar: "2026-T3" es "Q3 2026".
+  await openCard(page, panelRow(page, N.vatQuarter.replace(/^(\d{4})-T(\d)$/, 'Q$2 $1')));
   await check('vat-quarter');
   await openEntry(page, 'home');
   await openGroup(page, t.nav.exceptions.label);

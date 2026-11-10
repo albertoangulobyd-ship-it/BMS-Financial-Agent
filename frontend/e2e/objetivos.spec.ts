@@ -20,7 +20,7 @@
 //   el clic en el margen de una hoja la cierra, y eso no es nada; el de una etiqueta es el de su
 //   control).
 import type { Locator, Page } from '@playwright/test';
-import { expect, expectAccessible, login, settled, test } from './fixtures';
+import { expect, expectAccessible, login, N, settled, test } from './fixtures';
 import {
   TEXTS,
   ask,
@@ -389,7 +389,7 @@ test.describe('con el dedo, a 400 px', () => {
     await expect(page.locator('.ws-profile')).toHaveCount(0);
     await expect(page.locator('.ws-breadcrumbs [aria-current=page]')).toHaveText(t.nav.documents.label);
     // La ✕ de la tarjeta de una fila de la hoja: se cierra la tarjeta y la hoja sigue.
-    await openInvoice(page, 'DBO-2026-0417');
+    await openInvoice(page, N.oost);
     const card = await openSheetRow(page, t.aurora.sheet.more);
     await tapEdge(page, card.locator('.detail-close'), 'abajo-izquierda');
     await expect(sheetDialog(page).locator('.detail')).toHaveCount(0);
@@ -523,7 +523,7 @@ test.describe('con el dedo, a 400 px', () => {
     // La ✕ de la tarjeta de una fila de la hoja: fuera de la tarjeta, el margen del dialogo (un
     // toque ahi cierra la hoja entera; con la zona hasta el borde de la tarjeta, Chromium se lo
     // daba a la ✕, y uno en lo redondeado de su esquina, a la hoja).
-    await openInvoice(page, 'DBO-2026-0417');
+    await openInvoice(page, N.oost);
     const card = await openSheetRow(page, t.aurora.sheet.more);
     const inSheet = await corner(card.locator('.detail-close'));
     check('la ✕ de la tarjeta de una fila, en la hoja', await tapChanges(page, inSheet), inSheet.length);

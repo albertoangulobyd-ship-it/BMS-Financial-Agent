@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import type { APIRequestContext, Download, Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { InvoiceDetail, PartyRow } from '../src/lib/api-types';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, N, outsideTheWindow, settled, test, token } from './fixtures';
 import { decodePng, differingPixels } from './png';
 import { coarsePointer, probeHitArea, size as boxSize, withoutHitArea, type HitProbe } from './zona-tactil';
 import {
@@ -190,7 +190,7 @@ test('la hoja: dibujada desde el registro, se cierra de tres formas y baja el or
   const sheet = sheetDialog(page);
   await expect(sheet).toBeVisible();
   await expect(sheet.locator('.ws-dialog-top')).toContainText(t.documents.types.factura_compra.toLocaleUpperCase());
-  await expect(sheet.getByRole('heading', { level: 2 })).toHaveText(/^JV-2026-00\d$/);
+  await expect(sheet.getByRole('heading', { level: 2 })).toHaveText(/^JV-\d{4}-\d{3}$/);
   // Desde el registro: fecha, vencimiento, base, IVA, total, pendiente, estado y pagos; sin
   // muestras; la marca de agua es la de la base de prueba.
   for (const label of [t.documents.invoiceDate, t.documents.due, t.documents.base, t.documents.vat, t.documents.total, t.parties.outstanding, t.documents.state, t.documents.payments]) {
@@ -208,7 +208,7 @@ test('la hoja: dibujada desde el registro, se cierra de tres formas y baja el or
   await expect(folderProfile(page, JV)).toBeVisible();
 
   // La fila abre la hoja; Escape la cierra; un clic fuera, tambien.
-  const rows = profileRow(page, /^Inkoopfactuur JV-2026-/);
+  const rows = profileRow(page, /^Inkoopfactuur JV-\d{4}-/);
   await rows.nth(1).click();
   await expect(sheet).toBeVisible();
   await page.keyboard.press('Escape');
@@ -219,12 +219,12 @@ test('la hoja: dibujada desde el registro, se cierra de tres formas y baja el or
   await expect(sheet).toHaveCount(0);
 
   // Una pagada dice segun quien: el banco, con su fecha.
-  await profileRow(page, 'Inkoopfactuur JV-2026-001').click();
-  await expect(sheet.getByTestId('paid-source')).toContainText(/Betaald volgens de bank op \d\d-\d\d-2026/);
+  await profileRow(page, `Inkoopfactuur ${N.voorbeeldFirst}`).click();
+  await expect(sheet.getByTestId('paid-source')).toContainText(/Betaald volgens de bank op \d\d-\d\d-\d{4}/);
   await expect(sheet.getByTestId('payment').first()).toContainText(/Bank · (Bevestigd|Confirmed)/);
   // "Origineel downloaden": el PDF de verdad, con el token, y queda en la auditoria.
   const [download] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: t.aurora.card.downloadOriginal }).click()]);
-  expect(download.suggestedFilename()).toBe('JV-2026-001.pdf');
+  expect(download.suggestedFilename()).toBe(`${N.voorbeeldFirst}.pdf`);
   expect(await pdfOf(download)).toBe('%PDF-');
 });
 
@@ -262,14 +262,14 @@ test('el arbol "Verkennen" con el teclado: flechas, Home, End, una letra e Intro
   await item(new RegExp(`^${escapeRegExp(proef.nombre)}`)).focus();
   await page.keyboard.press('ArrowRight');
   await expect(item(new RegExp(`^${escapeRegExp(proef.nombre)}`))).toHaveAttribute('aria-expanded', 'true');
-  const firstDoc = item(/^Inkoopfactuur PW26/).first();
+  const firstDoc = item(/^Inkoopfactuur PW\d{4}-/).first();
   await expect(firstDoc).toBeVisible();
   // Intro sobre un documento abre su carpeta y su hoja.
   await page.keyboard.press('ArrowDown');
   await expect(firstDoc).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(folderProfile(page, proef.nombre)).toBeVisible();
-  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(/^PW26/);
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(/^PW\d{4}-/);
   await page.keyboard.press('Escape');
   await expect(sheetDialog(page)).toHaveCount(0);
   // Intro sobre otra carpeta la abre; sobre un grupo, vuelve a la rejilla de ese grupo.
@@ -332,7 +332,7 @@ test('las doce primeras, todas en el arbol; una carpeta que no se pudo leer; el 
   await expect(profile.getByRole('alert')).toBeVisible();
   failing = false;
   await profile.getByRole('button', { name: t.common.retry }).click();
-  await expect(profileRow(page, /^Inkoopfactuur PW26/)).toHaveCount(2);
+  await expect(profileRow(page, /^Inkoopfactuur PW\d{4}-/)).toHaveCount(2);
   await page.unroute('**/api/v2/proveedores/*/documentos');
 
   // Sin clientes ni proveedores: lo vacio de Aurora (ws-empty), sin suricata.
@@ -365,7 +365,7 @@ test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un sol
   test.setTimeout(300_000);
   const headers = { 'X-BMS-Token': token('ana') };
   const list = ((await (await request.get(`${baseUrl}/api/v2/facturas`, { headers })).json()) as { facturas: InvoiceRow[] }).facturas;
-  const id = list.find((f) => f.numero === 'DBO-2026-0417')!.id;
+  const id = list.find((f) => f.numero === N.oost)!.id;
   const dbo = ((await (await request.get(`${baseUrl}/api/v2/facturas/${id}`, { headers })).json()) as { factura: InvoiceDetail }).factura;
   const expected = foldExpected(dbo, 'nl');
   expect(expected.rows).toBe(8);
@@ -374,7 +374,7 @@ test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un sol
 
   // Plegada: tres filas, la cuenta de todas en la cabecera y el control en la cuarta linea; el
   // papel con sus totales, entero encima.
-  let sheet = await openInvoice(page, 'DBO-2026-0417');
+  let sheet = await openInvoice(page, N.oost);
   const rows = sheet.locator('.ws-file-table > a');
   const fold = sheetFold(page);
   await expect(rows).toHaveCount(3);
@@ -429,12 +429,21 @@ test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un sol
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
   await page.keyboard.press('Escape');
   await expect(sheetDialog(page)).toHaveCount(0);
-  sheet = await openInvoice(page, 'DBO-2026-0417');
+  sheet = await openInvoice(page, N.oost);
   await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'false');
   await expect(sheet.locator('.ws-file-table > a')).toHaveCount(3);
 
-  // Con cuatro filas o menos, como antes: todas y ningun control.
-  for (const [number, n] of [['JV-2026-006', 4], ['JV-2026-003', 3]] as const) {
+  // Con cuatro filas o menos, como antes (a 1440 px caben): todas y ningun control. La que mas
+  // filas tiene de esas y la que menos (cuales, depende del dia de la base de prueba).
+  const small: [string, number][] = [];
+  for (const f of list.filter((x) => x.numero && list.filter((y) => y.numero === x.numero).length === 1)) {
+    const detail = ((await (await request.get(`${baseUrl}/api/v2/facturas/${f.id}`, { headers })).json()) as { factura: InvoiceDetail }).factura;
+    const n = foldExpected(detail, 'nl').rows;
+    if (n <= 4) small.push([f.numero!, n]);
+  }
+  small.sort((a, b) => b[1] - a[1]);
+  expect(small.length, 'facturas de cuatro filas o menos').toBeGreaterThan(1);
+  for (const [number, n] of [small[0]!, small[small.length - 1]!]) {
     sheet = await openInvoice(page, number);
     await expect(sheet.locator('.ws-file-table > a')).toHaveCount(n);
     await expect(sheet.getByTestId('sheet-fold')).toHaveCount(0);
@@ -444,7 +453,7 @@ test('la hoja de una factura con mas de cuatro filas: plegada al abrirla, un sol
   await setLang(page, 'es');
   await page.setViewportSize({ width: 400, height: 860 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  sheet = await openInvoice(page, 'DBO-2026-0417', { lang: 'es' });
+  sheet = await openInvoice(page, N.oost, { lang: 'es' });
   await expect(sheetFold(page)).toHaveText(foldExpected(dbo, 'es').label);
   await capture(page, 'es-movil-hoja-plegada');
   await sheetFold(page).click();
@@ -482,7 +491,7 @@ async function tabToFold(page: Page): Promise<void> {
 }
 
 // La zona tactil del control (peticion del dueno del 30-10-2026, bms.css): con el raton, 24 px de
-// alto o mas (WCAG 2.5.8); con el dedo, 44. En DBO-2026-0417, a 1440 y a 400 px, en los dos temas
+// alto o mas (WCAG 2.5.8); con el dedo, 44. En la de Oost, a 1440 y a 400 px, en los dos temas
 // y con los dos punteros, plegada y desplegada, con y sin la tarjeta de una fila debajo: cada punto
 // de la zona es del control, la fila de antes, lo de debajo, lo de al lado y las ✕ siguen siendo
 // suyos, y el dialogo se ve igual pixel a pixel que sin ella (tambien con el raton encima y con el
@@ -501,7 +510,7 @@ test('el control de la hoja plegada: su zona tactil, que no se ve ni pisa nada',
       await page.setViewportSize(size);
       for (const pointer of ['raton', 'dedo'] as const) {
         await coarsePointer(page, pointer === 'dedo');
-        const sheet = await openInvoice(page, 'DBO-2026-0417');
+        const sheet = await openInvoice(page, N.oost);
         const rows = sheet.locator('.ws-file-table > a');
         const fold = sheetFold(page);
         const where = `${theme}, ${size.width} px, ${pointer}`;
@@ -564,7 +573,7 @@ test.describe('con el dedo, a 400 px', () => {
     await page.goto(`${baseUrl}/app`);
     await login(page);
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
-    const sheet = await openInvoice(page, 'DBO-2026-0417');
+    const sheet = await openInvoice(page, N.oost);
     const rows = sheet.locator('.ws-file-table > a');
     const fold = sheetFold(page);
     const focused = () => page.evaluate(() => {
@@ -624,8 +633,8 @@ test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', 
       await expectAccessible(page, `${lang} ${theme} carpeta de un proveedor`);
       await expectNoLeftovers(page, lang, `${lang} ${theme} carpeta de un proveedor`);
       await capture(page, `${lang}-documentos-proveedor`);
-      await profileRow(page, `${tx.documents.types.factura_compra} JV-2026-001`).click();
-      await expect(sheetDialog(page)).toContainText(/JV-2026-001/);
+      await profileRow(page, `${tx.documents.types.factura_compra} ${N.voorbeeldFirst}`).click();
+      await expect(sheetDialog(page)).toContainText(N.voorbeeldFirst);
       await expectAccessible(page, `${lang} ${theme} hoja`);
       await expectNoLeftovers(page, lang, `${lang} ${theme} hoja`);
       await capture(page, `${lang}-documentos-hoja`);
@@ -650,7 +659,7 @@ test('capturas del archivo en los tres idiomas y los dos temas, y en el movil', 
   await openFolder(page, JV, 'provider', 'es');
   expect(await outsideTheWindow(page)).toEqual([]);
   await capture(page, 'es-movil-documentos-proveedor');
-  await profileRow(page, `${TEXTS.es.documents.types.factura_compra} JV-2026-001`).click();
+  await profileRow(page, `${TEXTS.es.documents.types.factura_compra} ${N.voorbeeldFirst}`).click();
   await expect(sheetDialog(page).getByRole('button', { name: TEXTS.es.aurora.card.downloadOriginal })).toBeVisible();
   await capture(page, 'es-movil-documentos-hoja');
   await page.keyboard.press('Escape');

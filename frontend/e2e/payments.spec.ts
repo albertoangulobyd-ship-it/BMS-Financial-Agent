@@ -11,7 +11,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import type { Lang } from '../src/i18n/langs';
 import type { BankLines, Cartera, PaymentProposal } from '../src/lib/api-types';
 import { partiesByOverdue } from '../src/aurora/panels/money-model';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, outsideTheWindow, settled, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, N, outsideTheWindow, settled, test, token, type Who } from './fixtures';
 import {
   TEXTS,
   chooseTheme,
@@ -455,7 +455,7 @@ test('capturas de cobrar, pagar y el banco en los tres idiomas y los dos temas',
   await openGroup(page, t.aurora.money.proposals);
   expect(await outsideTheWindow(page), 'te bevestigen').toEqual([]);
   // La hoja de una factura, tambien.
-  await openInvoice(page, 'KT-202609');
+  await openInvoice(page, N.testpersoonRecent);
   expect(await outsideTheWindow(page), 'hoja').toEqual([]);
   await capture(page, 'nl-money-invoice-mobile');
   await expect(folderProfile(page, 'K. Testpersoon Brandwacht (zzp)')).toBeVisible();

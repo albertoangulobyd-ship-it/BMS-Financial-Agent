@@ -5,7 +5,7 @@
 // (bms.css, «Las zonas tactiles») y algo encima la recorta. Lo que esta fuera de la vista se trae
 // al centro (scrollIntoView) y luego se deja como estaba; las bandas del servidor no cuentan.
 import { expect, type Locator, type Page } from '@playwright/test';
-import { login, settled } from './fixtures';
+import { login, N, settled } from './fixtures';
 import {
   TEXTS,
   ask,
@@ -350,7 +350,7 @@ export async function tour(page: Page, visit: (state: string) => Promise<void>):
   await settled(page);
   await visit('E4 la conversacion con el resumen');
   await toHome(page);
-  await ask(page, 'DBO-2026-0417');
+  await ask(page, N.oost);
   await settled(page);
   await visit('E4 una respuesta con filas');
 
@@ -362,7 +362,7 @@ export async function tour(page: Page, visit: (state: string) => Promise<void>):
   await visit('E6 el arbol abierto');
   await openFolder(page, JV, 'provider');
   await visit('E6 la ficha de un proveedor');
-  await profileRow(page, `${t.documents.types.factura_compra} JV-2026-001`).click();
+  await profileRow(page, `${t.documents.types.factura_compra} ${N.voorbeeldFirst}`).click();
   await expect(sheetDialog(page)).toBeVisible();
   await settled(page);
   await visit('E6 la hoja de una factura');
@@ -379,7 +379,7 @@ export async function tour(page: Page, visit: (state: string) => Promise<void>):
   await settled(page);
   await visit('E6 una PO');
   await closeSheet(page);
-  await openInvoice(page, 'DBO-2026-0417');
+  await openInvoice(page, N.oost);
   await visit('E6-h plegada');
   await unfold(page);
   await settled(page);
@@ -610,12 +610,12 @@ export async function zoneTour(page: Page, visit: (state: string) => Promise<voi
   await visit('Documentos');
   await openFolder(page, JV, 'provider');
   await visit('la ficha de un proveedor');
-  await profileRow(page, `${t.documents.types.factura_compra} JV-2026-001`).click();
+  await profileRow(page, `${t.documents.types.factura_compra} ${N.voorbeeldFirst}`).click();
   await expect(sheetDialog(page)).toBeVisible();
   await settled(page);
   await visit('la hoja de una factura');
   await closeSheet(page);
-  await openInvoice(page, 'DBO-2026-0417');
+  await openInvoice(page, N.oost);
   await openSheetRow(page, t.aurora.sheet.more);
   await visit('la tarjeta de una fila de la hoja');
   await closeSheet(page);

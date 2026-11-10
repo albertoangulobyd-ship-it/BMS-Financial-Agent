@@ -3,7 +3,7 @@
 // cada carpeta dicen lo de la cartera, al centimo; los grupos suman (los tramos, lo pendiente; esta
 // semana, lo vencido y lo de la semana). Demo Beveiligingsdiensten Noord decia € 10.702,57 en el
 // resumen de Te betalen y € 10.340,54 en su carpeta y su ficha (la vista, que restaba la nota de
-// credito sin enlazar DBN-CR-2026-09): ahora todos dicen lo de la cartera, y el abono va aparte.
+// credito sin enlazar de Noord): ahora todos dicen lo de la cartera, y el abono va aparte.
 // Va en su propio fichero, antes que daily.spec.ts: esa prueba enlaza la nota de credito y despues
 // ya no hay ninguna sin enlazar (las pruebas comparten la base, en orden alfabetico).
 import type { APIRequestContext } from '@playwright/test';

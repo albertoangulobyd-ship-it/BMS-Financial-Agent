@@ -376,11 +376,11 @@ test('en Documentos las migas dicen donde se esta; la miga anterior y Alt+← vu
   const folder = 'Proefwacht Security VOF';
   await openFolder(page, folder, 'provider');
   expect(await crumbs(page)).toEqual([t.nav.documents.label, t.documents.providers, folder]);
-  await profileRow(page, /^Inkoopfactuur PW26/).first().click();
+  await profileRow(page, /^Inkoopfactuur PW\d{4}-/).first().click();
   await expect(sheetDialog(page)).toBeVisible();
   const trail = await crumbs(page);
   expect(trail.slice(0, 3)).toEqual([t.nav.documents.label, t.documents.providers, folder]);
-  expect(trail[3]).toMatch(/PW26/);
+  expect(trail[3]).toMatch(/PW\d{4}-/);
   await expectAccessible(page, 'hoja de factura');
   await capture(page, 'nl-invoice');
   // Escape cierra la hoja; la miga anterior vuelve a la categoria.

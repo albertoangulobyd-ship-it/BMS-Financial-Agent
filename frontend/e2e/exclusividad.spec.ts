@@ -23,7 +23,7 @@
 // (E5-p), las fichas de un cliente y de un proveedor, un Object, una PO y la hoja de una factura
 // con una orden abierta (E6-h, E6-o), plegada y desplegada, cuentan como su pantalla.
 import type { Page } from '@playwright/test';
-import { expect, login, settled, test } from './fixtures';
+import { expect, login, N, settled, test } from './fixtures';
 import {
   TEXTS,
   answerRow,
@@ -253,7 +253,7 @@ for (const width of [1440, 1151, 1150, 1024, 400] as const) {
     await closeSheet(page);
 
     // E6-h plegada y desplegada (la de ocho filas): el control de plegar no trae la rueda.
-    await openInvoice(page, 'DBO-2026-0417');
+    await openInvoice(page, N.oost);
     await expectRule(page, 'E6-h plegada', { menu: false, screen: 'work' });
     await expectRuleWhile(page, 'E6-h desplegar', () => sheetFold(page).click(), 600);
     await expect(sheetFold(page)).toHaveAttribute('aria-expanded', 'true');

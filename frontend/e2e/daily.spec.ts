@@ -8,7 +8,9 @@
 // numero en la caja. El idioma se cambia en Ajustes. Captura de cada sitio en neerlandes y en
 // ingles (CAPTURAS_DIR).
 import type { Locator, Page } from '@playwright/test';
-import { capture, expect, expectAccessible, login, test, token, type Who } from './fixtures';
+import type { InvoiceRow } from '../src/lib/api';
+import type { Cartera } from '../src/lib/api-types';
+import { capture, cleanToReview, expect, expectAccessible, login, N, test, token, type Who } from './fixtures';
 import {
   ENTRIES,
   TEXTS,
@@ -114,7 +116,7 @@ test('het begin: wat aandacht vraagt, eerst het geblokkeerde en urgente, in NL e
   await expect(twin).toContainText(fill(t.overview.nextUp.sameNumber, { n: 2 }));
   // La de otra moneda, bloqueada, con por que pide atencion, y su hoja a un clic. Entre las
   // bloqueadas el orden depende del dia: a fin de mes la de Proefwacht vence en pocos dias y sube.
-  const card = await openCard(page, rows.filter({ hasText: 'DGG-2026-118' }));
+  const card = await openCard(page, rows.filter({ hasText: N.otherCurrency }));
   await expect(card).toContainText(fill(t.aurora.card.why, { why: 'Andere valuta dan euro' }));
   await expectAccessible(page, 'eerst nl');
   await capture(page, 'daily-nl-first');
@@ -123,12 +125,12 @@ test('het begin: wat aandacht vraagt, eerst het geblokkeerde en urgente, in NL e
   await openEntry(page, 'home', 'en');
   await expect(panel(page).getByTestId('balance')).toContainText(TEXTS.en.aurora.home.attention);
   await openGroup(page, TEXTS.en.aurora.home.first);
-  const en = await openCard(page, panel(page).locator('.doc-list button.doc').filter({ hasText: 'DGG-2026-118' }));
+  const en = await openCard(page, panel(page).locator('.doc-list button.doc').filter({ hasText: N.otherCurrency }));
   await expect(en).toContainText(fill(TEXTS.en.aurora.card.why, { why: 'Currency other than euro' }));
   await capture(page, 'daily-en-first');
   // "Open the invoice": su hoja, con el vuelo, en la carpeta de su empresa.
   await en.getByRole('button', { name: TEXTS.en.aurora.card.openInvoice }).click();
-  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('DGG-2026-118');
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(N.otherCurrency);
   await setLang(page, 'nl');
 
   // "Vervallen" en Te ontvangen: la busqueda con sus filtros (E5-p), con la vencida de prueba.
@@ -136,7 +138,7 @@ test('het begin: wat aandacht vraagt, eerst het geblokkeerde en urgente, in NL e
   await panelRow(page, t.aurora.money.overdue).click();
   await expect(page.locator('.active-filter-chips')).toBeVisible();
   await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
-  await expect(page.getByRole('region', { name: t.aurora.search.resultsLabel })).toContainText('VD26-306');
+  await expect(page.getByRole('region', { name: t.aurora.search.resultsLabel })).toContainText(N.municipalOld);
 });
 
 test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', async ({ page, baseUrl }) => {
@@ -154,7 +156,7 @@ test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', 
   await capture(page, 'daily-nl-work-queue');
 
   // De factuur zelf: wat het is, wat er mis is en wat te doen.
-  await openInvoice(page, 'DGG-2026-118');
+  await openInvoice(page, N.otherCurrency);
   await expect(verdictLine(page)).toContainText('Bezwaren van het systeem: 2');
   const card = await openSheetRow(page, 'Andere valuta dan euro');
   await expect(card).toContainText('Bedragen in USD: niet in euro, daarom buiten alle totalen.');
@@ -162,13 +164,13 @@ test('de geblokkeerde facturen zeggen waarom, in het Nederlands en het Engels', 
   await expectAccessible(page, 'factuur nl');
   await capture(page, 'daily-nl-invoice-blocked');
   // Het IBAN dat niet in het register staat, op de factuur van Proefwacht.
-  await openInvoice(page, 'PW2609-01');
+  await openInvoice(page, N.proefwachtNewIban);
   await expect(sheetDialog(page).locator('.ws-file-table')).toContainText('IBAN');
   const iban = await openSheetRow(page, /IBAN/);
   await expect(iban).toContainText('NL37 DEMO 0009 9903 01 staat niet in het rekeningregister van deze leverancier.');
 
   await setLang(page, 'en');
-  await openInvoice(page, 'DGG-2026-118', { lang: 'en' });
+  await openInvoice(page, N.otherCurrency, { lang: 'en' });
   await expect(verdictLine(page, 'en')).toContainText('System objections: 2');
   const en = await openSheetRow(page, 'Currency other than euro');
   await expect(en).toContainText('Amounts in USD: not in euros, so left out of all totals.');
@@ -242,7 +244,7 @@ test('accepteren vraagt een tweede persoon; met die handtekening gaat het en de 
 test('een melding accepteren en de uitzondering oplossen: de tellingen veranderen', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'ana');
   const exceptionsBefore = await homeCount(page, t.nav.exceptions.label);
-  await openInvoice(page, 'KT-202608');
+  await openInvoice(page, N.testpersoonOld);
   await expect(verdictLine(page)).toContainText('Bezwaren van het systeem: 1');
   const card = await openSheetRow(page, 'Vervallen');
   await card.getByRole('button', { name: t.invoice.accept, exact: true }).click();
@@ -262,9 +264,11 @@ test('een melding accepteren en de uitzondering oplossen: de tellingen verandere
   await expect.poll(() => homeCount(page, t.nav.exceptions.label)).toBe(exceptionsBefore - 1);
 });
 
-test('een schone factuur markeren als gecontroleerd', async ({ page, baseUrl }) => {
+test('een schone factuur markeren als gecontroleerd', async ({ page, baseUrl, request }) => {
+  // Una limpia sin revisar de J. Voorbeeld (cual, depende del dia de la base).
+  const [number] = await cleanToReview(request, baseUrl);
   await signIn(page, baseUrl, 'ana');
-  await openInvoice(page, 'JV-2026-004');
+  await openInvoice(page, number!);
   await expect(verdictLine(page)).toHaveText('Geen bezwaren van het systeem');
   const card = await openSheetRow(page, t.invoice.reviewStep);
   await expect(card).toContainText(t.invoice.reviewReady);
@@ -280,7 +284,7 @@ test('een schone factuur markeren als gecontroleerd', async ({ page, baseUrl }) 
   await expect(more).toContainText(`${t.history.reviewed} · Ana Demo`);
   await capture(page, 'daily-nl-invoice-reviewed');
   await setLang(page, 'en');
-  await openInvoice(page, 'JV-2026-004', { lang: 'en' });
+  await openInvoice(page, number!, { lang: 'en' });
   await expect(verdictLine(page, 'en')).toHaveText('No system objections');
   await capture(page, 'daily-en-invoice-reviewed');
   await setLang(page, 'nl');
@@ -289,7 +293,8 @@ test('een schone factuur markeren als gecontroleerd', async ({ page, baseUrl }) 
 test('een verouderde rev geeft de melding dat iemand anders het wijzigde', async ({ page, baseUrl, watch, request }) => {
   watch.expectHttpErrors(409);
   await signIn(page, baseUrl, 'ana');
-  await openInvoice(page, 'JV-2026-005');
+  const number = N.voorbeeldEarlier[1]!;
+  await openInvoice(page, number);
   const card = await openSheetRow(page, t.aurora.sheet.read);
   // El campo, elegido en la tarjeta de "Gelezen gegevens"; su orden "Wijzigen".
   await fillOrder(page, card, { [t.aurora.sheet.field]: 'Betaalvoorwaarden (op document)' });
@@ -298,7 +303,7 @@ test('een verouderde rev geeft de melding dat iemand anders het wijzigde', async
 
   // Intussen wijzigt Bram dezelfde factuur (via de API, met zijn eigen code).
   const facturas = await (await request.get(`${baseUrl}/api/v2/facturas`, { headers: { 'X-BMS-Token': token('bram') } })).json();
-  const id = facturas.facturas.find((f: { numero: string }) => f.numero === 'JV-2026-005').id;
+  const id = facturas.facturas.find((f: { numero: string }) => f.numero === number).id;
   const invoice = await (await request.get(`${baseUrl}/api/v2/facturas/${id}`, { headers: { 'X-BMS-Token': token('bram') } })).json();
   const changed = await request.post(`${baseUrl}/api/v2/acciones`, {
     headers: { 'X-BMS-Token': token('bram'), 'Content-Type': 'application/json' },
@@ -327,7 +332,7 @@ test('wie alleen mag kijken, ziet geen enkele knop voor een handeling', async ({
   await signIn(page, baseUrl, 'cas');
   const actions =
     /Accepteren|Tweede handtekening|Afsluiten|Markeren als|Opnieuw laten bekijken|Notitie toevoegen|Uitzondering openen|Zelf oppakken|Toewijzen|Wacht op anderen|Oplossen|Wijzigen|Invullen|Verifiëren|Terugzetten|Bevestigen|Afwijzen|Telefonisch|Overgenomen rekeningen bevestigen|Betaling vastleggen|Intrekken/;
-  await openInvoice(page, 'DGG-2026-118');
+  await openInvoice(page, N.otherCurrency);
   // Cada fila se ve igual; su tarjeta, sin ninguna orden.
   const titles = await sheetDialog(page).locator('.ws-file-table > a strong').allTextContents();
   expect(titles.length).toBeGreaterThan(2);
@@ -455,12 +460,28 @@ test('de facturen van een kant: vervallen, een tramo, zoeken, en een resultaat o
   await expect(results).not.toContainText('Proefwacht');
   await expectAccessible(page, 'verkoop vervallen');
   await capture(page, 'daily-nl-invoices-out-overdue');
-  // Te betalen › Hoe lang het al openstaat › un tramo atrasado: las de compra de ese tramo.
+  // Te betalen › Hoe lang het al openstaat › un tramo atrasado: las de compra de ese tramo. Cual
+  // tiene facturas depende del dia de la base: el primero que tenga, el mas atrasado.
+  const headers = { 'X-BMS-Token': token('ana') };
+  const cartera = (await (await request.get(`${baseUrl}/api/v2/cartera?sentido=entrante`, { headers })).json()).cartera as Cartera;
+  const bucket = [...cartera.tramos].reverse().find((b) => b.clave !== 'sin_fecha' && b.clave !== 'al_corriente' && b.facturas > 0)!;
+  expect(bucket, 'la base de prueba tiene compras atrasadas').toBeTruthy();
+  const inBucket = ((await (await request.get(`${baseUrl}/api/v2/facturas`, { headers })).json()).facturas as InvoiceRow[]).filter(
+    (f) =>
+      f.sentido === 'entrante' &&
+      f.numero &&
+      f.vencimiento &&
+      (f.estado_pago === 'pendiente' || f.estado_pago === 'vencida') &&
+      (bucket.vence_desde === null || f.vencimiento >= bucket.vence_desde) &&
+      (bucket.vence_hasta === null || f.vencimiento <= bucket.vence_hasta)
+  );
+  expect(inBucket.length, `facturas de compra en ${bucket.clave}`).toBeGreaterThan(0);
   await openEntry(page, 'payables');
   await openGroup(page, t.money.ageing.title);
-  await panel(page).locator('button.doc').filter({ hasText: t.money.ageing.buckets['61_90'] }).click();
+  await panel(page).locator('button.doc').filter({ hasText: t.money.ageing.buckets[bucket.clave] }).click();
   await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
-  await expect(results).toContainText('KT-202608');
+  await expect(results).toContainText(bucket.facturas === 1 ? t.aurora.search.foundOne : fill(t.aurora.search.found, { n: bucket.facturas }));
+  await expect(results).toContainText(inBucket[0]!.numero!);
   await capture(page, 'daily-nl-invoices-in-bucket');
   // Lo escrito busca por nombre: solo los de J. Voorbeeld.
   const box = page.getByRole('textbox', { name: t.aurora.composer.searchLabel });
@@ -481,13 +502,13 @@ test('de facturen van een kant: vervallen, een tramo, zoeken, en een resultaat o
 
 test('de details van een factuur: velden, koppelingen, geschiedenis en het origineel', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'ana');
-  await openInvoice(page, 'DBN-CR-2026-09');
+  await openInvoice(page, N.noordCredit);
   // Lo que es, arriba: el tipo y el estado.
   await expect(sheetDialog(page).locator('.ws-dialog-top')).toContainText(t.documents.types.abono_compra.toLocaleUpperCase());
-  // La koppeling propuesta: "Deze factuur crediteert DBN-2026-09".
+  // La koppeling propuesta: "Deze factuur crediteert" la de Noord del mes pasado.
   const relation = await openSheetRow(page, t.aurora.sheet.relation);
   await expect(relation).toContainText(t.relations.thisInvoice);
-  await expect(relation).toContainText('DBN-2026-09');
+  await expect(relation).toContainText(N.noordCredited);
   await expectAccessible(page, 'koppeling');
   await capture(page, 'daily-nl-invoice-relation');
   // Bevestigen: el "si" dice lo que cambia (y sin "Doorgaan?").
@@ -509,10 +530,10 @@ test('de details van een factuur: velden, koppelingen, geschiedenis en het origi
   // Het origineel: de echte pdf, met de code (y queda en la auditoria).
   const download = page.waitForEvent('download');
   await sheetDialog(page).getByRole('button', { name: t.aurora.card.downloadOriginal }).click();
-  expect((await download).suggestedFilename()).toBe('DBN-CR-2026-09.pdf');
+  expect((await download).suggestedFilename()).toBe(`${N.noordCredit}.pdf`);
   // En ingles: el tipo y lo leido.
   await setLang(page, 'en');
-  await openInvoice(page, 'DBN-CR-2026-09', { lang: 'en' });
+  await openInvoice(page, N.noordCredit, { lang: 'en' });
   await expect(sheetDialog(page).locator('.ws-dialog-top')).toContainText(TEXTS.en.documents.types.abono_compra.toLocaleUpperCase());
   await capture(page, 'daily-en-invoice-details');
   await setLang(page, 'nl');
@@ -521,8 +542,8 @@ test('de details van een factuur: velden, koppelingen, geschiedenis en het origi
 test('de conversatie vindt een factuur en opent haar hoja met één klik', async ({ page, baseUrl }) => {
   await signIn(page, baseUrl, 'ana');
   await toHome(page);
-  await ask(page, 'KT-202608');
-  await expect(answerRow(page, 'KT-202608')).toBeVisible();
-  await answerRow(page, 'KT-202608').click();
-  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('KT-202608');
+  await ask(page, N.testpersoonOld);
+  await expect(answerRow(page, N.testpersoonOld)).toBeVisible();
+  await answerRow(page, N.testpersoonOld).click();
+  await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(N.testpersoonOld);
 });

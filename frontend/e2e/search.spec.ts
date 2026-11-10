@@ -10,7 +10,7 @@ import type { APIRequestContext, Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import type { PartyRow } from '../src/lib/api-types';
 import type { Lang } from '../src/i18n/langs';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, N, settled, test, token } from './fixtures';
 import { TEXTS, auroraRoot, crumbs, escapeRegExp, fill, landed, openEntry, openMenu, setLang, sheetDialog, wheel } from './nav';
 
 const t = TEXTS.nl;
@@ -118,22 +118,24 @@ test('la busqueda (E5): lo escrito, el filtro de empresa en su pastilla, limpiar
 test('«Zoeken met filters» desde la conversacion, con lo escrito; y en ingles y en castellano', async ({ page, baseUrl, request }) => {
   await page.goto(`${baseUrl}/app`);
   await login(page);
-  // La conversacion encuentra «VD26» y ofrece buscarlo con filtros (E4 → E5).
+  // La conversacion encuentra «VD26» (las ventas del ano de la vieja del gemeentehuis: el ano
+  // cambia con el dia de la base) y ofrece buscarlo con filtros (E4 → E5).
+  const sales = N.municipalOld.slice(0, 4);
   const ask = page.getByRole('textbox', { name: t.aurora.composer.askLabel });
-  await ask.fill('VD26');
+  await ask.fill(sales);
   await ask.press('Enter');
   await page.getByRole('button', { name: t.aurora.chat.withFilters }).click();
   await expect(page.getByRole('heading', { level: 1, name: t.aurora.home.searchTitle })).toBeVisible();
-  await expect(box(page)).toHaveValue('VD26');
+  await expect(box(page)).toHaveValue(sales);
   await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
-  await sameAsEngine(page, await engine(request, baseUrl, { texto: 'VD26' }));
+  await sameAsEngine(page, await engine(request, baseUrl, { texto: sales }));
   for (const lang of ['en', 'es'] as Lang[]) {
     await setLang(page, lang);
     await openMenu(page, lang);
     await openEntry(page, 'search', lang);
     await expect(page.getByRole('heading', { level: 1, name: TEXTS[lang].aurora.home.searchTitle })).toBeVisible();
-    await search(page, 'VD26', lang);
-    await sameAsEngine(page, await engine(request, baseUrl, { texto: 'VD26' }), lang);
+    await search(page, sales, lang);
+    await sameAsEngine(page, await engine(request, baseUrl, { texto: sales }), lang);
     await toggle(page, lang).click();
     await settled(page);
     await expectAccessible(page, `${lang} zoeken`);

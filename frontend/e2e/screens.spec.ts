@@ -9,7 +9,7 @@
 // nada serio y ningun resto de otro idioma. Captura de cada uno como <idioma>-<sitio>.png.
 import { readFileSync } from 'node:fs';
 import type { Locator, Page } from '@playwright/test';
-import { capture, expect, expectAccessible, expectNoLeftovers, login, settled, test, token, type Who } from './fixtures';
+import { capture, expect, expectAccessible, expectNoLeftovers, login, N, settled, test, token, type Who } from './fixtures';
 import {
   ENTRIES,
   TEXTS,
@@ -67,6 +67,19 @@ async function sheetOf(page: Page, title: string | RegExp): Promise<Locator> {
 }
 
 /** La tarjeta de un trimestre en el panel IVA. */
+/** El trimestre que la base de prueba deja listo para revisar (scripts/crear_demo_e2e.py), como
+ *  lo escribe el panel: "2026-T3" es "Q3 2026". */
+function readyQuarter(): string {
+  const [year, number] = N.vatQuarter.split('-T');
+  return `Q${number} ${year}`;
+}
+
+/** El trimestre en curso para la app (su reloj es el de verdad, en Amsterdam), como "Q4 2026". */
+function currentQuarter(): string {
+  const [year, month] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit' }).format(new Date()).split('-');
+  return `Q${Math.floor((Number(month) - 1) / 3) + 1} ${year}`;
+}
+
 async function quarter(page: Page, label: string, lang: Lang): Promise<Locator> {
   await openEntry(page, 'vat', lang);
   return openCard(page, panelRow(page, label));
@@ -165,12 +178,12 @@ test('las fichas en castellano: proveedor, cliente, Object, PO, trimestre del IV
   await check(page, 'es', 'purchase-order');
   await page.keyboard.press('Escape');
 
-  const vat = await quarter(page, 'Q3 2026', 'es');
-  await expect(vat.getByRole('heading', { level: 3 })).toHaveText(fill(t.vat.title, { quarter: 'Q3 2026' }));
+  const vat = await quarter(page, readyQuarter(), 'es');
+  await expect(vat.getByRole('heading', { level: 3 })).toHaveText(fill(t.vat.title, { quarter: readyQuarter() }));
   await check(page, 'es', 'vat-quarter');
 
   // Una factura de venta con lo leido abierto (IVA en las cifras de la app y del motor).
-  await openInvoice(page, 'VD26-306', { lang: 'es' });
+  await openInvoice(page, N.municipalOld, { lang: 'es' });
   const read = await openSheetRow(page, t.aurora.sheet.read);
   await expect(read).toContainText('IVA');
   await check(page, 'es', 'invoice');
@@ -216,29 +229,34 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   const t = TEXTS.nl;
   const formButton = (card: Locator, label: string) => card.locator('.order-form').getByRole('button', { name: label, exact: true });
   const yes = (card: Locator, label: string) => card.locator('.chat-export').getByRole('button', { name: label, exact: true });
+  // El ultimo trimestre terminado, listo para revisar y sin presentar: la base de las pruebas lo
+  // deja asi cualquier dia (scripts/crear_demo_e2e.py). Como "2026-T3": Q3 2026.
+  const [year, number] = N.vatQuarter.split('-T');
+  const label = readyQuarter();
+  const reference = `BD-${year}-Q${number}-0042`;
   // Bram zet het kwartaal terug en weer klaar.
   await signIn(page, baseUrl, 'bram');
   await openEntry(page, 'vat');
   await expect(panel(page).getByTestId('balance')).toBeVisible();
   await check(page, 'nl', 'vat');
-  let card = await quarter(page, 'Q3 2026', 'nl');
-  await expect(card.getByRole('heading', { level: 3 })).toHaveText('Btw Q3 2026');
+  let card = await quarter(page, label, 'nl');
+  await expect(card.getByRole('heading', { level: 3 })).toHaveText(`Btw ${label}`);
   await check(page, 'nl', 'vat-quarter');
   // In het Engels: de orden de heropenen bekijken en annuleren.
   await setLang(page, 'en');
-  card = await quarter(page, 'Q3 2026', 'en');
+  card = await quarter(page, label, 'en');
   await check(page, 'en', 'vat-quarter');
   await card.getByRole('button', { name: 'Reopen quarter', exact: true }).click();
   await check(page, 'en', 'vat-reopen');
   await card.locator('.order-form').getByRole('button', { name: 'Cancel' }).click();
   await setLang(page, 'nl');
-  card = await quarter(page, 'Q3 2026', 'nl');
+  card = await quarter(page, label, 'nl');
 
   // Het werkblad: fetch met de code, als bestand, en de bytes die de hash dragen.
   const [download] = await Promise.all([page.waitForEvent('download'), card.getByRole('button', { name: t.vat.downloadSheet }).click()]);
-  expect(download.suggestedFilename()).toBe('btw-2026-T3.csv');
+  expect(download.suggestedFilename()).toBe(`btw-${N.vatQuarter}.csv`);
   const sheet = readFileSync((await download.path())!, 'utf8');
-  expect(sheet).toContain('2026-T3');
+  expect(sheet).toContain(N.vatQuarter);
   expect(sheet).toContain('5c;');
 
   await card.getByRole('button', { name: 'Kwartaal heropenen', exact: true }).click();
@@ -260,7 +278,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   // Wie klaarzette, legt de aangifte niet zelf vast: dat doet een tweede persoon.
   const file = 'Ingediende aangifte vastleggen';
   await card.getByRole('button', { name: file, exact: true }).click();
-  await card.getByLabel(t.vat.reference).fill('BD-2026-Q3-0042');
+  await card.getByLabel(t.vat.reference).fill(reference);
   await card.getByLabel(t.vat.explanation).fill('Ingediend in het portaal');
   await formButton(card, file).click();
   await yes(card, file).click();
@@ -268,9 +286,9 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await check(page, 'nl', 'vat-second-person');
   await card.locator('.order-form').getByRole('button', { name: t.common.cancel }).click();
   await setLang(page, 'en');
-  card = await quarter(page, 'Q3 2026', 'en');
+  card = await quarter(page, label, 'en');
   await card.getByRole('button', { name: 'Record filed return', exact: true }).click();
-  await card.getByLabel('Tax office reference').fill('BD-2026-Q3-0042');
+  await card.getByLabel('Tax office reference').fill(reference);
   await card.getByLabel('Explanation').fill('Filed in the portal');
   await formButton(card, 'Record filed return').click();
   await yes(card, 'Record filed return').click();
@@ -286,15 +304,15 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await other.locator('#token').fill(token('ana'));
   await other.locator('#login-submit').click();
   await expect(other.getByRole('heading', { level: 1, name: /^Welkom, / })).toBeVisible();
-  const otherCard = await quarter(other, 'Q3 2026', 'nl');
+  const otherCard = await quarter(other, label, 'nl');
   await otherCard.getByRole('button', { name: file, exact: true }).click();
   await expect(otherCard.getByLabel(t.vat.declared)).not.toHaveValue('');
-  await otherCard.getByLabel(t.vat.reference).fill('BD-2026-Q3-0042');
+  await otherCard.getByLabel(t.vat.reference).fill(reference);
   await otherCard.getByLabel(t.vat.explanation).fill('Ingediend in het portaal van de Belastingdienst');
   await capture(other, 'nl-vat-file');
   await formButton(otherCard, file).click();
   await yes(otherCard, file).click();
-  await expect(otherCard).toContainText(/Aangegeven op .* door Ana Demo, referentie BD-2026-Q3-0042/);
+  await expect(otherCard).toContainText(new RegExp(`Aangegeven op .* door Ana Demo, referentie ${reference}`));
   await capture(other, 'nl-vat-quarter-filed');
   await ana.close();
 
@@ -303,7 +321,7 @@ test('btw: het werkblad downloaden, klaarzetten en de ingediende aangifte vastle
   await setLang(page, 'en');
   await openEntry(page, 'vat', 'en');
   await check(page, 'en', 'vat');
-  card = await quarter(page, 'Q3 2026', 'en');
+  card = await quarter(page, label, 'en');
   await expect(card).toContainText(/Filed on .* by Ana Demo/);
   await check(page, 'en', 'vat-quarter-filed');
   await setLang(page, 'nl');
@@ -522,12 +540,12 @@ test('wie alleen mag kijken: geen importeren, geen btw-knoppen, geen personenlij
   await expect(entryButton(page, 'process')).toHaveCount(0);
   await openEntry(page, 'receivables');
   await expect(panel(page).getByRole('button', { name: TEXTS.nl.aurora.money.import })).toHaveCount(0);
-  let card = await quarter(page, 'Q4 2026', 'nl');
+  let card = await quarter(page, currentQuarter(), 'nl');
   await expect(card.getByRole('button', { name: /klaarzetten|heropenen|vastleggen/ })).toHaveCount(0);
   await expect(card.getByRole('button', { name: TEXTS.nl.vat.downloadSheet })).toBeVisible();
   await check(page, 'nl', 'vat-quarter-read-only');
   await setLang(page, 'en');
-  card = await quarter(page, 'Q4 2026', 'en');
+  card = await quarter(page, currentQuarter(), 'en');
   await expect(card.getByRole('button', { name: /ready|reopen|record/i })).toHaveCount(0);
   await check(page, 'en', 'vat-quarter-read-only');
   await setLang(page, 'nl');
@@ -552,7 +570,7 @@ test('op 1024 px blijven de fiches, de panelen en importeren bruikbaar', async (
   expect(await fits()).toBe(true);
   await capture(page, 'nl-object-1024');
   await page.keyboard.press('Escape');
-  await quarter(page, 'Q4 2026', 'nl');
+  await quarter(page, currentQuarter(), 'nl');
   await capture(page, 'nl-vat-quarter-1024');
   await openImport(page, 'nl');
   await capture(page, 'nl-import-1024');

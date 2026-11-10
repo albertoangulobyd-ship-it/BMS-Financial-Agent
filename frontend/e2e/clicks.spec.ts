@@ -11,7 +11,7 @@ import type { InvoiceRow } from '../src/lib/api';
 import type { AccountRow, ExceptionRow } from '../src/lib/api-types';
 import { accountStep, buildChecks } from '../src/aurora/panels/iban-model';
 import { needsPerson } from '../src/lib/why';
-import { expect, login, settled, test, token } from './fixtures';
+import { cleanToReview, expect, login, N, settled, test, token } from './fixtures';
 import { TEXTS, answerRow, app, ask, centre, entryButton, landed, panel, panelRow, processLanded, sheetDialog, sheetFold, toHome, treeItem } from './nav';
 
 const t = TEXTS.nl;
@@ -61,7 +61,7 @@ class Clicks {
 const firstRow = (page: Page) => panel(page).locator('.doc-list button.doc').first();
 const card = (page: Page) => panel(page).locator('.detail');
 
-test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ page, baseUrl }) => {
+test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ page, baseUrl, request }) => {
   test.setTimeout(400_000);
   await page.goto(`${baseUrl}/app`);
   await login(page);
@@ -107,7 +107,7 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
     await c.row(t.aurora.money.overdue);
     await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
     const results = page.getByRole('region', { name: t.aurora.search.resultsLabel });
-    await expect(results).toContainText('VD26-306');
+    await expect(results).toContainText(N.municipalOld);
     expect(c.total).toBeLessThanOrEqual(3);
     await c.click(results.getByRole('link').first());
     await landed(page);
@@ -117,14 +117,15 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
 
   await test.step('6 (por la caja) y 7 · Una factura y su PDF original: 1 y 2 + escribir', async () => {
     await c.fromHome();
-    await ask(page, 'JV-2026-004');
-    await c.click(answerRow(page, 'JV-2026-004'));
+    const number = N.voorbeeldEarlier[0]!;
+    await ask(page, number);
+    await c.click(answerRow(page, number));
     await landed(page);
-    await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText('JV-2026-004');
+    await expect(sheetDialog(page).getByRole('heading', { level: 2 })).toHaveText(number);
     expect(c.total).toBeLessThanOrEqual(1);
     const download = page.waitForEvent('download');
     await c.click(sheetDialog(page).getByRole('button', { name: t.aurora.card.downloadOriginal }));
-    expect((await download).suggestedFilename()).toBe('JV-2026-004.pdf');
+    expect((await download).suggestedFilename()).toBe(`${number}.pdf`);
     expect(c.total).toBeLessThanOrEqual(2);
   });
 
@@ -142,8 +143,8 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
 
   await test.step('10 · Buscar una factura: 0 + escribir', async () => {
     await c.fromHome();
-    await ask(page, 'KT-202608');
-    await expect(answerRow(page, 'KT-202608')).toBeVisible();
+    await ask(page, N.testpersoonOld);
+    await expect(answerRow(page, N.testpersoonOld)).toBeVisible();
     expect(c.total).toBe(0);
   });
 
@@ -161,10 +162,10 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
 
   await test.step('12 · Anotar un pago ya hecho, con motivo: 3 + escribir (por la caja; 4 con la hoja plegada); 5 por el panel', async () => {
     await c.fromHome();
-    await ask(page, 'VD26-306');
-    await c.click(answerRow(page, 'VD26-306'));
+    await ask(page, N.municipalOld);
+    await c.click(answerRow(page, N.municipalOld));
     await landed(page);
-    // VD26-306 tiene cinco filas: la hoja se abre plegada (decision del dueno del 29-10-2026) y
+    // La vieja del gemeentehuis tiene cinco filas: la hoja se abre plegada (decision del dueno del 29-10-2026) y
     // "Pagos, notas e historial", la ultima, esta detras de "En nog 3 regels": un clic mas.
     await expect(sheetDialog(page).locator('.ws-file-table > a')).toHaveCount(3);
     await c.click(sheetFold(page));
@@ -223,8 +224,10 @@ test('cada tarea de la tabla de los clics, con la rueda de Aurora', async ({ pag
 
   await test.step('16 · Marcar una factura como revisada: 3 + escribir', async () => {
     await c.fromHome();
-    await ask(page, 'JV-2026-003');
-    await c.click(answerRow(page, 'JV-2026-003'));
+    // Una limpia sin revisar (cual, depende del dia de la base).
+    const [clean] = await cleanToReview(request, baseUrl);
+    await ask(page, clean!);
+    await c.click(answerRow(page, clean!));
     await landed(page);
     await c.click(sheetDialog(page).locator('.ws-file-table > a').filter({ hasText: t.invoice.reviewStep }));
     const review = sheetDialog(page).locator('.detail');

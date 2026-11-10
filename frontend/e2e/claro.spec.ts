@@ -11,7 +11,7 @@
 // 5. ninguna violacion de la CSP ni ningun error en la consola (lo vigila fixtures.ts).
 // Y el aviso (ws-toast) fuera de la hoja: blanco y legible.
 import type { Page } from '@playwright/test';
-import { expect, expectAccessible, expectFieldBoundary, expectPixelContrast, login, settled, test } from './fixtures';
+import { expect, expectAccessible, expectFieldBoundary, expectPixelContrast, login, N, settled, test } from './fixtures';
 import { TEXTS, chooseTheme, openInvoice, openSheetRow, signOut } from './nav';
 import { tour } from './objetivos';
 
@@ -96,7 +96,7 @@ test('el aviso (ws-toast) fuera de la hoja, en claro: blanco, opaco y legible', 
   await page.goto(`${baseUrl}/app`);
   await login(page);
   await chooseTheme(page, 'light');
-  await openInvoice(page, 'DBO-2026-0417');
+  await openInvoice(page, N.oost);
   const more = await openSheetRow(page, t.aurora.sheet.more);
   await more.getByRole('button', { name: t.notes.add, exact: true }).click();
   await more.locator('.order-form').getByLabel(t.notes.text).first().fill('Een notitie voor de proef.');
