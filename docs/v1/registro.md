@@ -10120,7 +10120,7 @@ construcción, con `fuente.json` al día; Python, 2626 y 12 saltadas.
 #### Tras la tercera verificación independiente
 
 El verificador dio por mala la entrega (7d6b4f7): con el dedo, dos zonas cambiaban lo que hacían
-toques que antes hacían algo, y ninguna lo decía la documentación; la gira de la guarda no fallaba
+toques que antes hacían algo, y la documentación no lo decía; la gira de la guarda no fallaba
 si se quitaban zonas; y la documentación tenía cuentas viejas. Su sondeo: rejillas densas de
 toques de verdad, con la hoja de 1cc96b0 y la de ahora (A/B) y con la de 1cc96b0 las dos veces
 (A/A, el ruido: 0 en todas), y toques sin parar nada para ver lo que hacen. Arreglado en 1dc729f (las
@@ -10177,15 +10177,15 @@ Las pruebas de que se arregla, con toques de verdad:
   alrededor de «Filters wissen»). Con la de 1cc96b0 las dos veces, 0 (sus A/A).
 - **Toques sin parar nada** (su `zz-r2-punto`, cada toque desde el estado recién abierto) en los
   22 puntos que dio el verificador (en px desde la esquina de arriba a la izquierda de la caja del
-  control): los 22 hacen lo mismo con la hoja de 1cc96b0 y con la de
-  ahora. En la hoja de una factura, (24, −9) y (25, −8) cierran la tarjeta, (30, −14) y
+  control): los 22 hacen lo mismo con la hoja de 1cc96b0 y con la de ahora. En la hoja de una
+  factura, (24, −9) y (25, −8) cierran la tarjeta, (30, −14) y
   (28, −17) cierran la hoja; con los filtros abiertos, (−12, 36), (30, 37) y (60, 38) abren la
   lista de las empresas, y solo (34, 6), en el propio botón, quita los filtros.
 - **`e2e/objetivos.spec.ts` con lo de 7d6b4f7** (un worktree con la hoja de 7d6b4f7 y las pruebas
   nuevas): la prueba de los toques falla en los dos sitios. Alrededor de «Filters wissen», 7
   toques de la etiqueta de la empresa (y 3 del buscador de arriba) pasan a «Filters wissen»; en la
-  esquina de la ✕ de la tarjeta, en la hoja, 172 que cerraban la hoja la cierran a ella, 5 que la
-  cerraban pasan a nada y 1 de la ✕ cierra la hoja; en un panel, 1 de la ✕ a nada. Con la
+  esquina de la ✕ de la tarjeta, en la hoja, 172 que cerraban la hoja cierran solo la tarjeta, 5
+  que la cerraban pasan a nada y 1 de la ✕ cierra la hoja; en un panel, 1 de la ✕ a nada. Con la
   `tapChanges` de antes (sin la etiqueta), la de «Filters wissen» solo veía los 3 del buscador.
 - **La gira sin zonas** (un worktree de 1dc729f sin el relleno de las migas, el de las ✕ de un
   panel y de una hoja y la capa de la ✕ de una tarjeta): «nada que se pulse… (raton)» falla con
@@ -10204,4 +10204,8 @@ de la ✕ de una tarjeta, 456 de 1176 en un panel y 456 de 1176 en la hoja, de n
 icono y el título) y ninguno más; bajo la carpeta, 237 de 806, y entre las migas, 52 de 1175 y
 los 5 del hueco, como antes. Typecheck; vitest, 1352; `aurora-claro.mjs --comprobar`, al día;
 la construcción, con `fuente.json` al día (la hoja construida no cambia con este arreglo de la
-prueba: solo comentarios). Python y las demás e2e, abajo (en curso).
+prueba: solo comentarios). Python, 2626 y 12 saltadas. `shell`, `documents` y `exclusividad`,
+36 de 37: falla «la hoja de una factura con más de cuatro filas…» de `documents.spec.ts`, igual
+con lo construido en 1cc96b0 (el clon del verificador, la misma base, el 10-11-2026): la
+conversación ya no encuentra JV-2026-006 en la base de prueba (la fecha; queda para quien arregla
+lo que deriva con el calendario).
