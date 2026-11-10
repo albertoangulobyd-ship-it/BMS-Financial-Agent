@@ -605,8 +605,14 @@ hoja de una factura) son puros.
   control dice «Minder tonen» («Ver menos», «Show fewer»), que vuelve a plegar (la tarjeta de una
   fila plegada se cierra con ella). Desplegar es de esa vez: cada hoja se abre plegada. El papel
   con sus totales (base, IVA, total, lo que queda) no se pliega nunca, y la cabecera sigue
-  contando todas las filas. Lo puro (qué filas se ven, el texto y los avisos) está en
-  `foldRows` y `foldLabel` (`src/aurora/documents/sheet-model.ts`).
+  contando todas las filas. **Y nunca se desplaza más de 300 px** (09-11-2026): lo que mide una
+  hoja cambia con el día (una factura vencida añade «· 8 dagen over de vervaldatum.» a su
+  vencimiento, otra línea a 400 px), con el idioma y con el ancho, así que la hoja, plegada y sin
+  tarjeta, mide lo que se desplaza; si pasa de 300 px, se pliega también con cuatro filas o menos
+  y deja a la vista solo las que caben (al menos una), con el mismo control. Lo vuelve a medir al
+  cambiar la factura o la ventana; desplegada (lo pide la persona) se ve todo. Lo puro (qué filas
+  se ven, cuántas caben, el texto y los avisos) está en `foldRows`, `rowsThatFit` y `foldLabel`
+  (`src/aurora/documents/sheet-model.ts`).
 - **La zona táctil del control** (petición del dueño del 30-10-2026: «Sí, amplía la zona
   táctil»). El botón se ve como antes (9 px de letra, 13,5 px de alto), pero se pulsa en más
   sitio: una capa transparente (`.sheet-fold button::before`, en `src/aurora/bms.css`; las hojas
@@ -1247,9 +1253,19 @@ montar: vuelve cuando su paso lo monte (§7, «Aurora dentro de la app»).
 carpeta temporal (`scripts/crear_demo_e2e.py`, que da los tokens en JSON: Ana
 Demo, administradora; Bram Demo, de administración; y Cas Consulta, de solo lectura,
 que añade el script), arrancan `bms-agent serve` sobre ella en un puerto libre y entran
-con un token de prueba. Si a la base de hoy le falta algo que piden las pruebas (a final de mes
-la factura mensual de un cliente ya está cobrada), el script la hace con el reloj de un día
-antes, hasta una semana (`dias_atras` en su JSON). Se mueven como una persona (`e2e/nav.ts`, paso 17): «Druk om te
+con un token de prueba. Si a la base de hoy le falta algo que piden las pruebas (las facturas
+abiertas del extracto de prueba: los lunes la semanal del puerto aún no ha salido, a primeros
+de mes la del gemeentehuis se cobra ese día, a fin de mes la de la Stichting ya está cobrada),
+el script la hace con el reloj del día más cercano que las tiene, que elige sin hacerla
+(`demo.facturas`, puro) y comprueba después: hasta 14 días antes, y nunca hacen falta más de 12
+(`tests/test_crear_demo_e2e.py` lo prueba día a día de 2026 a 2033; `dias_atras` en su JSON).
+Deja también el último trimestre terminado del BTW listo para revisar y sin presentar, aunque su
+plazo haya pasado, para que su prueba lo recorra cualquier día. Los números de las facturas
+llevan el mes y el año del día de la base, así que las pruebas no los escriben: los toman por su
+papel de `numeros` del JSON (`N` en `e2e/fixtures.ts`: la vieja del gemeentehuis, la de otra
+moneda, la repetida de J. Voorbeeld, el trimestre del BTW…) o de la API por lo que prueban (una
+limpia sin revisar, un tramo atrasado con facturas). `BMS_E2E_HOY=AAAA-MM-DD` hace la base como
+si hoy fuera ese día (la app sigue con el reloj de verdad), para probar otras fechas. Se mueven como una persona (`e2e/nav.ts`, paso 17): «Druk om te
 navigeren», la entrada en la rueda (Tab la centra, como con el teclado), la fila de su panel
 y las migas; el idioma, el tema y salir en Instellingen (después del idioma se vuelve a la
 pantalla por el mismo camino). `e2e/shell.spec.ts` prueba el marco de Aurora: L0 en los tres
@@ -1381,7 +1397,8 @@ de la revisión, del dueño; el sí lo seguiría dando una persona en la app.
 
 Punto para el dueño (registro del paso 17): el techo del avance de Procesar, lo único de
 Procesar que no es de Aurora (el % no va por delante de la lectura de verdad). El del diálogo de
-una factura con muchas filas lo decidió el 29-10-2026: plegar lo que pasa de cuatro filas.
+una factura con muchas filas lo decidió el 29-10-2026: plegar lo que pasa de cuatro filas (y,
+desde el 09-11-2026, lo que no quepa en 300 px, sea el día que sea).
 
 Que alguien de la oficina lea los textos neerlandeses en la app y diga lo que no suena
 natural, y mirar en el ordenador del dueño que Edge abre la ventana `--app`.

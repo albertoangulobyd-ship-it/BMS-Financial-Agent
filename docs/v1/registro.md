@@ -10530,3 +10530,101 @@ extracto de prueba; queda para quien arregla lo que deriva con el calendario): `
 temas, a 1440 y a 400, con ratón y con el dedo; los toques de verdad, 23,3 minutos) y
 `documents` 7 de 8: falla «la hoja de una factura con más de cuatro filas…», igual que con
 `1cc96b0` (la conversación ya no encuentra JV-2026-006 en la base de prueba; la fecha).
+
+### Las pruebas y el calendario (09-11-2026)
+
+Las fechas de la base de prueba van respecto a hoy, y las pruebas e2e se habían escrito en
+octubre. Desde el 09-11-2026 ninguna pasada podía empezar, y había tres fallos conocidos que
+iban con el calendario. Cuatro causas, cuatro arreglos.
+
+#### 1. La base de las pruebas no se podía hacer (`scripts/crear_demo_e2e.py`)
+
+**Causa.** El extracto de prueba (paso 16) necesita facturas abiertas: tres del puerto, una de la
+Stichting, una pendiente del gemeentehuis, una de Oost y una de Voorbeeld. El escenario de la base
+de prueba no las tiene todos los días: **los lunes** la factura semanal del puerto de la semana
+pasada aún no ha salido (sale el martes) y la semana olvidada (V6, la cuarta por el final) cae entre
+las abiertas: quedan dos; **a primeros de mes** la mensual del gemeentehuis se cobra «hoy» (la base
+siempre mueve algo en el mes en curso), hasta el primer cobro del puerto del mes; **del 29 al 31**
+la de la Stichting y la del gemeentehuis ya están cobradas y la siguiente aún no ha salido. El
+script probaba hasta 7 días atrás, y el lunes 09-11 todos fallaban: del 01-11 al 08-11 por el
+gemeentehuis y el 09-11 por el puerto. Hacía falta irse 12 días.
+
+**Arreglo.** `demo.facturas(reloj)` da, sin escribir nada, las facturas que tendría la base de ese
+día y lo que está pagado (el escenario se partió en `_Escenario.facturas()`, que usa también
+`construir()`: la base sale idéntica, comparada factura a factura y movimiento a movimiento en
+tres días). El script elige con ella el día más cercano que sirve, hace la base una sola vez y la
+comprueba como antes (si el plan y la base no coincidieran, prueba el siguiente). `DIAS_ATRAS`
+pasa de 7 a 14.
+
+**Medido** (`tests/test_crear_demo_e2e.py`, 5 s): día a día de 2026 a 2033, siempre hay uno a 12
+días o menos (el peor, 12: el 09-02-2026 y otros tres). En cuatro años, el 63 % de los días sirve
+el mismo día; 1 día atrás, el 12 %; de 2 a 12, el resto. El plan dice lo mismo que la base hecha
+el lunes 09-11 (dos del puerto), el 03-11 (el gemeentehuis) y el 10-11 (nada falta).
+
+#### 2. Los números de las facturas llevan el mes y el año
+
+**Causa.** Las pruebas abrían facturas por su número (`KT-202608`, `VD26-306`, `JV-2026-004`,
+`DBN-CR-2026-09`, `PW2609-01`, `DGG-2026-118`, `DBO-2026-0417`, «Q3 2026»…), y los números salen
+del día de la base: con una de noviembre, `KT-202608` y `VD26-306` no existen y las de J. Voorbeeld
+cambian de papel (la repetida, B2, era `JV-2026-007` el 28-10 y es `JV-2026-005` el 10-11). Con
+la base de hoy, el código de antes falla en `clicks`, `daily` (cinco), `documents` y más.
+
+**Arreglo.** El JSON del script trae `numeros`: el número de cada factura por su papel (la vieja
+del gemeentehuis, las dos de K. Testpersoon, la de Noord y su abono, la de Proefwacht con otro
+IBAN, la de otra moneda, la de Oost, la primera, la repetida y las de antes de J. Voorbeeld) y el
+trimestre del BTW. `global-setup.ts` lo pasa y `e2e/fixtures.ts` lo da como `N`, que se lee al
+usarlo. Lo que depende del estado se toma de la API por lo que se prueba: `cleanToReview` (las
+limpias sin revisar de J. Voorbeeld, para «een schone factuur» y el paso 16 de los clics), y en
+`documents` la factura de más filas entre las de cuatro o menos y la de menos. Las expresiones
+con el año (`PW26`, `JV-2026-`, «-2026» en una fecha) aceptan cualquiera.
+`BMS_E2E_HOY=AAAA-MM-DD` hace la base como si hoy fuera ese día (la app sigue con el reloj de
+verdad): así se prueban otras fechas.
+
+#### 3. La hoja de una factura pasaba de 300 px a 400 px (`aurora-paridad`)
+
+**Causa**, medida en el diálogo a 400 × 860 sobre la base del 28-10-2026 abierta el 10-11:
+JV-2026-006, VD26-309 y VD26-209 tienen cuatro filas (un pago propuesto por el extracto,
+Controleren, Gelezen gegevens y Betalingen…), así que la regla de las cuatro filas no las pliega.
+El día de la base, una así mide 297 px (la línea de «Betalingen» con el pago propuesto y la nota
+«Geen bezwaren…; controles zonder gegevens: N» ya dan dos líneas a 400 px). Vencían el 02-11: con
+la app en el 10-11, «Vervaldatum» añade «· 8 dagen over de vervaldatum.» y da otra línea (+18 px):
+316. JV-2026-006 es de compra y lleva el botón del original en vez del aviso de las de venta
+(+17): 332. Cuanto más vieja la base respecto a hoy, más facturas vencidas; y en otro idioma o
+con otra anchura, otros textos parten en otro sitio.
+
+**Arreglo** (lo más pequeño que mantiene la hoja limpia): la regla de siempre se queda (más de
+cuatro filas, tres y el control); además, la hoja, plegada y sin tarjeta, mide lo que se desplaza
+el diálogo y, si pasa de 300 px, se pliega también con cuatro filas o menos y deja a la vista las
+que caben, al menos una, con el mismo control. `rowsThatFit` (puro, en `sheet-model.ts`) quita
+filas desde la última hasta liberar lo que sobra, contando lo que cuesta el control si aún no
+está; `foldRows` recibe cuántas caben; `invoice-sheet.tsx` mide en un `useLayoutEffect` (antes de
+pintar: no se ve nada moverse) y vuelve a medir al cambiar la factura o la ventana. Desplegada, todo,
+como lo pide la persona. Vitest: la regla de siempre con `fit` sin límite, el caso medido de
+JV-2026-006 (332 px → tres filas) y, para cada combinación de hasta ocho filas altas y bajas y de
+lo que sobra, que lo quitado libera lo que sobra y no quita una de más.
+
+**Medido** con lo construido nuevo: JV-2026-006 de la base del 28-10, 332 → 286 px (tres filas y el
+control). Base de hoy (10-11): sin cambios, la que más 297 px a 400 (VD26-310 y VD26-210, cuatro
+filas que caben).
+
+#### 4. La prueba del BTW (`screens.spec`) no tenía trimestre que recorrer
+
+**Causa.** La prueba reabre el trimestre listo para revisar, lo vuelve a dejar listo, prueba la
+segunda persona y anota la presentación: daba por hecho «Q3 2026» listo. La base de prueba
+presenta cada trimestre cuyo plazo ya pasó: desde el primer día del segundo mes tras un trimestre
+(del 01-11 al 31-12, del 01-02 al 31-03…) todos están presentados, el trimestre en curso aún no ha
+terminado y la app no deja ninguno listo. Con la base de hoy, «Reopen quarter» no está (presentar
+es irreversible) y la prueba se agota esperándolo; con una base del 28-10 (`BMS_E2E_HOY`), Q3 está
+listo y pasa. La app tiene razón: a la base de las pruebas le faltaba el caso.
+
+**Arreglo.** `demo.crear(btw_sin_presentar=True)` deja el último trimestre terminado listo y sin
+presentar aunque su plazo haya pasado; solo lo pide `crear_demo_e2e.py`, que da su etiqueta en
+`numeros` (`vatQuarter`). `bms-agent demo crear` no cambia (probado: el 10-11, todo presentado).
+`screens` y `themes` toman ese trimestre; el de solo lectura y el de 1024 px, el trimestre en curso
+de la fecha de hoy.
+
+#### 5. «een tramo» (`daily`)
+
+KT-202608 había salido de 61–90. Como en `c76258f`: la prueba elige el tramo atrasado de compras
+con facturas (el más atrasado), comprueba que la búsqueda dice cuántas y que trae una de ellas
+(de la API, por su vencimiento entre los límites del tramo).
