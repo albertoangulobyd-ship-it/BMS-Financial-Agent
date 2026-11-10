@@ -145,7 +145,8 @@ def falta_en_el_plan(reloj) -> str | None:
             ("el gemeentehuis (pendiente)", [f for f in abiertas(ventas, "10003")
                                              if f.vence >= hoy]),
             ("Oost", abiertas(compras, "30004")),
-            ("Voorbeeld", abiertas(compras, "30002"))):
+            ("Voorbeeld ni Noord", _sin_repetir(abiertas(compras, "30002"))
+             or abiertas(compras, "30001"))):
         if not falta:
             return f"ninguna factura abierta de {nombre}"
     return None
@@ -246,8 +247,10 @@ def _camt(apuntes: list[tuple], inicial: Decimal, secuencia: int, dia: date) -> 
 
 def _facturas_del_extracto(conn: sqlite3.Connection) -> dict:
     """Las facturas abiertas que usa el extracto: tres del puerto, la ultima de la Stichting,
-    la ultima pendiente (no vencida) del gemeentehuis, la ultima de Oost y la primera de
-    Voorbeeld. _FaltaUnaFactura si alguna no esta."""
+    la ultima pendiente (no vencida) del gemeentehuis, la ultima de Oost y una de proveedor que
+    el banco pueda proponer: la primera de Voorbeeld con un numero que solo lleva ella (la
+    repetida, B2, son dos con el mismo importe: el banco no sabria cual y no propone nada), o,
+    si no hay, la de Noord. _FaltaUnaFactura si alguna no esta."""
 
     def abiertas(sentido: str, tabla: str, codigo: str) -> list[sqlite3.Row]:
         columna = "cliente_id" if tabla == "cliente" else "proveedor_id"
@@ -274,8 +277,16 @@ def _facturas_del_extracto(conn: sqlite3.Connection) -> dict:
                         [f for f in abiertas("saliente", "cliente", "10003")
                          if f["estado_pago"] == "pendiente"][-1:]),
         "oost": una("Oost", abiertas("entrante", "proveedor", "30004")[-1:]),
-        "voorbeeld": una("Voorbeeld", abiertas("entrante", "proveedor", "30002")[:1]),
+        "proveedor": una("Voorbeeld ni Noord",
+                         _sin_repetir(abiertas("entrante", "proveedor", "30002"))
+                         or abiertas("entrante", "proveedor", "30001")),
     }
+
+
+def _sin_repetir(filas: list) -> list:
+    """Las facturas cuyo numero no lleva ninguna otra de la lista (sin la repetida, B2)."""
+    numeros = [f["numero"] if isinstance(f, sqlite3.Row) else f.numero for f in filas]
+    return [f for f, n in zip(filas, numeros) if numeros.count(n) == 1]
 
 
 def _falta_para_el_extracto(ruta: Path) -> str | None:
@@ -315,7 +326,9 @@ def _extracto_de_pagos(ruta: Path, carpeta: Path) -> dict[str, int]:
 
         f = _facturas_del_extracto(conn)
         haven, stichting, gemeente = f["haven"], f["stichting"], f["gemeente"]
-        oost, voorbeeld = f["oost"], f["voorbeeld"]
+        oost, pagada = f["oost"], f["proveedor"]
+        # De quien es (Voorbeeld o Noord): por su numero.
+        codigo = "30002" if pagada["numero"].startswith("JV-") else "30001"
         proveedor = {p.codigo: p for p in demo.PROVEEDORES}
         apuntes = [
             # Cobros con la referencia y el importe, desde una cuenta que no es la del maestro.
@@ -333,8 +346,8 @@ def _extracto_de_pagos(ruta: Path, carpeta: Path) -> dict[str, int]:
             # Pagos a la cuenta del maestro por lo que queda, sin el numero de la factura.
             (-euros(oost["pendiente_cent"]), proveedor["30004"].iban, proveedor["30004"].nombre,
              "Betaling oktober"),
-            (-euros(voorbeeld["pendiente_cent"]), proveedor["30002"].iban,
-             proveedor["30002"].nombre, "Betaling diensten"),
+            (-euros(pagada["pendiente_cent"]), proveedor[codigo].iban,
+             proveedor[codigo].nombre, "Betaling diensten"),
         ]
         ultimo = conn.execute("SELECT secuencia, saldo_final_cent FROM extracto_bancario "
                               "ORDER BY hasta DESC, secuencia DESC LIMIT 1").fetchone()
