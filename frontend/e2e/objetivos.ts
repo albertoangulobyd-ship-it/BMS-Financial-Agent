@@ -645,13 +645,22 @@ export interface TapChange {
  * lo que hay entre corchetes); lo demas, su etiqueta y lo que dice o su aria-label, «(la pagina
  * en que se esta)» si es la miga de la pagina (no hace nada) y «[zona]» si tiene zona tactil.
  * Devuelve solo los puntos que cambian.
+ *
+ * Primero todos los puntos sin las zonas y luego todos con ellas (la hoja que las quita se pone
+ * y se quita una vez, no en cada toque), y con los fotogramas de la app parados mientras tanto
+ * (requestAnimationFrame no llama a nadie: los lienzos y las animaciones no ocupan el hilo): cada
+ * toque tarda un fotograma, unos 17 ms, y no los 70 a 110 de antes con la CPU cargada (medido el
+ * 10-11-2026, con los mismos resultados punto a punto, tambien que con cada toque aislado, 450 ms
+ * despues del anterior). Los toques van uno a uno: mandados todos de golpe, sin esperar a cada
+ * uno, Chromium no los acerca igual.
  */
 export async function tapChanges(page: Page, points: [number, number][]): Promise<TapChange[]> {
   // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
   await withoutHitArea(page, true, 'nuevas');
   await withoutHitArea(page, false, 'nuevas');
   await page.evaluate(({ selector, zones }) => {
-    const w = window as unknown as { __toque?: { on: boolean; click: string | null; down: string | null; off: (o: boolean) => void } };
+    type Entry = [x: number, y: number, down: string, click: string | null];
+    const w = window as unknown as { __toque?: { log: Entry[] | null; start: (off: boolean) => void; stop: () => Entry[] } };
     if (w.__toque) return;
     const describe = (h: Element | null) => {
       if (!h) return 'nada [ninguno]';
@@ -666,53 +675,63 @@ export async function tapChanges(page: Page, points: [number, number][]): Promis
       return `${t.tagName.toLowerCase()}${typeof t.className === 'string' && t.className ? '.' + t.className.split(/\s+/)[0] : ''} «${label.replace(/\s+/g, ' ').trim().slice(0, 80)}»${current}${zone}`;
     };
     const sheet = (window as unknown as { __bmsSinZona: Record<string, CSSStyleSheet> }).__bmsSinZona['nuevas']!;
+    const frame = window.requestAnimationFrame;
+    let waiting: FrameRequestCallback[] = [];
     const state = {
-      on: false,
-      click: null as string | null,
-      down: null as string | null,
-      off: (o: boolean) => {
+      log: null as Entry[] | null,
+      // Empieza una pasada: con la hoja que quita las zonas o sin ella, los fotogramas parados.
+      start: (off: boolean) => {
         const base = document.adoptedStyleSheets.filter((s) => s !== sheet);
-        document.adoptedStyleSheets = o ? [...base, sheet] : base;
-        state.click = null;
-        state.down = null;
-        state.on = true;
+        document.adoptedStyleSheets = off ? [...base, sheet] : base;
+        window.requestAnimationFrame = (cb) => (waiting.push(cb), 0);
+        state.log = [];
+      },
+      // La termina: lo apuntado, y todo como estaba.
+      stop: () => {
+        const log = state.log ?? [];
+        state.log = null;
+        document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+        window.requestAnimationFrame = frame;
+        for (const cb of waiting) frame(cb);
+        waiting = [];
+        return log;
       },
     };
     w.__toque = state;
     const stop = (e: Event) => {
-      if (!state.on) return;
-      if (e.type === 'click') state.click = describe(e.target as Element);
-      if (e.type === 'pointerdown') state.down = describe(e.target as Element);
+      if (!state.log) return;
+      // El clic de un toque llega despues de su pointerdown y antes del pointerdown del siguiente.
+      if (e.type === 'pointerdown') state.log.push([(e as PointerEvent).clientX, (e as PointerEvent).clientY, describe(e.target as Element), null]);
+      if (e.type === 'click' && state.log.length) state.log[state.log.length - 1]![3] = describe(e.target as Element);
       if (['mousedown', 'click', 'contextmenu', 'auxclick', 'dblclick'].includes(e.type)) e.preventDefault();
       e.stopImmediatePropagation();
     };
     for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave', 'gotpointercapture', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'click', 'dblclick', 'auxclick', 'contextmenu', 'touchstart', 'touchend', 'touchmove'])
       window.addEventListener(type, stop, { capture: true, passive: false });
   }, { selector: INTERACTIVE, zones: ZONES.map((z) => z.selector) });
-  const tap = async (x: number, y: number, off: boolean) => {
-    await page.evaluate((o) => (window as unknown as { __toque: { off: (o: boolean) => void } }).__toque.off(o), off);
-    await page.touchscreen.tap(x, y);
-    return page.evaluate(() => {
-      const s = (window as unknown as { __toque: { on: boolean; click: string | null; down: string | null } }).__toque;
-      s.on = false;
-      return s.click ?? `sin clic (${s.down})`;
-    });
-  };
-  const out: TapChange[] = [];
-  try {
-    for (const [x, y] of points) {
-      const before = await tap(x, y, true);
-      const after = await tap(x, y, false);
-      // «Nada» es nada, sea lo que sea lo que hay debajo.
-      if (before !== after && !(before.startsWith('nada') && after.startsWith('nada'))) out.push({ x, y, before, after });
+  type Entry = [x: number, y: number, down: string, click: string | null];
+  const pass = async (off: boolean): Promise<string[]> => {
+    await page.evaluate((o) => (window as unknown as { __toque: { start: (o: boolean) => void } }).__toque.start(o), off);
+    let log: Entry[];
+    try {
+      for (const [x, y] of points) await page.touchscreen.tap(x, y);
+    } finally {
+      // El clic del ultimo toque: una vuelta mas al hilo de la pagina antes de recoger.
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 30)));
+      log = await page.evaluate(() => (window as unknown as { __toque: { stop: () => Entry[] } }).__toque.stop());
     }
-  } finally {
-    await page.evaluate(() => {
-      const s = (window as unknown as { __toque: { off: (o: boolean) => void; on: boolean } }).__toque;
-      s.off(false);
-      s.on = false;
-    });
-  }
+    // Un pointerdown por toque, en su punto y en su orden: si no, lo apuntado no vale.
+    const ok = log.length === points.length && log.every((l, i) => Math.abs(l[0] - points[i]![0]) < 0.6 && Math.abs(l[1] - points[i]![1]) < 0.6);
+    if (!ok) throw new Error(`los toques apuntados no cuadran con los puntos: ${log.length} de ${points.length}`);
+    return log.map((l) => l[3] ?? `sin clic (${l[2]})`);
+  };
+  const before = await pass(true);
+  const after = await pass(false);
+  const out: TapChange[] = [];
+  points.forEach(([x, y], i) => {
+    // «Nada» es nada, sea lo que sea lo que hay debajo.
+    if (before[i] !== after[i] && !(before[i]!.startsWith('nada') && after[i]!.startsWith('nada'))) out.push({ x, y, before: before[i]!, after: after[i]! });
+  });
   return out;
 }
 
