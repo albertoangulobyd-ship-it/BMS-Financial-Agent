@@ -4,15 +4,32 @@
 // 1. axe sin nada serio ni critico y sin ninguna falta de contraste (en claro no se excusa
 //    ninguna: e2e/aurora/contraste.json es solo del oscuro), con las pastillas medidas
 //    (expectAccessible lleva expectStatusContrast);
-// 2. el borde de cada campo de formulario a 3:1 (WCAG 1.4.11, expectFieldBoundary);
+// 2. el borde de cada campo de formulario a 3:1 (WCAG 1.4.11, expectFieldBoundary), y cada
+//    selector de FORM_FIELDS visto alguna vez (uno que no encuentra nada no guarda nada);
+// 2b. cada placeholder a la vista a 4,5:1 contra su fondo de verdad (WCAG 1.4.3,
+//    expectPlaceholderContrast: axe no mide un placeholder con alfa), y los cuatro sitios donde
+//    los hay (la entrada, la caja, la busqueda de las listas y la de un filtro) medidos;
 // 3. lo que axe no mide (el texto sobre el cristal de las carpetas, bajo la marca TEST del papel,
 //    las cejas de 8-9 px, la cabecera de Procesar y el resumen), medido en pixeles a 4,5:1;
 // 4. un orbe como mucho;
 // 5. ninguna violacion de la CSP ni ningun error en la consola (lo vigila fixtures.ts).
-// Y el aviso (ws-toast) fuera de la hoja: blanco y legible.
+// Y el aviso (ws-toast) fuera de la hoja: blanco y legible; y el foco con el teclado en el
+// deslizador del importe: un anillo a 3:1 frente a lo que tiene a cada lado (WCAG 1.4.11).
 import type { Page } from '@playwright/test';
-import { expect, expectAccessible, expectFieldBoundary, expectPixelContrast, login, N, settled, test } from './fixtures';
-import { TEXTS, chooseTheme, openInvoice, openSheetRow, signOut } from './nav';
+import {
+  expect,
+  expectAccessible,
+  expectFieldBoundary,
+  expectPixelContrast,
+  expectPlaceholderContrast,
+  focusRingContrast,
+  FORM_FIELDS,
+  login,
+  N,
+  settled,
+  test,
+} from './fixtures';
+import { TEXTS, chooseTheme, openEntry, openInvoice, openSheetRow, signOut } from './nav';
 import { tour } from './objetivos';
 
 /** Un orbe como mucho a la vista (la onda de Aurora o el companero de Documentos): los orbes con
@@ -51,6 +68,15 @@ const PIXELS: [RegExp, string, number][] = [
   [/^E7 Procesar$/, '.pc-label>span', 4.5],
 ];
 
+/** Donde hay un placeholder (el `field` de expectPlaceholderContrast): la gira tiene que medir
+ *  cada uno. La app no tiene mas: las ordenes van sin placeholder y Ctrl+K se quito en el paso 17. */
+const PLACEHOLDERS: [string, RegExp][] = [
+  ['la entrada', /^#token$/],
+  ['la caja de escribir y la de la busqueda', /^div\.input-row input$/],
+  ['la busqueda de una lista', /^label\.search input$/],
+  ['la busqueda de un filtro', /ui-command-input/],
+];
+
 for (const size of [
   { width: 1440, height: 900 },
   { width: 400, height: 860 },
@@ -64,13 +90,15 @@ for (const size of [
     await chooseTheme(page, 'light');
     await signOut(page);
     await expect(page.locator('html')).not.toHaveClass(/(^|\s)dark(\s|$)/);
-    let fields = 0;
+    const fields: Record<string, number> = {};
+    const placeholders = new Set<string>();
     const measured = new Set<string>();
     await tour(page, async (state) => {
       const what = `${state} (claro, ${size.width} px)`;
       await expect(page.locator('html')).not.toHaveClass(/(^|\s)dark(\s|$)/);
       await expectAccessible(page, what);
-      fields += await expectFieldBoundary(page, what);
+      for (const [selector, n] of Object.entries(await expectFieldBoundary(page, what))) fields[selector] = (fields[selector] ?? 0) + n;
+      for (const m of await expectPlaceholderContrast(page, what)) placeholders.add(m.field);
       for (const [when, selector, min] of PIXELS) {
         if (!when.test(state)) continue;
         await settled(page);
@@ -78,8 +106,12 @@ for (const size of [
       }
       await atMostOneOrb(page, what);
     });
-    // La gira paso por los campos y midio en pixeles lo que se espera ver a este ancho.
-    expect(fields, 'campos medidos en la gira').toBeGreaterThan(5);
+    // La gira paso por cada campo guardado (un selector que no encuentra nada no guarda nada),
+    // por cada sitio con placeholder, y midio en pixeles lo que se espera ver a este ancho.
+    for (const selector of FORM_FIELDS) expect(fields[selector] ?? 0, `campos medidos en la gira: ${selector}`).toBeGreaterThan(0);
+    for (const [name, field] of PLACEHOLDERS) {
+      expect([...placeholders].some((p) => field.test(p)), `placeholder medido en la gira: ${name} (${[...placeholders].join(' | ')})`).toBe(true);
+    }
     for (const selector of ['.panel-top>span', '.fpb #asof', '.gf-title', '.gf-meta', '.ws-paper dd', '.pc-label>span']) {
       expect(measured, `medido en pixeles: ${selector}`).toContain(selector);
     }
@@ -114,3 +146,30 @@ test('el aviso (ws-toast) fuera de la hoja, en claro: blanco, opaco y legible', 
   const [ratio] = await expectPixelContrast(page, '.ws-toast', 4.5, 'el aviso fuera de la hoja');
   expect(ratio).toBeGreaterThanOrEqual(4.5);
 });
+
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 400, height: 860 },
+]) {
+  test(`el foco con el teclado en los tiradores del importe, en claro a ${size.width} px: un anillo a 3:1`, async ({ page, baseUrl }) => {
+    await page.setViewportSize(size);
+    await page.goto(`${baseUrl}/app`);
+    await login(page);
+    await chooseTheme(page, 'light');
+    await openEntry(page, 'search');
+    await page.locator('.filters-toggle').click();
+    await expect(page.locator('#search-filters')).toBeVisible();
+    const thumbs = page.locator('#search-filters .amount-thumb');
+    await expect(thumbs).toHaveCount(2);
+    for (const thumb of [thumbs.first(), thumbs.last()]) {
+      // Con el teclado, como llega quien no usa el raton: Tab hasta el tirador.
+      for (let i = 0; i < 40 && !(await thumb.evaluate((el) => el === document.activeElement)); i += 1) await page.keyboard.press('Tab');
+      await expect(thumb).toBeFocused();
+      expect(await thumb.evaluate((el) => el.matches(':focus-visible'))).toBe(true);
+      await settled(page);
+      // Aurora lo marca con un halo de 4 px del lila a 0,19: en claro daba 1,29 frente a lo blanco.
+      const ring = await focusRingContrast(page, thumb);
+      expect(ring.ratio, `el anillo ${ring.ring} frente a ${ring.inner ?? 'el tirador'} y a ${ring.outer}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+}

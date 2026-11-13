@@ -8,7 +8,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test as base, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import type { InvoiceRow } from '../src/lib/api';
 import { DOMAIN_FALLBACK, type Lang } from '../src/i18n/langs';
 import { glossaryMisses } from '../src/i18n/glossary';
@@ -302,17 +302,20 @@ export async function expectStatusContrast(page: Page, what: string): Promise<vo
 }
 
 /** Los campos de formulario (WCAG 1.4.11): su unica marca visible es el borde, que tiene que
- *  llegar a 3:1 frente a lo de fuera y lo de dentro (docs/app-local.md, «El tema claro»). */
-export const FORM_FIELDS = '.order-field .composer, .filter-combo-trigger, .filter-date-trigger, .ui-button, .ws-search';
+ *  llegar a 3:1 frente a lo de fuera y lo de dentro (docs/app-local.md, «El tema claro»). Cada
+ *  selector es de una pieza que la app monta: la gira de e2e/claro.spec.ts falla si alguno no
+ *  aparece nunca (la lista nombraba `.ws-search`, la busqueda de Documentos de Aurora, que la app
+ *  no monta, y el campo de verdad de las listas, `.search`, quedaba sin mirar). */
+export const FORM_FIELDS = ['.order-field .composer', '.filter-combo-trigger', '.filter-date-trigger', '.ui-button', '.search'] as const;
 
 /**
  * El borde de cada campo de formulario a la vista (FORM_FIELDS), compuesto como lo pinta Chromium
  * sobre los fondos que tiene detras (el mismo lienzo que expectStatusContrast): 3:1 o mas frente
- * al fondo de fuera y frente al suyo.
+ * al fondo de fuera y frente al suyo. Devuelve cuantos campos midio de cada selector.
  */
-export async function expectFieldBoundary(page: Page, what: string, min = 3): Promise<number> {
+export async function expectFieldBoundary(page: Page, what: string, min = 3): Promise<Record<string, number>> {
   const result = await page.evaluate(
-    ({ selector, min }) => {
+    ({ selectors, min }) => {
       const canvas = document.createElement('canvas');
       canvas.width = 2;
       canvas.height = 2;
@@ -347,25 +350,145 @@ export async function expectFieldBoundary(page: Page, what: string, min = 3): Pr
         return layers;
       };
       const low: string[] = [];
-      let seen = 0;
-      for (const field of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
-        const box = field.getBoundingClientRect();
-        const style = getComputedStyle(field);
-        if (box.width === 0 || box.height === 0 || style.visibility === 'hidden' || parseFloat(style.borderTopWidth) === 0) continue;
-        if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) continue;
-        seen += 1;
-        const outside = backgrounds(field.parentElement);
-        const inside = backgrounds(field);
-        const border = paint([...inside, style.borderTopColor]);
-        const worst = Math.min(ratio(border, paint(outside)), ratio(border, paint(inside)));
-        if (worst < min) low.push(`${field.className || field.tagName} (${style.borderTopColor}): ${worst.toFixed(2)}`);
+      const seen: Record<string, number> = {};
+      for (const selector of selectors) {
+        for (const field of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+          const box = field.getBoundingClientRect();
+          const style = getComputedStyle(field);
+          if (box.width === 0 || box.height === 0 || style.visibility === 'hidden' || parseFloat(style.borderTopWidth) === 0) continue;
+          if (box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) continue;
+          seen[selector] = (seen[selector] ?? 0) + 1;
+          const outside = backgrounds(field.parentElement);
+          const inside = backgrounds(field);
+          const border = paint([...inside, style.borderTopColor]);
+          const worst = Math.min(ratio(border, paint(outside)), ratio(border, paint(inside)));
+          if (worst < min) low.push(`${selector} (${style.borderTopColor}): ${worst.toFixed(2)}`);
+        }
       }
       return { low, seen };
     },
-    { selector: FORM_FIELDS, min }
+    { selectors: [...FORM_FIELDS], min }
   );
   expect(result.low, `el borde de los campos: ${what}`).toEqual([]);
   return result.seen;
+}
+
+/** Un placeholder a la vista, medido. */
+export interface PlaceholderMeasure {
+  /** Donde esta: `#token`, `label.search input`, `div.ui-command-input input`... */
+  field: string;
+  text: string;
+  /** El color del placeholder (el calculado, con su alfa), el fondo de verdad que tiene detras
+   *  (el de sus pixeles), el color que resulta de pintar uno sobre otro y su razon de contraste. */
+  color: string;
+  background: string;
+  seen: string;
+  ratio: number;
+}
+
+/**
+ * Cada placeholder a la vista (un campo vacio, sin tapar y activo: WCAG 1.4.3 no pide contraste a
+ * lo inactivo), medido contra el fondo de verdad: el color calculado de ::placeholder (con su
+ * alfa, su opacidad y la de lo que lo contiene), pintado como lo pinta Chromium sobre el color que
+ * mas se repite en los pixeles de la caja del campo (un fondo translucido, un cristal o un
+ * degradado cuentan como se ven, no como estan escritos). axe no mide los placeholders con alfa:
+ * el de las listas («Zoek bedrijf of document…») salia con el 50 % del color del campo que le da
+ * Tailwind, a 2,08:1, y ninguna guarda lo veia.
+ */
+export async function placeholderContrasts(page: Page): Promise<PlaceholderMeasure[]> {
+  const shown = await page.evaluate(() => {
+    const out: { field: string; text: string; color: string; alpha: number; clip: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[placeholder], textarea[placeholder]'))) {
+      if (!el.placeholder.trim() || !el.matches(':placeholder-shown') || el.disabled) continue;
+      const box = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      if (style.visibility === 'hidden') continue;
+      // La caja del texto (sin el borde ni el relleno), dentro de la ventana.
+      const left = Math.max(0, box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft));
+      const right = Math.min(innerWidth, box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight));
+      const top = Math.max(0, box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop));
+      const bottom = Math.min(innerHeight, box.bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom));
+      if (right - left < 4 || bottom - top < 4) continue;
+      // Lo que tapa otra capa (un dialogo, un menu abierto encima) no se lee.
+      const over = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+      if (!over || (over !== el && !over.contains(el))) continue;
+      const placeholder = getComputedStyle(el, '::placeholder');
+      let alpha = parseFloat(placeholder.opacity);
+      for (let e: Element | null = el; e; e = e.parentElement) alpha *= parseFloat(getComputedStyle(e).opacity);
+      if (!(alpha > 0)) continue;
+      const parent = el.parentElement;
+      const where = parent ? `${parent.tagName.toLowerCase()}${parent.classList.length ? `.${Array.from(parent.classList).join('.')}` : ''} ` : '';
+      out.push({
+        // Un id de Radix (radix-_r_4c_) cambia de una pasada a otra: no nombra nada.
+        field: el.id && !/^radix-|^:/.test(el.id) ? `#${el.id}` : `${where}${el.tagName.toLowerCase()}`,
+        text: el.placeholder,
+        color: placeholder.color,
+        alpha,
+        clip: { x: Math.floor(left), y: Math.floor(top), width: Math.max(1, Math.floor(right - left)), height: Math.max(1, Math.floor(bottom - top)) },
+      });
+    }
+    return out;
+  });
+  const lum = (c: number[]) =>
+    c
+      .map((v) => {
+        const x = v / 255;
+        return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      })
+      .reduce((n, x, k) => n + x * [0.2126, 0.7152, 0.0722][k]!, 0);
+  const measures: PlaceholderMeasure[] = [];
+  for (const item of shown) {
+    const shot = decodePng(await page.screenshot({ clip: item.clip, animations: 'disabled', caret: 'hide' }));
+    const counts = new Map<number, number>();
+    for (let p = 0; p < shot.data.length; p += 4) {
+      const key = (shot.data[p]! << 16) | (shot.data[p + 1]! << 8) | shot.data[p + 2]!;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const key = [...counts].sort((a, b) => b[1] - a[1])[0]![0];
+    const background = [(key >> 16) & 255, (key >> 8) & 255, key & 255];
+    // El color del texto sobre ese fondo, pintado por el navegador (entiende cualquier color
+    // calculado: rgb(), oklab(), color(srgb ...)).
+    const seen = await page.evaluate(
+      ({ background, color, alpha }) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 2;
+        canvas.height = 2;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+        ctx.fillStyle = `rgb(${background.join(',')})`;
+        ctx.fillRect(0, 0, 2, 2);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 2, 2);
+        const d = ctx.getImageData(0, 0, 1, 1).data;
+        return [d[0]!, d[1]!, d[2]!];
+      },
+      { background, color: item.color, alpha: item.alpha }
+    );
+    const [hi, lo] = [lum(background), lum(seen)].sort((a, b) => b - a) as [number, number];
+    measures.push({
+      field: item.field,
+      text: item.text,
+      color: item.alpha < 1 ? `${item.color} x ${item.alpha}` : item.color,
+      background: `rgb(${background.join(', ')})`,
+      seen: `rgb(${seen.join(', ')})`,
+      ratio: (hi + 0.05) / (lo + 0.05),
+    });
+  }
+  return measures;
+}
+
+/** Cada placeholder a la vista a 4,5:1 o mas (WCAG 1.4.3) contra su fondo de verdad. Devuelve los
+ *  medidos. Con BMS_E2E_PLACEHOLDERS=<fichero> los apunta ahi y no falla (para la tabla de
+ *  docs/v1/registro.md). */
+export async function expectPlaceholderContrast(page: Page, what: string, min = 4.5): Promise<PlaceholderMeasure[]> {
+  const measures = await placeholderContrasts(page);
+  if (process.env.BMS_E2E_PLACEHOLDERS) {
+    for (const m of measures) appendFileSync(process.env.BMS_E2E_PLACEHOLDERS, JSON.stringify({ what, ...m, ratio: Number(m.ratio.toFixed(2)) }) + '\n');
+    return measures;
+  }
+  const low = measures.filter((m) => m.ratio < min).map((m) => `${m.field} «${m.text}»: ${m.color} sobre ${m.background} = ${m.ratio.toFixed(2)}`);
+  expect(low, `el contraste de los placeholders: ${what}`).toEqual([]);
+  return measures;
 }
 
 /**
@@ -452,6 +575,50 @@ export async function expectPixelContrast(page: Page, selector: string, min: num
     expect.soft(ratio, `contraste en pixeles de ${selector} (${i + 1}): ${what}`).toBeGreaterThanOrEqual(min);
   }
   return ratios;
+}
+
+/**
+ * El indicador de foco de una pieza, medido en pixeles (WCAG 1.4.11: 3:1 frente a lo que tiene al
+ * lado): la columna del centro, de su borde de arriba hacia fuera. El anillo es el pixel que mas
+ * se aparta del fondo de fuera (a 10 px); se compara con ese fondo y, si entre la pieza y el
+ * anillo hay un hueco, con el hueco. Un halo translucido pegado a la pieza (el del oscuro pasado
+ * al claro: 1,29) no llega; un anillo del acento separado por un hueco blanco, si.
+ */
+export async function focusRingContrast(page: Page, target: Locator): Promise<{ ring: string; inner: string | null; outer: string; ratio: number }> {
+  const box = await target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.floor(r.left + r.width / 2), top: Math.round(r.top) };
+  });
+  const reach = 10;
+  const shot = decodePng(await page.screenshot({ clip: { x: box.x, y: box.top - reach, width: 1, height: reach }, animations: 'disabled', caret: 'hide' }));
+  // De la pieza hacia fuera: column[0] toca su borde; column[reach - 1], lo de fuera.
+  const column: number[][] = [];
+  for (let y = reach - 1; y >= 0; y -= 1) column.push([shot.data[y * 4]!, shot.data[y * 4 + 1]!, shot.data[y * 4 + 2]!]);
+  const far = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+  const lum = (c: number[]) =>
+    c
+      .map((v) => {
+        const x = v / 255;
+        return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      })
+      .reduce((n, x, k) => n + x * [0.2126, 0.7152, 0.0722][k]!, 0);
+  const contrast = (a: number[], b: number[]) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const outer = column[reach - 1]!;
+  let at = 0;
+  for (let i = 1; i < reach - 2; i += 1) if (far(column[i]!, outer) > far(column[at]!, outer)) at = i;
+  const ring = column[at]!;
+  let inner: number[] | null = null;
+  for (let i = 0; i < at; i += 1) if (far(column[i]!, ring) > 24 && (!inner || far(column[i]!, ring) > far(inner, ring))) inner = column[i]!;
+  const rgb = (c: number[]) => `rgb(${c.join(', ')})`;
+  return {
+    ring: rgb(ring),
+    inner: inner ? rgb(inner) : null,
+    outer: rgb(outer),
+    ratio: Math.min(contrast(ring, outer), inner ? contrast(ring, inner) : Infinity),
+  };
 }
 
 /** El tema que se ve: la clase .dark de <html> (lib/theme.tsx), la unica que lo decide. */

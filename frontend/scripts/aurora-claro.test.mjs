@@ -12,21 +12,26 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   DESIGN,
+  FIELDS,
   HAND_FILE,
   PALETTE,
   RAW_OK,
+  ROLES,
   backgroundRole,
   build,
   lch,
   lineRole,
   mapValue,
   parseColor,
+  placeholderRole,
   rawColors,
   textRole,
+  unmountedClasses,
 } from './aurora-claro.mjs';
 
 const script = fileURLToPath(new URL('./aurora-claro.mjs', import.meta.url));
 const indexCss = fileURLToPath(new URL('../src/index.css', import.meta.url));
+const fixtures = fileURLToPath(new URL('../e2e/fixtures.ts', import.meta.url));
 const hand = readFileSync(HAND_FILE, 'utf8');
 
 /** Un color opaco [r, g, b]: el token (las alfas, sobre blanco). */
@@ -129,7 +134,7 @@ describe('aurora-claro', () => {
 
   it('la paleta pasa AA', () => {
     const at = (fg, bg, min) => expect(ratio(P(fg), P(bg)), `${fg} sobre ${bg}`).toBeGreaterThanOrEqual(min);
-    for (const ink of ['ink-1', 'ink-2', 'ink-3']) for (const bg of ['page', 'surface', 'subtle', 'accent-soft']) at(ink, bg, 4.5);
+    for (const ink of ['ink-1', 'ink-2', 'ink-3', 'placeholder']) for (const bg of ['page', 'surface', 'subtle', 'accent-soft']) at(ink, bg, 4.5);
     for (const ink of ['ink-1', 'ink-2']) at(ink, 'subtle-2', 4.5);
     for (const bg of ['page', 'surface', 'accent-soft']) at('accent', bg, 4.5);
     at('accent-hover', 'accent-soft', 4.5);
@@ -138,7 +143,7 @@ describe('aurora-claro', () => {
       for (const bg of [`${tone}-soft`, 'surface', 'page']) at(tone, bg, 4.5);
       at(`${tone}-dot`, `${tone}-soft`, 3);
     }
-    for (const bg of ['page', 'surface', 'subtle', 'accent-soft']) at('focus', bg, 3);
+    for (const bg of ['page', 'surface', 'subtle', 'subtle-2', 'accent-soft']) at('focus', bg, 3);
     for (const bg of ['surface', 'page', 'subtle']) at('field', bg, 3);
     // El aviso de index.css (una nota dentro de una pantalla), en sus tokens del claro.
     const root = readFileSync(indexCss, 'utf8').match(/^:root \{[\s\S]*?^\}/m)[0];
@@ -257,6 +262,62 @@ describe('aurora-claro', () => {
     expect(css).toContain('html:not(.dark) button:focus-visible,html:not(.dark) input:focus-visible{outline:2px solid var(--l-focus);outline-offset:4px}');
     // La cascada del claro es la del oscuro: lo que Aurora quita sin color tambien se repite.
     expect(css).toContain('html:not(.dark) .primary{background:var(--l-accent);color:var(--l-on-fill);border:0');
+  });
+
+  it('el placeholder es un papel: el de cualquier campo, con su token y a 4,5:1, nunca un color a medias', () => {
+    // El de una hoja sale con el token, sea cual sea su gris en el oscuro.
+    expect(placeholderRole()).toBe('var(--l-placeholder)');
+    expect(mapValue('color', '#78717f', { selector: '.input-row input::placeholder' })).toBe('var(--l-placeholder)');
+    expect(mapValue('color', '#78717f', { selector: '.input-row input' })).toBe('var(--l-ink-3)');
+    // El de un campo sin regla en Aurora (.search: Tailwind le da el 50 % del color del campo,
+    // 2,08 sobre blanco) lo cubre la regla general, opaca.
+    expect(ROLES).toContain('html:not(.dark) ::placeholder{color:var(--l-placeholder);opacity:1}');
+    const all = rules(build());
+    const placeholders = all.filter(({ prelude }) => /::placeholder/.test(prelude));
+    expect(placeholders.length).toBeGreaterThanOrEqual(4);
+    expect(placeholders.map(({ prelude }) => prelude)).toContain('html:not(.dark) ::placeholder');
+    for (const { prelude, decls } of placeholders) {
+      const { color, opacity } = Object.fromEntries(decls);
+      expect(color, prelude).toBe('var(--l-placeholder)');
+      expect(opacity ?? '1', prelude).toBe('1');
+    }
+    // La regla general va antes que las de las hojas (pesan lo mismo o mas y dicen lo mismo).
+    expect(all.findIndex(({ prelude }) => prelude === 'html:not(.dark) ::placeholder')).toBeLessThan(
+      all.findIndex(({ prelude }) => prelude === 'html:not(.dark) .input-row input::placeholder')
+    );
+    // Lo que se mide: el token sobre cada fondo donde hay un campo, y el defecto de antes.
+    for (const bg of ['surface', 'page', 'subtle', 'glass']) expect(ratio(P('placeholder'), P(bg)), bg).toBeGreaterThanOrEqual(4.5);
+    const half = solid(P('ink-3')).map((x) => (x + 255) / 2);
+    expect(ratio(`rgb(${half.map(Math.round).join(',')})`, P('surface'))).toBeLessThan(2.2);
+    // Lo escrito no se confunde con el placeholder: en la tinta.
+    expect(build()).toContain('html:not(.dark) .search input{background:none;border:0;outline:none;color:var(--l-ink-1)}');
+  });
+
+  it('los campos (FIELDS) llevan el borde field y son piezas que la app monta; e2e mide los mismos', () => {
+    const all = rules(build());
+    for (const field of FIELDS) {
+      const own = all.filter(({ prelude }) => splitTop(prelude).includes(`html:not(.dark) ${field}`));
+      expect(own.length, field).toBeGreaterThan(0);
+      const border = own.flatMap(({ decls }) => decls).filter(([prop]) => prop === 'border' || prop === 'border-color');
+      expect(border.at(-1)?.[1], field).toMatch(/var\(--l-field\)/);
+    }
+    // Un selector que solo vive en una hoja no guarda nada: .ws-search (la busqueda de Documentos
+    // de Aurora) no esta en la app, y nombrarlo como campo falla.
+    expect(unmountedClasses(FIELDS)).toEqual([]);
+    expect(unmountedClasses([...FIELDS, '.ws-search'])).toEqual(['ws-search']);
+    expect(FIELDS).not.toContain('.ws-search');
+    // La guarda del navegador (e2e/claro.spec.ts con FORM_FIELDS) mide esta misma lista.
+    const guarded = readFileSync(fixtures, 'utf8').match(/export const FORM_FIELDS = \[([^\]]*)\]/)[1];
+    expect([...guarded.matchAll(/'([^']+)'/g)].map((m) => m[1]).sort()).toEqual([...FIELDS].sort());
+  });
+
+  it('el foco del tirador del importe: el anillo del acento a 2 px, no un halo', () => {
+    const css = build();
+    expect(css).toContain('html:not(.dark) .amount-thumb:focus-visible{box-shadow:var(--l-shadow-1);outline:2px solid var(--l-focus);outline-offset:2px}');
+    // El halo de antes (focus-ring sobre blanco) frente a lo blanco: 1,29. El anillo: 3:1 o mas
+    // frente al hueco y frente a lo que puede tener fuera.
+    expect(ratio(`rgb(${solid(P('focus-ring')).map(Math.round).join(',')})`, P('surface'))).toBeLessThan(1.5);
+    for (const bg of ['surface', 'page', 'subtle-2']) expect(ratio(P('focus'), P(bg)), bg).toBeGreaterThanOrEqual(3);
   });
 
   it('inactivo frente a activo: el enviar y el principal sin nada que hacer son grises, no el acento lavado', () => {
