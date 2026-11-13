@@ -89,9 +89,10 @@
      (no tienen fondo ni borde); el anillo del foco se acerca otro tanto y queda donde estaba (en
      px enteros: el navegador ajusta la caja al pixel antes de pintar el anillo). Asi
      las ✕ del panel y de una hoja, «Volver al espacio», «Filters wissen», «Abrir la ficha» de una
-     carpeta, las migas y el buscador de una lista (con el dedo, toda su fila; un input no tiene
-     ::before). Con position: relative, alguno se pintaba distinto (el texto de «Abrir la ficha»,
-     el brillo de detras de la hoja, un pixel de una miga): por eso no.
+     carpeta y las migas; y el buscador de una lista (un input no tiene ::before), que solo crece
+     hacia arriba y a los lados, lo mismo con raton que con el dedo (mas abajo, por que). Con
+     position: relative, alguno se pintaba distinto (el texto de «Abrir la ficha», el brillo de
+     detras de la hoja, un pixel de una miga): por eso no.
    - una capa transparente (::before, posicion absoluta), como la del control de la hoja plegada,
      en los que ya estaban posicionados (la ✕ de la tarjeta de una fila, «Volver a Aurora»,
      «Volver al inicio») y en los que no pueden crecer igual por los cuatro lados: los idiomas de la
@@ -118,7 +119,24 @@
      ancha de abajo toques del borde de las de arriba que antes navegaban;
    - los tiradores crecen hacia fuera (el de abajo a la izquierda, el de arriba a la derecha), para
      no pisarse; con el dedo, 44 de alto y 29,5 de ancho: al final de la pista, a 400 px, quedan 16
-     hasta el borde de la ventana. */
+     hasta el borde de la ventana;
+   - el buscador de una lista llena su fila por arriba y por los lados (12 px arriba, 38 a la
+     izquierda, sobre la lupa, y 14 a la derecha: la caja de la fila, al pixel) y no baja de lo
+     que se ve: 31,8 de alto, con raton y con el dedo. Chromium acerca un toque al objetivo cuya
+     caja cae mejor bajo el dedo (unos 11 px alrededor), y si entre ellos hay uno de dentro de la
+     lista, la lista misma (que tambien cuenta: tiene tabindex) deja de contar. Por abajo: a 20 px
+     empieza la primera fila («Alle klanten en leveranciers», «Alle documenten»: un toque en ella
+     cierra la lista y quita ese filtro) y los toques de en medio se reparten por la mitad, de
+     caja a caja; con 13 px de relleno por abajo, los de 4 a 9 px por encima de la fila
+     enfocaban el campo en vez de elegirla, y con 3 (los de antes con raton, en una pantalla
+     tactil con raton), los de un px. Por arriba y por los lados: un toque de justo fuera de la
+     lista iba a la lista (nada) o a lo de al lado (la caja de la busqueda, que a 400 px queda
+     8,5 px por encima de la lista de los tipos); con la caja del campo igual a la de su fila va
+     al campo donde iba a la lista, y a lo de al lado donde iba; mas estrecha o mas baja, la caja
+     de la busqueda se llevaba toques que no hacian nada, y un px mas ancha, el campo alguno de
+     ella. Lo que queda, en docs/v1/registro.md («Tras la cuarta verificacion independiente»).
+     No pinta anillo de foco (outline: none, en search-workspace.css): no hay ninguno que dejar
+     en su sitio. */
 .panel-top button,.ws-dialog-top button{padding:3px;margin:-3px}
 .panel-top button:focus-visible,.ws-dialog-top button:focus-visible{outline-offset:3px}
 .conversation-top button{padding:5px;margin:-5px}
@@ -129,8 +147,7 @@
 .ws-folder-caption>a:focus-visible{outline-offset:-3px}
 .ws-breadcrumbs a{padding:2px;margin:-2px}
 .ws-breadcrumbs a:focus-visible{outline-offset:0}
-.ui-command-input input{padding:3px;margin:-3px}
-.ui-command-input input:focus-visible{outline-offset:3px}
+.ui-command-input input{padding:12px 14px 0 38px;margin:-12px -14px 0 -38px}
 .discreet-languages button,.amount-thumb{position:relative}
 .discreet-languages button::before,.detail-close::before,.ws-home::before,.processing-back::before{content:'';position:absolute;inset:min(0px,calc(50% - 12px))}
 .amount-thumb::before{content:'';position:absolute;top:min(0px,calc(50% - 12px));bottom:min(0px,calc(50% - 12px));width:24px}
@@ -143,8 +160,6 @@
   .conversation-top button:focus-visible{outline-offset:-9px}
   .filters-reset{padding:10px;margin:-10px -10px -10px auto}
   .filters-reset:focus-visible{outline-offset:-4px}
-  .ui-command-input input{padding:13px;margin:-13px}
-  .ui-command-input input:focus-visible{outline-offset:-7px}
   .ws-folder-caption>a{padding:12px;margin:-12px}
   .ws-folder-caption>a:focus-visible{outline-offset:-10px}
   .discreet-languages button::before,.processing-back::before{inset:min(0px,calc(50% - 22px))}

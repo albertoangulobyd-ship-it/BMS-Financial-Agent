@@ -415,8 +415,7 @@ html:not(.dark) .conversation-top button:focus-visible{outline-offset:1px}
 html:not(.dark) .filters-reset:focus-visible{outline-offset:0}
 html:not(.dark) .ws-folder-caption>a:focus-visible{outline-offset:-3px}
 html:not(.dark) .ws-breadcrumbs a:focus-visible{outline-offset:0}
-html:not(.dark) .ui-command-input input:focus-visible{outline-offset:3px}
-@media(pointer:coarse){html:not(.dark) .panel-top button:focus-visible,html:not(.dark) .ws-dialog-top button:focus-visible{outline-offset:-7px}html:not(.dark) .conversation-top button:focus-visible{outline-offset:-9px}html:not(.dark) .filters-reset:focus-visible{outline-offset:-4px}html:not(.dark) .ui-command-input input:focus-visible{outline-offset:-7px}html:not(.dark) .ws-folder-caption>a:focus-visible{outline-offset:-10px}html:not(.dark) .ws-home:focus-visible{outline-offset:-12px}}
+@media(pointer:coarse){html:not(.dark) .panel-top button:focus-visible,html:not(.dark) .ws-dialog-top button:focus-visible{outline-offset:-7px}html:not(.dark) .conversation-top button:focus-visible{outline-offset:-9px}html:not(.dark) .filters-reset:focus-visible{outline-offset:-4px}html:not(.dark) .ws-folder-caption>a:focus-visible{outline-offset:-10px}html:not(.dark) .ws-home:focus-visible{outline-offset:-12px}}
 
 /* ==== A mano (scripts/aurora-claro-mano.css; aurora-claro.mjs la pega al final de claro.css).
    Lo que no sale de una hoja de SHEETS o no se ve desde ella: los estados que Aurora no tiene
