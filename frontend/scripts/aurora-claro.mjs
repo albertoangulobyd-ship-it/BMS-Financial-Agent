@@ -11,6 +11,8 @@
 // - las declaraciones de esas mismas propiedades sin color (none, 0, inherit...) y las del
 //   contorno (outline-*), tal cual: al ir todas con el mismo prefijo, la cascada del claro es la
 //   del oscuro y ninguna regla de despues pierde (ni cambia una caja ni un anillo de foco);
+// - ROLES: los papeles que no cuelgan de una regla de las hojas (el placeholder de cualquier
+//   campo, tenga o no una regla en Aurora);
 // - DESIGN: lo que se disena sobre esas reglas (el panel que flota, la caja, el dialogo...);
 // - al final, scripts/aurora-claro-mano.css: lo que no sale de una hoja de SHEETS (las carpetas
 //   de cristal, los lienzos, los atributos SVG del resumen, los estados que Aurora no tiene...).
@@ -58,6 +60,10 @@ export const PALETTE = {
   'ink-3': '#686871',
   'ink-4': '#a0a0a8',
   'on-fill': '#ffffff',
+  // El placeholder de un campo: un texto como otro (4,5:1 o mas sobre la pagina y sobre lo
+  // blanco), el gris terciario. Nunca el color del campo a medias (lo que le da Tailwind si
+  // nadie lo dice: 2,08 en la busqueda de las listas).
+  placeholder: '#686871',
   // Lineas y velos: la misma tinta a distintas alfas; field, el borde de un campo (WCAG 1.4.11).
   'line-soft': 'rgba(17,17,26,.06)',
   line: 'rgba(17,17,26,.09)',
@@ -194,6 +200,11 @@ export function textRole(rgba, onLight = false) {
   return v(L >= 0.86 ? 'ink-1' : L >= 0.68 ? 'ink-2' : 'ink-3');
 }
 
+/** El placeholder de un campo: siempre el mismo token, sea cual sea el gris de la hoja. */
+export function placeholderRole() {
+  return v('placeholder');
+}
+
 /** Un velo (fondo con transparencia): tinta muy suave, por su fuerza. */
 function veil(alpha) {
   return v(alpha < 0.05 ? 'veil-1' : alpha < 0.1 ? 'veil-2' : 'veil-3');
@@ -292,6 +303,7 @@ export function mapValue(prop, value, ctx = {}) {
   if (!COLOR_TOKEN.test(value)) return null;
   COLOR_TOKEN.lastIndex = 0;
   const focus = /:focus/.test(ctx.selector ?? '');
+  const placeholder = /::placeholder/.test(ctx.selector ?? '');
   const kind = prop.startsWith('--')
     ? varKind(prop)
     : /^(color|fill|caret-color|-webkit-text-fill-color|text-decoration-color|accent-color)$/.test(prop)
@@ -308,7 +320,7 @@ export function mapValue(prop, value, ctx = {}) {
   return value.replace(COLOR_TOKEN, (token) => {
     const rgba = parseColor(token);
     if (!rgba) return token;
-    if (kind === 'text') return ctx.onAccent ? v('on-fill') : textRole(rgba, ctx.onLight);
+    if (kind === 'text') return placeholder ? placeholderRole() : ctx.onAccent ? v('on-fill') : textRole(rgba, ctx.onLight);
     if (kind === 'line') return /^outline/.test(prop) ? v('focus') : lineRole(rgba, { focus });
     return backgroundRole(rgba, ctx);
   });
@@ -444,6 +456,10 @@ export const DESIGN = {
   '.ws-dialog-top': { color: v('ink-2') },
   '.panel-top button': { color: v('ink-2') },
   '.order-field .composer': { 'box-shadow': 'none', 'border-color': v('field') },
+  // La busqueda de una lista del panel («Zoek bedrijf of document…»): un campo, con su borde a
+  // 3:1; lo escrito en la tinta y el placeholder en su papel (ROLES), la lupa en el terciario.
+  '.search': { border: `1px solid ${v('field')}`, background: v('surface'), color: v('ink-3') },
+  '.search input': { color: v('ink-1') },
   '.filter-label': { color: v('ink-3') },
   '.order-error': { color: `${v('danger')}!important` },
   '.dropzone': { border: `1px dashed ${v('line-input')}`, color: v('ink-2') },
@@ -506,6 +522,12 @@ export const DESIGN = {
   '.amount-track': { background: v('subtle-2') },
   '.amount-fill': { background: v('accent') },
   '.amount-thumb': { border: `2px solid ${v('accent')}`, background: v('surface'), 'box-shadow': v('shadow-1') },
+  // El foco con el teclado en un tirador: el halo de Aurora (4 px del lila a 0,19) da 1,29 sobre
+  // lo blanco. En el claro, el anillo de foco de todo lo demas (2 px del acento), a 2 px del
+  // tirador, que ya lleva el borde del acento: 6,00 frente al hueco y frente a lo de fuera
+  // (WCAG 1.4.11). Ocupa los mismos 4 px que el halo; la sombra es la del tirador en reposo (un
+  // hueco pintado de blanco seria un brillo claro de fuera, que el claro no tiene).
+  '.amount-thumb:focus-visible': { outline: `2px solid ${v('focus')}`, 'outline-offset': '2px', 'box-shadow': v('shadow-1') },
   '.amount-ghost': { background: v('accent-line') },
   '.active-filter-chips button': { border: `1px solid ${v('line')}`, color: v('ink-1'), background: v('surface') },
   '.result-file-icon': { border: `1px solid ${v('line-soft')}`, background: v('subtle'), color: v('ink-2') },
@@ -579,6 +601,8 @@ export const DESIGN = {
   '.ws-breadcrumbs [aria-current=page]': { color: v('ink-1') },
   '.ws-file-table strong': { color: v('ink-1') },
   '.ws-empty h2': { color: v('ink-1') },
+  // .ws-search es la busqueda de Documentos de Aurora: la app no la monta (el campo de verdad es
+  // .search, mas arriba). Se deja disenada por si llega; no es uno de FIELDS.
   '.ws-search input': { color: v('ink-1') },
   '.ws-profile': { border: `1px solid ${v('line')}`, background: v('surface'), 'box-shadow': v('shadow-1') },
   '.ws-profile dt': { color: v('ink-3') },
@@ -679,6 +703,17 @@ function tokens() {
     .join(';')}}`;
 }
 
+/** Los papeles que no cuelgan de una regla de las hojas. El placeholder: el de cualquier campo
+ *  del claro, tenga o no su regla en Aurora (el de .search no la tiene y Tailwind le daba el 50 %
+ *  del color del campo). Va antes de las reglas de las hojas: las que si nombran un placeholder
+ *  pesan mas y llevan el mismo token (mapValue). */
+export const ROLES = [`html:not(.dark) ::placeholder{color:${placeholderRole()};opacity:1}`];
+
+/** Los campos de formulario: su unico limite visible es el borde `field`, a 3:1 (WCAG 1.4.11).
+ *  Cada uno es de una pieza que la app monta (un .tsx de src/aurora): la prueba falla si alguno
+ *  solo esta en una hoja, y e2e/fixtures.ts (FORM_FIELDS) mide estos mismos en el navegador. */
+export const FIELDS = ['.order-field .composer', '.filter-combo-trigger', '.filter-date-trigger', '.ui-button', '.search'];
+
 /** Lo que va a mano (scripts/aurora-claro-mano.css): lo que no sale de una hoja de SHEETS o no
  *  se ve desde ella. Se escribe con el prefijo html:not(.dark) explicito y va al final. */
 export const HAND_FILE = fileURLToPath(new URL('./aurora-claro-mano.css', import.meta.url));
@@ -717,19 +752,30 @@ export function classNames(css) {
   return out;
 }
 
-/** Donde puede vivir una clase de la capa a mano: las hojas de SHEETS, la de las carpetas de
- *  cristal y los .tsx de src/aurora. */
-function knownText() {
-  const texts = [...SHEETS, 'documents/glass-folder-cards.css'].map((sheet) => readFileSync(src + sheet, 'utf8'));
+/** Los .tsx de src/aurora (sin sus pruebas): lo que la app monta. */
+export function appText() {
+  const texts = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith('.tsx')) texts.push(readFileSync(path, 'utf8'));
+      else if (entry.name.endsWith('.tsx') && !entry.name.endsWith('.test.tsx')) texts.push(readFileSync(path, 'utf8'));
     }
   };
   walk(src);
   return texts.join('\n');
+}
+
+/** Donde puede vivir una clase de la capa a mano: las hojas de SHEETS, la de las carpetas de
+ *  cristal y los .tsx de src/aurora. */
+function knownText() {
+  return [...[...SHEETS, 'documents/glass-folder-cards.css'].map((sheet) => readFileSync(src + sheet, 'utf8')), appText()].join('\n');
+}
+
+/** Las clases de una lista de selectores que no estan en ningun .tsx de src/aurora (un selector
+ *  que solo vive en una hoja no pinta nada en la app). */
+export function unmountedClasses(selectors, app = appText()) {
+  return orphanClasses(selectors.map((s) => `${s}{}`).join('\n'), app);
 }
 
 /** Las clases de la capa a mano que no estan en ninguna hoja ni en ningun .tsx de src/aurora
@@ -774,6 +820,7 @@ export function build(report, hand = readFileSync(HAND_FILE, 'utf8')) {
    (cada color, por el papel que hace en el oscuro, con la paleta clara --l-*, bajo html:not(.dark))
    y de frontend/scripts/aurora-claro-mano.css (lo disenado a mano). */
 ${tokens()}
+${ROLES.join('\n')}
 ${rules.join('\n')}
 ${hand}`;
   const raw = rawColors(text);
