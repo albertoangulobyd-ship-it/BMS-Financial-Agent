@@ -10640,7 +10640,16 @@ las dos de `canvas.gf-art` y `.pc-outline`. Ninguna hoja de Aurora ni ningún `.
   gira: .ws-search», esperaba más de 0 y recibió 0.
 
 **Resultado.** La pasada final de `e2e/claro.spec.ts` (5) y `e2e/themes.spec.ts` (9), con la app
-construida en `a118633`: 14 de 14, en 13,8 min.
+construida en `a118633`: 14 de 14, en 13,8 min. Y la misma sonda de «antes», repetida con esa app
+(la gira entera en claro, a 1440 y a 400 px), mide lo de la tabla: los seis placeholders a **5,52**
+(`rgb(104, 104, 113)` sobre blanco; el de `.search`, en sus 8 vistas por ancho), el borde de
+`.search` en `rgb(138, 138, 147)` las 11 veces que aparece por ancho (como los otros cuatro
+campos; `.ws-search`, 0 veces), y el anillo de los dos tiradores a **5,51** frente al hueco y
+frente a lo de fuera. `typecheck`, `vitest` (1367), `--comprobar` y `npm run fuente` («Al dia»),
+bien. De `pytest`, 2630 pasan y 3 fallan por el entorno de esta máquina, rehecha ese día: trae
+`anthropic` 2.8.0 y el candado pide 1.13.0 (`test_entorno_local` y el esquema de
+`test_extraccion_v2`), y le falta `ground_truth/respuestas-ejemplo.yaml` (`test_scoring`). Nada de
+Python cambia aquí.
 
 ### Las pruebas y el calendario (09-11-2026)
 
