@@ -78,9 +78,13 @@ html:not(.dark) .tree-selected .tree-meta{color:var(--l-ink-2)}
 /* -- Las carpetas de cristal: el tono claro del dueno (data-tone light, la hoja tal cual) sobre
    su marmol, aclarado (violeta y acero del arte, sin la perla invertida). El desenfoque y la
    saturacion de antes de estar listo son los de glass-folder-cards.css, asi su transicion
-   (filter 1.2s y .9s) va de uno a otro sin saltos. */
-html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art{filter:blur(14px) saturate(.6) saturate(.72) brightness(1.3) contrast(.86)}
-html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art[data-ready]{filter:blur(0) saturate(1) saturate(.72) brightness(1.3) contrast(.86)}
+   (filter 1.2s y .9s) va de uno a otro sin saltos. En el respaldo de la carpeta (gf-art) lo
+   oscuro del arte no se queda en manchas casi negras: primero el contraste a la mitad (el negro
+   sube a un gris medio) y despues el brillo, que devuelve los claros a blanco; con brillo y
+   despues contraste .86, como antes, el negro se quedaba en un 7 % de luz. Las hojas con arte
+   (gf-sheet-art) llevan su meta en blanco encima y siguen como estaban. */
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art{filter:blur(14px) saturate(.6) saturate(.9) contrast(.5) brightness(1.36)}
+html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-art[data-ready]{filter:blur(0) saturate(1) saturate(.9) contrast(.5) brightness(1.36)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art{filter:blur(10px) saturate(.72) brightness(1.3) contrast(.86)}
 html:not(.dark) .gf-root:not([data-tone=dark]) canvas.gf-sheet-art[data-ready]{filter:blur(0) saturate(.72) brightness(1.3) contrast(.86)}
 /* La meta de una carpeta ("0 documenten", monoespaciada de 12 px y trazo fino): a 0,74 se mide en
@@ -112,6 +116,12 @@ html:not(.dark) .processing-card{color:var(--l-ink-1)}
 /* "Terug naar start" en el secundario (document-loader.css lo pone en #888 con el pie del coste,
    que se queda en el terciario). */
 html:not(.dark) .process-mode .processing-back{color:var(--l-ink-2)!important}
+/* El marco de la tarjeta baja 10 px por debajo de ella (processing-card.css: inset 0 -12px -10px)
+   y su borde de abajo pasa por encima de los pasos («Lezen — Vergelijken — Analyseren»). En el
+   oscuro no se ve (blanco a 0,05: 1,07); en el claro la linea si se ve y cruza los iconos. Aqui
+   el marco se funde antes de llegar a ellos: los lados se apagan en sus ultimos 64 px y el borde
+   de abajo no se pinta. La caja es la misma. */
+html:not(.dark) .pc-outline{-webkit-mask-image:linear-gradient(#000 calc(100% - 64px),transparent calc(100% - 16px));mask-image:linear-gradient(#000 calc(100% - 64px),transparent calc(100% - 16px))}
 
 /* -- La busqueda: el "borrar x" del rango sin rango que borrar (disabled), en el gris de lo
    inactivo; la x de un filtro puesto, en el terciario. */
