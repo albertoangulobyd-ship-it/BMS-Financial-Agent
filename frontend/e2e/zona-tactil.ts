@@ -25,12 +25,8 @@ export const ZONES: readonly Zone[] = [
   { name: 'la ✕ de la tarjeta de una fila', selector: '.detail-close', relative: false },
   { name: '«Filters wissen» de la busqueda', selector: '.filters-reset', relative: false, box: '.filters-reset{padding:0!important;margin:0 0 0 auto!important}' },
   { name: 'los tiradores del importe', selector: '.amount-thumb', relative: true },
-  {
-    name: 'el buscador de una lista',
-    selector: '.ui-command-input input',
-    relative: false,
-    box: '.ui-command-input input{padding:0!important;margin:0!important}.ui-command-input input:focus-visible{outline-offset:6px!important}',
-  },
+  // Sin anillo que devolver a su sitio: el campo no pinta ninguno (outline: none, de Aurora).
+  { name: 'el buscador de una lista', selector: '.ui-command-input input', relative: false, box: '.ui-command-input input{padding:0!important;margin:0!important}' },
   { name: '«Volver al espacio» de la conversacion', selector: '.conversation-top button', relative: false, box: '.conversation-top button{padding:0!important;margin:0!important}' },
   // Con raton, una capa (::before); con el dedo, relleno y margen (bms.css): lo de antes, sin nada.
   {

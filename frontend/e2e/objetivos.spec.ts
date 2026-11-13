@@ -18,7 +18,10 @@
 //   de migas), cada toque de verdad va adonde iba en 1cc96b0, o a la zona si antes no hacia nada
 //   (Chromium acerca un toque al objetivo que mejor cae bajo el dedo: elementFromPoint no lo ve;
 //   el clic en el margen de una hoja la cierra, y eso no es nada; el de una etiqueta es el de su
-//   control).
+//   control);
+// - con el dedo, a 400 × 860 (isMobile) y a 1440 × 900 (hasTouch): lo mismo alrededor del buscador
+//   de las dos listas de los filtros, que tiene su primera fila 20 px por debajo, y un toque de
+//   verdad 5 px por encima de esa fila la elige.
 import type { Locator, Page } from '@playwright/test';
 import { expect, expectAccessible, login, N, settled, test } from './fixtures';
 import {
@@ -45,7 +48,7 @@ import {
 } from './nav';
 import { areaOf, grid, hitChanges, measureTargets, scrollChanges, tapChanges, tour, zoneTour, type TapChange, type Target } from './objetivos';
 import { decodePng, differingPixels } from './png';
-import { coarsePointer, withoutHitArea, ZONES } from './zona-tactil';
+import { coarsePointer, size as boxSize, withoutHitArea, ZONES } from './zona-tactil';
 
 const t = TEXTS.nl;
 const JV = 'J. Voorbeeld Beveiliging (zzp)';
@@ -128,6 +131,9 @@ function least(zone: string, coarse: boolean): number {
   if (zone === '«Abrir la ficha» de una carpeta') return 39;
   // «Filters wissen»: mas alta, Chromium le daba toques del borde de arriba del campo de la empresa.
   if (zone === '«Filters wissen» de la busqueda') return 32;
+  // El buscador de una lista: no baja de lo que se ve (con relleno por abajo, Chromium le daba
+  // toques de justo encima de la primera fila de la lista); por arriba, toda su fila (12 px).
+  if (zone === 'el buscador de una lista') return 31;
   return 44;
 }
 
@@ -259,6 +265,9 @@ for (const size of [
 }
 
 // ------------------------------------------------------------------ con el dedo
+
+/** Lo que no hace nada al tocarlo (tapChanges): nada, o la miga de la pagina en que se esta. */
+const nothing = (s: string) => s.startsWith('nada') || s.startsWith('sin clic (nada') || s.endsWith('(la pagina en que se esta)');
 
 /** Un toque cerca del borde de la zona (a 2 px de su esquina de abajo a la derecha, o de la que
  *  se pida, o a `inset`), fuera de lo que se ve: el punto es del control. */
@@ -422,7 +431,6 @@ test.describe('con el dedo, a 400 px', () => {
     await page.goto(`${baseUrl}/app`);
     await login(page);
     const wrong: string[] = [];
-    const nothing = (s: string) => s.startsWith('nada') || s.startsWith('sin clic (nada') || s.endsWith('(la pagina en que se esta)');
     const [pre, post] = t.aurora.archive.openProfileNamed.split('{name}') as [string, string];
     const sameFolder = (c: TapChange) => {
       const m = c.after.match(/^a «(.*)» \[zona\]$/);
@@ -490,6 +498,9 @@ test.describe('con el dedo, a 400 px', () => {
     await expect(page.locator('.active-filter-chips')).toBeVisible();
     await page.locator('.filters-toggle').click();
     await expect(page.locator('#search-filters')).toBeVisible();
+    // Con la busqueda terminada: mientras piensa (1,5 s cada vez que cambia un filtro), su boton
+    // «Zoeken» esta deshabilitado y un toque en el no da clic.
+    await expect(page.locator('.search-thinking')).toHaveCount(0, { timeout: 15_000 });
     await settled(page);
     const reset = await around(page.locator('.filters-reset'), -30, 16, 3, -24, 32, 2);
     check('«Filters wissen» sobre el campo de la empresa', await tapChanges(page, reset), reset.length);
@@ -532,3 +543,100 @@ test.describe('con el dedo, a 400 px', () => {
   });
 });
 
+// El buscador de las dos listas de los filtros (la empresa y el tipo), con el dedo. Su caja llena
+// su fila por arriba y por los lados y no baja de lo que se ve (bms.css): la primera fila («Alle
+// klanten en leveranciers», «Alle documenten»: elegirla cierra la lista y quita ese filtro) empieza
+// 20 px por debajo, y Chromium reparte los toques de en medio por la mitad, de caja a caja; con
+// relleno por abajo (13 px, hasta la cuarta verificacion independiente), los de 4 a 9 px por
+// encima de la fila enfocaban el campo en vez de elegirla. Se toca de verdad alrededor del campo,
+// con las zonas y sin las nuevas (como en 1cc96b0), con los clics parados: cada 11 px de ancho y
+// cada pixel de alto, de 12 px a cada lado de la lista y de 14 por encima de ella a 10 por debajo
+// del borde de la primera fila; cada toque va adonde iba, o al campo si antes no hacia nada. Una
+// sola cosa mas, apuntada (docs/v1/registro.md, «Tras la cuarta verificacion independiente»): a
+// 1440 px, la caja de la busqueda de la pagina pasa por debajo de la lista de los tipos y asoma
+// por sus lados, y un toque de justo fuera de la lista (a menos de 6 px), de 1 a 3 px por debajo
+// de lo que se ve del campo y justo encima de esa caja, que iba a la lista (nada), va a la caja
+// (3 de los toques de la rejilla). Y un toque sin parar nada, con un filtro puesto: 5 px por
+// encima de la primera fila, la elige (la lista se cierra y el filtro se quita).
+for (const device of [
+  { name: '400 px (isMobile)', use: { viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true } },
+  { name: '1440 px (hasTouch)', use: { viewport: { width: 1440, height: 900 }, hasTouch: true } },
+]) {
+  test.describe(`con el dedo, a ${device.name}`, () => {
+    test.use(device.use);
+
+    test(`los toques junto al buscador de una lista van adonde iban en 1cc96b0, o al buscador si no hacian nada (${device.name})`, async ({ page, baseUrl }) => {
+      test.setTimeout(900_000);
+      await page.goto(`${baseUrl}/app`);
+      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+      await login(page);
+      await openEntry(page, 'search');
+      await page.locator('.filters-toggle').click();
+      await expect(page.locator('#search-filters')).toBeVisible();
+      await settled(page);
+      const wrong: string[] = [];
+      const popover = page.locator('.ui-popover');
+      const input = popover.locator('.ui-command-input input');
+      const first = popover.locator('.ui-command-item').first();
+      for (const [selector, list] of [['.party-combobox button', 'la lista de las empresas'], ['.filter-combo-trigger', 'la lista de los tipos']] as const) {
+        const trigger = page.locator(`#search-filters ${selector}`);
+        const text = async () => ((await trigger.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+        const open = async () => {
+          await trigger.click();
+          await expect(popover).toBeVisible();
+          await settled(page);
+        };
+        const unfiltered = await text();
+        await open();
+        // La zona no baja de lo que se ve del campo, y la primera fila empieza 20 px por debajo.
+        const { box, area } = await areaOf(input);
+        const row = (await first.boundingBox())!;
+        const whole = (await popover.boundingBox())!;
+        const below = area.y + area.height - (box.y + box.height);
+        if (below > 0.05) wrong.push(`${list}: la zona del campo baja ${below.toFixed(1)} px de lo que se ve`);
+        expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeGreaterThan(15);
+        expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeLessThan(25);
+        const points = grid(whole.x - 12, whole.x + whole.width + 12, 11, whole.y - 14, row.y + 10, 1);
+        const changes = await tapChanges(page, points);
+        const groups = new Map<string, TapChange[]>();
+        let fine = 0;
+        let beside = 0;
+        for (const c of changes) {
+          // Lo que no hacia nada, al campo.
+          if (nothing(c.before) && c.after.startsWith('input «') && c.after.endsWith('[zona]')) {
+            fine += 1;
+            continue;
+          }
+          // Fuera de la lista, por sus lados: de la lista (nada) a la caja de la busqueda de la pagina.
+          if (nothing(c.before) && c.after === `input «${t.aurora.composer.searchLabel}»` && (c.x < whole.x || c.x > whole.x + whole.width)) {
+            beside += 1;
+            continue;
+          }
+          const k = `${c.before} → ${c.after}`;
+          groups.set(k, [...(groups.get(k) ?? []), c]);
+        }
+        wrong.push(...[...groups].map(([k, v]) => `${list}: ${k} (${v.length} puntos, de y = ${Math.min(...v.map((c) => c.y))} a ${Math.max(...v.map((c) => c.y))}, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
+        console.log(`${list} a ${device.name}: el campo ${boxSize(box)}, su zona ${boxSize(area)}, la primera fila en y = ${row.y.toFixed(1)}; ${points.length} toques, ${fine} pasan de nada al campo, ${beside} de nada (la lista, desde fuera) a la caja de la busqueda de la pagina, ${changes.length - fine - beside} sin permiso${[...groups].map(([k, v]) => `\n  ${k}: ${v.length}`).join('')}`);
+        await expect(popover).toBeVisible();
+        expect(fine, `${list}: toques que pasan de nada al campo`).toBeGreaterThan(0);
+        // Solo junto a la lista de los tipos a 1440 px (3 en esta rejilla).
+        expect(beside, `${list}: toques de justo fuera de la lista que pasan de nada a la caja de la busqueda de la pagina`).toBeLessThanOrEqual(device.use.viewport.width === 1440 && selector === '.filter-combo-trigger' ? 4 : 0);
+        // Sin parar nada, con un filtro puesto (la tercera fila): un toque 5 px por encima de la
+        // primera fila la elige, como en 1cc96b0 (la lista se cierra y el filtro se quita).
+        await popover.locator('.ui-command-item').nth(2).click();
+        await expect(popover).toHaveCount(0);
+        expect(await text(), `${list}: un filtro puesto`).not.toBe(unfiltered);
+        await open();
+        const top = (await first.boundingBox())!;
+        await page.touchscreen.tap(top.x + top.width / 2, top.y - 5);
+        const chosen = await popover.waitFor({ state: 'detached', timeout: 3_000 }).then(() => true, () => false);
+        if (!chosen) {
+          wrong.push(`${list}: un toque 5 px por encima de la primera fila no la elige (la lista sigue abierta${(await input.evaluate((e) => e === document.activeElement)) ? ', el foco en el campo' : ''})`);
+          await page.keyboard.press('Escape');
+          await expect(popover).toHaveCount(0);
+        } else if ((await text()) !== unfiltered) wrong.push(`${list}: un toque 5 px por encima de la primera fila no quita el filtro («${await text()}»)`);
+      }
+      expect(wrong).toEqual([]);
+    });
+  });
+}

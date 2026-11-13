@@ -52,8 +52,8 @@ export interface Target {
   /** Si tiene zona tactil (bms.css), cual. */
   zone?: string;
   /** Tapado en parte por una lista abierta (un calendario, un desplegable) de la que no es, o un
-   *  tirador del importe mientras una lista de los filtros esta abierta (sin zona, como en
-   *  1cc96b0: bms.css; la lista lo tapa en parte). */
+   *  tirador del importe mientras una lista de los filtros esta abierta, lo tape o no (sin zona,
+   *  como en 1cc96b0: bms.css). */
   underPopover?: true;
 }
 
@@ -646,13 +646,25 @@ export interface TapChange {
  * en que se esta)» si es la miga de la pagina (no hace nada) y «[zona]» si tiene zona tactil.
  * Devuelve solo los puntos que cambian.
  *
- * Primero todos los puntos sin las zonas y luego todos con ellas (la hoja que las quita se pone
- * y se quita una vez, no en cada toque), y con los fotogramas de la app parados mientras tanto
- * (requestAnimationFrame no llama a nadie: los lienzos y las animaciones no ocupan el hilo): cada
- * toque tarda un fotograma, unos 17 ms, y no los 70 a 110 de antes con la CPU cargada (medido el
- * 10-11-2026, con los mismos resultados punto a punto, tambien que con cada toque aislado, 450 ms
- * despues del anterior). Los toques van uno a uno: mandados todos de golpe, sin esperar a cada
- * uno, Chromium no los acerca igual.
+ * Tres pasadas: todos los puntos sin las zonas, todos con ellas y todos sin ellas otra vez (la
+ * hoja que las quita se pone y se quita una vez por pasada, no en cada toque), con los fotogramas
+ * de la app parados mientras tanto (requestAnimationFrame no llama a nadie: los lienzos y las
+ * animaciones no ocupan el hilo): cada toque tarda un fotograma, unos 17 ms, y no los 70 a 110 de
+ * tocar uno a uno con la hoja cambiada en cada toque y la CPU cargada. Los toques van uno a uno:
+ * mandados todos de golpe, sin esperar a cada uno, Chromium no los acerca igual.
+ *
+ * La pasada repetida es la guarda de las otras dos: entre una pasada y otra pasan segundos, y si
+ * la pagina cambia en medio (una busqueda que termina y habilita su boton: 1,5 s), un punto da
+ * otra cosa sin que la hoja tenga que ver. Los puntos que no dan lo mismo las dos veces sin las
+ * zonas se repiten solos (sin, con, sin), hasta dos veces; si siguen sin cuadrar, error.
+ *
+ * Comprobado el 13-11-2026 (Chromium 153, a 400 x 860 con isMobile) en una muestra de 2386 puntos
+ * de los ocho sitios de las pruebas: da lo mismo, punto a punto, que tocar uno a uno con la hoja
+ * cambiada en cada toque (0 distintos sin las zonas y 0 con ellas). Con cada toque aislado, 300 ms
+ * despues del anterior (480 puntos), 479 iguales: el otro, en el borde de una carpeta de
+ * Documentos, da nada en vez de la carpeta, igual con las dos hojas (la carpeta se abre con el
+ * dedo encima, :hover, y el toque de antes, al lado, la deja abierta: en una rejilla cuenta el
+ * punto de antes, el mismo en las tres pasadas).
  */
 export async function tapChanges(page: Page, points: [number, number][]): Promise<TapChange[]> {
   // La hoja que deja lo de 1cc96b0 (sin las zonas nuevas), hecha y quitada.
@@ -710,23 +722,36 @@ export async function tapChanges(page: Page, points: [number, number][]): Promis
       window.addEventListener(type, stop, { capture: true, passive: false });
   }, { selector: INTERACTIVE, zones: ZONES.map((z) => z.selector) });
   type Entry = [x: number, y: number, down: string, click: string | null];
-  const pass = async (off: boolean): Promise<string[]> => {
+  const pass = async (off: boolean, pts: [number, number][]): Promise<string[]> => {
     await page.evaluate((o) => (window as unknown as { __toque: { start: (o: boolean) => void } }).__toque.start(o), off);
     let log: Entry[];
     try {
-      for (const [x, y] of points) await page.touchscreen.tap(x, y);
+      for (const [x, y] of pts) await page.touchscreen.tap(x, y);
     } finally {
       // El clic del ultimo toque: una vuelta mas al hilo de la pagina antes de recoger.
       await page.evaluate(() => new Promise((r) => setTimeout(r, 30)));
       log = await page.evaluate(() => (window as unknown as { __toque: { stop: () => Entry[] } }).__toque.stop());
     }
     // Un pointerdown por toque, en su punto y en su orden: si no, lo apuntado no vale.
-    const ok = log.length === points.length && log.every((l, i) => Math.abs(l[0] - points[i]![0]) < 0.6 && Math.abs(l[1] - points[i]![1]) < 0.6);
-    if (!ok) throw new Error(`los toques apuntados no cuadran con los puntos: ${log.length} de ${points.length}`);
+    const ok = log.length === pts.length && log.every((l, i) => Math.abs(l[0] - pts[i]![0]) < 0.6 && Math.abs(l[1] - pts[i]![1]) < 0.6);
+    if (!ok) throw new Error(`los toques apuntados no cuadran con los puntos: ${log.length} de ${pts.length}`);
     return log.map((l) => l[3] ?? `sin clic (${l[2]})`);
   };
-  const before = await pass(true);
-  const after = await pass(false);
+  const before = await pass(true, points);
+  const after = await pass(false, points);
+  const again = await pass(true, points);
+  // Lo que no estaba quieto (no da lo mismo las dos veces sin las zonas), otra vez, solo.
+  for (let round = 0; ; round += 1) {
+    const moving = points.flatMap((_, i) => (before[i] === again[i] ? [] : [i]));
+    if (!moving.length) break;
+    if (round === 2) {
+      const [x, y] = points[moving[0]!]!;
+      throw new Error(`${moving.length} puntos no dan lo mismo dos veces sin las zonas (la pagina cambia mientras se toca): p. ej. (${x}, ${y}), «${before[moving[0]!]}» y «${again[moving[0]!]}»`);
+    }
+    const pts = moving.map((i) => points[i]!);
+    const [b, a, g] = [await pass(true, pts), await pass(false, pts), await pass(true, pts)];
+    moving.forEach((i, k) => ((before[i] = b[k]!), (after[i] = a[k]!), (again[i] = g[k]!)));
+  }
   const out: TapChange[] = [];
   points.forEach(([x, y], i) => {
     // «Nada» es nada, sea lo que sea lo que hay debajo.
