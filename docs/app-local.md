@@ -926,7 +926,8 @@ contrastes WCAG 2.x, las alfas compuestas sobre blanco; «pág.» `#f5f5f7`, «s
 | Pistas, segmentado, lo inactivo | `subtle-2` | `#ececf0` | 1,08 frente a la página |
 | Texto principal y cifras | `ink-1` | `#17171c` | 16,40 pág. / 17,86 sup. / 15,49 suave |
 | Texto secundario | `ink-2` | `#484851` | 8,31 / 9,05 / 7,85 |
-| Texto terciario (meta, placeholders) | `ink-3` | `#686871` | 5,07 / 5,52 / 4,78 |
+| Texto terciario (meta) | `ink-3` | `#686871` | 5,07 / 5,52 / 4,78 |
+| Placeholder de cualquier campo | `placeholder` | `#686871` | 5,07 / 5,52: es un texto, nunca el color del campo a medias |
 | Solo lo inactivo y lo decorativo | `ink-4` | `#a0a0a8` | 2,38 / 2,60: **nunca texto** |
 | Líneas | `line-soft` / `line` / `line-strong` | tinta `rgb(17,17,26)` a 0,06 / 0,09 / 0,14 | 1,13 / 1,20 / 1,34 |
 | Borde de un campo de formulario | `field` | `#8a8a93` | 3,42 sup. / 3,14 pág.: WCAG 1.4.11 |
@@ -954,21 +955,45 @@ deja ver la página (`subtle`). Ninguna superficie con texto es translúcida por
 hay ningún brillo blanco fuera de una pieza.
 
 **WCAG 1.4.11, los límites de los componentes.** Los campos de formulario (el texto de una orden,
-los desplegables y combos, la fecha, la búsqueda de Documentos) llevan el borde `field` a 3:1 o más:
-su única marca visible es el borde. Dos excepciones, deliberadas: las dos cajas grandes (la de
+los desplegables y combos, la fecha y la búsqueda de una lista del panel, `.search`: «Zoek bedrijf of
+document…») llevan el borde `field` a 3:1 o más: su única marca visible es el borde. Son los de
+`FIELDS` (`scripts/aurora-claro.mjs`) y los mismos que mide `FORM_FIELDS` (`e2e/fixtures.ts`): cada
+uno es de una pieza que la app monta. La lista nombraba `.ws-search`, la búsqueda de Documentos de
+Aurora, que la app no monta: sigue diseñada en `DESIGN` por si llega, pero no es un campo guardado.
+Dos excepciones, deliberadas: las dos cajas grandes (la de
 escribir y la búsqueda grande) se quedan con la línea fina (1,20), porque son únicas en su pantalla
-y se identifican por su placeholder (`ink-3`, 5,52), por el botón relleno del acento que llevan
+y se identifican por su placeholder (5,52), por el botón relleno del acento que llevan
 dentro (6,00 sobre blanco, más de 3:1) y por su relleno blanco con sombra sobre la página; con el
 teclado se marcan con el borde del acento y su halo. Y los botones con texto (`.outline`, «Stop»,
 los disparadores de filtros), que identifica su texto (Understanding 1.4.11 no pide límite a un
 botón con texto). Si el dueño o una auditoría lo piden, las cajas grandes pasan a `field` con una
 línea de `DESIGN`. Lo mide `e2e/claro.spec.ts` en cada estado.
 
+**Los placeholders (WCAG 1.4.3).** El placeholder es un papel del generador, no un color por campo:
+el token `placeholder` en cada regla `::placeholder` de las hojas y en una regla general
+(`ROLES`: `html:not(.dark) ::placeholder`, opaca) para cualquier campo, tenga o no su regla en
+Aurora. Sin ella, a un campo sin regla (la búsqueda de las listas) Tailwind le da el 50 % del color
+del campo: 2,08 sobre blanco. Lo escrito va en `ink-1`, para no confundirse con el placeholder.
+Los hay en cuatro sitios y los cuatro miden 5,52 sobre blanco: la entrada, la caja de escribir (y
+la de la búsqueda), la búsqueda de una lista y la de la lista de un filtro. Las órdenes no llevan
+placeholder y la app no tiene Ctrl+K.
+
+**El foco con el teclado.** El anillo es de 2 px del acento (`focus`, 5,5 o más sobre cualquier
+fondo claro). Los tiradores del importe, que en Aurora se marcan con un halo de 4 px del lila a 0,19
+(en el claro, 1,29 frente a lo de al lado), llevan ese anillo a 2 px del tirador: 5,51 frente al
+hueco y frente a lo de fuera (WCAG 1.4.11). Dos campos de texto no tienen anillo, **igual que en el
+oscuro**, y se dejan así: el recuadro de la lista de un filtro (el campo de `cmdk` dentro del menú,
+`.ui-command-input`) y la búsqueda de una lista (`.search`); Aurora les quita el contorno
+(`outline:none`) y el foco se ve en el cursor de texto y, en la lista, en la opción elegida.
+
 **Procesar, una sala clara.** El dueño la dejó escrita en `meerkat-scene.css` («the approved black
 PNGs live on a clean white processing surface»): lo negro existe solo porque `document-loader.css`
 fuerza `#000 !important`. En el claro, la sala es la página, la suricata, el suelo y los papeles van
 en tinta (`invert(.91)`, `#171717`), el marco de la tarjeta en `line` (en marcha, `line-strong`) y
-su cabecera («AURORA / DOCUMENTEN», de 7 px) en `ink-2`, como las cejas pequeñas.
+su cabecera («AURORA / DOCUMENTEN», de 7 px) en `ink-2`, como las cejas pequeñas. El marco baja
+10 px por debajo de la tarjeta y su borde de abajo pasa por los pasos («Lezen — Vergelijken —
+Analyseren»): en el oscuro no se ve (blanco a 0,05); en el claro se funde en sus últimos 64 px
+(una máscara) y no los cruza.
 
 **Las cejas de 7 a 9 px** («WERKRUIMTE», «WAT AANDACHT VRAAGT», «JE FINANCIËLE ARCHIEF», la
 cabecera de la hoja…) van en `ink-2`: en `ink-3` se miden en píxeles por debajo de 4,5 (3,8 a 4,3;
@@ -979,27 +1004,32 @@ monoespaciada de 12 px y trazo fino) va en la tinta de la carpeta a 0,96: a 0,74
 son la misma pieza que en el oscuro, donde son un relleno lila a todo el ancho; el acento elegido es
 el más suave de los probados.
 
-**Cómo se produce `claro.css`.** `node scripts/aurora-claro.mjs` lo escribe; `--comprobar` sale con 1
-si no es el que saldría. Cada declaración con color de las hojas de `SHEETS` se repite bajo
+**Cómo se produce `claro.css`.** `node scripts/aurora-claro.mjs` lo escribe; `--comprobar` sale con
+1 si no es el que saldría. Cada declaración con color de las hojas de `SHEETS` se repite bajo
 `html:not(.dark)` con su papel (texto por su luminosidad, fondo, línea, sombra, velo), y las de esas
 mismas propiedades sin color y las del contorno van tal cual, para que la cascada del claro sea la
 del oscuro (ninguna regla de después pierde por el prefijo, ninguna caja ni anillo de foco cambia).
-Después van `DESIGN` (las sustituciones por selector: cada clave tiene que existir en una hoja) y
-`scripts/aurora-claro-mano.css` (cada clase suya tiene que existir en una hoja o en un `.tsx` de
-`src/aurora`). No hay colores sueltos: todo es `var(--l-*)` salvo `RAW_OK`, cada uno con su porqué
-(el respaldo sin WebGL, la receta de cristal de las carpetas). **Cuando cambien las hojas de
-Aurora**, `node scripts/aurora-claro.mjs --papeles` lista cada color de las hojas con el papel y
-el token que le tocó: se revisa lo nuevo, se diseña lo que haga falta en `DESIGN` o a mano, y se
-vuelve a escribir.
+Delante de esas reglas va `ROLES` (los papeles que no cuelgan de una regla de las hojas: el
+placeholder de cualquier campo). Después van `DESIGN` (las sustituciones por selector: cada clave
+tiene que existir en una hoja) y `scripts/aurora-claro-mano.css` (cada clase suya tiene que existir
+en una hoja o en un `.tsx` de `src/aurora`). No hay colores sueltos: todo es `var(--l-*)` salvo
+`RAW_OK`, cada uno con su porqué (el respaldo sin WebGL, la receta de cristal de las carpetas).
+**Cuando cambien las hojas de Aurora**, `node scripts/aurora-claro.mjs --papeles` lista cada color
+de las hojas con el papel y el token que le tocó: se revisa lo nuevo, se diseña lo que haga falta en
+`DESIGN` o a mano, y se vuelve a escribir.
 
 **Las guardas.** `scripts/aurora-claro.test.mjs`: el fichero es el que sale, todo bajo
 `html:not(.dark)`, la paleta en AA, los papeles, `DESIGN` y la capa a mano sin nombres huérfanos,
 ningún color suelto, ninguna superficie más oscura que la página, ninguna sombra ni brillo de fuera
-claro, lo inactivo gris frente al acento, Procesar claro y el bloque `:root.dark` de `index.css`
-con la misma huella que antes. `e2e/claro.spec.ts`: la gira de los estados principales en claro a
-1440 y a 400 px (axe sin excusas, pastillas, el borde de los campos, el texto sobre el cristal de
-las carpetas, bajo la marca TEST, las cejas pequeñas, la cabecera de Procesar y el resumen medidos
-en píxeles, un orbe como mucho) y el aviso fuera de la hoja. `e2e/themes.spec.ts`: la página
+claro, lo inactivo gris frente al acento, el placeholder como papel, los campos de `FIELDS` con su
+borde y montados en un `.tsx` (la misma lista que `FORM_FIELDS`), el anillo del tirador, Procesar
+claro y el bloque `:root.dark` de `index.css` con la misma huella que antes. `e2e/claro.spec.ts`:
+la gira de los estados principales en claro a 1440 y a 400 px (axe sin excusas, pastillas, el borde
+de los campos, cada placeholder a la vista a 4,5:1 contra el fondo que tiene detrás de verdad, el
+texto sobre el cristal de las carpetas, bajo la marca TEST, las cejas pequeñas, la cabecera de
+Procesar y el resumen medidos en píxeles, un orbe como mucho), que falla si un campo guardado o un
+sitio con placeholder no aparece nunca; el foco con el teclado en los dos tiradores del importe
+(un anillo a 3:1, medido en píxeles) y el aviso fuera de la hoja. `e2e/themes.spec.ts`: la página
 `#f5f5f7` en el inicio, en Documentos y en Procesar, y el enviar inactivo gris y opaco.
 
 ## 5. Neerlandés, inglés y castellano

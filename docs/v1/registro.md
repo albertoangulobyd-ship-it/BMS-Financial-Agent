@@ -10531,6 +10531,117 @@ temas, a 1440 y a 400, con ratón y con el dedo; los toques de verdad, 23,3 minu
 `documents` 7 de 8: falla «la hoja de una factura con más de cuatro filas…», igual que con
 `1cc96b0` (la conversación ya no encuentra JV-2026-006 en la base de prueba; la fecha).
 
+#### Tras la verificación independiente
+
+Una revisión independiente del tema claro (sobre `57e9886`, donde el oscuro era idéntico al del
+dueño) dejó un fallo y tres avisos. Su informe completo se perdió con la máquina; queda el borrador
+de su veredicto. El 13-11-2026 se volvió a medir todo con la app de `6df7106` (el mismo claro), se
+arregló y se midió otra vez. Solo cambian colores, bordes, sombras, un filtro y una máscara, y solo
+bajo `html:not(.dark)`.
+
+**1. El placeholder de la búsqueda de las listas (fallaba WCAG 1.4.3).** «Zoek bedrijf of document…»
+estaba a 2,08:1 según la revisión; medido aquí, **2,09** (`oklab(… / 0.5)` sobre blanco), a 1440 y a
+400 px, en las 8 vistas de la gira que llevan el buscador (Werklijst, Uitzonderingen y «Niet
+gekoppeld» de cobrar y de pagar, con su tarjeta y su orden). La causa: `.search`
+(`panels/pieces.tsx`) no tiene regla de `::placeholder` en Aurora, y Tailwind le da a todo
+placeholder sin regla el 50 % del color de su campo (`color-mix(in oklab, currentcolor 50%,
+transparent)`); el campo iba en `ink-3`. axe no lo veía: no mide un placeholder con alfa. Se midió
+cada placeholder que se puede ver en claro, a los dos anchos, contra el fondo que tiene detrás de
+verdad (el color calculado de `::placeholder`, con su alfa, pintado sobre el color de los píxeles
+del campo):
+
+| Campo | Placeholder | Fondo | Antes | Después |
+| --- | --- | --- | --- | --- |
+| La entrada (`#token`) | «Je persoonlijke code» | blanco | 5,52 | 5,52 |
+| La caja de escribir (`.input-row input`) | «Wat wil je vandaag oplossen?» | blanco | 5,52 | 5,52 |
+| La caja de la búsqueda (E5) | «Zoek een factuur, bedrijf of contact…» | blanco | 5,52 | 5,52 |
+| La búsqueda de una lista (`.search input`) | «Zoek bedrijf of document…» | blanco | **2,09** | **5,52** |
+| La lista del filtro de empresa (`.ui-command-input input`) | «Zoek bedrijf of contact…» | blanco | 5,52 | 5,52 |
+| La lista del filtro de tipo | «Zoek soort document…» | blanco | 5,52 | 5,52 |
+
+Los mismos números a 1440 y a 400 px. No hay más: los campos de una orden no llevan placeholder y
+Ctrl+K no abre nada desde el paso 17 (`e2e/exclusividad.spec.ts` lo comprueba). El arreglo no es
+un parche a `.search`: **el placeholder pasa a ser un papel del generador**. `PALETTE` tiene el
+token `placeholder` (`#686871`: 5,52 sobre blanco, 5,07 sobre la página), `mapValue` se lo da a
+toda regla `::placeholder` de las hojas, sea cual sea su gris en el oscuro (`placeholderRole`), y
+`ROLES` añade una regla general, `html:not(.dark) ::placeholder{color:var(--l-placeholder);
+opacity:1}`, para cualquier campo, tenga o no su regla en Aurora. Lo escrito en `.search` va en
+`ink-1` (iba en `ink-3`, el color del placeholder de ahora).
+
+**2. El foco de los tiradores del importe (WCAG 1.4.11).** Con el teclado, el tirador solo
+mostraba el halo de Aurora (4 px del lila a 0,19): `rgb(218, 214, 237)` frente a la página
+`rgb(245, 245, 247)`, **1,30** medido en píxeles (la revisión: 1,29). Ahora lleva el anillo del
+claro, 2 px del acento a 2 px del tirador (`outline`, que sigue su círculo): `rgb(101, 80, 196)`
+frente al hueco y frente a lo de fuera, **5,51**, a 1440 y a 400 px. No es una sombra blanca con
+otra del acento: un brillo claro de fuera lo prohíbe la guarda del generador. En el oscuro el halo
+es el del dueño y no se toca (1,20). El recuadro de la lista de un filtro (el campo de `cmdk` del
+menú, `.ui-command-input`) **no tiene anillo, exactamente igual que en el oscuro** (`outline:none`
+en la hoja de Aurora; el foco se ve en el cursor y en la opción elegida): se deja. Lo mismo la
+búsqueda de una lista (`.search input`), sin contorno en los dos temas.
+
+**3. `.ws-search` no existe en la app.** La especificación y `FORM_FIELDS` nombraban `.ws-search`
+(la búsqueda de Documentos de Aurora, que la app no monta) y el campo de verdad de las listas,
+`.search`, se quedaba con la línea fina: `rgba(17, 17, 26, .09)`, 1,20 sobre blanco. Ahora `.search`
+es un campo (`field`, `#8a8a93`: **3,42**) con su relleno blanco, y entra en `FIELDS` (el generador)
+y en `FORM_FIELDS` (la e2e), que son la misma lista. `.ws-search` sigue diseñada en `DESIGN` por si
+llega, con su nota, y fuera de las dos listas. La gira falla si un selector guardado no aparece
+nunca.
+
+**4. Lo mirado en las capturas** (la gira en claro a 1440 y a 400 px, y fotogramas parados):
+
+- **El borde de la tarjeta de Procesar cruzaba los pasos**: cierto. El marco (`.pc-outline`) baja
+  10 px por debajo de la tarjeta y su borde de abajo pasaba por los iconos de «Lezen — Vergelijken
+  — Analyseren». En el oscuro no se ve (blanco a 0,05: 1,07); en el claro, en `line`, sí. Ahora el
+  marco se funde en sus últimos 64 px (una máscara, solo en claro) y no llega a los pasos. La caja
+  no cambia.
+- **Las manchas oscuras del mármol**: cierto. El respaldo de las carpetas (`canvas.gf-art`) dejaba
+  lo oscuro del arte casi negro: con `brightness(1.3)` y después `contrast(.86)` el negro se queda
+  en un 7 % de luz (en las tres primeras carpetas, lo más oscuro medía 27–44 de 255, y el 8,7 % del
+  mármol de la segunda quedaba por debajo del 25 %). Ahora `saturate(.9) contrast(.5)
+  brightness(1.36)`: primero el contraste a la mitad (el negro sube a un gris medio) y después el
+  brillo, que devuelve los claros a blanco. Lo más oscuro mide 92–103 y nada queda por debajo del
+  25 %; el mármol sigue siendo violeta y acero. La lista de funciones es la misma antes y después
+  de estar listo (la transición no salta). Las hojas con arte (`gf-sheet-art`) llevan su meta en
+  blanco encima y siguen como estaban.
+- **El orbe pálido en algunos fotogramas**: cierto, y se deja. Con el orbe parado (seis fotogramas,
+  cada uno con seis filtros), lo pálido son los fotogramas en que las capas del sombreador son
+  rosas y lilas claros, o su centro blanco, sobre una página casi blanca. Nada de lo que se puede
+  hacer solo con color lo mejora sin estropear otros fotogramas: un halo lila
+  (`drop-shadow` del acento a 0,18 y a 0,30) deja una mancha alrededor, `brightness(.95)` vuelve
+  gris el centro blanco, `mix-blend-mode:multiply` no cambia nada, y más saturación ya se descartó
+  (a 1,25 dominaban el rojo y el naranja). Un orbe con cuerpo sobre blanco pide una paleta clara
+  dentro del sombreador, que es código del dueño. Sigue en «Lo que queda».
+
+**El oscuro, intacto.** La hoja construida de antes (`style-DSMn8I2i.css`, de `6df7106`) y la de
+ahora, regla a regla (con su `@media` o `@layer`): de 2217 reglas, 9 quitadas y 11 puestas, **las
+20 bajo `html:not(.dark)`**; todo lo demás (149 454 bytes) es igual byte a byte, y los `.js`
+construidos son los mismos ficheros. Las reglas: los tokens (con `--l-placeholder`), `::placeholder`
+(la general y las tres de las hojas), `.search` y `.search input`, `.amount-thumb:focus-visible`,
+las dos de `canvas.gf-art` y `.pc-outline`. Ninguna hoja de Aurora ni ningún `.tsx` cambia.
+
+**Las guardas, y sus dientes.**
+
+- `e2e/fixtures.ts`: `expectPlaceholderContrast` (cada placeholder a la vista, vacío, sin tapar y
+  activo, a 4,5:1 contra el fondo de sus píxeles), `focusRingContrast` (el anillo de foco medido en
+  la columna de píxeles que sale de la pieza: frente al hueco y frente a lo de fuera) y
+  `expectFieldBoundary`, que ahora cuenta los campos por selector.
+- `e2e/claro.spec.ts` (5): la gira mide los placeholders en cada estado y exige haber medido los
+  cuatro sitios donde los hay y haber visto cada selector de `FORM_FIELDS`; y una prueba por ancho
+  lleva el foco con Tab a los dos tiradores y mide su anillo a 3:1.
+- `scripts/aurora-claro.test.mjs` (16): el placeholder como papel (el token en toda regla
+  `::placeholder`, la regla general delante, 4,5:1 sobre cada superficie, y el defecto de antes
+  por debajo de 2,2), `FIELDS` con el borde `field` y montados en un `.tsx` (`.ws-search` hace
+  fallar la comprobación) e igual a `FORM_FIELDS`, y el anillo del tirador.
+- **Fallan sin el arreglo**: con una app construida sin la regla general del placeholder y sin el
+  anillo, `claro.spec.ts` a 400 px falla en «E2 home · Werklijst» («`label.search input` «Zoek
+  bedrijf of document…»: … = 3.40», la mitad de `ink-1`; con la app de antes la misma medida da
+  2,09) y la prueba de los tiradores, con 1,30. Y con `.ws-search` puesto otra vez en
+  `FORM_FIELDS`, la gira a 400 px pasa todos sus estados y falla al final: «campos medidos en la
+  gira: .ws-search», esperaba más de 0 y recibió 0.
+
+**Resultado.** La pasada final de `e2e/claro.spec.ts` (5) y `e2e/themes.spec.ts` (9), con la app
+construida en `a118633`: 14 de 14, en 13,8 min.
+
 ### Las pruebas y el calendario (09-11-2026)
 
 Las fechas de la base de prueba van respecto a hoy, y las pruebas e2e se habían escrito en
