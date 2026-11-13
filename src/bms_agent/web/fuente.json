@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "213de6a389cce8aa88f71b79647e46ba4ed3780c6719bd3aee11243d8d8fcf04",
+  "sha256": "63cb24592dae1e40769bb92b0e53703aaa6fc88a3957c5ac8dbf4397d27e9a20",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -19,7 +19,7 @@
     "frontend/src/aurora/chat/ai-actions.tsx": "25938c93d07873bd01e753529ccf63911f20ce0890a0e8658c3a30700461b725",
     "frontend/src/aurora/chat/conversation.tsx": "649f3aebca7c346fd5c45559697d2bb807fc99a414053d2ab4705f090c71ed30",
     "frontend/src/aurora/chat/message.tsx": "fed670fd71ea560007f336ebe9267e366cedd3daf51054d27e5a38aeabd78f48",
-    "frontend/src/aurora/claro.css": "fd6f2f4c8e881fddf6b28cebd8225f3e13283affa2b66e42920ffd1c0e0a14e6",
+    "frontend/src/aurora/claro.css": "b8a95b800d2aaf7b4285009a19ab77bd66cdf05c8dbc9e5cc9f720696bbb84b1",
     "frontend/src/aurora/composer.tsx": "9e46f53358707fabc4bf6813520773e7e476117d67dca5c5793d2f9d1330a588",
     "frontend/src/aurora/documents/analysis.ts": "129434876f5c43b07cb3f12e40e33975a288c52bdc29b56a5efd3298dc083c0b",
     "frontend/src/aurora/documents/badge.tsx": "efd8bec85efb45f43b59957ed02ab1d5f26fddfbd06243403dff67ecb4ebe962",
@@ -140,9 +140,9 @@
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "assets/index-C_CWSXNj.js": "7fbbdf8296b8cf4fae07958200bbab1f18e0ede090f73e97e386ee9fc83c52f9",
-    "assets/style-DSMn8I2i.css": "7ca9797313543fb15289268231b6233a1f3c57565465bc01e84f50afe6d82fb1",
+    "assets/style-BZQd7v-m.css": "078661bc71c9fc489be3844f51c2d716f961509ec1735cdfdbf95c9c809a1d0d",
     "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
     "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
-    "index.html": "fd67be2d5e77425685b45be0e98d284683993aaad4156271ffd2f5ba2d9668ab"
+    "index.html": "182b35fd72429a5e34e9271901f163e2c7354375376fe8639ed46864db1cd987"
   }
 }
