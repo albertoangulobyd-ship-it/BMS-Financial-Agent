@@ -218,32 +218,56 @@ icono y su título, sin acercarse al borde de la tarjeta más que la ✕: fuera 
 hoja, un toque cierra la hoja entera, y Chromium acerca a una zona los toques de unos 9 px
 alrededor); «Terug naar de werkruimte» de la
 conversación, «Terug naar Aurora» y las migas de Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
-entrada, «Filters wissen» de la búsqueda, los dos tiradores del importe y el buscador de las
-listas de los filtros, de 12 a 21 px de alto (de 24 a 26 con ratón y de 44 a 46 con el dedo); y
+entrada, «Filters wissen» de la búsqueda y los dos tiradores del importe, de 12 a 21 px de alto
+(de 24 a 26 con ratón y de 44 a 46 con el dedo); el buscador de las listas de los filtros, 19,8
+de alto (32 con ratón y con el dedo: toda su fila por arriba y por los lados, la lupa incluida,
+sin bajar de lo que se ve; no pinta anillo de foco); y
 el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro ni
 cambiar lo que hace un toque: las migas, 24 de alto también con el dedo (dos líneas de migas
 quedan a 10 px en la ficha de una carpeta, y más altas, Chromium daba a la de abajo, la página
 en que se está, toques que antes navegaban); «Kaart … openen», 39 de alto con el dedo (encima
 pinta la sombra de la carpeta, que no hace nada); «Filters wissen», 32 de alto con el dedo (con
 44, Chromium le daba los toques de justo encima de la etiqueta del campo de la empresa, que está
-debajo, y un toque que abría la lista quitaba los filtros); y los tiradores, 29,5 de ancho (crecen hacia
-fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana).
-Mientras una lista de los filtros está abierta, los tiradores no tienen zona (la lista los tapa,
-y la zona que asomaba se llevaba toques del borde de la lista). Lo que cambia al pulsar está en
+debajo, y un toque que abría la lista quitaba los filtros); los tiradores, 29,5 de ancho (crecen hacia
+fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana); y
+el buscador de una lista, 32 de alto, porque no crece hacia abajo (20 px por debajo empieza la
+primera fila, «Alle klanten en leveranciers» o «Alle documenten», y con relleno por abajo Chromium
+daba al campo los toques de 4 a 9 px por encima de esa fila, que antes la elegían: la lista se
+cerraba y el filtro se quitaba).
+Mientras una lista de los filtros está abierta (la de la empresa, la del tipo o el calendario),
+los tiradores no tienen zona: vuelven a ser los de 1cc96b0 (15 × 15, sin capa y sin `position:
+relative`), a cualquier ancho y con cualquier puntero, también donde ninguna lista los tapa (a
+1440 px, la de las empresas queda 174 px por encima de los dos). La razón no es que la lista los
+tape siempre: donde una cae sobre un tirador (a 400 px, la de las empresas y la de los tipos
+sobre el de abajo entero, por su borde izquierdo), la zona que asomaba por su lado, y sin ella el
+`position: relative` (que despierta el `z-index: 2` de Aurora), hacían que Chromium llevara al
+tirador, o a la lista sin fila, toques del borde de la lista que antes elegían una fila; y qué
+lista cae sobre qué tirador depende de la lista, del ancho y de si abre hacia arriba o hacia
+abajo (lo decide Radix según el sitio que queda: a 1440 px la de los tipos tapa el de arriba solo
+cuando abre hacia abajo), cosa que el CSS no ve. Lo que ve es que hay una abierta
+(`.filters-fields:has([aria-expanded=true])`), y la regla va con eso. Donde no los tapa, un toque
+en el tirador cierra la lista y lo agarra sin moverlo, y al cerrarse la lista el tirador vuelve a
+tener su zona. Lo que cambia al pulsar está en
 `docs/v1/registro.md` («Las zonas táctiles de los demás controles», «Tras la segunda
-verificación independiente» y «Tras la tercera…»): un toque junto a la ✕ de una hoja, en su
+verificación independiente», «Tras la tercera…» y «Tras la cuarta…»): un toque junto a la ✕ de una hoja, en su
 margen, la cierra con la ✕ (antes, con el clic en el margen: lo mismo); uno junto a un tirador lo agarra en vez de
 moverlo hasta ese punto; con el dedo, uno justo bajo una carpeta puede ir a su «Kaart … openen»
 en vez de a la carpeta (abren la misma ficha), uno en el icono o el título de una tarjeta, junto a
 su ✕, la cierra (antes no hacía nada), y en el hueco entre dos líneas de migas la frontera se
-mueve un píxel o dos. Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
+mueve un píxel o dos; un toque o un clic en la fila del buscador de una lista (encima del campo,
+a sus lados o en la lupa) enfoca el campo (antes no hacía nada), y uno de justo fuera de la lista,
+junto a esa fila, también, donde antes iba a la lista sin hacer nada; solo a 1440 px, junto a la
+lista de los tipos, donde la caja de la búsqueda asoma por los lados de la lista, un toque a menos
+de 6 px de la lista, de 1 a 3 px por debajo de lo que se ve del campo y justo encima de esa caja,
+va a la caja (antes, a la lista: nada). Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
 principal, a 400 × 860 con ratón y con el dedo, a nada que se pulse le falta un cuadrado de
 24 × 24 de puntos suyos (medido con `document.elementFromPoint`, no con su caja), salvo con la
 excepción del espaciado (los días del calendario y los botones de una respuesta, como en
 1cc96b0; a un control con zona no le vale); y con el dedo, en los sitios donde una zona linda con
 otra cosa que se han probado tocando de verdad (los tiradores bajo la lista de las empresas,
 «Filters wissen» sobre el campo de la empresa, la esquina de la ✕ de una tarjeta en un panel y en
-la hoja, «Kaart … openen» bajo su carpeta y dos líneas de migas), cada toque va adonde iba o, si
+la hoja, «Kaart … openen» bajo su carpeta, dos líneas de migas y, a 400 y a 1440 px, el buscador
+de las dos listas de los filtros con su primera fila debajo), cada toque va adonde iba o, si
 antes no hacía nada, a la zona (cerrar la hoja con un toque en su margen cuenta como hacer algo,
 y un toque en la etiqueta de un campo, como uno en el campo).
 

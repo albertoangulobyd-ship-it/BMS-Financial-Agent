@@ -9828,12 +9828,17 @@ porque ninguna regla lleva color), sin clases nuevas en el TSX, de dos maneras:
 - **Un relleno y un margen negativo iguales** (la caja crece por los cuatro lados y nada se
   mueve: no tienen fondo ni borde; el anillo del foco se acerca otro tanto con `outline-offset`
   y queda donde estaba): las ✕ de un panel y de una hoja (3 px; con el dedo, 13), «Terug naar de
-  werkruimte» (5; 15), «Filters wissen» (6; 10), «Kaart … openen» (5; 12), las migas (2; 2) y el
-  buscador de una lista (3; 13; un campo no tiene `::before`). (Entre paréntesis, con ratón y con
+  werkruimte» (5; 15), «Filters wissen» (6; 10), «Kaart … openen» (5; 12) y las migas (2; 2).
+  (Entre paréntesis, con ratón y con
   el dedo, como quedaron tras las verificaciones: abajo, «Tras la segunda…» y «Tras la tercera
   verificación independiente».) Con `position: relative`, alguno
   se pintaba distinto (el texto de «Kaart … openen», el brillo de detrás de la hoja, un píxel de
-  una miga): por eso no.
+  una miga): por eso no. El buscador de una lista (un campo no tiene `::before`) crece también
+  con relleno y margen negativo, pero no igual por los cuatro lados: 12 px arriba, 38 a la
+  izquierda y 14 a la derecha (la caja de su fila) y nada por abajo, lo mismo con ratón que con
+  el dedo; no pinta anillo de foco (`outline: none`, de Aurora), así que no hay ninguno que
+  dejar en su sitio. (Primero fueron 3 px por los cuatro lados y 13 con el dedo; abajo, «Tras la
+  cuarta verificación independiente».)
 - **Una capa transparente** (`::before`, en posición absoluta, centrada con `inset:
   min(0px, calc(50% - 12px))`, de modo que solo crece lo que no llega): la ✕ de la tarjeta de una
   fila, «Terug naar Aurora», «Terug naar start» de Procesar, los idiomas de la entrada (pegados
@@ -9852,10 +9857,11 @@ tercera verificación independiente».)
 
 La caja que se ve (en neerlandés, como en la base de prueba) y la zona medida con
 `elementFromPoint` (ancho × alto en px, el mínimo de todos los estados en que aparece, en oscuro y
-en claro); entre paréntesis, la de 1cc96b0. Con el dedo, lo de ahora, tras las tres
+en claro); entre paréntesis, la de 1cc96b0. Con el dedo, lo de ahora, tras las cuatro
 verificaciones (las migas, «Kaart … openen», «Filters wissen» y la ✕ de una tarjeta cambiaron;
 en esas cuatro filas, lo medido al píxel en la última pasada de las pruebas, en «Tras la tercera
-verificación independiente»):
+verificación independiente»; el buscador de una lista cambió con ratón y con el dedo, en «Tras
+la cuarta…»):
 
 | Control | Lo que se ve | Ratón, 1440 | Ratón, 400 | Dedo, 1440 | Dedo, 400 |
 | --- | --- | --- | --- | --- | --- |
@@ -9872,19 +9878,22 @@ verificación independiente»):
 | Idiomas: «Español», «Nederlands», «English» | 41,22, 58,14 y 38,19 × 12,59 (42, 60 y 39 × 13-14) | 42, 60 y 39 × 25 | igual | 45, 60 y 45 × 45 | igual |
 | «Filters wissen» («Limpiar filtros») | 75,2 × 13,5 a 1440, 68,73 × 12 a 400 (76 × 14, 70 × 13) | 87,2 × 25,5 | 80,73 × 24 | 96 × 34 | 90 × 33 |
 | Tiradores del importe («Minimumbedrag», «Maximumbedrag») | 15 × 15 (16 × 16) | 27 × 25 | 27 × 25 | 32 × 45 | 32 × 45 |
-| Buscador de una lista («Zoek een klant of leverancier») | 296 × 19,8 (297 × 21) | 302 × 25,8 | 302 × 25,8 | 322 × 45,8 | 322 × 45,8 |
+| Buscador de una lista («Zoek een klant of leverancier»; el de los tipos, 90 px más estrecho) | 296 × 19,8 (297 × 21) | 348 × 31,8 | 348 × 31,8 | 348 × 31,8 | 348 × 31,8 |
 | Control de la hoja plegada (del 30-10-2026) | 74,45 × 13,5 | 75 × 29 | 75 × 29 | 75 × 45 | 75 × 45 |
 
-Donde 44 no cabe (lo de ahora, tras las tres verificaciones independientes de abajo): **las
+Donde 44 no cabe (lo de ahora, tras las cuatro verificaciones independientes de abajo): **las
 migas**, 24 de alto también con el dedo (2 px por lado, como con ratón), porque en la ficha de una
 carpeta a 400 px van en dos líneas a 10 px y, más altas, Chromium daba a la de abajo toques de las
 de arriba que antes navegaban; **«Kaart … openen»**, 39 de alto con el dedo (12 px por lado;
 106,56 × 39, medido 108 × 40), porque encima pinta la sombra de la carpeta; **«Filters wissen»**, 32
 de alto con el dedo (10 px por lado; medido 96 × 34 y 90 × 33), porque con 44 Chromium le daba
 los toques de justo encima de la etiqueta del campo de la empresa, que está debajo y abre su
-lista; y **los tiradores**, 29,5 px de ancho de capa (32
+lista; **los tiradores**, 29,5 px de ancho de capa (32
 medidos con el tirador), porque al final de la pista, a 400 px, quedan 16 hasta el borde de la
-ventana. Todos pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control
+ventana; y **el buscador de una lista**, 31,8 de alto (12 px por arriba y nada por abajo), porque
+20 px por debajo empieza la primera fila de la lista y con relleno por abajo Chromium daba al
+campo toques que antes la elegían (abajo, «Tras la cuarta verificación independiente»). Todos
+pasan de 24 × 24 (2.5.8 se cumple sin la excepción del espaciado). Ningún control
 queda en la lista de excepciones de la guarda.
 
 #### Lo que cambia al pulsar

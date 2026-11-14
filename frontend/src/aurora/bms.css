@@ -123,7 +123,7 @@
    - el buscador de una lista llena su fila por arriba y por los lados (12 px arriba, 38 a la
      izquierda, sobre la lupa, y 14 a la derecha: la caja de la fila, al pixel) y no baja de lo
      que se ve: 31,8 de alto, con raton y con el dedo. Chromium acerca un toque al objetivo cuya
-     caja cae mejor bajo el dedo (unos 11 px alrededor), y si entre ellos hay uno de dentro de la
+     caja cae mejor bajo el dedo (unos 9 px alrededor), y si entre ellos hay uno de dentro de la
      lista, la lista misma (que tambien cuenta: tiene tabindex) deja de contar. Por abajo: a 20 px
      empieza la primera fila («Alle klanten en leveranciers», «Alle documenten»: un toque en ella
      cierra la lista y quita ese filtro) y los toques de en medio se reparten por la mitad, de
@@ -170,10 +170,17 @@
   .amount-thumb::before{top:min(0px,calc(50% - 22px));bottom:min(0px,calc(50% - 22px));width:29.5px}
 }
 /* Mientras una lista de los filtros esta abierta (la empresa, el tipo o la fecha), los tiradores
-   como en 1cc96b0, sin capa: la lista los tapa (a 400 px, el de abajo entero, por su borde
-   izquierdo), y la capa que asomaba por su lado hacia que Chromium llevara al tirador, o a la
-   lista sin fila, un toque del borde de la lista que antes iba a una fila. Un toque fuera de la
-   lista la cierra, como antes. */
+   como en 1cc96b0, sin capa y sin position: relative, a cualquier ancho y con cualquier puntero.
+   Donde una lista cae sobre un tirador (a 400 px, la de las empresas y la de los tipos sobre el
+   de abajo entero, por su borde izquierdo), la capa que asomaba por su lado hacia que Chromium
+   llevara al tirador, o a la lista sin fila, un toque del borde de la lista que antes iba a una
+   fila; y sin la capa, con position: relative (que despierta el z-index: 2 de Aurora), aun
+   cambiaban toques. Que lista cae sobre que tirador depende de la lista, del ancho y de si abre
+   hacia arriba o hacia abajo (Radix, segun el sitio que queda), y eso no se ve desde el CSS: lo
+   que se ve es que hay una abierta, y la regla va con eso, tambien donde ninguna los tapa (a
+   1440 px, la de las empresas queda 174 px por encima de los dos). Ahi un toque en el tirador
+   cierra la lista y lo agarra (el foco, sin moverlo), y al cerrarse la lista el tirador vuelve a
+   tener su zona; uno fuera de la lista la cierra, como antes. */
 .filters-fields:has([aria-expanded=true])~.filter-amount-section .amount-thumb{position:static}
 .filters-fields:has([aria-expanded=true])~.filter-amount-section .amount-thumb::before{content:none}
 /* A 650 px o menos, «Volver a Aurora» mide 15 de alto (16,5 en lo mas ancho): con 14 de relleno, 43,

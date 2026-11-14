@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "63cb24592dae1e40769bb92b0e53703aaa6fc88a3957c5ac8dbf4397d27e9a20",
+  "sha256": "ea2f6be477bbe9e71166b2d8861b86ca69aacbedab9ded3e4757e9d2671b709d",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -13,13 +13,13 @@
     "frontend/src/App.tsx": "6c07893fb69a220fd187bd28785390b522e0952dcbb997acb88278c4d5970442",
     "frontend/src/aurora/app.tsx": "3b93a9a0699be25fa6169417b40b263e7ef9edbeaeab9371aa4937695b221ff6",
     "frontend/src/aurora/assistant.ts": "6cd3602a65ce0f592fbb07864836f857fc6d731924048b4060b75c2e146d3231",
-    "frontend/src/aurora/bms.css": "0ff7684885169d9f8fb1b494716ee278a6607bbf414b31af9c8d267e157c725c",
+    "frontend/src/aurora/bms.css": "d9f5634f22d58a43dce13b23a80fd6fc61c342203ab1e5337916554beb2c18e6",
     "frontend/src/aurora/chat/actions.tsx": "6b1edd54f586df09ff77a45499a8d53e08b25b8be8760f9eb279b9b0b6696a4b",
     "frontend/src/aurora/chat/ai-actions.css": "d11d9d6423e34af2ba0de4206253b10d8eb547782be7f0a64d92f688a24b57f8",
     "frontend/src/aurora/chat/ai-actions.tsx": "25938c93d07873bd01e753529ccf63911f20ce0890a0e8658c3a30700461b725",
     "frontend/src/aurora/chat/conversation.tsx": "649f3aebca7c346fd5c45559697d2bb807fc99a414053d2ab4705f090c71ed30",
     "frontend/src/aurora/chat/message.tsx": "fed670fd71ea560007f336ebe9267e366cedd3daf51054d27e5a38aeabd78f48",
-    "frontend/src/aurora/claro.css": "b8a95b800d2aaf7b4285009a19ab77bd66cdf05c8dbc9e5cc9f720696bbb84b1",
+    "frontend/src/aurora/claro.css": "15c623164b5db4f40a5da1fcfd1dfeba2e2e8a2865e5cfcf9c9c6e70de9074cc",
     "frontend/src/aurora/composer.tsx": "9e46f53358707fabc4bf6813520773e7e476117d67dca5c5793d2f9d1330a588",
     "frontend/src/aurora/documents/analysis.ts": "129434876f5c43b07cb3f12e40e33975a288c52bdc29b56a5efd3298dc083c0b",
     "frontend/src/aurora/documents/badge.tsx": "efd8bec85efb45f43b59957ed02ab1d5f26fddfbd06243403dff67ecb4ebe962",
@@ -140,9 +140,9 @@
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "assets/index-C_CWSXNj.js": "7fbbdf8296b8cf4fae07958200bbab1f18e0ede090f73e97e386ee9fc83c52f9",
-    "assets/style-BZQd7v-m.css": "078661bc71c9fc489be3844f51c2d716f961509ec1735cdfdbf95c9c809a1d0d",
+    "assets/style-Bb5qUQqJ.css": "35481221b322ae571fef871994077a4703d6435d981dc2a36bd7e778afa6eb0d",
     "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
     "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
-    "index.html": "182b35fd72429a5e34e9271901f163e2c7354375376fe8639ed46864db1cd987"
+    "index.html": "9093378a45798f275c6746be1f0155805ba49081eeee24a5dea9eda5f66843e3"
   }
 }
