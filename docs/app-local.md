@@ -220,7 +220,7 @@ alrededor); «Terug naar de werkruimte» de la
 conversación, «Terug naar Aurora» y las migas de Documentos, «Kaart … openen» bajo una carpeta, «Terug naar start» de Procesar, los idiomas de la
 entrada, «Filters wissen» de la búsqueda y los dos tiradores del importe, de 12 a 21 px de alto
 (de 24 a 26 con ratón y de 44 a 46 con el dedo); el buscador de las listas de los filtros, 19,8
-de alto (32 con ratón y con el dedo: toda su fila por arriba y por los lados, la lupa incluida,
+de alto (31,8 con ratón y con el dedo: toda su fila por arriba y por los lados, la lupa incluida,
 sin bajar de lo que se ve; no pinta anillo de foco); y
 el control de la hoja plegada (abajo, en Documentos). Donde 44 no cabe sin pisar a otro ni
 cambiar lo que hace un toque: las migas, 24 de alto también con el dedo (dos líneas de migas
@@ -230,7 +230,7 @@ pinta la sombra de la carpeta, que no hace nada); «Filters wissen», 32 de alto
 44, Chromium le daba los toques de justo encima de la etiqueta del campo de la empresa, que está
 debajo, y un toque que abría la lista quitaba los filtros); los tiradores, 29,5 de ancho (crecen hacia
 fuera, para no pisarse; al final de la pista, a 400 px, quedan 16 hasta el borde de la ventana); y
-el buscador de una lista, 32 de alto, porque no crece hacia abajo (20 px por debajo empieza la
+el buscador de una lista, 31,8 de alto, porque no crece hacia abajo (20 px por debajo empieza la
 primera fila, «Alle klanten en leveranciers» o «Alle documenten», y con relleno por abajo Chromium
 daba al campo los toques de 4 a 9 px por encima de esa fila, que antes la elegían: la lista se
 cerraba y el filtro se quitaba).
@@ -256,10 +256,15 @@ en vez de a la carpeta (abren la misma ficha), uno en el icono o el título de u
 su ✕, la cierra (antes no hacía nada), y en el hueco entre dos líneas de migas la frontera se
 mueve un píxel o dos; un toque o un clic en la fila del buscador de una lista (encima del campo,
 a sus lados o en la lupa) enfoca el campo (antes no hacía nada), y uno de justo fuera de la lista,
-junto a esa fila, también, donde antes iba a la lista sin hacer nada; solo a 1440 px, junto a la
-lista de los tipos, donde la caja de la búsqueda asoma por los lados de la lista, un toque a menos
-de 6 px de la lista, de 1 a 3 px por debajo de lo que se ve del campo y justo encima de esa caja,
-va a la caja (antes, a la lista: nada). Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
+junto a esa fila, también, donde antes iba a la lista sin hacer nada. Solo donde un control de
+detrás de la lista asoma por su lado a la altura del campo, un toque de justo fuera de la lista,
+junto a una esquina de abajo de la zona del campo, que iba a la lista (nada), va a ese control: a
+1440 px, junto a la lista de los tipos abierta hacia arriba, a la caja de la búsqueda (a menos de
+6 px de la lista, de 1 a 3 px por debajo de lo que se ve del campo y justo encima de la caja); y
+a 400 px, a la derecha de la lista de las empresas abierta hacia abajo, al campo de la fecha (a
+menos de 4 px de la lista y de 3 a 6 px por encima de ese campo; y en esa esquina de la zona,
+unos 8 × 10 px, un toque sigue sin hacer nada, como en 1cc96b0: Chromium elige el campo de la
+fecha y pulsa en la lista, por debajo de la zona). Lo comprueba `e2e/objetivos.spec.ts`: en cada estado
 principal, a 400 × 860 con ratón y con el dedo, a nada que se pulse le falta un cuadrado de
 24 × 24 de puntos suyos (medido con `document.elementFromPoint`, no con su caja), salvo con la
 excepción del espaciado (los días del calendario y los botones de una respuesta, como en
@@ -267,7 +272,8 @@ excepción del espaciado (los días del calendario y los botones de una respuest
 otra cosa que se han probado tocando de verdad (los tiradores bajo la lista de las empresas,
 «Filters wissen» sobre el campo de la empresa, la esquina de la ✕ de una tarjeta en un panel y en
 la hoja, «Kaart … openen» bajo su carpeta, dos líneas de migas y, a 400 y a 1440 px, el buscador
-de las dos listas de los filtros con su primera fila debajo), cada toque va adonde iba o, si
+de las dos listas de los filtros con su primera fila debajo, con la lista abierta hacia arriba y
+hacia abajo), cada toque va adonde iba o, si
 antes no hacía nada, a la zona (cerrar la hoja con un toque en su margen cuenta como hacer algo,
 y un toque en la etiqueta de un campo, como uno en el campo).
 

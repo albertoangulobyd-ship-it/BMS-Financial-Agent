@@ -10219,6 +10219,232 @@ con lo construido en 1cc96b0 (el clon del verificador, la misma base, el 10-11-2
 conversación ya no encuentra JV-2026-006 en la base de prueba (la fecha; queda para quien arregla
 lo que deriva con el calendario).
 
+#### Tras la cuarta verificación independiente
+
+El verificador dio por mala la entrega por tres cosas: con el dedo, el buscador de las dos listas
+de los filtros se llevaba toques que en 1cc96b0 elegían la primera fila; la prueba de los toques
+de verdad tardaba de 23 a 25 minutos con un límite de 25, y su reescritura (6df7106, `tapChanges`
+en dos pasadas) no se había corrido nunca; y `docs/app-local.md` daba una razón que no vale en
+todas partes para que los tiradores pierdan su zona con una lista abierta. Arreglado en 4bafd3b
+(la regla), 7dcd160 y 09835a7 (`tapChanges` y la prueba del buscador), be1c3c1 (lo construido y
+los comentarios de `bms.css`) y este.
+
+- **El buscador de una lista, con el dedo.** El campo mide 19,8 px de alto, y 20 px por debajo de
+  lo que se ve empieza la primera fila de la lista («Alle klanten en leveranciers» en la de las
+  empresas, «Alle documenten» en la de los tipos: un toque en ella cierra la lista y quita ese
+  filtro). Chromium reparte los toques de en medio por la mitad, de caja a caja, y con el dedo el
+  campo tenía 13 px de relleno por los cuatro lados: los toques de 4 a 9 px por encima de la
+  fila (y = 331,5 a 336,5 a 400 px en la lista de las empresas, 571,5 a 576,5 en la de los tipos;
+  372,5 a 377,5 y 529,5 a 534,5 a 1440) enfocaban el campo, o caían en la lista sin fila, en vez
+  de elegirla. Ahora, **una sola regla para todo puntero**:
+  `.ui-command-input input{padding:12px 14px 0 38px;margin:-12px -14px 0 -38px}`. La caja del
+  campo es **la de su fila por arriba y por los lados** (12 px arriba, 38 a la izquierda, sobre
+  la lupa, y 14 a la derecha) y **no baja de lo que se ve**: 348 × 31,8 en la lista de las
+  empresas y 258 × 31,8 en la de los tipos, a 1440 y a 400, con ratón y con el dedo (la caja;
+  contada punto a punto con `elementFromPoint` por la prueba de cada zona, 349 × 33 en las
+  cuatro). Las dos reglas de `outline-offset` del campo se quitan (y `claro.css` se regenera sin
+  ellas): el campo no pinta anillo (`outline: none` en `search-workspace.css`, que va después de
+  `styles.css`; el estilo calculado con el foco, `outline-style: none` en oscuro y en claro), así
+  que no hay ninguno que dejar en su sitio.
+- **Por qué esa caja y no otra.** Lo que se midió de Chromium (153) tocando: cuentan como
+  objetivos los nodos que el dedo toca (unos 9 px alrededor del punto) y que responden a un toque
+  o tienen encima uno que responde; la lista (`.ui-popover`, con `tabindex`) responde, así que en
+  1cc96b0 un toque de justo fuera de la lista, o de su fila de arriba, se acercaba a la lista y
+  no hacía nada; pero si entre lo tocado hay un objetivo de dentro (el campo, una fila), la lista
+  deja de contar y gana el que mejor cae bajo el dedo de los que quedan. Por eso cualquier caja
+  del campo que llegue cerca del borde de la lista cambia a quién van los toques de fuera, y la
+  que menos los cambia es la que ocupa el sitio de la fila: el campo gana donde ganaba la lista
+  (antes nada, ahora el campo) y lo de al lado gana donde ya ganaba. Las candidatas, con toques
+  de verdad contra la hoja de 1cc96b0, con la lista como abre sola (hacia arriba; cada 11 px de
+  ancho y cada píxel de alto, de 12 px a cada lado de la lista y de 28 por encima de ella a 10
+  por debajo del borde de la primera fila; 2686 toques en la lista de las empresas y 2054 en la
+  de los tipos; se cuentan los toques que hacían algo y pasan a hacer otra cosa, y los que no
+  hacían nada y pasan a otro control que no es el campo):
+
+  | Relleno (arriba, derecha, abajo, izquierda) | 400, empresas | 400, tipos | 1440, empresas | 1440, tipos |
+  | --- | --- | --- | --- | --- |
+  | 13, 13, 13, 13 (lo de antes, con el dedo) | 170 | 125 | 170 | 124 |
+  | 13, 13, 5, 13 | 57 | 44 | 57 | 43 |
+  | 13, 13, 2, 13 | 0 | 3 | 0 | 2 |
+  | 13, 13, 0, 13 | 0 | 3 | 0 | 2 |
+  | 12, 13, 0, 13 | 0 | 3 | 0 | 2 |
+  | 13, 15, 0, 39 (la caja de la lista, con su borde) | 0 | 2 | 0 | 2 |
+  | 13, 14, 0, 39 | 0 | 1 | 0 | 3 |
+  | **12, 14, 0, 38 (la caja de la fila)** | **0** | **0** | **0** | **3** |
+  | 3, 3, 3, 3 (lo de antes con ratón, forzado con el dedo) | 27 | 40 | 27 | 19 |
+  | 5, 3, 0, 3 (forzado con el dedo) | 0 | 43 | 0 | 0 |
+
+  Con relleno por abajo, lo que cambia es la primera fila (pasa al campo); sin él, lo que queda
+  es de la lista de los tipos, que tiene al lado la caja de la búsqueda de la página: a 400 px,
+  8,5 px por encima de la lista (39–331 × 487–519,5, y la lista empieza en y = 528); a 1440,
+  por debajo de la lista, asomando por sus lados (448–962 × 526,6–560,6, y la lista va de x = 670
+  a 930). Con una caja más estrecha que la fila o más baja, esa caja de la búsqueda se llevaba
+  toques del hueco que antes no hacían nada (y cerraba la lista); un píxel más ancha, era el
+  campo el que se llevaba alguno de la caja, que es peor (hacían algo). Las dos últimas filas son
+  la razón de que la regla no dependa del puntero: en una pantalla táctil con ratón (`pointer:
+  fine`) los toques se acercan igual, y con la regla del ratón de antes una fila de puntos
+  (y = 331,5) pasaba de la primera fila al campo.
+- **Lo medido con lo construido, con la lista como abre sola** (hacia arriba: a 400 y a 1440 px
+  no queda sitio debajo de su campo; toques de verdad, la hoja de 1cc96b0 contra la de ahora,
+  cada 3 px de ancho y cada píxel de alto en la misma zona; la de 1cc96b0 dos veces, el ruido, 0
+  en las cuatro):
+
+  | | Toques | De nada al campo | Que hacían algo y hacen otra cosa | De nada a otro control |
+  | --- | --- | --- | --- | --- |
+  | 400 × 860 (`isMobile`), empresas | 9875 | 1466 | 0 | 0 |
+  | 400 × 860 (`isMobile`), tipos | 7505 | 1592 | 0 | 0 |
+  | 1440 × 900 (`hasTouch`), empresas | 9875 | 1469 | 0 | 0 |
+  | 1440 × 900 (`hasTouch`), tipos | 7505 | 1197 | 0 | 6 |
+
+  Y entre el campo y la primera fila, cada 0,25 px de alto (de 13 a 4 px por encima de la fila,
+  cada 11 px de ancho; 4440 toques entre las cuatro): ni uno cambia. Los 6 que quedan a 1440 px
+  junto a la lista de los tipos están en x = 664,5, 667,5, 931,5 y 934,5 (a menos de 6 px de la
+  lista, por fuera) y en y = 519,5 a 521,5 (de 1 a 3 px por debajo de lo que se ve del campo y de
+  5 a 7 por encima de donde asoma la caja de la búsqueda): iban a la lista (nada) y van a la
+  caja de la búsqueda, que toma el foco, y la lista se cierra.
+- **Con la lista abierta hacia abajo.** No se había tocado, y lo sacó la pasada entera de
+  `objetivos`: la prueba del borde de cada zona tocaba la esquina de abajo a la derecha de la
+  zona del buscador, y el campo no tomaba el foco. Radix abre la lista hacia abajo cuando cabe
+  (con el campo en el centro de la vista: a 400 px las dos; a 1440 × 900, la de los tipos, y la
+  de las empresas, de 327 px de alto, sigue abriendo hacia arriba: la página solo se desplaza
+  35 px), y entonces lo de alrededor es otro: el disparador queda 8 px por encima de la lista (a
+  21 de lo que se ve del buscador, casi como la primera fila por debajo, a 20) y, a
+  400 px, el campo de la fecha, que queda debajo de la lista de las empresas (206–382 × 541,5–
+  583,5, con la lista en 18–368 × 509–835,8 y la caja del buscador en 19–367 × 510–541,8), asoma
+  14 px por su derecha. Lo medido, la hoja de 1cc96b0 contra lo construido (cada 11 px de ancho
+  y cada píxel de alto, de 12 px a cada lado de la lista y de 14 por encima del disparador a 10
+  por debajo del borde de la primera fila; la de 1cc96b0 dos veces, 0 en todas):
+
+  | | Toques | De nada al campo | Que hacían algo y hacen otra cosa | De nada a otro control |
+  | --- | --- | --- | --- | --- |
+  | 400 × 860 (`isMobile`), empresas | 4352 | 532 | 0 | 1 |
+  | 400 × 860 (`isMobile`), tipos | 3302 | 390 | 0 | 0 |
+  | 1440 × 900 (`hasTouch`), tipos | 3302 | 392 | 0 | 0 |
+
+  Ni un toque del disparador (que cierra la lista) ni de la primera fila cambia. El que queda, a
+  400 px junto a la lista de las empresas, es como los de 1440: de nada (la lista, desde fuera)
+  al campo de la fecha («Elke datum»). Denso (cada píxel, de 12 px por dentro del borde derecho
+  de la lista a 14 por fuera y de 6 por encima de la caja del buscador a 6 por debajo del borde
+  de la primera fila; 1728 toques): 344 de nada al campo y **5 de nada al campo de la fecha**,
+  en x = 368,5 a 371,5 (de 0,5 a 3,5 px por fuera de la lista) y en y = 535,5 a 538,5 (de 3 a 6
+  px por encima del campo de la fecha, a la altura de lo que se ve del buscador). Y en esa
+  esquina de la zona (unos 8 × 10 px: x = 358,5 a 365,5, y = 532,5 a 541,5; 45 de esos toques)
+  un toque no hace nada, como en 1cc96b0, aunque el punto es del campo: Chromium elige el campo
+  de la fecha (cae más bajo el dedo que la esquina del buscador), lleva el clic al centro de lo
+  que el dedo toca de él, y ese punto está en la lista, por debajo de la zona. Con 13 px de
+  relleno por abajo ese clic caía en la zona; por eso la prueba pasaba antes. Ahora toca la
+  esquina de la izquierda, sobre la lupa (el foco va al campo, hacia arriba y hacia abajo).
+- **Por qué se deja lo que queda.** En los dos sitios (6 toques a 1440 px, tocando cada 3 px de
+  ancho, y 5 a 400, tocando cada píxel), un control de detrás de la lista asoma por su lado
+  justo por debajo de la caja del campo, y el toque es de fuera de la lista: en 1cc96b0 ganaba
+  la fila del buscador, que baja 13 px más que lo que se ve del campo, y ahora, entre el campo y
+  ese control, gana el control. Para quitarlos, la caja del campo tendría que bajar como la
+  fila, y eso es lo que se lleva los toques de la primera fila; más ancha, se lleva toques del
+  control de fuera. Ninguno hacía nada en 1cc96b0 y todos van a un control que el dedo toca; la
+  guarda los apunta con un tope.
+- **Lo que hacen ahora los toques de entre el campo y la primera fila** (sin parar nada, con un
+  filtro puesto, en el centro de la lista; las dos listas, a 400 y a 1440): de 9,3 px por encima
+  de la fila hacia abajo, la eligen (la lista se cierra y el filtro se quita), como con la hoja
+  de 1cc96b0; a 11,3 px no hacen nada (la lista sigue abierta), como antes; a 14,3 y 17,3 px
+  enfocan el campo, como antes. Con la regla de los 13 px, de 9,3 a 4,3 px por encima de la fila
+  la lista seguía abierta, con el foco en el campo (o sin él, a 8,3).
+- **Dónde un toque que no hacía nada llega ahora a una zona** (lo que no estaba apuntado): en la
+  fila del buscador, encima del campo (12 px), a su izquierda (la lupa incluida) y a su derecha,
+  un toque o un clic enfoca el campo (antes quitaba el foco del campo: iba a la lista); y desde
+  fuera de la lista, a unos 9 px de esa fila, por arriba y por los lados, un toque que Chromium
+  acercaba a la lista se acerca ahora al campo (con la lista hacia abajo, también en la mitad de
+  abajo del hueco de 8 px entre el disparador y la lista). Con ratón, el cursor de texto sale en
+  toda esa fila.
+- **`tapChanges`, comprobada y en tres pasadas.** La de dos pasadas (6df7106) se comparó con
+  tocar uno a uno con la hoja cambiada en cada toque, en una muestra de 2386 puntos de ocho
+  sitios (los seis de la prueba, el otro tirador y el buscador de la lista de las empresas, a
+  400 × 860 con `isMobile`): la técnica da lo mismo punto a punto (0 distintos sin las zonas y 0
+  con ellas), y con cada toque aislado, 300 ms después del anterior, 479 de 480 (el otro, en el
+  borde de una carpeta de Documentos, da nada en vez de la carpeta, con las dos hojas: la
+  carpeta se abre con el dedo encima, `:hover`, y el toque de antes, al lado, la deja abierta).
+  Pero la función daba 7 cambios de más alrededor de «Filters wissen» (72 por 65): toques en el
+  botón «Zoeken» sin clic en la primera pasada y con clic en la segunda, porque la búsqueda aún
+  pensaba (1,5 s cada vez que cambia un filtro, con el botón deshabilitado). Entre dos pasadas
+  pasan segundos, y la página puede cambiar en medio. Ahora son **tres pasadas** (sin las
+  zonas, con ellas y sin ellas otra vez): los puntos que no dan lo mismo las dos veces sin las
+  zonas se repiten solos, hasta dos veces, y si siguen sin cuadrar la prueba falla diciéndolo; y
+  la prueba espera a que la búsqueda termine antes de tocar. Con tres pasadas, los mismos
+  cambios que uno a uno en los ocho sitios (0, 0, 229, 65, 91, 49, 13 y 91). Cada toque tarda
+  16,8 ms.
+- **La guarda toca alrededor del buscador.** Cuatro pruebas nuevas en `e2e/objetivos.spec.ts`, a
+  400 × 860 (`isMobile`) y a 1440 × 900 (`hasTouch`), con la lista como abre sola y hacia abajo,
+  en las dos listas (a 1440 hacia abajo, solo la de los tipos): que la lista abre hacia donde se
+  espera; que la zona del campo no baja de lo que se ve; `tapChanges` alrededor del campo (cada
+  11 px de ancho y cada píxel de alto, de 12 px a cada lado de la lista y de 14 por encima de
+  ella a 10 por debajo del borde de la primera fila; 2618 toques en la lista de las empresas y
+  2002 en la de los tipos): cada toque va adonde iba, o al campo si no hacía nada, salvo los
+  apuntados (`BESIDE`: de nada a la caja de la búsqueda junto a la lista de los tipos a 1440, 3
+  en esa rejilla, tope de 4; de nada al campo de la fecha junto a la de las empresas hacia abajo
+  a 400, 1, tope de 2); y un toque sin parar nada, con un filtro puesto, 5 px por encima de la
+  primera fila: la lista se cierra y el filtro se quita. **Con la regla de antes fallan las
+  cuatro** (lo construido con `padding: 3px; margin: -3px` y, con el dedo, `padding: 13px;
+  margin: -13px`, y las pruebas de ahora): la zona baja 13 px de lo que se ve; con la lista
+  como abre sola cambian sin permiso 170 toques en la de las empresas y 126 en la de los tipos a
+  400 px (170 y 123 a 1440): 142 y 102 de la primera fila al campo, 28 y 20 de la primera fila a
+  nada y, en la de los tipos, uno de la caja de la búsqueda al campo; hacia abajo, 172 y 143,
+  porque ahí el campo se llevaba además toques de los disparadores de encima de la lista de los
+  tipos («Soort document», 12 o 13, y «Elke datum», 5 o 6: cerraban la lista o abrían el
+  calendario, y enfocaban el campo); y el toque de 5 px por encima de la primera fila no la
+  elige (la lista sigue abierta, con el foco en el campo). Después, la regla de ahora otra vez y
+  lo construido con la misma huella (`ea2f6be4…`).
+- **La documentación de los tiradores.** `docs/app-local.md` decía que, con una lista de los
+  filtros abierta, los tiradores no tienen zona porque «la lista los tapa». La regla
+  (`.filters-fields:has([aria-expanded=true]) ~ .filter-amount-section .amount-thumb`, sin capa y
+  sin `position: relative`) vale a cualquier ancho y con cualquier puntero, y también para el
+  calendario, tape o no tape. Medido (cada lista abierta, con su campo en el centro de la vista
+  y con el tirador en el centro, con ratón y con el dedo): a 400 px, la lista de las empresas y
+  la de los tipos caen sobre el tirador de abajo entero, y el calendario sobre el de arriba; a
+  1440 px, la de las empresas queda 174 px por encima de los dos, el calendario no toca ninguno
+  y la de los tipos tapa el de arriba cuando abre hacia abajo y no cuando abre hacia arriba. La
+  razón de verdad: donde una lista cae sobre un tirador, su capa (y sin ella, su `position:
+  relative`, que despierta el `z-index: 2` de Aurora) cambiaba toques del borde de la lista que
+  antes elegían una fila («Tras la segunda verificación independiente»), y qué lista cae sobre
+  qué tirador no se ve desde el CSS; lo que se ve es que hay una abierta, y la regla va con eso.
+  Donde no lo tapa, un toque o un clic en el tirador cierra la lista y lo agarra sin moverlo
+  (`aria-valuenow` igual), y al cerrarse la lista vuelve a tener su zona. Corregido en
+  `docs/app-local.md` y en el comentario de `bms.css`.
+
+Resultado (14-11-2026, Chromium 153, la base de prueba del día, la CPU compartida):
+`e2e/objetivos.spec.ts` entero y solo, 12 de 12 en 57,5 min, cada prueba en menos de la mitad
+de su límite (la primera pasada entera, con 10 pruebas, 51,6 min: 9 bien, con los mismos tiempos,
+y la del borde de cada zona mal, por la esquina del buscador de arriba):
+
+| Prueba | Límite | Tardó |
+| --- | --- | --- |
+| La guarda (la gira), a 400 × 860 con ratón | 30 min | 5,9 min |
+| La guarda (la gira), a 400 × 860 con el dedo | 30 min | 6,2 min |
+| Cada zona a 1440 px con ratón | 25 min | 7,3 min |
+| Cada zona a 1440 px con el dedo | 25 min | 7,0 min |
+| Cada zona a 400 px con ratón | 25 min | 4,9 min |
+| Cada zona a 400 px con el dedo | 25 min | 4,7 min |
+| Un toque en el borde de cada zona | 10 min | 43,8 s |
+| Los toques de verdad junto a las zonas (la que tardaba de 23 a 25 min) | 25 min | 6,7 min |
+| El buscador a 400 px, la lista como abre sola | 15 min | 4,0 min |
+| El buscador a 400 px, la lista hacia abajo | 15 min | 4,0 min |
+| El buscador a 1440 px, la lista como abre sola | 15 min | 4,0 min |
+| El buscador a 1440 px, la lista hacia abajo | 15 min | 1,8 min |
+
+La guarda, 71 estados con ratón y con el dedo (788 y 791 objetivos), 0 sin su cuadrado de 24 y
+0 que no deberían cambiar; por el espaciado, solo los días del calendario y los botones de una
+respuesta (23 de cuadrado). Cada zona, 144 y 84 capturas iguales a 1440 (ratón y dedo) y 140 y
+82 a 400, sin una diferencia en las medidas de desplazamiento. Los toques de verdad junto a las
+zonas, como antes: alrededor de los tiradores con la lista abierta, 0 de 1150 cambian; alrededor
+de «Filters wissen», 456 de 1980 pasan de nada a la zona y ninguno más; en la esquina de la ✕ de
+una tarjeta, 456 de 1176 en un panel y 456 de 1176 en la hoja; bajo la carpeta, 237 de 806, y
+entre las migas, 52 de 1175 y los 5 del hueco. Alrededor del buscador, de nada al campo y
+ninguno más salvo los apuntados: a 400 px, con la lista como abre sola, 390 de 2618 (empresas) y
+421 de 2002 (tipos); hacia abajo, 532 de 2618, con 1 al campo de la fecha, y 390 de 2002; a
+1440 px, 390 de 2618 y 315 de 2002, con 3 a la caja de la búsqueda, y hacia abajo (los tipos)
+392 de 2002. Typecheck; vitest, 1367; `aurora-claro.mjs --comprobar`, al día; la construcción,
+con `fuente.json` al día (`ea2f6be4…`); `test_app_local`, 56; `documents` y `search`, 10 de
+10 (5,8 min). El resto de la suite e2e y el resto de Python no se corrieron: no cambia más que
+la regla del buscador (`bms.css`, `claro.css`) y las pruebas de `objetivos`.
+
 ### El tema claro, rehecho (petición del dueño del 02-11-2026)
 
 #### La petición
@@ -10793,5 +11019,9 @@ Todo con la base de hoy (10-11-2026) y sin el envoltorio que buscaba 31 días at
 - La suite e2e entera menos `objetivos`: 121 de 122 a la primera (1,4 h). Falló «capturas de
   cobrar, pagar y el banco» (la causa 6); tras el arreglo, `payments`, `daily`, `documents` y
   `cartera-partes` otra vez: 29 de 29. `screens` (BTW, castellano, solo lectura) 3 de 3 aparte.
+- `objetivos` se quedó fuera ese día porque su prueba de los toques de verdad tardaba de 23 a 25
+  minutos con un límite de 25. Ya no: el 14-11-2026, `e2e/objetivos.spec.ts` entero y solo, 12
+  de 12 en 57,5 min, cada prueba en menos de la mitad de su límite (esa, 6,7 min); está arriba,
+  en «Las zonas táctiles de los demás controles», «Tras la cuarta verificación independiente».
 - `aurora-paridad`, la hoja a 300 px: con la base de hoy y con las del 28-10, 01-10, 07-09 y 14-08,
   en los dos temas: 10 de 10.
