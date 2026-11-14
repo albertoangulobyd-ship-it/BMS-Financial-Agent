@@ -564,9 +564,9 @@ test.describe('con el dedo, a 400 px', () => {
 //
 // En los dos estados de una lista: como abre sola (sin sitio debajo de su campo, Radix la abre
 // hacia arriba: encima de ella no hay nada, o la caja de la busqueda de la pagina) y hacia abajo
-// (con su campo en el centro de la vista: el disparador queda 8 px por encima de la lista, a 20 de
-// lo que se ve del buscador, como la primera fila por debajo). A 1440 px la de las empresas no cabe
-// hacia abajo: abre siempre hacia arriba.
+// (con su campo en el centro de la vista: el disparador queda 8 px por encima de la lista, a 21 de
+// lo que se ve del buscador, casi como la primera fila por debajo). A 1440 × 900 la de las empresas
+// no cabe hacia abajo (la pagina solo se desplaza 35 px): sigue abriendo hacia arriba.
 //
 // Una sola cosa mas puede cambiar, apuntada (BESIDE; docs/v1/registro.md, «Tras la cuarta
 // verificacion independiente»): un toque de justo fuera de la lista, junto a una esquina de abajo
