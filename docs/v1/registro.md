@@ -11025,3 +11025,43 @@ Todo con la base de hoy (10-11-2026) y sin el envoltorio que buscaba 31 días at
   en «Las zonas táctiles de los demás controles», «Tras la cuarta verificación independiente».
 - `aurora-paridad`, la hoja a 300 px: con la base de hoy y con las del 28-10, 01-10, 07-09 y 14-08,
   en los dos temas: 10 de 10.
+
+### Un efecto que devolvía una promesa: la app en blanco con el Chromium nuevo (14-11-2026)
+
+**Qué pasó.** Al pasar la suite e2e entera el 14-11-2026 fallaron dos pruebas de `daily`
+(«uitzonderingen…» e «IBAN-controles…») con `pageerror: P is not a function` y la pantalla en
+blanco: la app entera desmontada, solo la banda de los datos de prueba a la vista. No era de las
+zonas táctiles ni del tema claro (el JavaScript construido era el mismo desde `57e9886`): era del
+navegador. La máquina de pruebas se rehízo el 13-11 y trae Chromium 153.0.8010.12, donde
+`scrollIntoView()`, `scrollTo()` y `scrollBy()` devuelven una promesa y no `undefined`.
+
+**Causa.** Dos efectos sin llaves devolvían lo que da `scrollIntoView`:
+
+- `Notice` (`frontend/src/aurora/panels/pieces.tsx`), el aviso de lo hecho por la última orden;
+- `Done` (`frontend/src/aurora/panels/import-panel.tsx`), el «Importado» de Procesar.
+
+Lo que devuelve un efecto es su limpieza y React la llama al desmontar el componente sin mirar qué
+es. Con `undefined` no hay limpieza; con una promesa, React la llama como función, salta el
+`TypeError` en plena fase de borrado y cae el árbol entero. En la práctica: tras una orden con su
+aviso («Zelf oppakken», confirmar un IBAN…), lo siguiente que quitara el aviso de la pantalla
+(abrir la hoja de la factura, cambiar de entrada) dejaba la app en blanco hasta recargar. Le habría
+pasado al dueño con su propio Chrome en cuanto llegara a esa versión.
+
+**Arreglo.** Los dos efectos, con llaves: llaman a `scrollIntoView` y no devuelven nada. Ningún
+otro efecto devolvía una llamada del DOM (los demás `scrollIntoView` y el `window.scrollTo` de
+`root.tsx` ya eran sentencias).
+
+**La guarda.** TypeScript no lo ve (para `lib.dom` esas llamadas aún son `void`), así que lo mira
+`frontend/src/aurora/efectos.test.ts`, en las fuentes y con el analizador de TypeScript: un efecto
+(`useEffect`, `useLayoutEffect`, `useInsertionEffect`) sin llaves solo puede ser una función que
+devuelve su limpieza; con llaves, ningún `return` suyo lleva una llamada del DOM (las de desplazar,
+`focus`, `showModal`, `play`…); y ninguno es `async`. Con dientes: sin el arreglo falla en las dos
+líneas exactas (`import-panel.tsx:371` y `pieces.tsx:119`, «sin llaves»). La guarda de siempre de
+las e2e (`pageerror` en `fixtures.ts`) es la que lo encontró, pero solo lo ve con un navegador que
+ya devuelva la promesa.
+
+**Las pruebas** (14-11-2026, Chromium 153): las dos de `daily` fallaban antes (repetidas aparte:
+2 de 2 fallan, con la traza en `yi`, la limpieza de los efectos pasivos de React); después,
+`e2e/daily.spec.ts` entero, 12 de 12 en 4,0 min. typecheck; vitest, 1369 (2 nuevas); la
+construcción, con `fuente.json` al día (`9a172387…`); `test_app_local`, 56. Del CSS construido no
+cambia nada: solo el `index-*.js`.

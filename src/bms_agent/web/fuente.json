@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "ea2f6be477bbe9e71166b2d8861b86ca69aacbedab9ded3e4757e9d2671b709d",
+  "sha256": "9a172387879198583e0bcc039b603b8e41ea2aa18f0ee647410b5c2f4da3320d",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -49,13 +49,13 @@
     "frontend/src/aurora/panels/exception-orders.tsx": "b18d9bf7702c481a0b2b6a7b40dd9aff04a8701b529a24e1f0d190cf46a65466",
     "frontend/src/aurora/panels/home-panel.tsx": "1548a38b0bd7a3e603c747debf2f9b2944d32bedf369dd32a40a2928056b9b28",
     "frontend/src/aurora/panels/iban-model.ts": "4251dc02b5848bc6a5fcf74ee43784d816fdbcd23c5f1856371d39ef2a7e52c4",
-    "frontend/src/aurora/panels/import-panel.tsx": "a777c1d51e3bdeb027157f438f32f727bdb0c4e315d8dc5574d49faa63b70c7e",
+    "frontend/src/aurora/panels/import-panel.tsx": "4a62bcb2e92a5b5fd50df2ce3df4abbc85120e65fcc141e2267d57206c5dbba1",
     "frontend/src/aurora/panels/invoice-card.tsx": "2495c51de8a63fcdc143b409c415d6bb975f5d9a06716d5f9dc7eba71cb90547",
     "frontend/src/aurora/panels/money-model.ts": "bcd4fa81723854eb444f9f6997580b7cd3a93a5a801f2540ae61eeb1ffa63310",
     "frontend/src/aurora/panels/money-panel.tsx": "25337b4d2205277d4e50013b27dd643d498711e9dfbf8b108200bed1464a31e0",
     "frontend/src/aurora/panels/panel-model.ts": "07e56c596a72252789cbbc136b5ccd6b863294c137c0ac3a778ac687136f9caa",
     "frontend/src/aurora/panels/payment-orders.tsx": "260dc147865f9198a63b01d502c09bbbae553a8b1c54e0e4d6e3c563f2279c90",
-    "frontend/src/aurora/panels/pieces.tsx": "ab30d375ab6363cc2050eb0b89415e5f6e8bd40883c7a2d107a19137d1050cff",
+    "frontend/src/aurora/panels/pieces.tsx": "5e453cefd259fa14e3cc6ba689ac11c250ed25e864f80661b02a9de3b3ec6984",
     "frontend/src/aurora/panels/settings-panel.tsx": "e44df661f4081d42ee2f073fd251b4334b59df3bdd85bcc6f57104d3f0752510",
     "frontend/src/aurora/panels/vat-panel.tsx": "e0e73cf297faaea4ed10f144e4c0521cb1a13c685ad73747faea3e3d99ac7d3a",
     "frontend/src/aurora/panels/weeks.ts": "1a947a8e8276e8b7b4df899f1afa9f5fe0948da9a852fbf928c8c874467a2049",
@@ -139,10 +139,10 @@
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-C_CWSXNj.js": "7fbbdf8296b8cf4fae07958200bbab1f18e0ede090f73e97e386ee9fc83c52f9",
+    "assets/index-wWykeSjq.js": "a90a7a476cb2b6859bb15de5289f1c83409e8ca55bc7b7f80b8de46cb8df85e3",
     "assets/style-Bb5qUQqJ.css": "35481221b322ae571fef871994077a4703d6435d981dc2a36bd7e778afa6eb0d",
     "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
     "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
-    "index.html": "9093378a45798f275c6746be1f0155805ba49081eeee24a5dea9eda5f66843e3"
+    "index.html": "e203543f47a4102536393a3330f5f0bbaf8c11c43ee6870de0beee2353879839"
   }
 }

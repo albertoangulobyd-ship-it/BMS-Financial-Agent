@@ -368,7 +368,10 @@ function Importer({ info, onView, backLabel }: { info: ImportsInfo; onView: (vie
 function Done({ onAnother }: { onAnother: () => void }) {
   const { t } = useT();
   const ref = useRef<HTMLParagraphElement>(null);
-  useEffect(() => ref.current?.scrollIntoView({ block: 'nearest' }), []);
+  // Con llaves, como en pieces.tsx: scrollIntoView puede devolver una promesa y un efecto no.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
   return (
     <>
       <p className='success' role='status' ref={ref}>

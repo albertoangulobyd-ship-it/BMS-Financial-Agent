@@ -116,7 +116,11 @@ export function PanelFrame({ title, description, view, onEscape, children }: Pan
 /** Lo hecho por la ultima orden (.success), a la vista. */
 function Notice({ text }: { text: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
-  useEffect(() => ref.current?.scrollIntoView({ block: 'nearest' }), [text]);
+  // Con llaves: lo que devuelve un efecto, React lo llama al desmontar, y scrollIntoView devuelve
+  // una promesa en los Chromium nuevos (153): sin ellas la app entera se caia al quitar el aviso.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: 'nearest' });
+  }, [text]);
   return (
     <p className='success' role='status' ref={ref}>
       {text}
