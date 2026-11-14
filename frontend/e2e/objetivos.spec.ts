@@ -21,7 +21,8 @@
 //   control);
 // - con el dedo, a 400 × 860 (isMobile) y a 1440 × 900 (hasTouch): lo mismo alrededor del buscador
 //   de las dos listas de los filtros, que tiene su primera fila 20 px por debajo, y un toque de
-//   verdad 5 px por encima de esa fila la elige.
+//   verdad 5 px por encima de esa fila la elige; con la lista como abre sola (hacia arriba) y
+//   abierta hacia abajo (su disparador, 8 px por encima).
 import type { Locator, Page } from '@playwright/test';
 import { expect, expectAccessible, login, N, settled, test } from './fixtures';
 import {
@@ -320,12 +321,18 @@ test.describe('con el dedo, a 400 px', () => {
       await expect(thumb).toBeFocused();
       await expect(thumb).toHaveAttribute('aria-valuenow', value!);
     }
-    // El buscador de una lista: el foco va a su caja.
+    // El buscador de una lista: el foco va a su caja. Por la izquierda, sobre la lupa: la zona no
+    // baja de lo que se ve, y aqui la lista abre hacia abajo y el campo de la fecha, que queda
+    // debajo de ella, asoma 14 px por su derecha; en la esquina de abajo a la derecha de la zona
+    // Chromium elige ese campo, lleva el clic al centro de lo que el dedo toca de el, que cae en la
+    // lista por debajo de la zona, y no pasa nada: lo mismo que en 1cc96b0 (docs/v1/registro.md,
+    // «Tras la cuarta verificacion independiente»).
     await page.locator('#search-filters .party-combobox button').click();
     const input = page.locator('.ui-popover .ui-command-input input');
     await expect(input).toBeVisible();
+    await expect(page.locator('.ui-popover')).toHaveAttribute('data-side', 'bottom');
     await input.evaluate((e) => (e as HTMLElement).blur());
-    await tapEdge(page, input);
+    await tapEdge(page, input, 'abajo-izquierda');
     await expect(input).toBeFocused();
     await page.keyboard.press('Escape');
     // «Filters wissen»: los filtros se quitan.
@@ -551,92 +558,125 @@ test.describe('con el dedo, a 400 px', () => {
 // encima de la fila enfocaban el campo en vez de elegirla. Se toca de verdad alrededor del campo,
 // con las zonas y sin las nuevas (como en 1cc96b0), con los clics parados: cada 11 px de ancho y
 // cada pixel de alto, de 12 px a cada lado de la lista y de 14 por encima de ella a 10 por debajo
-// del borde de la primera fila; cada toque va adonde iba, o al campo si antes no hacia nada. Una
-// sola cosa mas, apuntada (docs/v1/registro.md, «Tras la cuarta verificacion independiente»): a
-// 1440 px, la caja de la busqueda de la pagina pasa por debajo de la lista de los tipos y asoma
-// por sus lados, y un toque de justo fuera de la lista (a menos de 6 px), de 1 a 3 px por debajo
-// de lo que se ve del campo y justo encima de esa caja, que iba a la lista (nada), va a la caja
-// (3 de los toques de la rejilla). Y un toque sin parar nada, con un filtro puesto: 5 px por
-// encima de la primera fila, la elige (la lista se cierra y el filtro se quita).
+// del borde de la primera fila; cada toque va adonde iba, o al campo si antes no hacia nada. Y un
+// toque sin parar nada, con un filtro puesto: 5 px por encima de la primera fila, la elige (la
+// lista se cierra y el filtro se quita).
+//
+// En los dos estados de una lista: como abre sola (sin sitio debajo de su campo, Radix la abre
+// hacia arriba: encima de ella no hay nada, o la caja de la busqueda de la pagina) y hacia abajo
+// (con su campo en el centro de la vista: el disparador queda 8 px por encima de la lista, a 20 de
+// lo que se ve del buscador, como la primera fila por debajo). A 1440 px la de las empresas no cabe
+// hacia abajo: abre siempre hacia arriba.
+//
+// Una sola cosa mas puede cambiar, apuntada (BESIDE; docs/v1/registro.md, «Tras la cuarta
+// verificacion independiente»): un toque de justo fuera de la lista, junto a una esquina de abajo
+// de la caja del campo, que iba a la lista (nada), va al control de fuera que el dedo tambien toca
+// (antes ganaba la fila del buscador, que baja 13 px mas que la caja del campo). Pasa donde un
+// control de detras de la lista asoma por su lado a esa altura: a 1440 px, la caja de la busqueda
+// de la pagina, por los lados de la lista de los tipos abierta hacia arriba (3 de los toques de la
+// rejilla); a 400 px, el campo de la fecha, por la derecha de la lista de las empresas abierta
+// hacia abajo (1 de los de la rejilla).
+const BESIDE: Record<string, { to: string; most: number }> = {
+  '1440 px (hasTouch), la lista de los tipos, como abre sola': { to: `input «${t.aurora.composer.searchLabel}»`, most: 4 },
+  '400 px (isMobile), la lista de las empresas, hacia abajo': { to: 'button.filter-date-trigger «', most: 2 },
+};
 for (const device of [
   { name: '400 px (isMobile)', use: { viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true } },
   { name: '1440 px (hasTouch)', use: { viewport: { width: 1440, height: 900 }, hasTouch: true } },
 ]) {
-  test.describe(`con el dedo, a ${device.name}`, () => {
-    test.use(device.use);
+  for (const state of ['como abre sola', 'hacia abajo'] as const) {
+    test.describe(`con el dedo, a ${device.name}`, () => {
+      test.use(device.use);
 
-    test(`los toques junto al buscador de una lista van adonde iban en 1cc96b0, o al buscador si no hacian nada (${device.name})`, async ({ page, baseUrl }) => {
-      test.setTimeout(900_000);
-      await page.goto(`${baseUrl}/app`);
-      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
-      await login(page);
-      await openEntry(page, 'search');
-      await page.locator('.filters-toggle').click();
-      await expect(page.locator('#search-filters')).toBeVisible();
-      await settled(page);
-      const wrong: string[] = [];
-      const popover = page.locator('.ui-popover');
-      const input = popover.locator('.ui-command-input input');
-      const first = popover.locator('.ui-command-item').first();
-      for (const [selector, list] of [['.party-combobox button', 'la lista de las empresas'], ['.filter-combo-trigger', 'la lista de los tipos']] as const) {
-        const trigger = page.locator(`#search-filters ${selector}`);
-        const text = async () => ((await trigger.textContent()) ?? '').replace(/\s+/g, ' ').trim();
-        const open = async () => {
-          await trigger.click();
+      test(`los toques junto al buscador de una lista (${state}) van adonde iban en 1cc96b0, o al buscador si no hacian nada (${device.name})`, async ({ page, baseUrl }) => {
+        test.setTimeout(900_000);
+        await page.goto(`${baseUrl}/app`);
+        expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+        await login(page);
+        await openEntry(page, 'search');
+        await page.locator('.filters-toggle').click();
+        await expect(page.locator('#search-filters')).toBeVisible();
+        await settled(page);
+        const wrong: string[] = [];
+        const popover = page.locator('.ui-popover');
+        const input = popover.locator('.ui-command-input input');
+        const first = popover.locator('.ui-command-item').first();
+        let probed = 0;
+        for (const [selector, list] of [['.party-combobox button', 'la lista de las empresas'], ['.filter-combo-trigger', 'la lista de los tipos']] as const) {
+          const trigger = page.locator(`#search-filters ${selector}`);
+          const text = async () => ((await trigger.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+          const open = async () => {
+            if (state === 'hacia abajo') {
+              await trigger.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'nearest' }));
+              await settled(page);
+            }
+            await trigger.click();
+            await expect(popover).toBeVisible();
+            await settled(page);
+          };
+          const unfiltered = await text();
+          await open();
+          // Hacia donde abre: sola, hacia arriba; con su campo en el centro, hacia abajo si cabe.
+          const below = state === 'hacia abajo' && !(device.use.viewport.width === 1440 && selector === '.party-combobox button');
+          await expect(popover, `${list}: hacia donde abre`).toHaveAttribute('data-side', below ? 'bottom' : 'top');
+          if (state === 'hacia abajo' && !below) {
+            console.log(`${list} a ${device.name}: no cabe hacia abajo (abre hacia arriba, como sola)`);
+            await page.keyboard.press('Escape');
+            await expect(popover).toHaveCount(0);
+            continue;
+          }
+          probed += 1;
+          // La zona no baja de lo que se ve del campo, y la primera fila empieza 20 px por debajo.
+          const { box, area } = await areaOf(input);
+          const row = (await first.boundingBox())!;
+          const whole = (await popover.boundingBox())!;
+          const under = area.y + area.height - (box.y + box.height);
+          if (under > 0.05) wrong.push(`${list}: la zona del campo baja ${under.toFixed(1)} px de lo que se ve`);
+          expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeGreaterThan(15);
+          expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeLessThan(25);
+          const points = grid(whole.x - 12, whole.x + whole.width + 12, 11, whole.y - 14, row.y + 10, 1);
+          const changes = await tapChanges(page, points);
+          const allowed = BESIDE[`${device.name}, ${list}, ${state}`];
+          const groups = new Map<string, TapChange[]>();
+          let fine = 0;
+          let beside = 0;
+          for (const c of changes) {
+            // Lo que no hacia nada, al campo.
+            if (nothing(c.before) && c.after.startsWith('input «') && c.after.endsWith('[zona]')) {
+              fine += 1;
+              continue;
+            }
+            // Fuera de la lista, por sus lados: de la lista (nada) al control de fuera apuntado.
+            if (allowed && nothing(c.before) && c.after.startsWith(allowed.to) && (c.x < whole.x || c.x > whole.x + whole.width)) {
+              beside += 1;
+              continue;
+            }
+            const k = `${c.before} → ${c.after}`;
+            groups.set(k, [...(groups.get(k) ?? []), c]);
+          }
+          wrong.push(...[...groups].map(([k, v]) => `${list}: ${k} (${v.length} puntos, de y = ${Math.min(...v.map((c) => c.y))} a ${Math.max(...v.map((c) => c.y))}, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
+          console.log(`${list} a ${device.name}, ${state}: el campo ${boxSize(box)}, su zona ${boxSize(area)}, la primera fila en y = ${row.y.toFixed(1)}; ${points.length} toques, ${fine} pasan de nada al campo, ${beside} de nada (la lista, desde fuera) a un control de fuera, ${changes.length - fine - beside} sin permiso${[...groups].map(([k, v]) => `\n  ${k}: ${v.length}`).join('')}`);
           await expect(popover).toBeVisible();
-          await settled(page);
-        };
-        const unfiltered = await text();
-        await open();
-        // La zona no baja de lo que se ve del campo, y la primera fila empieza 20 px por debajo.
-        const { box, area } = await areaOf(input);
-        const row = (await first.boundingBox())!;
-        const whole = (await popover.boundingBox())!;
-        const below = area.y + area.height - (box.y + box.height);
-        if (below > 0.05) wrong.push(`${list}: la zona del campo baja ${below.toFixed(1)} px de lo que se ve`);
-        expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeGreaterThan(15);
-        expect(row.y - (box.y + box.height), `${list}: de lo que se ve del campo a la primera fila`).toBeLessThan(25);
-        const points = grid(whole.x - 12, whole.x + whole.width + 12, 11, whole.y - 14, row.y + 10, 1);
-        const changes = await tapChanges(page, points);
-        const groups = new Map<string, TapChange[]>();
-        let fine = 0;
-        let beside = 0;
-        for (const c of changes) {
-          // Lo que no hacia nada, al campo.
-          if (nothing(c.before) && c.after.startsWith('input «') && c.after.endsWith('[zona]')) {
-            fine += 1;
-            continue;
-          }
-          // Fuera de la lista, por sus lados: de la lista (nada) a la caja de la busqueda de la pagina.
-          if (nothing(c.before) && c.after === `input «${t.aurora.composer.searchLabel}»` && (c.x < whole.x || c.x > whole.x + whole.width)) {
-            beside += 1;
-            continue;
-          }
-          const k = `${c.before} → ${c.after}`;
-          groups.set(k, [...(groups.get(k) ?? []), c]);
-        }
-        wrong.push(...[...groups].map(([k, v]) => `${list}: ${k} (${v.length} puntos, de y = ${Math.min(...v.map((c) => c.y))} a ${Math.max(...v.map((c) => c.y))}, p. ej. (${v[0]!.x}, ${v[0]!.y}))`));
-        console.log(`${list} a ${device.name}: el campo ${boxSize(box)}, su zona ${boxSize(area)}, la primera fila en y = ${row.y.toFixed(1)}; ${points.length} toques, ${fine} pasan de nada al campo, ${beside} de nada (la lista, desde fuera) a la caja de la busqueda de la pagina, ${changes.length - fine - beside} sin permiso${[...groups].map(([k, v]) => `\n  ${k}: ${v.length}`).join('')}`);
-        await expect(popover).toBeVisible();
-        expect(fine, `${list}: toques que pasan de nada al campo`).toBeGreaterThan(0);
-        // Solo junto a la lista de los tipos a 1440 px (3 en esta rejilla).
-        expect(beside, `${list}: toques de justo fuera de la lista que pasan de nada a la caja de la busqueda de la pagina`).toBeLessThanOrEqual(device.use.viewport.width === 1440 && selector === '.filter-combo-trigger' ? 4 : 0);
-        // Sin parar nada, con un filtro puesto (la tercera fila): un toque 5 px por encima de la
-        // primera fila la elige, como en 1cc96b0 (la lista se cierra y el filtro se quita).
-        await popover.locator('.ui-command-item').nth(2).click();
-        await expect(popover).toHaveCount(0);
-        expect(await text(), `${list}: un filtro puesto`).not.toBe(unfiltered);
-        await open();
-        const top = (await first.boundingBox())!;
-        await page.touchscreen.tap(top.x + top.width / 2, top.y - 5);
-        const chosen = await popover.waitFor({ state: 'detached', timeout: 3_000 }).then(() => true, () => false);
-        if (!chosen) {
-          wrong.push(`${list}: un toque 5 px por encima de la primera fila no la elige (la lista sigue abierta${(await input.evaluate((e) => e === document.activeElement)) ? ', el foco en el campo' : ''})`);
-          await page.keyboard.press('Escape');
+          expect(fine, `${list}: toques que pasan de nada al campo`).toBeGreaterThan(0);
+          expect(beside, `${list}: toques de justo fuera de la lista que pasan de nada a un control de fuera`).toBeLessThanOrEqual(allowed?.most ?? 0);
+          // Sin parar nada, con un filtro puesto (la tercera fila): un toque 5 px por encima de la
+          // primera fila la elige, como en 1cc96b0 (la lista se cierra y el filtro se quita).
+          await popover.locator('.ui-command-item').nth(2).click();
           await expect(popover).toHaveCount(0);
-        } else if ((await text()) !== unfiltered) wrong.push(`${list}: un toque 5 px por encima de la primera fila no quita el filtro («${await text()}»)`);
-      }
-      expect(wrong).toEqual([]);
+          expect(await text(), `${list}: un filtro puesto`).not.toBe(unfiltered);
+          await open();
+          const top = (await first.boundingBox())!;
+          await page.touchscreen.tap(top.x + top.width / 2, top.y - 5);
+          const chosen = await popover.waitFor({ state: 'detached', timeout: 3_000 }).then(() => true, () => false);
+          if (!chosen) {
+            wrong.push(`${list}: un toque 5 px por encima de la primera fila no la elige (la lista sigue abierta${(await input.evaluate((e) => e === document.activeElement)) ? ', el foco en el campo' : ''})`);
+            await page.keyboard.press('Escape');
+            await expect(popover).toHaveCount(0);
+          } else if ((await text()) !== unfiltered) wrong.push(`${list}: un toque 5 px por encima de la primera fila no quita el filtro («${await text()}»)`);
+        }
+        expect(probed, 'listas tocadas').toBeGreaterThan(0);
+        expect(wrong).toEqual([]);
+      });
     });
-  });
+  }
 }
