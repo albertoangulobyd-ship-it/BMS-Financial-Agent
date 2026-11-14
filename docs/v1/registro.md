@@ -10411,8 +10411,8 @@ los comentarios de `bms.css`) y este.
 
 Resultado (14-11-2026, Chromium 153, la base de prueba del día, la CPU compartida):
 `e2e/objetivos.spec.ts` entero y solo, 12 de 12 en 57,5 min, cada prueba en menos de la mitad
-de su límite (la primera pasada entera, con 10 pruebas, 51,6 min: 9 bien, con los mismos tiempos,
-y la del borde de cada zona mal, por la esquina del buscador de arriba):
+de su límite (la primera pasada entera, con 10 pruebas, 51,6 min: 9 bien, con tiempos parecidos,
+y la del borde de cada zona mal, por la esquina de la zona del buscador contada arriba):
 
 | Prueba | Límite | Tardó |
 | --- | --- | --- |
