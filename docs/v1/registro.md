@@ -10402,7 +10402,8 @@ los comentarios de `bms.css`) y este.
   1440 px, la de las empresas queda 174 px por encima de los dos, el calendario no toca ninguno
   y la de los tipos tapa el de arriba cuando abre hacia abajo y no cuando abre hacia arriba. La
   razón de verdad: donde una lista cae sobre un tirador, su capa (y sin ella, su `position:
-  relative`, que despierta el `z-index: 2` de Aurora) cambiaba toques del borde de la lista que
+  relative`, que despierta el `z-index: 2` de Aurora, con el Chromium 141 de entonces; con el 153
+  ya no: «La quinta verificación independiente», al final) cambiaba toques del borde de la lista que
   antes elegían una fila («Tras la segunda verificación independiente»), y qué lista cae sobre
   qué tirador no se ve desde el CSS; lo que se ve es que hay una abierta, y la regla va con eso.
   Donde no lo tapa, un toque o un clic en el tirador cierra la lista y lo agarra sin moverlo
@@ -11065,3 +11066,81 @@ ya devuelva la promesa.
 `e2e/daily.spec.ts` entero, 12 de 12 en 4,0 min. typecheck; vitest, 1369 (2 nuevas); la
 construcción, con `fuente.json` al día (`9a172387…`); `test_app_local`, 56. Del CSS construido no
 cambia nada: solo el `index-*.js`.
+
+### La quinta verificación independiente: las zonas táctiles y el tema claro (14 y 15-11-2026)
+
+Una verificación nueva e independiente, sin commits suyos, sobre `69c82d5` (`5509d95` más el
+arreglo de los efectos de arriba), con sus propias sondas y con la hoja de 1cc96b0 (y otras
+variantes) metida en la página sobre la app construida, para comparar toque a toque. Pasa.
+
+**A. Lo de siempre.** typecheck; vitest, 1369; `aurora-claro.mjs --comprobar`; la construcción
+deja el árbol limpio y `fuente.json` al día (`9a172387…`); `test_app_local`, 56. La suite e2e
+entera, una pasada (1,9 h): 128 bien, 2 mal y 6 sin correr (en serie tras un fallo):
+
+- `payments.spec.ts:346` («si otra persona confirma antes… 409») falló una vez (el aviso de
+  «otra persona lo cambió» no salió) y, repetido solo, `payments` 8 de 8: intermitente, y nada
+  que ver con el CSS ni los toques. Las tres que no corrieron tras él pasan.
+- `procesar.spec.ts:752` («con el reloj virtual… la suricata hace lo de Aurora») falla siempre,
+  a 1440 y a 400, **también con la app construida de `6df7106`**, de antes de estos arreglos: la
+  petición de lectura sale, pero el título no pasa a «Abre…» («no llega: P1»). Es del navegador:
+  `@playwright/test` 1.56.1 viene con Chromium 141 (`browsers.json`, revisión 1194) y la máquina
+  rehecha el 13-11 solo trae el 153 (no se instala otro). El título cambia con `AnimatePresence`
+  de motion, que espera a que acabe la salida del anterior, y esa animación va por WAAPI, que no
+  sigue al reloj virtual de Playwright (ya se vio en 2026-10 con el resultado: «no sigue al reloj
+  virtual»); con el 153, tampoco esa espera llega. En tiempo de verdad funciona: las demás de
+  `procesar` pasan, también la de «reduce motion». Pasó el 10-11 con el Chromium de su versión.
+  No se cambia la prueba: con el navegador que Playwright espera, pasa.
+- pytest: 2630 bien, 12 saltadas y 3 mal por la máquina rehecha (`anthropic` 2.8.0 instalado
+  donde el lock dice 1.13.0: `test_entorno_local` y `test_extraccion_v2`; falta el
+  `ground_truth/respuestas-ejemplo.yaml`, ignorado por git: `test_scoring`). Ningún `.py` ni el
+  lock cambian desde `57e9886`.
+- `objetivos.spec.ts`, 12 de 12 en 51,5 min, cada prueba en menos de la mitad de su límite.
+
+**B. Los toques** (de verdad, `page.touchscreen.tap`, la hoja de 1cc96b0 contra la de ahora, con
+un control de la vieja contra sí misma):
+
+| Sitio | Puntos | Hacía algo y ahora otra cosa | Nada → el campo | Nada → otro control |
+|---|---|---|---|---|
+| 400, empresas (hacia arriba) | 1974 | 0 | 159 | 0 |
+| 400, tipos (hacia arriba) | 1739 | 0 | 199 | 0 |
+| 1440, empresas (hacia arriba) | 1974 | 0 | 160 | 0 |
+| 1440, tipos (hacia arriba) | 1739 | 0 | 178 | 10 |
+| 400, empresas (hacia abajo) | 2030 | 0 | 276 | 1 |
+| 400, tipos (hacia abajo) | 1856 | 0 | 168 | 0 |
+| 1440, tipos (hacia abajo) | 1856 | 0 | 169 | 0 |
+
+La lista de las empresas a 1440 × 900 no abre hacia abajo. Los cinco puntos de ruido del control
+(la lista entra con una animación de 0,18 s) se repitieron cuatro veces con la animación acabada:
+0 diferencias. La zona del buscador mide 348 × 31,8 (empresas) y 258 × 31,8 (tipos), igual a 400
+y a 1440, con ratón y con el dedo, y no baja de lo que se ve. 128 comparaciones de capturas (con
+las listas abiertas, los dos temas, ratón y teclado, y cuatro variantes de la regla): 0 píxeles
+distintos.
+
+**El resto aceptado.** Los 11 puntos de «nada → otro control» son el resto que ya se apuntó en
+«Tras la cuarta verificación independiente», visto con más densidad: a 1440, junto a las dos
+esquinas de abajo de la lista de los tipos (de 17,3 a 21,3 px por encima de su primera fila), 10
+toques que no hacían nada ahora cierran la lista y llevan a la caja de búsqueda de la página; a
+400, con la de las empresas hacia abajo, 1 va a «Elke datum». Están en una franja de 1 a 5 px
+fuera de la lista, donde los de 2 a 6 px más afuera ya iban a esos mismos controles en 1cc96b0.
+Lo pedido («nada de lo que hacía algo hace otra cosa») se cumple.
+
+**Los tiradores con una lista abierta.** La capa, que asomaba por el lado de la lista, sí cambiaba
+toques (sin las reglas `:has`, 177 de 500 que hacían algo pasan a otra cosa y 32 de nada a un
+control). Lo que no se reproduce hoy es la media frase de «sin la capa, su `position: relative`
+aún cambiaba toques»: con la capa quitada y `position: relative`, contra 1cc96b0, 0 cambios de 500
+y de 374 puntos densos alrededor de los dos tiradores. Se midió en la segunda verificación con el
+Chromium 141; con el 153, ya no. La regla se queda (devuelve justo lo de 1cc96b0 y no cuesta
+nada) y la frase lo dice ahora en `docs/app-local.md`, en el comentario de `bms.css` y arriba.
+
+**C. El tema claro.** 71 estados por ancho, 67 placeholders a la vista en cada uno: todos
+`rgb(104,104,113)`, 5,52:1 sobre blanco; el peor píxel, 5,06 a 1440 y 4,58 a 400 (el de la caja
+de búsqueda bajo la sombra del calendario). El borde de `.search`, 3,42. El anillo de los
+tiradores, 2 px `rgb(101,80,196)` a 2 px: 5,51 frente al fondo, y 1,00 solo donde cruza la pista
+lila rellena (12 de 120 px). Antes (la hoja de `6df7106`): el placeholder de `.search` pintaba a
+2,09 y el halo de los tiradores a 1,30. Del CSS construido, frente a `57e9886`, fuera de
+`html:not(.dark)` solo cambia `.ui-command-input input`; el resto, igual y en el mismo orden.
+
+**Los dientes.** Con la regla vieja del buscador (13 px con el dedo), las 4 pruebas del buscador de
+`objetivos` fallan por lo que deben (la zona baja 13 px; 142 y 102 toques de la primera fila van al
+campo). Sin la regla general de `::placeholder` y sin el anillo, 4 de `claro.spec.ts` fallan
+(3,40 y el anillo por debajo de 3:1). Restaurado, el árbol queda limpio.

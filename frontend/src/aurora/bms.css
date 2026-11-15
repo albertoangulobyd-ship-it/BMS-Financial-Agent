@@ -175,7 +175,8 @@
    de abajo entero, por su borde izquierdo), la capa que asomaba por su lado hacia que Chromium
    llevara al tirador, o a la lista sin fila, un toque del borde de la lista que antes iba a una
    fila; y sin la capa, con position: relative (que despierta el z-index: 2 de Aurora), aun
-   cambiaban toques. Que lista cae sobre que tirador depende de la lista, del ancho y de si abre
+   cambiaban toques con el Chromium 141 de la segunda verificacion (con el 153, el 15-11-2026,
+   ya no: 0 de 374; la regla se queda, porque devuelve justo lo de 1cc96b0). Que lista cae sobre que tirador depende de la lista, del ancho y de si abre
    hacia arriba o hacia abajo (Radix, segun el sitio que queda), y eso no se ve desde el CSS: lo
    que se ve es que hay una abierta, y la regla va con eso, tambien donde ninguna los tapa (a
    1440 px, la de las empresas queda 174 px por encima de los dos). Ahi un toque en el tirador

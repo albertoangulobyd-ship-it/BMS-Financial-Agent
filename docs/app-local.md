@@ -240,8 +240,10 @@ relative`), a cualquier ancho y con cualquier puntero, también donde ninguna li
 1440 px, la de las empresas queda 174 px por encima de los dos). La razón no es que la lista los
 tape siempre: donde una cae sobre un tirador (a 400 px, la de las empresas y la de los tipos
 sobre el de abajo entero, por su borde izquierdo), la zona que asomaba por su lado, y sin ella el
-`position: relative` (que despierta el `z-index: 2` de Aurora), hacían que Chromium llevara al
-tirador, o a la lista sin fila, toques del borde de la lista que antes elegían una fila; y qué
+`position: relative` (que despierta el `z-index: 2` de Aurora; esto, con el Chromium 141 de la
+segunda verificación: con el 153, el 15-11-2026, ya no cambia ningún toque), hacían que
+Chromium llevara al tirador, o a la lista sin fila, toques del borde de la lista que antes
+elegían una fila; y qué
 lista cae sobre qué tirador depende de la lista, del ancho y de si abre hacia arriba o hacia
 abajo (lo decide Radix según el sitio que queda: a 1440 px la de los tipos tapa el de arriba solo
 cuando abre hacia abajo), cosa que el CSS no ve. Lo que ve es que hay una abierta
