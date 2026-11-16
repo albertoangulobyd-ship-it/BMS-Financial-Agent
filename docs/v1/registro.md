@@ -11293,3 +11293,26 @@ existe y con `diseno:capturar` sobre `python3`: el mensaje, sale con 1 y nada en
 - typecheck; vitest, 1380; `codigo-muerto.mjs`; `aurora-claro.mjs --comprobar`; `npm run
   fuente`, «Al dia» (`eceedac8…`: no cambia, ni `package.json`); `test_app_local`, 56. `git
   status`, limpio.
+
+#### La segunda verificación
+
+Otra copia limpia en `9318734`, siguiendo solo los LEEME: BIEN. `diseno:capturar` entero, 92
+fotogramas en 463 s; `diseno:montar`; `diseno:comprobar`: 92 de 92 (`documenten-klantkaart-400`
+0,003 y 0,015 %). Los dos estados que fallaban, capturados juntos (`--solo
+documenten-map-open,documenten-klantkaart`): 8 de 8. Y la prueba de que el arreglo es la causa: con
+el `estados.mjs` de antes (`6e172b6`), esos dos estados a 400 px vuelven a dar exactamente el fallo
+original (1,271 y 1,126 %). La vista previa: `grabar` (589 s, 404 respuestas), `construir` y la
+comprobación rápida del LEEME, BIEN; la sonda propia desde `file://` a 1440 y 400 px, bien. Las
+comprobaciones rápidas del repo, todas a 0. Los errores del Python, claros y sin restos en
+`.trabajo/`.
+
+Dejó una cosa menor: si `bms-agent serve` no arrancaba, `grabar.mjs` aún moría con la traza de
+Node (limpiaba `.trabajo/`, pero sin un mensaje claro). Ahora limpia y dice «bms-agent serve se ha
+parado» o «no contesta en …», como el servidor del diseño; probado con un Python cuyo `serve` se
+para enseguida y con otro cuyo `serve` no contesta nunca: el mensaje, sale con 1, nada en
+`.trabajo/` y ningún proceso suelto. De paso, `comprobar.mjs` ya no importa de `gira.mjs` cinco
+funciones que no usaba. Después: `vista-previa:comprobar -- --solo iframe --anchos 1440 --rapida
+--sin-lectura`, BIEN, 353 s, 94 capturas; `vista-previa:grabar`, 584 s, las mismas cuentas (404;
+122 y 282; 389 y 15; 34 descargas, 48 pasos, 194 paradas; 3 956 166 bytes), sin errores;
+`construir`, 5 489 662 bytes; el test de las herramientas (11), `codigo-muerto.mjs`,
+`aurora-claro.mjs --comprobar` y `npm run fuente` («Al dia»).

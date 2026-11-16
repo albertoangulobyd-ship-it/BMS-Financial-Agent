@@ -27,7 +27,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AQUI, SALIDA, TRABAJO, argumentos, espera, falla, navegador, repoDe } from './comun.mjs';
-import { abrirImportar, aInicio, entrada, entrar, gira, girarBusqueda, girarConversacion, girarDocumentos, girarPanel, girarProcesar, idiomaVisto, ponerIdioma, ponerTema, quieta, salir, temaVisto } from './gira.mjs';
+import { abrirImportar, aInicio, entrada, entrar, gira, idiomaVisto, ponerIdioma, ponerTema, quieta, salir, temaVisto } from './gira.mjs';
 import { TEXTOS_VP } from './src/textos-vp.js';
 
 const args = argumentos();

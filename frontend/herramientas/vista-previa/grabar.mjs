@@ -80,7 +80,12 @@ async function limpiar() {
 
 try {
   for (let i = 0; ; i += 1) {
-    if (servidor.exitCode !== null || i > 240) throw new Error(`bms-agent serve no arranca:\n${registro}`);
+    if (servidor.exitCode !== null || i > 240) {
+      // Como en diseno/comun.mjs: limpia .trabajo/ y lo que dijo el servidor, sin la traza de Node
+      // (falla() sale con process.exit, que no pasa por el finally de abajo).
+      await limpiar();
+      falla(`bms-agent serve ${servidor.exitCode !== null ? 'se ha parado' : `no contesta en ${base}`}:\n${registro}`);
+    }
     try {
       if ((await fetch(`${base}/app`)).status === 200) break;
     } catch {
