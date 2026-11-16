@@ -1218,6 +1218,7 @@ que hay en `web/` es lo que apunta. `web/` va en git byte a byte (`.gitattribute
 | `src/lib/` | El cliente de la API (`api.ts`, con lo que contestan las lecturas en `api-types.ts`), la sesión (`session.tsx`), las órdenes y su permiso (`actions.ts`), los formatos (`format.ts`, `field-format.ts`), el tema (`theme-choice.ts`, los valores sin React; `theme.tsx`, `ThemeProvider` y `useTheme`), el «por qué» de una fila y si pide a una persona (`why.ts`), el «1 van 2» de dos facturas con el mismo número (`twins.ts`), volver a leer tras una orden (`refresh.tsx`), lo que encuentra la conversación (`quick-search.ts`: entradas, grupos, relaciones y facturas) y lo que se guarda (`storage.ts`) |
 | `src/i18n/` | Los textos de la app (`nl.ts`, `en.ts`, `es.ts`; su tipo, `Messages`, en `messages.ts`, sin JSX, para que lo usen también las pruebas), los idiomas y `DOMAIN_FALLBACK` (`langs.ts`, sin React: lo usan también las pruebas en el navegador), el acceso a los del dominio (`domain.ts`), el lenguaje de sus plantillas (`templates.ts`), `fmt` y `countText` (una cifra con su palabra, §5) en `index.tsx`, y, para las pruebas, las listas de restos de otro idioma (`leftovers.ts`) y el glosario del castellano (`glossary.ts`) |
 | `e2e/` | Las pruebas en el navegador; `nav.ts`, moverse como una persona (la rueda, los paneles, las migas, Instellingen, Procesar) con los nombres de los diccionarios; `aurora/referencia.json` (las medidas del prototipo, también con «menos movimiento») y `aurora/cajas.ts` (medirlas igual en BMS y compararlas, con la captura de cada estado), `aurora/tiempos.json` (los tiempos de Aurora, medidos con la misma herramienta) y `aurora/cruces.ts` (esa herramienta: cada animación del navegador, parada y llevada a cada instante, y los cruces del 5, 50 y 95 %), `aurora/visible.ts` (qué se ve en un cuadro: caja en la ventana, `visibility` y opacidad efectiva; con su propia prueba), `aurora/hojas.mjs` (las hojas de contactos Aurora | BMS de cada estado: `node e2e/aurora/hojas.mjs --aurora <grabaciones de Aurora>`), `aurora/suricata.json` y `aurora/suricata/` (lo grabado de la suricata de Aurora con el reloj virtual: las transiciones de la entrada, las acciones de cada etapa y dos recortes de la escena) y `aurora/contraste.json` (los grises de Aurora que no llegan a 4,5:1, apuntados); `png.ts`, leer un PNG sin dependencias para comparar esos recortes; `payments.spec.ts`, Cobrar y pagar de verdad (las cifras al céntimo, confirmar, retirar, enlazar, apuntar con motivo y justificante, el 409 y quien solo mira) |
+| `herramientas/` | La vista previa navegable (`vista-previa/`) y el fichero de diseño (`diseno/`), con lo común de las dos (`entorno.mjs`): no son de la app ni entran en lo construido (abajo, «La vista previa navegable y el fichero de diseño») |
 
 **Aurora dentro de la app (paso 16).** Aurora era un prototipo del dueño, con datos y
 respuestas inventados. Se trajo a `src/aurora/` lo que la revisión quiere conservar, con
@@ -1438,6 +1439,32 @@ Dejan una captura de cada pantalla, ficha y diálogo, a 1440×900 (`<idioma>-<pa
 en `CAPTURAS_DIR/dark/` o `CAPTURAS_DIR/light/` según el tema que se ve (por defecto
 `frontend/test-results/capturas`, que no va en git). El Python es el de `.venv` (o `BMS_PYTHON`); el navegador, el de
 `PLAYWRIGHT_BROWSERS_PATH` (no se baja nada: nunca `playwright install`).
+
+**La vista previa navegable y el fichero de diseño** (`frontend/herramientas/`, desde el
+16-11-2026). Dos herramientas para enseñar la app sin arrancarla, cada una con su `LEEME.md` (qué
+hace falta, las órdenes desde una copia recién clonada, cuánto tarda cada paso, dónde deja lo que
+hace y cómo se publica):
+
+- `herramientas/vista-previa/`: UN `.html` sin red con la app de verdad (la de `frontend/src`) que
+  contesta con las respuestas de `/api/v2` grabadas sobre la base de prueba de las e2e; se recorre
+  entera, en los tres idiomas y los dos temas, y nada se guarda. `npm run vista-previa:grabar`
+  (unos 10 min; solo la primera vez y cuando cambia la API o lo que pide la app), `npm run
+  vista-previa:construir` (unos segundos) y `npm run vista-previa:comprobar` (lo abre desde
+  `file://`, por http y en un `<iframe sandbox>`, como lo publica claude.ai).
+- `herramientas/diseno/`: las pantallas de la app construida (23 estados a 1440 y 400 px, en
+  oscuro y en claro), paradas como DOM de verdad en un solo `.html` con sus colores y su letra, y
+  comprobadas píxel a píxel contra la pantalla viva; y las fotos de la comparación del tema claro.
+  `npm run diseno:capturar` (unos 9 min), `diseno:montar`, `diseno:comprobar` y
+  `diseno:comparacion`.
+
+Como las e2e, hacen su propia base de prueba (`scripts/crear_demo_e2e.py`) y arrancan `bms-agent
+serve` sobre ella, con el Python de `.venv` (o `BMS_PYTHON`) y el Chromium del Playwright del repo
+(`PLAYWRIGHT_BROWSERS_PATH`; `BMS_CHROMIUM=<ejecutable>` para uno a mano). Del repo solo leen. Lo
+que graban, capturan y construyen se queda en sus carpetas y no va en git (`.gitignore`). No
+entran en la app: Tailwind no las lee (`src/index.css`), sus ficheros no están en la huella de
+`fuente.json` (sus órdenes sí, en `package.json`) ni en el `tsconfig`, y `codigo-muerto.mjs` no
+las mira; vitest prueba la parte pura del shim de la vista previa y que lo que corre en la página
+publicada no interpreta HTML (`scripts/herramientas.test.mjs`).
 
 ## 8. Lo que falta
 

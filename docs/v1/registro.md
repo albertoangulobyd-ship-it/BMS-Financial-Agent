@@ -11144,3 +11144,98 @@ lila rellena (12 de 120 px). Antes (la hoja de `6df7106`): el placeholder de `.s
 `objetivos` fallan por lo que deben (la zona baja 13 px; 142 y 102 toques de la primera fila van al
 campo). Sin la regla general de `::placeholder` y sin el anillo, 4 de `claro.spec.ts` fallan
 (3,40 y el anillo por debajo de 3:1). Restaurado, el árbol queda limpio.
+
+### Las herramientas de la vista previa y del diseño, en el repositorio (16-11-2026)
+
+**Por qué.** La vista previa navegable (el `.html` sin red con la app de verdad que el dueño
+recorre como demo) y el fichero de diseño (las pantallas paradas, en DOM de verdad) se hicieron
+el 13 y el 14-11 en una carpeta de trabajo de la máquina, fuera del repositorio. Esa carpeta no
+sobrevive a que se rehaga la máquina, y las copias ya se perdieron una vez así. Ahora están en el
+repo, con sus `LEEME.md`, y valen desde una copia recién clonada en cualquier ordenador.
+
+**Qué se movió y adónde.**
+
+- `frontend/herramientas/vista-previa/`: `grabar.mjs`, `construir.mjs`, `comprobar.mjs`,
+  `gira.mjs`, `comun.mjs` y `src/` (el shim, los textos, el cuerpo, la hoja y el esqueleto del
+  servicio que publica).
+- `frontend/herramientas/diseno/`: `capturar.mjs`, `montar.mjs`, `comprobar.mjs`,
+  `comparacion.mjs`, `app.mjs`, `estados.mjs`, `congelar.mjs` y `comun.mjs`.
+- `frontend/herramientas/entorno.mjs`, nuevo: lo que estaba repetido en los dos `comun.mjs` (los
+  argumentos, el repo, sus dependencias, el Python y el navegador).
+- Siete órdenes en `frontend/package.json`: `vista-previa:grabar`, `vista-previa:construir`,
+  `vista-previa:comprobar`, `diseno:capturar`, `diseno:montar`, `diseno:comprobar` y
+  `diseno:comparacion`.
+
+Van con los dos arreglos de la última pasada: `src/vista-previa.css` pinta el fondo con
+`var(--background)` (el de la app) y `estados.mjs` redondea el desplazamiento de
+`documenten-klantkaart`. Bajo `frontend/` porque usan sus dependencias (vite, sus plugins,
+playwright-core) y hacen lo que hacen las e2e; no en `frontend/scripts/` (lo de construir y
+comprobar la app, con dos ficheros en la huella) ni en `e2e/` (la carpeta de las pruebas de
+Playwright).
+
+**Lo que no va en git, y por qué.** Lo que hacen: `salida/` (los dos `.html`, de 5,5 y 3,8 MB, sus
+informes y las capturas de la comprobación), `captura/` (unos 190 ficheros, solo para montar y
+comprobar), `grabacion/` (unos 4 MB, distinta cada vez: la base de prueba lleva las fechas y los
+números del día), `publicada/` (un fichero publicado de antes, si se guarda para comparar),
+`.trabajo/` y un `node_modules` enlazado. Van en `.gitignore`: se rehacen con los guiones en
+segundos (construir, montar) o en minutos (grabar, capturar), y en git serían megas nuevos en
+cada cambio. Sin grabación, `construir.mjs` dice qué correr («todavía no hay grabación… primero
+npm run vista-previa:grabar»), y lo mismo `montar.mjs` sin nada capturado.
+
+**Lo que cambió para que valgan en cualquier máquina.**
+
+- **Ninguna ruta de esta máquina.** El repo es por defecto el que lleva la carpeta (antes, una
+  copia de al lado; el diseño exigía `--repo`); las salidas, las carpetas de cada herramienta;
+  `comparacion.mjs` deja las fotos en `salida/comparacion/` si no se le da `--out`.
+- **El Python**, como `e2e/global-setup.ts`: `BMS_PYTHON`; si no, `.venv/bin/python` o
+  `.venv\Scripts\python.exe` del repo; si no, `python3` o `python` del `PATH`; si no, un mensaje
+  que dice qué hacer. Antes, el último recurso era una ruta fija de esta máquina.
+- **El navegador**: el Chromium del Playwright del repo en la carpeta de
+  `PLAYWRIGHT_BROWSERS_PATH`, como las e2e (antes, si no estaba puesta, se ponía la carpeta de
+  los navegadores de la máquina de las pruebas). Si su compilación no está y en la misma carpeta
+  hay otra, se usa esa y se avisa; `BMS_CHROMIUM` dice uno a mano (sustituye a `BMS_VP_CHROMIUM`
+  y `BMS_DISENO_CHROMIUM`); sin ninguno, un mensaje.
+  Los ejecutables se buscan con sus nombres de Linux, Windows y macOS, y las compilaciones por su
+  número (antes, por orden alfabético).
+- **Windows**, sin poder probarlo aquí: el fichero se abre con `pathToFileURL` (con
+  `file://${ruta}`, en Windows salía `file://C:\…`), los procesos van sin shell y la base temporal
+  se borra con reintentos (Windows tarda en soltarla tras parar el servidor). Lo dicen los LEEME.
+- **El shim de la vista previa**: qué se contesta a cada petición está ahora en
+  `src/rutas.js`, sin tocar la página (el shim lo convierte en un `Response`, pone el aviso y
+  apunta lo no grabado), con una sola `clave` para grabar y para buscar. Lo prueba
+  `frontend/scripts/herramientas.test.mjs` (11 pruebas, donde vitest ya busca: así no se toca
+  `vite.config.ts`, que está en la huella): lo grabado por su clave, 401 sin token, 409 para una
+  orden o una descarga, 404 `no_grabado`, la lectura grabada de Procesar, y que lo que corre en la
+  página publicada no usa `innerHTML`, `outerHTML`, `insertAdjacentHTML` ni
+  `dangerouslySetInnerHTML` (ni el resto de lo que la app no puede usar) ni nombra direcciones de
+  fuera. Con dientes: con un `innerHTML` en el shim y un `DELETE` tratado como lectura, fallan 2.
+
+**Lo que no las ve.** Tailwind no las lee (`source(none)` y los `@source` de `src/index.css`); la
+huella de `fuente.json` no las cubre (`build-inputs.json`), pero sí `package.json`, por las siete
+órdenes: se construyó otra vez y solo cambia `fuente.json` (`eceedac8…`); el JS, el CSS y el
+`index.html` construidos son los mismos, byte a byte. Tampoco las miran el `tsconfig`,
+`codigo-muerto.mjs` (solo `src` y `e2e`) ni Playwright (`testDir: ./e2e`).
+
+**Lo que se corrió** (16-11-2026, desde el repo y con las rutas por defecto; en esta máquina,
+`BMS_PYTHON` y `PLAYWRIGHT_BROWSERS_PATH` con la compilación 1243 vista como la 1194):
+
+- `vista-previa:grabar`, 593 s: 404 respuestas (122 de la gira y 282 pedidas directamente; 389
+  con 200 y 15 con 404), 34 descargas, 48 pasos de la lectura de Procesar y 194 paradas, sin
+  errores: las mismas cuentas que la grabación del 13-11. 3 956 166 bytes.
+- `vista-previa:construir`, 6 s: 5 489 662 bytes, frente a los 5 484 766 de la publicada
+  (+0,09 %). La misma forma: solo ASCII, un `<style>` y un `<script>`, el mismo cuerpo y el mismo
+  `<style>` byte a byte (la hoja del build, `style-Bb5qUQqJ.css`, y detrás `vista-previa.css`);
+  cambia el JS (la grabación nueva y `rutas.js`).
+- `vista-previa:comprobar`, la corta (`--solo iframe --anchos 1440 --rapida --sin-lectura`):
+  BIEN, 345 s, 94 capturas. Y desde `file://` a 400 px (la manera que cambió para Windows):
+  BIEN, 343 s, 94 capturas.
+- `diseno:capturar --solo login,start,documenten-klantkaart` (1440 y 400, oscuro y claro): 12
+  fotogramas en 106 s; `diseno:montar`, 1 s, 750 722 bytes; `diseno:comprobar`: BIEN, 12 de 12 como
+  la pantalla viva (el que más difiere, `documenten-klantkaart-1440-light`, 0,327 % de píxeles),
+  sin red ni errores en la consola, 6 s; `diseno:comparacion`: las 12 fotos con su tamaño
+  (1440 × 900 y 400 × 860), 95 s.
+- Los mensajes: sin grabación, sin nada capturado, sin Python, sin navegador, con otra
+  compilación (el aviso, y abre el Chromium 153) y con un `--repo` que no es el repo.
+- typecheck; vitest, 1380 (11 nuevas); `codigo-muerto.mjs` (el mismo informe: no lee nada de
+  esto); `aurora-claro.mjs --comprobar`; `npm run fuente`, «Al dia»; `test_app_local`, 56.
+  `git status`, limpio: lo hecho por las herramientas queda ignorado.
