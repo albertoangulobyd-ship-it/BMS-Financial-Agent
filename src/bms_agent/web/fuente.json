@@ -1,13 +1,13 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "65436bd9ebb29d12999f0d5d6ecdf5baa2fb4bc50e3b01c22fc87991e307a63e",
+  "sha256": "eceedac83e9bad56386ebbc06e2e50546014b6bdfd259de0bbfe0cb39fca558b",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
     "frontend/index.html": "7c24cf4237e5fb09de45c5d5d6320be9c51ed6710488fce81b783a965f6cbf94",
     "frontend/package-lock.json": "51269247c8657f80137fea7b3d4115275cdff2979428f3f6c066d98bf4d1aa30",
-    "frontend/package.json": "d5c2486944228aee89a351ee766854a585d80da4301a26b2c313ca27331aa7d2",
+    "frontend/package.json": "d0617e1f683279863c900deccac22490d9217ed5e66adf37b0a097f043965522",
     "frontend/scripts/fuente.mjs": "7bdd0d2d263dba8817f92dd8940d71b4f9ceee941c3546a45317257c351f0382",
     "frontend/scripts/tailwind-fuentes.mjs": "f842ea0299d651d9f1bc7b3cd35514358f9db66e4d6602030670ac708870589c",
     "frontend/src/App.tsx": "6c07893fb69a220fd187bd28785390b522e0952dcbb997acb88278c4d5970442",

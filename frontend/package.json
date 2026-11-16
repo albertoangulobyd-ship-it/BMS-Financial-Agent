@@ -13,7 +13,14 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
-    "fuente": "node scripts/fuente.mjs --comprobar"
+    "fuente": "node scripts/fuente.mjs --comprobar",
+    "vista-previa:grabar": "node herramientas/vista-previa/grabar.mjs",
+    "vista-previa:construir": "node herramientas/vista-previa/construir.mjs",
+    "vista-previa:comprobar": "node herramientas/vista-previa/comprobar.mjs",
+    "diseno:capturar": "node herramientas/diseno/capturar.mjs",
+    "diseno:montar": "node herramientas/diseno/montar.mjs",
+    "diseno:comprobar": "node herramientas/diseno/comprobar.mjs",
+    "diseno:comparacion": "node herramientas/diseno/comparacion.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "1.2.6",

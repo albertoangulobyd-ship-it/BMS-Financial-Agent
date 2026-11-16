@@ -38,3 +38,14 @@ venv/
 /frontend/playwright-report/
 /frontend/blob-report/
 /frontend/.vite/
+
+# Paso 17: las herramientas de la vista previa y del diseño (frontend/herramientas). En git van
+# sus guiones; lo que graban, capturan y construyen se rehace con ellos y no (grabar.mjs hace la
+# grabación; capturar.mjs, lo capturado), ni un node_modules enlazado.
+/frontend/herramientas/*/salida/
+/frontend/herramientas/*/captura/
+/frontend/herramientas/*/capturas/
+/frontend/herramientas/*/grabacion/
+/frontend/herramientas/*/publicada/
+/frontend/herramientas/*/.trabajo/
+/frontend/herramientas/**/node_modules
