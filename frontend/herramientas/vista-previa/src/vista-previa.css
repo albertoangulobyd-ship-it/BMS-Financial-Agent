@@ -1,0 +1,83 @@
+/* VISTA PREVIA: la nota de arriba, con los colores de la app (no cambia nada de la app). La
+   letra es la de la app desde el paso 17 (la del sistema: Inter si esta, si no Segoe UI). */
+.vp-nota {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.25rem 1rem;
+  text-align: center;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  overflow-wrap: anywhere;
+}
+.vp-nota strong { font-weight: 600; letter-spacing: 0.06em; }
+.vp-nota-entrada { display: none; }
+.vp-nota--entrada .vp-nota-entrada { display: inline; }
+/* Procesar: el boton de la leesronde grabada (solo con Procesar abierto) y, mientras pasa, la
+   banda que dice que es una opname de los datos de prueba (debajo de la de TESTGEGEVENS, a la
+   vista al desplazar la pagina, como ella). */
+.vp-nota button {
+  font: inherit;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.6rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.vp-nota button[hidden], .vp-opname[hidden], .vp-aviso[hidden] { display: none; }
+.vp-opname {
+  position: sticky;
+  top: var(--bms-bandas, 0px);
+  z-index: 60;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.3rem 1rem;
+  text-align: center;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: #fde68a;
+  color: #3b2a05;
+  border-bottom: 1px solid #b45309;
+  overflow-wrap: anywhere;
+}
+/* El aviso de la pagina cuando una orden no se guarda (lo pone el shim, en el idioma que se ve). */
+.vp-aviso {
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-radius: 10px;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+}
+/* Lo mismo que la app pone en su capa base, fuera de capa: un reset de la pagina que la
+   envuelve no puede deshacer el marco (una columna con fondo explicito). Desde el paso 16
+   se desplaza la pagina entera (antes, el cuerpo no se desplazaba y la app tenia su panel).
+   El fondo es el de la app (index.css: body, bg-background): #08090b en oscuro, #f5f5f7 en
+   claro. Con --sidebar (#0e0e12 en oscuro) el fondo oscuro de la vista previa no era el de la
+   app (en claro los dos valen lo mismo). */
+html { min-height: 100%; background: var(--background); }
+body { min-height: 100%; margin: 0; display: flex; flex-direction: column; background: var(--background); color: var(--foreground); }
+#root { flex: 1 0 auto; display: flex; flex-direction: column; }
+/* Antes de que corra el script (el host no trae la clase .dark de index.html), el fondo y el
+   texto del tema oscuro, el de por defecto: sin un destello blanco. La app pone data-theme. */
+html:not([data-theme]), html:not([data-theme]) body { background: #08090b; color: #e8e5ee; }
