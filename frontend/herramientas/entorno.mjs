@@ -56,15 +56,43 @@ export async function delRepo(frontend, nombre) {
 
 let pythonVisto;
 
+/** Como se prepara el Python del repo (la puesta en marcha del README). */
+const COMO_PYTHON =
+  'Crea el .venv del repo como dice la puesta en marcha del README (en la raiz: python -m venv .venv, activalo y pip install -e ".[dev]") o pon BMS_PYTHON=<un python con esas dependencias>.';
+
+/** Si `py` arranca y carga la app del repo (bms_agent y sus dependencias): '' si si; si no, por
+ *  que no (la ultima linea de su error). */
+function noSirve(py, repo) {
+  const r = spawnSync(py, ['-c', 'import bms_agent.cli'], {
+    env: { ...process.env, PYTHONPATH: join(repo, 'src'), PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' },
+    encoding: 'utf8',
+  });
+  if (r.error || r.status === null) return 'no arranca';
+  if (r.status === 0) return '';
+  return (r.stderr || r.stdout || '').trim().split('\n').pop() || `sale con ${r.status}`;
+}
+
 /** El Python con el que se hace la base de prueba y se arranca el servidor, como en
  *  e2e/global-setup.ts: BMS_PYTHON; si no, el de .venv del repo (Linux y macOS, o Windows); si
- *  no, python3 o python del PATH. */
+ *  no, python3 o python del PATH. Solo vale uno que cargue la app del repo con sus dependencias
+ *  (pydantic, pyyaml...): si no, se dice cual se miro, que le falta y como prepararlo, antes de
+ *  hacer nada. */
 export function python(repo) {
   if (pythonVisto) return pythonVisto;
-  if (process.env.BMS_PYTHON) return (pythonVisto = process.env.BMS_PYTHON);
-  for (const c of [join(repo, '.venv', 'bin', 'python'), join(repo, '.venv', 'Scripts', 'python.exe')]) if (existsSync(c)) return (pythonVisto = c);
-  for (const c of ['python3', 'python']) if (spawnSync(c, ['--version'], { stdio: 'ignore' }).status === 0) return (pythonVisto = c);
-  return falla(`no hay Python: ni BMS_PYTHON, ni .venv en ${repo}, ni python3 o python en el PATH. Crea el .venv del repo con sus dependencias o pon BMS_PYTHON=<ruta de ese python>.`);
+  if (process.env.BMS_PYTHON) {
+    const mal = noSirve(process.env.BMS_PYTHON, repo);
+    if (mal) return falla(`BMS_PYTHON=${process.env.BMS_PYTHON} no carga la app del repo (${mal}). ${COMO_PYTHON}`);
+    return (pythonVisto = process.env.BMS_PYTHON);
+  }
+  const vistos = [];
+  const candidatos = [join(repo, '.venv', 'bin', 'python'), join(repo, '.venv', 'Scripts', 'python.exe')].filter((c) => existsSync(c));
+  for (const c of [...candidatos, 'python3', 'python']) {
+    const mal = noSirve(c, repo);
+    if (!mal) return (pythonVisto = c);
+    if (mal !== 'no arranca' || candidatos.includes(c)) vistos.push(`${c}: ${mal}`);
+  }
+  const dicho = vistos.length ? `ninguno carga la app del repo (${vistos.join('; ')})` : `ni BMS_PYTHON, ni .venv en ${repo}, ni python3 o python en el PATH`;
+  return falla(`no hay un Python para la base de prueba y el servidor: ${dicho}. ${COMO_PYTHON}`);
 }
 
 const numero = (carpeta) => Number(/-(\d+)$/.exec(carpeta)?.[1] ?? 0);

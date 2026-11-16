@@ -20,7 +20,10 @@ escribe va a esta carpeta (`grabacion/`, `salida/`, `.trabajo/`), que **no va en
 - **Para grabar, el Python del repo** con sus dependencias, el mismo que usan las e2e
   (`e2e/global-setup.ts`): `BMS_PYTHON` si está puesta; si no, el `.venv` de la raíz del repo
   (`.venv/bin/python`, o `.venv\Scripts\python.exe` en Windows); si no, `python3` o `python` del
-  `PATH`. Si no hay ninguno, la orden lo dice y para.
+  `PATH`. Solo vale uno que cargue la app del repo (`import bms_agent.cli`, con pydantic y
+  pyyaml). En una copia recién clonada se prepara como dice la puesta en marcha del `README.md` de
+  la raíz: `python -m venv .venv`, activarlo y `pip install -e ".[dev]"`. Si no hay ninguno que
+  valga, la orden dice cuál miró y qué le falta, y para antes de hacer nada.
 - **La base de prueba no hay que prepararla**: `grabar.mjs` la hace nueva cada vez, como las e2e,
   con `scripts/crear_demo_e2e.py` en `.trabajo/`, arranca `bms-agent serve` sobre ella en un puerto
   libre de 127.0.0.1 y la borra al terminar. `construir.mjs` no la necesita.

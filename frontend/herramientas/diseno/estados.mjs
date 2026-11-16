@@ -136,13 +136,18 @@ export const ESTADOS = [
     titulo: 'Documenten · kaart van de klant',
     nota: 'Documenten con la ficha de un cliente (Demo Havenbedrijf BV). Si la ficha queda por debajo de la ventana (a 400 px), la página está bajada hasta ella.',
     llegar: async (v) => {
+      // Desde una Documenten recien abierta (se sale al inicio y se vuelve a entrar), no desde la
+      // que deja documenten-map-open: tras abrir y cerrar una carpeta, la pagina viva pinta la
+      // letra de la ficha un pixel mas abajo que el marco (mismo DOM, mismo desplazamiento: la capa
+      // de la ficha queda de otra manera) y a 400 px la comprobacion lo veia (1,1-1,3 %). Asi la
+      // captura entera y la de --solo dan la misma pantalla.
+      await A.aInicio(v);
       await A.abrirFicha(v, 'Demo Havenbedrijf BV', 'Klanten');
       // La ficha, a la vista: si empieza en la mitad de abajo de la ventana (o mas alla), se baja
-      // la pagina hasta dejarla a 298 px del borde (el encuadre de las fotos de la comparacion).
+      // la pagina hasta dejarla a 298 px del borde (el encuadre de las fotos de la comparacion),
+      // a un pixel entero (como lo restaura el marco; Chrome tambien lo deja asi).
       await v.pagina.evaluate(() => {
         const arriba = document.querySelector('.ws-profile').getBoundingClientRect().top;
-        // A un pixel entero: con un desplazamiento fraccionario la pagina viva pinta la letra medio
-        // pixel corrida y el marco (que lo restaura entero) no; la comprobacion lo veia (> 1 %).
         if (arriba > window.innerHeight / 2) window.scrollTo({ top: Math.round(window.scrollY + arriba - 298), behavior: 'instant' });
       });
       await quieta(v);

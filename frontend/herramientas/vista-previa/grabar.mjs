@@ -25,7 +25,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
-import { GRABACION, TRABAJO, argumentos, clave, espera, navegador, python, repoDe } from './comun.mjs';
+import { GRABACION, TRABAJO, argumentos, clave, espera, falla, navegador, python, repoDe } from './comun.mjs';
 import { ENTRADAS_PANEL, IDIOMAS, PREGUNTA_RESUMEN, abrirRueda, entrar, gira, ponerIdioma, ponerTema, salir, titulosPanel, titulosRueda } from './gira.mjs';
 
 const args = argumentos();
@@ -43,7 +43,11 @@ const env = { ...process.env, PYTHONPATH: join(repo, 'src'), PYTHONUTF8: '1', PY
 delete env.BMS_DB;
 const dia = typeof args.hoy === 'string' ? ['--hoy', args.hoy] : [];
 const creada = spawnSync(py, [join(repo, 'scripts', 'crear_demo_e2e.py'), '--carpeta', join(trabajo, 'datos'), ...dia], { cwd: trabajo, env, encoding: 'utf8' });
-if (creada.status !== 0) throw new Error(`no se ha podido crear la base de prueba:\n${creada.stdout}\n${creada.stderr}`);
+if (creada.status !== 0) {
+  // Sin dejar nada en .trabajo/ y sin la traza de Node: lo que dijo el Python.
+  rmSync(trabajo, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  falla(`no se ha podido crear la base de prueba con ${py}:\n${`${creada.stdout ?? ''}\n${creada.stderr ?? ''}`.trim() || creada.error?.message}`);
+}
 const demo = JSON.parse(creada.stdout.trim().split('\n').pop());
 env.BMS_DB = demo.db;
 

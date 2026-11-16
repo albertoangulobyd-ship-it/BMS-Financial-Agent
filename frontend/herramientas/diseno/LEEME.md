@@ -18,8 +18,11 @@ los guiones.
   build`). Se fotografía esa, no `frontend/src`.
 - **El Python del repo** con sus dependencias, el mismo que usan las e2e (`e2e/global-setup.ts`):
   `BMS_PYTHON` si está puesta; si no, el `.venv` de la raíz del repo (`.venv/bin/python`, o
-  `.venv\Scripts\python.exe` en Windows); si no, `python3` o `python` del `PATH`. Si no hay
-  ninguno, la orden lo dice y para. `montar.mjs` no lo necesita.
+  `.venv\Scripts\python.exe` en Windows); si no, `python3` o `python` del `PATH`. Solo vale uno
+  que cargue la app del repo (`import bms_agent.cli`, con pydantic y pyyaml). En una copia recién
+  clonada se prepara como dice la puesta en marcha del `README.md` de la raíz: `python -m venv
+  .venv`, activarlo y `pip install -e ".[dev]"`. Si no hay ninguno que valga, la orden dice cuál
+  miró y qué le falta, y para antes de hacer nada. `montar.mjs` no lo necesita.
 - **La base de prueba no hay que prepararla**: `capturar.mjs` y `comparacion.mjs` hacen una nueva
   por pasada, como las e2e, con `scripts/crear_demo_e2e.py` en `.trabajo/`, arrancan `bms-agent
   serve` sobre ella en un puerto libre de 127.0.0.1 y la borran al terminar.
@@ -33,7 +36,7 @@ Desde `frontend/` (en Windows, las mismas en PowerShell o en cmd):
 npm ci                              # una vez: las dependencias exactas
 npm run diseno:capturar             # A1. capturar: unos 9 min (4 pasadas: oscuro y claro × 1440 y 400)
 npm run diseno:montar               # A2. montar: unos 2 s
-npm run diseno:comprobar            # A3. comprobar: 1 min; sale con 0 si todo está bien
+npm run diseno:comprobar            # A3. comprobar: 1 min; sale con 0 si todo está bien (abajo, «Si la comprobación falla»)
 npm run diseno:comparacion          # B. las 12 fotos: unos 2 min
 ```
 
@@ -57,6 +60,14 @@ Son `node herramientas/diseno/capturar.mjs` (y `montar.mjs`, `comprobar.mjs`,
   los elementos y el texto que tenía la app, y **se ve como la foto de la pantalla viva** del mismo
   estado: como mucho un 1 % de píxeles que cambien más de 48 niveles y una diferencia media de 1,5
   niveles. Opciones: `--fichero`, `--captura`, `--solo id,id`.
+- **Si la comprobación falla** (sale con 1 y dice `MAL: <fotograma>: …`): la foto del marco queda en
+  `.trabajo/comprobar/<fotograma>.png`, para ponerla al lado de la pantalla viva,
+  `captura/<fotograma>.png`. Si es un fallo de la herramienta (un estado que no se monta como se
+  veía), se arregla en `estados.mjs` o en `congelar.mjs` y se captura todo otra vez. **Recapturar
+  solo ese estado (`--solo`) no vale como arreglo**: con `--solo` se toma sin el estado que le
+  precede en la gira, y un fallo que viene de ese estado desaparece sin estar arreglado (así pasó
+  con `documenten-klantkaart`; ahora llega desde una Documenten recién abierta). Lo que se publica
+  sale de una captura entera que pasa.
 - `comparacion.mjs`: opciones `--out <carpeta>` y `--solo nombre,nombre`.
 
 Con variables (en PowerShell, `$env:BMS_PYTHON = "C:\…\python.exe"`; en sh, delante de la orden):

@@ -9,7 +9,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { python, repoDe as repoComun } from '../entorno.mjs';
+import { falla, python, repoDe as repoComun } from '../entorno.mjs';
 
 export { argumentos, falla, navegador } from '../entorno.mjs';
 
@@ -60,20 +60,29 @@ let servidores = 0;
  * lector de las pruebas (scripts/simular_lector.py) y parar().
  */
 export async function servidor(repo) {
+  // El Python, antes de nada: si no carga la app del repo, lo dice y para (../entorno.mjs).
+  const py = python(repo);
   servidores += 1;
   const carpeta = join(TRABAJO, `servidor-${process.pid}-${servidores}`);
   rmSync(carpeta, { recursive: true, force: true });
   mkdirSync(carpeta, { recursive: true });
   const env = { ...process.env, PYTHONPATH: join(repo, 'src'), PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' };
   delete env.BMS_DB;
-  const py = python(repo);
+  // Si la base o el servidor no salen, se dice y se para, sin dejar nada en .trabajo/ ni la
+  // traza de Node: lo que dijo el Python.
+  let proceso = null;
+  const fallo = (texto) => {
+    proceso?.kill();
+    rmSync(carpeta, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    return falla(texto);
+  };
   const hecha = spawnSync(py, [join(repo, 'scripts', 'crear_demo_e2e.py'), '--carpeta', join(carpeta, 'datos')], { cwd: carpeta, env, encoding: 'utf8' });
-  if (hecha.status !== 0) throw new Error(`no se ha podido crear la base de prueba:\n${hecha.stdout}\n${hecha.stderr}`);
+  if (hecha.status !== 0) fallo(`no se ha podido crear la base de prueba con ${py}:\n${`${hecha.stdout ?? ''}\n${hecha.stderr ?? ''}`.trim() || hecha.error?.message}`);
   const demo = JSON.parse(hecha.stdout.trim().split('\n').pop());
   env.BMS_DB = demo.db;
   const puerto = await puertoLibre();
   let salida = '';
-  const proceso = spawn(py, ['-m', 'bms_agent.cli', 'serve', '--db', demo.db, '--puerto', String(puerto), '--facturas', join(carpeta, 'facturas'), '--out', join(carpeta, 'out')], {
+  proceso = spawn(py, ['-m', 'bms_agent.cli', 'serve', '--db', demo.db, '--puerto', String(puerto), '--facturas', join(carpeta, 'facturas'), '--out', join(carpeta, 'out')], {
     cwd: carpeta,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -83,13 +92,13 @@ export async function servidor(repo) {
   const base = `http://127.0.0.1:${puerto}`;
   const fin = Date.now() + 60_000;
   for (;;) {
-    if (proceso.exitCode !== null) throw new Error(`bms-agent serve se ha parado:\n${salida}`);
+    if (proceso.exitCode !== null) fallo(`bms-agent serve se ha parado:\n${salida}`);
     try {
       if ((await fetch(`${base}/app`)).status === 200) break;
     } catch {
       // Aun no escucha.
     }
-    if (Date.now() > fin) throw new Error(`bms-agent serve no contesta en ${base}:\n${salida}`);
+    if (Date.now() > fin) fallo(`bms-agent serve no contesta en ${base}:\n${salida}`);
     await espera(250);
   }
   const hijos = new Set();
