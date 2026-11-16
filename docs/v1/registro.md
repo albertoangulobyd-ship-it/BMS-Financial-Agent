@@ -11166,9 +11166,10 @@ repo, con sus `LEEME.md`, y valen desde una copia recién clonada en cualquier o
   `vista-previa:comprobar`, `diseno:capturar`, `diseno:montar`, `diseno:comprobar` y
   `diseno:comparacion`.
 
-Van con los dos arreglos de la última pasada: `src/vista-previa.css` pinta el fondo con
-`var(--background)` (el de la app) y `estados.mjs` redondea el desplazamiento de
-`documenten-klantkaart`. Bajo `frontend/` porque usan sus dependencias (vite, sus plugins,
+Van con el arreglo de la última pasada: `src/vista-previa.css` pinta el fondo con
+`var(--background)` (el de la app). El otro de aquella pasada, que `estados.mjs` redondee el
+desplazamiento de `documenten-klantkaart`, no arreglaba nada (abajo, «Tras la verificación
+independiente»). Bajo `frontend/` porque usan sus dependencias (vite, sus plugins,
 playwright-core) y hacen lo que hacen las e2e; no en `frontend/scripts/` (lo de construir y
 comprobar la app, con dos ficheros en la huella) ni en `e2e/` (la carpeta de las pruebas de
 Playwright).
@@ -11233,9 +11234,62 @@ huella de `fuente.json` no las cubre (`build-inputs.json`), pero sí `package.js
   fotogramas en 106 s; `diseno:montar`, 1 s, 750 722 bytes; `diseno:comprobar`: BIEN, 12 de 12 como
   la pantalla viva (el que más difiere, `documenten-klantkaart-1440-light`, 0,327 % de píxeles),
   sin red ni errores en la consola, 6 s; `diseno:comparacion`: las 12 fotos con su tamaño
-  (1440 × 900 y 400 × 860), 95 s.
+  (1440 × 900 y 400 × 860), 95 s. Eran tres estados con `--solo`: no decían nada de la captura
+  entera, que fallaba (abajo).
 - Los mensajes: sin grabación, sin nada capturado, sin Python, sin navegador, con otra
   compilación (el aviso, y abre el Chromium 153) y con un `--repo` que no es el repo.
 - typecheck; vitest, 1380 (11 nuevas); `codigo-muerto.mjs` (el mismo informe: no lee nada de
   esto); `aurora-claro.mjs --comprobar`; `npm run fuente`, «Al dia»; `test_app_local`, 56.
   `git status`, limpio: lo hecho por las herramientas queda ignorado.
+
+#### Tras la verificación independiente
+
+Una verificación independiente (sobre `6e172b6`, desde una copia recién clonada y siguiendo los
+LEEME) dio por buena la vista previa, también su comprobación entera (6 pasadas sin fallos, 41
+min), y encontró un fallo y dos avisos. Se arreglaron el mismo día.
+
+**1. La comprobación del diseño fallaba tras la captura entera.** `diseno:capturar`, `montar` y
+`comprobar`, como dice el LEEME, daban 90 de 92: `documenten-klantkaart-400-dark` con un 1,126 % de
+píxeles distintos y `-400-light` con un 1,271 % (el límite es el 1 %), siempre, también capturando
+solo a 400 px. El 15-11 había fallado igual, y el redondeo del desplazamiento que se dio por
+arreglo solo se probó recapturando ese estado con `--solo`, sin el estado que le precede.
+Medido con una sonda que repite el final de la gira (`documenten-mappen`, `documenten-map-open`,
+cerrar la carpeta, `documenten-klantkaart`, a 400 px) y saca la misma pantalla viva que la
+verificación, píxel a píxel: tras abrir y cerrar una carpeta, la página viva pinta la letra de la
+ficha 1 px más abajo, con el mismo desplazamiento (1516) y la ficha en el mismo sitio (297,97 px
+del borde); el marco, montado de ese mismo DOM, se ve como la pantalla de `--solo`. El redondeo
+no cambiaba nada: sin él, Chrome deja la página en el mismo píxel y la pantalla es la misma.
+**Arreglo** (`estados.mjs`): `documenten-klantkaart` llega desde una Documenten recién abierta
+(sale al inicio y vuelve a entrar); con eso la sonda da la pantalla de `--solo`, sin un píxel
+distinto. El LEEME del diseño dice ahora qué hacer si la comprobación falla, y que recapturar un
+estado con `--solo` no vale como arreglo.
+
+**2. El registro daba ese redondeo por arreglo.** Corregido arriba; los números del diseño de «Lo
+que se corrió» eran de tres estados con `--solo`, y lo dice.
+
+**3. Un Python sin las dependencias.** En una copia sin `.venv` y sin `BMS_PYTHON`, las
+herramientas tomaban `python3` del `PATH` aunque le faltara pydantic, y morían con la traza de Node;
+`grabar.mjs` dejaba además una carpeta en `.trabajo/`. Ahora `entorno.mjs` solo acepta un Python
+que cargue la app del repo (`import bms_agent.cli`, con `PYTHONPATH=src` y sin escribir `.pyc`); si
+no hay ninguno, dice cuál miró y qué le falta, con los pasos del README para el `.venv`, y para
+antes de hacer nada. Si la base de prueba o el servidor no salen, `grabar.mjs` y el servidor del
+diseño borran su carpeta de `.trabajo/` y lo dicen sin traza. Los dos LEEME dicen cómo preparar el
+`.venv`. Probado con `BMS_PYTHON=python3`, con una copia sin `.venv`, con un `BMS_PYTHON` que no
+existe y con `diseno:capturar` sobre `python3`: el mensaje, sale con 1 y nada en `.trabajo/`; sin
+`BMS_PYTHON`, toma el `.venv` del repo.
+
+**Lo que se corrió después** (desde el repo, con las rutas por defecto y `captura/` vacía):
+
+- `diseno:capturar` entero: 92 fotogramas en 466 s; `diseno:montar`, 1 s, 3 804 325 bytes;
+  `diseno:comprobar`: BIEN, 92 de 92 (`documenten-klantkaart-400-dark` 0,003 % y `-400-light`
+  0,015 %; el que más difiere, `documenten-klantkaart-1440-light`, 0,327 %), sin red ni errores en
+  la consola, 42 s. Y otra vez solo a 400 px (`--anchos 400`, todos los estados, 230 s), donde
+  fallaba: BIEN, 92 de 92, con los mismos números.
+- `diseno:comparacion`: las 12 fotos, 97 s.
+- `vista-previa:grabar`, 588 s: las mismas cuentas (404 respuestas, 122 y 282; 389 con 200 y 15
+  con 404; 34 descargas, 48 pasos de la lectura, 194 paradas; 3 956 166 bytes), sin errores;
+  `vista-previa:construir`, 7 s, 5 489 662 bytes; `vista-previa:comprobar` desde `file://` a 400 px
+  (`--rapida --sin-lectura`): BIEN, 341 s, 94 capturas.
+- typecheck; vitest, 1380; `codigo-muerto.mjs`; `aurora-claro.mjs --comprobar`; `npm run
+  fuente`, «Al dia» (`eceedac8…`: no cambia, ni `package.json`); `test_app_local`, 56. `git
+  status`, limpio.

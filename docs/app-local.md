@@ -1458,8 +1458,9 @@ hace y cómo se publica):
   `diseno:comparacion`.
 
 Como las e2e, hacen su propia base de prueba (`scripts/crear_demo_e2e.py`) y arrancan `bms-agent
-serve` sobre ella, con el Python de `.venv` (o `BMS_PYTHON`) y el Chromium del Playwright del repo
-(`PLAYWRIGHT_BROWSERS_PATH`; `BMS_CHROMIUM=<ejecutable>` para uno a mano). Del repo solo leen. Lo
+serve` sobre ella, con el Python de `.venv` (o `BMS_PYTHON`; uno que no cargue la app del repo no
+vale: lo dicen, con los pasos del README para el `.venv`, y paran) y el Chromium del Playwright
+del repo (`PLAYWRIGHT_BROWSERS_PATH`; `BMS_CHROMIUM=<ejecutable>` para uno a mano). Del repo solo leen. Lo
 que graban, capturan y construyen se queda en sus carpetas y no va en git (`.gitignore`). No
 entran en la app: Tailwind no las lee (`src/index.css`), sus ficheros no están en la huella de
 `fuente.json` (sus órdenes sí, en `package.json`) ni en el `tsconfig`, y `codigo-muerto.mjs` no
