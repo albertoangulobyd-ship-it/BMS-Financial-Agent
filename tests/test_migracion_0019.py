@@ -153,19 +153,25 @@ def _sembrar_0018(conn) -> dict[str, int]:
     return {"ana": ana, "bob": bob, "viva": viva, "hecha": hecha, "pasada_viva": pasada}
 
 
+def _sql_hasta(carpeta, version: int):
+    """Las migraciones hasta `version`, en su carpeta: lo que se prueba es la 0019, aunque
+    despues lleguen otras."""
+    carpeta.mkdir()
+    for migracion in disponibles():
+        if migracion.version <= version:
+            shutil.copy2(DIRECTORIO_SQL / migracion.nombre, carpeta / migracion.nombre)
+    return carpeta
+
+
 @pytest.fixture
 def base_0018(tmp_path, reloj):
-    """Una base de verdad (en disco, con claves foraneas) migrada hasta la 0018, con datos."""
-    copia = tmp_path / "sql-0018"
-    copia.mkdir()
-    for migracion in disponibles():
-        if migracion.version <= 18:
-            shutil.copy2(DIRECTORIO_SQL / migracion.nombre, copia / migracion.nombre)
+    """Una base de verdad (en disco, con claves foraneas) migrada hasta la 0018, con datos, y
+    la carpeta de las migraciones hasta la 0019."""
     conn = abrir(tmp_path / "bms.sqlite3", reloj=reloj)
     try:
-        assert [m.version for m in migrar(conn, copia)][-1] == 18
+        assert [m.version for m in migrar(conn, _sql_hasta(tmp_path / "sql-0018", 18))][-1] == 18
         ids = _sembrar_0018(conn)
-        yield conn, ids
+        yield conn, ids, _sql_hasta(tmp_path / "sql-0019", 19)
     finally:
         conn.close()
 
@@ -188,12 +194,12 @@ def _esquema(conn) -> dict[tuple[str, str], tuple[str, str | None]]:
 # ------------------------------------------------------------ la migracion, con datos
 
 def test_la_0019_rehace_las_dos_tablas_sin_perder_ni_cambiar_nada(base_0018) -> None:
-    conn, ids = base_0018
+    conn, _ids, hasta_0019 = base_0018
     antes = {t: _filas(conn, t) for t in TABLAS_REHECHAS}
     assert [len(antes[t]) for t in TABLAS_REHECHAS] == [6, 4]
     assert _objetos(conn) == NOMBRES_0018
 
-    assert [m.nombre for m in migrar(conn)] == ["0019_correo.sql"]
+    assert [m.nombre for m in migrar(conn, hasta_0019)] == ["0019_correo.sql"]
 
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -217,17 +223,17 @@ def test_la_0019_rehace_las_dos_tablas_sin_perder_ni_cambiar_nada(base_0018) -> 
 
 
 def test_el_esquema_migrado_con_datos_es_el_de_una_base_nueva(base_0018, tmp_path) -> None:
-    conn, _ids = base_0018
-    migrar(conn)
+    conn, _ids, hasta_0019 = base_0018
+    migrar(conn, hasta_0019)
     nueva = abrir(tmp_path / "nueva.sqlite3")
     try:
-        migrar(nueva)
+        migrar(nueva, hasta_0019)
         assert _esquema(conn) == _esquema(nueva)
     finally:
         nueva.close()
     # Lo que mira `db verificar`: el esquema de las migraciones, texto a texto, la evidencia
     # con su auditoria (la 0019 con su evento) y la cadena.
-    assert verificar_esquema(conn) == []
+    assert verificar_esquema(conn, hasta_0019) == []
     assert verificar_evidencia(conn) == []
     assert verificar_cadena(conn).ok
     assert conn.execute("SELECT count(*) FROM evento WHERE tipo = 'migracion_aplicada' "
@@ -235,8 +241,8 @@ def test_el_esquema_migrado_con_datos_es_el_de_una_base_nueva(base_0018, tmp_pat
 
 
 def test_los_usuarios_de_sistema_nuevos_van_detras_de_las_personas(base_0018) -> None:
-    conn, ids = base_0018
-    migrar(conn)
+    conn, ids, hasta_0019 = base_0018
+    migrar(conn, hasta_0019)
     sistema = [(f["id"], f["nombre"]) for f in conn.execute(
         "SELECT id, nombre FROM usuario WHERE es_sistema = 1 ORDER BY id")]
     assert [n for _i, n in sistema] == list(USUARIOS_SISTEMA)
@@ -255,8 +261,8 @@ def test_los_usuarios_de_sistema_nuevos_van_detras_de_las_personas(base_0018) ->
 def test_la_lectura_viva_sigue_y_los_disparadores_de_0018_tambien(base_0018) -> None:
     from bms_agent import lectura
 
-    conn, ids = base_0018
-    migrar(conn)
+    conn, ids, _hasta_0019 = base_0018
+    migrar(conn)                                    # con todas: lo que hace una instalacion
     viva, pasada = ids["viva"], ids["pasada_viva"]
     assert lectura.viva(conn)["id"] == viva
     assert lectura.para_la_app(conn)["pasada_en_curso"]["documento_actual"] == "b.pdf"
@@ -292,12 +298,12 @@ def test_la_lectura_viva_sigue_y_los_disparadores_de_0018_tambien(base_0018) -> 
 def test_una_0019_que_falla_deja_la_base_en_0018_entera(base_0018) -> None:
     """Una persona que ya se llamara `correo` (antes del paso 18 el nombre no estaba
     reservado): la migracion para y no deja nada a medias."""
-    conn, _ids = base_0018
+    conn, _ids, hasta_0019 = base_0018
     conn.execute("INSERT INTO usuario (nombre, creado_en) VALUES ('correo', ?)", (_t("14:00"),))
     antes = {t: _filas(conn, t) for t in TABLAS_REHECHAS}
     esquema = _esquema(conn)
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
-        migrar(conn)
+        migrar(conn, hasta_0019)
     assert not conn.in_transaction
     assert conn.execute("SELECT max(version) FROM migracion").fetchone()[0] == 18
     assert _esquema(conn) == esquema
