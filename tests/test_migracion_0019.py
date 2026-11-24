@@ -42,6 +42,9 @@ NOMBRES_0018 = {
     ("trigger", "solicitud_lectura_sin_delete"), ("trigger", "pasada_lectura_alta"),
     ("trigger", "pasada_lectura_avanza"), ("trigger", "pasada_lectura_sin_delete"),
 }
+# Lo unico nuevo sobre ellas: una automatica solo la acepta la autorizacion vigente y
+# encendida, con un tope que no pasa del de su dia (revision de los pasos 0-2).
+NOMBRES_0019 = NOMBRES_0018 | {("trigger", "solicitud_lectura_automatica_vigente")}
 NUEVAS = ("lectura_automatica", "mensaje_correo", "adjunto_correo", "exclusion_automatica",
           "pausa_lectura_automatica", "correo_atendido", "ronda_correo", "estado_correo",
           "estado_ciclo")
@@ -214,8 +217,8 @@ def test_la_0019_rehace_las_dos_tablas_sin_perder_ni_cambiar_nada(base_0018) -> 
     referencias = {(f["table"], f["from"]) for f in conn.execute(
         "PRAGMA foreign_key_list(solicitud_lectura)")}
     assert ("lectura_automatica", "autorizacion_id") in referencias
-    # Los mismos nombres de 0018, y nada que se llame _nueva.
-    assert _objetos(conn) == NOMBRES_0018
+    # Los mismos nombres de 0018 (y el disparador nuevo), y nada que se llame _nueva.
+    assert _objetos(conn) == NOMBRES_0019
     assert not [f[0] for f in conn.execute("SELECT name, sql FROM sqlite_master")
                 if "lectura_nueva" in f[0] or "lectura_nueva" in (f[1] or "")]
     assert set(NUEVAS) <= {f[0] for f in conn.execute(
@@ -364,13 +367,14 @@ def test_una_automatica_solo_la_acepta_su_autorizacion(db) -> None:
     with pytest.raises(sqlite3.IntegrityError, match="CHECK"):      # nadie la pide
         _peticion(db, "automatica", ana, "comprobando", _t("08:00"))
     automatica = _automatica_esperando(db)
-    for via, por, autorizada in (("automatica", None, None), ("app", ana, None),
-                                 ("app", ana, autorizacion), ("ventana", None, None)):
-        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+    for via, por, autorizada, error in (
+            ("automatica", None, None, "autorizacion vigente"), ("app", ana, None, "CHECK"),
+            ("app", ana, autorizacion, "CHECK"), ("ventana", None, None, "CHECK")):
+        with pytest.raises(sqlite3.IntegrityError, match=error):
             _aprobada(db, automatica, via, por, _t("08:02"), autorizacion=autorizada)
     with pytest.raises(sqlite3.IntegrityError, match="CHECK"):      # sin si, sin autorizacion
         _poner(db, "solicitud_lectura", automatica, autorizacion_id=autorizacion)
-    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+    with pytest.raises(sqlite3.IntegrityError, match="autorizacion vigente"):  # no existe
         _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=999)
     _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=autorizacion)
     fila = db.execute("SELECT * FROM solicitud_lectura WHERE id = ?", (automatica,)).fetchone()
@@ -381,12 +385,49 @@ def test_una_automatica_solo_la_acepta_su_autorizacion(db) -> None:
         _poner(db, "solicitud_lectura", automatica, autorizacion_id=otra)
     _poner(db, "solicitud_lectura", automatica, estado="nada_que_leer", motivo_codigo="excluidas",
            terminada_en=_t("08:03"), actualizada_en=_t("08:03"))
-    # La de una persona no se acepta con una autorizacion.
+    # La de una persona no se acepta con una autorizacion, ni con la vigente.
     de_ana = _peticion(db, "app", ana, "pedida", _t("09:00"))
     _contada(db, de_ana, _t("09:01"))
     for via, por in (("automatica", None), ("automatica", ana)):
         with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-            _aprobada(db, de_ana, via, por, _t("09:02"), autorizacion=autorizacion)
+            _aprobada(db, de_ana, via, por, _t("09:02"), autorizacion=otra)
+    _aprobada(db, de_ana, "app", ana, _t("09:02"))
+
+
+def test_una_automatica_la_acepta_la_vigente_encendida_y_dentro_de_su_dia(db) -> None:
+    """La base no deja que un error de `lectura autorizar` acepte una automatica con una
+    autorizacion vieja o apagada, ni con un tope mayor que lo que la autorizacion deja
+    gastar en un dia (lo que queda hoy nunca es mas)."""
+    ana, _bob = _personas(db)
+    vigente = "autorizacion vigente"
+    automatica = _automatica_esperando(db)             # extremo alto 0,12 USD
+    for autorizacion in (None, 1):                     # sin ninguna (la 1 no existe aun)
+        with pytest.raises(sqlite3.IntegrityError, match=vigente):
+            _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=autorizacion)
+    encendida = _autorizacion(db, ana)
+    apagada = _autorizacion(db, ana, activa=0, motivo="apagada")
+    for autorizacion in (encendida, apagada):         # superada por una apagada, o apagada
+        with pytest.raises(sqlite3.IntegrityError, match=vigente):
+            _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=autorizacion)
+    vieja = _autorizacion(db, ana, motivo="encendida otra vez")
+    nueva = _autorizacion(db, ana, tope_dia_usd_micro=100_000, tope_mes_usd_micro=1_000_000,
+                          max_por_documento_usd_micro=50_000, motivo="tope mas bajo")
+    with pytest.raises(sqlite3.IntegrityError, match=vigente):     # superada por otra encendida
+        _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=vieja)
+    # La vigente deja 0,10 USD al dia: un tope de 0,12 no entra, uno de 0,10 si.
+    with pytest.raises(sqlite3.IntegrityError, match=vigente):
+        _aprobada(db, automatica, "automatica", None, _t("08:02"), autorizacion=nueva)
+    _poner(db, "solicitud_lectura", automatica, estado="aprobada", aprobada_en=_t("08:02"),
+           aprobada_via="automatica", autorizacion_id=nueva, tope_usd_micro=100_000,
+           huella_aprobada=H1, actualizada_en=_t("08:02"))
+    # Solo se mira al aceptarla: la base no para una aceptada que despues apagan.
+    _autorizacion(db, ana, activa=0, motivo="apagada")
+    _poner(db, "solicitud_lectura", automatica, estado="leyendo", actualizada_en=_t("08:03"))
+    # Nada de esto toca a la de una persona: con la automatica apagada, se aprueba igual.
+    _poner(db, "solicitud_lectura", automatica, estado="cancelada", cancelada_en=_t("08:04"),
+           cancelada_via="ventana", terminada_en=_t("08:04"), actualizada_en=_t("08:04"))
+    de_ana = _peticion(db, "app", ana, "pedida", _t("09:00"))
+    _contada(db, de_ana, _t("09:01"))
     _aprobada(db, de_ana, "app", ana, _t("09:02"))
 
 

@@ -149,7 +149,7 @@ y nunca se usa para pagar.
 
 | Tabla | Qué guarda |
 | --- | --- |
-| `solicitud_lectura` | Cada petición de leer PDF y su vida: quién la pidió (`app`, `lector` o `automatica`), la estimación y su huella, el sí (quién, por dónde: `app`, `ventana` o `automatica` con su `autorizacion_id`; con qué tope y para qué huella), quién la paró y cómo terminó (`motivo_codigo`). Viva, una sola. Una persona no puede dar el sí a una automática |
+| `solicitud_lectura` | Cada petición de leer PDF y su vida: quién la pidió (`app`, `lector` o `automatica`), la estimación y su huella, el sí (quién, por dónde: `app`, `ventana` o `automatica` con su `autorizacion_id`; con qué tope y para qué huella), quién la paró y cómo terminó (`motivo_codigo`). Viva, una sola. Una persona no puede dar el sí a una automática, y una automática solo la acepta la autorización vigente y encendida, con un tope que no pasa del de su día |
 | `pasada_lectura` | El progreso de la lectura de una petición: fase, cuentas, lo gastado (solo sube), el documento de ahora y lo que fue de cada uno |
 | `lectura_automatica` | Cada versión de la autorización permanente de leer sin pedir el sí cada vez: encendida o no, los topes por día, mes, ronda y factura (en millonésimas de dólar, con techos de 20 y 200 USD), quién la firmó (una persona) y por qué. Vale la de mayor `id`; sin ninguna, apagada |
 | `exclusion_automatica` | Los documentos que no se leen solos y esperan a una persona: demasiado caros (`grande`), que la API no quiso contar (`rechazado_api`), que fallaron en dos automáticas (`fallo`) o que una persona apartó (`persona`). Una por documento |

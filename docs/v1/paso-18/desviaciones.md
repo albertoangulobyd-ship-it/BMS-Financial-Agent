@@ -90,6 +90,25 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
     `alcance_bien`, juntos o ninguno; `hoy_json` JSON (por defecto `{}`); `aviso_volumen` 0/1.
   - `estado_ciclo`: `variante` puede ser NULL (la API de §6.2 lo admite y `--variante` es
     opcional); `pausado_desde` solo con `pausado = 1`.
+- **Un disparador más sobre `solicitud_lectura`, `solicitud_lectura_automatica_vigente`**
+  (revisión de los pasos 0-2; §3.9 decía «el resto de CHECK, índices y disparadores, iguales»).
+  Los techos de `lectura_automatica` solo acotaban lo que se podía escribir en la autorización,
+  no lo que una automática podía gastar: la base aceptaba una automática con una autorización
+  ya superada por otra apagada y con un tope de 150 USD. Ahora, al aceptar una automática
+  (`aprobada_via = 'automatica'` cuando aún no tenía sí), la base exige que `autorizacion_id`
+  sea la vigente (la de mayor `id`), que esté encendida (`activa = 1`) y que `tope_usd_micro`
+  no pase de su `tope_dia_usd_micro`. Las tres cosas salen del diseño (§5.1, §5.2: la vigente
+  es la de mayor `id`; apagada, no se lee nada solo; el tope es el mínimo de lo estimado, lo que
+  queda hoy y lo que queda este mes, y lo que queda hoy nunca pasa del tope del día), así que
+  el `lectura autorizar` del paso 5 no tiene que hacer nada distinto: esto es para que un error
+  suyo tampoco gaste. No mira lo gastado ya hoy ni este mes (el día es el de Europe/Amsterdam,
+  que SQLite no sabe calcular, y lo gastado de verdad puede pasar un poco del tope), ni las
+  pausas (una pausa por volumen que llega entre `tomar` y `autorizar` la tiene que ver
+  `autorizar` y cerrar la petición limpia, no una excepción de la base). Solo mira el momento
+  de aceptar: una lectura ya aceptada no la para la base si después apagan la autorización (el
+  diseño no dice qué pasa entonces; hoy pararla es `cancelar_lectura`). La prueba
+  `test_una_automatica_la_acepta_la_vigente_encendida_y_dentro_de_su_dia` falla si se quita
+  cualquiera de las tres condiciones.
 - **Una persona que ya se llamara `correo` o `automatico`** (en minúsculas: antes del paso 18 el
   nombre no estaba reservado) hace parar la 0019 por el `UNIQUE` del nombre, y la base se queda
   en 0018 entera (lo prueba `test_una_0019_que_falla_deja_la_base_en_0018_entera`). No se

@@ -20,7 +20,9 @@
 --     exactamente asi, la migracion para (nombre UNIQUE): no se mezclan.
 --   - lectura_automatica: cada version de la autorizacion; la vigente es la
 --     de mayor id, y sin ninguna, apagada. La firma siempre una persona. Los
---     techos (20 USD al dia, 200 al mes) acotan un error o un token robado.
+--     techos (20 USD al dia, 200 al mes) acotan un error o un token robado, y
+--     una automatica solo la acepta la vigente, encendida, con un tope que no
+--     pasa del de su dia: un error al aceptarla tampoco gasta mas.
 --   - solicitud_lectura y pasada_lectura se rehacen (SQLite no cambia un
 --     CHECK) con los mismos datos, para admitir la lectura automatica: origen
 --     y aprobada_via 'automatica' con la autorizacion que la cubre
@@ -209,7 +211,8 @@ ALTER TABLE solicitud_lectura_nueva RENAME TO solicitud_lectura;
 ALTER TABLE pasada_lectura_nueva RENAME TO pasada_lectura;
 
 -- Los indices y los disparadores de 0018, con sus nombres de 0018. Cambia solo
--- solicitud_lectura_fija, que congela tambien la autorizacion de una automatica.
+-- solicitud_lectura_fija, que congela tambien la autorizacion de una automatica,
+-- y se anade solicitud_lectura_automatica_vigente.
 
 -- Viva, una sola: dos lectores no leen a la vez ni gastan dos veces (tampoco una
 -- automatica y una de una persona).
@@ -233,6 +236,19 @@ WHEN (NEW.aprobada_por IS NOT NULL
   OR (NEW.cancelada_por IS NOT NULL
       AND (SELECT es_sistema FROM usuario WHERE id = NEW.cancelada_por) IS NOT 0)
 BEGIN SELECT RAISE(ABORT, 'el si o el no desde la app lo da una persona'); END;
+
+-- Una automatica la acepta la autorizacion vigente (la de mayor id), y solo si
+-- esta encendida, con un tope que no pasa del de un dia de esa autorizacion (lo
+-- que queda hoy nunca es mas). El tope lo calcula `lectura autorizar`; esto es
+-- para que un error suyo tampoco acepte con una autorizacion vieja o apagada, ni
+-- deje gastar en una sola lectura mas que el dia entero.
+CREATE TRIGGER solicitud_lectura_automatica_vigente BEFORE UPDATE ON solicitud_lectura
+WHEN NEW.aprobada_via IS 'automatica' AND OLD.aprobada_en IS NULL
+ AND (NEW.autorizacion_id IS NOT (SELECT max(id) FROM lectura_automatica)
+      OR (SELECT activa FROM lectura_automatica WHERE id = NEW.autorizacion_id) IS NOT 1
+      OR coalesce(NEW.tope_usd_micro <= (SELECT tope_dia_usd_micro FROM lectura_automatica
+                                         WHERE id = NEW.autorizacion_id), 0) = 0)
+BEGIN SELECT RAISE(ABORT, 'una automatica la acepta la autorizacion vigente y encendida, con un tope que no pasa del de su dia'); END;
 
 -- Lo que se pidio y lo que se aprobo no cambian: el si vale para la estimacion que se vio
 -- (y, en una automatica, para la autorizacion que la cubrio).
