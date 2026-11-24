@@ -776,7 +776,9 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   a ella (no por su ruta entera), con el mismo `st_dev`/`st_ino` que dio `lstat`.
 - **Las rutas, por argumentos** (`--entrada`, `--estado`), como `correo traer`; con `--fallo`
   no hacen falta: **`--fallo` solo apunta** (no registra la bandeja), que es lo que pide §4.1
-  («`correo registrar --fallo disco` y fin»). Admite la lista cerrada entera de §3.7.
+  («`correo registrar --fallo disco` y fin»). Admite la lista cerrada entera de §3.7. **Sin
+  nada del correo en la base (`estado_correo` vacío), `--fallo` no apunta nada** (arreglo tras
+  la revisión, abajo).
 - **Lo que no casa no se pierde sin decirlo.** Un PDF que no está en `pdf/`, que no tiene el
   sha256 de su nombre, que no empieza por `%PDF-` o que pasa de `MAX_PDF` deja su adjunto como
   `error` y el mensaje se registra igual (espera a una persona en «Wacht op jou»); el fichero
@@ -797,7 +799,8 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   llegada: un mensaje con otro adjunto pendiente, desviación del paso 9). Lo que no tiene
   nombre de la bandeja no se toca ni cuenta (lo limpia el correo a los 45 días); lo que tiene
   nombre de la bandeja y no es un fichero normal (un enlace, una carpeta, un FIFO) se rechaza y
-  se quita la entrada, sin seguirla.
+  se quita la entrada, sin seguirla, aparte y sin ocupar el sitio de lo de verdad (arreglo tras
+  la revisión, abajo).
 - **Un mensaje que no entra por algo de la base o del almacén** (`IntegrityError`,
   `DocumentoCorrupto`) se queda en la bandeja para la vez siguiente, sin rechazarlo: no es culpa
   de la bandeja. La CLI lo dice y sale con `CORREO_FALLO`.
@@ -837,18 +840,60 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   estaban. Un disco libre negativo o de más de 2^62, o otra variante, no se apuntan (salida 2).
   Con menos de 10 GiB lo dice, y no decide nada: el que no trae ni lee es el ciclo (paso 15).
 - **Códigos de `correo registrar`**: 0; `CORREO_FALLO` (11) si algo se rechazó, una carpeta no
-  valía o un mensaje no entró; 2 con la base de prueba, en la instalación nativa o sin las
-  carpetas. Lo que dice no copia nunca texto de la bandeja: cuentas y motivos fijos. **Lo
-  rechazado se cuenta ahí** (la salida de la orden, que guarda el registro del ciclo) y no en
-  `ronda_correo`, que no tiene columna para eso (§3.8 paso 7 decía «queda contado en la
-  ronda»; §3.9 no le daba columna, y no se añade: el correo de verdad nunca escribe algo que no
-  vale, así que un rechazo es un fallo del programa o un correo comprometido, que se ve en el
-  registro del ciclo).
+  valía, un mensaje no entró o algo de la bandeja no se pudo quitar; 2 con la base de prueba, en
+  la instalación nativa o sin las carpetas. Lo que dice no copia nunca texto de la bandeja:
+  cuentas y motivos fijos. **Lo rechazado se cuenta ahí** (la salida de la orden, que guarda el
+  registro del ciclo) y no en `ronda_correo`, que no tiene columna para eso (§3.8 paso 7 decía
+  «queda contado en la ronda»; §3.9 no le daba columna, y no se añade: el correo de verdad nunca
+  escribe algo que no vale, así que un rechazo es un fallo del programa o un correo
+  comprometido, que se ve en el registro del ciclo).
 - **De punta a punta (§7.3)** en `test_correo_registrar.py`: `GraphFalso` → `traer` →
   `registrar` → `_ronda` de `test_lectura_automatica.py` (las mismas funciones que las órdenes
   del ciclo) con el cliente falso, la fecha de recepción del servidor en cada factura (también
   una que llegó a las 23:30 UTC, que es el día siguiente en Amsterdam), el mismo correo otra
   vez sin pagar nada, y un PDF que la API no acepta (413) entre dos buenos, en «Wacht op jou».
+- **`--fallo` sin el correo no lo da por configurado** (arreglo tras la revisión de los pasos 10
+  y 11). Una fila en `estado_correo` es lo que dice a la app que el correo está configurado
+  (§6.2: `sin_configurar` si está vacío), y el ciclo apunta `--fallo disco` sin mirar si hay
+  correo (§4.1, paso 2). Antes, un Docker sin correo con poco disco una vez quedaba para siempre
+  con `configurado` verdadero, `error`/`disco` y la banda roja del buzón: solo lo quitaba un
+  `estado.json` de una ronda del correo, que sin correo no llega nunca. Ahora, con
+  `estado_correo` vacío, `--fallo` no escribe nada (ni `ronda_correo`) y lo dice; el disco ya lo
+  dicen `estado_ciclo` y su banda. Con el correo ya registrado, todo sigue como antes. Lo que
+  cuesta: un `--fallo salida|aislamiento` de un correo recién configurado cuyo `estado.json`
+  (el de `correo comprobar`) aún no ha pasado por `correo registrar` no se ve hasta el ciclo
+  siguiente. **Para el paso 15**: que el ciclo corra `correo registrar` también cuando el correo
+  no pudo traer nada (registra lo que ya hubiera), y que `correo-configurar` termine con `correo
+  registrar`, para que la app vea el correo configurado y el resultado de la comprobación sin
+  esperar al ciclo; si el correo deja de estar configurado, la app sigue con su último estado
+  mientras nadie corra `correo traer` (que deja `sin_configurar` en `estado.json`).
+- **Lo que no se puede quitar de la bandeja se ve** (arreglo tras la revisión). `_borrar` se
+  tragaba cualquier `OSError` y la CLI salía con 0: con el volumen `correo_entrada` de otro dueño
+  (lo que aquí no se puede probar, sin demonio de Docker), la bandeja no se vaciaba nunca, cada
+  pasada decía «N repetidos» y, con 2 000 así, el correo nuevo no entraba. Ahora, lo que no se
+  puede quitar (salvo que ya no esté) se cuenta una vez por pasada, la pasada deja `interno` (la
+  app lo dice, como una carpeta que no vale) y la CLI sale con `CORREO_FALLO` diciendo cuántas.
+- **Lo que no es un fichero normal no ocupa el sitio de las llegadas** (arreglo tras la
+  revisión). Lo raro con nombre de la bandeja se elige aparte (otras 2 000 como mucho por
+  carpeta, también las más antiguas) y se quita sin leerlo: un enlace, un FIFO o una carpeta
+  vacía (`rmdir` relativo a la carpeta, que no sigue enlaces). Una carpeta con algo dentro no se
+  vacía (nunca se borra nada de dentro): queda, cuenta como no quitada y deja `interno`. Antes,
+  2 000 carpetas más antiguas con nombre de llegada se rechazaban en cada pasada sin quitarse
+  (lo que decía este documento, «se quita la entrada», no era verdad) y no dejaban entrar nada
+  más; y un PDF que era una carpeta se contaba como quitado sin estarlo (`pdf_borrados` cuenta
+  ahora solo lo que se quitó). **Lo que queda**: una llegada «del futuro» sí ocupa su sitio
+  (hay que leerla para saberlo), así que 2 000 así, más antiguas que las demás, las dejarían
+  esperando; mientras, la app dice `reloj`. Que se queden así para siempre solo lo consigue un
+  correo comprometido (fechas que el reloj no alcanza nunca: el de verdad toma la del servidor
+  de Microsoft), que de todas formas puede dejar de traer el correo. No se rechazan, porque con
+  el reloj de este equipo muy atrasado (una pila de la placa agotada) las de verdad también son
+  «del futuro» y tienen que esperar (§3.8, paso 4).
+- **Las comprobaciones que no tenían prueba** (arreglo tras la revisión; cada una falla ahora sin
+  su código): el tope de 50 adjuntos (la llegada de 51 llevaba el mismo id repetido, y la
+  rechazaba eso) y que 50 entran, la fila de `ronda_correo` de lo que ve la pasada (`reloj`,
+  `interno`) solo cuando cambia, el recorte de las más antiguas con más de 4 × 2 000 entradas,
+  el `motivo_codigo` del alcance en `estado.json`, y un documento ya apuntado sin su original
+  cuyo PDF llega bien (se añade), no casa o no está (el adjunto apunta igual a ese documento).
 
 ## Paso 11 · la API
 
@@ -884,14 +929,18 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   - el certificado que caduca en 30 días o menos no dice «er komen geen facturen meer binnen»
     (aún entran): «Het certificaat verloopt over {n} dagen ({fecha})…»; el caducado, sí;
   - «ninguna ronda buena en 24 h» no sale si ya sale el porqué (el certificado, el alcance o el
-    buzón de control), para no decir dos veces lo mismo;
+    buzón de control), para no decir dos veces lo mismo; sin ninguna buena todavía, las 24 horas
+    cuentan desde la primera ronda apuntada (o desde el error), no desde siempre (arreglo tras
+    la revisión, abajo);
   - el ciclo en pausa cuenta desde `pausado_desde`; el disco, en GB enteros;
   - la de la API mira la última lectura terminada (de una persona o automática): `fallida` con
     `saldo` o `clave_rechazada`; una lectura posterior que acaba de otra forma la quita;
   - la de las facturas que esperan más de 4 horas sale con la automática encendida y sin pausa
-    ni tope (con la espera tras un fallo, sí: es lo que tapaba O2), si ninguna automática ha
-    terminado `hecha` desde que llegó la más antigua, y cuenta las elegibles que llegaron hace
-    más de 4 horas.
+    ni tope (con la espera tras un fallo, sí: es lo que tapaba O2); la espera cuenta desde que
+    la factura entró (la registró `correo registrar`) y desde que la automática está encendida
+    sin apagarse (cambiar los topes no la apaga), y «sin ninguna automática buena desde
+    entonces» es «ninguna `hecha` en esas 4 horas» (arreglo tras la revisión, abajo); cuenta las
+    elegibles que entraron hace más de 4 horas.
   Solo números, fechas y textos fijos: nada de lo que trajo el correo. Para no tocar el
   frontend (es del paso 12), la banda usa la clase roja que ya existe (`bms-banda-aislamiento`)
   y además `bms-banda-urgente`, sin estilo propio todavía.
@@ -909,3 +958,25 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   códigos de `/api/v2/correo` en `test_codigos_error.py`; los dos literales «2.5»
   (`test_cartera.py`, `test_lectura.py`) pasan a «2.6», y `test_lo_que_lee_la_app` gana la
   clave `automatica`.
+- **Las dos bandas que salían a destiempo** (arreglo tras la revisión de los pasos 10 y 11):
+  - «Al meer dan 24 uur geen geslaagde controle» salía en cuanto `ultima_buena` era `NULL`: un
+    buzón configurado hace cinco minutos cuya primera ronda falló por la red salía en rojo
+    («más de 24 horas») mientras `/api/v2/correo` decía `retrasado` («sigue solo»). Sin ninguna
+    buena todavía no hay desde cuándo contar; ahora cuenta desde la primera fila de
+    `ronda_correo` (lo primero que se supo del correo) o, sin ninguna, desde `error_desde`.
+  - «N facturen wachten al meer dan 4 uur» medía la espera desde `receivedDateTime` (la hora del
+    servidor de Microsoft): un correo recibido de noche, lo de antes de configurar el correo
+    (`desde`), lo retenido por los topes del día o una delta que vuelve a empezar salían en rojo
+    nada más registrarse; y al revés, cualquier automática `hecha` posterior a esa hora vieja
+    tapaba la banda aunque después todas fallaran (el caso O2 que la banda tenía que ver).
+    Ahora la espera cuenta desde `mensaje_correo.registrado_en` (la primera vez que entró) y
+    desde que la automática está encendida (`lectura_automatica.encendida_desde`: la primera
+    autorización tras la última apagada; recién encendida con atrasos, no es urgente), y la
+    tapa solo una automática `hecha` en las últimas 4 horas. Lo que queda: tras quitar una pausa
+    con atrasos de antes, la banda puede salir hasta que termina la primera automática (el
+    ciclo siguiente).
+- **Las comprobaciones de la API que no tenían prueba** (arreglo tras la revisión; cada una
+  falla ahora sin su código): `hoy` solo con el de hoy en Amsterdam, el orden y el tope de
+  `recientes` (los 10 más recientes por la hora del servidor, no por el orden de registro), el
+  signo de `credencial.dias`, la banda del alcance con `alcance_bien` 0 sin el error `alcance`,
+  y la de las facturas que esperan (el umbral, desde cuándo y la automática buena reciente).
