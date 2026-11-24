@@ -814,12 +814,18 @@ def _cmd_lectura_contar(args: argparse.Namespace) -> int:
             _anclar(almacen)
             return codigo
         out = Path(args.out)
+        politica = ESTRICTA if args.estricta else CONSERVAR
+        otras_vias = [carpeta_out(out, "saliente")]
         try:
             pdfs = _pdfs_a_leer(args.carpeta, almacen, args.solicitud)
+            # Lo del almacen que ya esta leido en out/ pero no en la base, a la base, sin la API
+            # (paso 18): si no, la cuenta lo da por leido y nadie lo guarda nunca.
+            guardado = lectura.guardar_lo_ya_leido(
+                conn, args.solicitud, almacen=almacen, pdfs=pdfs, out_dir=out,
+                politica=politica, otras_vias=otras_vias)
             estado, est = lectura.contar(conn, args.solicitud, lambda antes: lectura.estimar(
-                client, pdfs, out, almacen=almacen,
-                politica=ESTRICTA if args.estricta else CONSERVAR,
-                otras_vias=[carpeta_out(out, "saliente")], antes=antes))
+                client, pdfs, out, almacen=almacen, politica=politica, otras_vias=otras_vias,
+                antes=antes))
         except lectura.Parada as parada:
             print(f"No se cuenta mas: la lectura esta {parada.estado}. No se ha gastado nada.",
                   file=sys.stderr)
@@ -840,6 +846,10 @@ def _cmd_lectura_contar(args: argparse.Namespace) -> int:
         fila = conn.execute("SELECT caduca_en, motivo FROM solicitud_lectura WHERE id = ?",
                             (args.solicitud,)).fetchone()
         _anclar(almacen)
+    for nombre in guardado.guardados:
+        print(f"  guardada  {nombre}: ya estaba leida en out/; ahora tambien en la base, sin pagar")
+    for nombre, detalle in guardado.sin_guardar.items():
+        print(f"  sin guardar  {nombre}: {detalle}")
     for contado in est.de_clase("omitido"):
         print(f"  omitido  {contado.nombre}: {contado.detalle}")
     print()

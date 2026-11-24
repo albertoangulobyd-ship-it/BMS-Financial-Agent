@@ -745,10 +745,11 @@ def _ronda(almacen, client, out, *, cancelar=None) -> tuple[str, int | None]:
     solicitud = tomada.solicitud_id
     if solicitud is None:
         return tomada.como, None
+    pdfs = cli._pdfs_a_leer(None, almacen, solicitud)
+    lectura.guardar_lo_ya_leido(conn, solicitud, almacen=almacen, pdfs=pdfs, out_dir=out)
     try:
         estado, _est = lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
-            client, cli._pdfs_a_leer(None, almacen, solicitud), out, almacen=almacen,
-            antes=antes))
+            client, pdfs, out, almacen=almacen, antes=antes))
     except lectura.ParadaApi as parada:
         lectura.cerrar(conn, solicitud, parada.motivo, detalle=parada.detalle)
         return "fallida", solicitud
@@ -998,6 +999,89 @@ def test_contar_aparta_lo_que_la_api_no_acepta(almacen, gente, tmp_path) -> None
     assert f"{sha}.pdf" in fila["motivo"] and _excluidos(conn)[otra_mala] == "rechazado_api"
     assert auto.espera_tras_fallo(conn) is None
     assert lectura.siguiente(conn).codigo == lectura.NADA
+    del buena
+
+
+def _leida_en_out(almacen, out, *documentos: int) -> None:
+    """Lo leido (y pagado) antes, que esta en out/ pero no en la base: una base restaurada de
+    una copia, que no lleva out/, o una extraccion que no se pudo guardar al leerla."""
+    from bms_agent.extract import extraer_pasada
+
+    conn = almacen.conn
+    rutas = [almacen.documentos.ruta(conn.execute(
+        "SELECT ruta_cas FROM documento WHERE id = ?", (d,)).fetchone()[0]) for d in documentos]
+    extraer_pasada(ClienteQueCuenta(), rutas, out, almacen=None)
+
+
+def test_lo_leido_en_out_que_falta_en_la_base_se_guarda_sin_pagar(almacen, gente, tmp_path,
+                                                                    reloj) -> None:
+    """Si no, la cuenta lo da por leido, nadie lo guarda, sigue elegible para siempre: una
+    lectura vacia cada ciclo, y lo que llego despues no se lee nunca."""
+    from bms_agent.ingesta import vigentes_por_documento
+
+    conn = almacen.conn
+    out = tmp_path / "out"
+    una, dos, tres = _del_correo(almacen, "una", "dos", "tres")
+    _leida_en_out(almacen, out, una, dos)
+    _fijar(conn, gente["ana"], max_documentos=2)
+    client = ClienteQueCuenta()
+    # La primera ronda guarda las dos de out/ en la base (con su factura), sin contar ni pagar.
+    estado, solicitud = _ronda(almacen, client, out)
+    fila = _fila(conn, solicitud)
+    assert (estado, fila["motivo_codigo"], fila["pdf_ya_leidos"]) == ("nada_que_leer",
+                                                                      "ya_leidas", 2)
+    assert (client.conteos, client.leidos) == (0, [])
+    assert {una, dos} <= set(vigentes_por_documento(conn))
+    assert conn.execute("SELECT count(DISTINCT documento_id) FROM factura WHERE documento_id "
+                        "IN (?, ?)", (una, dos)).fetchone()[0] == 2
+    assert [d["documento_id"] for d in auto.elegibles(conn)] == [tres]
+    # La siguiente lee la que llego despues, y ya no hay mas rondas vacias.
+    reloj.avanzar(minutes=5)
+    assert _ronda(almacen, client, out)[0] == "hecha" and client.leidos == ["tres"]
+    reloj.avanzar(minutes=5)
+    assert _ronda(almacen, client, out) == (lectura.NADA, None)
+    assert conn.execute("SELECT count(*) FROM solicitud_lectura").fetchone()[0] == 2
+    assert _excluidos(conn) == {} and verificar_evidencia(conn) == []
+
+
+def test_lo_leido_en_out_que_no_se_puede_guardar_se_aparta(almacen, gente, tmp_path, reloj,
+                                                           monkeypatch) -> None:
+    """Guardar no depende de la API: si no se puede, la proxima vez tampoco. En una automatica
+    se aparta a la primera (espera a una persona), y el ciclo no vuelve a por ella."""
+    from bms_agent.almacen import extracciones
+
+    conn = almacen.conn
+    out = tmp_path / "out"
+    mala, buena = _del_correo(almacen, "mala", "buena")
+    _leida_en_out(almacen, out, mala)
+    sha = conn.execute("SELECT sha256 FROM documento WHERE id = ?", (mala,)).fetchone()[0]
+    leer_de_verdad = extracciones.leer_registro
+
+    def leer_registro(texto):
+        if sha in texto:
+            raise extracciones.RegistroInvalido("no es un registro de extraccion")
+        return leer_de_verdad(texto)
+
+    monkeypatch.setattr(extracciones, "leer_registro", leer_registro)
+    _fijar(conn, gente["ana"])
+    client = ClienteQueCuenta()
+    estado, solicitud = _ronda(almacen, client, out)
+    assert estado == "hecha" and client.leidos == ["buena"]
+    assert _excluidos(conn) == {mala: "fallo"}
+    evento = conn.execute("SELECT * FROM evento WHERE tipo = 'lectura_excluida'").fetchone()
+    assert "ya estaba leida en out/" in evento["motivo"]
+    assert "no es un registro de extraccion" in evento["motivo"]
+    assert json_fila(evento)["solicitud_id"] == solicitud
+    reloj.avanzar(minutes=5)
+    assert _ronda(almacen, client, out) == (lectura.NADA, None)
+    assert [d["documento_id"] for d in auto.esperan_persona(conn)["documentos"]] == [mala]
+    # En la de una persona no se aparta nada: lo intenta y lo dice.
+    tomada = lectura.tomar(conn, hay_pdf=True)
+    guardado = lectura.guardar_lo_ya_leido(
+        conn, tomada.solicitud_id, almacen=almacen,
+        pdfs=cli._pdfs_a_leer(None, almacen, tomada.solicitud_id), out_dir=out)
+    assert guardado.guardados == () and list(guardado.sin_guardar) == [f"{sha}.pdf"]
+    assert conn.execute("SELECT count(*) FROM exclusion_automatica").fetchone()[0] == 1
     del buena
 
 
@@ -1316,7 +1400,8 @@ def ciclo(tmp_path, monkeypatch, capsys):
             return funcion(almacen)
 
     return {"vuelta": una_vuelta, "base": con_la_base, "ana": ana, "salida": salida,
-            "estado": estado, "buzon": buzon, "orden": orden, "monkeypatch": monkeypatch}
+            "estado": estado, "buzon": buzon, "out": out, "orden": orden,
+            "monkeypatch": monkeypatch}
 
 
 def test_el_ciclo_por_la_cli(ciclo, capsys) -> None:
@@ -1392,3 +1477,19 @@ def test_autorizar_por_la_cli_dice_por_que_no(ciclo, capsys) -> None:
     # Esperar el si de una automatica no tiene sentido.
     assert ciclo["orden"]("lectura", "esperar", solicitud) == cli.LECTURA_FALLIDA
     ciclo["salida"].apagar()
+
+
+def test_el_ciclo_guarda_lo_leido_en_out_y_no_vuelve_a_por_ello(ciclo, capsys) -> None:
+    """Una base restaurada sin lo que out/ ya tenia leido: la primera vuelta lo guarda sin
+    pagar (la cuenta no tiene nada nuevo y no se autoriza ni se lee nada), y la siguiente ya no
+    tiene nada que hacer."""
+    base = ciclo["base"]
+    ids = base(lambda a: _del_correo(a, "una"))
+    base(lambda a: _leida_en_out(a, ciclo["out"], *ids))
+    base(lambda a: auto.fijar(a.conn, ciclo["ana"], **POR_DEFECTO, motivo="Las del correo"))
+    assert ciclo["vuelta"]() == (0, ["tomar", "contar"])
+    assert "guardada" in capsys.readouterr().out
+    assert (ciclo["estado"]["api"].conteos, ciclo["estado"]["api"].leidos) == (0, [])
+    assert ciclo["vuelta"]() == (cli.LECTURA_NADA, [])
+    assert base(lambda a: a.conn.execute(
+        "SELECT count(*) FROM solicitud_lectura").fetchone()[0]) == 1

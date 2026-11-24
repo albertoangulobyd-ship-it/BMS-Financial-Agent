@@ -969,6 +969,119 @@ def estimar(client: Any, pdfs: Iterable[str | Path], out_dir: str | Path, *, alm
     return est
 
 
+class _SoloGuardar:
+    """El seguimiento (extract.Seguimiento) de guardar_lo_ya_leido: no deja pagar nada. Un PDF
+    que no esta leido en out/ se queda sin leer (lo vera la cuenta)."""
+
+    NO_SE_PAGA = "solo se guarda lo que ya esta leido en out/: no se paga nada"
+
+    def empieza(self, nombre: str, que: str) -> None:
+        pass
+
+    def cabe(self, doc: Any) -> str | None:
+        return self.NO_SE_PAGA
+
+    def salida_maxima(self) -> int | None:
+        return None
+
+    def pagado(self, uso: dict[str, Any] | None) -> None:
+        pass
+
+    def sin_pagar(self, nombre: str, motivo: str) -> None:
+        pass
+
+
+@dataclass(frozen=True)
+class Guardado:
+    """Lo que guardar_lo_ya_leido paso de out/ a la base (sus nombres) y lo que no pudo pasar
+    (nombre -> por que)."""
+
+    guardados: tuple[str, ...] = ()
+    sin_guardar: dict[str, str] = field(default_factory=dict)
+
+
+def guardar_lo_ya_leido(conn: sqlite3.Connection, solicitud_id: int, *, almacen: Any,
+                        pdfs: Iterable[str | Path], out_dir: str | Path,
+                        politica: str | None = None, otras_vias: Iterable[str | Path] = ()
+                        ) -> Guardado:
+    """Antes de contar (paso 18): lo que ya esta en el almacen sin extraccion vigente pero cuya
+    lectura si esta en out/ (pagada antes: una base restaurada de una copia, que no lleva out/,
+    o una extraccion que no se pudo guardar en la base al leerla) pasa a la base sin la API,
+    como importar-out, y se tipa. Si no, la cuenta lo daria por leido (extract.Conocido mira
+    out/), ninguna lectura lo guardaria (con nada nuevo, termina en ya_leidas sin leer) y
+    seguiria pendiente para siempre: la automatica pediria una lectura vacia cada ciclo, y lo
+    que llego despues no se leeria nunca. Despues de guardarlo, la cuenta lo ve leido (vigente)
+    y la siguiente ya no lo elige.
+
+    Solo lo que ya esta en el almacen (lo del correo); un PDF nuevo del buzon sigue como
+    siempre. Nada de aqui llama a la API: no hay cliente y el seguimiento no deja pagar.
+
+    En una automatica, uno que no se puede guardar deja de leerse solo (exclusion "fallo", con
+    lo que dijo la base) a la primera: no depende de la API, la proxima vez fallaria igual y,
+    sin apartarlo, cada ciclo volveria a por el. Espera a una persona."""
+    from . import config
+    from . import lectura_automatica
+    from .cache import CONSERVAR
+    from .documents import UnsupportedDocument, load_pdf
+    from .extract import Conocido
+    from .ingesta import ingestar_pasada
+
+    fila = _fila(conn, solicitud_id)
+    if fila["estado"] != "comprobando":
+        return Guardado()     # contar dira por que no sigue
+    modelo = config.model_id()
+    politica = politica or CONSERVAR
+    otras_vias = list(otras_vias)
+    conocido = Conocido.de(out_dir, model=modelo, politica=politica, almacen=almacen,
+                           otras_vias=otras_vias)
+    candidatos: list[Path] = []
+    sha_de: dict[str, str] = {}
+    for ruta in pdfs:
+        ruta = Path(ruta)
+        try:
+            sha = _sha256_de(ruta)
+        except OSError:
+            continue
+        if sha in sha_de.values() or sha in conocido.en_almacen:
+            continue
+        if conn.execute("SELECT 1 FROM documento WHERE sha256 = ?", (sha,)).fetchone() is None:
+            continue
+        try:
+            doc = load_pdf(ruta)
+        except (UnsupportedDocument, OSError):
+            continue
+        if conocido.clase(doc) == ("ya_leido", None) and conocido.guardada(doc)[0] is not None:
+            candidatos.append(ruta)
+            sha_de[ruta.name] = sha
+    if not candidatos:
+        return Guardado()
+
+    vistos: list[str] = []
+    fallos: dict[str, str] = {}
+
+    def anotar(tipo: str, nombre: str, detalle: str) -> None:
+        if tipo == "cache" and nombre not in vistos:
+            vistos.append(nombre)
+        elif tipo != "cache":
+            fallos.setdefault(nombre, detalle)
+
+    ingestar_pasada(None, candidatos, out_dir, almacen=almacen, model=modelo, politica=politica,
+                    forzar=False, informar=anotar, ruta="entrante", otras_vias=otras_vias,
+                    seguimiento=_SoloGuardar())
+    # (Uno que entre tanto dejo de estar en out/ no se guarda ni falla: la cuenta lo vera nuevo.)
+    if fila["origen"] == "automatica" and fallos:
+        automatico = usuario_sistema(conn, "automatico")
+        with transaccion(conn):
+            for nombre, detalle in fallos.items():
+                documento = conn.execute("SELECT id FROM documento WHERE sha256 = ?",
+                                         (sha_de[nombre],)).fetchone()
+                lectura_automatica.excluir(
+                    conn, [documento["id"]], "fallo", automatico, solicitud_id=solicitud_id,
+                    motivo=("ya estaba leida en out/, pero no se ha podido guardar en la base: "
+                            + detalle)[:500])
+    return Guardado(tuple(n for n in vistos if n not in fallos), fallos)
+
+
 def contar(conn: sqlite3.Connection, solicitud_id: int,
            estimar_buzon: Callable[[Callable[[str], None]], Estimacion]) -> tuple[str, Estimacion | None]:
     """El lector, con la salida encendida y el aislamiento bien, cuenta lo que costaria.
