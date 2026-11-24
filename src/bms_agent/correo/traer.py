@@ -431,6 +431,10 @@ class _Ronda:
             self.resultado.codigo, self.resultado.detalle = fin.codigo, fin.detalle
         except graph.ErrorGraph as exc:
             self.resultado.codigo, self.resultado.detalle = exc.codigo, exc.detalle
+        except Exception as exc:
+            # Como en una ronda: `interno`, sin el texto de la excepcion, y estado.json lo dice.
+            self.resultado.codigo = "interno"
+            self.resultado.detalle = f"fallo del programa al comprobar ({type(exc).__name__})"
         # Lo retenido por la ultima ronda sigue retenido: comprobar no baja nada.
         retenido = bandeja.leer_instante(self.previo.get("retenido_hasta"))
         if retenido is not None and retenido > self.empezada:
@@ -725,8 +729,11 @@ class _Ronda:
             empezado_de_nuevo = True
             enlace = None
             self.delta_reiniciado_en = self.ahora()
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(ruta)
+            # Sin el enlace, pero con al_dia_en: si la primera pagina de la delta nueva no se
+            # termina, la ronda siguiente sigue empezando tres dias antes de al_dia_en, y no
+            # desde `desde` de los ajustes (que bajaria otra vez lo ya registrado).
+            _guardar_json(ruta, {"version": bandeja.VERSION, "enlace": None,
+                                 "al_dia_en": _texto(al_dia_en)})
 
     def _pagina(self, carpeta: str, pagina: graph.Pagina) -> bool:
         """Cada mensaje de una pagina, cada uno con su propio limite de errores. Completa si

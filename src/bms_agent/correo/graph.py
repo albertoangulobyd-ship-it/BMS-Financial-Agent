@@ -19,8 +19,8 @@ Lo que llega es dato no confiable:
 - cada respuesta JSON se lee por trozos con un tope (4 MiB) y cada adjunto con el suyo
   (correo.MAX_PDF), nunca entera en memoria;
 - cada @odata.nextLink / @odata.deltaLink se comprueba antes de seguirlo (https, exactamente
-  graph.microsoft.com, puerto 443, sin usuario, /v1.0/.../messages/delta) sin depender de la
-  forma de su ruta, que Graph reescribe;
+  graph.microsoft.com, puerto 443, sin usuario, /v1.0/.../messages/delta, o .../attachments el
+  de una lista de adjuntos) sin depender de la forma de su ruta, que Graph reescribe;
 - los ids que van en una ruta solo pueden ser de base64 (los de Graph).
 
 Lo que nunca sale de aqui: el token, la asercion, la cabecera Authorization, la consulta de un
@@ -75,6 +75,9 @@ MAX_JSON = 4 * 1024 * 1024
 MAX_TOKEN = 64 * 1024
 MAX_ERROR = 64 * 1024
 POR_PAGINA = 50
+# Paginas de la lista de adjuntos de un mensaje que se siguen (si Graph la pagina: Learn no lo
+# dice). Entre todas, como mucho MAX_JSON; lo que no cabe no se apunta, como lo que pasa de 50.
+PAGINAS_ADJUNTOS = 10
 # Graph limita (429/503/504): se espera lo que dice Retry-After si es esto o menos; sin la
 # cabecera, estas esperas, una tras cada fallo. Despues, `limitado`.
 ESPERA_MAXIMA = 120
@@ -96,6 +99,10 @@ AADSTS_RELOJ = frozenset({700024})
 
 _CODIGO_GRAPH = re.compile(r"[A-Za-z0-9_.]{1,64}")
 _TOKEN_VALIDO = re.compile(r"[A-Za-z0-9._~+/=-]{1,16384}")
+# Un numero de una cabecera o de una respuesta (Retry-After, Content-Length, expires_in): solo
+# cifras ASCII (str.isdigit tambien da por cifras '²' o las arabes, que int() no lee o lee de
+# otra forma).
+_CIFRAS = re.compile(r"[0-9]+")
 
 # httpx2 apunta cada peticion con su URL entera (la consulta lleva el $deltatoken) y httpcore2
 # las cabeceras de la respuesta: en este proceso no se apunta nada de eso.
@@ -121,10 +128,15 @@ class ErrorGraph(Exception):
     @property
     def para_la_ronda(self) -> bool:
         """Si no es cosa de una peticion sino de todas (sin red, la salida, la credencial, el
-        reloj, Microsoft que pide esperar): la ronda para, y no cuenta contra el mensaje que se
-        estaba trayendo. Un 500 de un adjunto, un 404 o una respuesta rara son de esa peticion."""
+        reloj, Microsoft que pide esperar, un 403): la ronda para, y no cuenta contra el mensaje
+        que se estaba trayendo. Un 403 es del buzon, no del mensaje (§3.7: `permiso`, "403 en el
+        propio buzon"): el rol que no deja leer adjuntos (Application Mail.ReadBasic) o los
+        permisos de Exchange que aun no han llegado; la ronda siguiente vuelve a comprobar. Un
+        500 de un adjunto, un 404 (un mensaje que ya no esta) o una respuesta rara son de esa
+        peticion."""
         return self.codigo in ("sin_conexion", "salida", "credencial", "reloj") or (
-            self.codigo == "limitado" and self.estado in (None, 429, 503, 504))
+            self.codigo == "limitado" and self.estado in (None, 429, 503, 504)) or (
+            self.codigo == "permiso" and self.estado == 403)
 
 
 class RespuestaGrande(ErrorGraph):
@@ -196,6 +208,16 @@ def enlace_valido(texto: object) -> bool:
     ruta empieza por /v1.0/ y acaba en /messages/delta (sin mirar mayusculas: Graph reescribe la
     ruta, `.../users('x%40y')/mailfolders('AQMk...')/messages/delta`), sin tramos `.` o `..`, y
     nada que no sea ASCII visible."""
+    return _enlace_de_graph(texto, "/messages/delta")
+
+
+def enlace_de_adjuntos_valido(texto: object) -> bool:
+    """Lo mismo para el @odata.nextLink de una lista de adjuntos: la ruta acaba en
+    /attachments (nunca un $value ni otra cosa)."""
+    return _enlace_de_graph(texto, "/attachments")
+
+
+def _enlace_de_graph(texto: object, final: str) -> bool:
     if not isinstance(texto, str) or not 0 < len(texto) <= 8192:
         return False
     if any(not 0x21 <= ord(c) <= 0x7E for c in texto) or "\\" in texto or "#" in texto:
@@ -210,7 +232,7 @@ def enlace_valido(texto: object) -> bool:
     if puerto not in (None, 443):
         return False
     ruta = partes.path.lower()
-    if not ruta.startswith("/v1.0/") or not ruta.endswith("/messages/delta"):
+    if not ruta.startswith("/v1.0/") or not ruta.endswith(final):
         return False
     return not any(unquote(tramo) in ("", ".", "..") for tramo in ruta.split("/")[1:])
 
@@ -275,11 +297,25 @@ def carga_del_token(valor: str) -> dict | None:
     return carga if isinstance(carga, dict) else None
 
 
+def _entero(texto: object, cifras: int) -> int | None:
+    """Un numero de cifras ASCII; None si no lo es. Uno de mas de `cifras` cifras es "mucho":
+    sale como 10**cifras (sin pasarlo entero a int, que con miles de cifras falla)."""
+    if not isinstance(texto, str) or not _CIFRAS.fullmatch(texto):
+        return None
+    texto = texto.lstrip("0") or "0"
+    return int(texto) if len(texto) <= cifras else 10 ** cifras
+
+
+def _largo(respuesta: httpx2.Response) -> int | None:
+    """El Content-Length, si dice un numero."""
+    return _entero(respuesta.headers.get("content-length", "").strip(), 15)
+
+
 def _leer(respuesta: httpx2.Response, tope: int, que: str, *, cortar: bool = False) -> bytes:
     """El cuerpo, por trozos, sin pasar de `tope`: si pasa, RespuestaGrande (o, con `cortar`,
     lo que cabe: para los errores, que solo se miran por su codigo)."""
-    largo = respuesta.headers.get("content-length", "")
-    if not cortar and largo.isdigit() and int(largo) > tope:
+    largo = _largo(respuesta)
+    if not cortar and largo is not None and largo > tope:
         raise RespuestaGrande(que)
     datos = bytearray()
     for trozo in respuesta.iter_bytes():
@@ -296,8 +332,8 @@ def _guardar(respuesta: httpx2.Response, fichero: IO[bytes], tope: int) -> Bajad
     resumen = hashlib.sha256()
     recibidos = escritos = 0
     cabeza = b""
-    largo = respuesta.headers.get("content-length", "")
-    if largo.isdigit() and int(largo) > tope:
+    largo = _largo(respuesta)
+    if largo is not None and largo > tope:
         return Bajado(0, 0, resumen.hexdigest(), False, True)
     for trozo in respuesta.iter_bytes():
         recibidos += len(trozo)
@@ -315,10 +351,9 @@ def _espera(cabecera: str | None, hechos: int) -> int | None:
     """Cuanto esperar antes de repetir una peticion limitada, o None si no se repite."""
     if hechos >= len(REINTENTOS):
         return None
-    texto = (cabecera or "").strip()
-    if not texto.isdigit():
+    segundos = _entero((cabecera or "").strip(), 6)
+    if segundos is None:
         return REINTENTOS[hechos]
-    segundos = int(texto)
     return segundos if segundos <= ESPERA_MAXIMA else None
 
 
@@ -438,8 +473,8 @@ class ClienteGraph:
         valor = respuesta.get("access_token") if isinstance(respuesta, dict) else None
         tipo = respuesta.get("token_type") if isinstance(respuesta, dict) else None
         vida = respuesta.get("expires_in") if isinstance(respuesta, dict) else None
-        if isinstance(vida, str) and vida.isdigit():
-            vida = int(vida)
+        if isinstance(vida, str):
+            vida = _entero(vida, 6)
         if (not isinstance(valor, str) or not _TOKEN_VALIDO.fullmatch(valor)
                 or not isinstance(tipo, str) or tipo.lower() != "bearer"
                 or type(vida) is not int or not 60 <= vida <= 86400):
@@ -460,8 +495,9 @@ class ClienteGraph:
         return self._con_reintentos(lambda: self._http.stream("GET", url, headers=cabeceras),
                                     leer, que)
 
-    def _get_json(self, url: str, que: str, *, prefer: str = PREFER_ID) -> tuple[int, bytes]:
-        return self._get(url, lambda r: _leer(r, MAX_JSON if r.status_code == 200 else MAX_ERROR,
+    def _get_json(self, url: str, que: str, *, prefer: str = PREFER_ID,
+                  tope: int = MAX_JSON) -> tuple[int, bytes]:
+        return self._get(url, lambda r: _leer(r, tope if r.status_code == 200 else MAX_ERROR,
                                               que, cortar=r.status_code != 200),
                          que, prefer=prefer)
 
@@ -552,17 +588,31 @@ class ClienteGraph:
 
     def adjuntos(self, mensaje_id: str) -> list[Any]:
         """La lista de adjuntos de un mensaje, sin su contenido ($select: id, nombre, tipo,
-        tamano, en linea; @odata.type viene siempre). Tal cual: no confiable."""
+        tamano, en linea; @odata.type viene siempre). Tal cual: no confiable. Si Graph la
+        pagina, se sigue su @odata.nextLink (comprobado, como los de la delta) hasta
+        PAGINAS_ADJUNTOS paginas y, entre todas, MAX_JSON."""
         que = "la lista de adjuntos"
         url = (f"{self._buzon}/messages/{_en_ruta(mensaje_id)}/attachments"
                f"?$select={','.join(CAMPOS_ADJUNTO)}")
-        estado, cuerpo = self._get_json(url, que)
-        if estado != 200:
-            raise _por_estado(estado, _codigo_de_graph(cuerpo), que)
-        datos = _json(cuerpo)
-        if not isinstance(datos, dict) or not isinstance(datos.get("value"), list):
-            raise ErrorGraph("interno", f"{que}: no tiene la forma de Graph")
-        return datos["value"]
+        lista: list[Any] = []
+        leido = 0
+        for _ in range(PAGINAS_ADJUNTOS):
+            estado, cuerpo = self._get_json(url, que, tope=MAX_JSON - leido)
+            if estado != 200:
+                raise _por_estado(estado, _codigo_de_graph(cuerpo), que)
+            leido += len(cuerpo)
+            datos = _json(cuerpo)
+            if not isinstance(datos, dict) or not isinstance(datos.get("value"), list):
+                raise ErrorGraph("interno", f"{que}: no tiene la forma de Graph")
+            lista += datos["value"]
+            siguiente = datos.get("@odata.nextLink")
+            if siguiente is None:
+                break
+            if not enlace_de_adjuntos_valido(siguiente):
+                raise ErrorGraph("interno", f"{que}: un enlace que no es de Graph o no es de una "
+                                            "lista de adjuntos; no se sigue")
+            url = siguiente
+        return lista
 
     def bajar(self, mensaje_id: str, adjunto_id: str, fichero: IO[bytes],
               tope: int = MAX_PDF) -> Bajado:

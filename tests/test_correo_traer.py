@@ -333,6 +333,57 @@ def test_nombres_tamanos_y_tipos_de_terceros(correo, falso) -> None:
         "AAMk01", "AAMk02", "AAMk03"}
 
 
+def test_una_llegada_de_mas_de_64_kib_se_acorta(correo, falso) -> None:
+    """Los nombres, tipos, asunto y remitente los pone el remitente: 50 adjuntos con nombres de
+    255 caracteres de 4 bytes pasan de los 64 KiB que acepta `registrar` (§3.8)."""
+    largo = "\U0001F4C4" * 255
+    lista = [{"@odata.type": "#microsoft.graph.fileAttachment", "id": f"AAMk{n:03d}",
+              "name": largo, "contentType": largo, "size": 10, "isInline": False}
+             for n in range(50)]
+    mensaje = dict(mensajes()["factura"], subject=largo,
+                   **{"from": {"emailAddress": {"address": largo * 2}}})
+    falso.llega(mensaje, "inbox", lista, {})
+    assert correo.ronda().codigo is None
+    datos = (correo.entrada / "llegadas" / bandeja.nombre_llegada(
+        bandeja.clave(mensaje["id"], "bandeja"))).read_bytes()
+    assert len(datos) <= bandeja.MAX_LLEGADA
+    llegada = json.loads(datos)
+    assert len(llegada["asunto"]) == 80 and len(llegada["adjuntos"]) == 50
+    assert {(len(a["nombre"]), len(a["tipo"])) for a in llegada["adjuntos"]} == {(80, 80)}
+
+
+def test_si_acortar_no_basta_se_apuntan_menos_adjuntos() -> None:
+    adjuntos = [{"id": "A" * 509 + f"{n:03d}", "nombre": "\U0001F4C4" * 255,
+                 "tipo": "\U0001F4C4" * 255, "bytes": 1, "resultado": "no_pdf", "sha256": None,
+                 "detalle": "x" * 200} for n in range(50)]
+    llegada = {"version": 1, "carpeta": "bandeja", "graph_id": "AAMk", "internet_message_id": None,
+               "recibido_en": "2026-11-23T08:14:02Z", "remitente": None, "asunto": "a" * 200,
+               "en_linea": 0, "traido_en": "2026-11-24T10:00:00Z", "adjuntos": adjuntos}
+    assert len(bandeja.como_json(llegada)) > bandeja.MAX_LLEGADA
+    corta = json.loads(traer.serializar(llegada))
+    assert len(traer.serializar(llegada)) <= bandeja.MAX_LLEGADA
+    assert 0 < len(corta["adjuntos"]) < 50
+    assert [a["id"] for a in corta["adjuntos"]] == [a["id"] for a in adjuntos[:len(
+        corta["adjuntos"])]]
+
+
+def test_el_message_id_de_hasta_998_caracteres(correo, falso) -> None:
+    justo = _otro("sin_adjuntos", 1, internetMessageId="<" + "a" * 996 + ">")
+    largo = _otro("sin_adjuntos", 2, internetMessageId="<" + "a" * 997 + ">")
+    for mensaje in (justo, largo):
+        falso.llega(mensaje)
+    correo.ronda()
+    assert correo.llegada(justo)["internet_message_id"] == justo["internetMessageId"]
+    assert correo.llegada(largo)["internet_message_id"] is None
+
+
+@pytest.mark.parametrize("malo", ["", "A" * 513, "AAMk\x7f", "AAMk\t", "AAMk\u00f1", 12, None])
+def test_un_adjunto_sin_un_id_que_se_pueda_guardar_es_un_mensaje_raro(malo) -> None:
+    with pytest.raises(ValueError):
+        traer.clasificar("bandeja", [{"@odata.type": "#microsoft.graph.fileAttachment",
+                                      "id": malo, "name": "f.pdf", "isInline": False}])
+
+
 def test_un_pdf_que_pasa_de_20_mib_al_bajarlo_se_corta(correo, falso) -> None:
     def sin_fin():
         yield b"%PDF-1.7\n"
@@ -467,6 +518,36 @@ def test_aviso_de_volumen(correo, falso, monkeypatch) -> None:
 
 # ============================================================ cada mensaje con su limite
 
+def test_una_fecha_que_desborda_no_para_la_ronda(correo, falso, reloj) -> None:
+    """receivedDateTime lo da Exchange, pero tambien es dato: uno que al pasarlo a UTC se sale
+    del calendario de Python (el ano 0) es un mensaje raro, no un fallo de cada ronda."""
+    correo.ronda()            # el deltaLink: lo que llega despues no pasa por el filtro de fecha
+    reloj.avanzar(minutes=5)
+    malo = _otro("sin_adjuntos", 1, receivedDateTime="0001-01-01T00:00:00+01:00")
+    bueno = _otro("sin_adjuntos", 2)
+    for mensaje in (malo, bueno):
+        falso.llega(mensaje)
+    for _ in range(3):
+        assert correo.ronda().fallidos == 1
+        reloj.avanzar(minutes=5)
+    resultado = correo.ronda()
+    assert (resultado.codigo, resultado.fallidos, resultado.mensajes) == (None, 0, 1)
+    assert correo.llegada(malo)["recibido_en"] == bandeja.SIN_FECHA
+    assert correo.llegada(bueno)["recibido_en"] == "2026-11-23T09:01:13Z"
+    assert "$deltatoken=" in correo.json("delta-bandeja.json")["enlace"]
+
+
+def test_los_instantes_de_la_bandeja() -> None:
+    for desborda in ("0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"):
+        assert bandeja.leer_instante(desborda) is None
+    assert bandeja.leer_instante("2026-11-23T09:14:02+01:00") == datetime(
+        2026, 11, 23, 8, 14, 2, tzinfo=timezone.utc)
+    assert bandeja.instante(datetime(999, 1, 2, 3, 4, 5, tzinfo=timezone.utc)) == (
+        "0999-01-02T03:04:05Z")
+    assert bandeja.instante(datetime(2026, 11, 24, 11, 0, tzinfo=timezone(timedelta(hours=1)))
+                            ) == "2026-11-24T10:00:00Z"
+
+
 def test_el_mensaje_raro_entre_dos_buenos(correo, falso, reloj) -> None:
     factura = _con_adjuntos(falso, "factura")
     raro = _con_adjuntos(falso, "raro")
@@ -524,16 +605,71 @@ def test_un_corte_y_despues_bien_borra_el_contador(correo, falso, reloj) -> None
     assert [a["resultado"] for a in correo.llegada(factura)["adjuntos"]] == ["pdf"]
 
 
-def test_sin_red_no_cuenta_contra_el_mensaje(correo, falso, reloj) -> None:
+@pytest.mark.parametrize("excepcion, codigo", [
+    (httpx2.ConnectError("sin red"), "sin_conexion"),
+    (httpx2.ProxyError("403 Forbidden"), "salida"),
+])
+def test_sin_red_no_cuenta_contra_el_mensaje(correo, falso, reloj, excepcion, codigo) -> None:
     factura = _con_adjuntos(falso, "factura")
-    falso.fallar("adjuntos", excepcion=httpx2.ConnectError("sin red"), veces=5)
+    falso.fallar("adjuntos", excepcion=excepcion, veces=5)
     for _ in range(5):
-        assert correo.ronda().codigo == "sin_conexion"
+        assert correo.ronda().codigo == codigo
         reloj.avanzar(minutes=5)
     assert correo.json("intentos.json")["mensajes"] == {}
     assert correo.ronda().mensajes == 1
     assert correo.estado_json()["ronda"]["error_codigo"] is None
     assert [a["resultado"] for a in correo.llegada(factura)["adjuntos"]] == ["pdf"]
+
+
+def _intentos(correo: Correo) -> dict:
+    ruta = correo.estado / "intentos.json"
+    return correo.json("intentos.json")["mensajes"] if ruta.exists() else {}
+
+
+@pytest.mark.parametrize("tipo", ["adjuntos", "valor"])
+def test_un_403_es_del_buzon_y_no_del_mensaje(correo, falso, reloj, tipo) -> None:
+    """Un 403 al listar los adjuntos o al bajar uno (el rol Application Mail.ReadBasic, que deja
+    leer la delta y no los adjuntos, o los permisos de Exchange que aun no han llegado) es
+    `permiso`, de la ronda: no cuenta contra el mensaje (que si no, a la cuarta ronda, quedaba
+    como una llegada de error sin adjuntos y la ronda decia `bien`), y la ronda siguiente
+    vuelve a comprobar."""
+    factura = _con_adjuntos(falso, "factura")
+    falso.fallar(tipo, 403, fixture("error-acceso.json"), veces=4)
+    for ronda in range(1, 5):
+        resultado = correo.ronda()
+        assert (resultado.codigo, resultado.fallidos, resultado.mensajes) == ("permiso", 0, 0)
+        assert correo.estado_json()["ronda"]["error_codigo"] == "permiso"
+        assert correo.llegadas() == {} and _intentos(correo) == {}
+        assert len(falso.de_tipo("control")) == ronda
+        reloj.avanzar(minutes=31)          # un pendiente se vuelve a pedir cada 30 minutos
+    resultado = correo.ronda()
+    assert (resultado.codigo, resultado.mensajes, resultado.pdf_nuevos) == (None, 1, 1)
+    assert len(falso.de_tipo("control")) == 5
+    assert [a["resultado"] for a in correo.llegada(factura)["adjuntos"]] == ["pdf"]
+
+
+@pytest.mark.parametrize("fallo, codigo", [
+    ({"excepcion": httpx2.ConnectError("sin red")}, "sin_conexion"),
+    ({"estado": 403, "cuerpo": fixture("error-acceso.json")}, "permiso"),
+])
+def test_la_llegada_del_tercer_intento_espera_si_la_ronda_no_puede_listar(correo, falso, reloj,
+                                                                         fallo, codigo) -> None:
+    """Al cuarto intento se listan los adjuntos para apuntarlos como `error`; si la ronda no
+    puede (sin red, un 403), para con su codigo y la llegada espera a la ronda siguiente, con
+    sus adjuntos (y no sin ellos)."""
+    factura = _con_adjuntos(falso, "factura")
+    falso.fallar("adjuntos", 500, veces=3)
+    for _ in range(3):
+        assert correo.ronda().fallidos == 1
+        reloj.avanzar(minutes=5)
+    falso.fallar("adjuntos", **fallo)
+    assert correo.ronda().codigo == codigo
+    assert correo.llegadas() == {}
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().codigo is None
+    assert [(a["nombre"], a["resultado"]) for a in correo.llegada(factura)["adjuntos"]] == [
+        ("factuur-0412.pdf", "error")]
+    assert _intentos(correo) == {}
 
 
 def test_una_lista_de_adjuntos_de_mas_de_4_mib_es_fallo_del_mensaje(correo, falso,
@@ -572,6 +708,38 @@ def test_un_adjunto_que_no_se_pudo_bajar_espera_24_horas(correo, falso, reloj) -
     assert (adjunto["resultado"], adjunto["detalle"]) == (
         "error", "no se ha podido traer en 24 horas")
     assert correo.json("pendientes.json")["mensajes"] == {}
+
+
+def test_lo_que_espera_en_pendientes_no_se_vuelve_a_listar(correo, falso, reloj) -> None:
+    """Una pagina que se repite (otro mensaje suyo fallo) no vuelve a listar ni a bajar lo que
+    ya espera en pendientes.json: lo pide la ronda en su paso 7, cada 30 minutos."""
+    factura = _con_adjuntos(falso, "factura")
+    _con_adjuntos(falso, "raro")               # falla: la pagina no se termina
+    falso.fallar("valor", 500)
+    assert correo.ronda().pendientes == 1
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().pendientes == 1
+    assert len(falso.de_tipo("adjuntos")) == 1 and len(falso.de_tipo("valor")) == 1
+    reloj.avanzar(minutes=30)
+    correo.ronda()
+    assert [a["resultado"] for a in correo.llegada(factura)["adjuntos"]] == ["pdf"]
+    assert len(falso.de_tipo("adjuntos")) == 1 and len(falso.de_tipo("valor")) == 2
+
+
+def test_con_pendientes_lleno_lo_que_no_se_pudo_bajar_va_como_error(correo, falso,
+                                                                   monkeypatch) -> None:
+    monkeypatch.setattr(traer, "MAX_PENDIENTES", 1)
+    lista = fixture("adjuntos.json")["factura"]
+    primero, segundo = _otro("factura", 1), _otro("factura", 2)
+    for mensaje in (primero, segundo):
+        falso.llega(mensaje, "inbox", lista, {lista[0]["id"]: pdf(mensaje["id"])})
+    falso.fallar("valor", 500, veces=2)
+    resultado = correo.ronda()
+    assert (resultado.codigo, resultado.mensajes, resultado.pendientes) == (None, 1, 1)
+    assert list(correo.json("pendientes.json")["mensajes"]) == [
+        bandeja.clave(primero["id"], "bandeja")]
+    [adjunto] = correo.llegada(segundo)["adjuntos"]
+    assert (adjunto["resultado"], adjunto["detalle"]) == ("error", "no se ha podido traer")
 
 
 def test_un_pendiente_que_luego_se_baja(correo, falso, reloj) -> None:
@@ -663,6 +831,42 @@ def test_sin_red_al_comprobar_no_cambia_el_alcance(correo, falso, reloj) -> None
     assert correo.estado_json()["alcance"] == alcance
 
 
+def test_una_comprobacion_que_no_salio_bien_se_repite_sea_cual_sea_su_codigo(correo, falso,
+                                                                           reloj) -> None:
+    """Falla cerrado (§2.3): tras una comprobacion que no salio bien no se trae nada sin pasar
+    otra, tambien con un codigo que no esta en REPETIR_ALCANCE (el reloj, interno)."""
+    _con_adjuntos(falso, "factura")
+    falso.fallar("token", 400, fixture("token-reloj.json"))
+    assert correo.ronda().codigo == "reloj"
+    assert correo.estado_json()["alcance"]["bien"] is False
+    assert falso.de_tipo("delta") == []
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().mensajes == 1
+    assert len(falso.de_tipo("control")) == 1
+
+
+def test_una_comprobacion_con_fecha_de_manana_no_vale(correo, falso, reloj) -> None:
+    correo.ronda()
+    estado = correo.estado_json()
+    estado["alcance"]["comprobado_en"] = "2026-11-25T10:00:00Z"
+    (correo.estado / "estado.json").write_text(json.dumps(estado), encoding="utf-8")
+    reloj.avanzar(minutes=5)
+    correo.ronda()
+    assert len(falso.de_tipo("control")) == 2
+
+
+def test_un_fallo_del_programa_al_comprobar_no_es_una_traza(correo, falso,
+                                                            monkeypatch) -> None:
+    def falla(_self):
+        raise ValueError("algo de lo que llego")
+
+    monkeypatch.setattr(graph.ClienteGraph, "comprobar", falla)
+    resultado = correo.comprobar()
+    assert (resultado.codigo, resultado.detalle) == (
+        "interno", "fallo del programa al comprobar (ValueError)")
+    assert correo.estado_json()["ronda"]["error_codigo"] == "interno"
+
+
 def test_correo_comprobar_solo(correo, falso) -> None:
     resultado = correo.comprobar()
     assert resultado.codigo is None and resultado.alcance == graph.Alcance(True)
@@ -710,6 +914,85 @@ def test_un_delta_caducado_empieza_de_nuevo_tres_dias_antes(correo, falso, reloj
     primera = falso.de_tipo("delta")[-2]
     assert primera.parametros["$filter"] == ["receivedDateTime ge 2026-11-21T10:00:00Z"]
     assert correo.estado_json()["delta_reiniciado_en"] == "2026-11-25T10:00:00Z"
+
+
+def test_un_delta_caducado_sin_terminar_su_primera_pagina_no_vuelve_a_desde(correo, falso,
+                                                                           reloj) -> None:
+    """Tras un 410 la delta nueva empieza tres dias antes de al_dia_en. Si su primera pagina no
+    se termina, la ronda siguiente tambien: al_dia_en no se pierde con el enlace, ni cuando se
+    guarda el nextLink de la delta nueva. Si se perdiera, empezaria desde `desde` de los ajustes
+    y volveria a bajar todo lo ya registrado (vistos.json solo guarda 7 dias)."""
+    lista = fixture("adjuntos.json")["factura"]
+    for numero in range(3):
+        falso.llega(_otro("factura", numero, receivedDateTime="2026-11-01T09:00:00Z"), "inbox",
+                    lista, {lista[0]["id"]: pdf(f"viejo {numero}")})
+    assert correo.ronda().pdf_nuevos == 3
+    correo.registrar()
+    reloj.avanzar(days=10)
+    assert correo.ronda().mensajes == 0                    # al dia: 2026-12-04T10:00
+    falso.max_pagina = 1
+    raro = _otro("factura", 10, receivedDateTime="2026-12-03T09:00:00Z")
+    nuevo = _otro("factura", 11, receivedDateTime="2026-12-03T10:00:00Z")
+    for mensaje in (raro, nuevo):
+        falso.llega(mensaje, "inbox", lista, {lista[0]["id"]: pdf(mensaje["id"])})
+    falso.fallar("adjuntos", 500, veces=1, cuando=lambda p: raro["id"] in p.ruta)
+    falso.fallar("delta", 410)
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().fallidos == 1                    # la primera pagina, sin terminar
+    guardado = correo.json("delta-bandeja.json")
+    assert (guardado["enlace"], guardado["al_dia_en"]) == (None, "2026-12-04T10:00:00Z")
+    falso.fallar("adjuntos", 500, veces=1, cuando=lambda p: nuevo["id"] in p.ruta)
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().fallidos == 1                    # ahora la segunda
+    guardado = correo.json("delta-bandeja.json")
+    assert graph.enlace_valido(guardado["enlace"]) and "$skiptoken=" in guardado["enlace"]
+    assert guardado["al_dia_en"] == "2026-12-04T10:00:00Z"
+    falso.fallar("delta", 410)                             # y el nextLink tambien caduca
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().codigo is None
+    filtros = [p.parametros["$filter"] for p in falso.de_tipo("delta") if "$filter" in
+               p.parametros and p.ruta.endswith("/inbox/messages/delta")]
+    assert filtros[-3:] == [["receivedDateTime ge 2026-12-01T10:00:00Z"]] * 3
+    assert len(correo.llegadas()) == 2 and len(falso.de_tipo("valor")) == 5
+
+
+def test_una_delta_que_caduca_tambien_al_empezarla_de_nuevo_para_la_ronda(correo, falso,
+                                                                          reloj) -> None:
+    correo.ronda()
+    reloj.avanzar(minutes=5)
+    antes = len(falso.de_tipo("delta"))
+    falso.fallar("delta", 410, veces=50)
+    resultado = correo.ronda()
+    assert resultado.codigo == "interno" and len(falso.de_tipo("delta")) - antes == 2
+    assert correo.json("delta-bandeja.json") == {"version": 1, "enlace": None,
+                                                 "al_dia_en": "2026-11-24T10:00:00Z"}
+
+
+def test_una_llegada_aun_sin_registrar_no_se_vuelve_a_traer(correo, falso, reloj) -> None:
+    """Lo escrito en llegadas/ que `orden` aun no se ha llevado no se vuelve a listar ni a
+    bajar, aunque vistos.json se haya perdido y la delta lo vuelva a dar."""
+    _con_adjuntos(falso, "factura")
+    correo.ronda()
+    (correo.estado / "vistos.json").unlink()
+    falso.fallar("delta", 410)
+    reloj.avanzar(minutes=5)
+    assert correo.ronda().mensajes == 0
+    assert len(falso.de_tipo("adjuntos")) == 1 and len(falso.de_tipo("valor")) == 1
+
+
+def test_vistos_e_intentos_solo_guardan_lo_de_7_dias(correo, falso, monkeypatch) -> None:
+    monkeypatch.setattr(traer, "MAX_VISTOS", 2)
+    hace = {dias: bandeja.instante(AHORA - timedelta(days=dias)) for dias in (1, 2, 3, 8)}
+    claves = {dias: hashlib.sha256(str(dias).encode()).hexdigest() for dias in hace}
+    (correo.estado / "vistos.json").write_text(json.dumps(
+        {"version": 1, "claves": {claves[d]: hace[d] for d in hace}}), encoding="utf-8")
+    (correo.estado / "intentos.json").write_text(json.dumps(
+        {"version": 1, "mensajes": {claves[d]: {"n": 1, "en": hace[d]} for d in (1, 8)}}),
+        encoding="utf-8")
+    assert correo.ronda().codigo is None
+    # Los de mas de 7 dias fuera y, de los demas, los MAX_VISTOS mas recientes.
+    assert set(correo.json("vistos.json")["claves"]) == {claves[1], claves[2]}
+    assert set(correo.json("intentos.json")["mensajes"]) == {claves[1]}
 
 
 def test_un_enlace_guardado_que_no_vale_no_se_sigue(correo, falso) -> None:

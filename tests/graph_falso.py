@@ -12,7 +12,9 @@ enlaces de docs-ms concepts_delta-query-messages.md):
   enlaces en una de las formas de Microsoft: `clave` (users('x%40y')/mailfolders('AQMk...'),
   en minusculas), `guid` (users/<guid>/mailFolders/AAMk...) o `primera` (la ruta de la primera
   peticion);
-- la lista de adjuntos, el contenido de uno ($value), el buzon, el de control y /users;
+- la lista de adjuntos (por paginas, si se le dice: `max_pagina_adjuntos`, con el nextLink en la
+  forma de clave `users('x%40y')/messages('AAMk...')/attachments`), el contenido de uno
+  ($value), el buzon, el de control y /users;
 - los fallos que se le pidan (`fallar`).
 
 Y apunta cada peticion (metodo, host, ruta, consulta, cabeceras sin Authorization). Lo que
@@ -123,6 +125,8 @@ class GraphFalso:
         self.roles = roles
         self.forma = forma
         self.tid: str | None = None          # otro inquilino en el token, si se pide
+        # Lo que cambia en la carga del token (None quita ese campo): otra aud, otra appid...
+        self.en_el_token: dict[str, Any] = {}
         self.estado_buzon = 200
         self.estado_control = 403
         self.estado_usuarios = 403
@@ -133,6 +137,8 @@ class GraphFalso:
         self.contenido_en_la_lista = False
         self.siguiente_malo: str | None = None
         self.max_pagina: int | None = None
+        self.max_pagina_adjuntos: int | None = None
+        self.siguiente_adjuntos_malo: str | None = None
         self.servido_json = self.total_json = 0
         self.fallos: list[Fallo] = []
         self.peticiones: list[Peticion] = []
@@ -142,6 +148,7 @@ class GraphFalso:
         self.jti: set[str] = set()
         self.servidos: dict[str, int] = {}
         self._enlaces: dict[str, _Enlace] = {}
+        self._enlaces_adjuntos: dict[str, tuple[str, int]] = {}
         self.transporte = httpx2.MockTransport(self._responder)
 
     # ---------------------------------------------------------------- preparar
@@ -265,6 +272,11 @@ class GraphFalso:
                  "oid": "11111111-0000-4000-8000-000000000001"}
         if self.roles is not None:
             carga["roles"] = self.roles
+        for nombre, valor in self.en_el_token.items():
+            if valor is None:
+                carga.pop(nombre, None)
+            else:
+                carga[nombre] = valor
         token = ".".join([_b64(b'{"typ":"JWT","alg":"none"}'),
                           _b64(json.dumps(carga).encode()), ""])
         token = token + _b64(secrets.token_bytes(16))   # que cada uno sea otro
@@ -348,7 +360,13 @@ class GraphFalso:
         trozos = cola.split("/")
         if len(trozos) == 3 and trozos[0] == "messages" and trozos[2] == "attachments":
             peticion.tipo = "adjuntos"
-            return self._con_fallo(peticion, lambda: self._lista(unquote(trozos[1])))
+            return self._con_fallo(peticion, lambda: self._lista(unquote(trozos[1]), peticion))
+        if (len(trozos) == 2 and trozos[0].startswith("messages('") and trozos[0].endswith("')")
+                and trozos[1] == "attachments"):
+            # La forma de clave de un nextLink de la lista: messages('AAMk...')/attachments.
+            peticion.tipo = "adjuntos"
+            return self._con_fallo(peticion, lambda: self._lista(
+                unquote(trozos[0][len("messages('"):-2]), peticion))
         if (len(trozos) == 5 and trozos[0] == "messages" and trozos[2] == "attachments"
                 and trozos[4] == "$value"):
             peticion.tipo = "valor"
@@ -441,22 +459,40 @@ class GraphFalso:
                 enlace.carpeta, _Enlace(enlace.carpeta, posicion, None, None), True)
         return self._json(200, cuerpo, trozos=True)
 
-    def _lista(self, mensaje_id: str) -> httpx2.Response:
-        parametros = parse_qs(self.peticiones[-1].consulta)
+    def _lista(self, mensaje_id: str, peticion: Peticion) -> httpx2.Response:
+        parametros = peticion.parametros
         if parametros.get("$select") != ["id,name,contentType,size,isInline"]:
             self.violaciones.append(f"lista de adjuntos sin el $select: {parametros}")
         if mensaje_id not in self.listas:
             return self._json(404, fixture("error-no-existe.json"))
+        desde = 0
+        token = (parametros.get("$skiptoken") or [None])[0]
+        if token is not None:
+            if self._enlaces_adjuntos.get(token, ("", 0))[0] != mensaje_id:
+                self.violaciones.append("un nextLink de adjuntos que no dio el falso")
+                return self._json(400, fixture("error-sin-estado.json"))
+            desde = self._enlaces_adjuntos[token][1]
+        todos = self.listas[mensaje_id]
+        hasta = len(todos) if self.max_pagina_adjuntos is None else min(
+            len(todos), desde + self.max_pagina_adjuntos)
         valor = []
-        for adjunto in self.listas[mensaje_id]:
+        for adjunto in todos[desde:hasta]:
             fila = dict(adjunto)
             contenido = self.contenidos.get((mensaje_id, adjunto["id"]))
             if self.contenido_en_la_lista and isinstance(contenido, bytes):
                 fila["contentBytes"] = base64.b64encode(contenido).decode("ascii")
             valor.append(fila)
-        return self._json(200, {"@odata.context": "https://graph.microsoft.com/v1.0/"
-                                "$metadata#users('x')/messages('y')/attachments",
-                                "value": valor}, trozos=True)
+        cuerpo: dict[str, Any] = {"@odata.context": "https://graph.microsoft.com/v1.0/"
+                                  "$metadata#users('x')/messages('y')/attachments",
+                                  "value": valor}
+        if hasta < len(todos):
+            siguiente = _b64(secrets.token_bytes(12))
+            self._enlaces_adjuntos[siguiente] = (mensaje_id, hasta)
+            cuerpo["@odata.nextLink"] = self.siguiente_adjuntos_malo or (
+                f"https://graph.microsoft.com/v1.0/users('{quote(self.buzon, safe='')}')"
+                f"/messages('{quote(mensaje_id, safe='=-_')}')/attachments"
+                f"?$select=id,name,contentType,size,isInline&$skiptoken={siguiente}")
+        return self._json(200, cuerpo, trozos=True)
 
     def _valor(self, mensaje_id: str, adjunto_id: str) -> httpx2.Response:
         adjunto = next((a for a in self.listas.get(mensaje_id, []) if a["id"] == adjunto_id),

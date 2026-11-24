@@ -108,10 +108,13 @@ def sanear(texto: object, maximo: int) -> str | None:
 
 
 def instante(momento: datetime) -> str:
-    """Un instante en UTC como lo escribe la bandeja: AAAA-MM-DDTHH:MM:SSZ."""
+    """Un instante en UTC como lo escribe la bandeja: AAAA-MM-DDTHH:MM:SSZ (el ano con cuatro
+    cifras tambien antes del 1000, que strftime("%Y") no rellena)."""
     if momento.tzinfo is None:
         raise ValueError("un instante sin zona horaria no se sabe de cuando es")
-    return momento.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    utc = momento.astimezone(timezone.utc)
+    return (f"{utc.year:04d}-{utc.month:02d}-{utc.day:02d}T{utc.hour:02d}:{utc.minute:02d}:"
+            f"{utc.second:02d}Z")
 
 
 def leer_instante(texto: object) -> datetime | None:
@@ -121,11 +124,12 @@ def leer_instante(texto: object) -> datetime | None:
         return None
     try:
         momento = datetime.fromisoformat(texto.replace("Z", "+00:00").replace("z", "+00:00"))
-    except ValueError:
+        if momento.tzinfo is None:
+            return None
+        # Pasarlo a UTC desborda en los extremos (0001-01-01T00:00:00+01:00 seria el ano 0).
+        return momento.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if momento.tzinfo is None:
-        return None
-    return momento.astimezone(timezone.utc)
 
 
 def como_json(datos: object) -> bytes:

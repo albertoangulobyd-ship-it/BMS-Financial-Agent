@@ -117,6 +117,8 @@ def test_comprobar_con_todo_bien_y_un_solo_post(cliente, falso) -> None:
     assert falso.asercion_vista and len(falso.tokens) == 1
     assert falso.peticiones[1].consulta == "$select=id"
     assert falso.peticiones[3].consulta == "$top=1&$select=id"
+    # Sin comprimir: los topes miden lo que llega (§3.1).
+    assert {p.cabeceras.get("accept-encoding") for p in falso.peticiones} == {"identity"}
 
 
 def test_el_token_dura_la_ronda_y_se_renueva_antes_de_caducar(cliente, falso, reloj) -> None:
@@ -133,6 +135,10 @@ def test_el_token_dura_la_ronda_y_se_renueva_antes_de_caducar(cliente, falso, re
     (lambda f: setattr(f, "roles", ["Mail.Read"]), "alcance"),
     (lambda f: setattr(f, "roles", ["Mail.ReadBasic.All", "User.Read.All"]), "alcance"),
     (lambda f: setattr(f, "tid", "99999999-2222-4333-8444-555555555555"), "alcance"),
+    (lambda f: f.en_el_token.update(aud="https://outlook.office365.com"), "alcance"),
+    (lambda f: f.en_el_token.update(aud=None), "alcance"),
+    (lambda f: f.en_el_token.update(appid="99999999-bbbb-4ccc-8ddd-eeeeeeeeeeee"), "alcance"),
+    (lambda f: f.en_el_token.update(appid=None), "alcance"),
     (lambda f: setattr(f, "estado_buzon", 403), "permiso"),
     (lambda f: setattr(f, "estado_buzon", 404), "permiso"),
     (lambda f: setattr(f, "estado_control", 200), "alcance"),
@@ -145,6 +151,42 @@ def test_el_token_dura_la_ronda_y_se_renueva_antes_de_caducar(cliente, falso, re
 def test_comprobar_dice_por_que_no(cliente, falso, preparar, motivo) -> None:
     preparar(falso)
     assert cliente.comprobar() == graph.Alcance(False, motivo)
+
+
+def test_las_formas_del_token_que_valen(cliente, falso) -> None:
+    """Un token v2 (azp en vez de appid, aud el id de la aplicacion Graph) y los GUID en
+    mayusculas tambien son de este inquilino y esta aplicacion."""
+    falso.en_el_token.update(appid=None, azp=APLICACION.upper(), tid=INQUILINO.upper(),
+                             aud="00000003-0000-0000-c000-000000000000")
+    assert cliente.comprobar() == graph.Alcance(True)
+
+
+@pytest.mark.parametrize("cambio", [
+    {"token_type": "pop"}, {"token_type": None}, {"expires_in": "\u00b2"},
+    {"expires_in": "1" * 5000}, {"expires_in": 30}, {"expires_in": True},
+    {"access_token": "con espacio"}, {"access_token": None},
+])
+def test_un_token_que_no_tiene_la_forma_esperada(cliente, falso, cambio) -> None:
+    """Lo que dice login.microsoftonline.com con 200 tambien es dato: un token que no es Bearer,
+    sin una vida que se pueda leer o con caracteres raros no se usa (interno), sin traza."""
+    respuesta = dict(fixture("token.json"), access_token="eyJ0eXAi.eyJhdWQi.firma")
+    respuesta.update(cambio)
+    falso.fallar("token", 200, {k: v for k, v in respuesta.items() if v is not None})
+    assert _error(cliente.comprobar).codigo == "interno"
+    assert [p.tipo for p in falso.peticiones] == ["token"]
+
+
+def test_un_token_con_la_vida_en_texto_vale(cliente, falso) -> None:
+    original = falso._token
+
+    def con_texto(*args):
+        respuesta = original(*args)
+        cuerpo = respuesta.json()
+        cuerpo["expires_in"] = "3599"
+        return httpx2.Response(200, json=cuerpo)
+
+    falso._token = con_texto
+    assert cliente.comprobar() == graph.Alcance(True)
 
 
 @pytest.mark.parametrize("cuerpo, motivo", [
@@ -366,6 +408,30 @@ def test_sin_retry_after_a_los_2_y_a_los_8_segundos_y_despues_limitado(cliente, 
     assert dormidas == [2, 8] and len(falso.de_tipo("delta")) == 3
 
 
+@pytest.mark.parametrize("cabecera, esperas, codigo", [
+    ("\u00b2".encode(), [2], None), ("\u0663".encode(), [2], None), (b"\xb3", [2], None),
+    (" 7 ", [7], None), ("0" * 5000 + "9", [9], None),
+    ("1" * 5000, [], "limitado"), ("1e2", [2], None), ("-1", [2], None), ("", [2], None),
+])
+def test_un_retry_after_raro(cliente, falso, dormidas, cabecera, esperas, codigo) -> None:
+    """Solo cifras ASCII son segundos ('²' es una cifra para str.isdigit, no para int; la
+    cabecera llega en UTF-8 o en latin-1); lo demas cuenta como si no estuviera, y uno de miles
+    de cifras es mas de 120 s."""
+    falso.llega(mensajes()["sin_adjuntos"])
+    falso.fallar("delta", 429, fixture("error-limitado.json"), cabeceras={"Retry-After": cabecera})
+    if codigo is None:
+        assert len(list(cliente.delta("bandeja", None, AHORA - timedelta(days=30)))) == 1
+    else:
+        assert _error(cliente.delta, "bandeja", None, AHORA).codigo == codigo
+    assert dormidas == esperas
+
+
+def test_los_numeros_de_lo_que_llega() -> None:
+    assert [graph._entero(v, 6) for v in ("7", "007", "1" * 5000, "\u00b2", "\u0663", " 7", "",
+                                          "7.0", None, 7)] == [
+        7, 7, 10 ** 6, None, None, None, None, None, None, None]
+
+
 @pytest.mark.parametrize("estado", [429, 503, 504])
 def test_un_retry_after_de_mas_de_120_s_no_se_espera(cliente, falso, dormidas, estado) -> None:
     falso.fallar("delta", estado, fixture("error-limitado.json"), cabeceras={"Retry-After": "121"})
@@ -407,6 +473,26 @@ def test_cada_respuesta_de_la_delta_su_codigo(cliente, falso, estado, codigo) ->
     assert len(falso.de_tipo("delta")) == 1
 
 
+@pytest.mark.parametrize("enlaces", [
+    {"@odata.nextLink": "siguiente", "@odata.deltaLink": "delta"}, {},
+])
+def test_una_pagina_con_los_dos_enlaces_o_ninguno_no_vale(cliente, falso, enlaces) -> None:
+    bueno = ("https://graph.microsoft.com/v1.0/users/x/mailFolders/inbox/messages/delta"
+             "?$deltatoken=x")
+    falso.fallar("delta", 200, {"value": [], **{k: bueno for k in enlaces}})
+    error = _error(cliente.delta, "bandeja", None, AHORA)
+    assert error.codigo == "interno" and "como seguir" in error.detalle
+
+
+def test_un_403_o_la_salida_son_de_la_ronda_y_un_404_o_un_500_de_la_peticion() -> None:
+    """Lo que para la ronda sin contar contra el mensaje que se estaba trayendo (traer.py)."""
+    de_la_ronda = [("permiso", 403), ("salida", None), ("sin_conexion", None),
+                   ("credencial", 401), ("reloj", None), ("limitado", 429), ("limitado", None)]
+    de_la_peticion = [("permiso", 404), ("limitado", 500), ("interno", None), ("interno", 400)]
+    assert [graph.ErrorGraph(c, "x", e).para_la_ronda for c, e in de_la_ronda] == [True] * 7
+    assert [graph.ErrorGraph(c, "x", e).para_la_ronda for c, e in de_la_peticion] == [False] * 4
+
+
 def test_los_fallos_de_red_dicen_sin_conexion_o_salida(cliente, falso) -> None:
     falso.fallar("delta", excepcion=httpx2.ReadTimeout("lento"))
     assert _error(cliente.delta, "bandeja", None, AHORA).codigo == "sin_conexion"
@@ -432,6 +518,27 @@ def test_un_content_length_de_mas_de_4_mib_no_se_lee(cliente, falso) -> None:
     assert isinstance(_error(cliente.delta, "bandeja", None, AHORA), graph.RespuestaGrande)
 
 
+@pytest.mark.parametrize("largo, grande", [
+    ("\u00b2".encode(), False), (b"\xb9", False), ("1" * 5000, True), ("0" * 5000 + "1", False),
+])
+def test_un_content_length_raro(cliente, falso, largo, grande) -> None:
+    """El Content-Length tambien es dato: con cifras que no son ASCII no se cree (se lee por
+    trozos con el tope de siempre), y uno de miles de cifras es "demasiado" sin pasarlo a int."""
+    falso.fallar("delta", 200, {"value": [], "@odata.deltaLink": (
+        "https://graph.microsoft.com/v1.0/users/x/mailFolders/inbox/messages/delta"
+        "?$deltatoken=x")}, cabeceras={"Content-Length": largo})
+    if grande:
+        assert isinstance(_error(cliente.delta, "bandeja", None, AHORA), graph.RespuestaGrande)
+    else:
+        assert [p.delta is not None for p in cliente.delta("bandeja", None, AHORA)] == [True]
+    mensaje = mensajes()["factura"]
+    lista = fixture("adjuntos.json")["factura"]
+    falso.llega(mensaje, adjuntos=lista, contenidos={lista[0]["id"]: pdf("x")})
+    falso.fallar("valor", 200, "%PDF-", cabeceras={"Content-Length": largo})
+    bajado = cliente.bajar(mensaje["id"], lista[0]["id"], io.BytesIO())
+    assert bajado.cortado is grande and bajado.recibidos == (0 if grande else 7)
+
+
 def test_una_lista_de_adjuntos_con_su_contenido_pasa_del_tope(cliente, falso) -> None:
     """Si Graph trajera contentBytes a pesar del $select, el tope de 4 MiB lo para."""
     mensaje = mensajes()["factura"]
@@ -441,6 +548,59 @@ def test_una_lista_de_adjuntos_con_su_contenido_pasa_del_tope(cliente, falso) ->
     falso.contenido_en_la_lista = True
     assert isinstance(_error(cliente.adjuntos, mensaje["id"]), graph.RespuestaGrande)
     assert falso.servido_json <= graph.MAX_JSON + 64 * 1024
+
+
+def test_una_lista_de_adjuntos_por_paginas_se_sigue(cliente, falso) -> None:
+    """Learn no dice si Graph pagina la lista de adjuntos: si lo hace, se sigue su nextLink."""
+    mensaje = mensajes()["variado"]
+    lista = fixture("adjuntos.json")["variado"]
+    falso.llega(mensaje, adjuntos=lista)
+    falso.max_pagina_adjuntos = 3
+    assert [a["id"] for a in cliente.adjuntos(mensaje["id"])] == [a["id"] for a in lista]
+    peticiones = falso.de_tipo("adjuntos")
+    assert len(peticiones) == 4
+    assert all("/messages('" in p.ruta and "$skiptoken" in p.parametros
+               for p in peticiones[1:])
+
+
+def test_la_lista_de_adjuntos_sigue_como_mucho_sus_paginas_y_su_tope(cliente, falso,
+                                                                     monkeypatch) -> None:
+    mensaje = mensajes()["variado"]
+    lista = fixture("adjuntos.json")["variado"]
+    falso.llega(mensaje, adjuntos=lista,
+                contenidos={a["id"]: pdf(a["id"], 2 * 1024 * 1024) for a in lista})
+    falso.max_pagina_adjuntos = 3
+    monkeypatch.setattr(graph, "PAGINAS_ADJUNTOS", 2)
+    assert len(cliente.adjuntos(mensaje["id"])) == 6
+    assert len(falso.de_tipo("adjuntos")) == 2
+    # El tope de 4 MiB es de la lista entera, no de cada pagina: cada pagina, con su
+    # contentBytes de 2 MiB (2,7 en base64), cabe; dos, no.
+    falso.max_pagina_adjuntos = 1
+    falso.contenido_en_la_lista = True
+    assert isinstance(_error(cliente.adjuntos, mensaje["id"]), graph.RespuestaGrande)
+    assert len(falso.de_tipo("adjuntos")) == 4
+
+
+@pytest.mark.parametrize("malo", [
+    "https://evil.example/v1.0/users/x/messages/y/attachments?$skiptoken=a",
+    "http://graph.microsoft.com/v1.0/users/x/messages/y/attachments?$skiptoken=a",
+    "https://graph.microsoft.com:8443/v1.0/users/x/messages/y/attachments?$skiptoken=a",
+    "https://graph.microsoft.com/v1.0/users/x/messages/y/attachments/z/$value",
+    "https://graph.microsoft.com/v1.0/users/x/messages/delta?$skiptoken=a",
+    "https://graph.microsoft.com/v1.0/users/x/messages/y/attachments/../../../sendMail",
+    "https://graph.microsoft.com/beta/users/x/messages/y/attachments",
+])
+def test_un_enlace_de_la_lista_de_adjuntos_que_no_vale_no_se_sigue(cliente, falso,
+                                                                   malo) -> None:
+    assert not graph.enlace_de_adjuntos_valido(malo)
+    mensaje = mensajes()["variado"]
+    falso.llega(mensaje, adjuntos=fixture("adjuntos.json")["variado"])
+    falso.max_pagina_adjuntos = 1
+    falso.siguiente_adjuntos_malo = malo
+    error = _error(cliente.adjuntos, mensaje["id"])
+    assert error.codigo == "interno" and "no se sigue" in error.detalle
+    assert not error.para_la_ronda
+    assert len(falso.peticiones) == 2          # el token y la primera pagina
 
 
 def test_un_adjunto_se_baja_por_trozos_con_su_tope(cliente, falso) -> None:
