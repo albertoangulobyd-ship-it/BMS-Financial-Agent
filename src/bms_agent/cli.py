@@ -53,6 +53,9 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
                                   prueba a salir a internet con el programa de ese papel
                                   y lo apunta en datos/aislamiento.json
     bms-agent clave guardar|comprobar|borrar  la clave de la API cifrada con DPAPI (Windows)
+    bms-agent correo certificado|ajustes ...  el correo de facturas (paso 18, solo Docker): el
+                                  certificado con que pide su token a Microsoft y sus ajustes,
+                                  en la carpeta docker\\secretos\\correo (--carpeta)
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -3008,6 +3011,155 @@ def _cmd_clave(args: argparse.Namespace) -> int:
     return 0
 
 
+CORREO_SIN_CONFIGURAR = 10   # el correo aun no tiene certificado o ajustes
+
+
+def _imprimir_certificado(nombre: str, datos, cer: Path, ahora) -> None:
+    from .correo import certificado
+
+    if datos is None:
+        return
+    if isinstance(datos, certificado.CertificadoNoValido):
+        print(f"{nombre}: no se puede usar: {datos}")
+        return
+    dias = datos.dias(ahora)
+    cuando = f"quedan {dias} dias" if dias >= 0 else "YA HA CADUCADO"
+    print(f"{nombre}: caduca el {datos.caduca_en:%Y-%m-%d} ({cuando})")
+    print(f"  huella SHA-256: {datos.huella_sha256}")
+    print(f"  huella SHA-1 (la que ensena Entra): {datos.huella_sha1}")
+    print(f"  parte publica, para subirla a Entra: {cer}")
+
+
+def _cmd_correo_certificado(args: argparse.Namespace, certificado) -> int:
+    from .reloj import RELOJ_SISTEMA
+
+    carpeta = Path(args.carpeta)
+    if args.accion == "ver":
+        estado = certificado.estado(certificado.comprobar_carpeta(carpeta))
+        nombres = {certificado.ACTUAL: "Certificado actual",
+                   certificado.SIGUIENTE: "Siguiente (la renovacion, sin activar)",
+                   certificado.ANTERIOR: "Anterior (el de antes de activar)"}
+        for cual in certificado.CUALES:
+            _imprimir_certificado(nombres[cual], estado[cual],
+                                  certificado.rutas(carpeta, cual)[1], RELOJ_SISTEMA.ahora())
+        if estado[certificado.ACTUAL] is None:
+            print("No hay certificado actual: se crea con correo-configurar.bat "
+                  "(correo certificado crear).")
+            return CORREO_SIN_CONFIGURAR
+        return 0 if isinstance(estado[certificado.ACTUAL], certificado.Datos) else 2
+    if args.accion == "borrar":
+        cual = (certificado.ANTERIOR if args.anterior else
+                certificado.SIGUIENTE if args.siguiente else None)
+        borrados, aviso = certificado.borrar(carpeta, cual)
+        if borrados:
+            print(f"Borrado: {', '.join(borrados)}. Lo que se subio a Entra sigue alli hasta "
+                  "que el informatico lo quite.")
+        else:
+            print("No habia nada que borrar.")
+    else:
+        if args.accion == "crear":
+            hecho = certificado.crear(carpeta, siguiente=args.siguiente)
+            cual = certificado.SIGUIENTE if args.siguiente else certificado.ACTUAL
+            print(f"Certificado {'siguiente ' if args.siguiente else ''}creado. La clave "
+                  "privada se queda en este equipo; sube a la aplicacion de Entra solo la parte "
+                  "publica (docs/correo-m365.md).")
+        elif args.accion == "activar":
+            hecho = certificado.activar(carpeta)
+            cual = certificado.ACTUAL
+            print("Activado: el siguiente es ahora el actual, y el de antes queda como "
+                  "anterior hasta que se compruebe el correo.")
+        else:
+            hecho = certificado.volver(carpeta)
+            cual = certificado.ACTUAL
+            print("Vuelta al anterior: es otra vez el actual, y el que no valio queda como "
+                  "siguiente.")
+        aviso = hecho.aviso
+        _imprimir_certificado("Certificado", hecho.datos, certificado.rutas(carpeta, cual)[1],
+                              RELOJ_SISTEMA.ahora())
+    if aviso:
+        print(f"Aviso: {aviso}", file=sys.stderr)
+    return 0
+
+
+def _cmd_correo_ajustes(args: argparse.Namespace, ajustes, certificado) -> int:
+    from .reloj import RELOJ_SISTEMA
+
+    carpeta = certificado.comprobar_carpeta(Path(args.carpeta))
+    ruta = carpeta / ajustes.FICHERO
+    if args.accion == "ver":
+        try:
+            actuales = ajustes.leer(ruta)
+        except ajustes.SinAjustes:
+            print("Aun no hay ajustes del correo: se fijan con correo-configurar.bat "
+                  "(correo ajustes fijar).")
+            return CORREO_SIN_CONFIGURAR
+        print(f"Inquilino (tenant): {actuales.inquilino}")
+        print(f"Aplicacion (client id): {actuales.aplicacion}")
+        print(f"Buzon de las facturas: {actuales.buzon}")
+        print(f"Buzon de control: {actuales.buzon_control}")
+        print(f"Desde: {actuales.desde.isoformat()}")
+        print(f"Topes por dia: {actuales.limites.pdf_dia} PDF, {actuales.limites.mib_dia} MiB")
+        for nombre in ajustes.CERTIFICADOS:
+            huella = getattr(actuales, nombre)
+            if huella is not None:
+                print(f"{nombre.capitalize()}: {huella.huella_sha256[:16]}..., caduca el "
+                      f"{huella.caduca_en:%Y-%m-%d}")
+        return 0
+    try:
+        actuales = ajustes.leer(ruta)
+    except ajustes.SinAjustes:
+        actuales = None
+    except ajustes.AjustesNoValidos as exc:
+        # Unos que no valen solo se sustituyen enteros (con los cuatro datos).
+        if None in (args.inquilino, args.aplicacion, args.buzon, args.buzon_control):
+            raise
+        print(f"Los ajustes guardados no valen ({exc}): se sustituyen.", file=sys.stderr)
+        actuales = None
+    nuevos = ajustes.fijar(
+        actuales, hoy=RELOJ_SISTEMA.hoy(), inquilino=args.inquilino,
+        aplicacion=args.aplicacion, buzon=args.buzon, buzon_control=args.buzon_control,
+        desde=args.desde, pdf_dia=args.pdf_dia, mib_dia=args.mib_dia)
+    nuevos = ajustes.con_certificados(nuevos, **certificado.huellas(carpeta))
+    ajustes.escribir(ruta, nuevos)
+    print(f"Ajustes del correo guardados en {ruta}.")
+    if nuevos.certificado is None:
+        print("Aviso: aun no hay certificado actual que se pueda usar (correo certificado "
+              "crear).", file=sys.stderr)
+    return 0
+
+
+def _cmd_correo(args: argparse.Namespace) -> int:
+    """El certificado y los ajustes del correo de facturas (paso 18), en la carpeta de sus
+    secretos. Solo en la variante Docker: la nativa no trae el correo. Nada de la clave
+    privada sale nunca por aqui: ni al crearla, ni al verla, ni en un error."""
+    from . import nativo
+
+    if nativo.instalacion_actual() is not None:
+        print("El correo de facturas es solo de la variante Docker (docs/entorno-local.md): la "
+              "instalacion nativa no lo trae.", file=sys.stderr)
+        return 2
+    try:
+        from .correo import ajustes, certificado
+    except ImportError:
+        print("Falta el paquete cryptography, que solo lleva la imagen de Docker (en desarrollo: "
+              "pip install -e \".[correo]\").", file=sys.stderr)
+        return 2
+    try:
+        if args.que == "certificado":
+            return _cmd_correo_certificado(args, certificado)
+        return _cmd_correo_ajustes(args, ajustes, certificado)
+    except certificado.NoSeHace as exc:
+        print(f"No se hace: {exc}", file=sys.stderr)
+        return 1
+    except (certificado.CertificadoNoValido, ajustes.AjustesNoValidos) as exc:
+        print(f"No se hace: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"No se puede usar {exc.filename or 'la carpeta'}: "
+              f"{exc.strerror or type(exc).__name__}", file=sys.stderr)
+        return 1
+
+
 DESCRIPCION = (
     "El agente financiero de BM Support BV (V1): lee las facturas, las comprueba con reglas "
     "y ensena lo que hay que decidir. Escribe solo en su almacen (correcciones, el registro de "
@@ -3662,6 +3814,52 @@ def main(argv: list[str] | None = None) -> int:
         p_accion.add_argument("--fichero", help="donde esta (por defecto, el de la instalacion: "
                                                 "datos/secretos/clave-api.dpapi)")
     p_clave.set_defaults(func=_cmd_clave)
+
+    p_correo = sub.add_parser(
+        "correo", help="el correo de facturas (solo Docker): el certificado con que pide su "
+                       "token a Microsoft y sus ajustes")
+    sub_correo = p_correo.add_subparsers(dest="que", required=True)
+    _ayuda_carpeta = ("la carpeta de los secretos del correo (en Docker, docker\\secretos\\correo "
+                      "montada solo para esta orden)")
+    p_cert = sub_correo.add_parser(
+        "certificado", help="la clave y el certificado (local, sin red); la clave no se ensena "
+                            "nunca")
+    sub_cert = p_cert.add_subparsers(dest="accion", required=True)
+    for accion, ayuda in (
+            ("crear", "crea la clave y el certificado (24 meses); nunca rehace el actual"),
+            ("activar", "el siguiente pasa a actual y el actual a anterior"),
+            ("volver", "el anterior vuelve a actual y el actual a siguiente"),
+            ("ver", "huella y caducidad de cada uno"),
+            ("borrar", "sin opciones, todos (cortar el acceso desde este equipo)")):
+        p_accion = sub_cert.add_parser(accion, help=ayuda)
+        p_accion.add_argument("--carpeta", required=True, help=_ayuda_carpeta)
+        if accion == "crear":
+            p_accion.add_argument("--siguiente", action="store_true",
+                                  help="el de la renovacion, al lado del actual")
+        if accion == "borrar":
+            solo = p_accion.add_mutually_exclusive_group()
+            solo.add_argument("--anterior", action="store_true", help="solo el anterior")
+            solo.add_argument("--siguiente", action="store_true", help="solo el siguiente")
+    p_aj = sub_correo.add_parser(
+        "ajustes", help="el inquilino, la aplicacion, los buzones, desde cuando y los topes")
+    sub_aj = p_aj.add_subparsers(dest="accion", required=True)
+    p_fijar = sub_aj.add_parser("fijar", help="los fija (lo que no se da queda como estaba; la "
+                                              "primera vez, los cuatro datos del informatico)")
+    p_fijar.add_argument("--carpeta", required=True, help=_ayuda_carpeta)
+    p_fijar.add_argument("--inquilino", help="el id del inquilino de Entra (GUID)")
+    p_fijar.add_argument("--aplicacion", help="el id de la aplicacion de Entra (GUID)")
+    p_fijar.add_argument("--buzon", help="la direccion del buzon de las facturas")
+    p_fijar.add_argument("--buzon-control", dest="buzon_control",
+                         help="la de un buzon que la aplicacion no puede leer (la prueba)")
+    p_fijar.add_argument("--desde", metavar="AAAA-MM-DD",
+                         help="lo anterior no se trae (por defecto, hoy menos 30 dias)")
+    p_fijar.add_argument("--pdf-dia", dest="pdf_dia", type=int,
+                         help="PDF nuevos al dia, como mucho (por defecto 150)")
+    p_fijar.add_argument("--mib-dia", dest="mib_dia", type=int,
+                         help="MiB bajados al dia, como mucho (por defecto 750)")
+    p_ver = sub_aj.add_parser("ver", help="los ajustes guardados")
+    p_ver.add_argument("--carpeta", required=True, help=_ayuda_carpeta)
+    p_correo.set_defaults(func=_cmd_correo)
 
     argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))

@@ -481,3 +481,62 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   que la columna «Solo en Windows» de §9 pedía para este paso (que `instalar.bat` desempaquete
   las ruedas nuevas) no aplica; en su lugar, que `docker compose build` instala las tres en la
   imagen se comprueba donde hay demonio de Docker (aquí no lo hay).
+
+## Paso 7 · el certificado y los ajustes
+
+- **Solo el camino de Docker** (la decisión del dueño): `correo/__init__.py` (`MAX_PDF =
+  documents.MAX_BYTES_API`), `correo/ajustes.py`, `correo/certificado.py` y la CLI `correo
+  certificado crear [--siguiente] | activar | volver | ver | borrar [--anterior | --siguiente]` y
+  `correo ajustes fijar | ver`, todas con `--carpeta` obligatoria (la de `docker\secretos\correo`,
+  montada en `orden` solo para esa orden, §2.4): sin la nativa no hay sitio por defecto. No se
+  hacen `secretos.py` por tipos, el DPAPI del certificado, `nativo.certificado_del_correo` ni
+  `Instalacion.fichero_certificado_correo`; `secretos.py` sigue siendo el único con `ctypes`, sin
+  cambios. En la instalación nativa, `correo …` dice que es solo de Docker y sale con 2.
+- **El `.pem` lleva la clave privada (PKCS#8, sin cifrar, como la clave de la API en
+  `docker\secretos`) y, detrás, su certificado**; §2.4 solo decía «clave privada». El contenedor
+  `correo` solo ve dos secretos (`correo_certificado` y `correo_ajustes`) y necesita el
+  certificado para `x5t#S256` y para saber si ha caducado; tomar la huella de los ajustes podría
+  no casar con la clave. Al cargarlo se exige justo eso: un bloque `PRIVATE KEY` y uno
+  `CERTIFICATE`, nada más, como mucho 8 KiB, RSA de 3072 bits o más, y que el certificado sea el
+  de esa clave. El `.cer` (PEM) se rehace del `.pem` en cada orden que cambia la carpeta; que
+  Entra acepta el `.cer` en PEM (Learn: `.cer`, `.pem` o `.crt`) es **[comprobar en vivo]**.
+- **El certificado**: autofirmado, `CN=BMS lector de facturas` (nada de la empresa), firmado con
+  SHA-256, `BasicConstraints` sin CA y `KeyUsage` de firma (las dos críticas); vale desde 5
+  minutos antes de crearlo (un reloj de Microsoft algo atrasado) hasta el mismo día 24 meses
+  después (un 29 de febrero, al 28). `asercion` falla en local con `CertificadoCaducado` si ya
+  caducó (o aún no vale: la hora del equipo) y exige que el inquilino y la aplicación sean GUID,
+  porque el inquilino va en la URL del token. `ver` enseña también la huella SHA-1, la que enseña
+  el portal de Entra, para compararla (es pública).
+- **Lo que §2.4 no decía de la renovación y se decidió**, para no perder nunca el certificado
+  que vale:
+  - `volver` deja el actual (el que no valió) como `siguiente`, para activarlo otra vez cuando
+    esté bien subido; también termina una activación o una vuelta cortadas a medias (sin actual,
+    con anterior). Se guarda también `-anterior.cer`.
+  - `activar` no se hace con un anterior aún sin comprobar (la activación anterior no se cerró);
+    `crear --siguiente` no se hace si ya hay uno siguiente; `crear` tampoco si el actual existe
+    pero no se puede leer, ni con un siguiente o un anterior sin actual.
+  - `borrar --siguiente` (nuevo) quita una renovación que no se va a subir; `borrar` sin opciones
+    quita las tres claves (cortar el acceso desde el equipo, §2.5), no solo la actual.
+- **Lo del certificado en los ajustes** (`certificado`, `siguiente`, `anterior`) sale siempre de
+  la carpeta: lo ponen al día las órdenes de `correo certificado` y `correo ajustes fijar`. El
+  primer `crear` (fase 1, sin los ids) no crea ajustes; unos ajustes que no valen no paran una
+  orden del certificado (lo dice como aviso).
+- **Los ajustes, lo que §2.4 no fijaba**: el inquilino y la aplicación, GUID (en minúsculas); los
+  buzones, solo letras, cifras y `. _ + -` antes de la `@` y un dominio con punto (van en la URL
+  de Graph: nada de `/ ? # %` ni espacios), en minúsculas, como mucho 320, distintos y del mismo
+  dominio; los topes, de 1 a 1 000 PDF y de 1 a 4 096 MiB al día; el fichero, como mucho 16 KiB,
+  sin claves que sobren, repetidas ni `NaN`. Los errores dicen el campo, nunca lo que pone.
+  `ajustes fijar` cambia solo lo que se le da (como el `--buzon-control` de §2.3); la primera vez
+  pide los cuatro datos, y unos ajustes guardados que no valen solo se sustituyen enteros.
+- **Códigos**: `CORREO_SIN_CONFIGURAR = 10` (`ver` sin certificado o sin ajustes); 1 si la orden
+  no se hace, 2 si algo no vale. `CORREO_FALLO = 11` y la copia de los dos en
+  `docker\comun.ps1` son de los pasos 9, 10 y 15, que los usan.
+- **Las pruebas** (`tests/test_correo_certificado.py`): las de §7.1 sin las de DPAPI y el papel
+  `correo`; la firma en un intérprete aparte con `nativo.prohibir_procesos` y `-W error` (§7.2,
+  sin `GraphFalso`, que es del paso 8); errores, `repr`, trazas (sin `__cause__` ni
+  `__context__`), la salida de la CLI y `caplog` sin nada de la clave (ni su base64 ni sus
+  números); una guarda de que solo `correo/certificado.py` importa `cryptography` y nombra
+  `_clave`; y la parte de «el correo no ve la base» (§7.2) de estos módulos, mirando lo que
+  cargan de verdad. **Para los pasos 8 y 9**: `cryptography.x509` importa `email.utils`, que
+  importa `socket` (sin abrir nada); la guarda transitiva que se haga allí no puede exigir que
+  `socket` no se cargue.
