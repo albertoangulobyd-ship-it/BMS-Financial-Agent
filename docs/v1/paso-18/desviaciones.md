@@ -29,6 +29,26 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
 - La comprobación mira **cada prefijo con puntos** de lo importado (`urllib.request.urlopen` es
   de `urllib.request`), no solo el primero y el nombre entero; así `from urllib import request`
   y `from http import client` caen igual que `import urllib.request`.
+- **Tras la revisión de los pasos 0-2, la guarda mira también lo que se alcanza sin
+  importarlo.** Se saltaba con `import http` y después `http.client.HTTPSConnection(...)`
+  (`http.server`, que ya usa `serve.py`, carga `http.client`), con `import urllib.parse` y
+  `urllib.request.urlopen(...)`, con `from importlib import import_module as im; im("socket")`
+  y con `__import__("urllib", fromlist=["request"])`. Ahora:
+  - cada cadena de atributos que sale de un nombre importado cuenta con cada prefijo de lo que
+    es entera (`http.client.HTTPSConnection` tras `import http`) y con cada tramo de sus
+    atributos (lo que otro módulo deja a mano: `salida.socket`, `server.http.client`,
+    `cli.anthropic`); una cadena que sale de una variable no cuenta, para no confundir un
+    `socket` local con el módulo;
+  - `__import__` e `import_module` se reconocen con el nombre que lleven (`im` tras
+    `from importlib import import_module as im`), su `fromlist` cuenta (`urllib.request`), y la
+    función usada como valor (`f = importlib.import_module`) no pasa, como un nombre que no es
+    un literal;
+  - `sys.modules["x"]` y `sys.modules.get("x")` cuentan como `import x` (con algo que no es un
+    literal, no pasan); `"site" in sys.modules` (`nativo.py`) no saca nada y pasa.
+  Hoy ningún módulo de `src/` usa ninguna de estas formas. Sigue sin verse lo que no está en el
+  código como nombre con puntos (`getattr(http, "client")`, `exec`, `eval`, o `sys.modules`
+  guardado antes en otra variable): la guarda es una defensa más, y la barrera de verdad sigue
+  siendo la lista blanca de la salida y el aislamiento de cada proceso.
 - La parte de la fila de §7.2 que toca `src/` (`aislamiento.EXTERNOS` con los dos hosts de
   Microsoft, `salida.DESTINOS_CORREO`) no es de este paso, que no cambia `src/`: la
   aserción `{s.host for s in aislamiento.EXTERNOS} == {"1.1.1.1", "8.8.8.8", "api.anthropic.com"}`

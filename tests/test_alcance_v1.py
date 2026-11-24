@@ -276,30 +276,86 @@ PUEDEN_SALIR = {**PUEDEN_ABRIR_SOCKETS, "bms_agent.correo.graph": {"httpx2"}}
 # El SDK de la API, solo en la CLI y el servidor (y dentro de la funcion que extrae).
 PUEDEN_USAR_ANTHROPIC = {"bms_agent.cli", "bms_agent.serve"}
 # Importar por nombre en tiempo de ejecucion: con un literal se mira como un import; con
-# otra cosa no se puede saber que trae, y no pasa.
+# otra cosa no se puede saber que trae, y no pasa (tampoco la funcion misma usada como valor,
+# `f = importlib.import_module`: lo que traiga despues no se ve). sys.modules["x"], igual.
 IMPORTAR_POR_NOMBRE = {"__import__", "import_module"}
 
 
-def _importados(nodo: ast.AST) -> list[str]:
+def _nombres_importados(arbol: ast.AST) -> dict[str, str]:
+    """Cada nombre que deja un import en el modulo y lo que es, con puntos: `import a.b` deja
+    a (a); `import a.b as c`, c (a.b); `from a import b as c`, c (a.b), y asi
+    `from importlib import import_module as im` deja im (importlib.import_module). Un import
+    relativo deja el suyo con sus puntos delante (`from . import salida`: salida, .salida)."""
+    nombres = {}
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Import):
+            for alias in nodo.names:
+                raiz = alias.name.partition(".")[0]
+                nombres[alias.asname or raiz] = alias.name if alias.asname else raiz
+        elif isinstance(nodo, ast.ImportFrom):
+            modulo = "." * nodo.level + (nodo.module or "")
+            for alias in nodo.names:
+                if alias.name != "*":
+                    nombres[alias.asname or alias.name] = (
+                        f"{modulo}.{alias.name}" if nodo.module else modulo + alias.name)
+    return nombres
+
+
+def _cadena(nodo: ast.AST, nombres: dict[str, str]) -> tuple[str, list[str], bool] | None:
+    """`x.a.b` como (lo que es x, [a, b], si x lo dejo un import), si empieza por un nombre.
+    x se traduce con lo que dejaron los imports; si no lo dejo un import, se queda como esta."""
+    atributos = []
+    while isinstance(nodo, ast.Attribute):
+        atributos.insert(0, nodo.attr)
+        nodo = nodo.value
+    if not isinstance(nodo, ast.Name):
+        return None
+    return nombres.get(nodo.id, nodo.id), atributos, nodo.id in nombres
+
+
+def _importa_por_nombre(cadena: tuple[str, list[str], bool] | None) -> bool:
+    return cadena is not None and (cadena[1] or [cadena[0]])[-1].rpartition(".")[2] in (
+        IMPORTAR_POR_NOMBRE)
+
+
+def _literal(nodo: ast.AST | None) -> str | None:
+    return nodo.value if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str) else None
+
+
+def _importados(nodo: ast.AST, nombres: dict[str, str]) -> list[str]:
     """Lo que importa un nodo, con puntos. `import a.b` da a.b; `from a import b` da a y a.b
     (asi `from urllib import request` es urllib.request, y `from http import client`,
-    http.client); `__import__("a")` o `importlib.import_module("a")` dan a, y "?" si el
-    nombre no es un literal. Un import relativo es de un modulo del paquete."""
+    http.client); `__import__("a")` o `importlib.import_module("a")`, se llamen como se
+    llamen (`im("a")` tras `from importlib import import_module as im`), dan a, y "?" si el
+    nombre no es un literal; `__import__("a", fromlist=["b"])` da tambien a.b, y
+    `sys.modules["a"]`, a. Un import relativo es de un modulo del paquete."""
     if isinstance(nodo, ast.Import):
         return [a.name for a in nodo.names]
     if isinstance(nodo, ast.ImportFrom):
         if nodo.level or not nodo.module:
             return []
         return [nodo.module, *(f"{nodo.module}.{a.name}" for a in nodo.names)]
-    if isinstance(nodo, ast.Call):
-        funcion = nodo.func
-        nombre = funcion.attr if isinstance(funcion, ast.Attribute) else getattr(funcion, "id", "")
-        if nombre in IMPORTAR_POR_NOMBRE:
-            primero = nodo.args[0] if nodo.args else None
-            if isinstance(primero, ast.Constant) and isinstance(primero.value, str):
-                return [primero.value]
+    if isinstance(nodo, ast.Call) and _importa_por_nombre(_cadena(nodo.func, nombres)):
+        claves = {k.arg: k.value for k in nodo.keywords}
+        nombre = _literal(nodo.args[0] if nodo.args else claves.get("name"))
+        if nombre is None:
             return ["?"]
+        de = nodo.args[3] if len(nodo.args) > 3 else claves.get("fromlist")
+        partes = [] if de is None else de.elts if isinstance(de, (ast.List, ast.Tuple)) else [de]
+        return [nombre, *(f"{nombre}.{p}" if (p := _literal(e)) is not None else "?"
+                          for e in partes)]
+    # Lo que se saca de sys.modules por su nombre (`"site" in sys.modules` no saca nada).
+    if isinstance(nodo, ast.Subscript) and _es(_cadena(nodo.value, nombres), "sys.modules"):
+        return [_literal(nodo.slice) or "?"]
+    if isinstance(nodo, ast.Call) and any(
+            _es(_cadena(nodo.func, nombres), f"sys.modules.{m}") for m in ("get", "pop")):
+        return [_literal(nodo.args[0] if nodo.args else None) or "?"]
     return []
+
+
+def _es(cadena: tuple[str, list[str], bool] | None, nombre: str) -> bool:
+    """Si una cadena que sale de un import es, entera, `nombre`."""
+    return cadena is not None and cadena[2] and ".".join([cadena[0], *cadena[1]]) == nombre
 
 
 def _prefijos(nombre: str) -> set[str]:
@@ -308,16 +364,47 @@ def _prefijos(nombre: str) -> set[str]:
     return {".".join(partes[:n]) for n in range(1, len(partes) + 1)}
 
 
+def _tramos(partes: list[str]) -> set[str]:
+    """Cada tramo seguido de una lista: [a, b, c] da a, b, c, a.b, b.c y a.b.c."""
+    return {".".join(partes[i:j]) for i in range(len(partes))
+            for j in range(i + 1, len(partes) + 1)}
+
+
 def red_de(nombre: str, codigo: str) -> list[str]:
-    """Lo que un modulo (por su nombre con puntos) importa para hablar con la red sin poder."""
+    """Lo que un modulo (por su nombre con puntos) usa para hablar con la red sin poder.
+
+    Lo que importa (tambien por nombre), y lo que alcanza sin importarlo, con una cadena de
+    atributos que sale de un nombre importado: `import http` y despues
+    `http.client.HTTPSConnection` usa http.client (que ya cargo http.server), e
+    `import urllib.parse` y `urllib.request.urlopen`, urllib.request. De la cadena cuenta cada
+    prefijo de lo que es entera (si su import no es relativo) y cada tramo de sus atributos
+    (lo que otro modulo dejo a mano: `salida.socket`, `server.http.client`). Una cadena que
+    sale de una variable, y no de un import, no cuenta."""
     permitidos = PUEDEN_SALIR.get(nombre, set())
+
+    def prohibido(alcanzados: set[str]) -> bool:
+        return bool((alcanzados & RED_SALIENTE) - permitidos) or (
+            "anthropic" in alcanzados and nombre not in PUEDEN_USAR_ANTHROPIC)
+
+    arbol = ast.parse(codigo)
+    nombres = _nombres_importados(arbol)
+    # De `a.b.c` solo la cadena entera, no cada trozo; la funcion de una llamada va arriba.
+    dentro = {id(n.value) for n in ast.walk(arbol) if isinstance(n, ast.Attribute)}
+    llamadas = {id(n.func) for n in ast.walk(arbol) if isinstance(n, ast.Call)}
     malos = []
-    for nodo in ast.walk(ast.parse(codigo)):
-        for importado in _importados(nodo):
-            prefijos = _prefijos(importado)
-            if importado == "?" or (prefijos & RED_SALIENTE) - permitidos or (
-                    "anthropic" in prefijos and nombre not in PUEDEN_USAR_ANTHROPIC):
+    for nodo in ast.walk(arbol):
+        for importado in _importados(nodo, nombres):
+            if importado == "?" or prohibido(_prefijos(importado)):
                 malos.append(importado)
+        if id(nodo) in dentro or (cadena := _cadena(nodo, nombres)) is None:
+            continue
+        base, atributos, importado = cadena
+        entera = ".".join([base, *atributos])
+        if id(nodo) not in llamadas and _importa_por_nombre(cadena):
+            malos.append("?")
+        elif importado and atributos and prohibido(
+                _tramos(atributos) | (set() if base.startswith(".") else _prefijos(entera))):
+            malos.append(entera)
     return malos
 
 
@@ -361,6 +448,26 @@ def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
     ("bms_agent.correo.registrar", "from httpx2 import Client"),
     ("bms_agent.salida", "import httpx2"), ("bms_agent.cli", "import httpx2"),
     ("bms_agent.aislamiento", "from urllib import request"),
+    # Sin importarlo: por atributos desde lo importado (revision de los pasos 0-2).
+    ("bms_agent.x", "import http\nfrom http.server import ThreadingHTTPServer\n"
+                    "c = http.client.HTTPSConnection('x')"),
+    ("bms_agent.x", "import urllib.parse\nurllib.request.urlopen('https://x')"),
+    ("bms_agent.x", "from http import server\nserver.http.client.HTTPSConnection('x')"),
+    ("bms_agent.x", "from . import salida\nsalida.socket.create_connection(('x', 443))"),
+    ("bms_agent.x", "import bms_agent.salida as s\ns.socket.socket()"),
+    ("bms_agent.extract", "from . import cli\ncli.anthropic.Anthropic()"),
+    ("bms_agent.correo.graph", "import httpx2\nhttpx2._transports.default.httpcore2.Pool()"),
+    # Por nombre, con otro nombre o con fromlist, y sys.modules.
+    ("bms_agent.x", "from importlib import import_module as im\nim('socket')"),
+    ("bms_agent.x", "import importlib as il\nil.import_module('ssl')"),
+    ("bms_agent.x", "f = importlib.import_module\nf('socket')"),
+    ("bms_agent.x", "__import__('urllib', fromlist=['request'])"),
+    ("bms_agent.x", "__import__('http', None, None, ['client'])"),
+    ("bms_agent.x", "__import__('urllib', fromlist=lista)"),
+    ("bms_agent.x", "__import__(name='socket')"),
+    ("bms_agent.x", "import sys\nsys.modules['socket'].create_connection(('x', 443))"),
+    ("bms_agent.x", "from sys import modules\nmodules.get('ssl')"),
+    ("bms_agent.x", "import sys\nsys.modules[nombre]"),
 ])
 def test_el_detector_de_red_ve_cada_forma_de_importar(nombre, codigo) -> None:
     assert red_de(nombre, codigo), (nombre, codigo)
@@ -372,15 +479,28 @@ def test_el_detector_de_red_no_ve_lo_que_no_sale() -> None:
                   "import http\nimport json, socketserver\nfrom logging.handlers import "
                   "RotatingFileHandler\nfrom . import salida\nfrom .correo import graph\n"
                   "from .. import socket\nimportlib.import_module('json')\n") == []
+    # Los atributos solo cuentan desde un import, y desde uno que no sale.
+    assert red_de("bms_agent.x", "import http\nimport http.server\nhttp.HTTPStatus.OK\n"
+                  "http.server.ThreadingHTTPServer\nimport urllib.parse\n"
+                  "urllib.parse.urlsplit('x')\nsocket = conectar()\nsocket.ssl.enviar()\n"
+                  "self.requests.append(1)\nfrom . import salida\n"
+                  "salida.PERMITIDOS_POR_DEFECTO\nfrom importlib import import_module as im\n"
+                  "im('json')\n__import__('urllib', fromlist=['parse'])\nimport sys\n"
+                  "sys.argv\n'site' in sys.modules\nsys.modules['json']\n") == []
     assert red_de("bms_agent.correo.graph", "import httpx2\nfrom httpx2 import Client, "
                   "MockTransport\nfrom httpx2._exceptions import HTTPError\n") == []
-    assert red_de("bms_agent.salida", "import socket\nfrom socket import AF_INET") == []
-    assert red_de("bms_agent.cli", "import anthropic\nfrom anthropic import Anthropic") == []
+    assert red_de("bms_agent.correo.graph", "import httpx2\n"
+                  "httpx2.Client(transport=httpx2.MockTransport(f))\n") == []
+    assert red_de("bms_agent.salida", "import socket\nfrom socket import AF_INET\n"
+                  "socket.socket(socket.AF_INET)\n") == []
+    assert red_de("bms_agent.cli", "import anthropic\nfrom anthropic import Anthropic\n"
+                  "anthropic.Anthropic()\n") == []
 
 
 def test_un_modulo_nuevo_que_sale_a_la_red_hace_fallar_la_guarda(tmp_path) -> None:
     """La guarda mira los modulos que hay, no una lista: uno nuevo con httpx2 fuera del
-    cliente de Graph, o con `from urllib import request`, aparece sin que nadie lo apunte."""
+    cliente de Graph, con `from urllib import request` o con `http.client` tras `import http`,
+    aparece sin que nadie lo apunte."""
     paquete = tmp_path / "bms_agent"
     (paquete / "correo").mkdir(parents=True)
     for ruta, codigo in {"__init__.py": "", "correo/__init__.py": "",
@@ -388,12 +508,15 @@ def test_un_modulo_nuevo_que_sale_a_la_red_hace_fallar_la_guarda(tmp_path) -> No
                          "correo/traer.py": "from httpx2 import Client\n",
                          "espia.py": "from urllib import request\n",
                          "otro.py": "from http import client\n",
+                         "atajo.py": "import http\nimport http.server\n"
+                                     "http.client.HTTPSConnection('x')\n",
                          "bien.py": "from urllib.parse import urlsplit\n"}.items():
         (paquete / ruta).write_text(codigo, encoding="utf-8")
     assert _red_de_los_modulos(_modulos(paquete)) == {
         "bms_agent.correo.traer": ["httpx2", "httpx2.Client"],
         "bms_agent.espia": ["urllib.request"],
-        "bms_agent.otro": ["http.client"]}
+        "bms_agent.otro": ["http.client"],
+        "bms_agent.atajo": ["http.client.HTTPSConnection"]}
 
 
 # ============================================================ sin plazos
