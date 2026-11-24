@@ -213,4 +213,23 @@ describe('el resultado y el error', () => {
     expect(reasonOf('no_existe', es)).toBe('El lector no ha podido terminar.');
     expect(reasonOf(null, MESSAGES.en)).toBe('The reader could not finish.');
   });
+
+  it('P6 (paso 18): la API falla por algo que no es de un documento y no se aparta nada', () => {
+    expect(errorView(status(request('fallida', { motivo_codigo: 'saldo' }), pass('fallida', { leidas: 2, ya_leidas: 1 })), es)).toMatchObject({
+      title: 'La lectura no terminó.',
+      detail: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo; después sigue solo. Lo ya leído (3) está en Documentos.',
+    });
+    expect(errorView(status(request('fallida', { motivo_codigo: 'clave_rechazada' })), MESSAGES.nl)).toMatchObject({
+      title: 'Er is niets gelezen.',
+      detail: 'De API weigert de sleutel. De beheerder moet hem vervangen (clave.bat).',
+    });
+    expect(reasonOf('api_no_disponible', MESSAGES.en)).toBe('The API is unreachable or overloaded. Nothing was set aside; it tries again later by itself.');
+    // Cada uno con su texto en los tres idiomas, ninguno con el de "otro".
+    for (const lang of ['nl', 'en', 'es'] as const) {
+      const t = MESSAGES[lang];
+      const texts = ['saldo', 'clave_rechazada', 'api_no_disponible'].map((code) => reasonOf(code, t));
+      expect(new Set(texts).size).toBe(3);
+      expect(texts).not.toContain(t.aurora.process.reasons.other);
+    }
+  });
 });

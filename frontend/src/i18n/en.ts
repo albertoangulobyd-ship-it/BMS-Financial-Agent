@@ -1679,6 +1679,9 @@ export const en: Messages = {
         lectura: 'The reading failed.',
         interrumpida: 'The reader was closed before it finished.',
         abandonada: 'The reader stopped giving signs of life: the reading is considered finished.',
+        saldo: 'The API credit has run out (or the spending limit was reached). Top it up; it then continues by itself.',
+        clave_rechazada: 'The API refuses the key. The administrator needs to replace it (clave.bat).',
+        api_no_disponible: 'The API is unreachable or overloaded. Nothing was set aside; it tries again later by itself.',
         other: 'The reader could not finish.',
       },
       notes: {

@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "eceedac83e9bad56386ebbc06e2e50546014b6bdfd259de0bbfe0cb39fca558b",
+  "sha256": "d02c40e04953625b9f142e507541677f873cd4c598fc8d645cec4b7900fafef9",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -65,7 +65,7 @@
     "frontend/src/aurora/processing/loader-engine.ts": "55669a2ce105c460d6afb6c6b3f19148818e0b6c16362c12872e91201842bc17",
     "frontend/src/aurora/processing/loader-sprites.ts": "5290d46cf6b82cc0e685467990ecd7c6b656d0eaf1d93ef6b0bcb07d83bbe73c",
     "frontend/src/aurora/processing/meerkat-scene.css": "b8e3efe058c908a1129825ca891ae5f3eb92899964f014ccfc4f05a8c903ec31",
-    "frontend/src/aurora/processing/process-texts.ts": "a26c626ab6e4817f0734c6d45efd1c754d664388bf700de137c74e2250e4c6d2",
+    "frontend/src/aurora/processing/process-texts.ts": "943bbf56c0d4962de9beb231d9f43b0c29545fd2feccc58e808811caed034da0",
     "frontend/src/aurora/processing/processing-card.css": "077cf26f25bbc7035608868be659d04d8ee796e08bab2b5b6714926d6aab8e4d",
     "frontend/src/aurora/processing/processing-card.tsx": "962dffe604804b28a93ac00507e4f491c8acee7caa463d0ba0e7fbcba445a21c",
     "frontend/src/aurora/processing/processing-entry.ts": "a09a1e1f37198928a24d734952378168389ad00923d27efa7d9e95b8460ca694",
@@ -102,14 +102,14 @@
     "frontend/src/components/ui/tooltip.tsx": "e8e74b0ffba3db903abecb8470a1d07ce9cb4756e2eee23dbbc6151d5cd6040d",
     "frontend/src/favicon.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
     "frontend/src/i18n/domain.ts": "9945d8e5295f907aa8c99cb512ea413f872a48eef3723cb7a2ca6a329844e7d6",
-    "frontend/src/i18n/en.ts": "39f9ce201cc37613a29a9753898838c26c0e8e6cbc7692abd88b5dc005112d58",
-    "frontend/src/i18n/es.ts": "00858827fe56863aa2960fc536e82c9071a743aaddbbe289feb152b3b8e9d875",
+    "frontend/src/i18n/en.ts": "91e2c7b76f88ae6132994e89bf57279a49b86c948697487f898f50136207791a",
+    "frontend/src/i18n/es.ts": "98e9761c8af0c24bca4b0803275b67ccd443eee11a9947711aefa67f9598b149",
     "frontend/src/i18n/glossary.ts": "0a2d75b9c024532cf0d06d5444b27f55a1034843263b1bf17fd5d97696f865b1",
     "frontend/src/i18n/index.tsx": "41ccc9109f76ad67574a7d7fab4adefa9f31976514f38b574e11f373d6d7c674",
     "frontend/src/i18n/langs.ts": "d8739067f8322a395d4bde6baeccd45a838e0cb0cce91195e2cea5ae66851a5c",
     "frontend/src/i18n/leftovers.ts": "cec1be18c2de04dcfab426856ea893a9bce52dc45626f1c6d8b087cbb5b173c1",
     "frontend/src/i18n/messages.ts": "f7c2e6913082af51ea27b768a486965308c2f081845eb7c753f63d066cf86279",
-    "frontend/src/i18n/nl.ts": "1c0b73fbdb69c9ed447a25460f340605eacaef21dd6ed1287060617137c45bd6",
+    "frontend/src/i18n/nl.ts": "d8497280215d45a1483388fb306a0df9e0e037bb7d7e6bb93ddbe2b129a5d307",
     "frontend/src/i18n/templates.ts": "ad84c20e9b91a83a0610f4841a65e7510c55607213746810f0f46bfbc3b72faf",
     "frontend/src/index.css": "25e789d8bdf75f93f1964fe8f6ddbd28151ca1ea677777888453ddd2dcf702c5",
     "frontend/src/lib/actions.ts": "34653ec861358ee8ec78915fa5520e88c0e935883b4d788cab7525bac382340c",
@@ -139,10 +139,10 @@
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-wWykeSjq.js": "a90a7a476cb2b6859bb15de5289f1c83409e8ca55bc7b7f80b8de46cb8df85e3",
+    "assets/index-DHAnWX_7.js": "df17e5e2e9b4dd6a2e519b315c5322280966be7ffffce366ea49b784a8843cdd",
     "assets/style-Bb5qUQqJ.css": "35481221b322ae571fef871994077a4703d6435d981dc2a36bd7e778afa6eb0d",
     "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
     "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
-    "index.html": "e203543f47a4102536393a3330f5f0bbaf8c11c43ee6870de0beee2353879839"
+    "index.html": "b56fa3f31a3335b67bbde34a8afe59e20dbc4c31f68eb6f17dd88da5a2821b6f"
   }
 }

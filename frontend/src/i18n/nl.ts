@@ -1686,6 +1686,9 @@ export const nl = {
         lectura: 'Het lezen is mislukt.',
         interrumpida: 'De lezer is gesloten voor hij klaar was.',
         abandonada: 'De lezer gaf geen teken van leven meer: het lezen is als beëindigd beschouwd.',
+        saldo: 'Het tegoed voor de API is op (of het bestedingslimiet is bereikt). Vul het aan; daarna gaat het vanzelf verder.',
+        clave_rechazada: 'De API weigert de sleutel. De beheerder moet hem vervangen (clave.bat).',
+        api_no_disponible: 'De API is even niet bereikbaar of overbelast. Er is niets apart gezet; het wordt later vanzelf opnieuw geprobeerd.',
         other: 'De lezer kon het niet afmaken.',
       },
       notes: {

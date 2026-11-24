@@ -47,6 +47,10 @@ export function reasonOf(code: string | null | undefined, t: Messages): string {
     lectura: r.lectura,
     interrumpida: r.interrumpida,
     abandonada: r.abandonada,
+    // Paso 18: la API fallo por algo que no es de un documento; no se aparto nada.
+    saldo: r.saldo,
+    clave_rechazada: r.clave_rechazada,
+    api_no_disponible: r.api_no_disponible,
   };
   return (code && reasons[code]) || r.other;
 }

@@ -1685,6 +1685,9 @@ export const es: Messages = {
         lectura: 'La lectura ha fallado.',
         interrumpida: 'El lector se cerró antes de terminar.',
         abandonada: 'El lector dejó de dar señales: la lectura se da por terminada.',
+        saldo: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo; después sigue solo.',
+        clave_rechazada: 'La API rechaza la clave. Quien mantiene el programa tiene que cambiarla (clave.bat).',
+        api_no_disponible: 'La API no está disponible o está saturada. No se ha apartado nada; se vuelve a probar solo más tarde.',
         other: 'El lector no ha podido terminar.',
       },
       notes: {
