@@ -234,8 +234,9 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   paso 10, que las escribe.
 - **`excluir_de_lectura_automatica` deja un evento por documento** (la foto de cada fila), y
   solo el primero lleva el `peticion_id` de la orden: `evento.peticion_id` es `UNIQUE`
-  (`0001_almacen.sql:170`). Un documento que ya estaba apartado se deja como estaba (una
-  exclusión por documento, para siempre); la respuesta dice `excluidos` y `ya_estaban`. Una
+  (`0001_almacen.sql:170`). Un documento que una persona ya había apartado se deja como estaba
+  (para siempre; uno que solo apartó la automática, no: ver «Una persona aparta del todo»,
+  abajo); la respuesta dice `excluidos` y `ya_estaban`. Una
   lista con más de 200, vacía, con algo que no es un id o con un documento que no existe no
   aparta ninguno (`invalido` o `no_existe`). La lista se comprueba en
   `lectura_automatica.excluir`: el tipo `LISTA` de `servicios` admite cualquier lista.
@@ -264,8 +265,9 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   Un correo ya atendido es un 409.
 - Lo que §6.1/§6.2 no fijaba y se decidió: la llegada de un documento es la primera vez que
   llegó por la bandeja (las elegibles van por ahí, las más antiguas primero);
-  `pendientes_del_correo` (lo que una persona lee desde Procesar) quita solo lo que apartó una
-  persona, y las elegibles, todo lo apartado; en `esperan_persona`, los correos más recientes
+  `pendientes_del_correo` (lo que una persona lee desde Procesar) quita lo que apartó una
+  persona y lo que la API no acepta (arreglo tras la revisión, abajo), y las elegibles, todo lo
+  apartado; en `esperan_persona`, los correos más recientes
   primero y las facturas apartadas por orden inverso de exclusión. En `resumen`,
   `queda_hoy_usd_micro` es lo que queda del día sin pasar de lo que queda del mes, y `parada`
   mira la pausa, la espera tras un fallo y los topes, en ese orden, solo con la automática
@@ -276,6 +278,34 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
 - `frontend/src/lib/actions.ts` no gana las cuatro acciones todavía: la app no las manda hasta
   el paso 12 (§6.3), y la tabla solo lista lo que la app ofrece. Las etiquetas de
   `textos/*.json` son las de §6.4; las descripciones son nuevas.
+- **Una persona aparta del todo lo que ya apartó la automática** (arreglo tras la revisión de
+  los pasos 4 y 5). Con `documento_id UNIQUE` (§3.9, punto 6), `excluir_de_lectura_automatica`
+  sobre una factura que la automática ya había apartado (`grande`, `fallo`, `rechazado_api`) no
+  hacía nada (`ya_estaban`), y esa factura entraba para siempre en cada lectura de una persona:
+  una grande que no se quiere pagar, en cada cuenta y en cada sí; una que falla, otra vez
+  pagada en cada lectura (si la API cobra el fallo). En `buzon\facturas` se quita el fichero;
+  lo del correo no tiene fichero que quitar. La 0019 (aún sin aplicar en ninguna base, como en
+  la revisión de los pasos 0-2) cambia el `UNIQUE` por dos índices únicos parciales: **como
+  mucho una exclusión del sistema y una de una persona por documento**, para siempre. Una
+  persona puede poner la suya sobre la de la automática; la automática no aparta lo que ya está
+  apartado. `esperan_persona` da una fila por factura, con su última exclusión (la de la
+  persona, si la hay). `docs/modelo-datos.md` lo dice. **Para el paso 12**: la lista «Wacht op
+  jou» puede ofrecer «Niet vanzelf lezen» en sus facturas (la acción ya las admite).
+- **Lo que lee una persona desde Procesar** (arreglo tras la revisión). §5.1 dice de las
+  exclusiones de una persona «leerlos a mano desde Procesar sigue siendo posible»; §5.7, que la
+  lectura de una persona lleva lo del correo «que no esté excluido por una persona». Se sigue
+  §5.7 (una inundación de basura apartada en bloque no puede entrar en cada lectura de una
+  persona, ni pagarse con su sí), y además **lo que la API no acepta (`rechazado_api`) tampoco
+  entra**: contarlo otra vez no lo cambia, y solo (sin nada en `buzon\facturas`) dejaba cada
+  lectura de una persona, y cada una pedida en la app que lee el ciclo, en `fallida` con
+  `contar`, sin salida. Lo grande y lo que falló leyéndose solo sí entran: leerlo es decisión
+  de la persona, que si no lo quiere lo aparta del todo (el punto anterior). Es
+  `lectura_automatica.FUERA_DE_PROCESAR`; `resumen().pendientes` cuenta lo mismo, y la
+  descripción de `excluir_de_lectura_automatica` ya no promete que se lea desde Procesar.
+  **Para el paso 12**: una factura apartada por una persona o por la API sigue en «Wacht op
+  jou» (lo apartado «y aún sin leer», §6.1) mientras no tenga extracción, que ninguna lectura le
+  va a dar; el paso 12 decide cómo sale de la lista (ya pasaba con las de una persona antes de
+  este arreglo).
 
 ## Paso 5 · la lectura automática
 
@@ -330,7 +360,39 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   almacén (`<sha256>.pdf`). Ningún script llama todavía a `siguiente`, `tomar --automatica` ni
   `autorizar` (pasos 14 y 15), así que hasta entonces no hay automáticas de verdad.
 - **Lo que lee una persona incluye lo del correo** (`_pdfs_a_leer`): `buzon\facturas` más lo que
-  el correo dejó en el almacén sin leer, menos lo que una persona apartó. Con `leer-facturas.bat`
+  el correo dejó en el almacén sin leer, menos lo que una persona apartó y lo que la API no
+  acepta (paso 4, arreglo tras la revisión). Con `leer-facturas.bat`
   sin cambios, lo del correo entra en su cuenta y en su lectura, con el sí de siempre. Una
   automática lee solo las elegibles (como mucho las de una ronda de la autorización encendida;
   sin ninguna encendida, nada).
+- **Lo que ya está leído en `out/` y falta en la base se guarda antes de contar** (arreglo tras
+  la revisión de los pasos 4 y 5; el diseño no lo veía). Las elegibles las decide la base (sin
+  extracción vigente), pero la cuenta (`extract.Conocido`) mira también `out/`: una factura del
+  correo leída y pagada antes, cuya extracción está en `out/` y no en la base (una base
+  restaurada de una copia, que no lleva `out/`, `copia.py`; o un `_al_almacen` que falló, como
+  la base ocupada de §5.5), salía «ya leída», la petición terminaba `nada_que_leer` con
+  `ya_leidas` sin pasar por `leer` (el único que la guardaba), y seguía elegible: una lectura
+  vacía en cada ciclo (288 al día en la auditoría, cada una con la salida y su comprobación) y,
+  con ella entre las `max_documentos` más antiguas, lo que llegó después no se leía nunca.
+  `lectura.guardar_lo_ya_leido`, que `lectura contar` llama antes de contar, pasa a la base lo
+  que ya está en el almacén sin extracción vigente y tiene su lectura en `out/`, como
+  `importar-out` y como lo guarda `leer`: la misma pasada (`ingesta.ingestar_pasada`, que lo
+  tipa), sin cliente y con un seguimiento que no deja pagar nada. La cuenta lo ve entonces leído
+  (vigente) y la ronda siguiente ya no lo elige. Vale para cualquier lectura, pero solo para lo
+  que ya está en el almacén: un PDF nuevo de `buzon\facturas` sigue como antes. **En una
+  automática, uno que no se puede guardar se aparta a la primera** (`fallo`, con lo que dijo
+  la base y «ya estaba leída en out/»): guardar no depende de la API, la vez siguiente fallaría
+  igual y, sin apartarlo, el ciclo volvería a por él; espera a una persona (`importar-out` lo
+  dice si se puede recuperar). En la de una persona no se aparta nada: la CLI lo dice («sin
+  guardar») y la cuenta lo ve como antes. Lo guardado no cambia el motivo de la petición
+  (`ya_leidas`, con `pdf_ya_leidos`); lo dicen los eventos `extraccion_registrada` y la salida
+  de `lectura contar` («guardada»).
+- **`lectura siguiente` sigue el orden de la tabla de §5.2** después de lo pedido por una
+  persona (arreglo tras la revisión; el primer punto de esta sección lo decía solo a medias):
+  autorización encendida, pausa, otra viva con su lector, espera tras un fallo, elegibles,
+  topes. Antes miraba la viva antes que la autorización y la pausa, y con una viva y una pausa
+  a la vez salía con 3 en vez de 9.
+- Los topes duros de la pasada (las facturas por ronda y lo apartado después de contar, en
+  `_Seguimiento.cabe`; `max_documentos` y la pausa en `autorizar`) tienen ahora cada uno una
+  prueba que falla sin él (arreglo tras la revisión: las de antes pasaban sin ellos, porque
+  `_pdfs_a_leer` ya recortaba la lista).
