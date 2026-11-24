@@ -568,7 +568,8 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
 - **Los códigos que §2.3 y §3.1 no fijaban**:
   - Graph: 401 → `credencial`; 403 y 404 → `permiso` (también un 404 del propio buzón: §2.3
     solo decía 403); un 5xx que no es de los que limitan (429, 503, 504) → `limitado`; una
-    redirección → `interno` (no se sigue ninguna); otro 4xx → `interno`.
+    redirección → `interno` (no se sigue ninguna); otro 4xx → `interno`. Un 403 para la ronda
+    también cuando es de un mensaje (arreglo tras la revisión, abajo); un 404, no.
   - La red: la salida que no deja pasar (un 403 o 407 del proxy) → `salida`; sin conexión o sin
     respuesta → `sin_conexion`, sin reintentar (lo repite el ciclo siguiente). Los únicos
     reintentos son los de Microsoft que limita.
@@ -582,8 +583,8 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
     guardado.
 - **`Retry-After`, acotado**: como mucho dos reintentos por petición, también con la cabecera
   (Learn dice que se repita "hasta que funcione"); una cabecera que no es un número de
-  segundos cuenta como si no estuviera. Las esperas son de cada petición: sin cabecera, la
-  primera es de 2 s y la segunda de 8 s.
+  segundos (solo cifras ASCII: arreglo tras la revisión, abajo) cuenta como si no estuviera.
+  Las esperas son de cada petición: sin cabecera, la primera es de 2 s y la segunda de 8 s.
 - **Un token por cliente (por ronda), que se renueva si le quedan menos de 5 minutos** (una
   ronda larga). El token y la aserción solo en memoria; el token, en un objeto sin `repr` que
   lo enseñe y que no se copia (como la credencial del paso 7). Los errores no se encadenan con
@@ -596,9 +597,9 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   apuntan en INFO cada URL con su consulta (el `$deltatoken`) y en DEBUG las cabeceras de la
   respuesta. `test_correo_graph.py` lo comprueba con `caplog` en DEBUG.
 - **Un id de Graph que va en una ruta tiene que ser de `[A-Za-z0-9+/=_-]`** (como el `graph_id`
-  de la 0019); `+` y `/` van codificados. **La lista de adjuntos no sigue un
-  `@odata.nextLink`** (Graph no la pagina, y se apuntan como mucho 50, §3.5). **El `Location`
-  de un 410 no se sigue**: la delta empieza otra vez con el filtro de fecha (§3.1).
+  de la 0019); `+` y `/` van codificados. **El `Location` de un 410 no se sigue**: la delta
+  empieza otra vez con el filtro de fecha (§3.1). La lista de adjuntos sí sigue su
+  `@odata.nextLink`, si lo trae (arreglo tras la revisión, abajo).
 - **Las pruebas**: la de §7.2 en un intérprete aparte con `nativo.prohibir_procesos`, que firma
   y habla con `GraphFalso`, va en `test_correo_graph.py` y no en `test_instalacion_nativa.py`
   (de la nativa, que no se toca). La de la salida de verdad (`salida.Proxy` con
@@ -611,6 +612,45 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   el cuerpo en `$select`, una petición sin `IdType="ImmutableId"`, el `$value` de un adjunto
   que no es de fichero, otro host u otro buzón) en `violaciones` en vez de lanzar (el límite
   de errores de cada mensaje se lo tragaría), y cada test falla al final si hay alguna.
+- **Un 403 es del buzón, no del mensaje** (arreglo tras la revisión de los pasos 8 y 9).
+  `ErrorGraph.para_la_ronda` deja fuera `permiso` con un 404, pero no con un 403: un 403 al
+  listar los adjuntos de un mensaje o al bajar uno es `permiso` de la ronda (§3.7: "403 en el
+  propio buzón"), no un fallo de ese mensaje. Pasa con el rol `Application Mail.ReadBasic`
+  (§2.1, paso 6: deja pasar la delta y la prueba 3 de `correo comprobar`, y no los adjuntos,
+  investigacion.md:271-273) o en la media hora a dos horas que tarda Exchange en dar el permiso.
+  Antes contaba contra el mensaje: a la cuarta ronda cada factura quedaba como una llegada de
+  error sin adjuntos, con la ronda `bien`, sin volver a comprobar, y el paso 10 la registraría
+  como evidencia (UNIQUE(graph_id, carpeta)), así que una vuelta buena después se descartaría
+  como repetida. Ahora la ronda para con `permiso`, el mensaje no gasta su intento (el PDF que
+  no se pudo bajar queda en pendientes, como sin red) y la siguiente vuelve a comprobar. Un 404
+  sigue siendo del mensaje (uno que ya no está). Lo que cuesta: un 403 que fuera de un solo
+  mensaje (no se conoce ningún caso: el ámbito de RBAC es el buzón entero) dejaría cada ronda en
+  `permiso` en ese mensaje, a la vista en la app, en vez de perderlo sin decirlo. Qué contesta
+  Graph de verdad a la lista de adjuntos con `Application Mail.ReadBasic` (403 o 404) es
+  **[comprobar en vivo]** (§7.4).
+- **La lista de adjuntos, por páginas si Graph la pagina** (arreglo tras la revisión). Learn no
+  dice si la pagina (`docs-ms/api-reference_v1.0_api_message-list-attachments.md:47`: "supports
+  the OData Query Parameters", sin más) y las colecciones de Outlook van de 10 en 10 por defecto
+  (`docs-ms/api-reference_v1.0_api_user-list-messages.md:17`); sin seguir el
+  `@odata.nextLink`, lo que viniera después de la primera página se perdía sin decirlo. Ahora
+  se sigue, comprobado como los de la delta pero con la ruta acabada en `/attachments`
+  (`enlace_de_adjuntos_valido`: nunca un `$value`), hasta `PAGINAS_ADJUNTOS` (10) páginas, y el
+  tope de 4 MiB es de la lista entera. No se manda `$top`: si Graph no lo admitiera en esta
+  lista, fallaría cada mensaje; seguir el enlace vale tanto si pagina como si no. Lo que pasara
+  de 10 páginas no se apunta, como lo que pasa de 50 (§3.8). Si Graph la pagina y la forma de su
+  `nextLink` son **[comprobar en vivo]** (§7.4, con "la lista de adjuntos sin `contentBytes`").
+- **Los números de lo que llega, solo con cifras ASCII** (arreglo tras la revisión):
+  `Retry-After`, `Content-Length` y el `expires_in` del token. `str.isdigit()` da por cifras
+  `²` o las arábigas, que `int()` no lee (un `ValueError` que salía sin pasar por los códigos
+  del correo y, en `correo comprobar`, acababa en una traza), y `int()` no lee un número de
+  más de 4 300 cifras. Ahora un número de más de 6 cifras (15 en `Content-Length`) cuenta como
+  "demasiado" sin pasarlo entero a `int`: un `Retry-After` así es `limitado`, un
+  `Content-Length` así no se lee; uno que no es de cifras ASCII cuenta como si no estuviera, y un
+  `expires_in` así da un token sin la forma esperada (`interno`).
+- **Las comprobaciones que no tenían prueba** (arreglo tras la revisión; cada una falla ahora
+  sin su código): la `aud` y la `appid` del token (y que un token v2, con `azp` y la `aud` del
+  id de Graph, vale), `token_type`, `salida` como error de la ronda, `Accept-Encoding:
+  identity`, y que una página de la delta con los dos enlaces o sin ninguno no vale.
 
 ## Paso 9 · la ronda
 
@@ -628,11 +668,12 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   registrado también se salta. Tras perder `correo_estado`, o después de 7 días, lo repetido lo
   descarta `registrar` (§3.4).
 - **Un error que no es del mensaje no cuenta contra él**: sin red, la salida, la credencial, el
-  reloj o Microsoft que limita al listar sus adjuntos paran la ronda con ese código y le
-  devuelven el intento (si no, tres cortes de la red en el mismo mensaje lo dejaban en
-  `error`). Un corte de verdad (el proceso que muere, una excepción que no es `Exception`) sí
-  cuenta, como dice §3.2; también una lista de adjuntos de más de 4 MiB, un 404 o un 500 al
-  listarla, un `receivedDateTime` que no se puede leer o un adjunto sin id.
+  reloj, Microsoft que limita o un 403 (arreglo tras la revisión, en el paso 8) al listar sus
+  adjuntos paran la ronda con ese código y le devuelven el intento (si no, tres cortes de la
+  red en el mismo mensaje lo dejaban en `error`). Un corte de verdad (el proceso que muere,
+  una excepción que no es `Exception`) sí cuenta, como dice §3.2; también una lista de adjuntos
+  de más de 4 MiB, un 404 o un 500 al listarla, un `receivedDateTime` que no se puede leer o un
+  adjunto sin id.
 - **Un mensaje sin un id que se pueda guardar no tiene llegada** (no hay clave con la que
   contar sus intentos ni registrarlo) y no detiene la página; tampoco las entradas `@removed`.
 - **La llegada del tercer intento**: si `receivedDateTime` no se puede leer, `recibido_en` es
@@ -647,14 +688,22 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   nada, y el tope de mensajes por ronda sigue siendo "tras la página". Los pendientes van
   primero en cada ronda; a las 24 horas, `error`. Como mucho 500 mensajes en pendientes: con
   más, lo que no se pudo bajar va como `error` (el original sigue en el buzón).
-- **Un PDF que no se pudo bajar por la red** (sin red, la salida, Microsoft que limita) queda
-  pendiente y la ronda para con ese código; uno que falla por algo suyo (un 404, un 500) queda
-  pendiente y la ronda sigue con los demás.
+- **Un PDF que no se pudo bajar por la red** (sin red, la salida, Microsoft que limita) o por un
+  403 queda pendiente y la ronda para con ese código; uno que falla por algo suyo (un 404, un
+  500) queda pendiente y la ronda sigue con los demás.
 - **La delta que caduca vuelve a empezar desde la última vez que esa carpeta llegó al final de
   su delta, menos 3 días** (`al_dia_en`, guardado con su enlace en `delta-bandeja.json` y
   `delta-no-deseado.json`), y no desde `ultima_buena`: una ronda puede ir bien sin llegar al
   final (los topes). Nunca antes de `desde` (a las 00:00 en Amsterdam). Un enlace guardado que
   no vale es como uno caducado: no se sigue, se empieza de nuevo y queda `delta_reiniciado_en`.
+  **Al empezar de nuevo, el fichero se queda sin enlace pero con `al_dia_en`** (arreglo tras la
+  revisión de los pasos 8 y 9): antes se borraba, y `al_dia_en` solo volvía al disco al
+  terminar una página; si la primera página de la delta nueva no se terminaba (un mensaje que
+  falla, un tope, la ronda que para o muere, otro 410), la ronda siguiente empezaba desde
+  `desde` de los ajustes, que puede ser de meses antes, y volvía a bajar lo ya registrado
+  (`vistos.json` solo guarda 7 días): se gastaban los topes del día en eso, `hoy.mensajes` podía
+  pasar de 200 y poner la pausa por volumen, y con `$filter` Graph da como mucho 5 000 mensajes
+  (`docs-ms/concepts_delta-query-messages.md:56`).
 - **`ultima_consulta` y `ultima_buena`** son el principio de la última ronda que habló con
   Microsoft y de la última que además fue bien; una ronda retenida (que no pide nada) no cambia
   ninguna. **`hoy.mensajes` cuenta las llegadas escritas de las dos carpetas**, y
@@ -685,6 +734,26 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
 - **El remitente y el asunto** se guardan saneados (sin controles, sin caracteres de dirección
   ni de anchura cero, los blancos juntos) y recortados a 320 y 200; un `internetMessageId` que
   no es ASCII visible de hasta 998 caracteres va como `null`.
+- **Una fecha que se sale del calendario es la de un mensaje raro, no un fallo de cada ronda**
+  (arreglo tras la revisión). Un `receivedDateTime` como `0001-01-01T00:00:00+01:00` (el año 0 en
+  UTC) hacía saltar un `OverflowError` al pasarlo a UTC: en las tres primeras rondas el mensaje
+  fallaba, pero en la cuarta su llegada de error lo volvía a leer fuera de su `try` y cada ronda
+  acababa en `interno`, sin pasar nunca de esa página ni llegar a "no deseado". Ahora
+  `bandeja.leer_instante` da `None` (no se sabe: `1970-01-01T00:00:00Z` en la llegada), y
+  `bandeja.instante` escribe el año siempre con cuatro cifras (`strftime("%Y")` no rellena los
+  anteriores al 1000).
+- **`correo comprobar` no acaba en una traza** (arreglo tras la revisión): un fallo del programa
+  al comprobar es `interno` (sin el texto de la excepción), con su `estado.json` y la salida 11,
+  como en una ronda.
+- **Las comprobaciones que no tenían prueba** (arreglo tras la revisión; cada una falla sin su
+  código): `al_dia_en` con el `nextLink` de la delta nueva, el segundo 410 seguido (sin él, un
+  Graph que siempre contesta 410 tenía la ronda pidiendo sin fin), la llegada del tercer
+  intento que espera si la ronda no puede listar (sin red, un 403: si no, se escribía sin
+  adjuntos), lo que ya está en pendientes o escrito y sin registrar no se vuelve a listar,
+  `MAX_PENDIENTES`, la limpieza de `vistos.json` e `intentos.json` (7 días, `MAX_VISTOS`), una
+  comprobación con fecha futura o que no salió bien con un código que no está en
+  `REPETIR_ALCANCE` (falla cerrado, §2.3), la llegada de más de 64 KiB (los nombres los pone el
+  remitente), el `internetMessageId` de 998 y el id de un adjunto que no es ASCII visible.
 - **Un tope más, de páginas por ronda (40, las dos carpetas)**: lo ya visto no cuenta como
   mensaje, así que una delta que vuelve a empezar (o que no acaba) pediría páginas sin fin en
   la misma ronda. Tras 40 páginas la ronda para con el enlace guardado y la siguiente sigue.
