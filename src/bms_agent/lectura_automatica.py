@@ -611,14 +611,22 @@ class Detenida:
     hasta: str | None = None
 
 
-def parada_por_pausa_o_fallo(conn: sqlite3.Connection, ahora: datetime) -> Detenida | None:
+def detenida_por_pausa(conn: sqlite3.Connection, ahora: datetime) -> Detenida | None:
     pausa = pausa_vigente(conn, ahora)
-    if pausa is not None:
-        return Detenida(pausa["motivo"], desde=pausa["en"], hasta=pausa["hasta"])
+    if pausa is None:
+        return None
+    return Detenida(pausa["motivo"], desde=pausa["en"], hasta=pausa["hasta"])
+
+
+def detenida_por_fallo(conn: sqlite3.Connection, ahora: datetime) -> Detenida | None:
     espera = espera_tras_fallo(conn, ahora)
-    if espera is not None:
-        return Detenida("fallo", espera.motivo_codigo, espera.desde, espera.proximo_intento)
-    return None
+    if espera is None:
+        return None
+    return Detenida("fallo", espera.motivo_codigo, espera.desde, espera.proximo_intento)
+
+
+def parada_por_pausa_o_fallo(conn: sqlite3.Connection, ahora: datetime) -> Detenida | None:
+    return detenida_por_pausa(conn, ahora) or detenida_por_fallo(conn, ahora)
 
 
 def resumen(conn: sqlite3.Connection, ahora: datetime | None = None) -> dict[str, Any]:

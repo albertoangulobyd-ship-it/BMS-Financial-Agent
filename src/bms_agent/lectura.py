@@ -637,12 +637,15 @@ def siguiente(conn: sqlite3.Connection, ahora: datetime | None = None) -> Siguie
     """Que hace el ciclo automatico con la lectura, en este orden (diseno §4.1 y §5.2):
 
     1. una lectura que pidio una persona en la app (o la suya que esperaba el si y cuyo
-       lector ya no esta): pedida, aunque la automatica este apagada (decision 8B);
-    2. otra viva con su lector dando senales: nada (una cada vez; una que su lector dejo a
-       medias no para nada: `tomar` la da por terminada);
-    3. la autorizacion vigente apagada, o ninguna: nada;
-    4. una pausa (de una persona, hasta las 00:00; de volumen, hasta que una persona la
+       lector ya no esta): pedida, aunque la automatica este apagada o en pausa (decision 8B);
+
+    y despues, la tabla de §5.2 en su orden:
+
+    2. la autorizacion vigente apagada, o ninguna: nada;
+    3. una pausa (de una persona, hasta las 00:00; de volumen, hasta que una persona la
        quite): limite;
+    4. otra viva con su lector dando senales: nada (una cada vez; una que su lector dejo a
+       medias no para nada: `tomar` la da por terminada);
     5. la espera tras un fallo tecnico (1 h, y el doble tras cada uno seguido): limite;
     6. ninguna factura elegible: nada;
     7. lo que queda este mes o hoy no llega a una factura (max_por_documento): limite;
@@ -651,22 +654,27 @@ def siguiente(conn: sqlite3.Connection, ahora: datetime | None = None) -> Siguie
 
     ahora = ahora or _ahora(conn)
     actual = viva(conn)
-    if actual is not None:
-        de_una_persona = actual["origen"] != "automatica" and (
+    if actual is not None and actual["origen"] != "automatica" and (
             actual["estado"] == "pedida" or (actual["estado"] == "esperando_aprobacion"
-                                             and abandonada(conn, actual, ahora)))
-        if de_una_persona:
-            return Siguiente(PEDIDA, detalle=f"la lectura {actual['id']} la pidio una persona")
-        if not abandonada(conn, actual, ahora):
-            return Siguiente(NADA, detalle=f"la lectura {actual['id']} esta {actual['estado']}")
+                                             and abandonada(conn, actual, ahora))):
+        return Siguiente(PEDIDA, detalle=f"la lectura {actual['id']} la pidio una persona")
     autorizacion = auto.encendida(conn)
     if autorizacion is None:
         return Siguiente(NADA, detalle="la lectura automatica esta apagada")
-    parada = auto.parada_por_pausa_o_fallo(conn, ahora)
-    if parada is not None:
-        return Siguiente(LIMITE, parada.parada, parada.motivo_codigo, parada.desde,
-                         parada.proximo_intento, parada.hasta,
-                         detalle=_por_que_parada(parada.parada, parada.motivo_codigo))
+
+    def parada(detenida: Any) -> Siguiente:
+        return Siguiente(LIMITE, detenida.parada, detenida.motivo_codigo, detenida.desde,
+                         detenida.proximo_intento, detenida.hasta,
+                         detalle=_por_que_parada(detenida.parada, detenida.motivo_codigo))
+
+    pausa = auto.detenida_por_pausa(conn, ahora)
+    if pausa is not None:
+        return parada(pausa)
+    if actual is not None and not abandonada(conn, actual, ahora):
+        return Siguiente(NADA, detalle=f"la lectura {actual['id']} esta {actual['estado']}")
+    fallo = auto.detenida_por_fallo(conn, ahora)
+    if fallo is not None:
+        return parada(fallo)
     elegibles, _desde = auto.contar_elegibles(conn)
     if not elegibles:
         return Siguiente(NADA, detalle="no hay facturas del correo que se lean solas")

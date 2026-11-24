@@ -1002,6 +1002,74 @@ def test_contar_aparta_lo_que_la_api_no_acepta(almacen, gente, tmp_path) -> None
     del buena
 
 
+def test_una_ronda_no_paga_mas_facturas_que_max_documentos(almacen, gente, tmp_path) -> None:
+    """Si entre contar y autorizar alguien baja max_documentos, vale el de ahora: el tope es lo
+    que pueden costar esas, y al leer no se pagan mas aunque lo que queda en el tope diera para
+    otra (las facturas por ronda son un tope de la pasada, no solo de la cuenta)."""
+    import json
+
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _del_correo(almacen, "una", "dos", "tres")
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=20_000_000)
+    solicitud = _contada(almacen, out)
+    # Las tres, como las vio la cuenta.
+    pdfs = [almacen.documentos.ruta(d["ruta_cas"]) for d in auto.elegibles(conn)]
+    altos = [d["alto_usd_micro"] for d in json.loads(
+        _fila(conn, solicitud)["estimacion_json"])["documentos"]]
+    assert len(pdfs) == len(altos) == 3
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=20_000_000, max_documentos=2)
+    assert lectura.autorizar(conn, solicitud) == "aprobada"
+    fila = _fila(conn, solicitud)
+    assert fila["tope_usd_micro"] == sum(altos[:2])
+    aceptada = conn.execute("SELECT datos_json FROM evento WHERE tipo = 'lectura_aceptada' "
+                            "AND fila_id = ?", (solicitud,)).fetchone()[0]
+    assert json.loads(aceptada)["facturas"] == 2
+    client = ClienteQueCuenta()
+    leida = lectura.leer(conn, solicitud, client=client, almacen=almacen, pdfs=pdfs, out_dir=out)
+    assert leida.estado == "hecha" and len(client.leidos) == 2
+    # Lo pagado deja sitio en el tope para la tercera: lo que la para es max_documentos.
+    assert leida.gastado_usd_micro + altos[2] <= fila["tope_usd_micro"]
+    assert leida.cuenta("nueva") == 2 and len(leida.resultado) == 2
+
+
+def test_lo_que_se_aparta_despues_de_contar_no_se_paga(almacen, gente, tmp_path) -> None:
+    """Una persona aparta una factura entre el si de la autorizacion y la lectura: no se paga,
+    aunque estuviera en la cuenta y en la lista. Y ninguna llamada paga una que pase del maximo
+    por factura, aunque la cuenta la hubiera dejado pasar."""
+    from types import SimpleNamespace
+
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _una, dos = _del_correo(almacen, "una", "dos")
+    _fijar(conn, gente["ana"])
+    solicitud = _contada(almacen, out)
+    pdfs = [almacen.documentos.ruta(d["ruta_cas"]) for d in auto.elegibles(conn)]
+    assert lectura.autorizar(conn, solicitud) == "aprobada"
+    servicios.ejecutar(conn, "excluir_de_lectura_automatica", {"documento_ids": [dos]},
+                       usuario_id=gente["berta"])
+    client = ClienteQueCuenta()
+    leida = lectura.leer(conn, solicitud, client=client, almacen=almacen, pdfs=pdfs, out_dir=out)
+    assert leida.estado == "hecha" and client.leidos == ["una"]
+    assert dos not in {r["documento_id"] for r in leida.resultado}
+    seguimiento = lectura._Seguimiento(conn, solicitud, 0, modelo="m", tope=10**9,
+                                       altos={"a" * 64: 11, "b" * 64: 10}, por_documento=10)
+    assert seguimiento.cabe(SimpleNamespace(sha256="a" * 64)) == lectura.NO_SE_LEE_SOLA
+
+
+def test_una_pausa_entre_siguiente_y_autorizar_no_deja_leer(almacen, gente, tmp_path) -> None:
+    conn = almacen.conn
+    _del_correo(almacen, "una")
+    _fijar(conn, gente["ana"])
+    solicitud = _contada(almacen, tmp_path / "out")
+    auto.pausar(conn, "volumen")
+    assert lectura.autorizar(conn, solicitud) == "nada_que_leer"
+    fila = _fila(conn, solicitud)
+    assert (fila["motivo_codigo"], fila["aprobada_en"], fila["tope_usd_micro"]) == (
+        "sin_autorizacion", None, None)
+    assert "en pausa (volumen)" in fila["motivo"]
+
+
 def _leida_en_out(almacen, out, *documentos: int) -> None:
     """Lo leido (y pagado) antes, que esta en out/ pero no en la base: una base restaurada de
     una copia, que no lleva out/, o una extraccion que no se pudo guardar al leerla."""
@@ -1246,6 +1314,12 @@ def test_siguiente_en_su_orden(almacen, gente, tmp_path, reloj) -> None:
     assert lectura.siguiente(conn).codigo == lectura.LEER
     # Una automatica que su ciclo dejo a medias no para nada: tomar la cierra.
     tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    # La pausa se mira antes que la viva (§5.2): parada, no "nada".
+    assert auto.pausar(conn, "volumen") is not None
+    assert (lectura.siguiente(conn).codigo, lectura.siguiente(conn).parada) == (lectura.LIMITE,
+                                                                               "volumen")
+    auto.reanudar(conn, gente["berta"])
     assert lectura.siguiente(conn).codigo == lectura.NADA
     reloj.avanzar(minutes=46)
     assert lectura.siguiente(conn).codigo == lectura.LEER
