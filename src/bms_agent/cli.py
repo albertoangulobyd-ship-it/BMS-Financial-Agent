@@ -58,6 +58,10 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
                                   en la carpeta docker\\secretos\\correo (--carpeta)
     bms-agent correo traer|comprobar ...  una ronda del correo (trae del buzon a su bandeja, solo
                                   lectura) y la comprobacion de que solo lee ese buzon
+    bms-agent correo registrar ...  lo que trajo el correo, a la base (en `orden`, sin red), y lo
+                                  registrado fuera de su bandeja; --fallo CODIGO: el ciclo no
+                                  pudo traer nada (la salida, el aislamiento, el disco)
+    bms-agent ciclo latido ...    el ciclo automatico ha pasado (con el disco libre, o en pausa)
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -3171,17 +3175,73 @@ def _cmd_correo_traer(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_correo_registrar(args: argparse.Namespace) -> int:
+    """`correo registrar` (paso 18, §3.8), en `orden`: lo de la bandeja del correo, validado
+    como no confiable, a la base, y lo registrado (o rechazado) fuera de la bandeja. Con
+    --fallo, solo apunta que el ciclo no pudo traer nada. Lo que dice no copia nunca texto de la
+    bandeja (ni remitentes, ni asuntos, ni nombres): solo cuentas y motivos fijos."""
+    from .correo import registrar
+
+    if args.fallo is None and (args.entrada is None or args.estado is None):
+        print("Faltan --entrada y --estado (la bandeja y el estado del correo).", file=sys.stderr)
+        return 2
+    try:
+        with _abrir_almacen(args.db) as almacen:
+            if args.fallo is not None:
+                cambio = registrar.apuntar_fallo(almacen, args.fallo)
+                _anclar(almacen)
+                print(f"Correo: apuntado {args.fallo}"
+                      + ("." if cambio else " (ya estaba)."))
+                return 0
+            hecho = registrar.registrar(almacen, entrada=args.entrada, estado=args.estado)
+            _anclar(almacen)
+    except registrar.NoSeRegistra as exc:
+        print(f"No se registra: {exc}.", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"Correo: no se ha podido registrar ({exc.strerror or type(exc).__name__}): lo que "
+              "queda en la bandeja se registra la proxima vez.", file=sys.stderr)
+        return CORREO_FALLO
+    print(f"Correo registrado: {hecho.mensajes} mensajes, {hecho.documentos_nuevos} documentos "
+          f"nuevos, {hecho.repetidos} repetidos, {hecho.pdf_borrados} PDF quitados de la "
+          "bandeja.")
+    if hecho.esperan_reloj:
+        print(f"  {hecho.esperan_reloj} llegaron mas tarde que la hora de este equipo (el reloj "
+              "va atrasado): se registran cuando este bien.", file=sys.stderr)
+    if hecho.quedan:
+        print(f"  Habia mas de {registrar.POR_PASADA}: lo demas, en el ciclo siguiente.")
+    if hecho.pausa_volumen:
+        print("  Hoy han llegado muchos mas correos de lo normal: la lectura automatica queda en "
+              "pausa hasta que una persona lo mire.")
+    malo = False
+    for carpeta in hecho.carpetas_malas:
+        print(f"  {carpeta}: no es una carpeta de verdad; no se ha tocado.", file=sys.stderr)
+        malo = True
+    for motivo in hecho.rechazados:
+        print(f"  Rechazado: {motivo}.", file=sys.stderr)
+        malo = True
+    if hecho.fallidos:
+        print(f"  {hecho.fallidos} mensajes no han entrado (la base o el almacen): se quedan en la "
+              "bandeja para la proxima vez.", file=sys.stderr)
+        malo = True
+    return CORREO_FALLO if malo else 0
+
+
 def _cmd_correo(args: argparse.Namespace) -> int:
     """El correo de facturas (paso 18): una ronda y la comprobacion (en el contenedor
-    `correo`), y el certificado y los ajustes, en la carpeta de sus secretos (en `orden`). Solo
-    en la variante Docker: la nativa no trae el correo. Nada de la clave
-    privada sale nunca por aqui: ni al crearla, ni al verla, ni en un error."""
+    `correo`), el registro de lo que trajo (en `orden`), y el certificado y los ajustes, en la
+    carpeta de sus secretos (en `orden`). Solo en la variante Docker: la nativa no trae el
+    correo. Nada de la clave privada sale nunca por aqui: ni al crearla, ni al verla, ni en un
+    error."""
     from . import nativo
 
     if nativo.instalacion_actual() is not None:
         print("El correo de facturas es solo de la variante Docker (docs/entorno-local.md): la "
               "instalacion nativa no lo trae.", file=sys.stderr)
         return 2
+    if args.que == "registrar":
+        # Antes de cryptography: registrar no toca el certificado ni habla con Microsoft.
+        return _cmd_correo_registrar(args)
     try:
         from .correo import ajustes, certificado
     except ImportError:
@@ -3204,6 +3264,28 @@ def _cmd_correo(args: argparse.Namespace) -> int:
         print(f"No se puede usar {exc.filename or 'la carpeta'}: "
               f"{exc.strerror or type(exc).__name__}", file=sys.stderr)
         return 1
+
+
+def _cmd_ciclo(args: argparse.Namespace) -> int:
+    """`ciclo latido` (paso 18, §4.1): el ciclo automatico ha pasado; lo lee la app."""
+    from . import ciclo
+
+    try:
+        with _abrir_almacen(args.db) as almacen:
+            hecho = ciclo.latido(almacen.conn, disco_libre=args.disco_libre,
+                                 pausado=args.pausado, variante=args.variante)
+    except ValueError as exc:
+        print(f"No se apunta: {exc}.", file=sys.stderr)
+        return 2
+    estado = "en pausa" if hecho.pausado else "corre"
+    linea = f"Ciclo automatico: visto {hecho.visto_en} ({estado})"
+    if hecho.disco_libre_bytes is not None:
+        linea += f", {hecho.disco_libre_bytes // 1024 ** 3} GiB libres"
+    print(linea + ".")
+    if hecho.disco_bajo:
+        print("  Queda poco disco: el ciclo no trae ni lee nada (correo registrar --fallo disco).",
+              file=sys.stderr)
+    return 0
 
 
 DESCRIPCION = (
@@ -3924,7 +4006,35 @@ def main(argv: list[str] | None = None) -> int:
                                help="la bandeja del correo (/correo/entrada)")
             p_que.add_argument("--comprobar", action="store_true",
                                help="comprueba el alcance antes de traer aunque no toque")
+    from .correo.bandeja import CODIGOS as _CODIGOS_CORREO
+
+    p_reg = sub_correo.add_parser(
+        "registrar", help="lo que trajo el correo, a la base (sin red; todo lo de la bandeja es "
+                          "no confiable), y lo registrado fuera de la bandeja")
+    p_reg.add_argument("--entrada", metavar="CARPETA",
+                       help="la bandeja del correo (/correo/entrada)")
+    p_reg.add_argument("--estado", metavar="CARPETA",
+                       help="la carpeta del estado del correo (/correo/estado)")
+    p_reg.add_argument("--fallo", choices=_CODIGOS_CORREO, metavar="CODIGO",
+                       help="solo apunta que el ciclo no pudo traer nada: "
+                            + ", ".join(_CODIGOS_CORREO))
+    p_reg.add_argument("--db", help=_AYUDA_DB)
     p_correo.set_defaults(func=_cmd_correo)
+
+    p_ciclo = sub.add_parser("ciclo", help="el ciclo automatico (paso 18): su latido")
+    sub_ciclo = p_ciclo.add_subparsers(dest="accion", required=True)
+    p_lat = sub_ciclo.add_parser("latido", help="el ciclo ha pasado ahora (con el disco libre, o "
+                                                "en pausa)")
+    p_lat.add_argument("--disco-libre", dest="disco_libre", type=int, metavar="BYTES",
+                       help="el espacio libre de la unidad de la instalacion, en bytes")
+    pausa = p_lat.add_mutually_exclusive_group()
+    pausa.add_argument("--pausado", action="store_true",
+                       help="la automatizacion esta en pausa (Pausar-Automatico)")
+    pausa.add_argument("--reanudado", action="store_true",
+                       help="la automatizacion corre (lo mismo que sin --pausado)")
+    p_lat.add_argument("--variante", choices=("nativa", "docker"))
+    p_lat.add_argument("--db", help=_AYUDA_DB)
+    p_ciclo.set_defaults(func=_cmd_ciclo)
 
     argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(_unir_valores_de_accion(argv, opciones_accion))

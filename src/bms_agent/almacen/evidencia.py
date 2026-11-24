@@ -33,7 +33,8 @@ su texto rehasheado) y periodo_btw_declarada, toda la de un trimestre en el
 evento de su presentacion (`DECLARADAS`); las del paso 18, lectura_automatica,
 exclusion_automatica, pausa_lectura_automatica (una pausa y una reanudacion son filas de la
 misma tabla, cada una con su evento de alta: `ALTAS_TAMBIEN`) y correo_atendido, cada fila con
-su evento. La procedencia de los campos
+su evento, y las del correo: mensaje_correo (sus adjunto_correo van todos en el evento de su
+mensaje, `ADJUNTOS`) y ronda_correo. La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar), como el periodo del BTW (btw.verificar).
@@ -121,6 +122,15 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     "exclusion_automatica": ("documento_id", "motivo_codigo", "solicitud_id", "por", "en"),
     "pausa_lectura_automatica": ("tipo", "motivo", "solicitud_id", "por", "en", "hasta"),
     "correo_atendido": ("mensaje_id", "por", "en", "nota"),
+    # Paso 18 (10): lo que trajo el correo (cada mensaje, con sus adjuntos en el mismo evento:
+    # `ADJUNTOS`) y las rondas del correo que trajeron algo o cambiaron de error.
+    "mensaje_correo": ("graph_id", "carpeta", "internet_message_id_doc", "recibido_en",
+                       "remitente_doc", "asunto_doc", "adjuntos", "en_linea", "traido_en",
+                       "registrado_en", "registrado_por"),
+    "adjunto_correo": ("mensaje_id", "graph_adjunto_id", "nombre_doc", "tipo_declarado_doc",
+                       "bytes", "sha256", "resultado", "documento_id"),
+    "ronda_correo": ("empezada_en", "terminada_en", "resultado", "error_codigo", "mensajes",
+                     "documentos_nuevos", "registrada_en"),
 }
 
 # Los movimientos de un extracto no tienen un evento cada uno (un extracto trae
@@ -180,6 +190,8 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "exclusion_automatica": ("lectura_excluida", ()),
     "pausa_lectura_automatica": ("lectura_automatica_pausada", ()),
     "correo_atendido": ("correo_atendido", ()),
+    "mensaje_correo": ("correo_mensaje_registrado", ()),
+    "ronda_correo": ("correo_ronda_registrada", ()),
 }
 
 # Tablas con filas de dos clases, cada una con su evento de alta: cualquiera de ellos da de
@@ -206,6 +218,11 @@ POR_EVENTO: dict[str, str] = {"nota": "evento_id", "anulacion": "evento_id",
 # trimestre, en datos["declaradas"] por su id.
 DECLARADAS = "periodo_btw_declarada"
 EVENTO_DECLARADAS = "btw_presentacion_anotada"
+
+# Paso 18 (10): los adjuntos de un mensaje del correo van en el evento de su mensaje
+# (correo_mensaje_registrado), en datos["adjuntos"] por su id, como los movimientos.
+ADJUNTOS = "adjunto_correo"
+EVENTO_ADJUNTOS = "correo_mensaje_registrado"
 
 
 _FALTA = object()
@@ -387,6 +404,8 @@ def verificar_evidencia(conn: sqlite3.Connection) -> list[str]:
     problemas.extend(_verificar_movimientos(conn))
     problemas.extend(_verificar_turnos(conn))
     problemas.extend(_verificar_declaradas(conn))
+    problemas.extend(_verificar_en_lote(conn, ADJUNTOS, COLUMNAS[ADJUNTOS], EVENTO_ADJUNTOS,
+                                        "mensaje_correo", "adjuntos", "mensaje"))
 
     aplicadas = {f["fila_id"]: _datos(f) for f in conn.execute(
         "SELECT fila_id, datos_json FROM evento WHERE tipo = 'migracion_aplicada' "

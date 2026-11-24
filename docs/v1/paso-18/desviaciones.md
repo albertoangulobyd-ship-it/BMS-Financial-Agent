@@ -765,3 +765,81 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   mensaje con otro adjunto pendiente): no es un huérfano mientras no pase de 45 días. El
   correo no escribe nunca un resultado que no sea de la lista (los internos `_bajar` y
   `_pendiente` solo viven en `pendientes.json`).
+
+## Paso 10 · registrar y el latido
+
+- **Solo Linux, con `dir_fd`** (la decisión del dueño): sin la nativa no hay camino de Windows
+  («se vuelve a comprobar la carpeta antes de cada fichero», §3.8 paso 1). Donde `os.open` u
+  `os.unlink` no admiten `dir_fd`, o no hay `O_NOFOLLOW`, `correo registrar` dice que es de
+  Docker y no corre (`NoSeRegistra`, salida 2), como `correo traer` sin `flock`. La carpeta de
+  la bandeja (`--entrada`) se abre con `O_DIRECTORY | O_NOFOLLOW` y `llegadas` y `pdf` relativas
+  a ella (no por su ruta entera), con el mismo `st_dev`/`st_ino` que dio `lstat`.
+- **Las rutas, por argumentos** (`--entrada`, `--estado`), como `correo traer`; con `--fallo`
+  no hacen falta: **`--fallo` solo apunta** (no registra la bandeja), que es lo que pide §4.1
+  («`correo registrar --fallo disco` y fin»). Admite la lista cerrada entera de §3.7.
+- **Lo que no casa no se pierde sin decirlo.** Un PDF que no está en `pdf/`, que no tiene el
+  sha256 de su nombre, que no empieza por `%PDF-` o que pasa de `MAX_PDF` deja su adjunto como
+  `error` y el mensaje se registra igual (espera a una persona en «Wacht op jou»); el fichero
+  que no casa se borra y cuenta como rechazado (§3.8 paso 7). Solo una llegada que no vale
+  entera (JSON, claves, tipos, el nombre del fichero) se rechaza sin registrar nada. Un PDF de
+  los datos de prueba deja `de_prueba` (también en las otras llegadas de la misma pasada que lo
+  traen) y se borra.
+- **Lo que §3.8 paso 4 no fijaba de la validación**: el `sha256` solo en un `pdf` (en lo demás,
+  `null`, como lo escribe `traer`); el `id` de un adjunto no se repite en su mensaje (`UNIQUE
+  (mensaje_id, graph_adjunto_id)`); los enteros, de 0 a 2^53; claves repetidas, `NaN` e
+  `Infinity` no valen; los instantes, exactamente `AAAA-MM-DDTHH:MM:SSZ` (lo que escribe
+  `bandeja.instante`). El remitente, el asunto y los nombres **se vuelven a sanear**
+  (`bandeja.sanear`) en vez de rechazar la llegada: un control o un carácter de dirección se
+  quita, como al traerlo. El `detalle` de cada adjunto se valida y no se guarda (sin columna,
+  paso 2).
+- **Las 2 000 por pasada**: primero las llegadas (las más antiguas por `mtime`), y con lo que
+  queda, los PDF sueltos de `pdf/` (los que ya están en la base salen; los demás esperan a su
+  llegada: un mensaje con otro adjunto pendiente, desviación del paso 9). Lo que no tiene
+  nombre de la bandeja no se toca ni cuenta (lo limpia el correo a los 45 días); lo que tiene
+  nombre de la bandeja y no es un fichero normal (un enlace, una carpeta, un FIFO) se rechaza y
+  se quita la entrada, sin seguirla.
+- **Un mensaje que no entra por algo de la base o del almacén** (`IntegrityError`,
+  `DocumentoCorrupto`) se queda en la bandeja para la vez siguiente, sin rechazarlo: no es culpa
+  de la bandeja. La CLI lo dice y sale con `CORREO_FALLO`.
+- **Un mensaje repetido** (la delta que vuelve a empezar, §3.4) sale de la bandeja sin filas ni
+  eventos nuevos; su PDF, si ya está en la base. Si la primera vez su PDF no se pudo registrar
+  (`error`), esa llegada ya es evidencia y no cambia: el PDF que vuelva no entra por ahí (lo
+  limpia el correo a los 45 días).
+- **La evidencia** (el hueco que dejó el paso 2): `mensaje_correo` con su evento
+  `correo_mensaje_registrado`, que lleva la foto del mensaje y la de cada uno de sus
+  `adjunto_correo` (`evidencia.ADJUNTOS`, como los movimientos en el evento de su extracto), y
+  `ronda_correo` con `correo_ronda_registrada`, las dos con el usuario `correo`. `db verificar`
+  ve una fila de las tres metida o cambiada por detrás. El ayudante `_correo` de
+  `test_lectura_automatica.py`, que apunta mensajes a mano, escribe ahora ese evento.
+- **`ronda_correo`, «si la ronda trajo algo o el código de error cambió»** (§3.8 paso 8): una
+  vez por ronda (su `empezada`) y comparando con el código de la última ronda apuntada, no con
+  el de `estado_correo` (que puede llevar lo de un `--fallo` o lo que vio la pasada); si no, en
+  un día con el reloj mal cada ronda buena «cambiaría» el código y serían 288 filas.
+  `documentos_nuevos` es el `pdf_nuevos` de la ronda (lo bajado, desviación del paso 9). Un
+  `--fallo`, y lo que ve la pasada (`reloj`, `interno`), es una fila sin `terminada_en`, solo
+  cuando cambia el código.
+- **El error de `estado_correo` es el más reciente** entre la ronda de `estado.json` y el último
+  `--fallo` (o lo que vio una pasada): un `estado.json` de antes (el correo no corrió porque la
+  salida no arrancó) no quita el `salida` que apuntó el ciclo; la ronda siguiente del correo,
+  sí. Lo que ve la pasada misma gana siempre: `reloj` (una llegada más de 5 minutos «en el
+  futuro») e `interno` (una de las tres carpetas no es una carpeta de verdad, o `estado.json`
+  no vale; el resto de `estado_correo` se queda como estaba). `error_desde` es el principio del
+  error mientras el código no cambia (la regla de los 30 minutos de §6.2).
+- **La pausa por volumen, solo con el `aviso_volumen` de hoy**: con el `hoy.fecha` de
+  `estado.json` igual al día de Amsterdam. Si no, el `estado.json` de ayer (el correo aún no ha
+  corrido hoy) pararía la automática de un día nuevo. La pone `lectura_automatica.pausar`, una
+  vez al día (paso 4).
+- **`ciclo latido` en un módulo propio, `ciclo.py`** (`latido`, `leer`), sin red ni procesos.
+  Sin `--pausado` es que el ciclo corre (`pausado = 0`; `--reanudado` dice lo mismo, para
+  `Reanudar-Automatico` si lo quiere usar); con `--pausado`, `pausado_desde` se queda en la
+  primera vez. `visto_en` se pone siempre; el disco y la variante, si no se dan, quedan como
+  estaban. Un disco libre negativo o de más de 2^62, o otra variante, no se apuntan (salida 2).
+  Con menos de 10 GiB lo dice, y no decide nada: el que no trae ni lee es el ciclo (paso 15).
+- **Códigos de `correo registrar`**: 0; `CORREO_FALLO` (11) si algo se rechazó, una carpeta no
+  valía o un mensaje no entró; 2 con la base de prueba, en la instalación nativa o sin las
+  carpetas. Lo que dice no copia nunca texto de la bandeja: cuentas y motivos fijos.
+- **De punta a punta (§7.3)** en `test_correo_registrar.py`: `GraphFalso` → `traer` →
+  `registrar` → `_ronda` de `test_lectura_automatica.py` (las mismas funciones que las órdenes
+  del ciclo) con el cliente falso, la fecha de recepción del servidor en cada factura (también
+  una que llegó a las 23:30 UTC, que es el día siguiente en Amsterdam), el mismo correo otra
+  vez sin pagar nada, y un PDF que la API no acepta (413) entre dos buenos, en «Wacht op jou».

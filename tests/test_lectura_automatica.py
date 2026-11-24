@@ -29,9 +29,10 @@ from bms_agent import lectura_automatica as auto
 from bms_agent import servicios
 from bms_agent.almacen import transaccion, usuario_sistema
 from bms_agent.almacen.documentos import registrar_documento
-from bms_agent.almacen.evidencia import verificar_evidencia
+from bms_agent.almacen.evidencia import foto, verificar_evidencia
 from bms_agent.almacen.extracciones import leer_registro, registrar_extraccion
 from bms_agent.almacen.unidades import sha256_bytes
+from bms_agent.auditoria import registrar
 from bms_agent.lectura import EstadoNoValido
 from bms_agent.permisos import PermisoDenegado
 from bms_agent.reloj import marca
@@ -97,6 +98,14 @@ def _correo(conn, recibido_en: str, *adjuntos: tuple, carpeta: str = "bandeja",
                 "INSERT INTO adjunto_correo (mensaje_id, graph_adjunto_id, nombre_doc, bytes, "
                 "sha256, resultado, documento_id) VALUES (?, ?, ?, 100, ?, ?, ?)",
                 (mensaje, f"AAMkAd{i}", nombre, sha, resultado, documento_id))
+        # Como lo deja `correo registrar` (paso 10): el mensaje y sus adjuntos en su evento.
+        adjuntos_ids = [f[0] for f in conn.execute(
+            "SELECT id FROM adjunto_correo WHERE mensaje_id = ?", (mensaje,))]
+        registrar(conn, tipo="correo_mensaje_registrado", actor=correo,
+                  tabla="mensaje_correo", fila_id=mensaje,
+                  datos={"fila": foto(conn, "mensaje_correo", mensaje),
+                         "adjuntos": {str(a): foto(conn, "adjunto_correo", a)
+                                      for a in adjuntos_ids}})
     return mensaje
 
 
