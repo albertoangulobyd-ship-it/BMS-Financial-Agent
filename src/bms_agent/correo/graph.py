@@ -253,7 +253,8 @@ def _aadsts(cuerpo: bytes) -> list[int]:
     datos = _json(cuerpo)
     if not isinstance(datos, dict):
         return []
-    codigos = [c for c in datos.get("error_codes") or [] if type(c) is int]
+    lista = datos.get("error_codes")
+    codigos = [c for c in lista if type(c) is int] if isinstance(lista, list) else []
     descripcion = datos.get("error_description")
     if isinstance(descripcion, str):
         codigos += [int(n) for n in re.findall(r"AADSTS([0-9]{1,9})", descripcion[:2000])]

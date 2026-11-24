@@ -56,6 +56,8 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
     bms-agent correo certificado|ajustes ...  el correo de facturas (paso 18, solo Docker): el
                                   certificado con que pide su token a Microsoft y sus ajustes,
                                   en la carpeta docker\\secretos\\correo (--carpeta)
+    bms-agent correo traer|comprobar ...  una ronda del correo (trae del buzon a su bandeja, solo
+                                  lectura) y la comprobacion de que solo lee ese buzon
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -3012,6 +3014,7 @@ def _cmd_clave(args: argparse.Namespace) -> int:
 
 
 CORREO_SIN_CONFIGURAR = 10   # el correo aun no tiene certificado o ajustes
+CORREO_FALLO = 11            # la ronda (o la comprobacion) del correo no ha ido bien
 
 
 def _imprimir_certificado(nombre: str, datos, cer: Path, ahora) -> None:
@@ -3128,9 +3131,50 @@ def _cmd_correo_ajustes(args: argparse.Namespace, ajustes, certificado) -> int:
     return 0
 
 
+def _cmd_correo_traer(args: argparse.Namespace) -> int:
+    """`correo traer` y `correo comprobar` (paso 18, §3.2 y §2.3), en el contenedor `correo`.
+    Lo que dice no lleva nunca el token, la direccion del buzon, el asunto ni el remitente."""
+    from .correo import traer
+
+    if args.que == "traer":
+        resultado = traer.traer(ajustes=args.ajustes, certificado=args.certificado_fichero,
+                                estado=args.estado, entrada=args.entrada,
+                                comprobar=args.comprobar)
+    else:
+        resultado = traer.comprobar(ajustes=args.ajustes, certificado=args.certificado_fichero,
+                                    estado=args.estado)
+    if resultado.ocupado:
+        if args.que == "traer":
+            print("Correo: otra ronda del correo esta en marcha; esta se salta.")
+            return 0
+        print("Correo: hay una ronda del correo en marcha: vuelve a probar en un minuto.",
+              file=sys.stderr)
+        return 1
+    if resultado.codigo is not None:
+        print(f"Correo: {resultado.codigo}: {resultado.detalle}", file=sys.stderr)
+        return (CORREO_SIN_CONFIGURAR if resultado.codigo == "sin_configurar"
+                else CORREO_FALLO)
+    if args.que == "comprobar":
+        print("Correo: la comprobacion ha ido bien: la aplicacion solo puede leer el buzon de "
+              "las facturas.")
+        return 0
+    print(f"Correo: ronda bien: {resultado.mensajes} mensajes, {resultado.pdf_nuevos} PDF "
+          f"nuevos ({resultado.bytes / (1024 * 1024):.1f} MiB).")
+    if resultado.fallidos:
+        print(f"  {resultado.fallidos} mensajes no se han podido traer: se vuelven a intentar en "
+              "la ronda siguiente (al tercer intento, esperan a una persona).")
+    if resultado.pendientes:
+        print(f"  {resultado.pendientes} adjuntos esperan a una ronda siguiente.")
+    if resultado.retenido_hasta is not None:
+        print(f"  Retenido hasta {resultado.retenido_hasta:%Y-%m-%d %H:%M} UTC: hoy ya se ha "
+              "bajado lo que permiten los topes del dia; lo demas espera en el buzon.")
+    return 0
+
+
 def _cmd_correo(args: argparse.Namespace) -> int:
-    """El certificado y los ajustes del correo de facturas (paso 18), en la carpeta de sus
-    secretos. Solo en la variante Docker: la nativa no trae el correo. Nada de la clave
+    """El correo de facturas (paso 18): una ronda y la comprobacion (en el contenedor
+    `correo`), y el certificado y los ajustes, en la carpeta de sus secretos (en `orden`). Solo
+    en la variante Docker: la nativa no trae el correo. Nada de la clave
     privada sale nunca por aqui: ni al crearla, ni al verla, ni en un error."""
     from . import nativo
 
@@ -3147,6 +3191,8 @@ def _cmd_correo(args: argparse.Namespace) -> int:
     try:
         if args.que == "certificado":
             return _cmd_correo_certificado(args, certificado)
+        if args.que in ("traer", "comprobar"):
+            return _cmd_correo_traer(args)
         return _cmd_correo_ajustes(args, ajustes, certificado)
     except certificado.NoSeHace as exc:
         print(f"No se hace: {exc}", file=sys.stderr)
@@ -3816,8 +3862,9 @@ def main(argv: list[str] | None = None) -> int:
     p_clave.set_defaults(func=_cmd_clave)
 
     p_correo = sub.add_parser(
-        "correo", help="el correo de facturas (solo Docker): el certificado con que pide su "
-                       "token a Microsoft y sus ajustes")
+        "correo", help="el correo de facturas (solo Docker): una ronda (traer), la comprobacion "
+                       "de que solo lee su buzon, el certificado con que pide su token a "
+                       "Microsoft y sus ajustes")
     sub_correo = p_correo.add_subparsers(dest="que", required=True)
     _ayuda_carpeta = ("la carpeta de los secretos del correo (en Docker, docker\\secretos\\correo "
                       "montada solo para esta orden)")
@@ -3859,6 +3906,24 @@ def main(argv: list[str] | None = None) -> int:
                          help="MiB bajados al dia, como mucho (por defecto 750)")
     p_ver = sub_aj.add_parser("ver", help="los ajustes guardados")
     p_ver.add_argument("--carpeta", required=True, help=_ayuda_carpeta)
+    for que, ayuda in (
+            ("traer", "una ronda: lo nuevo del buzon (solo lectura) a la bandeja del correo, sin "
+                      "el cuerpo de ningun mensaje; la registra despues `orden`"),
+            ("comprobar", "comprueba que la aplicacion solo puede leer el buzon de las facturas "
+                          "(token sin permisos de Entra, 403 en el buzon de control)")):
+        p_que = sub_correo.add_parser(que, help=ayuda)
+        p_que.add_argument("--ajustes", required=True, metavar="FICHERO",
+                           help="los ajustes del correo (en Docker, el secreto correo_ajustes)")
+        p_que.add_argument("--certificado-fichero", dest="certificado_fichero", required=True,
+                           metavar="FICHERO", help="el .pem del certificado (en Docker, el "
+                                                   "secreto correo_certificado)")
+        p_que.add_argument("--estado", required=True, metavar="CARPETA",
+                           help="la carpeta del estado del correo (/correo/estado)")
+        if que == "traer":
+            p_que.add_argument("--entrada", required=True, metavar="CARPETA",
+                               help="la bandeja del correo (/correo/entrada)")
+            p_que.add_argument("--comprobar", action="store_true",
+                               help="comprueba el alcance antes de traer aunque no toque")
     p_correo.set_defaults(func=_cmd_correo)
 
     argv = sys.argv[1:] if argv is None else list(argv)

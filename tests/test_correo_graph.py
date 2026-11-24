@@ -147,6 +147,20 @@ def test_comprobar_dice_por_que_no(cliente, falso, preparar, motivo) -> None:
     assert cliente.comprobar() == graph.Alcance(False, motivo)
 
 
+@pytest.mark.parametrize("cuerpo, motivo", [
+    ({"error": "invalid_client", "error_codes": 700024}, "credencial"),
+    ({"error": "invalid_client", "error_codes": "x",
+      "error_description": "AADSTS700024: Client assertion is not within its valid time range."},
+     "reloj"),
+    ({"error_codes": [None, "700024"]}, "credencial"),
+    ("no es JSON", "credencial"), (None, "credencial"),
+])
+def test_un_error_del_token_con_otra_forma(cliente, falso, cuerpo, motivo) -> None:
+    """Lo que dice login.microsoftonline.com tambien es dato: una forma rara no rompe nada."""
+    falso.fallar("token", 400, cuerpo)
+    assert cliente.comprobar() == graph.Alcance(False, motivo)
+
+
 def test_con_roles_en_el_token_no_se_pide_nada_a_graph(cliente, falso) -> None:
     """Un permiso de Entra vale para todos los buzones: con roles no se sigue (falla cerrado)."""
     falso.roles = ["Mail.Read"]

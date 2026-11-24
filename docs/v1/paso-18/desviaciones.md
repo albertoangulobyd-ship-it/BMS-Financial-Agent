@@ -611,3 +611,88 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   el cuerpo en `$select`, una petición sin `IdType="ImmutableId"`, el `$value` de un adjunto
   que no es de fichero, otro host u otro buzón) en `violaciones` en vez de lanzar (el límite
   de errores de cada mensaje se lo tragaría), y cada test falla al final si hay alguna.
+
+## Paso 9 · la ronda
+
+- **Una página que no se termina no avanza la delta** (§3.1 solo guardaba el enlace tras cada
+  página completa, y §3.2 contaba los intentos por ronda): si un mensaje falla (con menos de
+  tres intentos), si un tope llega a mitad o si la ronda para, el enlace se queda en la
+  última página completa y la ronda siguiente la repite. Es lo que hace posible "al tercer
+  intento": con el `try` de cada mensaje la página seguía y el delta no volvía a dar el
+  mensaje.
+- **`estado/vistos.json`**, que el diseño no tenía: la clave de cada llegada escrita en los
+  últimos 7 días (como mucho 20 000). Una página que se repite no vuelve a traer lo que ya se
+  trajo, aunque `orden` ya lo haya registrado y borrado de la bandeja. Sin él, con el tope del
+  día a mitad de una página, cada día se volvía a bajar lo ya traído de esa página y el tope se
+  gastaba en eso: no se pasaba nunca de ahí. Lo escrito en `llegadas/` que aún no se ha
+  registrado también se salta. Tras perder `correo_estado`, o después de 7 días, lo repetido lo
+  descarta `registrar` (§3.4).
+- **Un error que no es del mensaje no cuenta contra él**: sin red, la salida, la credencial, el
+  reloj o Microsoft que limita al listar sus adjuntos paran la ronda con ese código y le
+  devuelven el intento (si no, tres cortes de la red en el mismo mensaje lo dejaban en
+  `error`). Un corte de verdad (el proceso que muere, una excepción que no es `Exception`) sí
+  cuenta, como dice §3.2; también una lista de adjuntos de más de 4 MiB, un 404 o un 500 al
+  listarla, un `receivedDateTime` que no se puede leer o un adjunto sin id.
+- **Un mensaje sin un id que se pueda guardar no tiene llegada** (no hay clave con la que
+  contar sus intentos ni registrarlo) y no detiene la página; tampoco las entradas `@removed`.
+- **La llegada del tercer intento**: si `receivedDateTime` no se puede leer, `recibido_en` es
+  `1970-01-01T00:00:00Z` (antes de 2000: "no se sabe", §3.8 paso 4); sus adjuntos se listan si
+  se puede (sin bajar nada) y van todos como `error` con "no se ha podido procesar el mensaje";
+  si no se pueden listar, la llegada va sin adjuntos (una de la bandeja sin `documento` ya
+  espera a una persona, `lectura_automatica.esperan_persona`).
+- **Pendientes también por los topes**: un PDF que no cabe en el tope de la ronda (300 MiB) o
+  en el del día a mitad de un mensaje queda en `pendientes.json` con cuándo vuelve a caber (la
+  ronda siguiente, o las 00:00 en Amsterdam), y la ronda para tras ese mensaje. Así los topes
+  son duros (como mucho un PDF de más, que se empieza a bajar antes de llegar) sin perder
+  nada, y el tope de mensajes por ronda sigue siendo "tras la página". Los pendientes van
+  primero en cada ronda; a las 24 horas, `error`. Como mucho 500 mensajes en pendientes: con
+  más, lo que no se pudo bajar va como `error` (el original sigue en el buzón).
+- **Un PDF que no se pudo bajar por la red** (sin red, la salida, Microsoft que limita) queda
+  pendiente y la ronda para con ese código; uno que falla por algo suyo (un 404, un 500) queda
+  pendiente y la ronda sigue con los demás.
+- **La delta que caduca vuelve a empezar desde la última vez que esa carpeta llegó al final de
+  su delta, menos 3 días** (`al_dia_en`, guardado con su enlace en `delta-bandeja.json` y
+  `delta-no-deseado.json`), y no desde `ultima_buena`: una ronda puede ir bien sin llegar al
+  final (los topes). Nunca antes de `desde` (a las 00:00 en Amsterdam). Un enlace guardado que
+  no vale es como uno caducado: no se sigue, se empieza de nuevo y queda `delta_reiniciado_en`.
+- **`ultima_consulta` y `ultima_buena`** son el principio de la última ronda que habló con
+  Microsoft y de la última que además fue bien; una ronda retenida (que no pide nada) no cambia
+  ninguna. **`hoy.mensajes` cuenta las llegadas escritas de las dos carpetas**, y
+  `aviso_volumen` es que pasan de 200. **Un PDF nuevo** es uno bajado que empieza por `%PDF-`
+  (aunque `registrar` lo encuentre ya en la base); los bytes del día son todo lo que se bajó.
+- **`correo comprobar` deja su resultado como una ronda** en `estado.json` (`ronda` sin
+  mensajes, `bien` o `fallo` con su código, y el alcance) y no cambia `hoy`, `retenido_hasta`
+  ni la delta: es lo que la app verá tras `correo-configurar`. Con otra ronda en marcha dice
+  que está ocupado y sale con 1 (una ronda ocupada sale con 0: no es un error).
+- **Códigos de salida**: 0, `CORREO_SIN_CONFIGURAR` (10) y `CORREO_FALLO` (11, nuevo), con el
+  código del correo en la salida de errores. La copia de los dos en `docker\comun.ps1` es del
+  paso 15, que los usa. Unos ajustes que no valen son `sin_configurar` (hay que fijarlos), y un
+  certificado que no se puede usar, `credencial`.
+- **El cerrojo, solo `fcntl.flock`**: sin `msvcrt` (la nativa no trae el correo); fuera de
+  Linux, `correo traer` lo dice y no corre.
+- **Al empezar, la ronda limpia lo que dejó una ronda muerta a medias** (los `.parcial-*` de la
+  bandeja y del estado; con el cerrojo en la mano no se está escribiendo nada), además de lo
+  de más de 45 días y de los intentos y vistos de más de 7.
+- **Lo que §3.3 no decía**: el nombre gana al tipo declarado para decidir si se baja
+  (`factura.xml` con `application/octet-stream` es `xml`, y `factura.pdf` con
+  `application/xml` se baja: después manda `%PDF-`); un adjunto sin `@odata.type` o de un tipo
+  que no se conoce, y los que pasan de los 20 tratados, quedan `no_pdf` con su detalle; los que
+  pasan de 50 no se apuntan (el tope de la llegada de §3.8); un tamaño declarado que no es un
+  número no impide bajarlo (cuenta lo que llega); un mensaje con `hasAttachments` falso no
+  pide la lista (Graph lo da falso también cuando solo hay imágenes en línea: `en_linea` queda
+  en 0); un mensaje de "no deseado" sí pide la lista (sin contenido) para apuntar cada adjunto.
+  Una llegada de más de 64 KiB acorta sus textos y, si aún no cabe, apunta menos adjuntos.
+- **El remitente y el asunto** se guardan saneados (sin controles, sin caracteres de dirección
+  ni de anchura cero, los blancos juntos) y recortados a 320 y 200; un `internetMessageId` que
+  no es ASCII visible de hasta 998 caracteres va como `null`.
+- **Un tope más, de páginas por ronda (40, las dos carpetas)**: lo ya visto no cuenta como
+  mensaje, así que una delta que vuelve a empezar (o que no acaba) pediría páginas sin fin en
+  la misma ronda. Tras 40 páginas la ronda para con el enlace guardado y la siguiente sigue.
+- **Para el paso 10 (`registrar`)**: los formatos son los de `correo/bandeja.py` (la llegada
+  con las claves de §3.7, `resultado` de `bandeja.RESULTADOS`, `recibido_en`
+  `1970-01-01T00:00:00Z` cuando no se sabe; `estado.json` con `version`, `ronda`, `hoy`,
+  `ultima_consulta`, `ultima_buena`, `buzon`, `certificado`, `alcance`, `delta_reiniciado_en`,
+  `retenido_hasta` y `aviso_volumen`). Un PDF puede estar en `pdf/` antes que su llegada (un
+  mensaje con otro adjunto pendiente): no es un huérfano mientras no pase de 45 días. El
+  correo no escribe nunca un resultado que no sea de la lista (los internos `_bajar` y
+  `_pendiente` solo viven en `pendientes.json`).
