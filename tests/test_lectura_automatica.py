@@ -669,3 +669,672 @@ def test_db_verificar_ve_una_fila_metida_por_detras(almacen, gente) -> None:
     assert any(p.startswith("pausa_lectura_automatica") and "por detras" in p
                for p in problemas), problemas
     assert any(p.startswith("lectura_automatica") and "por detras" in p for p in problemas)
+
+
+# ============================================================ paso 5: la lectura automatica
+
+from bms_agent import cli, lectura  # noqa: E402
+from bms_agent.almacen import preparar  # noqa: E402
+from bms_agent.nativo import LecturaNoAislada  # noqa: E402
+from test_lectura import (DEL_DOCUMENTO, FALLOS_API, ClienteQueCuenta,  # noqa: E402
+                          ClienteQueFalla)
+from test_lectura_lector import ApiFalsa, ApiQueFalla, SalidaFalsa  # noqa: E402
+
+
+def _del_correo(almacen, *marcas: str, recibido: str = "2026-10-14T08:00:00+00:00") -> list[int]:
+    """PDF que trajo el correo (cada uno en su mensaje de la bandeja), en el almacen."""
+    ids = []
+    for i, nombre in enumerate(marcas):
+        documento = _documento(almacen, nombre)
+        instante = datetime.fromisoformat(recibido) + timedelta(minutes=i)
+        _correo(almacen.conn, marca(instante), ("documento", documento, f"{nombre}.pdf"))
+        ids.append(documento)
+    return ids
+
+
+def _ronda(almacen, client, out, *, cancelar=None) -> tuple[str, int | None]:
+    """Lo que hace la rama automatica de ciclo.ps1 (§4.1), con las mismas funciones que sus
+    ordenes: siguiente, tomar --automatica, contar, autorizar y leer, leyendo del almacen."""
+    conn = almacen.conn
+    que = lectura.siguiente(conn)
+    if que.codigo != lectura.LEER:
+        return que.codigo, None
+    hay = bool(cli._pdfs_a_leer(None, almacen, automatica=True))
+    tomada = lectura.tomar(conn, hay_pdf=hay, automatica=True)
+    solicitud = tomada.solicitud_id
+    if solicitud is None:
+        return tomada.como, None
+    try:
+        estado, _est = lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+            client, cli._pdfs_a_leer(None, almacen, solicitud), out, almacen=almacen,
+            antes=antes))
+    except lectura.ParadaApi as parada:
+        lectura.cerrar(conn, solicitud, parada.motivo, detalle=parada.detalle)
+        return "fallida", solicitud
+    if estado != "esperando_aprobacion":
+        return estado, solicitud
+    estado = lectura.autorizar(conn, solicitud)
+    if estado != "aprobada":
+        return estado, solicitud
+    if cancelar is not None:
+        cancelar(solicitud)
+    leida = lectura.leer(conn, solicitud, client=client, almacen=almacen,
+                         pdfs=cli._pdfs_a_leer(None, almacen, solicitud), out_dir=out)
+    return leida.estado, solicitud
+
+
+def _fila(conn, solicitud):
+    return conn.execute("SELECT * FROM solicitud_lectura WHERE id = ?", (solicitud,)).fetchone()
+
+
+def _excluidos(conn) -> dict[int, str]:
+    return {f[0]: f[1] for f in conn.execute(
+        "SELECT documento_id, motivo_codigo FROM exclusion_automatica")}
+
+
+def test_una_automatica_entera_leyendo_del_almacen(almacen, gente, tmp_path) -> None:
+    """De punta a punta en Python (§7.3), sin red: las facturas del correo se leen solas con
+    la autorizacion vigente, sin que nadie diga que si, y la segunda vez no se paga nada."""
+    conn = almacen.conn
+    out = tmp_path / "out"
+    documentos = _del_correo(almacen, "una", "dos", "tres")
+    client = ClienteQueCuenta()
+    # Apagada: nada, y no se cuenta ni se paga nada.
+    assert _ronda(almacen, client, out) == (lectura.NADA, None)
+    autorizacion = _fijar(conn, gente["ana"])
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    estado, solicitud = _ronda(almacen, client, out)
+    assert estado == "hecha" and sorted(client.leidos) == ["dos", "tres", "una"]
+    fila = _fila(conn, solicitud)
+    assert (fila["origen"], fila["pedida_por"], fila["aprobada_via"], fila["aprobada_por"],
+            fila["autorizacion_id"]) == ("automatica", None, "automatica", None, autorizacion)
+    assert fila["tope_usd_micro"] == min(fila["coste_max_usd_micro"], 2_000_000)
+    assert fila["huella_aprobada"] == fila["huella_estimacion"]
+    # Nadie firma como persona: lo pide y lo acepta "automatico", lo lee el extractor.
+    eventos = conn.execute(
+        "SELECT e.tipo, e.usuario_id, u.nombre, e.datos_json FROM evento AS e "
+        "JOIN usuario AS u ON u.id = e.actor WHERE e.tabla = 'solicitud_lectura' "
+        "AND e.fila_id = ? ORDER BY e.id", (solicitud,)).fetchall()
+    assert [(e["tipo"], e["nombre"]) for e in eventos] == [
+        ("lectura_pedida", "automatico"), ("lectura_contando", "extractor"),
+        ("lectura_contada", "extractor"), ("lectura_aceptada", "automatico"),
+        ("lectura_empezada", "extractor"), ("lectura_terminada", "extractor")]
+    assert {e["usuario_id"] for e in eventos} == {None}
+    import json
+
+    aceptada = json.loads(eventos[3]["datos_json"])
+    assert {k: aceptada[k] for k in ("via", "autorizacion_id", "fijada_por", "tope_dia",
+                                     "tope_mes", "gastado_dia", "gastado_mes")} == {
+        "via": "automatica", "autorizacion_id": autorizacion, "fijada_por": gente["ana"],
+        "tope_dia": 2_000_000, "tope_mes": 25_000_000, "gastado_dia": 0, "gastado_mes": 0}
+    # Las tres, leidas del almacen (por su hash) y con su factura.
+    pasada = conn.execute("SELECT * FROM pasada_lectura WHERE solicitud_id = ?",
+                          (solicitud,)).fetchone()
+    resultado = json.loads(pasada["resultado_json"])
+    shas = {conn.execute("SELECT sha256 FROM documento WHERE id = ?", (d,)).fetchone()[0]
+            for d in documentos}
+    assert {r["nombre"] for r in resultado} == {f"{s}.pdf" for s in shas}
+    assert {r["estado"] for r in resultado} == {"nueva"}
+    assert {r["documento_id"] for r in resultado} == set(documentos)
+    assert auto.gastado(conn) == (pasada["coste_usd_micro"],) * 2 and pasada["coste_usd_micro"]
+    assert auto.elegibles(conn) == []
+    # Otra ronda: nada nuevo, nada pagado.
+    contados = client.conteos
+    assert _ronda(almacen, client, out) == (lectura.NADA, None)
+    assert (client.conteos, len(client.leidos)) == (contados, 3)
+    assert verificar_evidencia(conn) == []
+
+
+def test_una_persona_no_da_el_si_a_una_automatica(almacen, gente, tmp_path) -> None:
+    conn = almacen.conn
+    _del_correo(almacen, "una")
+    _fijar(conn, gente["ana"])
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    solicitud = tomada.solicitud_id
+    lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+        ClienteQueCuenta(), cli._pdfs_a_leer(None, almacen, solicitud), tmp_path / "out",
+        almacen=almacen, antes=antes))
+    fila = _fila(conn, solicitud)
+    assert fila["estado"] == "esperando_aprobacion"
+    with pytest.raises(EstadoNoValido, match="es automatica"):
+        servicios.ejecutar(conn, "aprobar_lectura", {"solicitud_id": solicitud,
+                                                     "huella_estimacion": fila["huella_estimacion"]},
+                           usuario_id=gente["ana"])
+    with pytest.raises(EstadoNoValido, match="es automatica"):
+        lectura.aprobar_en_ventana(conn, solicitud)
+    # Ni saltandose el codigo: la base no deja otro si que el de la autorizacion.
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with transaccion(conn):
+            conn.execute("UPDATE solicitud_lectura SET estado = 'aprobada', aprobada_en = ?, "
+                         "aprobada_via = 'app', aprobada_por = ?, tope_usd_micro = 1, "
+                         "huella_aprobada = huella_estimacion WHERE id = ?",
+                         ("2026-10-14T09:30:00+00:00", gente["ana"], solicitud))
+    assert lectura.autorizar(conn, solicitud) == "aprobada"
+    # Una vez, y solo a una automatica.
+    with pytest.raises(EstadoNoValido, match="no espera un si"):
+        lectura.autorizar(conn, solicitud)
+    lectura.cerrar(conn, solicitud, "interrumpida")
+    with pytest.raises(EstadoNoValido, match="no es automatica"):
+        lectura.autorizar(conn, _terminada(conn, "2026-10-14T09:00:00+00:00", origen="lector",
+                                           motivo_codigo="salida"))
+
+
+def _contada(almacen, out, client=None) -> int:
+    """Una automatica tomada y contada (las elegibles de ahora), que espera su si."""
+    conn = almacen.conn
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    estado, _est = lectura.contar(conn, tomada.solicitud_id, lambda antes: lectura.estimar(
+        client or ClienteQueCuenta(),
+        [almacen.documentos.ruta(d["ruta_cas"]) for d in auto.elegibles(conn, limite=100)],
+        out, almacen=almacen, antes=antes))
+    assert estado == "esperando_aprobacion"
+    return tomada.solicitud_id
+
+
+def test_el_tope_de_autorizar_es_el_minimo(almacen, gente, tmp_path) -> None:
+    """mín(lo que puede costar lo que se lee, lo que queda hoy, lo que queda este mes)."""
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _del_correo(almacen, "una", "dos", "tres")
+    _fijar(conn, gente["ana"], activa=0)
+    solicitud = _contada(almacen, out)
+    alto_total = _fila(conn, solicitud)["coste_max_usd_micro"]
+    alto = alto_total // 3
+    # Apagada: no se acepta, y no se gasta nada.
+    assert lectura.autorizar(conn, solicitud) == "nada_que_leer"
+    assert _fila(conn, solicitud)["motivo_codigo"] == "sin_autorizacion"
+
+    def tope_con(**valores) -> int:
+        _fijar(conn, gente["ana"], **valores)
+        solicitud = _contada(almacen, out)
+        assert lectura.autorizar(conn, solicitud) == "aprobada"
+        tope = _fila(conn, solicitud)["tope_usd_micro"]
+        lectura.cerrar(conn, solicitud, "interrumpida")
+        return tope
+
+    # Con sitio de sobra, lo que puede costar.
+    assert tope_con(tope_dia_usd_micro=20_000_000, max_por_documento_usd_micro=alto + 1) == (
+        alto_total)
+    # Lo que queda hoy da para dos facturas y media: el tope es eso.
+    assert tope_con(tope_dia_usd_micro=alto * 5 // 2, max_por_documento_usd_micro=alto + 1) == (
+        alto * 5 // 2)
+    # Lo del mes, por debajo de lo del dia (lo gastado por otra automatica este mes).
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=20_000_000)
+    _automatica(conn, "2026-10-02T08:00:00+00:00", alto, autorizacion=auto.vigente(conn)["id"])
+    assert tope_con(tope_dia_usd_micro=alto * 3, tope_mes_usd_micro=alto * 3,
+                    max_por_documento_usd_micro=alto + 1) == alto * 2
+    # Si lo de hoy ya no llega a una factura, no se acepta (y no se aparta nada).
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=20_000_000)
+    _automatica(conn, "2026-10-14T08:00:00+00:00", alto, autorizacion=auto.vigente(conn)["id"])
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=alto + alto // 2,
+           max_por_documento_usd_micro=alto + 1)
+    solicitud = _contada(almacen, out)
+    assert lectura.autorizar(conn, solicitud) == "nada_que_leer"
+    assert _fila(conn, solicitud)["motivo_codigo"] == "limite_dia"
+    assert _excluidos(conn) == {}
+
+
+def test_lo_que_pasa_del_maximo_por_factura_no_se_lee_solo(almacen, gente, tmp_path) -> None:
+    conn = almacen.conn
+    out = tmp_path / "out"
+    documentos = _del_correo(almacen, "una", "dos")
+    _fijar(conn, gente["ana"], activa=0)
+    solicitud = _contada(almacen, out)
+    alto = _fila(conn, solicitud)["coste_max_usd_micro"] // 2
+    lectura.autorizar(conn, solicitud)
+    _fijar(conn, gente["ana"], max_por_documento_usd_micro=alto - 1)
+    client = ClienteQueCuenta()
+    estado, solicitud = _ronda(almacen, client, out)
+    assert (estado, _fila(conn, solicitud)["motivo_codigo"]) == ("nada_que_leer", "excluidas")
+    assert client.leidos == [] and _excluidos(conn) == {d: "grande" for d in documentos}
+    automatico = usuario_sistema(conn, "automatico")
+    assert [tuple(f) for f in conn.execute(
+        "SELECT DISTINCT solicitud_id, por FROM exclusion_automatica")] == [(solicitud, automatico)]
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    # Espera a una persona, que si la puede leer desde Procesar.
+    assert {d["documento_id"] for d in auto.esperan_persona(conn)["documentos"]} == set(documentos)
+    assert {d["documento_id"] for d in auto.pendientes_del_correo(conn)} == set(documentos)
+    assert verificar_evidencia(conn) == []
+
+
+def test_cada_llamada_no_pasa_del_maximo_por_factura_ni_de_una_ronda(almacen, gente,
+                                                                      tmp_path) -> None:
+    """El maximo por factura es un tope duro de cada llamada (max_tokens), aunque quede mas
+    del dia; y una ronda no lee mas de max_documentos aunque el tope diera para mas."""
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _del_correo(almacen, "una", "dos", "tres")
+
+    class Anota(ClienteQueCuenta):
+        def __init__(self) -> None:
+            super().__init__()
+            self.max_tokens: list[int] = []
+
+        def parse(self, **peticion):
+            self.max_tokens.append(peticion["max_tokens"])
+            return super().parse(**peticion)
+
+    client = Anota()
+    _fijar(conn, gente["ana"], activa=0)
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    estado, est = lectura.contar(conn, tomada.solicitud_id, lambda antes: lectura.estimar(
+        client, [almacen.documentos.ruta(d["ruta_cas"]) for d in auto.elegibles(conn)], out,
+        almacen=almacen, antes=antes))
+    contado = est.documentos[0]
+    lectura.autorizar(conn, tomada.solicitud_id)
+    por_documento = contado.alto_usd_micro
+    _fijar(conn, gente["ana"], tope_dia_usd_micro=20_000_000, max_documentos=2,
+           max_por_documento_usd_micro=por_documento)
+    estado, solicitud = _ronda(almacen, client, out)
+    assert estado == "hecha" and len(client.leidos) == 2
+    esperado, _peor = lectura.salida_que_cabe(est.modelo, contado.entrada, por_documento)
+    assert client.max_tokens == [esperado, esperado]
+    # La tercera, en la ronda siguiente.
+    assert _ronda(almacen, client, out)[0] == "hecha" and len(client.leidos) == 3
+
+
+def test_contar_aparta_lo_que_la_api_no_acepta(almacen, gente, tmp_path) -> None:
+    conn = almacen.conn
+    out = tmp_path / "out"
+    mala, buena = _del_correo(almacen, "mala", "buena")
+    _fijar(conn, gente["ana"])
+    client = ClienteQueFalla(al_contar={"mala": DEL_DOCUMENTO["413"]})
+    estado, solicitud = _ronda(almacen, client, out)
+    assert estado == "hecha" and client.leidos == ["buena"]
+    assert _excluidos(conn) == {mala: "rechazado_api"}
+    assert conn.execute("SELECT solicitud_id FROM exclusion_automatica").fetchone()[0] == solicitud
+    evento = conn.execute("SELECT * FROM evento WHERE tipo = 'lectura_excluida'").fetchone()
+    assert "request_too_large" in evento["motivo"]
+    assert auto.esperan_persona(conn)["documentos"][0]["documento_id"] == mala
+    # Si la API no acepta ninguna de las nuevas: nada que leer, apartadas, sin espera.
+    otra_mala = _del_correo(almacen, "otra-mala")[0]
+    client = ClienteQueFalla(al_contar={"otra-mala": DEL_DOCUMENTO["400"]})
+    estado, solicitud = _ronda(almacen, client, out)
+    fila = _fila(conn, solicitud)
+    assert (estado, fila["estado"], fila["motivo_codigo"]) == ("nada_que_leer", "nada_que_leer",
+                                                               "excluidas")
+    sha = conn.execute("SELECT sha256 FROM documento WHERE id = ?", (otra_mala,)).fetchone()[0]
+    assert f"{sha}.pdf" in fila["motivo"] and _excluidos(conn)[otra_mala] == "rechazado_api"
+    assert auto.espera_tras_fallo(conn) is None
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    del buena
+
+
+@pytest.mark.parametrize("al", ["contar", "leer"])
+def test_un_fallo_de_la_api_en_una_automatica_espera_y_no_aparta(almacen, gente, tmp_path,
+                                                                 reloj, al) -> None:
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _del_correo(almacen, "una", "dos")
+    _fijar(conn, gente["ana"])
+    fabrica, motivo = FALLOS_API["402"]
+    falla = {"una": fabrica, "dos": fabrica}
+    client = ClienteQueFalla(**({"al_contar": falla} if al == "contar" else {"al_leer_falla": falla}))
+    estado, solicitud = _ronda(almacen, client, out)
+    fila = _fila(conn, solicitud)
+    assert (estado, fila["estado"], fila["motivo_codigo"]) == ("fallida", "fallida", motivo)
+    assert _excluidos(conn) == {}
+    que = lectura.siguiente(conn)
+    assert (que.codigo, que.parada, que.motivo) == (lectura.LIMITE, "fallo", "saldo")
+    assert que.proximo_intento == marca(datetime.fromisoformat(fila["terminada_en"])
+                                        + timedelta(hours=1))
+    # A la hora se vuelve a probar (y, si sigue sin saldo, se espera el doble).
+    reloj.avanzar(hours=1)
+    estado, _solicitud = _ronda(almacen, client, out)
+    assert estado == "fallida" and lectura.siguiente(conn).proximo_intento == marca(
+        reloj.ahora() + timedelta(hours=2))
+    assert _excluidos(conn) == {}
+    # Con saldo otra vez, se leen y la espera vuelve a 1 h.
+    reloj.avanzar(hours=2)
+    estado, _solicitud = _ronda(almacen, ClienteQueCuenta(), out)
+    assert estado == "hecha" and auto.espera_tras_fallo(conn) is None
+
+
+def test_la_segunda_falla_por_el_documento_la_aparta(almacen, gente, tmp_path, reloj,
+                                                     monkeypatch) -> None:
+    # Un fallo sin uso cuenta lo peor que podia costar: con una salida corta, la otra cabe.
+    monkeypatch.setenv("BMS_EXTRACT_MAX_TOKENS", "1000")
+    conn = almacen.conn
+    out = tmp_path / "out"
+    mala, buena = _del_correo(almacen, "mala", "buena")
+    _fijar(conn, gente["ana"])
+    client = ClienteQueFalla(al_leer_falla={"mala": DEL_DOCUMENTO["400"]})
+    assert _ronda(almacen, client, out)[0] == "hecha"
+    # A la primera, se reintenta en la ronda siguiente.
+    assert _excluidos(conn) == {}
+    assert [d["documento_id"] for d in auto.elegibles(conn)] == [mala]
+    estado, segunda = _ronda(almacen, client, out)
+    assert estado == "hecha" and client.intentos.count("mala") == 2
+    assert _excluidos(conn) == {mala: "fallo"}
+    evento = conn.execute("SELECT * FROM evento WHERE tipo = 'lectura_excluida'").fetchone()
+    usuario = conn.execute("SELECT nombre FROM usuario WHERE id = ?",
+                           (evento["actor"],)).fetchone()[0]
+    assert (usuario, evento["usuario_id"], json_fila(evento)["solicitud_id"]) == (
+        "automatico", None, segunda)
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    del buena
+
+
+def json_fila(evento) -> dict:
+    import json
+
+    return json.loads(evento["datos_json"])["fila"]
+
+
+def test_un_fallo_de_una_persona_no_cuenta_para_apartarla(almacen, gente, tmp_path) -> None:
+    """Lo que falla en una lectura de una persona no cuenta para las dos de la automatica."""
+    conn = almacen.conn
+    out = tmp_path / "out"
+    mala = _del_correo(almacen, "mala")[0]
+    client = ClienteQueFalla(al_leer_falla={"mala": DEL_DOCUMENTO["400"]})
+    solicitud, _e = lectura.pedir(conn, gente["berta"])
+    lectura.tomar(conn, hay_pdf=True)
+    pdfs = cli._pdfs_a_leer(None, almacen, solicitud)
+    lectura.contar(conn, solicitud, lambda antes: lectura.estimar(client, pdfs, out,
+                                                                    almacen=almacen, antes=antes))
+    servicios.ejecutar(conn, "aprobar_lectura", {
+        "solicitud_id": solicitud, "huella_estimacion": _fila(conn, solicitud)["huella_estimacion"]},
+        usuario_id=gente["berta"])
+    assert lectura.leer(conn, solicitud, client=client, almacen=almacen, pdfs=pdfs,
+                        out_dir=out).estado == "hecha"
+    _fijar(conn, gente["ana"])
+    assert _ronda(almacen, client, out)[0] == "hecha"
+    assert _excluidos(conn) == {} and auto.elegibles(conn)[0]["documento_id"] == mala
+
+
+def test_parar_una_automatica_la_pausa_hasta_manana(almacen, gente, tmp_path, reloj) -> None:
+    conn = almacen.conn
+    out = tmp_path / "out"
+    _del_correo(almacen, "una", "dos")
+    _fijar(conn, gente["ana"])
+
+    def para(solicitud):
+        servicios.ejecutar(conn, "cancelar_lectura", {"solicitud_id": solicitud},
+                           usuario_id=gente["berta"])
+
+    estado, solicitud = _ronda(almacen, ClienteQueCuenta(), out, cancelar=para)
+    assert estado == "cancelada"
+    pausa = auto.pausa_vigente(conn)
+    assert (pausa["motivo"], pausa["por"], pausa["solicitud_id"], pausa["hasta"]) == (
+        "persona", gente["berta"], solicitud, "2026-10-14T22:00:00+00:00")
+    que = lectura.siguiente(conn)
+    assert (que.codigo, que.parada, que.hasta) == (lectura.LIMITE, "persona",
+                                                   "2026-10-14T22:00:00+00:00")
+    # Parar no es un fallo tecnico: no hace esperar mas.
+    assert auto.espera_tras_fallo(conn) is None
+    # A las 00:00 de Amsterdam vuelve sola...
+    reloj.instante = datetime(2026, 10, 14, 22, 0, tzinfo=UTC)
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    # ... y antes, una persona la puede volver a encender ("Weer aanzetten").
+    reloj.instante = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+    servicios.ejecutar(conn, "reanudar_lectura_automatica", {}, usuario_id=gente["berta"])
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    # Parar una que aun no lee tambien pausa.
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    para(tomada.solicitud_id)
+    assert _fila(conn, tomada.solicitud_id)["estado"] == "cancelada"
+    assert auto.pausa_vigente(conn)["solicitud_id"] == tomada.solicitud_id
+    # Parar la de una persona no pausa la automatica.
+    servicios.ejecutar(conn, "reanudar_lectura_automatica", {}, usuario_id=gente["berta"])
+    suya, _e = lectura.pedir(conn, gente["berta"])
+    para(suya)
+    assert auto.pausa_vigente(conn) is None
+    assert verificar_evidencia(conn) == []
+
+
+def test_siguiente_en_su_orden(almacen, gente, tmp_path, reloj) -> None:
+    conn = almacen.conn
+    # Sin autorizacion y sin nada pedido: nada.
+    assert lectura.siguiente(conn) == lectura.Siguiente(
+        lectura.NADA, detalle="la lectura automatica esta apagada")
+    # Lo que pide una persona va antes que nada, aunque la automatica este apagada.
+    pedida, _e = lectura.pedir(conn, gente["berta"])
+    assert lectura.siguiente(conn).codigo == lectura.PEDIDA
+    lectura.tomar(conn, hay_pdf=True, solo_pedida=True)
+    # Otra viva con su lector: nada.
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    lectura.cerrar(conn, pedida, "salida")
+    autorizacion = _fijar(conn, gente["ana"])
+    # Encendida, pero en pausa.
+    auto.pausar(conn, "volumen")
+    assert (lectura.siguiente(conn).codigo, lectura.siguiente(conn).parada) == (lectura.LIMITE,
+                                                                               "volumen")
+    auto.reanudar(conn, gente["berta"])
+    # Tras un fallo tecnico, a esperar.
+    _terminada(conn, marca(reloj.ahora()), motivo_codigo="api_no_disponible")
+    que = lectura.siguiente(conn)
+    assert (que.codigo, que.parada, que.motivo, que.desde, que.proximo_intento) == (
+        lectura.LIMITE, "fallo", "api_no_disponible", "2026-10-14T09:30:00+00:00",
+        "2026-10-14T10:30:00+00:00")
+    reloj.avanzar(hours=1)
+    # Sin nada que leer: nada.
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    _del_correo(almacen, "una")
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    # Lo de hoy ya no llega a una factura: parada hasta las 00:00.
+    _automatica(conn, marca(reloj.ahora() - timedelta(minutes=5)), 1_500_001,
+                autorizacion=autorizacion)
+    que = lectura.siguiente(conn)
+    assert (que.codigo, que.parada, que.hasta) == (lectura.LIMITE, "limite_dia",
+                                                   "2026-10-14T22:00:00+00:00")
+    reloj.instante = datetime(2026, 10, 14, 22, 0, tzinfo=UTC)
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    # Una automatica que su ciclo dejo a medias no para nada: tomar la cierra.
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    assert lectura.siguiente(conn).codigo == lectura.NADA
+    reloj.avanzar(minutes=46)
+    assert lectura.siguiente(conn).codigo == lectura.LEER
+    nueva = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    assert nueva.como == lectura.CREADA
+    assert (_fila(conn, tomada.solicitud_id)["estado"],
+            _fila(conn, tomada.solicitud_id)["motivo_codigo"]) == ("fallida", "abandonada")
+    # El lector se cerro: no es un fallo tecnico, no hace esperar.
+    assert auto.espera_tras_fallo(conn) is None
+
+
+def test_una_automatica_que_esperaba_se_cierra_y_la_de_una_persona_se_vuelve_a_contar(
+        almacen, gente, tmp_path, reloj) -> None:
+    conn = almacen.conn
+    _del_correo(almacen, "una")
+    _fijar(conn, gente["ana"])
+    tomada = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    lectura.contar(conn, tomada.solicitud_id, lambda antes: lectura.estimar(
+        ClienteQueCuenta(), cli._pdfs_a_leer(None, almacen, tomada.solicitud_id),
+        tmp_path / "out", almacen=almacen, antes=antes))
+    # El ciclo murio entre contar y autorizar: a los 90 s sin senales, se cierra (no se vuelve
+    # a contar como la de una persona).
+    reloj.avanzar(seconds=91)
+    otra = lectura.tomar(conn, hay_pdf=True, automatica=True)
+    assert otra.como == lectura.CREADA
+    assert _fila(conn, tomada.solicitud_id)["motivo_codigo"] == "abandonada"
+    lectura.cerrar(conn, otra.solicitud_id, "salida")
+    # La de una persona que esperaba el si y cuyo lector ya no esta: la automatica no la
+    # toca, y el camino de la pedida la vuelve a contar.
+    suya, _e = lectura.pedir(conn, gente["berta"])
+    lectura.tomar(conn, hay_pdf=True, solo_pedida=True)
+    lectura.contar(conn, suya, lambda _antes: lectura.estimar(
+        ClienteQueCuenta(), cli._pdfs_a_leer(None, almacen, suya), tmp_path / "out",
+        almacen=almacen))
+    reloj.avanzar(seconds=91)
+    assert lectura.siguiente(conn).codigo == lectura.PEDIDA
+    assert lectura.tomar(conn, hay_pdf=True, automatica=True).como == lectura.OCUPADA
+    assert lectura.tomar(conn, hay_pdf=True, solo_pedida=True) == lectura.Tomada(
+        suya, lectura.TOMADA, "se vuelve a contar")
+    # Sin nada pedido, --solo-pedida no crea ninguna.
+    lectura.cerrar(conn, suya, "salida")
+    assert lectura.tomar(conn, hay_pdf=True, solo_pedida=True).como == lectura.VACIO
+    assert lectura.viva(conn) is None
+
+
+def test_lo_que_lee_una_persona_incluye_lo_del_correo(almacen, gente, tmp_path) -> None:
+    """La lectura de una persona (Procesar, leer-facturas): el buzon y lo que el correo trajo
+    y falta por leer, menos lo que una persona aparto; la automatica, solo lo elegible."""
+    conn = almacen.conn
+    buzon = tmp_path / "buzon"
+    buzon.mkdir()
+    (buzon / "papel.pdf").write_bytes(PDF + b"%marca:papel\n")
+    correo, apartada, grande = _del_correo(almacen, "correo", "apartada", "grande")
+    auto.excluir(conn, [apartada], "persona", gente["berta"])
+    auto.excluir(conn, [grande], "grande", usuario_sistema(conn, "automatico"),
+                 solicitud_id=_terminada(conn, "2026-10-14T09:00:00+00:00", "nada_que_leer",
+                                         "excluidas"))
+    nombres = {p.name for p in cli._pdfs_a_leer(str(buzon), almacen, automatica=False)}
+    sha = {d: conn.execute("SELECT sha256 FROM documento WHERE id = ?", (d,)).fetchone()[0]
+           for d in (correo, apartada, grande)}
+    assert nombres == {"papel.pdf", f"{sha[correo]}.pdf", f"{sha[grande]}.pdf"}
+    # La automatica: nada sin autorizacion encendida; con ella, solo lo elegible.
+    assert cli._pdfs_a_leer(str(buzon), almacen, automatica=True) == []
+    _fijar(conn, gente["ana"])
+    assert [p.name for p in cli._pdfs_a_leer(str(buzon), almacen, automatica=True)] == [
+        f"{sha[correo]}.pdf"]
+
+
+# ============================================================ el ciclo, por la CLI
+
+@pytest.fixture
+def ciclo(tmp_path, monkeypatch, capsys):
+    """Las ordenes de ciclo.ps1 (§4.1) con cli.main, sobre una base en disco, una salida falsa
+    y una API falsa que sin la salida encendida no se alcanza (como test_lectura_lector)."""
+    db = tmp_path / "datos" / "bms.sqlite3"
+    buzon = tmp_path / "buzon" / "facturas"
+    buzon.mkdir(parents=True)
+    out = tmp_path / "datos" / "out"
+    with preparar(db) as almacen:
+        ana = persona(almacen.conn, "Ana", "administrador")
+    salida = SalidaFalsa()
+    estado = {"api": ApiFalsa(salida), "ventana": None}
+
+    def cliente_api(_anthropic):
+        if not salida.encendida:
+            raise LecturaNoAislada("no se lee nada ni se paga nada: sin la salida")
+        return estado["api"]
+
+    def sin_ventana():
+        raise AssertionError("el ciclo no lee ninguna ventana")
+
+    monkeypatch.setattr(cli, "_cliente_api", cliente_api)
+    monkeypatch.setattr(cli, "_linea_de_la_ventana", sin_ventana)
+
+    def orden(*argumentos: str) -> int:
+        return cli.main([*argumentos, "--db", str(db)])
+
+    def leer_con_salida(solicitud: str, *, automatica: bool) -> list[str]:
+        """Leer-Con-Salida de ciclo.ps1: la salida, contar, autorizar o esperar --solo-app,
+        leer, y pase lo que pase la salida apagada y la lectura cerrada si quedo a medias."""
+        pasos = []
+        salida.encender()
+        try:
+            pasos.append("contar")
+            if orden("lectura", "contar", solicitud, str(buzon), "--out", str(out)) != 0:
+                return pasos
+            if automatica:
+                pasos.append("autorizar")
+                codigo = orden("lectura", "autorizar", solicitud)
+            else:
+                pasos.append("esperar")
+                codigo = orden("lectura", "esperar", solicitud, "--solo-app")
+            if codigo != 0:
+                return pasos
+            pasos.append("leer")
+            orden("lectura", "leer", solicitud, str(buzon), "--out", str(out))
+            return pasos
+        finally:
+            salida.apagar()
+            orden("lectura", "cerrar", solicitud, "--motivo", "interrumpida", "--si-viva")
+
+    def una_vuelta() -> tuple[int, list[str]]:
+        """Lo que hace el ciclo con la lectura: (lo que dijo siguiente, los pasos)."""
+        capsys.readouterr()
+        codigo = orden("lectura", "siguiente")
+        if codigo == 0:
+            argumentos = ("lectura", "tomar", "--automatica")
+        elif codigo == cli.LECTURA_PEDIDA:
+            argumentos = ("lectura", "tomar", str(buzon), "--solo-pedida")
+        else:
+            return codigo, []
+        if orden(*argumentos) != 0:
+            return codigo, ["tomar"]
+        solicitud = capsys.readouterr().out.strip().splitlines()[-1]
+        return codigo, ["tomar"] + leer_con_salida(solicitud, automatica=codigo == 0)
+
+    def con_la_base(funcion):
+        with preparar(db) as almacen:
+            return funcion(almacen)
+
+    return {"vuelta": una_vuelta, "base": con_la_base, "ana": ana, "salida": salida,
+            "estado": estado, "buzon": buzon, "orden": orden, "monkeypatch": monkeypatch}
+
+
+def test_el_ciclo_por_la_cli(ciclo, capsys) -> None:
+    base = ciclo["base"]
+    ana = ciclo["ana"]
+    assert ciclo["vuelta"]() == (cli.LECTURA_NADA, [])
+    base(lambda a: _del_correo(a, "una", "dos"))
+    assert ciclo["vuelta"]() == (cli.LECTURA_NADA, [])           # apagada
+    base(lambda a: auto.fijar(a.conn, ana, **POR_DEFECTO, motivo="Las del correo"))
+    codigo, pasos = ciclo["vuelta"]()
+    assert (codigo, pasos) == (0, ["tomar", "contar", "autorizar", "leer"])
+    assert sorted(ciclo["estado"]["api"].leidos) == ["dos", "una"]
+    assert ciclo["salida"].historia == ["encendida", "apagada"]
+    fila = base(lambda a: a.conn.execute(
+        "SELECT * FROM solicitud_lectura ORDER BY id DESC").fetchone())
+    assert (fila["origen"], fila["estado"], fila["aprobada_via"]) == ("automatica", "hecha",
+                                                                      "automatica")
+    # Nada nuevo: no se enciende nada.
+    assert ciclo["vuelta"]() == (cli.LECTURA_NADA, [])
+    # Parada (pausa por volumen): 9, y dice por que.
+    base(lambda a: auto.pausar(a.conn, "volumen"))
+    base(lambda a: _del_correo(a, "tres"))
+    capsys.readouterr()
+    assert ciclo["orden"]("lectura", "siguiente") == cli.LECTURA_LIMITE
+    assert "mucho mas correo de lo normal" in capsys.readouterr().err
+    assert ciclo["salida"].historia == ["encendida", "apagada"]
+
+
+def test_el_ciclo_lee_la_pedida_con_el_si_de_la_app(ciclo) -> None:
+    base = ciclo["base"]
+    base(lambda a: _del_correo(a, "una"))
+    (ciclo["buzon"] / "papel.pdf").write_bytes(PDF + b"%marca:papel\n")
+    base(lambda a: servicios.ejecutar(a.conn, "pedir_lectura", {}, usuario_id=ciclo["ana"]))
+
+    def la_app_dice_que_si():
+        def linea(_segundos):
+            def si(almacen):
+                fila = almacen.conn.execute(
+                    "SELECT * FROM solicitud_lectura ORDER BY id DESC").fetchone()
+                servicios.ejecutar(almacen.conn, "aprobar_lectura", {
+                    "solicitud_id": fila["id"], "huella_estimacion": fila["huella_estimacion"]},
+                    usuario_id=ciclo["ana"])
+            base(si)
+            return None
+        return linea
+
+    ciclo["monkeypatch"].setattr(cli, "_sin_ventana", la_app_dice_que_si)
+    codigo, pasos = ciclo["vuelta"]()
+    assert (codigo, pasos) == (cli.LECTURA_PEDIDA, ["tomar", "contar", "esperar", "leer"])
+    assert sorted(ciclo["estado"]["api"].leidos) == ["papel", "una"]
+    fila = base(lambda a: a.conn.execute(
+        "SELECT * FROM solicitud_lectura ORDER BY id DESC").fetchone())
+    assert (fila["origen"], fila["estado"], fila["aprobada_via"]) == ("app", "hecha", "app")
+
+
+def test_autorizar_por_la_cli_dice_por_que_no(ciclo, capsys) -> None:
+    base = ciclo["base"]
+    base(lambda a: _del_correo(a, "una"))
+    base(lambda a: auto.fijar(a.conn, ciclo["ana"], **POR_DEFECTO, motivo="Las del correo"))
+    capsys.readouterr()
+    assert ciclo["orden"]("lectura", "tomar", "--automatica") == 0
+    solicitud = capsys.readouterr().out.strip()
+    ciclo["salida"].encender()
+    assert ciclo["orden"]("lectura", "contar", solicitud, str(ciclo["buzon"])) == 0
+    # La apagan entre contar y autorizar: no se lee.
+    base(lambda a: auto.fijar(a.conn, ciclo["ana"], **{**POR_DEFECTO, "activa": 0},
+                              motivo="Ahora no"))
+    capsys.readouterr()
+    assert ciclo["orden"]("lectura", "autorizar", solicitud) == cli.LECTURA_NADA
+    assert "la lectura automatica esta apagada" in capsys.readouterr().err
+    # Una que ya no espera, o una de una persona: no.
+    assert ciclo["orden"]("lectura", "autorizar", solicitud) == cli.LECTURA_FALLIDA
+    # Esperar el si de una automatica no tiene sentido.
+    assert ciclo["orden"]("lectura", "esperar", solicitud) == cli.LECTURA_FALLIDA
+    ciclo["salida"].apagar()

@@ -1689,6 +1689,10 @@ export const nl = {
         saldo: 'Het tegoed voor de API is op (of het bestedingslimiet is bereikt). Vul het aan; daarna gaat het vanzelf verder.',
         clave_rechazada: 'De API weigert de sleutel. De beheerder moet hem vervangen (clave.bat).',
         api_no_disponible: 'De API is even niet bereikbaar of overbelast. Er is niets apart gezet; het wordt later vanzelf opnieuw geprobeerd.',
+        limite_dia: 'Het dagplafond voor automatisch lezen is bereikt.',
+        limite_mes: 'Het maandplafond voor automatisch lezen is bereikt.',
+        excluidas: 'Deze facturen worden niet vanzelf gelezen: ze wachten op jou.',
+        sin_autorizacion: 'Automatisch lezen staat uit.',
         other: 'De lezer kon het niet afmaken.',
       },
       notes: {

@@ -1688,6 +1688,10 @@ export const es: Messages = {
         saldo: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo; después sigue solo.',
         clave_rechazada: 'La API rechaza la clave. Quien mantiene el programa tiene que cambiarla (clave.bat).',
         api_no_disponible: 'La API no está disponible o está saturada. No se ha apartado nada; se vuelve a probar solo más tarde.',
+        limite_dia: 'Se ha llegado al tope del día de la lectura automática.',
+        limite_mes: 'Se ha llegado al tope del mes de la lectura automática.',
+        excluidas: 'Estas facturas no se leen solas: esperan a una persona.',
+        sin_autorizacion: 'La lectura automática está apagada.',
         other: 'El lector no ha podido terminar.',
       },
       notes: {

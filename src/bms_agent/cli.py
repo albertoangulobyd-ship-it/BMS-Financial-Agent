@@ -10,7 +10,9 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
     bms-agent score               compara out/ con las respuestas a mano
     bms-agent coste               que ha costado, y que costaria la proxima
     bms-agent lectura ...         la lectura pedida desde la app (paso 17): lo que hace el
-                                  lector (tomar, contar, esperar el si, leer, cerrar) y ver
+                                  lector (tomar, contar, esperar el si, leer, cerrar) y ver;
+                                  y la automatica (paso 18): siguiente, tomar --automatica,
+                                  autorizar
     bms-agent db init|migrar|verificar   el almacen (datos/bms.sqlite3)
     bms-agent importar-out        lleva out/*.json al almacen y lo tipa, sin llamar a la API
     bms-agent ingestar            tipa lo extraido que aun no tiene su factura, sin la API
@@ -642,30 +644,123 @@ LECTURA_OCUPADA = 4       # otro lector tiene una lectura entre manos
 LECTURA_CANCELADA = 5     # alguien dijo que no (la app o la ventana)
 LECTURA_CADUCADA = 6      # nadie dijo que si en el plazo
 LECTURA_FALLIDA = 7       # no se pudo: la lectura queda fallida con su motivo
+# Paso 18: lo que dice `lectura siguiente` al ciclo automatico (0: una lectura automatica).
+LECTURA_PEDIDA = 8        # una persona pidio una lectura en la app: el camino del lector
+LECTURA_LIMITE = 9        # la automatica esta encendida pero parada (pausa, fallo o tope)
 
 
 def _pdfs_de(carpeta: str) -> list[Path]:
     return list(iter_pdfs(carpeta)) if Path(carpeta).is_dir() else []
 
 
+def _pdfs_a_leer(carpeta: str | None, almacen, solicitud_id: int | None = None, *,
+                 automatica: bool | None = None) -> list[Path]:
+    """Los PDF de una lectura (paso 18). Una automatica lee solo las facturas elegibles del
+    correo (las mas antiguas, como mucho las de una ronda de la autorizacion encendida), de
+    sus originales en el almacen; sin autorizacion encendida, ninguna. Las demas, lo del
+    buzon (buzon/facturas) y lo que el correo trajo y falta por leer (menos lo que una persona
+    aparto de la lectura automatica). `automatica` None: lo dice el origen de la peticion."""
+    from . import lectura_automatica
+
+    conn = almacen.conn
+    if automatica is None:
+        fila = conn.execute("SELECT origen FROM solicitud_lectura WHERE id = ?",
+                            (solicitud_id,)).fetchone()
+        automatica = fila is not None and fila["origen"] == "automatica"
+    if automatica:
+        autorizacion = lectura_automatica.encendida(conn)
+        if autorizacion is None:
+            return []
+        documentos = lectura_automatica.elegibles(conn, autorizacion)
+    else:
+        documentos = lectura_automatica.pendientes_del_correo(conn)
+    del_correo = [almacen.documentos.ruta(d["ruta_cas"]) for d in documentos]
+    return del_correo if automatica else (_pdfs_de(carpeta) if carpeta else []) + del_correo
+
+
 def _cmd_lectura_tomar(args: argparse.Namespace) -> int:
     """El lector se abre: toma la lectura pedida (o crea una) y dice su numero, solo, por la
-    salida normal (lo lee el script); lo demas va a la de errores."""
+    salida normal (lo lee el script); lo demas va a la de errores. Desde el ciclo automatico
+    (paso 18): --solo-pedida toma solo la que pidio una persona en la app; --automatica crea
+    una automatica, si hay facturas del correo que se lean solas."""
     from . import lectura
 
+    if args.carpeta is None and not args.automatica:
+        print("Falta la carpeta de los PDF (buzon/facturas).", file=sys.stderr)
+        return 2
     with _abrir_almacen(args.db) as almacen:
-        tomada = lectura.tomar(almacen.conn, hay_pdf=bool(_pdfs_de(args.carpeta)))
+        hay_pdf = bool(_pdfs_a_leer(args.carpeta, almacen, automatica=args.automatica)[:1])
+        tomada = lectura.tomar(almacen.conn, hay_pdf=hay_pdf, automatica=args.automatica,
+                               solo_pedida=args.solo_pedida)
         _anclar(almacen)
     if tomada.como == lectura.VACIO:
-        print(f"No hay PDF en {args.carpeta}: no hay nada que leer.", file=sys.stderr)
+        if args.automatica or args.solo_pedida:
+            print(f"No se lee: {tomada.detalle}.", file=sys.stderr)
+        else:
+            print(f"No hay PDF en {args.carpeta}: no hay nada que leer.", file=sys.stderr)
         return LECTURA_NADA
     if tomada.como == lectura.OCUPADA:
         print(f"No se lee: {tomada.detalle}. Espera a que acabe o cierralo.", file=sys.stderr)
         return LECTURA_OCUPADA
-    de_donde = "la pedida desde la app" if tomada.como == lectura.TOMADA else "una nueva"
+    de_donde = ("la pedida desde la app" if tomada.como == lectura.TOMADA
+                else "una automatica" if args.automatica else "una nueva")
     print(f"Lectura {tomada.solicitud_id} ({de_donde}).", file=sys.stderr)
     print(tomada.solicitud_id)
     return 0
+
+
+def _cmd_lectura_siguiente(args: argparse.Namespace) -> int:
+    """Que toca en el ciclo automatico (paso 18): 0 una lectura automatica, LECTURA_PEDIDA la
+    que pidio una persona en la app, LECTURA_NADA nada, LECTURA_LIMITE parada (por que y hasta
+    cuando, en la salida de errores). Solo lee la base."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        que = lectura.siguiente(almacen.conn)
+    titulo = {lectura.LEER: "Toca una lectura automatica",
+              lectura.PEDIDA: "Toca la lectura que pidio una persona en la app",
+              lectura.NADA: "No toca leer nada",
+              lectura.LIMITE: "La lectura automatica esta parada"}[que.codigo]
+    linea = f"{titulo}: {que.detalle}."
+    if que.proximo_intento:
+        linea += f" Proximo intento: {que.proximo_intento} (UTC)."
+    elif que.hasta:
+        linea += f" Hasta {que.hasta} (UTC)."
+    print(linea, file=sys.stderr)
+    return {lectura.LEER: 0, lectura.PEDIDA: LECTURA_PEDIDA, lectura.NADA: LECTURA_NADA,
+            lectura.LIMITE: LECTURA_LIMITE}[que.codigo]
+
+
+def _cmd_lectura_autorizar(args: argparse.Namespace) -> int:
+    """El si de una lectura automatica, con la autorizacion vigente y sus topes (paso 18):
+    nadie escribe que si. 0 si se lee; si no, LECTURA_NADA (un tope, lo apartado, apagada o en
+    pausa), LECTURA_CADUCADA o LECTURA_FALLIDA. No habla con la API."""
+    from . import lectura
+
+    with _abrir_almacen(args.db) as almacen:
+        conn = almacen.conn
+        try:
+            estado = lectura.autorizar(conn, args.solicitud)
+        except (lectura.EstadoNoValido, LookupError) as exc:
+            _anclar(almacen)
+            print(f"No se lee: {exc}.", file=sys.stderr)
+            fila = conn.execute("SELECT estado FROM solicitud_lectura WHERE id = ?",
+                                (args.solicitud,)).fetchone()
+            cancelada = fila is not None and fila["estado"] == "cancelada"
+            return LECTURA_CANCELADA if cancelada else LECTURA_FALLIDA
+        fila = conn.execute("SELECT tope_usd_micro, motivo FROM solicitud_lectura WHERE id = ?",
+                            (args.solicitud,)).fetchone()
+        _anclar(almacen)
+    if estado == "aprobada":
+        print(f"Lectura {args.solicitud}: se lee sola, con la autorizacion vigente. Tope: "
+              f"{lectura.dolares(fila['tope_usd_micro'])}.")
+        return 0
+    if estado == "caducada":
+        print(f"Lectura {args.solicitud}: el plazo acabo antes de aceptarla. No se ha gastado "
+              "nada.", file=sys.stderr)
+        return LECTURA_CADUCADA
+    print(f"No se lee: {fila['motivo']}. No se ha gastado nada.", file=sys.stderr)
+    return LECTURA_NADA
 
 
 def _cmd_lectura_cerrar(args: argparse.Namespace) -> int:
@@ -720,8 +815,9 @@ def _cmd_lectura_contar(args: argparse.Namespace) -> int:
             return codigo
         out = Path(args.out)
         try:
+            pdfs = _pdfs_a_leer(args.carpeta, almacen, args.solicitud)
             estado, est = lectura.contar(conn, args.solicitud, lambda antes: lectura.estimar(
-                client, _pdfs_de(args.carpeta), out, almacen=almacen,
+                client, pdfs, out, almacen=almacen,
                 politica=ESTRICTA if args.estricta else CONSERVAR,
                 otras_vias=[carpeta_out(out, "saliente")], antes=antes))
         except lectura.Parada as parada:
@@ -789,18 +885,41 @@ def _linea_de_la_ventana():
     return linea
 
 
+def _sin_ventana():
+    """Para el ciclo automatico (`esperar --solo-app`): no hay ventana ni nadie escribe en
+    ella; solo vale el si de la app. `linea(segundos)` solo espera."""
+    import time
+
+    def linea(segundos: float) -> str | None:
+        time.sleep(max(segundos, 0))
+        return None
+
+    return linea
+
+
 def _cmd_lectura_esperar(args: argparse.Namespace) -> int:
     """Espera el si: de la app (Procesar, «Empezar») o escrito aqui. Otra cosa escrita aqui
-    es que no. Sin respuesta en el plazo, caduca. En ningun caso se ha gastado nada."""
+    es que no. Sin respuesta en el plazo, caduca. En ningun caso se ha gastado nada. Con
+    --solo-app (el ciclo automatico, paso 18), solo el de la app: no se lee la ventana."""
     from . import lectura
 
     with _abrir_almacen(args.db) as almacen:
-        fila = almacen.conn.execute("SELECT caduca_en FROM solicitud_lectura WHERE id = ?",
+        fila = almacen.conn.execute("SELECT caduca_en, origen FROM solicitud_lectura WHERE id = ?",
                                     (args.solicitud,)).fetchone()
+        if fila is not None and fila["origen"] == "automatica":
+            print(f"La lectura {args.solicitud} es automatica: no espera ningun si.",
+                  file=sys.stderr)
+            return LECTURA_FALLIDA
         hasta = fila["caduca_en"] if fila is not None else "?"
-        print(f"Puedes decir que si en la app (Procesar, «Empezar») o escribir si aqui y pulsar "
-              f"Intro; otra cosa es que no. Hasta {hasta} (UTC).", flush=True)
-        estado = lectura.esperar(almacen.conn, args.solicitud, linea=_linea_de_la_ventana())
+        if args.solo_app:
+            print(f"Esperando el si en la app (Procesar, «Empezar»). Hasta {hasta} (UTC).",
+                  flush=True)
+            linea = _sin_ventana()
+        else:
+            print(f"Puedes decir que si en la app (Procesar, «Empezar») o escribir si aqui y "
+                  f"pulsar Intro; otra cosa es que no. Hasta {hasta} (UTC).", flush=True)
+            linea = _linea_de_la_ventana()
+        estado = lectura.esperar(almacen.conn, args.solicitud, linea=linea)
         _anclar(almacen)
     if estado == "aprobada":
         print("Si: se lee.")
@@ -835,7 +954,8 @@ def _cmd_lectura_leer(args: argparse.Namespace) -> int:
         print(f"Leyendo con {config.model_id()}")
         try:
             leida = lectura.leer(conn, args.solicitud, client=client, almacen=almacen,
-                                 pdfs=_pdfs_de(args.carpeta), out_dir=out,
+                                 pdfs=_pdfs_a_leer(args.carpeta, almacen, args.solicitud),
+                                 out_dir=out,
                                  politica=ESTRICTA if args.estricta else CONSERVAR,
                                  otras_vias=[carpeta_out(out, "saliente")],
                                  imprimir=_imprimir_paso)
@@ -3004,9 +3124,25 @@ def main(argv: list[str] | None = None) -> int:
     sub_lectura = p_lectura.add_subparsers(dest="accion", required=True)
     p_l = sub_lectura.add_parser("tomar", help="toma la lectura pedida (o crea una) y dice su "
                                                "numero; sin PDF no hay nada que leer")
-    p_l.add_argument("carpeta", help="la carpeta de los PDF (buzon/facturas)")
+    p_l.add_argument("carpeta", nargs="?",
+                     help="la carpeta de los PDF (buzon/facturas); no hace falta con --automatica")
+    como = p_l.add_mutually_exclusive_group()
+    como.add_argument("--automatica", action="store_true",
+                      help="una lectura automatica de las facturas del correo (el ciclo)")
+    como.add_argument("--solo-pedida", action="store_true",
+                      help="solo la que pidio una persona en la app; sin ninguna, nada (el ciclo)")
     p_l.add_argument("--db", help=_AYUDA_DB)
     p_l.set_defaults(func=_cmd_lectura_tomar)
+    # Paso 18: las del ciclo automatico (ciclo.ps1): que toca y el si de una automatica.
+    p_l = sub_lectura.add_parser("siguiente", help="que toca: una automatica (0), la pedida en "
+                                                   "la app (8), nada (3) o parada (9)")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_siguiente)
+    p_l = sub_lectura.add_parser("autorizar", help="el si de una automatica, con la autorizacion "
+                                                   "vigente y sus topes")
+    p_l.add_argument("solicitud", type=int, help="el numero que dio tomar --automatica")
+    p_l.add_argument("--db", help=_AYUDA_DB)
+    p_l.set_defaults(func=_cmd_lectura_autorizar)
     for nombre, ayuda, funcion in (
             ("contar", "cuenta lo que costaria (contar no se cobra) y espera el si",
              _cmd_lectura_contar),
@@ -3022,6 +3158,8 @@ def main(argv: list[str] | None = None) -> int:
     p_l = sub_lectura.add_parser("esperar", help="espera el si de la app o escrito aqui (como "
                                                  "mucho 15 minutos)")
     p_l.add_argument("solicitud", type=int, help="el numero que dio tomar")
+    p_l.add_argument("--solo-app", action="store_true",
+                     help="solo el si de la app, sin leer la ventana (el ciclo automatico)")
     p_l.add_argument("--db", help=_AYUDA_DB)
     p_l.set_defaults(func=_cmd_lectura_esperar)
     from .lectura import MOTIVOS

@@ -276,3 +276,61 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
 - `frontend/src/lib/actions.ts` no gana las cuatro acciones todavía: la app no las manda hasta
   el paso 12 (§6.3), y la tabla solo lista lo que la app ofrece. Las etiquetas de
   `textos/*.json` son las de §6.4; las descripciones son nuevas.
+
+## Paso 5 · la lectura automática
+
+- **`lectura siguiente` mira antes que nada lo que pidió una persona** (`LECTURA_PEDIDA`, 8),
+  aunque la automática esté apagada o en pausa: la tabla de §5.2 empieza por la autorización,
+  pero §4.1 (paso 5 del ciclo) y la decisión 8B hacen del ciclo el lector de las lecturas
+  pedidas, y esas no dependen de la autorización. También es «pedida» la de una persona que
+  esperaba el sí y cuyo lector ya no da señales: `tomar --solo-pedida` la vuelve a contar, como
+  hacía el lector. Una lectura viva cuyo lector la dejó a medias (`abandonada`) no para el ciclo:
+  sin esto, un corte de luz leyendo dejaba la automática parada hasta que alguien pidiera una
+  lectura a mano; `tomar --automatica` la cierra (`abandonada`, que no es un fallo técnico).
+  `lectura.siguiente` devuelve `leer`, `pedida`, `nada` o `limite`, y `cli.py` lo pasa a 0, 8, 3
+  o 9.
+- **«No toca la de la persona»** (§5.3, paso 2) se lee como «no se la apropia»: con una viva o
+  pedida que su lector atiende, `tomar --automatica` da `LECTURA_OCUPADA`; una que su lector dejó
+  a medias se cierra como lo hacen hoy `pedir_lectura` y el lector, salvo la de una persona que
+  esperaba el sí, que se queda para el camino de la pedida. Sin nada pedido, `tomar --solo-pedida`
+  no crea una del lector: sale con `LECTURA_NADA`. Con `--automatica`, la carpeta sobra (lo que se
+  lee sale del almacén) y es opcional.
+- **Lo que la API no acepta lo aparta `contar`, no `autorizar`** (§5.2 y §5.3, paso 5). Si la API
+  no acepta ninguna de las nuevas, `contar` termina la petición antes de que `autorizar` corra
+  (lo dejó apuntado el paso 3), así que tiene que apartarlas él; para que haya un solo sitio, lo
+  hace siempre en una automática, con el usuario `automatico`, la petición y lo que dijo la API.
+  Y una automática sin ninguna nueva que la API acepte termina en `nada_que_leer` con
+  `excluidas`, no `fallida` con `contar`: no es un fallo técnico, y con `contar` la espera
+  creciente repetiría la misma cuenta cada vez sin apartar nada. Las de una persona siguen como
+  en el paso 3.
+- **El tope de `autorizar` es el mínimo de lo que puede costar lo que se va a leer**, lo que
+  queda hoy y lo que queda este mes: la suma del extremo alto de las facturas que se leen, no el
+  extremo alto de toda la cuenta (§5.2), que incluye las que se apartan por `grande` y no se
+  pagan. Es más estrecho y sigue cabiendo la primera. Si entre `contar` y `autorizar` alguien
+  baja `max_documentos`, vale el de ahora. Una pausa que aparece entre `siguiente` y `autorizar`
+  cierra la petición con `sin_autorizacion` (la lista de `motivo_codigo` de la 0019 no tiene uno
+  para las pausas; el motivo en texto lo dice).
+- **El máximo por factura y las facturas por ronda son topes duros también al leer**, no solo de
+  la cuenta: en una automática, `_Seguimiento` no deja que una llamada pueda costar más que
+  `max_por_documento_usd_micro` (su `max_tokens` sale de lo que queda del tope, sin pasar de
+  eso) ni paga más de `max_documentos` facturas, y no paga lo apartado (también lo que una
+  persona aparte después de contar). Con la cuenta sola, una respuesta más larga que su
+  estimación podía costar más del máximo por factura. Lo que cuesta: un fallo sin uso cuenta su
+  peor caso, que ahora es como mucho el máximo por factura (paso 3).
+- **La segunda falla se cuenta por `documento_id`** en el resultado de las pasadas automáticas
+  (`json_each`), no por el nombre: para lo del almacén es lo mismo (`<sha256>.pdf`), y no depende
+  de cómo se llame el fichero.
+- `lectura esperar` sobre una automática no espera nada: sale con `LECTURA_FALLIDA`. Una persona
+  no puede darle el sí ni desde la app (`aprobar_lectura`, 409) ni desde la ventana.
+- Los cuatro motivos nuevos (`limite_dia`, `limite_mes`, `excluidas`, `sin_autorizacion`) tienen
+  su texto en `process-texts.ts` (la guarda del paso 3), los de §6.4. **Lo demás de la API y de la
+  app queda para los pasos 11 y 12**: `autorizacion` y `automatica` en `GET /api/v2/lectura`,
+  `nombre_original` en el resultado y `etiquetas` en cada pasada (§5.7) cambian el contrato
+  (2.6) y no se añaden aquí; hasta entonces la pasada de una automática enseña los nombres del
+  almacén (`<sha256>.pdf`). Ningún script llama todavía a `siguiente`, `tomar --automatica` ni
+  `autorizar` (pasos 14 y 15), así que hasta entonces no hay automáticas de verdad.
+- **Lo que lee una persona incluye lo del correo** (`_pdfs_a_leer`): `buzon\facturas` más lo que
+  el correo dejó en el almacén sin leer, menos lo que una persona apartó. Con `leer-facturas.bat`
+  sin cambios, lo del correo entra en su cuenta y en su lectura, con el sí de siempre. Una
+  automática lee solo las elegibles (como mucho las de una ronda de la autorización encendida;
+  sin ninguna encendida, nada).

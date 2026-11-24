@@ -51,6 +51,11 @@ export function reasonOf(code: string | null | undefined, t: Messages): string {
     saldo: r.saldo,
     clave_rechazada: r.clave_rechazada,
     api_no_disponible: r.api_no_disponible,
+    // Paso 18: una lectura automatica que no se acepto (los topes, lo apartado, apagada).
+    limite_dia: r.limite_dia,
+    limite_mes: r.limite_mes,
+    excluidas: r.excluidas,
+    sin_autorizacion: r.sin_autorizacion,
   };
   return (code && reasons[code]) || r.other;
 }

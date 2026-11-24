@@ -1682,6 +1682,10 @@ export const en: Messages = {
         saldo: 'The API credit has run out (or the spending limit was reached). Top it up; it then continues by itself.',
         clave_rechazada: 'The API refuses the key. The administrator needs to replace it (clave.bat).',
         api_no_disponible: 'The API is unreachable or overloaded. Nothing was set aside; it tries again later by itself.',
+        limite_dia: 'The daily cap for automatic reading has been reached.',
+        limite_mes: 'The monthly cap for automatic reading has been reached.',
+        excluidas: 'These invoices are not read automatically: they wait for you.',
+        sin_autorizacion: 'Automatic reading is off.',
         other: 'The reader could not finish.',
       },
       notes: {

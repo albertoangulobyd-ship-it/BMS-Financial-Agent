@@ -42,6 +42,14 @@ mucho, la de la configuracion): una respuesta mas larga que su estimacion se cor
 lo peor que puede costar es lo que quedaba. Lo gastado es el uso de cada respuesta, tambien
 de un rechazo o de una cortada; de un fallo sin uso se cuenta lo peor que podia costar.
 
+Desde el paso 18 hay tambien lecturas automaticas (origen 'automatica'): las empieza el ciclo
+automatico (ciclo.ps1) cuando `siguiente` dice que toca, sobre las facturas que trajo el correo
+(lectura_automatica.elegibles, leidas del almacen de originales), y no las acepta una persona
+sino `autorizar`, con la autorizacion permanente que firmo una persona con admin y sus topes
+(lectura_automatica.py). La firma el usuario de sistema "automatico". Una persona no puede dar
+el si a una automatica; si la para ("Stoppen"), la lectura automatica queda en pausa hasta las
+00:00. Una factura que falla por el documento en dos automaticas ya no se lee sola.
+
 Nada de aqui habla con la API por su cuenta ni lanza procesos: contar y leer reciben el
 cliente de quien los llama (el lector, despues de su puerta, nativo.exigir_lectura).
 """
@@ -122,6 +130,13 @@ MOTIVOS = {
                         "apartado nada"),
     "api_no_disponible": ("la API no esta disponible o esta saturada: no se ha apartado nada "
                           "y se vuelve a probar mas tarde"),
+    # Paso 18: una lectura automatica que no se acepta (autorizar). No se ha gastado nada.
+    "limite_dia": ("se ha llegado al tope del dia de la lectura automatica: lo demas se lee "
+                   "manana, o ahora desde Procesar"),
+    "limite_mes": ("se ha llegado al tope del mes de la lectura automatica: lo demas se lee el "
+                   "mes que viene, o ahora desde Procesar"),
+    "excluidas": "estas facturas no se leen solas: esperan a una persona",
+    "sin_autorizacion": "la lectura automatica esta apagada o en pausa: no se lee nada sola",
 }
 
 # Lo que un fallo de la API dice de la lectura (clasificar_error): es de ese documento (la
@@ -339,24 +354,22 @@ def abandonada(conn: sqlite3.Connection, fila: sqlite3.Row, ahora: datetime | No
     return ahora - _ultima_senal(conn, fila) >= SIN_SENALES
 
 
-def _extractor(conn: sqlite3.Connection) -> int:
-    return usuario_sistema(conn, "extractor")
-
-
 def _evento(conn: sqlite3.Connection, tipo: str, solicitud_id: int, *,
             persona: int | None = None, peticion_id: str | None = None,
-            motivo: str | None = None, datos: dict[str, Any] | None = None) -> int:
-    """El evento de un cambio de una lectura: lo firma la persona (desde la app) o el
-    extractor (el lector, o una peticion que se da por abandonada)."""
-    return registrar(conn, tipo=tipo, actor=persona if persona is not None else _extractor(conn),
-                     usuario_id=persona, tabla=TABLA, fila_id=solicitud_id, motivo=motivo,
-                     peticion_id=peticion_id, datos=datos)
+            motivo: str | None = None, datos: dict[str, Any] | None = None,
+            sistema: str = "extractor") -> int:
+    """El evento de un cambio de una lectura: lo firma la persona (desde la app) o un usuario
+    de sistema: el extractor (el lector, o una peticion que se da por abandonada) o, en una
+    automatica, "automatico" (pedirla, aceptarla con la autorizacion vigente o no)."""
+    actor = persona if persona is not None else usuario_sistema(conn, sistema)
+    return registrar(conn, tipo=tipo, actor=actor, usuario_id=persona, tabla=TABLA,
+                     fila_id=solicitud_id, motivo=motivo, peticion_id=peticion_id, datos=datos)
 
 
 def _pasar(conn: sqlite3.Connection, solicitud_id: int, de: Iterable[str], a: str | None, *,
            tipo: str, persona: int | None = None, peticion_id: str | None = None,
            motivo: str | None = None, datos: dict[str, Any] | None = None,
-           **columnas: Any) -> int:
+           sistema: str = "extractor", **columnas: Any) -> int:
     """Cambia una peticion que esta en uno de `de` (a `a`, o se queda en su estado si `a` es
     None) con su evento, en una transaccion. EstadoNoValido si no estaba donde se esperaba."""
     de = tuple(de)
@@ -379,8 +392,8 @@ def _pasar(conn: sqlite3.Connection, solicitud_id: int, de: Iterable[str], a: st
         if cursor.rowcount != 1:
             raise EstadoNoValido(f"la lectura {solicitud_id} cambio mientras tanto")
         return _evento(conn, tipo, solicitud_id, persona=persona, peticion_id=peticion_id,
-                       motivo=motivo, datos={"de": fila["estado"], "a": a or fila["estado"],
-                                             **(datos or {})})
+                       motivo=motivo, sistema=sistema,
+                       datos={"de": fila["estado"], "a": a or fila["estado"], **(datos or {})})
 
 
 def _cerrar_abandonada(conn: sqlite3.Connection, fila: sqlite3.Row) -> None:
@@ -428,6 +441,9 @@ def aprobar(conn: sqlite3.Connection, persona: int, solicitud_id: int, huella: s
     """El si de una persona desde la app, para la estimacion que vio (su huella)."""
     with transaccion(conn):
         fila = _fila(conn, solicitud_id)
+        if fila["origen"] == "automatica":
+            raise EstadoNoValido(f"la lectura {solicitud_id} es automatica: la acepta la "
+                                 "autorizacion permanente, no una persona")
         if fila["estado"] != "esperando_aprobacion":
             raise EstadoNoValido(f"la lectura {solicitud_id} esta {fila['estado']}: no espera "
                                  "un si")
@@ -459,16 +475,24 @@ def cancelar(conn: sqlite3.Connection, persona: int, solicitud_id: int, *,
         if fila["estado"] == "leyendo" and not abandonada(conn, fila):
             if fila["cancelada_en"] is not None:
                 raise EstadoNoValido(f"ya se pidio parar la lectura {solicitud_id}")
-            return _pasar(conn, solicitud_id, ("leyendo",), None, tipo="lectura_parar",
-                          persona=persona, peticion_id=peticion_id, **quien,
-                          datos={"via": "app", **(datos or {})})
-        if fila["estado"] == "leyendo":
-            _terminar_pasada(conn, solicitud_id, "cancelada", MOTIVOS["abandonada"])
-        if fila["estado"] not in VIVOS:
-            raise EstadoNoValido(f"la lectura {solicitud_id} ya termino ({fila['estado']})")
-        return _pasar(conn, solicitud_id, VIVOS, "cancelada", tipo="lectura_cancelada",
-                      persona=persona, peticion_id=peticion_id, **quien,
-                      datos={"via": "app", **(datos or {})})
+            evento = _pasar(conn, solicitud_id, ("leyendo",), None, tipo="lectura_parar",
+                            persona=persona, peticion_id=peticion_id, **quien,
+                            datos={"via": "app", **(datos or {})})
+        else:
+            if fila["estado"] == "leyendo":
+                _terminar_pasada(conn, solicitud_id, "cancelada", MOTIVOS["abandonada"])
+            if fila["estado"] not in VIVOS:
+                raise EstadoNoValido(f"la lectura {solicitud_id} ya termino ({fila['estado']})")
+            evento = _pasar(conn, solicitud_id, VIVOS, "cancelada", tipo="lectura_cancelada",
+                            persona=persona, peticion_id=peticion_id, **quien,
+                            datos={"via": "app", **(datos or {})})
+        if fila["origen"] == "automatica":
+            # Paso 18: quien para una automatica la para hasta manana; si no, el ciclo
+            # siguiente volveria a empezar la misma lectura cinco minutos despues.
+            from . import lectura_automatica
+
+            lectura_automatica.pausar(conn, "persona", persona, solicitud_id=solicitud_id)
+        return evento
 
 
 # ------------------------------------------------------------ lo que hace el lector
@@ -496,25 +520,58 @@ def volver_a_contar(conn: sqlite3.Connection, solicitud_id: int) -> None:
            datos={"otra_vez": True})
 
 
-def tomar(conn: sqlite3.Connection, *, hay_pdf: bool) -> Tomada:
+def tomar(conn: sqlite3.Connection, *, hay_pdf: bool, automatica: bool = False,
+          solo_pedida: bool = False) -> Tomada:
     """El lector se abre: toma la peticion pedida o crea una (origen lector) y la pone
     comprobando. Sin ningun PDF en el buzon no hay nada que hacer: una pedida termina en
     nada_que_leer y no se crea ninguna. Si otro lector tiene una entre manos (y da senales),
     no se toca. Una que esperaba el si y cuyo lector ya no esta se vuelve a contar (la misma
     peticion: lo que la persona pidio sigue); otra que un lector dejo a medias se da por
-    terminada antes."""
+    terminada antes.
+
+    Paso 18, desde el ciclo automatico:
+
+    - `solo_pedida`: solo la que pidio una persona en la app (o la suya que esperaba el si y
+      cuyo lector ya no esta); sin ninguna, nada (no crea una del lector);
+    - `automatica`: crea una automatica (origen automatica, de nadie), que firma el usuario
+      "automatico"; `hay_pdf` dice si hay facturas elegibles. Con cualquier otra viva o pedida,
+      ocupada: no toca la de una persona. Una que un lector dejo a medias se da por terminada
+      antes (tambien una automatica que esperaba el si: no se vuelve a contar), salvo la de
+      una persona que esperaba el si, que se vuelve a contar con `solo_pedida`."""
+    if automatica and solo_pedida:
+        raise ValueError("una lectura es automatica o pedida, no las dos")
     with transaccion(conn):
         actual = viva(conn)
         if actual is not None and actual["estado"] in DEL_LECTOR:
             if not abandonada(conn, actual):
                 return Tomada(None, OCUPADA, f"la lectura {actual['id']} esta "
                                              f"{actual['estado']} en otro lector")
-            if hay_pdf and actual["estado"] == "esperando_aprobacion":
+            de_una_persona = (actual["estado"] == "esperando_aprobacion"
+                              and actual["origen"] != "automatica")
+            if de_una_persona and automatica:
+                return Tomada(None, OCUPADA, f"la lectura {actual['id']} de una persona espera "
+                                             "a que un lector la vuelva a contar")
+            if de_una_persona and hay_pdf:
                 volver_a_contar(conn, actual["id"])
                 return Tomada(actual["id"], TOMADA, "se vuelve a contar")
             _cerrar_abandonada(conn, actual)
             actual = None
         ahora = marca(_ahora(conn))
+        if automatica:
+            if actual is not None:
+                return Tomada(None, OCUPADA, f"la lectura {actual['id']} la pidio una persona "
+                                             "en la app: va antes")
+            if not hay_pdf:
+                return Tomada(None, VACIO, "no hay facturas del correo que se lean solas")
+            solicitud_id = conn.execute(
+                "INSERT INTO solicitud_lectura (origen, pedida_en, estado, tomada_en, "
+                "actualizada_en) VALUES ('automatica', ?, 'comprobando', ?, ?)",
+                (ahora, ahora, ahora)).lastrowid
+            _evento(conn, "lectura_pedida", solicitud_id, sistema="automatico",
+                    datos={"origen": "automatica"})
+            return Tomada(solicitud_id, CREADA)
+        if actual is None and solo_pedida:
+            return Tomada(None, VACIO, "nadie ha pedido una lectura en la app")
         if not hay_pdf:
             if actual is None:
                 return Tomada(None, VACIO, MOTIVOS["buzon_vacio"])
@@ -553,6 +610,173 @@ def cerrar(conn: sqlite3.Connection, solicitud_id: int, codigo: str, *,
         _pasar(conn, solicitud_id, VIVOS, "fallida", tipo="lectura_fallida", motivo=motivo,
                motivo_codigo=codigo, datos={"motivo_codigo": codigo})
     return True
+
+
+# ---- la lectura automatica (paso 18): que toca, y el si de la autorizacion
+
+# Lo que dice `siguiente` (cli.py lo convierte en el codigo de `lectura siguiente`).
+LEER, PEDIDA, NADA, LIMITE = "leer", "pedida", "nada", "limite"
+
+
+@dataclass(frozen=True)
+class Siguiente:
+    """Lo que toca en el ciclo automatico: leer (una automatica), pedida (la que pidio una
+    persona en la app), nada, o limite (encendida, pero parada: `parada` dice por que, con
+    `motivo` y las horas que sepa)."""
+
+    codigo: str
+    parada: str | None = None
+    motivo: str | None = None
+    desde: str | None = None
+    proximo_intento: str | None = None
+    hasta: str | None = None
+    detalle: str = ""
+
+
+def siguiente(conn: sqlite3.Connection, ahora: datetime | None = None) -> Siguiente:
+    """Que hace el ciclo automatico con la lectura, en este orden (diseno §4.1 y §5.2):
+
+    1. una lectura que pidio una persona en la app (o la suya que esperaba el si y cuyo
+       lector ya no esta): pedida, aunque la automatica este apagada (decision 8B);
+    2. otra viva con su lector dando senales: nada (una cada vez; una que su lector dejo a
+       medias no para nada: `tomar` la da por terminada);
+    3. la autorizacion vigente apagada, o ninguna: nada;
+    4. una pausa (de una persona, hasta las 00:00; de volumen, hasta que una persona la
+       quite): limite;
+    5. la espera tras un fallo tecnico (1 h, y el doble tras cada uno seguido): limite;
+    6. ninguna factura elegible: nada;
+    7. lo que queda este mes o hoy no llega a una factura (max_por_documento): limite;
+    8. si no: leer."""
+    from . import lectura_automatica as auto
+
+    ahora = ahora or _ahora(conn)
+    actual = viva(conn)
+    if actual is not None:
+        de_una_persona = actual["origen"] != "automatica" and (
+            actual["estado"] == "pedida" or (actual["estado"] == "esperando_aprobacion"
+                                             and abandonada(conn, actual, ahora)))
+        if de_una_persona:
+            return Siguiente(PEDIDA, detalle=f"la lectura {actual['id']} la pidio una persona")
+        if not abandonada(conn, actual, ahora):
+            return Siguiente(NADA, detalle=f"la lectura {actual['id']} esta {actual['estado']}")
+    autorizacion = auto.encendida(conn)
+    if autorizacion is None:
+        return Siguiente(NADA, detalle="la lectura automatica esta apagada")
+    parada = auto.parada_por_pausa_o_fallo(conn, ahora)
+    if parada is not None:
+        return Siguiente(LIMITE, parada.parada, parada.motivo_codigo, parada.desde,
+                         parada.proximo_intento, parada.hasta,
+                         detalle=_por_que_parada(parada.parada, parada.motivo_codigo))
+    elegibles, _desde = auto.contar_elegibles(conn)
+    if not elegibles:
+        return Siguiente(NADA, detalle="no hay facturas del correo que se lean solas")
+    dia, mes = auto.gastado(conn, ahora)
+    tope = auto.tope_alcanzado(autorizacion, dia, mes, ahora)
+    if tope is not None:
+        return Siguiente(LIMITE, tope.parada, hasta=tope.hasta,
+                         detalle=f"{MOTIVOS[tope.parada]} (gastado hoy {dolares(dia)}, este "
+                                 f"mes {dolares(mes)})")
+    return Siguiente(LEER, detalle=f"{elegibles} facturas del correo esperan; quedan hoy "
+                                   f"{dolares(auto.queda(autorizacion, dia, mes))}")
+
+
+def _por_que_parada(parada: str, motivo_codigo: str | None) -> str:
+    if parada == "persona":
+        return "una persona paro una lectura automatica: en pausa hasta manana"
+    if parada == "volumen":
+        return "ha llegado mucho mas correo de lo normal: en pausa hasta que una persona la quite"
+    return f"parada tras un fallo: {MOTIVOS.get(motivo_codigo or '', motivo_codigo)}"
+
+
+def autorizar(conn: sqlite3.Connection, solicitud_id: int) -> str:
+    """El si de una automatica (diseno §5.3, paso 5): no lo da una persona, sino la
+    autorizacion vigente, si esta encendida, sin pausa, y con lo que queda hoy y este mes.
+
+    - Lo que la cuenta pone por encima del maximo por factura no se lee solo (exclusion
+      "grande") ni se paga; lo que ya estaba apartado (una persona, despues de contar),
+      tampoco.
+    - El tope es el minimo de lo que puede costar lo que se lee (el extremo alto de cada
+      factura), lo que queda hoy y lo que queda este mes: con cada factura por debajo del
+      maximo por factura y lo que queda por encima de el, la primera siempre cabe.
+    - Si no se puede: nada_que_leer con limite_dia, limite_mes, excluidas o sin_autorizacion
+      (tambien en pausa). Pasado el plazo, caducada.
+
+    Lo firma el usuario "automatico", con la autorizacion y quien la firmo en el evento.
+    Devuelve el estado en que queda: aprobada, nada_que_leer o caducada. EstadoNoValido si no
+    es una automatica o ya no espera."""
+    from . import lectura_automatica as auto
+
+    with transaccion(conn):
+        fila = _fila(conn, solicitud_id)
+        if fila["origen"] != "automatica":
+            raise EstadoNoValido(f"la lectura {solicitud_id} no es automatica: el si lo da una "
+                                 "persona")
+        if fila["estado"] != "esperando_aprobacion":
+            raise EstadoNoValido(f"la lectura {solicitud_id} esta {fila['estado']}: no espera "
+                                 "un si")
+        ahora = _ahora(conn)
+        if ahora >= _instante(fila["caduca_en"]):
+            _pasar(conn, solicitud_id, ("esperando_aprobacion",), "caducada",
+                   tipo="lectura_caducada", sistema="automatico")
+            return "caducada"
+
+        def nada(codigo: str, detalle: str | None = None, **datos: Any) -> str:
+            _pasar(conn, solicitud_id, ("esperando_aprobacion",), "nada_que_leer",
+                   tipo="lectura_nada", sistema="automatico", motivo_codigo=codigo,
+                   motivo=MOTIVOS[codigo] + (f": {detalle}" if detalle else ""),
+                   datos={"motivo_codigo": codigo, **datos})
+            return "nada_que_leer"
+
+        autorizacion = auto.encendida(conn)
+        if autorizacion is None:
+            return nada("sin_autorizacion")
+        pausa = auto.pausa_vigente(conn, ahora)
+        if pausa is not None:
+            return nada("sin_autorizacion", f"en pausa ({pausa['motivo']})")
+        dia, mes = auto.gastado(conn, ahora)
+        alcanzado = auto.tope_alcanzado(autorizacion, dia, mes, ahora)
+        if alcanzado is not None:
+            return nada(alcanzado.parada, gastado_dia=dia, gastado_mes=mes)
+
+        estimacion = json.loads(fila["estimacion_json"] or "{}")
+        nuevos = [d for d in estimacion.get("documentos", ())
+                  if d["clase"] == "nuevo" and d["sha256"]]
+        documentos = {f["sha256"]: f["id"] for f in conn.execute(
+            f"SELECT id, sha256 FROM documento WHERE sha256 IN "
+            f"({', '.join('?' * len(nuevos)) or 'NULL'})", [d["sha256"] for d in nuevos])}
+        por_documento = autorizacion["max_por_documento_usd_micro"]
+        automatico = usuario_sistema(conn, "automatico")
+        grandes = [d for d in nuevos if d["alto_usd_micro"] > por_documento]
+        for d in grandes:
+            if d["sha256"] in documentos:
+                auto.excluir(conn, [documentos[d["sha256"]]], "grande", automatico,
+                             solicitud_id=solicitud_id,
+                             motivo=f"puede costar {dolares(d['alto_usd_micro'])}; como mucho "
+                                    f"{dolares(por_documento)} por factura")
+        apartados = auto.excluidos(conn, documentos.values())
+        legibles = [d for d in nuevos if d["alto_usd_micro"] <= por_documento
+                    and documentos.get(d["sha256"]) not in apartados]
+        if not legibles:
+            return nada("excluidas", grandes=len(grandes))
+        # Como mucho max_documentos (la cuenta ya los limito; si alguien lo bajo despues,
+        # vale lo de ahora, y la pasada no paga mas que esos: _Seguimiento.maximo).
+        legibles = legibles[:autorizacion["max_documentos"]]
+        tope = min(sum(d["alto_usd_micro"] for d in legibles),
+                   autorizacion["tope_dia_usd_micro"] - dia,
+                   autorizacion["tope_mes_usd_micro"] - mes)
+        fijada_por = autorizacion["fijada_por"]
+        _pasar(
+            conn, solicitud_id, ("esperando_aprobacion",), "aprobada", tipo="lectura_aceptada",
+            sistema="automatico", aprobada_en=marca(ahora), aprobada_via="automatica",
+            autorizacion_id=autorizacion["id"], tope_usd_micro=tope,
+            huella_aprobada=fila["huella_estimacion"],
+            datos={"via": "automatica", "autorizacion_id": autorizacion["id"],
+                   "fijada_por": fijada_por, "tope_usd_micro": tope,
+                   "huella": fila["huella_estimacion"], "gastado_dia": dia, "gastado_mes": mes,
+                   "tope_dia": autorizacion["tope_dia_usd_micro"],
+                   "tope_mes": autorizacion["tope_mes_usd_micro"],
+                   "facturas": len(legibles), "grandes": len(grandes)})
+    return "aprobada"
 
 
 def _sigue(conn: sqlite3.Connection, solicitud_id: int, estados: tuple[str, ...]) -> sqlite3.Row:
@@ -753,12 +977,17 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
     estimacion, su huella y hasta cuando vale el si), nada_que_leer (nada nuevo) o fallida
     (sin tarifa, o "contar" si hay PDF nuevos pero la API no acepta ninguno). Si mientras
     cuenta le dicen que no, para (Parada) sin escribir nada mas.
+
+    En una automatica (paso 18), lo que la API no acepta (rechazado_api) deja de leerse solo
+    en ese momento (lectura_automatica.excluir): espera a una persona, que lo vera en Procesar.
+    Si no acepta ninguno de los nuevos, la automatica termina en nada_que_leer (excluidas), no
+    fallida: no es un fallo tecnico que haya que reintentar, y la siguiente ya no los cuenta.
     Devuelve el estado en que queda y la estimacion."""
     _pasar(conn, solicitud_id, ("comprobando",), "contando", tipo="lectura_contando")
     est = estimar_buzon(lambda _nombre: _senal(conn, solicitud_id, ("contando",)))
     ahora = _ahora(conn)
     with transaccion(conn):
-        _sigue(conn, solicitud_id, ("contando",))
+        automatica = _sigue(conn, solicitud_id, ("contando",))["origen"] == "automatica"
         cuentas = {"pdf_nuevos": est.nuevos, "pdf_ya_leidos": est.ya_leidos,
                    "contada_en": marca(ahora)}
         datos = {"nuevos": est.nuevos, "ya_leidos": est.ya_leidos,
@@ -766,6 +995,18 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
                  "coste_min_usd_micro": est.coste_min_usd_micro,
                  "coste_max_usd_micro": est.coste_max_usd_micro}
         rechazados = [d for d in est.documentos if d.rechazado_api]
+        if automatica and rechazados:
+            _apartar_rechazados(conn, solicitud_id, rechazados)
+            datos["rechazados_api"] = len(rechazados)
+        if automatica and not est.nuevos and rechazados:
+            motivo = (f"{MOTIVOS['excluidas']}: la API no acepta ninguno de los PDF nuevos ("
+                      + "; ".join(f"{d.nombre}: {d.detalle}" for d in rechazados[:3])
+                      + (f"; y {len(rechazados) - 3} mas" if len(rechazados) > 3 else "") + ")")
+            _pasar(conn, solicitud_id, ("contando",), "nada_que_leer", tipo="lectura_nada",
+                   motivo=motivo, motivo_codigo="excluidas", coste_min_usd_micro=0,
+                   coste_max_usd_micro=0, **cuentas,
+                   datos={**datos, "motivo_codigo": "excluidas"})
+            return "nada_que_leer", est
         if not est.nuevos and rechazados:
             # Hay PDF nuevos, pero la API no acepta ninguno (paso 18): ni "buzon vacio" ni "ya
             # leidas", que no serian verdad. Como antes de D12, no se ha podido contar; el
@@ -800,6 +1041,21 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
     return "esperando_aprobacion", est
 
 
+def _apartar_rechazados(conn: sqlite3.Connection, solicitud_id: int,
+                       rechazados: list[Contado]) -> None:
+    """Lo que la API no acepta no se lee solo (rechazado_api): cada documento del almacen con
+    lo que dijo la API, firmado por el usuario automatico con esta peticion."""
+    from . import lectura_automatica
+
+    automatico = usuario_sistema(conn, "automatico")
+    for contado in rechazados:
+        fila = conn.execute("SELECT id FROM documento WHERE sha256 = ?",
+                            (contado.sha256,)).fetchone()
+        if fila is not None:
+            lectura_automatica.excluir(conn, [fila["id"]], "rechazado_api", automatico,
+                                       solicitud_id=solicitud_id, motivo=contado.detalle)
+
+
 # ---- esperar el si
 
 def es_si(texto: str | None) -> bool:
@@ -813,6 +1069,8 @@ def aprobar_en_ventana(conn: sqlite3.Connection, solicitud_id: int) -> int:
     el extremo alto de la horquilla que la ventana acaba de ensenar."""
     with transaccion(conn):
         fila = _sigue(conn, solicitud_id, ("esperando_aprobacion",))
+        if fila["origen"] == "automatica":
+            raise EstadoNoValido(f"la lectura {solicitud_id} es automatica: no espera ningun si")
         if _ahora(conn) >= _instante(fila["caduca_en"]):
             raise Parada("caducada")
         tope = fila["coste_max_usd_micro"]
@@ -910,6 +1168,10 @@ def salida_que_cabe(modelo: str, entrada: int, queda: int) -> tuple[int, int]:
     return bajo, peor(bajo) or 0
 
 
+# Lo que dice la pasada de una factura que ya no se lee sola (paso 18).
+NO_SE_LEE_SOLA = "no se lee sola: espera a una persona"
+
+
 class _Seguimiento:
     """Lo que el lector apunta en pasada_lectura mientras lee (extract.Seguimiento), y el tope.
 
@@ -920,15 +1182,26 @@ class _Seguimiento:
     Para (`parada`) por el tope, porque se pidio parar o, desde el paso 18, porque la API
     fallo por algo que no es del documento (`fallo`): entonces la pasada termina fallida con
     `motivo_codigo` (saldo, clave_rechazada o api_no_disponible) y nada cuenta como fallo de
-    un documento."""
+    un documento.
+
+    En una automatica (paso 18), ademas: lo que ya no se lee solo (`excluidas`, por su sha256)
+    no se paga, y ninguna llamada puede costar mas que `por_documento` (el maximo por factura
+    de la autorizacion), aunque quede mas en el tope."""
 
     def __init__(self, conn: sqlite3.Connection, solicitud_id: int, pasada_id: int, *,
                  modelo: str, tope: int, altos: dict[str, int],
                  entradas: dict[str, int] | None = None,
-                 imprimir: Callable[[str, str, str], None] | None = None) -> None:
+                 imprimir: Callable[[str, str, str], None] | None = None,
+                 excluidas: Iterable[str] = (), por_documento: int | None = None,
+                 maximo: int | None = None) -> None:
         self.conn, self.solicitud_id, self.pasada_id = conn, solicitud_id, pasada_id
         self.modelo, self.tope, self.altos = modelo, tope, altos
         self.entradas = entradas or {}
+        self.excluidas = frozenset(excluidas)
+        self.por_documento = por_documento
+        # Como mucho tantas llamadas a la API (las facturas por ronda de una automatica).
+        self.maximo = maximo
+        self._llamadas = 0
         self.imprimir = imprimir or (lambda _t, _n, _d: None)
         self.gastado = 0
         self.parada: str | None = None
@@ -993,6 +1266,9 @@ class _Seguimiento:
         alto = self.altos.get(doc.sha256)
         if alto is None:
             return "no estaba entre las nuevas que se aprobaron: se contara la proxima vez"
+        if doc.sha256 in self.excluidas or (self.por_documento is not None
+                                            and alto > self.por_documento):
+            return NO_SE_LEE_SOLA
         if self.parada is not None:
             return self.motivo_parada
         if self._pidieron_parar():
@@ -1003,9 +1279,16 @@ class _Seguimiento:
                                   f"{dolares(self.gastado)} gastados mas lo que puede costar "
                                   f"este ({dolares(alto)})")
             return self.motivo_parada
+        if self.maximo is not None and self._llamadas >= self.maximo:
+            return (f"ya se han leido las {self.maximo} facturas de esta ronda: las demas, en "
+                    "la siguiente")
+        self._llamadas += 1
         entrada = self.entradas.get(doc.sha256, 0)
-        self._salida_actual, self._peor_actual = salida_que_cabe(
-            self.modelo, entrada, self.tope - self.gastado)
+        queda = self.tope - self.gastado
+        if self.por_documento is not None:
+            # El maximo por factura es un tope de cada llamada, no solo de la estimacion.
+            queda = min(queda, self.por_documento)
+        self._salida_actual, self._peor_actual = salida_que_cabe(self.modelo, entrada, queda)
         return None
 
     def _pidieron_parar(self) -> bool:
@@ -1166,6 +1449,18 @@ def empezar(conn: sqlite3.Connection, solicitud_id: int, total: int, *,
     nuevos = [d for d in estimacion.get("documentos", ()) if d["sha256"] and d["clase"] == "nuevo"]
     altos = {d["sha256"]: d["alto_usd_micro"] for d in nuevos}
     entradas = {d["sha256"]: d.get("entrada") or 0 for d in nuevos}
+    excluidas: set[str] = set()
+    por_documento = maximo = None
+    if fila["origen"] == "automatica":
+        # Paso 18: lo apartado (tambien por una persona despues de contar) no se paga, cada
+        # llamada no pasa del maximo por factura de la autorizacion que la acepto, ni se
+        # leen mas facturas que las de una ronda.
+        por_documento, maximo = conn.execute(
+            "SELECT max_por_documento_usd_micro, max_documentos FROM lectura_automatica "
+            "WHERE id = ?", (fila["autorizacion_id"],)).fetchone()
+        excluidas = {f[0] for f in conn.execute(
+            "SELECT d.sha256 FROM exclusion_automatica AS x JOIN documento AS d "
+            "ON d.id = x.documento_id")} & set(altos)
     ahora = marca(_ahora(conn))
     with transaccion(conn):
         _pasar(conn, solicitud_id, ("aprobada",), "leyendo", tipo="lectura_empezada",
@@ -1177,14 +1472,20 @@ def empezar(conn: sqlite3.Connection, solicitud_id: int, total: int, *,
              ahora, ahora)).lastrowid
     return _Seguimiento(conn, solicitud_id, pasada_id, modelo=estimacion.get("modelo", ""),
                         tope=fila["tope_usd_micro"], altos=altos, entradas=entradas,
-                        imprimir=imprimir)
+                        imprimir=imprimir, excluidas=excluidas, por_documento=por_documento,
+                        maximo=maximo)
 
 
 def terminar(conn: sqlite3.Connection, seguimiento: _Seguimiento,
              resultado: list[dict[str, Any]], *, errores_tipado: int = 0) -> Leida:
     """La pasada termina (hecha, tope, cancelada o fallida, segun por que paro) con lo que fue
     de cada documento, y la peticion con ella: hecha, cancelada si se pidio parar, o fallida
-    con su motivo si la API fallo por algo que no es del documento (paso 18)."""
+    con su motivo si la API fallo por algo que no es del documento (paso 18).
+
+    En una automatica (paso 18), una factura que acaba fallida por el documento por segunda
+    vez (en dos automaticas distintas: esta y otra) deja de leerse sola (exclusion "fallo"); a
+    la primera, se reintenta en la siguiente. Lo que la API no pudo leer por otra cosa (sin
+    leer) no cuenta."""
     solicitud_id, pasada_id = seguimiento.solicitud_id, seguimiento.pasada_id
     fase = seguimiento.parada or "hecha"
     estado = fase if fase in ("cancelada", "fallida") else "hecha"
@@ -1217,8 +1518,36 @@ def terminar(conn: sqlite3.Connection, seguimiento: _Seguimiento,
                                             if r["estado"] == "posible_duplicado"), **por_que}
         _pasar(conn, solicitud_id, ("leyendo",), estado, tipo="lectura_terminada",
                motivo=seguimiento.motivo_parada, datos=datos, **por_que)
+        if actual["origen"] == "automatica":
+            _apartar_los_que_fallan(conn, solicitud_id, resultado)
     return Leida(estado, fase, resultado, seguimiento.gastado, cuentas["fallidas"],
                  errores_tipado, seguimiento.motivo_parada)
+
+
+# Una factura que falla por el documento en tantas automaticas ya no se lee sola.
+FALLOS_PARA_APARTAR = 2
+
+
+def _apartar_los_que_fallan(conn: sqlite3.Connection, solicitud_id: int,
+                            resultado: list[dict[str, Any]]) -> None:
+    """Las facturas fallidas de esta automatica que ya fallaron en otra (las pasadas de las
+    automaticas, con json_each de su resultado): exclusion "fallo", del usuario automatico."""
+    from . import lectura_automatica
+
+    fallidos = sorted({r["documento_id"] for r in resultado
+                       if r["estado"] == "fallida" and r["documento_id"] is not None})
+    automatico = usuario_sistema(conn, "automatico")
+    for documento_id in fallidos:
+        veces = conn.execute(
+            "SELECT count(*) FROM pasada_lectura AS p "
+            "JOIN solicitud_lectura AS s ON s.id = p.solicitud_id "
+            "WHERE s.origen = 'automatica' AND EXISTS (SELECT 1 FROM json_each(p.resultado_json) "
+            "AS j WHERE json_extract(j.value, '$.documento_id') = ? "
+            "AND json_extract(j.value, '$.estado') = 'fallida')", (documento_id,)).fetchone()[0]
+        if veces >= FALLOS_PARA_APARTAR:
+            lectura_automatica.excluir(conn, [documento_id], "fallo", automatico,
+                                       solicitud_id=solicitud_id,
+                                       motivo=f"fallo al leerla sola {veces} veces")
 
 
 def leer(conn: sqlite3.Connection, solicitud_id: int, *, client: Any, almacen: Any,

@@ -232,4 +232,17 @@ describe('el resultado y el error', () => {
       expect(texts).not.toContain(t.aurora.process.reasons.other);
     }
   });
+
+  it('P6 (paso 18): una lectura automatica que no se acepto dice por que', () => {
+    expect(reasonOf('limite_dia', MESSAGES.nl)).toBe('Het dagplafond voor automatisch lezen is bereikt.');
+    expect(reasonOf('limite_mes', es)).toBe('Se ha llegado al tope del mes de la lectura automática.');
+    expect(reasonOf('excluidas', MESSAGES.en)).toBe('These invoices are not read automatically: they wait for you.');
+    expect(reasonOf('sin_autorizacion', es)).toBe('La lectura automática está apagada.');
+    for (const lang of ['nl', 'en', 'es'] as const) {
+      const t = MESSAGES[lang];
+      const texts = ['limite_dia', 'limite_mes', 'excluidas', 'sin_autorizacion'].map((code) => reasonOf(code, t));
+      expect(new Set(texts).size).toBe(4);
+      expect(texts).not.toContain(t.aurora.process.reasons.other);
+    }
+  });
 });

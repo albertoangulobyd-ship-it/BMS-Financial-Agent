@@ -105,6 +105,10 @@ $LecturaOcupada = 4
 $LecturaCancelada = 5
 $LecturaCaducada = 6
 $LecturaFallida = 7
+# Paso 18: lo que dice "lectura siguiente" al ciclo automatico (0: una lectura
+# automatica): la que pidio una persona en la app, o la automatica parada.
+$LecturaPedida = 8
+$LecturaLimite = 9
 
 function Cerrar-Lectura([string]$Solicitud, [string]$Motivo, [switch]$SiViva) {
     # La lectura que no se ha podido hacer termina fallida, con su motivo, y la app lo ve. Lo

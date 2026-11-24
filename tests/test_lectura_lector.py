@@ -276,6 +276,31 @@ def test_sin_pdf_no_se_enciende_nada(lector) -> None:
     assert (fila["estado"], fila["motivo_codigo"]) == ("nada_que_leer", "buzon_vacio")
 
 
+def test_el_lector_lee_tambien_lo_que_trajo_el_correo(lector) -> None:
+    """Paso 18: leer-facturas sigue igual, y lo que el correo dejo en el almacen sin leer entra
+    en la misma cuenta y la misma lectura (con el si de siempre); lo que una persona aparto de
+    la lectura automatica, no. Sin nada en buzon/facturas tambien hay que leer."""
+    from test_lectura_automatica import _correo, _documento
+
+    from bms_agent import lectura_automatica
+
+    with preparar(lector["db"]) as almacen:
+        del_correo = _documento(almacen, "del-correo")
+        apartado = _documento(almacen, "apartado")
+        _correo(almacen.conn, "2026-10-14T08:00:00+00:00", ("documento", del_correo),
+                ("documento", apartado))
+        ana = permisos.usuario_por_nombre(almacen.conn, "Ana")
+        lectura_automatica.excluir(almacen.conn, [apartado], "persona", ana)
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos, codigo) == (PASOS_COMPLETOS, 0)
+    assert lector["estado"]["api"].leidos == ["del-correo"]
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["origen"], fila["aprobada_via"]) == ("hecha", "lector",
+                                                                      "ventana")
+    # Leido, ya no queda nada que leer.
+    assert lector["leer_facturas"]() == (["tomar"], "nada")
+
+
 def test_dos_lectores_a_la_vez_no(lector) -> None:
     _pdf(lector["buzon"], "una")
     with preparar(lector["db"]) as almacen:
@@ -470,10 +495,19 @@ def test_en_windows_nada_se_cuenta_sin_el_aislamiento_bien() -> None:
 @pytest.mark.parametrize("carpeta", [WINDOWS, DOCKER])
 def test_los_codigos_del_lector_son_los_de_la_cli(carpeta) -> None:
     comun = (carpeta / "comun.ps1").read_text(encoding="utf-8")
-    for nombre, valor in (("Nada", cli.LECTURA_NADA), ("Ocupada", cli.LECTURA_OCUPADA),
-                          ("Cancelada", cli.LECTURA_CANCELADA),
-                          ("Caducada", cli.LECTURA_CADUCADA), ("Fallida", cli.LECTURA_FALLIDA)):
+    codigos = (("Nada", cli.LECTURA_NADA), ("Ocupada", cli.LECTURA_OCUPADA),
+               ("Cancelada", cli.LECTURA_CANCELADA), ("Caducada", cli.LECTURA_CADUCADA),
+               ("Fallida", cli.LECTURA_FALLIDA),
+               # Paso 18: lo que dice `lectura siguiente` al ciclo automatico.
+               ("Pedida", cli.LECTURA_PEDIDA), ("Limite", cli.LECTURA_LIMITE))
+    for nombre, valor in codigos:
         assert f"$Lectura{nombre} = {valor}\n" in comun, nombre
+    # Cada codigo de la CLI, uno solo, y en los dos comun.ps1 los mismos y nada mas.
+    de_la_cli = {n: v for n, v in vars(cli).items() if n.startswith("LECTURA_")}
+    assert sorted(de_la_cli.values()) == list(range(3, 10))
+    assert {f"Lectura{n.title()}" for n, _v in codigos} == {
+        "Lectura" + n.removeprefix("LECTURA_").title() for n in de_la_cli}
+    assert len(re.findall(r"^\$Lectura[A-Z][a-z]+ = \d+$", comun, re.M)) == len(de_la_cli)
     cerrar = comun[comun.index("function Cerrar-Lectura"):]
     cerrar = cerrar[:cerrar.index("\n}\n")]
     assert '@("lectura", "cerrar", $Solicitud, "--motivo", $Motivo)' in cerrar
