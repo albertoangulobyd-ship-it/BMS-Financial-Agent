@@ -1714,8 +1714,14 @@ def _horas_objeto(conn: sqlite3.Connection, objeto_id: int, foto: Any) -> dict[s
 # hasta el domingo (`esta_semana`) y los avisos de pago. El 2.4
 # (revision del paso 16) anade a cada factura de las listas la fuente de lo pagado
 # (`fuente_pago`) y a cada proveedor y cliente, en su lista y en su vista, lo que dice la
-# cartera (`deuda_cent`) y sus abonos sin enlazar (`abonos_sin_enlazar_cent`), aparte.
-CONTRATO_V2 = "2.5"
+# cartera (`deuda_cent`) y sus abonos sin enlazar (`abonos_sin_enlazar_cent`), aparte. El 2.5
+# (paso 17) anade la lectura pedida desde la app (`solicitud`, `pasada_en_curso`,
+# `ultima_pasada` en /api/v2/lectura, y sus tres ordenes). El 2.6 (paso 18) anade
+# GET /api/v2/correo (el buzon de facturas, el ciclo automatico, lo que espera a una persona y
+# la lectura automatica), en /api/v2/lectura `automatica`, la `autorizacion` y los `omitidos`
+# de la solicitud, `etiquetas` en cada pasada y `nombre_original` en cada fila de su resultado,
+# y las cuatro ordenes de la lectura automatica.
+CONTRATO_V2 = "2.6"
 
 
 def _pb(parte: int, todo: int) -> int | None:
@@ -3591,7 +3597,8 @@ def lectura_pdf(conn: sqlite3.Connection) -> dict[str, Any]:
     "Leer facturas", que ensena lo que va a costar antes de pagar. Aqui solo se mira.
 
     Paso 17 (contrato 2.5): ademas, la lectura pedida desde la app (lectura.para_la_app):
-    `solicitud`, `pasada_en_curso` y `ultima_pasada`.
+    `solicitud`, `pasada_en_curso` y `ultima_pasada`. Paso 18 (contrato 2.6): `automatica`, la
+    `autorizacion` y los `omitidos` de la solicitud, `etiquetas` y `nombre_original`.
     """
     from statistics import median
 
@@ -3642,3 +3649,218 @@ def empresa(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"nombre": e.nombre, "otros_nombres": list(e.otros_nombres), "btw_id": e.btw_id,
             "kvk": e.kvk, "cuentas_propias": list(e.cuentas_propias),
             "completa": bool(e.btw_id and e.kvk and e.cuentas_propias)}
+
+
+# ------------------------------------------------------------ el correo (paso 18, contrato 2.6)
+#
+# GET /api/v2/correo: lo que la app dice del buzon de facturas, del ciclo automatico, de lo que
+# espera a una persona y de la lectura automatica (diseno §6.2). Solo lee la base: lo que el
+# correo trajo lo registro `correo registrar`, y su estado es la copia que dejo en estado_correo.
+# El remitente, el asunto y los nombres de los adjuntos son texto de un tercero, sin comprobar:
+# van tal cual (saneados al registrarlos) y la app los marca "niet gecontroleerd".
+
+CORREO_RETRASADO = timedelta(minutes=20)
+# Microsoft que limita o un corte de la red: "sigue solo" hasta que dura mas de esto.
+CORREO_BREVE = timedelta(minutes=30)
+CORREO_RECIENTES = 10
+CORREO_PASAJEROS = ("limitado", "sin_conexion")
+# Las bandas del servidor (§6.1).
+BANDA_CERTIFICADO_DIAS = 30
+BANDA_SIN_RONDA_BUENA = timedelta(hours=24)
+BANDA_CICLO = timedelta(minutes=30)
+BANDA_CICLO_EN_PAUSA = timedelta(hours=24)
+BANDA_ESPERA = timedelta(hours=4)
+
+
+def _instante_de(texto: str | None) -> Any:
+    from datetime import datetime, timezone
+
+    if not texto:
+        return None
+    valor = datetime.fromisoformat(texto.replace(" ", "T"))
+    return valor if valor.tzinfo is not None else valor.replace(tzinfo=timezone.utc)
+
+
+def _estado_del_correo(fila: sqlite3.Row | None, ahora: Any) -> str:
+    """al_dia | retrasado | retenido | error | sin_configurar (§6.2)."""
+    if fila is None or fila["error_codigo"] == "sin_configurar":
+        return "sin_configurar"
+    if fila["error_codigo"] is not None:
+        desde = _instante_de(fila["error_desde"])
+        if (fila["error_codigo"] in CORREO_PASAJEROS and desde is not None
+                and ahora - desde < CORREO_BREVE):
+            return "retrasado"
+        return "error"
+    retenido = _instante_de(fila["retenido_hasta"])
+    if retenido is not None and retenido > ahora:
+        return "retenido"
+    consulta = _instante_de(fila["ultima_consulta"])
+    if consulta is None or ahora - consulta > CORREO_RETRASADO:
+        return "retrasado"
+    return "al_dia"
+
+
+def correo(conn: sqlite3.Connection, entorno: str) -> dict[str, Any]:
+    """GET /api/v2/correo (paso 18, §6.2). `entorno`: nativo, contenedor o local (donde corre el
+    servidor, como en /api/v2/aislamiento)."""
+    from . import ciclo, lectura_automatica
+    from .almacen import reloj_de
+    from .reloj import ZONA_EMPRESA
+
+    ahora = reloj_de(conn).ahora()
+    fila = conn.execute("SELECT * FROM estado_correo WHERE id = 1").fetchone()
+    estado = _estado_del_correo(fila, ahora)
+    caduca = _instante_de(fila["credencial_caduca_en"]) if fila is not None else None
+    retenido = _instante_de(fila["retenido_hasta"]) if fila is not None else None
+    hoy = {"mensajes": 0, "pdf_nuevos": 0, "bytes": 0}
+    if fila is not None:
+        try:
+            del_dia = json.loads(fila["hoy_json"] or "{}")
+        except json.JSONDecodeError:
+            del_dia = {}
+        from zoneinfo import ZoneInfo
+
+        if isinstance(del_dia, dict) and del_dia.get("fecha") == ahora.astimezone(
+                ZoneInfo(ZONA_EMPRESA)).date().isoformat():
+            hoy = {"mensajes": int(del_dia.get("mensajes") or 0),
+                   "pdf_nuevos": int(del_dia.get("pdf") or 0),
+                   "bytes": int(del_dia.get("bytes") or 0)}
+    latido = ciclo.leer(conn)
+    recientes = conn.execute(
+        "SELECT * FROM mensaje_correo ORDER BY datetime(recibido_en) DESC, id DESC LIMIT ?",
+        (CORREO_RECIENTES,)).fetchall()
+    return {
+        "configurado": estado != "sin_configurar", "entorno": entorno, "estado": estado,
+        "error_codigo": fila["error_codigo"] if fila is not None else None,
+        "error_desde": fila["error_desde"] if fila is not None else None,
+        "ultima_consulta": fila["ultima_consulta"] if fila is not None else None,
+        "ultima_buena": fila["ultima_buena"] if fila is not None else None,
+        "retenido_hasta": fila["retenido_hasta"] if retenido is not None and retenido > ahora
+        else None,
+        "alcance": {"comprobado_en": fila["alcance_comprobado_en"] if fila is not None else None,
+                    "bien": None if fila is None or fila["alcance_bien"] is None
+                    else fila["alcance_bien"] == 1},
+        "credencial": {"caduca_en": fila["credencial_caduca_en"] if fila is not None else None,
+                       "dias": (caduca - ahora).days if caduca is not None else None},
+        "aviso_volumen": bool(fila["aviso_volumen"]) if fila is not None else False,
+        "hoy": hoy,
+        "ciclo": {"visto_en": latido.visto_en if latido else None,
+                  "variante": latido.variante if latido else None,
+                  "pausado": latido.pausado if latido else False,
+                  "pausado_desde": latido.pausado_desde if latido else None,
+                  "disco_libre_bytes": latido.disco_libre_bytes if latido else None,
+                  "disco_bajo": latido.disco_bajo if latido else False},
+        "recientes": [lectura_automatica.mensaje(conn, m) for m in recientes],
+        "esperan_persona": lectura_automatica.esperan_persona(conn),
+        "lectura_automatica": lectura_automatica.resumen(conn, ahora),
+    }
+
+
+def _cuando(texto: str | None) -> str:
+    """Un instante como lo lee la oficina: DD-MM-AAAA HH:MM en Amsterdam."""
+    from zoneinfo import ZoneInfo
+
+    from .reloj import ZONA_EMPRESA
+
+    instante = _instante_de(texto)
+    if instante is None:
+        return "?"
+    return instante.astimezone(ZoneInfo(ZONA_EMPRESA)).strftime("%d-%m-%Y %H:%M")
+
+
+# Lo que dicen las bandas de la lectura que la API paro (§6.4, process.reasons), NL y EN.
+_BANDA_API = {
+    "saldo": ("Het tegoed voor de API is op (of het bestedingslimiet is bereikt). Vul het aan; "
+              "daarna gaat het vanzelf verder.",
+              "The API credit has run out (or the spending limit was reached). Top it up; it "
+              "then continues by itself."),
+    "clave_rechazada": ("De API weigert de sleutel. De beheerder moet hem vervangen "
+                        "(clave.bat).",
+                        "The API refuses the key. The administrator needs to replace it "
+                        "(clave.bat)."),
+}
+
+
+def bandas_urgentes(conn: sqlite3.Connection) -> list[str]:
+    """Las bandas rojas del servidor (paso 18, §6.1): solo lo urgente, una linea cada cosa, en
+    neerlandes e ingles. Lo dice el servidor (app_local.bandas), asi que se ve aunque el script
+    no cargue. Solo numeros, fechas y textos fijos: nada de lo que trajo el correo."""
+    from . import ciclo, lectura_automatica
+    from .almacen import reloj_de
+
+    ahora = reloj_de(conn).ahora()
+    lineas: list[str] = []
+
+    parado = []
+
+    def correo_parado(nl: str, en: str) -> None:
+        parado.append(nl)
+        lineas.append(f"MAILBOX · Er komen geen facturen meer binnen: {nl} · "
+                      f"MAILBOX · Invoices are no longer coming in: {en}")
+
+    fila = conn.execute("SELECT * FROM estado_correo WHERE id = 1").fetchone()
+    if fila is not None and fila["error_codigo"] != "sin_configurar":
+        caduca = _instante_de(fila["credencial_caduca_en"])
+        if caduca is not None and caduca <= ahora:
+            correo_parado("het certificaat is verlopen (correo-certificado.bat).",
+                          "the certificate has expired (correo-certificado.bat).")
+        elif caduca is not None and (caduca - ahora).days <= BANDA_CERTIFICADO_DIAS:
+            dias, fecha = (caduca - ahora).days, _cuando(fila["credencial_caduca_en"])[:10]
+            lineas.append(
+                f"MAILBOX · Het certificaat verloopt over {dias} dagen ({fecha}): vraag de "
+                "beheerder om een nieuw (correo-certificado.bat). · MAILBOX · The certificate "
+                f"expires in {dias} days ({fecha}): ask the administrator for a new one "
+                "(correo-certificado.bat).")
+        if fila["error_codigo"] == "control_no_existe":
+            correo_parado("de controlemailbox bestaat niet meer, dus de veiligheidscontrole "
+                          "kan niet (correo-configurar.bat).",
+                          "the control mailbox no longer exists, so the safety check cannot "
+                          "run (correo-configurar.bat).")
+        elif fila["alcance_bien"] == 0 or fila["error_codigo"] == "alcance":
+            correo_parado("het programma kan meer lezen dan alleen de facturenmailbox.",
+                          "the program can read more than the invoice mailbox.")
+        buena = _instante_de(fila["ultima_buena"])
+        # Con el porque ya dicho (el certificado, el alcance), no se repite.
+        if not parado and (buena is None or ahora - buena > BANDA_SIN_RONDA_BUENA):
+            correo_parado("al meer dan 24 uur geen geslaagde controle van de mailbox.",
+                          "no successful mailbox check for more than 24 hours.")
+    latido = ciclo.leer(conn)
+    if latido is not None:
+        visto = _instante_de(latido.visto_en)
+        desde = _instante_de(latido.pausado_desde) if latido.pausado else None
+        if latido.pausado and (desde is None or ahora - desde > BANDA_CICLO_EN_PAUSA):
+            cuando = _cuando(latido.pausado_desde or latido.visto_en)
+        elif not latido.pausado and ahora - visto > BANDA_CICLO:
+            cuando = _cuando(latido.visto_en)
+        else:
+            cuando = None
+        if cuando is not None:
+            lineas.append(f"AUTOMATISCH · Het automatische werk loopt niet sinds {cuando}. Zie "
+                          f"automatico.bat -Estado. · AUTOMATIC · Automatic work has not run "
+                          f"since {cuando}. See automatico.bat -Estado.")
+        if latido.disco_bajo:
+            libre = f"{latido.disco_libre_bytes // 1024 ** 3} GB"
+            lineas.append(f"SCHIJF · Nog maar {libre} vrij: er wordt niets opgehaald of gelezen. "
+                          f"· DISK · Only {libre} free: nothing is fetched or read.")
+    ultima = conn.execute("SELECT estado, motivo_codigo FROM solicitud_lectura "
+                          "WHERE terminada_en IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+    if ultima is not None and ultima["estado"] == "fallida" and ultima["motivo_codigo"] in (
+            _BANDA_API):
+        nl, en = _BANDA_API[ultima["motivo_codigo"]]
+        lineas.append(f"LEZEN · {nl} · READING · {en}")
+    resumen = lectura_automatica.resumen(conn, ahora)
+    antigua = _instante_de(resumen["elegible_mas_antigua"])
+    if (resumen["activa"] and resumen["parada"] not in ("persona", "volumen", "limite_dia",
+                                                         "limite_mes")
+            and antigua is not None and ahora - antigua > BANDA_ESPERA):
+        from .reloj import marca
+
+        buena_desde = conn.execute(
+            "SELECT 1 FROM solicitud_lectura WHERE origen = 'automatica' AND estado = 'hecha' "
+            "AND datetime(terminada_en) > datetime(?)", (marca(antigua),)).fetchone()
+        if buena_desde is None:
+            cuantas = lectura_automatica.elegibles_que_esperan(conn, ahora - BANDA_ESPERA)
+            lineas.append(f"LEZEN · {cuantas} facturen wachten al meer dan 4 uur op automatisch "
+                          f"lezen. · READING · {cuantas} invoices have waited more than 4 hours "
+                          "for automatic reading.")
+    return lineas

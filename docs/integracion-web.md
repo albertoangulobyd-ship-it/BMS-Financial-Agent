@@ -271,10 +271,10 @@ con lo que dice esta sección (`tests/test_contrato_v2.py`).
 ### La versión
 
 ```
-{"contrato": "2.5", ...}
+{"contrato": "2.6", ...}
 ```
 
-Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.5`. El
+Cada respuesta de `/api/v2` lleva además la cabecera `X-BMS-Contrato: 2.6`. El
 número sube así:
 
 - **2.x → 2.(x+1)** cuando se **añade** una clave: un sitio que ignora lo que
@@ -421,6 +421,27 @@ quita:
   dos cifras salen de la misma carpeta (`documentos_factura` ≤ `documentos`); `facturas`
   cuenta también las que no tienen PDF (las que vienen de Exact), así que no se comparan.
 
+**Lo que añadió el 2.6 (paso 18, el correo de facturas y la lectura automática).** Claves,
+una lectura y órdenes nuevas; ninguna cambia de forma ni se quita (los valores nuevos de una
+lista que ya existía, como `origen` o `motivo_codigo`, un sitio que no los conoce los enseña
+como desconocidos):
+
+- `GET /api/v2/correo` (nueva): el buzón de facturas (cómo va, su último error, lo de hoy, el
+  certificado), el ciclo automático (su latido y el disco), los últimos correos, lo que espera
+  a una persona y la lectura automática. Abajo, «El correo de facturas y la lectura
+  automática»;
+- `GET /api/v2/lectura` lleva `automatica` (la lectura automática, como en `/api/v2/correo`
+  pero sin quién la firmó); en `solicitud`, `autorizacion` (la que aceptó una automática, o
+  `null`) y los valores nuevos de `origen` (`automatica`), `aprobada_via` (`automatica`) y
+  `motivo_codigo` (`limite_dia`, `limite_mes`, `excluidas`, `sin_autorizacion`, `saldo`,
+  `clave_rechazada`, `api_no_disponible`), y `omitidos` (lo que la cuenta dejó fuera); en cada
+  pasada, `etiquetas`, y en cada fila de su `resultado`, `nombre_original`;
+- cuatro órdenes en `POST /api/v2/acciones`: `fijar_lectura_automatica` (con `admin`),
+  `reanudar_lectura_automatica`, `excluir_de_lectura_automatica` y `marcar_correo_atendido`
+  (con `importar_datos`). Ninguna lee, trae ni habla con la API o con Microsoft: el correo y la
+  lectura los hace el ciclo automático (solo en Docker). Encender la lectura automática es
+  autorizar gastar en leer, con topes; no aprueba ni paga ninguna factura.
+
 ### Cuatro reglas que valen para todo
 
 **Importes en enteros, con su texto al lado.** `_cent` son céntimos de euro
@@ -467,7 +488,7 @@ dentro del sitio.** Ver «Ejemplo» al final de esta sección.
 
 ```
 {
-  "contrato": "2.5",
+  "contrato": "2.6",
   "generado_en",                      // instante UTC del export
   "hoy",                              // el día con que se calcula (Ámsterdam)
   "estado_del", "al_dia",             // de qué día es el estado de las facturas;
@@ -657,7 +678,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/acciones` | Las órdenes que existen, con sus parámetros | — |
 | `GET /api/v2/exportar` | El contrato v2 entero, como `export --v2` | — |
 | `GET /api/v2/importaciones` | Las últimas 30 importaciones (qué, de cuándo, quién, cómo acabó), lo que se puede importar (`tipos`: cada `fuente` y `tipo`), el tamaño máximo de un fichero (`limite_bytes`) y de cuándo es cada fuente (`fuentes`, como `GET /api/v2/fuentes`) | — |
-| `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no). Desde el 2.5, también la lectura pedida desde la app: `solicitud`, `pasada_en_curso`, `ultima_pasada`, `plazo_respuesta_segundos` y `consulta_cada_segundos` (abajo, «La lectura pedida desde la app») | — |
+| `GET /api/v2/lectura` | Lo que ha costado leer los PDF y lo que costaría uno más, de lo que guarda el almacén (como `bms-agent coste`, sin llamar a la API): `extracciones`, `documentos`, `coste_usd_micro` (millonésimas de dólar), `por_documento_usd_micro`, `pasadas` (las diez últimas), `estimacion` (horquilla por documento) y `lee_aqui` (si este servidor lee PDF: en la instalación nativa y en Docker, no). Desde el 2.5, también la lectura pedida desde la app: `solicitud`, `pasada_en_curso`, `ultima_pasada`, `plazo_respuesta_segundos` y `consulta_cada_segundos` (abajo, «La lectura pedida desde la app»). Desde el 2.6, `automatica` (abajo, «El correo de facturas y la lectura automática») | — |
 | `GET /api/v2/empresa` | La identidad de BM Support BV que usan las reglas (`nombre`, `otros_nombres`, `btw_id`, `kvk`, `cuentas_propias`, `completa`). Se cambia con `empresa.bat`, no desde la app | — |
 | `GET /api/v2/cartera` | Lo que nos deben (`sentido=saliente`) o lo que debemos (`sentido=entrante`): los totales del panel, la antigüedad por tramos, cada empresa, lo retenido y lo que espera aparte (abajo, «La cartera») | `sentido` (obligatorio: sin él, o con otro valor, `400`) |
 | `GET /api/v2/pagos/propuestas` | Los pagos que el banco propuso y esperan a una persona, cada uno con su línea del banco, su factura y las tres coincidencias | `sentido` (de la factura) |
@@ -666,6 +687,7 @@ ponerlo; en la búsqueda, un filtro vacío es un `400` («lleva un valor»).
 | `GET /api/v2/proveedores/N/documentos` | La carpeta de un proveedor | — |
 | `GET /api/v2/documentos/N/original` | Un documento guardado que algún registro enlaza (el original de una factura o un abono, el justificante de un pago, la hoja de una PO o de su modificación: lo que sale en la carpeta de una parte), como fichero adjunto, con las mismas cabeceras que el original de una factura. Cada descarga queda en la auditoría (`documento_abierto`). Solo desde la app o la consola: desde otro origen, `403` y sin CORS | — |
 | `GET /api/v2/aislamiento` | Lo que dice la banda roja, por papeles: `aplica` (solo en la instalación nativa), `entorno` (`nativo`, `contenedor` o `local`), `correcto` y `papeles` (`papel`, `bien` y `estado`: `correcto`, `falla`, `sin_comprobar` o `caducada`, comprobado hace demasiado o con una fecha que no vale). No copia el texto de los problemas (sale de un fichero que se puede escribir): `estado` sale solo de cómo empieza cada problema | — |
+| `GET /api/v2/correo` | El buzón de facturas, el ciclo automático, lo que espera a una persona y la lectura automática (abajo, «El correo de facturas y la lectura automática»). Solo lee la base | — |
 
 ### Los errores (`error` y `codigo`)
 
@@ -755,7 +777,8 @@ persona.
   "id", "estado",               // pedida | comprobando | contando | esperando_aprobacion |
                                 // aprobada | leyendo | hecha | fallida | caducada |
                                 // cancelada | nada_que_leer
-  "origen",                     // app | lector (alguien abrió el lector sin pedir nada)
+  "origen",                     // app | lector (alguien abrió el lector sin pedir nada) |
+                                // automatica (2.6: el ciclo, con la autorización)
   "viva",                       // estado de los seis primeros
   "abandonada",                 // un lector la tenía y ya no da señales: la siguiente
                                 // lectura (o pedir_lectura) la da por terminada
@@ -763,12 +786,21 @@ persona.
   "motivo", "motivo_codigo",    // por qué terminó así (fallida, nada_que_leer): el código
                                 // es estable (buzon_vacio, ya_leidas, clave, salida,
                                 // aislamiento, contar, sin_tarifa, estimacion, lectura,
-                                // interrumpida, abandonada) y el texto, en español
+                                // interrumpida, abandonada; desde el 2.6 también
+                                // limite_dia, limite_mes, excluidas, sin_autorizacion,
+                                // saldo, clave_rechazada, api_no_disponible) y el texto,
+                                // en español
   "pdf_nuevos", "pdf_ya_leidos",                   // de la cuenta (null antes de contar)
   "coste_min_usd_micro", "coste_max_usd_micro",    // la horquilla del lote, en millonésimas
   "huella_estimacion",          // la que manda aprobar_lectura
   "contada_en", "caduca_en",    // el sí vale hasta caduca_en (15 minutos después de contar)
-  "aprobada_por", "aprobada_en", "aprobada_via", "tope_usd_micro",   // app | ventana
+  "aprobada_por", "aprobada_en", "aprobada_via", "tope_usd_micro",   // app | ventana |
+                                // automatica (2.6: sin aprobada_por; la firma la autorización)
+  "autorizacion",               // 2.6: la de una automática, {id, fijada_por, fijada_en}
+                                // (fijada_por: {id, nombre}), o null
+  "omitidos": [ {"nombre", "nombre_original", "rechazado_api"} ],
+                                // 2.6: lo que la cuenta dejó fuera (no es un PDF, es de la
+                                // otra base, o la API no lo acepta: rechazado_api); no se lee
   "cancelada_por", "cancelada_en", "cancelada_via",
   "parar_pedido",               // leyendo, y alguien pidió parar
   "terminada_en", "actualizada_en"
@@ -791,7 +823,10 @@ terminada, o `null`), con la misma forma:
  "fases": [ {"fase", "en"} ],   // cada fase con el instante en que empezó
  "motivo",                      // por qué paró (el tope, parar, un fallo)
  "empezada_en", "terminada_en", "actualizada_en",
- "resultado": [ {"documento_id", "nombre", "estado", "factura_id", "numero", "empresa"} ]}
+ "resultado": [ {"documento_id", "nombre", "estado", "factura_id", "numero", "empresa",
+                 "nombre_original"} ],                // 2.6: el nombre con que llegó, o null
+ "etiquetas": {}}               // 2.6: {"<sha256>.pdf": nombre original} de los PDF que se
+                                // leen del almacén (los del correo); los demás ya se llaman así
 ```
 
 `estado` de cada documento, al terminar: `nueva`, `ya_leida` (el mismo fichero: no se
@@ -815,6 +850,81 @@ tope es duro: antes de cada factura se mira si cabe su extremo alto, y si cabe s
 un `max_tokens` que es la salida que aún cabe en el tope con su entrada contada (como mucho,
 el de la configuración). Una respuesta más larga que su estimación se corta ahí, se cobra
 lo que costó (nunca más de lo que quedaba) y la factura queda `fallida`, para la próxima.
+
+### El correo de facturas y la lectura automática (paso 18)
+
+Solo en la variante Docker ([entorno-local.md](entorno-local.md)): un componente aparte trae
+los PDF de un buzón de Microsoft 365 de solo lectura, `orden` los registra (`bms-agent correo
+registrar`) y un ciclo automático (cada 5 minutos) los lee solos dentro de una autorización
+permanente con topes que firma una persona con `admin`. La app no trae ni lee nada: lo enseña
+y da las órdenes de abajo. En la instalación nativa no hay correo ni ciclo: `configurado` es
+`false` y `ciclo.visto_en`, `null`.
+
+**`GET /api/v2/correo`**:
+
+```
+"correo": {
+  "configurado",                // false sin nada del correo todavía (o sin sus ajustes)
+  "entorno",                    // nativo | contenedor | local (como /api/v2/aislamiento)
+  "estado",                     // al_dia | retrasado (Microsoft que limita o sin red desde
+                                // hace menos de 30 minutos, o la última consulta tiene más
+                                // de 20) | retenido (los topes del día: sigue mañana) |
+                                // error | sin_configurar
+  "error_codigo", "error_desde", // sin_configurar | credencial | reloj | permiso | alcance |
+                                // control_no_existe | sin_conexion | limitado | aislamiento |
+                                // salida | disco | interno, y desde cuándo; o null
+  "ultima_consulta", "ultima_buena", "retenido_hasta",
+  "alcance": {"comprobado_en", "bien"},            // solo puede leer ese buzón (bien: true)
+  "credencial": {"caduca_en", "dias"},             // el certificado (dias < 0: caducado)
+  "aviso_volumen",              // hoy han llegado más de 200 correos
+  "hoy": {"mensajes", "pdf_nuevos", "bytes"},      // del día de la empresa (Amsterdam)
+  "ciclo": {"visto_en", "variante", "pausado", "pausado_desde", "disco_libre_bytes",
+            "disco_bajo"},      // el latido del ciclo automático; disco_bajo: < 10 GiB
+  "recientes": [                // los 10 últimos correos
+    {"mensaje_id", "recibido_en", "carpeta",       // carpeta: bandeja | no_deseado
+     "remitente_doc", "asunto_doc",                // SIN COMPROBAR: los pone quien manda
+     "adjuntos": [ {"nombre_doc", "resultado", "bytes", "documento_id"} ]} ],
+                                // resultado: documento | no_es_pdf | demasiado_grande | xml |
+                                // reenvio | no_pdf | enlace | no_deseado | de_prueba | error
+  "esperan_persona": {
+    "correos": [], "correos_total",                // como recientes: los que el programa no
+                                                   // ha podido leer y nadie ha atendido (50)
+    "documentos": [ {"documento_id", "nombre_original", "recibido_en", "motivo_codigo"} ],
+    "documentos_total"},        // las facturas que no se leen solas y siguen sin leer (50):
+                                // motivo_codigo grande | fallo | rechazado_api | persona
+  "lectura_automatica": {
+    "activa", "autorizacion_id", "tope_dia_usd_micro", "tope_mes_usd_micro",
+    "max_documentos", "max_por_documento_usd_micro",
+    "fijada_por", "fijada_en",  // fijada_por: {id, nombre}
+    "gastado_hoy_usd_micro", "gastado_mes_usd_micro", "queda_hoy_usd_micro",
+    "parada",                   // null | limite_dia | limite_mes | persona | volumen | fallo
+    "motivo_codigo",            // con fallo: salida, aislamiento, clave, contar, sin_tarifa,
+                                // saldo, clave_rechazada o api_no_disponible
+    "desde", "proximo_intento", "hasta",
+    "pendientes", "elegibles", "elegible_mas_antigua"}}
+```
+
+El remitente, el asunto y los nombres de los adjuntos son texto de un tercero (saneados al
+registrarlos, sin controles ni caracteres de dirección): van al DOM con `textContent`, siempre
+con la etiqueta «no comprobado», y no identifican nunca a un proveedor. Ni el cuerpo de un
+correo, ni sus destinatarios, ni sus cabeceras están en la base: no se traen nunca.
+
+`GET /api/v2/lectura` lleva **`automatica`**, con la forma de `lectura_automatica` de arriba
+sin `fijada_por`.
+
+**Las órdenes** (`POST /api/v2/acciones`; ninguna pasa el motor de reglas:
+`diferencia.ejecucion_id` es `null`):
+
+| Orden | Permiso | Datos | Qué hace | Errores |
+| --- | --- | --- | --- | --- |
+| `fijar_lectura_automatica` | `admin` | `activa` (0 o 1), `tope_dia_usd_micro` (1…20 000 000), `tope_mes_usd_micro` (del tope del día a 200 000 000), `max_documentos` (1…100), `max_por_documento_usd_micro` (1…tope del día), `motivo` (obligatorio) | Una versión nueva de la autorización (encender, cambiar un tope o apagar). `diferencia.detalle.autorizacion_id` dice cuál | `400 invalido` fuera de rango; `400 falta_motivo` |
+| `reanudar_lectura_automatica` | `importar_datos` | `motivo` | Quita la pausa (la de una persona que paró una automática, o la de volumen) | `409 estado_no_valido` si no está en pausa |
+| `excluir_de_lectura_automatica` | `importar_datos` | `documento_ids` (de 1 a 200), `motivo` | Esas facturas no se leen solas ni desde Procesar: esperan a una persona. `diferencia.detalle` dice `excluidos` y `ya_estaban` | `400 invalido` con una lista vacía, de más de 200 o con algo que no es un id; `404 no_existe` |
+| `marcar_correo_atendido` | `importar_datos` | `mensaje_id`, `nota` (opcional, hasta 500) | Una persona ya miró un correo que el programa no podía leer: sale de `esperan_persona` | `409 estado_no_valido` si ya estaba atendido; `404 no_existe` |
+
+Lo que no hace nada de esto: aprobar, pagar o crear una factura, mandar un correo, mover o
+marcar nada en el buzón (es de solo lectura) ni gastar más de los topes: cada automática la
+acepta la autorización vigente con un tope que no pasa de lo que queda hoy y este mes.
 
 ### Importar desde la app (`POST /api/v2/importar`)
 

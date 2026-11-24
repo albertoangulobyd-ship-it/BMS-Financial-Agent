@@ -57,6 +57,7 @@ cliente de quien los llama (el lector, despues de su puerta, nativo.exigir_lectu
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -1535,7 +1536,7 @@ def _resultado(conn: sqlite3.Connection, seguimiento: _Seguimiento, sha_de: dict
         estado = seguimiento.estados[nombre]
         if estado == "sin_leer":
             continue
-        documento = conn.execute("SELECT id FROM documento WHERE sha256 = ?",
+        documento = conn.execute("SELECT id, nombre_original FROM documento WHERE sha256 = ?",
                                  (sha_de.get(nombre),)).fetchone()
         documento_id = documento["id"] if documento is not None else None
         factura = None
@@ -1557,7 +1558,11 @@ def _resultado(conn: sqlite3.Connection, seguimiento: _Seguimiento, sha_de: dict
         salida.append({"documento_id": documento_id, "nombre": nombre, "estado": estado,
                        "factura_id": factura["id"] if factura is not None else None,
                        "numero": factura["numero"] if factura is not None else None,
-                       "empresa": factura["empresa"] if factura is not None else None})
+                       "empresa": factura["empresa"] if factura is not None else None,
+                       # Paso 18 (contrato 2.6): el nombre con que llego (un PDF del correo se
+                       # lee del almacen como <sha256>.pdf). Texto de un tercero.
+                       "nombre_original": documento["nombre_original"]
+                       if documento is not None else None})
     return salida
 
 
@@ -1746,6 +1751,38 @@ def _persona(conn: sqlite3.Connection, usuario_id: int | None) -> dict[str, Any]
     return {"id": fila["id"], "nombre": fila["nombre"]} if fila is not None else None
 
 
+def _autorizacion(conn: sqlite3.Connection, autorizacion_id: int | None
+                  ) -> dict[str, Any] | None:
+    """La autorizacion que acepto una automatica (paso 18): cual, quien la firmo y cuando."""
+    if autorizacion_id is None:
+        return None
+    fila = conn.execute("SELECT id, fijada_por, fijada_en FROM lectura_automatica WHERE id = ?",
+                        (autorizacion_id,)).fetchone()
+    if fila is None:
+        return None
+    return {"id": fila["id"], "fijada_por": _persona(conn, fila["fijada_por"]),
+            "fijada_en": fila["fijada_en"]}
+
+
+def _omitidos(conn: sqlite3.Connection, fila: sqlite3.Row) -> list[dict[str, Any]]:
+    """Paso 18 (contrato 2.6): los PDF que la cuenta dejo fuera (no son un PDF, son de la otra
+    base o la API no los acepta: `rechazado_api`), para que Procesar diga cuales y por que. El
+    detalle no va (es texto de la API o de una excepcion): la app lo dice por el codigo."""
+    try:
+        estimacion = json.loads(fila["estimacion_json"] or "{}")
+    except json.JSONDecodeError:
+        return []
+    lista = estimacion.get("documentos") if isinstance(estimacion, dict) else None
+    documentos = [d for d in (lista if isinstance(lista, list) else ())
+                  if isinstance(d, dict) and d.get("clase") == "omitido"]
+    nombres = [d.get("nombre") if isinstance(d.get("nombre"), str) else None
+               for d in documentos]
+    etiquetas = _etiquetas(conn, nombres)
+    return [{"nombre": nombre, "nombre_original": etiquetas.get(nombre) if nombre else None,
+             "rechazado_api": d.get("rechazado_api") is True}
+            for d, nombre in zip(documentos, nombres, strict=True)]
+
+
 def _solicitud(conn: sqlite3.Connection, fila: sqlite3.Row, ahora: datetime) -> dict[str, Any]:
     return {
         "id": fila["id"], "estado": fila["estado"], "origen": fila["origen"],
@@ -1760,6 +1797,8 @@ def _solicitud(conn: sqlite3.Connection, fila: sqlite3.Row, ahora: datetime) -> 
         "caduca_en": fila["caduca_en"],
         "aprobada_por": _persona(conn, fila["aprobada_por"]), "aprobada_en": fila["aprobada_en"],
         "aprobada_via": fila["aprobada_via"], "tope_usd_micro": fila["tope_usd_micro"],
+        "autorizacion": _autorizacion(conn, fila["autorizacion_id"]),
+        "omitidos": _omitidos(conn, fila),
         "cancelada_por": _persona(conn, fila["cancelada_por"]),
         "cancelada_en": fila["cancelada_en"], "cancelada_via": fila["cancelada_via"],
         "parar_pedido": fila["estado"] == "leyendo" and fila["cancelada_en"] is not None,
@@ -1767,9 +1806,33 @@ def _solicitud(conn: sqlite3.Connection, fila: sqlite3.Row, ahora: datetime) -> 
     }
 
 
-def _pasada(fila: sqlite3.Row) -> dict[str, Any]:
+_NOMBRE_DEL_ALMACEN = re.compile(r"([0-9a-f]{64})\.pdf")
+
+
+def _etiquetas(conn: sqlite3.Connection, nombres: Iterable[str | None]) -> dict[str, str]:
+    """Paso 18 (contrato 2.6): el nombre original de cada PDF que se lee del almacen (los del
+    correo, que se leen como <sha256>.pdf): {"<sha256>.pdf": nombre}. Solo esos; un fichero de
+    buzon/facturas ya se llama como llego. Texto de un tercero (saneado al registrarlo)."""
+    shas = sorted({m.group(1) for n in nombres if isinstance(n, str)
+                   if (m := _NOMBRE_DEL_ALMACEN.fullmatch(n)) is not None})
+    etiquetas: dict[str, str] = {}
+    for inicio in range(0, len(shas), 500):
+        trozo = shas[inicio:inicio + 500]
+        marcas = ", ".join("?" * len(trozo))
+        for documento in conn.execute(
+                f"SELECT sha256, nombre_original FROM documento WHERE sha256 IN ({marcas}) "
+                "AND nombre_original IS NOT NULL", trozo):
+            etiquetas[f"{documento['sha256']}.pdf"] = documento["nombre_original"]
+    return etiquetas
+
+
+def _pasada(conn: sqlite3.Connection, fila: sqlite3.Row) -> dict[str, Any]:
     resultado = json.loads(fila["resultado_json"])
     terminados = [r for r in resultado if r["nombre"] != fila["documento_actual"]]
+    etiquetas = _etiquetas(conn, [*(r["nombre"] for r in resultado), fila["documento_actual"]])
+    for fila_resultado in resultado:
+        # Las de antes del 2.6, y las de mientras lee (solo nombre y estado), no lo llevan.
+        fila_resultado.setdefault("nombre_original", etiquetas.get(fila_resultado["nombre"]))
     return {
         "solicitud_id": fila["solicitud_id"], "fase": fila["fase"],
         "terminada": fila["terminada_en"] is not None,
@@ -1780,6 +1843,7 @@ def _pasada(fila: sqlite3.Row) -> dict[str, Any]:
         "fases": json.loads(fila["fases_json"]), "motivo": fila["motivo"],
         "empezada_en": fila["empezada_en"], "terminada_en": fila["terminada_en"],
         "actualizada_en": fila["actualizada_en"], "resultado": resultado,
+        "etiquetas": etiquetas,
     }
 
 
@@ -1787,7 +1851,14 @@ def para_la_app(conn: sqlite3.Connection) -> dict[str, Any]:
     """Lo que GET /api/v2/lectura anade (paso 17, contrato 2.5): `solicitud` (la viva o la
     ultima), `pasada_en_curso` (la pasada de esa peticion, si la tiene, con lo que fue de
     cada documento hasta ahora) y `ultima_pasada` (la ultima terminada, con su resultado: lo
-    que Documentos pinta de verde y de naranja hasta la siguiente). Sin red: solo lee."""
+    que Documentos pinta de verde y de naranja hasta la siguiente). Sin red: solo lee.
+
+    Paso 18 (contrato 2.6): `automatica` (la lectura automatica: su autorizacion, lo gastado y
+    si esta parada, sin quien la firmo), en `solicitud` la `autorizacion` de una automatica y
+    los `omitidos` de su cuenta, y en cada pasada `etiquetas` y en cada fila de su resultado
+    `nombre_original`."""
+    from . import lectura_automatica
+
     ahora = _ahora(conn)
     fila = viva(conn) or conn.execute(
         "SELECT * FROM solicitud_lectura ORDER BY id DESC LIMIT 1").fetchone()
@@ -1797,8 +1868,11 @@ def para_la_app(conn: sqlite3.Connection) -> dict[str, Any]:
                               (fila["id"],)).fetchone()
     ultima = conn.execute("SELECT * FROM pasada_lectura WHERE terminada_en IS NOT NULL "
                           "ORDER BY id DESC LIMIT 1").fetchone()
+    automatica = lectura_automatica.resumen(conn, ahora)
+    del automatica["fijada_por"]
     return {"solicitud": _solicitud(conn, fila, ahora) if fila is not None else None,
-            "pasada_en_curso": _pasada(pasada) if pasada is not None else None,
-            "ultima_pasada": _pasada(ultima) if ultima is not None else None,
+            "pasada_en_curso": _pasada(conn, pasada) if pasada is not None else None,
+            "ultima_pasada": _pasada(conn, ultima) if ultima is not None else None,
             "plazo_respuesta_segundos": int(PLAZO_RESPUESTA.total_seconds()),
-            "consulta_cada_segundos": CONSULTA_CADA}
+            "consulta_cada_segundos": CONSULTA_CADA,
+            "automatica": automatica}

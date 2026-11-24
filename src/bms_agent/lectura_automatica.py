@@ -309,6 +309,14 @@ def contar_elegibles(conn: sqlite3.Connection) -> tuple[int, str | None]:
     return _cuantos(conn, "todas")
 
 
+def elegibles_que_esperan(conn: sqlite3.Connection, antes: datetime) -> int:
+    """Cuantas elegibles llegaron antes de `antes` (la banda de las que esperan, §6.1)."""
+    return int(conn.execute(
+        "SELECT count(*) FROM (SELECT min(datetime(m.recibido_en)) AS llegada "
+        f"{_desde_el_correo('todas')} GROUP BY d.id) WHERE llegada < datetime(?)",
+        (marca(antes),)).fetchone()[0])
+
+
 # ------------------------------------------------------------ las exclusiones
 
 def excluidos(conn: sqlite3.Connection, documento_ids: Iterable[int], *,

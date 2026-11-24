@@ -25,7 +25,10 @@ Con la base de prueba, la pagina lleva arriba la banda de TESTGEGEVENS · TEST D
 la instalacion nativa la banda roja del aislamiento si falla: las pone el servidor (como
 en /consola), asi que se ven aunque el script no cargue. La app esta en neerlandes e
 ingles, asi que las bandas tambien; el texto de los problemas del aislamiento (que se lee
-de un fichero que se puede escribir) no se copia: se dice que papel falla, escapado.
+de un fichero que se puede escribir) no se copia: se dice que papel falla, escapado. Desde el
+paso 18, tambien una banda roja por cada cosa urgente del correo, del ciclo automatico o de la
+lectura (consultas.bandas_urgentes: textos fijos con numeros y fechas, nada de lo que trajo el
+correo).
 """
 
 from __future__ import annotations
@@ -202,8 +205,10 @@ def texto_aislamiento(problemas: Sequence[str]) -> str:
             + ": run comprobar.bat and do not work with real data until everything is green.")
 
 
-def bandas(*, demo: bool, aislamiento: Sequence[str]) -> str:
-    """Las bandas que van al principio del body, escapadas."""
+def bandas(*, demo: bool, aislamiento: Sequence[str], urgentes: Sequence[str] = ()) -> str:
+    """Las bandas que van al principio del body, escapadas. `urgentes` (paso 18, §6.1): una
+    banda roja por cosa urgente del correo, del ciclo automatico o de la lectura
+    (consultas.bandas_urgentes), en neerlandes e ingles."""
     salida = []
     if demo:
         salida.append('<p id="datos-de-prueba" class="bms-banda bms-banda-prueba" role="alert">'
@@ -211,11 +216,14 @@ def bandas(*, demo: bool, aislamiento: Sequence[str]) -> str:
     if aislamiento:
         salida.append('<p id="aislamiento" class="bms-banda bms-banda-aislamiento" role="alert">'
                       f"{html.escape(texto_aislamiento(aislamiento))}</p>")
+    for numero, texto in enumerate(urgentes, 1):
+        salida.append(f'<p id="urgente-{numero}" class="bms-banda bms-banda-aislamiento '
+                      f'bms-banda-urgente" role="alert">{html.escape(texto)}</p>')
     return "\n".join(salida)
 
 
 def pagina(app: App, *, nonce: str, demo: bool = False,
-           aislamiento: Sequence[str] = ()) -> bytes:
+           aislamiento: Sequence[str] = (), urgentes: Sequence[str] = ()) -> bytes:
     """El index.html de esta respuesta: con su nonce, sus bandas y el titulo que lo dice.
 
     AppMalConstruida si el index.html no es el de frontend/ (sin sus dos marcas): mejor un
@@ -229,7 +237,8 @@ def pagina(app: App, *, nonce: str, demo: bool = False,
     if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):
         raise ValueError("nonce no valido")
     texto = texto.replace(MARCA_NONCE, f'<meta name="bms-nonce" content="{nonce}">')
-    texto = texto.replace(MARCA_BANDAS, bandas(demo=demo, aislamiento=aislamiento))
+    texto = texto.replace(MARCA_BANDAS, bandas(demo=demo, aislamiento=aislamiento,
+                                               urgentes=urgentes))
     if aislamiento:
         texto = texto.replace("<title>", "<title>" + TITULO_AISLAMIENTO, 1)
     if demo:

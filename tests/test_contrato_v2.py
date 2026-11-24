@@ -549,3 +549,131 @@ def test_la_vista_del_objeto_pide_los_dos_extremos_del_periodo(desde_out) -> Non
     estado, _c, v = _leer(puerto, f"/api/v2/objetos/{objeto}?desde=2026-09-01"
                                   "&hasta=2026-09-30", token)
     assert estado == 200 and v["objeto"]["economia"]["periodo"]["hasta"] == "2026-09-30"
+
+
+# ============================================================ paso 18: GET /api/v2/correo
+
+CLAVES_CORREO = {"configurado", "entorno", "estado", "error_codigo", "error_desde",
+                 "ultima_consulta", "ultima_buena", "retenido_hasta", "alcance", "credencial",
+                 "aviso_volumen", "hoy", "ciclo", "recientes", "esperan_persona",
+                 "lectura_automatica"}
+
+
+def _decimales(valor, camino: str = "") -> list[str]:
+    if isinstance(valor, float):
+        return [camino]
+    if isinstance(valor, dict):
+        return [c for k, v in valor.items() for c in _decimales(v, f"{camino}.{k}")]
+    if isinstance(valor, list):
+        return [c for i, v in enumerate(valor) for c in _decimales(v, f"{camino}[{i}]")]
+    return []
+
+
+def test_el_correo_por_la_api(tmp_path) -> None:
+    """GET /api/v2/correo (§6.2): con el token de quien solo consulta; sin correo, sin
+    configurar; con lo que dejo `correo registrar`, los correos (remitente y asunto tal cual, sin
+    comprobar), lo que espera a una persona, el ciclo y la lectura automatica. Sin decimales; un
+    IBAN en un asunto sale enmascarado para otro origen, como en todo /api/v2."""
+    from test_correo_registrar import Bandeja, pdf
+
+    from bms_agent import ciclo
+    from bms_agent.correo import registrar
+
+    db = tmp_path / "datos" / "bms.sqlite3"
+    with preparar(db) as almacen:
+        carla = persona(almacen.conn, "Carla", "consulta")
+        token = permisos.emitir_token(almacen.conn, carla)
+        nadie = persona(almacen.conn, "Nadie")
+        permisos.crear_rol(almacen.conn, "solo_notas", ["anadir_informacion"])
+        permisos.asignar_rol(almacen.conn, nadie, "solo_notas")
+        sin_permiso = permisos.emitir_token(almacen.conn, nadie)
+    srv = crear_servidor(tmp_path / "facturas", tmp_path / "vacio", 0, token="token-servidor",
+                         agente=AgenteFalso(), ruta_db=db, origenes_extra=[SITIO])
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05},
+                     daemon=True).start()
+    puerto = srv.server_address[1]
+    try:
+        assert _leer(puerto, "/api/v2/correo", None)[0] == 401
+        assert _leer(puerto, "/api/v2/correo", sin_permiso)[0] == 403
+        estado, cabeceras, cuerpo = _leer(puerto, "/api/v2/correo", token)
+        assert estado == 200 and cabeceras[CABECERA_CONTRATO.lower()] == "2.6"
+        vacio = cuerpo["correo"]
+        assert set(vacio) == CLAVES_CORREO
+        assert (vacio["configurado"], vacio["estado"], vacio["entorno"], vacio["recientes"],
+                vacio["ciclo"]["visto_en"]) == (False, "sin_configurar", "local", [], None)
+        assert set(vacio["lectura_automatica"]) >= {"activa", "parada", "fijada_por",
+                                                   "queda_hoy_usd_micro"}
+        # Lo que trae el correo y registra `orden`.
+        caja = Bandeja(tmp_path / "correo")
+        caja.llegada(caja.adjunto_pdf(pdf("una")), caja.adjunto("xml"),
+                     asunto="Factuur NL75INGB0002445689 <b>urgent</b>",
+                     recibido_en="2026-11-23T08:14:02Z")
+        caja.estado_json()
+        with preparar(db) as almacen:
+            registrar.registrar(almacen, entrada=caja.entrada, estado=caja.estado)
+            ciclo.latido(almacen.conn, disco_libre=5 * 1024 ** 3, variante="docker")
+        estado, _c, cuerpo = _leer(puerto, "/api/v2/correo", token)
+        correo = cuerpo["correo"]
+        assert estado == 200 and set(correo) == CLAVES_CORREO and _decimales(cuerpo) == []
+        assert correo["configurado"] is True
+        assert correo["alcance"] == {"comprobado_en": "2026-11-24T09:00:00+00:00", "bien": True}
+        assert correo["credencial"]["caduca_en"] == "2028-11-23T09:55:00+00:00"
+        assert isinstance(correo["credencial"]["dias"], int)
+        assert (correo["ciclo"]["variante"], correo["ciclo"]["disco_bajo"],
+                correo["ciclo"]["pausado"]) == ("docker", True, False)
+        [mensaje] = correo["recientes"]
+        assert mensaje["asunto_doc"] == "Factuur NL75INGB0002445689 <b>urgent</b>"
+        assert mensaje["remitente_doc"] == "facturen@proveedor.example.test"
+        assert [a["resultado"] for a in mensaje["adjuntos"]] == ["documento", "xml"]
+        assert correo["esperan_persona"]["correos_total"] == 1
+        assert correo["esperan_persona"]["correos"][0]["mensaje_id"] == mensaje["mensaje_id"]
+        # Desde otro origen, el IBAN del asunto sale enmascarado.
+        estado, _c, datos = _pedir(puerto, "GET", "/api/v2/correo",
+                                   {CABECERA_TOKEN: token, "Origin": SITIO})
+        assert estado == 200 and not _IBAN_ENTERO.search(datos.decode("utf-8"))
+        assert "/api/v2/correo" in {lectura["ruta"] for lectura in _leer(
+            puerto, "/api/v2/contrato", token)[2]["lecturas"]}
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.parametrize("columnas, minutos, esperado", [
+    ({}, 5, "al_dia"),
+    ({}, 21, "retrasado"),
+    ({"error_codigo": "limitado"}, 5, "retrasado"),
+    ({"error_codigo": "sin_conexion"}, 29, "retrasado"),
+    ({"error_codigo": "sin_conexion"}, 31, "error"),
+    ({"error_codigo": "permiso"}, 1, "error"),
+    ({"error_codigo": "sin_configurar"}, 1, "sin_configurar"),
+    ({"retenido_hasta": "2026-11-24T23:00:00+00:00"}, 5, "retenido"),
+    ({"retenido_hasta": "2026-11-24T09:00:00+00:00"}, 5, "al_dia"),
+])
+def test_el_estado_del_correo(tmp_path, columnas, minutos, esperado) -> None:
+    """Las reglas del estado (§6.2): un error de los que pasan solos (Microsoft que limita, sin
+    red) es `retrasado` sus primeros 30 minutos; la ultima consulta de hace mas de 20 minutos,
+    tambien; lo retenido por los topes del dia, mientras dure."""
+    from datetime import datetime, timedelta, timezone
+
+    from bms_agent.almacen import Almacen, abrir
+    from bms_agent.almacen.documentos import AlmacenDocumentos
+    from bms_agent.almacen.migrar import migrar
+    from bms_agent.reloj import RelojFijo, marca
+
+    ahora = datetime(2026, 11, 24, 10, 0, tzinfo=timezone.utc)
+    conn = abrir(":memory:", reloj=RelojFijo(ahora))
+    migrar(conn)
+    antes = marca(ahora - timedelta(minutes=minutos))
+    valores = {"ultima_consulta": antes, "ultima_buena": antes, "hoy_json": "{}",
+               "aviso_volumen": 0, "actualizado_en": antes, **columnas}
+    if valores.get("error_codigo"):
+        valores["error_desde"] = antes
+    conn.execute(f"INSERT INTO estado_correo (id, {', '.join(valores)}) VALUES "
+                 f"(1, {', '.join('?' * len(valores))})", tuple(valores.values()))
+    almacen = Almacen(conn, AlmacenDocumentos(tmp_path / "documentos"))
+    correo = consultas.correo(almacen.conn, "contenedor")
+    assert correo["estado"] == esperado
+    assert correo["configurado"] is (esperado != "sin_configurar")
+    assert correo["retenido_hasta"] == (columnas["retenido_hasta"] if esperado == "retenido"
+                                        else None)
+    conn.close()

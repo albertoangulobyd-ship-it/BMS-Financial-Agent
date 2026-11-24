@@ -823,7 +823,8 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   salida no arrancó) no quita el `salida` que apuntó el ciclo; la ronda siguiente del correo,
   sí. Lo que ve la pasada misma gana siempre: `reloj` (una llegada más de 5 minutos «en el
   futuro») e `interno` (una de las tres carpetas no es una carpeta de verdad, o `estado.json`
-  no vale; el resto de `estado_correo` se queda como estaba). `error_desde` es el principio del
+  no vale; el resto de `estado_correo` se queda como estaba). Sin `estado.json`, el error que
+  ya estaba (cada `--fallo` ya lo escribió en `estado_correo`). `error_desde` es el principio del
   error mientras el código no cambia (la regla de los 30 minutos de §6.2).
 - **La pausa por volumen, solo con el `aviso_volumen` de hoy**: con el `hoy.fecha` de
   `estado.json` igual al día de Amsterdam. Si no, el `estado.json` de ayer (el correo aún no ha
@@ -837,9 +838,74 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   Con menos de 10 GiB lo dice, y no decide nada: el que no trae ni lee es el ciclo (paso 15).
 - **Códigos de `correo registrar`**: 0; `CORREO_FALLO` (11) si algo se rechazó, una carpeta no
   valía o un mensaje no entró; 2 con la base de prueba, en la instalación nativa o sin las
-  carpetas. Lo que dice no copia nunca texto de la bandeja: cuentas y motivos fijos.
+  carpetas. Lo que dice no copia nunca texto de la bandeja: cuentas y motivos fijos. **Lo
+  rechazado se cuenta ahí** (la salida de la orden, que guarda el registro del ciclo) y no en
+  `ronda_correo`, que no tiene columna para eso (§3.8 paso 7 decía «queda contado en la
+  ronda»; §3.9 no le daba columna, y no se añade: el correo de verdad nunca escribe algo que no
+  vale, así que un rechazo es un fallo del programa o un correo comprometido, que se ve en el
+  registro del ciclo).
 - **De punta a punta (§7.3)** en `test_correo_registrar.py`: `GraphFalso` → `traer` →
   `registrar` → `_ronda` de `test_lectura_automatica.py` (las mismas funciones que las órdenes
   del ciclo) con el cliente falso, la fecha de recepción del servidor en cada factura (también
   una que llegó a las 23:30 UTC, que es el día siguiente en Amsterdam), el mismo correo otra
   vez sin pagar nada, y un PDF que la API no acepta (413) entre dos buenos, en «Wacht op jou».
+
+## Paso 11 · la API
+
+- **`GET /api/v2/correo`, lo que §6.2 no fijaba**: `estado` y `configurado` dicen
+  `sin_configurar` también cuando el correo corrió sin ajustes (`error_codigo` `sin_configurar`
+  en su `estado.json`), no solo sin fila en `estado_correo`: no es un fallo, es que falta
+  configurarlo. `retenido_hasta` sale solo mientras dura (el de ayer, `null`). `credencial.dias`
+  son los días enteros que quedan (negativo, caducado). `hoy` es el de hoy en Amsterdam: si el
+  `estado.json` copiado es de otro día, ceros. `entorno` sale como en `/api/v2/aislamiento`
+  (`nativo` con la comprobación de la nativa, `contenedor` en `0.0.0.0`, `local`). `recientes`,
+  los 10 más recientes por la hora del servidor de Microsoft, también los de «no deseado».
+- **`nombre_original` y `etiquetas` (lo que los pasos 4 y 5 dejaron para aquí)**: `_resultado`
+  guarda `nombre_original` en cada fila al terminar (el del documento), y `_pasada` lo pone al
+  leer en las filas que no lo llevan (las de antes del 2.6 y las de mientras lee, que solo
+  tienen nombre y estado), desde `etiquetas`. `etiquetas` cubre los nombres del resultado y el
+  documento en curso que son `<64 hex>.pdf` de un documento con `nombre_original`; un PDF de
+  `buzon\facturas` ya se llama como llegó y no lleva etiqueta. `_pasada` necesita la conexión
+  (`_pasada(conn, fila)`).
+- **`solicitud.omitidos` (nuevo, lo que el paso 3 dejó para los pasos 11 y 12)**: los PDF que la
+  cuenta dejó fuera (`clase` `omitido` de `estimacion_json`), con `nombre`, `nombre_original` y
+  `rechazado_api`, sin el `detalle` (texto de la API o de una excepción): Procesar dirá cuál y
+  por qué con su propio texto (§13 S1, «omitido con su motivo en Procesar»).
+- **Las cuatro órdenes de la lectura automática, en `docs/integracion-web.md`** (las añadió el
+  paso 4 sin documentarlas: van con el 2.6, §8), con sus errores de verdad (`falta_motivo`,
+  `invalido`, `no_existe`, `estado_no_valido`), y los valores nuevos de `origen`,
+  `aprobada_via` y `motivo_codigo` (lo que el paso 3 dejó para aquí). Un valor nuevo en una
+  lista que ya existía no se cuenta como «cambiar de forma»: sube el menor.
+- **Las bandas del servidor (§6.1)** las calcula `consultas.bandas_urgentes` y las pinta
+  `app_local.bandas` (`urgentes`), una por cosa, en neerlandés e inglés, solo en `/app` (no en
+  la consola vieja), abriendo la base en cada carga de la página; si no se puede leer, sin
+  bandas (la página sale igual y la app dice el error al pedir sus datos). Lo que §6.4 no
+  fijaba del texto:
+  - el certificado que caduca en 30 días o menos no dice «er komen geen facturen meer binnen»
+    (aún entran): «Het certificaat verloopt over {n} dagen ({fecha})…»; el caducado, sí;
+  - «ninguna ronda buena en 24 h» no sale si ya sale el porqué (el certificado, el alcance o el
+    buzón de control), para no decir dos veces lo mismo;
+  - el ciclo en pausa cuenta desde `pausado_desde`; el disco, en GB enteros;
+  - la de la API mira la última lectura terminada (de una persona o automática): `fallida` con
+    `saldo` o `clave_rechazada`; una lectura posterior que acaba de otra forma la quita;
+  - la de las facturas que esperan más de 4 horas sale con la automática encendida y sin pausa
+    ni tope (con la espera tras un fallo, sí: es lo que tapaba O2), si ninguna automática ha
+    terminado `hecha` desde que llegó la más antigua, y cuenta las elegibles que llegaron hace
+    más de 4 horas.
+  Solo números, fechas y textos fijos: nada de lo que trajo el correo. Para no tocar el
+  frontend (es del paso 12), la banda usa la clase roja que ya existe (`bms-banda-aislamiento`)
+  y además `bms-banda-urgente`, sin estilo propio todavía.
+- **El frontend no cambia**: nada fija la versión menor del contrato (`CONTRACT_MAJOR = '2'`,
+  `lib/api.ts:17`) y ningún test del frontend la compara. **Para el paso 12**: los tipos de
+  `api-types.ts` («Contrato 2.6», opcionales: la respuesta de `GET /api/v2/correo`,
+  `automatica`, `solicitud.autorizacion`, `solicitud.omitidos`, `etiquetas`,
+  `nombre_original`, y las uniones de `ReadingRequest` con `automatica` y los siete motivos),
+  `paths.mailbox`, y, si quiere, un estilo propio para `.bms-banda-urgente`.
+- **Las pruebas**: `/api/v2/correo` por el servidor (token, permiso, claves, sin decimales, el
+  IBAN de un asunto enmascarado para otro origen, la ruta en `/api/v2/contrato`) y las reglas
+  del estado en `test_contrato_v2.py`; las claves nuevas de `/api/v2/lectura` (también las de
+  una pasada de antes del 2.6 y los omitidos) en `test_lectura.py`; las bandas, una por
+  condición, en `test_ciclo_latido.py`, y en la página de verdad en `test_app_local.py`; los
+  códigos de `/api/v2/correo` en `test_codigos_error.py`; los dos literales «2.5»
+  (`test_cartera.py`, `test_lectura.py`) pasan a «2.6», y `test_lo_que_lee_la_app` gana la
+  clave `automatica`.

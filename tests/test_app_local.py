@@ -263,6 +263,35 @@ def test_la_banda_del_aislamiento_dice_que_papel_falla_y_escapa_lo_demas(tmp_pat
     assert "<title>TESTGEGEVENS · ISOLATIE · " in pagina
 
 
+def test_las_bandas_urgentes_del_correo_y_del_ciclo(tmp_path) -> None:
+    """Paso 18 (§6.1): lo urgente del correo, del ciclo automatico y de la lectura sale en una
+    banda roja por cosa, puesta por el servidor (se ve aunque el script no cargue)."""
+    from datetime import datetime, timedelta, timezone
+
+    from bms_agent import ciclo
+    from bms_agent.almacen import preparar
+    from bms_agent.reloj import RelojFijo
+
+    db = tmp_path / "datos" / "bms.sqlite3"
+    hace_una_hora = datetime.now(timezone.utc) - timedelta(hours=1)
+    with preparar(db, reloj=RelojFijo(hace_una_hora)) as almacen:
+        ciclo.latido(almacen.conn, disco_libre=3 * 1024 ** 3)
+    with _servidor(tmp_path, ruta_db=db) as puerto:
+        estado, _c, cuerpo = _pedir(puerto, "/app")
+    pagina = cuerpo.decode("utf-8")
+    assert estado == 200
+    bandas = re.findall(r'<p id="urgente-(\d)" class="bms-banda bms-banda-aislamiento '
+                        r'bms-banda-urgente" role="alert">([^<]*)</p>', pagina)
+    assert [n for n, _t in bandas] == ["1", "2"]
+    assert bandas[0][1].startswith("AUTOMATISCH · Het automatische werk loopt niet sinds")
+    assert "AUTOMATIC · Automatic work has not run since" in bandas[0][1]
+    assert bandas[1][1].startswith("SCHIJF · Nog maar 3 GB vrij")
+    assert re.search(r"<body>\s*<p id=\"urgente-1\"", pagina)
+    # Lo que diga una banda va escapado.
+    html = app_local.bandas(demo=False, aislamiento=(), urgentes=['<b onclick="x">'])
+    assert "<b" not in html and "&lt;b onclick=&quot;x&quot;&gt;" in html
+
+
 def test_texto_de_la_banda_del_aislamiento_sin_papeles_conocidos() -> None:
     texto = app_local.texto_aislamiento(["algo raro"])
     assert texto.startswith("ISOLATIE NIET GECONTROLEERD OF MISLUKT: draai comprobar.bat")

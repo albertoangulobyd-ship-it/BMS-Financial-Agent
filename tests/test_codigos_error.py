@@ -103,6 +103,14 @@ def test_lecturas_sin_token_sin_permiso_y_lo_que_no_existe(servidor) -> None:  #
     estado, _c, datos = _pedir(puerto, "GET", "/api/v2/facturas/99999",
                                {CABECERA_TOKEN: tokens["ana"]})
     assert (estado, _cuerpo(datos)["codigo"]) == (404, "no_existe")
+    # Paso 18 (contrato 2.6): el correo, como las demas lecturas.
+    estado, _c, datos = _pedir(puerto, "GET", "/api/v2/correo")
+    assert (estado, _cuerpo(datos)["codigo"]) == (401, "no_autenticado")
+    estado, _c, datos = _pedir(puerto, "GET", "/api/v2/correo", {CABECERA_TOKEN: tokens["nadie"]})
+    assert (estado, _cuerpo(datos)["codigo"]) == (403, "sin_permiso")
+    estado, _c, datos = _pedir(puerto, "GET", "/api/v2/correo?x=1",
+                               {CABECERA_TOKEN: tokens["ana"]})
+    assert (estado, _cuerpo(datos)["codigo"]) == (400, "invalido")
     estado, _c, datos = _pedir(puerto, "GET", "/api/v2/nada", {CABECERA_TOKEN: tokens["ana"]})
     assert (estado, _cuerpo(datos)["codigo"]) == (404, "no_existe")
     estado, _c, datos = _pedir(puerto, "GET", "/api/v2/facturas?nivel=raro",

@@ -159,6 +159,8 @@ LECTURAS_V2 = (
     ("/api/v2/clientes/N/documentos", ()),
     ("/api/v2/proveedores/N/documentos", ()),
     ("/api/v2/documentos/N/original", ()),
+    # Paso 18 (contrato 2.6): el buzon de facturas, el ciclo automatico y la lectura automatica.
+    ("/api/v2/correo", ()),
 )
 _BUSCAR = "/api/v2/buscar"
 _PARAMETROS_V2 = {ruta: parametros for ruta, parametros in LECTURAS_V2}
@@ -718,13 +720,26 @@ class Manejador(BaseHTTPRequestHandler):
         nonce = app_local.nuevo_nonce()
         try:
             datos = app_local.pagina(self.app_web, nonce=nonce, demo=self.demo,
-                                     aislamiento=self._problemas_aislamiento())
+                                     aislamiento=self._problemas_aislamiento(),
+                                     urgentes=self._bandas_urgentes())
         except app_local.AppMalConstruida:
             self._enviar_con(503, "text/plain; charset=utf-8", app_local.SIN_CONSTRUIR,
                              {**app_local.cabeceras_pagina(nonce)})
             return
         self._enviar_con(200, "text/html; charset=utf-8", datos,
                          app_local.cabeceras_pagina(nonce))
+
+    def _bandas_urgentes(self) -> list[str]:
+        """Lo urgente del correo, del ciclo automatico y de la lectura (paso 18, §6.1), para las
+        bandas rojas de /app. Si la base no se puede leer, ninguna: la pagina sale igual (la app
+        dira el error al pedir sus datos)."""
+        if self.app_web.indice is None:
+            return []
+        try:
+            with self._almacen() as almacen:
+                return consultas.bandas_urgentes(almacen.conn)
+        except Exception:  # noqa: BLE001 - la pagina no depende de esto
+            return []
 
     def _app_fichero(self, ruta: str) -> None:
         """Un fichero de la lista blanca, por su nombre exacto; cualquier otra cosa, 404."""
@@ -1006,9 +1021,17 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(200, {"empresa": consultas.empresa(conn)})
         elif partes == ["aislamiento"]:
             self._json(200, {"aislamiento": self._estado_aislamiento()})
+        elif partes == ["correo"]:
+            self._json(200, {"correo": consultas.correo(conn, self._entorno())})
         else:
             return False
         return True
+
+    def _entorno(self) -> str:
+        """Donde corre este servidor: nativo (la instalacion de Windows), contenedor o local."""
+        if self.aislamiento is not None:
+            return "nativo"
+        return "contenedor" if self.server.server_address[0] == TODAS else "local"
 
     def _leer_paso_16(self, conn: Any, partes: list[str], datos: dict[str, str]) -> bool:
         """Las lecturas de Cuentas por cobrar y por pagar y del archivo: la cartera de un lado,
@@ -1040,8 +1063,7 @@ class Manejador(BaseHTTPRequestHandler):
         from .aislamiento import ROLES
 
         if self.aislamiento is None:
-            entorno = "contenedor" if self.server.server_address[0] == TODAS else "local"
-            return {"aplica": False, "entorno": entorno, "correcto": None, "papeles": []}
+            return {"aplica": False, "entorno": self._entorno(), "correcto": None, "papeles": []}
         problemas = self._problemas_aislamiento()
         # estado (contrato 2.1, clave nueva): correcto, falla, sin_comprobar o caducada,
         # para que la app diga cual de las tres cosas pasa sin copiar el texto del problema.

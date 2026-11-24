@@ -1478,9 +1478,13 @@ def test_parar_mientras_falla_la_api_termina_cancelada(almacen, gente, buzon, mo
 
 def test_lo_que_lee_la_app(almacen, gente, reloj) -> None:
     conn = almacen.conn
+    from bms_agent import lectura_automatica
+
+    automatica = {k: v for k, v in lectura_automatica.resumen(conn).items() if k != "fijada_por"}
     assert lectura.para_la_app(conn) == {
         "solicitud": None, "pasada_en_curso": None, "ultima_pasada": None,
-        "plazo_respuesta_segundos": 900, "consulta_cada_segundos": 2}
+        "plazo_respuesta_segundos": 900, "consulta_cada_segundos": 2,
+        "automatica": automatica}            # contrato 2.6 (paso 18)
     solicitud = lectura_esperando(conn, gente["ana"])
     vista = lectura.para_la_app(conn)["solicitud"]
     assert (vista["id"], vista["estado"], vista["viva"], vista["abandonada"]) == (
@@ -1531,7 +1535,7 @@ def test_la_lectura_por_la_api(tmp_path) -> None:
     puerto = srv.server_address[1]
     try:
         estado, cabeceras, cuerpo = _leer(puerto, "/api/v2/lectura", tokens["carla"])
-        assert estado == 200 and cabeceras["x-bms-contrato"] == consultas.CONTRATO_V2 == "2.5"
+        assert estado == 200 and cabeceras["x-bms-contrato"] == consultas.CONTRATO_V2 == "2.6"
         assert (cuerpo["lectura"]["solicitud"], cuerpo["lectura"]["pasada_en_curso"]) == (
             None, None)
         estado, respuesta = _orden(puerto, tokens["carla"], {"accion": "pedir_lectura"})
@@ -1575,3 +1579,98 @@ def test_la_lectura_por_la_api(tmp_path) -> None:
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def _sin_decimales(valor, camino: str = "") -> list[str]:
+    if isinstance(valor, float):
+        return [camino]
+    if isinstance(valor, dict):
+        return [c for k, v in valor.items() for c in _sin_decimales(v, f"{camino}.{k}")]
+    if isinstance(valor, list):
+        return [c for i, v in enumerate(valor) for c in _sin_decimales(v, f"{camino}[{i}]")]
+    return []
+
+
+def test_lo_que_anade_el_2_6_a_la_lectura(almacen, tmp_path) -> None:
+    """Paso 18 (contrato 2.6): `automatica` (sin quien la firmo), la `autorizacion` de una
+    automatica, y en cada pasada `etiquetas` (el nombre con que llego cada PDF del correo, que
+    se lee del almacen como <sha256>.pdf) y en cada fila de su resultado `nombre_original`."""
+    from test_lectura_automatica import _del_correo, _ronda
+
+    from bms_agent import lectura_automatica as auto
+
+    conn = almacen.conn
+    vacia = lectura.para_la_app(conn)
+    assert vacia["automatica"] == {k: v for k, v in auto.resumen(conn).items()
+                                   if k != "fijada_por"}
+    assert vacia["automatica"]["activa"] is False and "fijada_por" not in vacia["automatica"]
+    documentos = _del_correo(almacen, "una", "dos")
+    ana = persona(conn, "Ana", "administrador")
+    autorizacion, _e = auto.fijar(conn, ana, activa=1, **auto.POR_DEFECTO, motivo="Solas")
+    estado, solicitud = _ronda(almacen, ClienteQueCuenta(), tmp_path / "out")
+    assert estado == "hecha"
+    app = lectura.para_la_app(conn)
+    fijada_en = conn.execute("SELECT fijada_en FROM lectura_automatica WHERE id = ?",
+                             (autorizacion,)).fetchone()[0]
+    assert app["solicitud"]["id"] == solicitud
+    assert (app["solicitud"]["origen"], app["solicitud"]["aprobada_via"],
+            app["solicitud"]["aprobada_por"]) == ("automatica", "automatica", None)
+    assert app["solicitud"]["autorizacion"] == {
+        "id": autorizacion, "fijada_por": {"id": ana, "nombre": "Ana"}, "fijada_en": fijada_en}
+    assert app["automatica"]["activa"] is True and app["automatica"]["gastado_hoy_usd_micro"] > 0
+    shas = {d: conn.execute("SELECT sha256 FROM documento WHERE id = ?", (d,)).fetchone()[0]
+            for d in documentos}
+    pasada = app["ultima_pasada"]
+    assert pasada["etiquetas"] == {f"{shas[documentos[0]]}.pdf": "una.pdf",
+                                   f"{shas[documentos[1]]}.pdf": "dos.pdf"}
+    assert {(r["nombre"], r["nombre_original"]) for r in pasada["resultado"]} == {
+        (f"{shas[d]}.pdf", n) for d, n in zip(documentos, ("una.pdf", "dos.pdf"), strict=True)}
+    assert _sin_decimales(app) == []
+
+
+def test_una_pasada_de_antes_del_2_6_y_una_del_buzon(almacen, buzon) -> None:
+    """Las filas que no llevaban `nombre_original` (las de antes, o las de mientras lee) lo
+    toman de las etiquetas; un PDF de buzon/facturas ya se llama como llego: sin etiqueta."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    ana = persona(conn, "Ana", "administracion")
+    solicitud = _contada(almacen, ana, carpeta, out, ClienteQueCuenta())
+    lectura.aprobar(conn, ana, solicitud, conn.execute(
+        "SELECT huella_estimacion FROM solicitud_lectura WHERE id = ?",
+        (solicitud,)).fetchone()[0])
+    lectura.leer(conn, solicitud, client=ClienteQueCuenta(), almacen=almacen,
+                 pdfs=sorted(carpeta.glob("*.pdf")), out_dir=out)
+    pasada = lectura.para_la_app(conn)["ultima_pasada"]
+    assert pasada["etiquetas"] == {}
+    assert {(r["nombre"], r["nombre_original"]) for r in pasada["resultado"]} == {
+        (n, n) for n in ("vieja.pdf", "nueva-1.pdf", "nueva-2.pdf")}
+    # Una pasada guardada antes del 2.6 (sin nombre_original) con un nombre del almacen.
+    sha = conn.execute("SELECT sha256 FROM documento WHERE nombre_original = 'nueva-1.pdf'"
+                       ).fetchone()[0]
+    fila = {"solicitud_id": solicitud, "fase": "hecha", "terminada_en": "x", "total": 1,
+            "leidas": 1, "ya_leidas": 0, "fallidas": 0, "coste_usd_micro": 1,
+            "documento_actual": None, "documento_fase": None, "fases_json": "[]",
+            "motivo": None, "empezada_en": "x", "actualizada_en": "x",
+            "resultado_json": json.dumps([{"nombre": f"{sha}.pdf", "estado": "nueva"},
+                                          {"nombre": "otro.pdf", "estado": "nueva"}])}
+    vieja = lectura._pasada(conn, fila)
+    assert vieja["etiquetas"] == {f"{sha}.pdf": "nueva-1.pdf"}
+    assert [r["nombre_original"] for r in vieja["resultado"]] == ["nueva-1.pdf", None]
+
+
+def test_la_app_ve_lo_que_la_cuenta_dejo_fuera(almacen, buzon) -> None:
+    """Paso 18 (contrato 2.6, §13 S1): un PDF que la API no acepta al contar sale en
+    `solicitud.omitidos` con `rechazado_api`, sin el texto de la API; uno que no es un PDF,
+    tambien, sin el."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    (carpeta / "roto.pdf").write_bytes(b"no soy un pdf")
+    ana = persona(conn, "Ana", "administracion")
+    client = ClienteQueFalla(al_contar={"nueva-2": DEL_DOCUMENTO["413"]})
+    solicitud = _contada(almacen, ana, carpeta, out, client)
+    vista = lectura.para_la_app(conn)["solicitud"]
+    assert vista["id"] == solicitud
+    assert sorted((o["nombre"], o["rechazado_api"], o["nombre_original"])
+                  for o in vista["omitidos"]) == [("nueva-2.pdf", True, None),
+                                                  ("roto.pdf", False, None)]
+    assert "request_too_large" not in json.dumps(vista) and "maximum" not in json.dumps(vista)
