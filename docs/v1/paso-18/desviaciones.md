@@ -34,3 +34,54 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   aserción `{s.host for s in aislamiento.EXTERNOS} == {"1.1.1.1", "8.8.8.8", "api.anthropic.com"}`
   sigue como estaba y la cambia el paso que los añada (8 o 13), junto con la de
   `DESTINOS_CORREO`. `PERMITIDOS_POR_DEFECTO` no cambia.
+
+## Paso 2 · la migración 0019
+
+- **`CHECK ((aprobada_via IS 'automatica') = (autorizacion_id IS NOT NULL))`, con `IS` y no con
+  `=`** como en §3.9: con `=`, una petición sin sí (`aprobada_via` NULL) da NULL y el CHECK
+  pasa, así que podía llevar una `autorizacion_id` sin estar aceptada. Con `IS`, sin sí tampoco
+  hay autorización (lo prueba `test_una_automatica_solo_la_acepta_su_autorizacion`).
+- **Lo que de verdad hace falta en la reconstrucción es el orden, no el `PRAGMA`.** Se comprobó
+  cambiando la migración: con `pasada_lectura_nueva` apuntando a `solicitud_lectura_nueva`, la
+  migración pasa también sin `PRAGMA defer_foreign_keys = ON` (al borrar la petición vieja ya no
+  le apunta nadie); apuntando al nombre final falla con `FOREIGN KEY constraint failed` aunque
+  esté el `PRAGMA`. El `PRAGMA` se deja, como dice §3.9, porque no estorba.
+- **Lo que §3.9 no fijaba y se decidió** (todo con CHECK o disparador, para que la base lo
+  sostenga aunque falle el código):
+  - `mensaje_correo`: los límites de §3.8 paso 4 (`graph_id` de 1 a 512 caracteres de
+    `[A-Za-z0-9+/=_-]`, `internet_message_id_doc` ≤ 998, `remitente_doc` ≤ 320, `asunto_doc` ≤ 200),
+    `adjuntos` y `en_linea` ≥ 0, `traido_en` y `registrado_en` obligatorios, y un índice por
+    `recibido_en` (lo más reciente y lo que espera a una persona).
+  - `adjunto_correo`: `sha256` en hexadecimal de 64 en minúsculas; `documento` exige `sha256`;
+    el disparador `adjunto_correo_su_documento` exige que el documento sea el de ese sha256; un
+    índice parcial por `documento_id` (las elegibles). Sin columna `detalle`: la API de §6.2 no
+    lo enseña y se queda en el JSON de la bandeja.
+  - `exclusion_automatica`: `persona` si y solo si no hay `solicitud_id`; el disparador
+    `exclusion_automatica_quien`: la de `persona` la pone una persona y las demás un usuario de
+    sistema. Sin columna de motivo en texto: va en el evento, como el de las acciones.
+  - `pausa_lectura_automatica`: una `pausa` lleva `motivo` y una `reanuda` no; `persona` lleva
+    `hasta` (posterior a `en`) y `volumen` no; `solicitud_id` solo en una de `persona`; el
+    disparador `pausa_lectura_automatica_quien`: la de `volumen` la pone un usuario de sistema, y
+    parar y reanudar, una persona.
+  - `correo_atendido`: el disparador `correo_atendido_personas_alta` (solo una persona).
+  - `ronda_correo`: `fallo` si y solo si hay `error_codigo`, de la lista cerrada de §3.7;
+    `terminada_en` puede faltar (un `registrar --fallo` no es una ronda entera).
+  - `estado_correo`: `error_codigo` con `error_desde` y `alcance_comprobado_en` con
+    `alcance_bien`, juntos o ninguno; `hoy_json` JSON (por defecto `{}`); `aviso_volumen` 0/1.
+  - `estado_ciclo`: `variante` puede ser NULL (la API de §6.2 lo admite y `--variante` es
+    opcional); `pausado_desde` solo con `pausado = 1`.
+- **Una persona que ya se llamara `correo` o `automatico`** (en minúsculas: antes del paso 18 el
+  nombre no estaba reservado) hace parar la 0019 por el `UNIQUE` del nombre, y la base se queda
+  en 0018 entera (lo prueba `test_una_0019_que_falla_deja_la_base_en_0018_entera`). No se
+  renombra a nadie en una migración: si pasara, se ve al arrancar y lo arregla una persona.
+- **`test_almacen.py`**: además de `EVIDENCIA`, `_poblar` y los seis usuarios de sistema,
+  `test_una_persona_tiene_roles_que_solo_se_cierran` daba por hecho que la primera persona es la
+  5; ahora es la siguiente a los usuarios de sistema (la 7 en una base nueva).
+- **Hueco del diseño, para los pasos 4, 5 y 10**: `almacen/evidencia.py` (lo que comprueba
+  `db verificar`: cada fila de evidencia con la foto de su evento, `COLUMNAS` y `EVENTOS`) no sale
+  en el diseño. Su regla dice que una tabla nueva de evidencia se apunta allí con sus columnas y
+  sus tipos de evento, y que su escritor pone `foto()` en el evento. La migración no escribe filas
+  y no hay escritores todavía: quien escriba `lectura_automatica`, `exclusion_automatica` y
+  `pausa_lectura_automatica` (pasos 4 y 5), y `mensaje_correo`, `adjunto_correo`,
+  `ronda_correo` y `correo_atendido` (pasos 4 y 10), decide con eso delante (los mensajes y sus
+  adjuntos irían en el evento de su mensaje, como los movimientos en el de su extracto).

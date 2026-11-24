@@ -46,7 +46,10 @@ VARIABLE_RUTA = "BMS_DB"
 VERSION_MINIMA = (3, 37, 0)
 MEMORIA = ":memory:"
 
-USUARIOS_SISTEMA = ("sistema", "extractor", "importador", "motor")
+# Los de 0001 y, desde el paso 18 (0019), correo (registra lo que trae el correo) y
+# automatico (firma las lecturas automaticas con la autorizacion vigente). En el orden en
+# que los siembran las migraciones: en una base nueva, el de sus id.
+USUARIOS_SISTEMA = ("sistema", "extractor", "importador", "motor", "correo", "automatico")
 
 # La base de prueba (paso 13, demo.py): su nombre y la marca de su cabecera
 # ("BMSD"). La marca vive en el fichero: viaja con el aunque se copie.
@@ -249,7 +252,7 @@ def reloj_de(conn: sqlite3.Connection) -> Reloj:
 
 
 def usuario_sistema(conn: sqlite3.Connection, nombre: str) -> int:
-    """El id de uno de los usuarios de sistema que siembra la migracion 0001."""
+    """El id de uno de los usuarios de sistema que siembran las migraciones (0001 y 0019)."""
     if nombre not in USUARIOS_SISTEMA:
         raise ValueError(f"{nombre!r} no es un usuario de sistema")
     fila = conn.execute(

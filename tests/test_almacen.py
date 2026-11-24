@@ -64,7 +64,11 @@ SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "ex
                   "reextraccion_resultado", "activacion", "linea_sin_casar",
                   "orden_compra_modificacion", "hoja_btw", "periodo_btw_declarada")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
-             "movimiento_bancario", "planning_turno")
+             "movimiento_bancario", "planning_turno",
+             # Paso 18 (0019): la autorizacion de la lectura automatica y lo que pasa con
+             # ella, y lo que trae el correo.
+             "lectura_automatica", "mensaje_correo", "adjunto_correo", "exclusion_automatica",
+             "pausa_lectura_automatica", "correo_atendido", "ronda_correo")
 
 
 def _tablas(conn) -> list[str]:
@@ -148,6 +152,8 @@ def test_los_usuarios_de_sistema_estan_y_no_tienen_roles_ni_token(db) -> None:
     nombres = [f["nombre"] for f in db.execute(
         "SELECT nombre FROM usuario WHERE es_sistema = 1 ORDER BY id")]
     assert nombres == list(USUARIOS_SISTEMA)
+    # Los cuatro de 0001 y los dos del correo y la lectura automatica (paso 18, 0019).
+    assert nombres == ["sistema", "extractor", "importador", "motor", "correo", "automatico"]
     motor = usuario_sistema(db, "motor")
     db.execute("INSERT INTO rol (nombre) VALUES ('administracion')")
     with pytest.raises(sqlite3.IntegrityError, match="sistema no puede tener roles"):
@@ -164,13 +170,15 @@ def test_los_usuarios_de_sistema_estan_y_no_tienen_roles_ni_token(db) -> None:
 
 
 def test_una_persona_tiene_roles_que_solo_se_cierran(db) -> None:
-    db.execute("INSERT INTO usuario (nombre, email, creado_en) VALUES ('Ana', 'ana@bms', ?)",
-               (AHORA,))
+    ana = db.execute("INSERT INTO usuario (nombre, email, creado_en) VALUES ('Ana', 'ana@bms', ?)",
+                     (AHORA,)).lastrowid
+    assert ana == len(USUARIOS_SISTEMA) + 1         # la primera persona, tras los de sistema
     db.execute("INSERT INTO rol (nombre) VALUES ('administracion')")
     db.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (1, 'revisar_factura')")
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
         db.execute("INSERT INTO rol_permiso (rol_id, permiso) VALUES (1, 'pagar')")
-    db.execute("INSERT INTO usuario_rol (usuario_id, rol_id, desde) VALUES (5, 1, ?)", (AHORA,))
+    db.execute("INSERT INTO usuario_rol (usuario_id, rol_id, desde) VALUES (?, 1, ?)",
+               (ana, AHORA))
     db.execute("UPDATE usuario_rol SET hasta = ? WHERE id = 1", ("2026-10-15T00:00:00+00:00",))
     with pytest.raises(sqlite3.IntegrityError, match="solo se cierra"):
         db.execute("UPDATE usuario_rol SET hasta = ? WHERE id = 1", ("2026-10-16T00:00:00+00:00",))
@@ -378,6 +386,34 @@ def _poblar(almacen: Almacen) -> None:
         btw.marcar_lista(conn, Persona(persona), 2026, 3, hoja_sha256=hoja.sha256)
         btw.anotar_presentacion(conn, Persona(persona), 2026, 3, hoja_sha256=hoja.sha256,
                                 referencia="OB-2026-3", importe_declarado=Decimal("-21"))
+        # Paso 18: Ana enciende la lectura automatica; el correo trae un mensaje con el PDF
+        # del documento, que una ronda apunta; Ana aparta el documento de la automatica y da
+        # el mensaje por atendido; un dia de mas de 200 correos pausa la automatica.
+        conn.execute("INSERT INTO lectura_automatica (activa, tope_dia_usd_micro, "
+                     "tope_mes_usd_micro, max_documentos, max_por_documento_usd_micro, "
+                     "fijada_por, fijada_en, motivo) VALUES (1, 2000000, 25000000, 20, 500000, "
+                     "?, ?, 'la propuesta de siempre')", (persona, AHORA))
+        correo = usuario_sistema(conn, "correo")
+        mensaje = conn.execute(
+            "INSERT INTO mensaje_correo (graph_id, carpeta, internet_message_id_doc, recibido_en, "
+            "remitente_doc, asunto_doc, adjuntos, en_linea, traido_en, registrado_en, "
+            "registrado_por) VALUES ('AAMkAGI2THVSAAA=', 'bandeja', '<1@proveedor.example>', ?, "
+            "'facturen@proveedor.example', 'Factuur 2026-1', 1, 0, ?, ?, ?)",
+            (AHORA, AHORA, AHORA, correo)).lastrowid
+        conn.execute("INSERT INTO adjunto_correo (mensaje_id, graph_adjunto_id, nombre_doc, "
+                     "tipo_declarado_doc, bytes, sha256, resultado, documento_id) VALUES (?, "
+                     "'AAMkAd1', 'a.pdf', 'application/pdf', ?, ?, 'documento', ?)",
+                     (mensaje, len(PDF), SHA_PDF, documento.id))
+        conn.execute("INSERT INTO ronda_correo (empezada_en, terminada_en, resultado, mensajes, "
+                     "documentos_nuevos, registrada_en) VALUES (?, ?, 'bien', 1, 1, ?)",
+                     (AHORA, AHORA, AHORA))
+        conn.execute("INSERT INTO exclusion_automatica (documento_id, motivo_codigo, por, en) "
+                     "VALUES (?, 'persona', ?, ?)", (documento.id, persona, AHORA))
+        conn.execute("INSERT INTO correo_atendido (mensaje_id, por, en, nota) "
+                     "VALUES (?, ?, ?, 'mirado en el buzon')", (mensaje, persona, AHORA))
+        conn.execute("INSERT INTO pausa_lectura_automatica (tipo, motivo, por, en) "
+                     "VALUES ('pausa', 'volumen', ?, ?)", (usuario_sistema(conn, "automatico"),
+                                                          AHORA))
 
 
 @pytest.mark.parametrize("tabla", SOLO_ESCRITURA + EVIDENCIA)

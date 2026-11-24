@@ -2,11 +2,11 @@
 
 Una persona tiene permisos a traves de sus roles, y un rol asignado solo se
 cierra (usuario_rol.hasta), asi que siempre se puede saber quien podia que
-y cuando. Los usuarios de sistema (sistema, extractor, importador, motor)
-actuan pero no tienen roles: la base lo impide con un disparador, y aqui
-`exigir()` les niega cualquier permiso. Asi ninguna orden de persona puede
-llegar firmada por el sistema, y nada automatico puede verificar un IBAN,
-revisar una factura o presentar el BTW.
+y cuando. Los usuarios de sistema (sistema, extractor, importador, motor y,
+desde el paso 18, correo y automatico) actuan pero no tienen roles: la base
+lo impide con un disparador, y aqui `exigir()` les niega cualquier permiso.
+Asi ninguna orden de persona puede llegar firmada por el sistema, y nada
+automatico puede verificar un IBAN, revisar una factura o presentar el BTW.
 
 `exigir()` lanza PermisoDenegado. Un intento denegado tambien queda en la
 auditoria (spec §5, evento con resultado 'denegado'), pero ese evento no
