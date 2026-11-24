@@ -545,8 +545,9 @@ def test_excluir_en_bloque_hasta_200(almacen, gente) -> None:
 
 def test_esperan_persona(almacen, gente) -> None:
     conn = almacen.conn
-    leida, apartada, ya_leida_y_apartada, buena = (
-        _documento(almacen, n) for n in ("leida", "apartada", "leida-y-apartada", "buena"))
+    leida, apartada, ya_leida_y_apartada, buena, grande = (
+        _documento(almacen, n) for n in ("leida", "apartada", "leida-y-apartada", "buena",
+                                          "grande"))
     sin_pdf = _correo(conn, "2026-10-14T07:00:00+00:00", asunto="Zie de link")
     con_xml = _correo(conn, "2026-10-14T06:00:00+00:00", ("documento", leida),
                       ("xml", None, "factuur.xml"))
@@ -563,8 +564,12 @@ def test_esperan_persona(almacen, gente) -> None:
     servicios.ejecutar(conn, "marcar_correo_atendido",
                        {"mensaje_id": atendido, "nota": "Bajada de la web"},
                        usuario_id=gente["berta"])
+    _correo(conn, "2026-10-14T00:30:00+00:00", ("documento", grande))
     _leido(conn, ya_leida_y_apartada)
     auto.excluir(conn, [apartada, ya_leida_y_apartada], "persona", gente["berta"])
+    auto.excluir(conn, [grande], "grande", usuario_sistema(conn, "automatico"),
+                 solicitud_id=_terminada(conn, "2026-10-14T09:00:00+00:00", "nada_que_leer",
+                                         "excluidas"))
     esperan = auto.esperan_persona(conn)
     assert [c["mensaje_id"] for c in esperan["correos"]] == [sin_pdf, con_xml, junk]
     assert esperan["correos_total"] == 3 and rescatado not in esperan["correos"]
@@ -575,10 +580,11 @@ def test_esperan_persona(almacen, gente) -> None:
                       "documento_id": leida},
                      {"nombre_doc": "factuur.xml", "resultado": "xml", "bytes": 100,
                       "documento_id": None}]}
-    # Las facturas apartadas y aun sin leer.
-    assert esperan["documentos"] == [{"documento_id": apartada, "nombre_original": "apartada.pdf",
+    # Las facturas que aparto la automatica y aun sin leer. Lo que aparto una persona ya lo
+    # miro alguien: no espera a nadie (paso 12).
+    assert esperan["documentos"] == [{"documento_id": grande, "nombre_original": "grande.pdf",
                                       "recibido_en": "2026-10-14T08:00:00+00:00",
-                                      "motivo_codigo": "persona"}]
+                                      "motivo_codigo": "grande"}]
     assert esperan["documentos_total"] == 1
     # Como mucho `limite` filas, con su total.
     recortado = auto.esperan_persona(conn, limite=1)
@@ -618,11 +624,17 @@ def test_una_persona_aparta_del_todo_lo_que_aparto_la_automatica(almacen, gente)
                                                                       "ya_estaban": 1}
     assert auto.excluir(conn, [grande, rechazada], "fallo", automatico,
                         solicitud_id=solicitud) == []
-    # Lo que espera a una persona: cada factura una vez, con su ultima exclusion.
+    # Lo que espera a una persona: cada factura una vez, con su ultima exclusion; lo que una
+    # persona aparto del todo sale de la lista (paso 12: ya lo miro alguien), y lo que la API no
+    # acepta se queda hasta que una persona lo aparte tambien.
     esperan = auto.esperan_persona(conn)
-    assert sorted((d["documento_id"], d["motivo_codigo"]) for d in esperan["documentos"]) == (
-        sorted([(grande, "persona"), (fallida, "persona"), (rechazada, "rechazado_api")]))
-    assert esperan["documentos_total"] == 3
+    assert [(d["documento_id"], d["motivo_codigo"]) for d in esperan["documentos"]] == [
+        (rechazada, "rechazado_api")]
+    assert esperan["documentos_total"] == 1
+    servicios.ejecutar(conn, "excluir_de_lectura_automatica", {"documento_ids": [rechazada]},
+                       usuario_id=gente["berta"])
+    assert auto.esperan_persona(conn)["documentos"] == []
+    assert auto.esperan_persona(conn)["documentos_total"] == 0
     assert verificar_evidencia(conn) == []
 
 

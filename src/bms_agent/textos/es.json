@@ -3249,7 +3249,7 @@
     },
     "excluir_de_lectura_automatica": {
       "etiqueta": "No leer solas",
-      "descripcion": "Estas facturas no se leen solas (hasta 200 de una vez): esperan a una persona, que puede leerlas desde Procesar."
+      "descripcion": "Estas facturas ya no se leen, ni solas ni desde Procesar (hasta 200 de una vez). Vale también para las que la lectura automática ya apartó."
     },
     "marcar_correo_atendido": {
       "etiqueta": "Correo atendido",

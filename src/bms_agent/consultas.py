@@ -3752,8 +3752,22 @@ def correo(conn: sqlite3.Connection, entorno: str) -> dict[str, Any]:
                   "disco_bajo": latido.disco_bajo if latido else False},
         "recientes": [lectura_automatica.mensaje(conn, m) for m in recientes],
         "esperan_persona": lectura_automatica.esperan_persona(conn),
-        "lectura_automatica": lectura_automatica.resumen(conn, ahora),
+        "lectura_automatica": {**lectura_automatica.resumen(conn, ahora),
+                               "cola": _cola_automatica(conn)},
     }
+
+
+def _cola_automatica(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Paso 12 (contrato 2.6): lo que espera a la lectura automatica (las elegibles), las mas
+    antiguas primero y como mucho las que se pueden apartar de una vez con «Niet vanzelf lezen»
+    (excluir_de_lectura_automatica, MAX_EXCLUIR). Solo aqui, no en /api/v2/lectura, que la app
+    consulta cada 2 segundos. `nombre_original` es el nombre del adjunto: texto de quien lo
+    mando."""
+    from . import lectura_automatica
+
+    return [{"documento_id": d["documento_id"], "nombre_original": d["nombre_original"],
+             "recibido_en": d["llegada"]}
+            for d in lectura_automatica.elegibles(conn, limite=lectura_automatica.MAX_EXCLUIR)]
 
 
 def _cuando(texto: str | None) -> str:

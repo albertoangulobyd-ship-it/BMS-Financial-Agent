@@ -3249,7 +3249,7 @@
     },
     "excluir_de_lectura_automatica": {
       "etiqueta": "Niet vanzelf lezen",
-      "descripcion": "Deze facturen worden niet vanzelf gelezen (tot 200 tegelijk): ze wachten op jou, en je kunt ze via Verwerken laten lezen."
+      "descripcion": "Deze facturen worden niet meer gelezen, niet vanzelf en niet via Verwerken (tot 200 tegelijk). Dat geldt ook voor wat automatisch lezen al apart zette."
     },
     "marcar_correo_atendido": {
       "etiqueta": "Mail afgehandeld",

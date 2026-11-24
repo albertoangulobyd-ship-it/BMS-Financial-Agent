@@ -980,3 +980,30 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   `recientes` (los 10 más recientes por la hora del servidor, no por el orden de registro), el
   signo de `credencial.dias`, la banda del alcance con `alcance_bien` 0 sin el error `alcance`,
   y la de las facturas que esperan (el umbral, desde cuándo y la automática buena reciente).
+
+## Paso 12 · la app
+
+- **Una factura sale de «Wacht op jou» cuando tiene extracción o cuando una persona la aparta**
+  (lo que los pasos 4 y 5 dejaron para aquí). `esperan_persona` ya no da las facturas cuya
+  última exclusión es de una persona (`persona`): una persona ya las miró y decidió que no se
+  lean (ni solas ni desde Procesar, `FUERA_DE_PROCESAR`), así que no esperan a nadie; si no,
+  se quedaban en la lista para siempre, porque ninguna lectura les va a dar una extracción. Lo
+  que apartó la automática (`grande`, `fallo`, `rechazado_api`) sigue en la lista hasta que se
+  lee desde Procesar (las dos primeras) o hasta que una persona lo aparta también con «Niet
+  vanzelf lezen», que la lista ofrece en cada factura (el botón para apartar lo que apartó la
+  automática). En la API, `motivo_codigo` de `esperan_persona.documentos` ya no vale `persona`
+  (`docs/integracion-web.md` lo dice); la app conserva su texto por si llega.
+- **`lectura_automatica.cola` en `GET /api/v2/correo`** (contrato 2.6, sin cambiar de forma: una
+  clave más en un objeto). §6.1 pide en la tarjeta «Automatisch lezen» la lista «Wacht op
+  automatisch lezen» (las elegibles, las más antiguas primero) con casillas y «Niet vanzelf
+  lezen», pero §6.2 solo daba cuántas hay (`elegibles`) y la más antigua: sin los ids no se
+  puede apartar nada en bloque (S12, la inundación). La cola son las elegibles, las más
+  antiguas primero, con `documento_id`, `nombre_original` (el nombre del adjunto: texto de quien
+  lo mandó) y `recibido_en`, como mucho `MAX_EXCLUIR` (200, las que se apartan de una vez). Solo
+  en `/api/v2/correo`: `/api/v2/lectura` lleva el resto de `lectura_automatica` y la app lo
+  consulta cada 2 segundos.
+- **La descripción de `excluir_de_lectura_automatica` en `textos/*.json`** seguía diciendo «je
+  kunt ze via Verwerken laten lezen» (lo que el arreglo de los pasos 4 y 5 quitó de
+  `servicios.py`): ahora dice lo mismo que `servicios.py` (no se leen, ni solas ni desde
+  Procesar; también lo que la automática ya apartó).
+

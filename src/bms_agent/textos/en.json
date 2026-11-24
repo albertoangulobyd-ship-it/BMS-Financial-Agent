@@ -3249,7 +3249,7 @@
     },
     "excluir_de_lectura_automatica": {
       "etiqueta": "Do not read automatically",
-      "descripcion": "These invoices are not read automatically (up to 200 at once): they wait for you, and you can have them read from Process."
+      "descripcion": "These invoices are no longer read, neither automatically nor from Process (up to 200 at once). This also applies to what automatic reading already set aside."
     },
     "marcar_correo_atendido": {
       "etiqueta": "Email handled",

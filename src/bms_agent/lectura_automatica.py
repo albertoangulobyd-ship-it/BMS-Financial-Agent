@@ -583,12 +583,15 @@ _CORREOS_QUE_ESPERAN = (
     "AND NOT (m.carpeta = 'no_deseado' AND EXISTS (SELECT 1 FROM mensaje_correo AS b "
     "      WHERE b.graph_id = m.graph_id AND b.carpeta = 'bandeja'))")
 
-# Una fila por documento: la ultima exclusion (la de una persona, si aparto una que ya habia
-# apartado la automatica).
+# Una fila por documento: la ultima exclusion, salvo que sea la de una persona. Lo que aparto
+# una persona (ella misma, o encima de lo que ya habia apartado la automatica: "Niet vanzelf
+# lezen" en "Wacht op jou") ya lo miro alguien y no espera a nadie (paso 12: sin esto, una
+# factura apartada por una persona o por la API se quedaba en la lista para siempre, porque
+# ninguna lectura le va a dar una extraccion).
 _DOCUMENTOS_QUE_ESPERAN = (
     "FROM exclusion_automatica AS x JOIN documento AS d ON d.id = x.documento_id "
     f"WHERE {_SIN_VIGENTE} AND x.id = (SELECT max(y.id) FROM exclusion_automatica AS y "
-    "WHERE y.documento_id = x.documento_id)")
+    "WHERE y.documento_id = x.documento_id) AND x.motivo_codigo <> 'persona'")
 
 
 def esperan_persona(conn: sqlite3.Connection, limite: int = ESPERAN_LIMITE) -> dict[str, Any]:
@@ -598,7 +601,8 @@ def esperan_persona(conn: sqlite3.Connection, limite: int = ESPERAN_LIMITE) -> d
       sin ningun PDF recibido, y los que tienen algun adjunto que no se trajo (no deseado, un
       enlace, XML, reenviado como adjunto, demasiado grande, no era un PDF, o no se pudo
       traer); los mas recientes primero;
-    - las facturas que no se leen solas (excluidas) y aun sin leer; las ultimas apartadas
+    - las facturas que la lectura automatica aparto (grande, fallo, rechazado_api) y aun sin
+      leer, mientras una persona no las aparte del todo (persona): las ultimas apartadas
       primero.
 
     Cada lista con como mucho `limite` filas y su total."""

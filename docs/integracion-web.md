@@ -890,8 +890,10 @@ y da las órdenes de abajo. En la instalación nativa no hay correo ni ciclo: `c
     "correos": [], "correos_total",                // como recientes: los que el programa no
                                                    // ha podido leer y nadie ha atendido (50)
     "documentos": [ {"documento_id", "nombre_original", "recibido_en", "motivo_codigo"} ],
-    "documentos_total"},        // las facturas que no se leen solas y siguen sin leer (50):
-                                // motivo_codigo grande | fallo | rechazado_api | persona
+    "documentos_total"},        // las facturas que la lectura automática apartó y siguen sin
+                                // leer (50): motivo_codigo grande | fallo | rechazado_api; una
+                                // que aparta también una persona (excluir_de_lectura_automatica)
+                                // ya la miró alguien y sale de la lista
   "lectura_automatica": {
     "activa", "autorizacion_id", "tope_dia_usd_micro", "tope_mes_usd_micro",
     "max_documentos", "max_por_documento_usd_micro",
@@ -901,7 +903,10 @@ y da las órdenes de abajo. En la instalación nativa no hay correo ni ciclo: `c
     "motivo_codigo",            // con fallo: salida, aislamiento, clave, contar, sin_tarifa,
                                 // saldo, clave_rechazada o api_no_disponible
     "desde", "proximo_intento", "hasta",
-    "pendientes", "elegibles", "elegible_mas_antigua"}}
+    "pendientes", "elegibles", "elegible_mas_antigua",
+    "cola": [ {"documento_id", "nombre_original", "recibido_en"} ]}}
+                                // cola: las elegibles, las más antiguas primero, como mucho
+                                // 200 (las que se apartan de una vez); solo aquí
 ```
 
 El remitente, el asunto y los nombres de los adjuntos son texto de un tercero (saneados al
@@ -910,7 +915,7 @@ con la etiqueta «no comprobado», y no identifican nunca a un proveedor. Ni el 
 correo, ni sus destinatarios, ni sus cabeceras están en la base: no se traen nunca.
 
 `GET /api/v2/lectura` lleva **`automatica`**, con la forma de `lectura_automatica` de arriba
-sin `fijada_por`.
+sin `fijada_por` ni `cola`.
 
 **Las órdenes** (`POST /api/v2/acciones`; ninguna pasa el motor de reglas:
 `diferencia.ejecucion_id` es `null`):
@@ -919,7 +924,7 @@ sin `fijada_por`.
 | --- | --- | --- | --- | --- |
 | `fijar_lectura_automatica` | `admin` | `activa` (0 o 1), `tope_dia_usd_micro` (1…20 000 000), `tope_mes_usd_micro` (del tope del día a 200 000 000), `max_documentos` (1…100), `max_por_documento_usd_micro` (1…tope del día), `motivo` (obligatorio) | Una versión nueva de la autorización (encender, cambiar un tope o apagar). `diferencia.detalle.autorizacion_id` dice cuál | `400 invalido` fuera de rango; `400 falta_motivo` |
 | `reanudar_lectura_automatica` | `importar_datos` | `motivo` | Quita la pausa (la de una persona que paró una automática, o la de volumen) | `409 estado_no_valido` si no está en pausa |
-| `excluir_de_lectura_automatica` | `importar_datos` | `documento_ids` (de 1 a 200), `motivo` | Esas facturas no se leen solas ni desde Procesar: esperan a una persona. `diferencia.detalle` dice `excluidos` y `ya_estaban` | `400 invalido` con una lista vacía, de más de 200 o con algo que no es un id; `404 no_existe` |
+| `excluir_de_lectura_automatica` | `importar_datos` | `documento_ids` (de 1 a 200), `motivo` | Esas facturas ya no se leen, ni solas ni desde Procesar (también las que la lectura automática ya apartó, que así salen de `esperan_persona`). `diferencia.detalle` dice `excluidos` y `ya_estaban` | `400 invalido` con una lista vacía, de más de 200 o con algo que no es un id; `404 no_existe` |
 | `marcar_correo_atendido` | `importar_datos` | `mensaje_id`, `nota` (opcional, hasta 500) | Una persona ya miró un correo que el programa no podía leer: sale de `esperan_persona` | `409 estado_no_valido` si ya estaba atendido; `404 no_existe` |
 
 Lo que no hace nada de esto: aprobar, pagar o crear una factura, mandar un correo, mover o

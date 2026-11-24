@@ -717,3 +717,33 @@ def test_el_correo_hoy_los_recientes_y_los_dias_del_certificado(tmp_path) -> Non
     recientes = consultas.correo(conn, "contenedor")["recientes"]
     assert [m["mensaje_id"] for m in recientes] == [ids[h] for h in range(11, 1, -1)]
     conn.close()
+
+
+def test_la_cola_de_la_lectura_automatica(almacen, monkeypatch) -> None:
+    """`lectura_automatica.cola` (paso 12, solo en /api/v2/correo): las elegibles, las mas
+    antiguas primero, con el nombre con que llegaron, y como mucho las que se apartan de una vez
+    (MAX_EXCLUIR); ni las apartadas ni las ya leidas. /api/v2/lectura no la lleva."""
+    from conftest import persona
+    from test_lectura_automatica import _correo, _documento, _leido
+
+    from bms_agent import lectura, lectura_automatica
+
+    conn = almacen.conn
+    vieja, nueva, apartada, leida = (_documento(almacen, n) for n in (
+        "vieja", "nueva", "apartada", "leida"))
+    _correo(conn, "2026-10-14T09:00:00+00:00", ("documento", nueva))
+    _correo(conn, "2026-10-14T07:00:00+00:00", ("documento", vieja), ("documento", apartada))
+    _correo(conn, "2026-10-14T06:00:00+00:00", ("documento", leida))
+    _leido(conn, leida)
+    lectura_automatica.excluir(conn, [apartada], "persona", persona(conn, "Berta Demo",
+                                                                     "administracion"))
+    cola = consultas.correo(conn, "contenedor")["lectura_automatica"]["cola"]
+    assert cola == [
+        {"documento_id": vieja, "nombre_original": "vieja.pdf",
+         "recibido_en": "2026-10-14T07:00:00+00:00"},
+        {"documento_id": nueva, "nombre_original": "nueva.pdf",
+         "recibido_en": "2026-10-14T09:00:00+00:00"}]
+    assert "cola" not in lectura.para_la_app(conn)["automatica"]
+    monkeypatch.setattr(lectura_automatica, "MAX_EXCLUIR", 1)
+    assert [d["documento_id"] for d in consultas.correo(
+        conn, "contenedor")["lectura_automatica"]["cola"]] == [vieja]
