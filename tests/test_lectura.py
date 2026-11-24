@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import itertools
 import json
+import re
 import sqlite3
 from datetime import timedelta
 from pathlib import Path
@@ -885,11 +886,16 @@ DEL_DOCUMENTO = {
 }
 
 
+# La marca de una peticion sin PDF: la contraprueba de estimar (la misma peticion sin el PDF).
+SIN_PDF = "(sin pdf)"
+
+
 class ClienteQueFalla(ClienteQueCuenta):
     """La API con fallos, PDF a PDF (por su marca): al contar (`al_contar`) o al leer
     (`al_leer_falla`) lanza el error que da su fabrica, en vez de contestar; los de `rechaza`
     el modelo los rechaza (stop_reason refusal, que se cobra). Cuenta cada intento, tambien
-    los que fallan: tras una parada no se llama mas."""
+    los que fallan: tras una parada no se llama mas. Una peticion sin PDF lleva la marca
+    SIN_PDF: `al_contar={SIN_PDF: ...}` es una API que tampoco la acepta (la configuracion)."""
 
     def __init__(self, al_contar=None, al_leer_falla=None, rechaza=(), **opciones) -> None:
         super().__init__(**opciones)
@@ -900,6 +906,9 @@ class ClienteQueFalla(ClienteQueCuenta):
         self.intentos: list[str] = []
 
     def _marca(self, peticion) -> str:
+        if not any(bloque.get("type") == "document" for mensaje in peticion["messages"]
+                   for bloque in mensaje["content"]):
+            return SIN_PDF
         return self._contenido(peticion).split(b"%marca:")[1].split(b"\n")[0].decode()
 
     def count_tokens(self, **peticion):
@@ -1001,6 +1010,11 @@ def test_clasificar_error_sin_depender_del_sdk() -> None:
     # Sin cuerpo, como un 429 que no trae nada.
     assert lectura.clasificar_error(_error_api(429, None, cuerpo=False)) == "api_no_disponible"
     assert lectura.clasificar_error(_error_api(402, None, cuerpo=False)) == "saldo"
+    # La clave, por su codigo aunque no traiga cuerpo.
+    for estado in (401, 403):
+        assert lectura.clasificar_error(ErrorSuelto(estado)) == "clave_rechazada", estado
+        assert lectura.clasificar_error(_error_api(estado, None, cuerpo=False)) == (
+            "clave_rechazada"), estado
 
 
 def test_sobre_el_error_es_una_linea_corta_sin_la_peticion() -> None:
@@ -1061,7 +1075,8 @@ def test_un_pdf_que_la_api_no_acepta_al_contar_no_tumba_la_cuenta(almacen, gente
     (carpeta / "otra-copia.pdf").write_bytes((carpeta / "nueva-1.pdf").read_bytes())
     client = ClienteQueFalla(al_contar={"nueva-1": DEL_DOCUMENTO[nombre]})
     solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
-    assert client.contados == ["nueva-1", "nueva-2"]
+    # Antes de darlo por malo, la contraprueba: la misma peticion sin el PDF, que la API acepta.
+    assert client.contados == ["nueva-1", SIN_PDF, "nueva-2"]
     fila = _fila(conn, solicitud)
     assert (fila["estado"], fila["pdf_nuevos"], fila["pdf_ya_leidos"]) == (
         "esperando_aprobacion", 1, 1)
@@ -1082,6 +1097,142 @@ def test_un_pdf_que_la_api_no_acepta_al_contar_no_tumba_la_cuenta(almacen, gente
     assert {r["nombre"]: r["estado"] for r in leida.resultado} == {
         "nueva-2.pdf": "nueva", "vieja.pdf": "ya_leida"}
     assert not {"nueva-1.pdf", "otra-copia.pdf"} & {n for _t, n in impreso}
+
+
+def test_dos_pdf_seguidos_con_el_mismo_400_al_contar_quedan_omitidos(almacen, gente,
+                                                                     buzon) -> None:
+    """Dos PDF malos seguidos dan el mismo 400 (el mismo mensaje para cualquier PDF cifrado o
+    con demasiadas paginas): con la contraprueba bien, son de sus PDF, no de la API. Quedan
+    omitidos los dos y los demas se cuentan: un freno de "dos iguales seguidos" al contar
+    bloquearia la cuenta entera cada vez, como antes de D12. La contraprueba va una vez."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    _pdf(carpeta, "nueva-3")
+    igual = DEL_DOCUMENTO["400"]
+    client = ClienteQueFalla(al_contar={"nueva-1": igual, "nueva-2": igual})
+    solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
+    assert client.contados == ["nueva-1", SIN_PDF, "nueva-2", "nueva-3"]
+    fila = _fila(conn, solicitud)
+    assert (fila["estado"], fila["pdf_nuevos"]) == ("esperando_aprobacion", 1)
+    documentos = {d["nombre"]: d for d in json.loads(fila["estimacion_json"])["documentos"]}
+    assert [n for n, d in documentos.items() if d.get("rechazado_api")] == [
+        "nueva-1.pdf", "nueva-2.pdf"]
+
+
+def test_sin_contraprueba_si_la_api_ya_conto_otro_pdf(almacen, buzon) -> None:
+    """Si la API ya conto otro PDF de esta cuenta, la configuracion vale (con un PDF dentro,
+    mas que la contraprueba): un 400 despues es de su PDF, sin mas llamadas."""
+    carpeta, out = buzon
+
+    def no_se_llama():
+        raise AssertionError("la contraprueba no hacia falta")
+
+    client = ClienteQueFalla(al_contar={"nueva-2": DEL_DOCUMENTO["400"], SIN_PDF: no_se_llama})
+    est = lectura.estimar(client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen)
+    assert client.contados == ["nueva-1", "nueva-2"]
+    assert [(d.nombre, d.clase, d.rechazado_api) for d in est.documentos] == [
+        ("nueva-1.pdf", "nuevo", False), ("nueva-2.pdf", "omitido", True),
+        ("vieja.pdf", "ya_leido", False)]
+
+
+def test_un_400_de_la_configuracion_al_contar_no_aparta_ningun_pdf(almacen, gente,
+                                                                   buzon) -> None:
+    """Un 400 que no es de ningun PDF (el modelo no admite el esfuerzo, el esquema...) llega
+    igual con todos, y tambien sin el PDF: la contraprueba lo ve y no se aparta ninguno. La
+    cuenta para (api_no_disponible, con lo que dijo la API) y nada queda omitido ni "ya leido";
+    antes de la contraprueba, todos quedaban omitidos y la peticion decia que no habia nada
+    nuevo."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    configuracion = lambda: _error_api(  # noqa: E731
+        400, "invalid_request_error", "output_config.effort: unknown value")
+    client = ClienteQueFalla(al_contar={"nueva-1": configuracion, "nueva-2": configuracion,
+                                        SIN_PDF: configuracion})
+    with pytest.raises(lectura.ParadaApi) as parada:
+        lectura.estimar(client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen)
+    assert parada.value.motivo == "api_no_disponible"
+    assert parada.value.detalle == (
+        "nueva-1.pdf: BadRequestError 400 invalid_request_error: output_config.effort: "
+        "unknown value; sin el PDF, lo mismo")
+    assert client.contados == ["nueva-1", SIN_PDF]
+
+
+@pytest.mark.parametrize("nombre", sorted(FALLOS_API))
+def test_la_contraprueba_que_falla_por_la_api_para_la_cuenta(almacen, buzon, nombre) -> None:
+    """Si la contraprueba falla por algo que no es de ningun PDF (la clave, el saldo, no
+    disponible), la cuenta para con ese motivo, como si hubiera fallado el PDF."""
+    carpeta, out = buzon
+    fabrica, motivo = FALLOS_API[nombre]
+    client = ClienteQueFalla(al_contar={"nueva-1": DEL_DOCUMENTO["413"], SIN_PDF: fabrica})
+    with pytest.raises(lectura.ParadaApi) as parada:
+        lectura.estimar(client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen)
+    assert parada.value.motivo == motivo
+    # (La clase del 413 cambia con el SDK: RequestTooLargeError o ContentTooLargeError.)
+    assert re.fullmatch(r"nueva-1\.pdf: \w+ 413 request_too_large: .*; sin el PDF: .*",
+                        parada.value.detalle)
+    assert client.contados == ["nueva-1", SIN_PDF]
+
+
+def test_la_contraprueba_con_otro_400_o_con_un_fallo_nuestro(almacen, buzon) -> None:
+    """Otro 400 sin el PDF tampoco es del documento (api_no_disponible); un fallo nuestro en
+    la contraprueba sigue hacia arriba, como al contar."""
+    carpeta, out = buzon
+    otro = lambda: _error_api(400, "invalid_request_error", "otro mensaje")  # noqa: E731
+    client = ClienteQueFalla(al_contar={"nueva-1": DEL_DOCUMENTO["400"], SIN_PDF: otro})
+    with pytest.raises(lectura.ParadaApi) as parada:
+        lectura.estimar(client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen)
+    assert parada.value.motivo == "api_no_disponible"
+    assert parada.value.detalle.endswith(
+        "; sin el PDF: BadRequestError 400 invalid_request_error: otro mensaje")
+    client = ClienteQueFalla(al_contar={"nueva-1": DEL_DOCUMENTO["400"],
+                                        SIN_PDF: lambda: TypeError("un fallo nuestro")})
+    with pytest.raises(TypeError, match="un fallo nuestro"):
+        lectura.estimar(client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen)
+
+
+def test_si_la_api_no_acepta_ninguno_de_los_nuevos_no_dice_que_no_hay_nada(
+        almacen, gente, buzon, monkeypatch) -> None:
+    """Hay PDF nuevos, pero ninguno se puede mandar (un 413, un 400, o demasiado grande): la
+    peticion no dice "no hay ningun PDF" ni "ya estan leidas", que no seria verdad. Termina
+    fallida con "contar" (no se ha podido contar, como antes de D12), y el motivo dice cuales
+    y por que."""
+    from bms_agent import documents
+
+    conn = almacen.conn
+    carpeta, out = buzon
+    client = ClienteQueFalla(al_contar={"nueva-1": DEL_DOCUMENTO["413"],
+                                        "nueva-2": DEL_DOCUMENTO["400"]})
+    solicitud, _e = lectura.pedir(conn, gente["ana"])
+    lectura.tomar(conn, hay_pdf=True)
+    estado, est = lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+        client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen, antes=antes))
+    assert (estado, est.nuevos, est.ya_leidos) == ("fallida", 0, 1)
+    fila = _fila(conn, solicitud)
+    assert (fila["estado"], fila["motivo_codigo"], fila["estimacion_json"]) == (
+        "fallida", "contar", None)
+    assert fila["motivo"].startswith(
+        lectura.MOTIVOS["contar"] + ": la API no acepta ninguno de los PDF nuevos: "
+        "nueva-1.pdf (la API no lo acepta: ")
+    assert " 413 request_too_large: " in fila["motivo"]
+    assert "; nueva-2.pdf (la API no lo acepta: BadRequestError 400 " in fila["motivo"]
+    evento = conn.execute("SELECT * FROM evento WHERE tabla = 'solicitud_lectura' AND "
+                          "fila_id = ? ORDER BY id DESC", (solicitud,)).fetchone()
+    datos = json.loads(evento["datos_json"])
+    assert (evento["tipo"], datos["motivo_codigo"], datos["rechazados_api"]) == (
+        "lectura_fallida", "contar", 2)
+    # Solo uno, y demasiado grande: no se llama a la API ni para la contraprueba.
+    for nombre in ("nueva-1", "nueva-2", "vieja"):
+        (carpeta / f"{nombre}.pdf").unlink()
+    _pdf(carpeta, "nueva-3")
+    monkeypatch.setattr(documents, "MAX_BYTES_API", 10)
+    client = ClienteQueFalla()
+    solicitud, _e = lectura.pedir(conn, gente["ana"])
+    lectura.tomar(conn, hay_pdf=True)
+    estado, _est = lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+        client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen, antes=antes))
+    fila = _fila(conn, solicitud)
+    assert (estado, fila["motivo_codigo"], client.contados) == ("fallida", "contar", [])
+    assert "nueva-3.pdf (demasiado grande para la API" in fila["motivo"]
 
 
 @pytest.mark.parametrize("nombre", sorted(FALLOS_API))
@@ -1198,7 +1349,18 @@ def test_dos_400_iguales_seguidos_paran_sin_culpar_a_ninguno(almacen, gente, buz
     client = ClienteQueFalla(al_leer_falla={"nueva-1": igual, "nueva-2": igual})
     solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
     lectura.aprobar(conn, gente["ana"], solicitud, _fila(conn, solicitud)["huella_estimacion"])
-    leida = _leer(almacen, solicitud, carpeta, out, client)
+    al_parar = {}
+
+    def imprimir(tipo, nombre, _detalle) -> None:
+        # Lo que ve la app al parar, antes de terminar: el primero ya no sale como fallido.
+        if (tipo, nombre) == ("sin_leer", "nueva-2.pdf"):
+            pasada = _pasada(conn, solicitud)
+            al_parar.update(fallidas=pasada["fallidas"],
+                            resultado=json.loads(pasada["resultado_json"]))
+
+    leida = lectura.leer(conn, solicitud, client=client, almacen=almacen,
+                         pdfs=sorted(carpeta.glob("*.pdf")), out_dir=out, imprimir=imprimir)
+    assert al_parar == {"fallidas": 0, "resultado": []}
     assert client.intentos == ["nueva-1", "nueva-2"]
     assert (leida.estado, leida.fallidas) == ("fallida", 0)
     assert _fila(conn, solicitud)["motivo_codigo"] == "api_no_disponible"
@@ -1246,6 +1408,70 @@ def test_un_rechazo_del_modelo_no_para(almacen, gente, buzon, monkeypatch) -> No
     assert {r["nombre"]: r["estado"] for r in leida.resultado} == {
         "nueva-1.pdf": "fallida", "nueva-2.pdf": "fallida", "nueva-3.pdf": "nueva",
         "vieja.pdf": "ya_leida"}
+
+
+def test_informar_no_vuelve_fallido_lo_que_paro_la_api(almacen, gente, buzon) -> None:
+    """Un aviso de error que llegue despues de `fallo` (de ese documento, o del primero de dos
+    400 iguales) no lo vuelve fallido: no es culpa suya (§5.7)."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    solicitud = _contada(almacen, gente["ana"], carpeta, out, ClienteQueFalla())
+    lectura.aprobar(conn, gente["ana"], solicitud, _fila(conn, solicitud)["huella_estimacion"])
+    seguimiento = lectura.empezar(conn, solicitud, 2)
+    igual = DEL_DOCUMENTO["400"]
+    assert seguimiento.fallo("nueva-1.pdf", igual()) is False
+    seguimiento.informar("error", "nueva-1.pdf", "el primero, del documento")
+    assert seguimiento.estados == {"nueva-1.pdf": "fallida"}
+    assert seguimiento.fallo("nueva-2.pdf", igual()) is True
+    for nombre in ("nueva-1.pdf", "nueva-2.pdf"):
+        seguimiento.informar("error", nombre, "un aviso tardio")
+    assert seguimiento.estados == {"nueva-1.pdf": "sin_leer", "nueva-2.pdf": "sin_leer"}
+    assert (seguimiento.parada, seguimiento.motivo_codigo) == ("fallida", "api_no_disponible")
+
+
+@pytest.mark.parametrize("nombre", ["529", "402", "400-dos-iguales"])
+def test_parar_mientras_falla_la_api_termina_cancelada(almacen, gente, buzon, monkeypatch,
+                                                       nombre) -> None:
+    """Una persona pide parar mientras se lee un documento, y esa llamada falla por algo que
+    no es del documento: gana lo de la persona. La lectura termina cancelada (sin
+    motivo_codigo: no cuenta como un fallo de la API) y el documento queda sin leer, no
+    fallido. Con un 400 del documento, ya era asi."""
+    _salida_corta(monkeypatch)
+    conn = almacen.conn
+    carpeta, out = buzon
+    estado = {}
+
+    def falla(fabrica):
+        def lanzar():
+            lectura.cancelar(conn, gente["ana"], estado["solicitud"])
+            return fabrica()
+        return lanzar
+
+    if nombre == "400-dos-iguales":
+        # El segundo de dos 400 iguales: tampoco es de los documentos.
+        al_leer = {"nueva-1": DEL_DOCUMENTO["400"], "nueva-2": falla(DEL_DOCUMENTO["400"])}
+    else:
+        al_leer = {"nueva-1": falla(FALLOS_API[nombre][0])}
+    client = ClienteQueFalla(al_leer_falla=al_leer)
+    solicitud = estado["solicitud"] = _contada(almacen, gente["ana"], carpeta, out, client)
+    lectura.aprobar(conn, gente["ana"], solicitud, _fila(conn, solicitud)["huella_estimacion"])
+    impreso = []
+    leida = _leer(almacen, solicitud, carpeta, out, client, impreso)
+    assert (leida.estado, leida.fase, leida.fallidas) == ("cancelada", "cancelada", 0)
+    assert leida.motivo == "se pidio parar la lectura: no se paga nada mas"
+    fila = _fila(conn, solicitud)
+    assert (fila["estado"], fila["motivo_codigo"]) == ("cancelada", None)
+    assert fila["cancelada_en"] is not None
+    parado = "nueva-2.pdf" if nombre == "400-dos-iguales" else "nueva-1.pdf"
+    assert ("sin_leer", parado) in impreso and ("error", parado) not in impreso
+    assert ("sin_leer", "nueva-2.pdf") in impreso
+    assert {r["nombre"] for r in leida.resultado} == {"vieja.pdf"}
+    pasada = _pasada(conn, solicitud)
+    assert (pasada["fase"], pasada["fallidas"]) == ("cancelada", 0)
+    datos = json.loads(conn.execute(
+        "SELECT datos_json FROM evento WHERE tabla = 'solicitud_lectura' AND fila_id = ? "
+        "ORDER BY id DESC", (solicitud,)).fetchone()[0])
+    assert (datos["a"], "motivo_codigo" in datos) == ("cancelada", False)
 
 
 # ============================================================ lo que ve la app

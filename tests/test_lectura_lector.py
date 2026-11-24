@@ -24,7 +24,8 @@ from datetime import timedelta
 
 import pytest
 from conftest import RAIZ, persona
-from test_lectura import DEL_DOCUMENTO, FALLOS_API, ClienteQueCuenta, ClienteQueFalla, _pdf
+from test_lectura import (DEL_DOCUMENTO, FALLOS_API, SIN_PDF, ClienteQueCuenta, ClienteQueFalla,
+                          _error_api, _pdf)
 
 from bms_agent import cli, lectura, permisos, servicios
 from bms_agent.almacen import preparar
@@ -294,8 +295,10 @@ def test_un_pdf_que_la_api_no_acepta_no_bloquea_los_demas(lector, capsys) -> Non
     lector["estado"]["api"] = api
     pasos, codigo = lector["leer_facturas"]()
     assert (pasos, codigo) == (PASOS_COMPLETOS, 0)
-    assert (sorted(api.contados), sorted(api.leidos)) == (["mala", "otra", "una"],
-                                                           ["otra", "una"])
+    # La contraprueba (sin el PDF) va justo despues del primero que la API no acepta.
+    assert api.contados[api.contados.index("mala") + 1] == SIN_PDF
+    assert (sorted(api.contados), sorted(api.leidos)) == (
+        sorted(["mala", SIN_PDF, "otra", "una"]), ["otra", "una"])
     assert "mala" not in api.intentos
     assert re.search(r"omitido +mala\.pdf: la API no lo acepta: \w+ 413 request_too_large",
                      capsys.readouterr().out)
@@ -332,6 +335,45 @@ def test_un_fallo_nuestro_al_contar_sigue_siendo_contar(lector) -> None:
     assert (codigo, fila["estado"], fila["motivo_codigo"]) == (cli.LECTURA_FALLIDA, "fallida",
                                                                "contar")
     assert "un fallo nuestro" in fila["motivo"]
+
+
+def test_un_400_de_la_configuracion_no_dice_que_no_hay_nada(lector, capsys) -> None:
+    """El mismo 400 con todos, tambien sin el PDF (la configuracion): la lectura termina
+    fallida con api_no_disponible y lo que dijo la API, no "no hay facturas nuevas", y no se
+    aparta ninguna (la cuenta no se guarda)."""
+    _pdf(lector["buzon"], "una")
+    _pdf(lector["buzon"], "otra")
+    configuracion = lambda: _error_api(  # noqa: E731
+        400, "invalid_request_error", "output_config.effort: unknown value")
+    api = ApiQueFalla(lector["salida"], al_contar={"una": configuracion, "otra": configuracion,
+                                                   SIN_PDF: configuracion})
+    lector["estado"]["api"] = api
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos[-3:], codigo) == (["contar", "apagar", "cerrar"], cli.LECTURA_FALLIDA)
+    assert (api.contados, api.intentos) == (["otra", SIN_PDF], [])
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["motivo_codigo"], fila["estimacion_json"]) == (
+        "fallida", "api_no_disponible", None)
+    assert "output_config.effort: unknown value; sin el PDF, lo mismo" in fila["motivo"]
+    assert "omitido" not in capsys.readouterr().out
+    assert lector["salida"].historia == ["encendida", "apagada"]
+
+
+def test_un_buzon_con_solo_pdf_que_la_api_no_acepta(lector, capsys) -> None:
+    """Hay un PDF nuevo, pero la API no lo acepta: la ventana no dice "no hay facturas nuevas"
+    (el script lo diria con LECTURA_NADA) sino que no se ha podido contar, con por que."""
+    _pdf(lector["buzon"], "mala")
+    api = ApiQueFalla(lector["salida"], al_contar={"mala": DEL_DOCUMENTO["413"]})
+    lector["estado"]["api"] = api
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos[-3:], codigo) == (["contar", "apagar", "cerrar"], cli.LECTURA_FALLIDA)
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["motivo_codigo"]) == ("fallida", "contar")
+    salida = capsys.readouterr()
+    assert re.search(r"omitido +mala\.pdf: la API no lo acepta", salida.out)
+    assert "No se lee: no se ha podido contar lo que costaria" in salida.err
+    assert "la API no acepta ninguno de los PDF nuevos: mala.pdf" in salida.err
+    assert lector["salida"].historia == ["encendida", "apagada"]
 
 
 def test_sin_saldo_al_leer_el_lector_para_y_no_culpa_a_ninguna(lector, capsys) -> None:
