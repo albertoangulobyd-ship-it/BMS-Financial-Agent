@@ -180,10 +180,38 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   automática: en una lectura de una persona sobre `buzon\facturas` no sigue sola. Hasta el paso
   5 solo hay lecturas de una persona. Para el paso 12 (Procesar sabe el origen de la petición):
   decidir si la frase cambia con el origen.
-- **Un buzón con solo PDF rechazados termina `nada_que_leer`** con `buzon_vacio` (o
-  `ya_leidas`), como hoy uno con un fichero que no es un PDF: la ventana del lector dice
-  «omitido … la API no lo acepta: …», pero la app no enseña los omitidos (no están en
-  `GET /api/v2/lectura`) hasta los pasos 11 y 12 («omitido con su motivo en Procesar», §13 S1).
+- **Un buzón con PDF nuevos de los que la API no acepta ninguno termina `fallida` con
+  `contar`**, no `nada_que_leer` con `buzon_vacio` o `ya_leidas`, que no serían verdad (lo
+  cambió el arreglo tras la revisión del paso 3). Es lo que pasaba antes de D12 con un solo PDF
+  malo, pero el motivo dice cuáles (hasta tres) y por qué, y el evento `lectura_fallida` lleva
+  `rechazados_api`. Un buzón con solo ficheros que no son PDF sigue en `buzon_vacio`, como
+  hoy. La app no enseña los omitidos (no están en `GET /api/v2/lectura`) hasta los pasos 11 y
+  12 («omitido con su motivo en Procesar», §13 S1). **Para el paso 5**: así `contar` no llega a
+  `esperando_aprobacion` y `autorizar` no corre; una automática cuyas elegibles son todas
+  rechazadas no las apartaría con `rechazado_api`, y la espera tras el fallo `contar` repetiría
+  la misma cuenta. El paso 5 tiene que apartarlas también en ese caso.
+- **Al contar, una contraprueba sin el PDF en vez del freno de «dos iguales seguidos»**
+  (arreglo tras la revisión). Un 400 de la configuración (el modelo no admite el esfuerzo o el
+  formato de salida, la API no acepta el esquema) llega igual con todos los PDF: sin nada más,
+  todos quedaban omitidos con `rechazado_api`, la petición decía «no hay facturas nuevas» y el
+  paso 5 las excluiría todas. El freno de §5.3 no sirve al contar: la API da el mismo mensaje a
+  cualquier PDF cifrado o con demasiadas páginas, y dos seguidos (un proveedor que siempre manda
+  el PDF con contraseña) pararían la cuenta entera en cada ronda sin apartar ninguno, que es S1
+  otra vez. Así que, ante el primer 400 o 413 de una cuenta, `estimar` cuenta la misma petición
+  sin el PDF (`count_tokens`, que no se cobra; el mismo modelo, prompt, esquema y esfuerzo), salvo
+  que la API ya haya contado otro PDF de esa cuenta, que prueba lo mismo y más. Si la API la
+  acepta, la culpa es del PDF, y de los 400 que vengan en esa cuenta, sin repetirla.
+  Si no la acepta, es `ParadaApi` con el motivo de ese error (`api_no_disponible` si es otro
+  400) y no se aparta nada. Un fallo nuestro en la contraprueba sigue cerrando con `contar`. Lo
+  que no cubre: una configuración que solo falla con un documento dentro (un modelo que no lea
+  PDF). Al leer, el freno de dos iguales sigue como en §5.3.
+- **«Parar» gana a un fallo de la API** (arreglo tras la revisión). Si una persona pidió parar
+  mientras la llamada en curso falla por algo que no es del documento, la pasada y la petición
+  terminan `cancelada`, sin `motivo_codigo`, como con cualquier otro final de ese documento, y
+  no `fallida` con `saldo`, `clave_rechazada` o `api_no_disponible`. El documento queda sin
+  leer, no fallido; lo que dijo la API sale en la ventana del lector en su línea, y la lectura
+  siguiente lo vuelve a ver si sigue. En el paso 5, esa petición no cuenta además como fallo
+  técnico para la espera creciente, encima de la pausa `persona`.
 - **`docs/integracion-web.md` no cambia aquí**: `motivo_codigo` de `GET /api/v2/lectura` ya
   puede valer `saldo`, `clave_rechazada` o `api_no_disponible` (la app los dice con su texto),
   y la lista de ese documento los añade el paso 11, con el contrato 2.6 (§9).
