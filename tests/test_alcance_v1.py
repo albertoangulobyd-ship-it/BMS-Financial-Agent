@@ -41,11 +41,11 @@ SRC = RAIZ / "src" / "bms_agent"
 PAQUETE = "bms_agent"
 
 
-def _modulos() -> dict[str, Path]:
+def _modulos(paquete: Path = SRC) -> dict[str, Path]:
     """Cada modulo del paquete por su nombre con puntos."""
     salida = {}
-    for ruta in sorted(SRC.rglob("*.py")):
-        partes = list(ruta.relative_to(SRC.parent).with_suffix("").parts)
+    for ruta in sorted(paquete.rglob("*.py")):
+        partes = list(ruta.relative_to(paquete.parent).with_suffix("").parts)
         if partes[-1] == "__init__":
             partes.pop()
         salida[".".join(partes)] = ruta
@@ -182,8 +182,12 @@ BANCO = {"bank", "banco", "bancaria", "bancario", "ebics", "psd2", "sepa", "swif
 CREDENCIAL = {"password", "passwd", "contrasena", "clave", "secret", "secreto", "token",
               "credencial", "credenciales", "api", "apikey", "pin", "certificado", "cert",
               "usuario", "user"}
-RED_SALIENTE = {"urllib.request", "http.client", "requests", "httpx", "aiohttp", "smtplib",
-                "ftplib", "paramiko", "socket", "ssl", "imaplib", "poplib"}
+# Paso 18 (diseno §7.2): httpx2 y httpcore2 (los clientes que trae el SDK de la API, y con
+# los que el correo habla con Microsoft), y httpcore y urllib3, los que van debajo de httpx
+# y de requests.
+RED_SALIENTE = {"urllib.request", "http.client", "requests", "urllib3", "httpx", "httpcore",
+                "httpx2", "httpcore2", "aiohttp", "smtplib", "ftplib", "paramiko", "socket",
+                "ssl", "imaplib", "poplib"}
 
 
 def test_no_hay_generador_sepa_ni_pain_001() -> None:
@@ -265,34 +269,131 @@ def test_no_hay_credenciales_ni_claves_de_banco() -> None:
 # local, sin mandar nada mas que un CONNECT y una consulta DNS. Son los unicos modulos que
 # pueden importar socket, y solo eso.
 PUEDEN_ABRIR_SOCKETS = {"bms_agent.salida": {"socket"}, "bms_agent.aislamiento": {"socket"}}
+# Paso 18 (diseno §7.2): el cliente de Graph del correo sale a Microsoft por su propia salida
+# (la lista blanca del correo: login.microsoftonline.com y graph.microsoft.com) con httpx2, y
+# nada mas de la lista: ni sockets ni otro cliente. Es la unica excepcion con nombre.
+PUEDEN_SALIR = {**PUEDEN_ABRIR_SOCKETS, "bms_agent.correo.graph": {"httpx2"}}
+# El SDK de la API, solo en la CLI y el servidor (y dentro de la funcion que extrae).
+PUEDEN_USAR_ANTHROPIC = {"bms_agent.cli", "bms_agent.serve"}
+# Importar por nombre en tiempo de ejecucion: con un literal se mira como un import; con
+# otra cosa no se puede saber que trae, y no pasa.
+IMPORTAR_POR_NOMBRE = {"__import__", "import_module"}
+
+
+def _importados(nodo: ast.AST) -> list[str]:
+    """Lo que importa un nodo, con puntos. `import a.b` da a.b; `from a import b` da a y a.b
+    (asi `from urllib import request` es urllib.request, y `from http import client`,
+    http.client); `__import__("a")` o `importlib.import_module("a")` dan a, y "?" si el
+    nombre no es un literal. Un import relativo es de un modulo del paquete."""
+    if isinstance(nodo, ast.Import):
+        return [a.name for a in nodo.names]
+    if isinstance(nodo, ast.ImportFrom):
+        if nodo.level or not nodo.module:
+            return []
+        return [nodo.module, *(f"{nodo.module}.{a.name}" for a in nodo.names)]
+    if isinstance(nodo, ast.Call):
+        funcion = nodo.func
+        nombre = funcion.attr if isinstance(funcion, ast.Attribute) else getattr(funcion, "id", "")
+        if nombre in IMPORTAR_POR_NOMBRE:
+            primero = nodo.args[0] if nodo.args else None
+            if isinstance(primero, ast.Constant) and isinstance(primero.value, str):
+                return [primero.value]
+            return ["?"]
+    return []
+
+
+def _prefijos(nombre: str) -> set[str]:
+    """a.b.c da {a, a.b, a.b.c}: urllib.request.urlopen es de urllib.request."""
+    partes = nombre.split(".")
+    return {".".join(partes[:n]) for n in range(1, len(partes) + 1)}
+
+
+def red_de(nombre: str, codigo: str) -> list[str]:
+    """Lo que un modulo (por su nombre con puntos) importa para hablar con la red sin poder."""
+    permitidos = PUEDEN_SALIR.get(nombre, set())
+    malos = []
+    for nodo in ast.walk(ast.parse(codigo)):
+        for importado in _importados(nodo):
+            prefijos = _prefijos(importado)
+            if importado == "?" or (prefijos & RED_SALIENTE) - permitidos or (
+                    "anthropic" in prefijos and nombre not in PUEDEN_USAR_ANTHROPIC):
+                malos.append(importado)
+    return malos
+
+
+def _red_de_los_modulos(modulos: dict[str, Path]) -> dict[str, list[str]]:
+    return {nombre: malos for nombre, ruta in modulos.items()
+            if (malos := red_de(nombre, ruta.read_text(encoding="utf-8")))}
 
 
 def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
     """Sin cliente de red no hay banco al que conectarse. El de Anthropic solo en la CLI y el
     servidor, y solo para extraer (lo importan dentro de la funcion que extrae). El proxy de
-    salida (paso 13) abre sockets, y su lista blanca es la API de Anthropic y nada mas."""
+    salida (paso 13) abre sockets, y su lista blanca es la API de Anthropic y nada mas. El
+    cliente de Graph del correo (paso 18), httpx2 y nada mas."""
     from bms_agent import aislamiento, salida
 
     assert salida.PERMITIDOS_POR_DEFECTO == ("api.anthropic.com:443",)
     assert {s.host for s in aislamiento.EXTERNOS} == {"1.1.1.1", "8.8.8.8", "api.anthropic.com"}
-    malos = []
-    for nombre, ruta in MODULOS.items():
-        for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8"))):
-            if isinstance(nodo, ast.Import):
-                importados = [a.name for a in nodo.names]
-            elif isinstance(nodo, ast.ImportFrom) and nodo.level == 0 and nodo.module:
-                importados = [nodo.module]
-            else:
-                continue
-            for modulo in importados:
-                if modulo in PUEDEN_ABRIR_SOCKETS.get(nombre, set()):
-                    continue
-                if modulo in RED_SALIENTE or modulo.split(".")[0] in RED_SALIENTE:
-                    malos.append((nombre, modulo))
-                if modulo.split(".")[0] == "anthropic" and nombre not in (
-                        "bms_agent.cli", "bms_agent.serve"):
-                    malos.append((nombre, modulo))
-    assert malos == []
+    assert _red_de_los_modulos(MODULOS) == {}
+
+
+@pytest.mark.parametrize("nombre, codigo", [
+    ("bms_agent.x", "import httpx2"), ("bms_agent.x", "from httpx2 import Client"),
+    ("bms_agent.x", "import httpcore2"), ("bms_agent.x", "from httpcore2 import ConnectionPool"),
+    ("bms_agent.x", "import httpx"), ("bms_agent.x", "import urllib3.poolmanager"),
+    ("bms_agent.x", "from urllib import request"), ("bms_agent.x", "from http import client"),
+    ("bms_agent.x", "import urllib.request"), ("bms_agent.x", "from urllib.request import urlopen"),
+    ("bms_agent.x", "import http.client as h"), ("bms_agent.x", "import requests.adapters"),
+    ("bms_agent.x", "import socket"), ("bms_agent.x", "from socket import create_connection"),
+    ("bms_agent.x", "import ssl"), ("bms_agent.x", "from smtplib import SMTP"),
+    ("bms_agent.x", "import imaplib, json"),
+    ("bms_agent.x", "def f():\n    import httpx2\n    return httpx2"),
+    ("bms_agent.x", "__import__('socket')"), ("bms_agent.x", "importlib.import_module('httpx2')"),
+    ("bms_agent.x", "import_module('urllib.request')"), ("bms_agent.x", "import_module(nombre)"),
+    ("bms_agent.x", "import anthropic"), ("bms_agent.x", "from anthropic import Anthropic"),
+    # El cliente de Graph: httpx2 si, y nada mas de la lista.
+    ("bms_agent.correo.graph", "import httpcore2"), ("bms_agent.correo.graph", "import socket"),
+    ("bms_agent.correo.graph", "from urllib import request"),
+    ("bms_agent.correo.graph", "import ssl"), ("bms_agent.correo.graph", "import anthropic"),
+    # httpx2 solo en el cliente de Graph: ni el resto del correo, ni la salida, ni la CLI.
+    ("bms_agent.correo.traer", "import httpx2"), ("bms_agent.correo", "import httpx2"),
+    ("bms_agent.correo.registrar", "from httpx2 import Client"),
+    ("bms_agent.salida", "import httpx2"), ("bms_agent.cli", "import httpx2"),
+    ("bms_agent.aislamiento", "from urllib import request"),
+])
+def test_el_detector_de_red_ve_cada_forma_de_importar(nombre, codigo) -> None:
+    assert red_de(nombre, codigo), (nombre, codigo)
+
+
+def test_el_detector_de_red_no_ve_lo_que_no_sale() -> None:
+    assert red_de("bms_agent.x", "from urllib.parse import parse_qs, urlsplit\n"
+                  "from http.server import ThreadingHTTPServer\nfrom http import HTTPStatus\n"
+                  "import http\nimport json, socketserver\nfrom logging.handlers import "
+                  "RotatingFileHandler\nfrom . import salida\nfrom .correo import graph\n"
+                  "from .. import socket\nimportlib.import_module('json')\n") == []
+    assert red_de("bms_agent.correo.graph", "import httpx2\nfrom httpx2 import Client, "
+                  "MockTransport\nfrom httpx2._exceptions import HTTPError\n") == []
+    assert red_de("bms_agent.salida", "import socket\nfrom socket import AF_INET") == []
+    assert red_de("bms_agent.cli", "import anthropic\nfrom anthropic import Anthropic") == []
+
+
+def test_un_modulo_nuevo_que_sale_a_la_red_hace_fallar_la_guarda(tmp_path) -> None:
+    """La guarda mira los modulos que hay, no una lista: uno nuevo con httpx2 fuera del
+    cliente de Graph, o con `from urllib import request`, aparece sin que nadie lo apunte."""
+    paquete = tmp_path / "bms_agent"
+    (paquete / "correo").mkdir(parents=True)
+    for ruta, codigo in {"__init__.py": "", "correo/__init__.py": "",
+                         "correo/graph.py": "import httpx2\n",
+                         "correo/traer.py": "from httpx2 import Client\n",
+                         "espia.py": "from urllib import request\n",
+                         "otro.py": "from http import client\n",
+                         "bien.py": "from urllib.parse import urlsplit\n"}.items():
+        (paquete / ruta).write_text(codigo, encoding="utf-8")
+    assert _red_de_los_modulos(_modulos(paquete)) == {
+        "bms_agent.correo.traer": ["httpx2", "httpx2.Client"],
+        "bms_agent.espia": ["urllib.request"],
+        "bms_agent.otro": ["http.client"]}
 
 
 # ============================================================ sin plazos
