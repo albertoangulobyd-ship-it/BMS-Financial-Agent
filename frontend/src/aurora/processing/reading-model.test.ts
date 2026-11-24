@@ -13,6 +13,8 @@ import {
   requested,
   rowsOf,
   screenOf,
+  shownName,
+  startable,
   shownProgress,
   stageOf,
   update,
@@ -280,3 +282,38 @@ describe('la visita (especificacion §5.4 y §5.5)', () => {
     expect(requested(intro, 9)).toMatchObject({ phase: 'intro', screen: 'requested', engine: 2, followed: 9 });
   });
 });
+
+describe('la lectura automatica (paso 18)', () => {
+  const auto = (estado: ReadingRequest['estado'], extra: Partial<ReadingRequest> = {}) => request(estado, { origen: 'automatica', pedida_por: null, ...extra });
+
+  it('sin "Empezar": su si es la autorizacion; la de una persona, con su cuenta, si', () => {
+    expect(startable(status(request('esperando_aprobacion')))).toBe(true);
+    expect(startable(status(auto('esperando_aprobacion')))).toBe(false);
+    for (const estado of ['pedida', 'contando', 'aprobada', 'leyendo', 'hecha'] as const) expect(startable(status(request(estado))), estado).toBe(false);
+    expect(startable(null)).toBe(false);
+  });
+
+  it('los PDF del correo se leen como <sha256>.pdf: la linea dice el nombre con que llegaron', () => {
+    const hash = 'f'.repeat(64) + '.pdf';
+    const p = pass('leyendo', { recientes: [hash, 'buzon.pdf'], documento_actual: hash, etiquetas: { [hash]: 'Factuur 2026-118.pdf' } });
+    expect(shownName(p, hash)).toBe('Factuur 2026-118.pdf');
+    expect(shownName(p, 'buzon.pdf')).toBe('buzon.pdf');
+    expect(shownName(null, hash)).toBe(hash);
+    const rows = rowsOf(p, { done: 'listo', phases: { comparando: 'comparando…', leyendo: 'leyendo…', guardando: 'guardando…' } }).split('\n');
+    expect(rows[0]).toContain('Factuur 2026-118.pdf');
+    expect(rows[2]).toContain('Factuur 2026-118.pdf');
+    expect(rows.join('\n')).not.toContain(hash);
+  });
+
+  it('una automatica que termino sin leer y que esta visita no siguio es P0; la que si siguio, su final', () => {
+    for (const estado of ['nada_que_leer', 'cancelada', 'caducada'] as const) {
+      expect(run(START, status(auto(estado))).drive.screen, estado).toBe('ready');
+    }
+    // La de una persona que termino sin leer se sigue viendo (P7 y P8), como antes.
+    expect(run(START, status(request('nada_que_leer'))).drive.screen).toBe('nothing');
+    // Seguida en esta visita (estaba viva al entrar): su final.
+    const seen = run(START, status(auto('contando')), status(auto('nada_que_leer', { motivo_codigo: 'limite_dia' })));
+    expect(seen.drive.screen).toBe('nothing');
+  });
+});
+

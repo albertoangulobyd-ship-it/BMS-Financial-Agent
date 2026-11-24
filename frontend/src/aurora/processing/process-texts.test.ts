@@ -13,7 +13,9 @@ import {
   footerOf,
   idleLines,
   introView,
+  isAutomatic,
   lastReading,
+  omittedOf,
   readyNote,
   reasonOf,
   requestNote,
@@ -215,10 +217,18 @@ describe('el resultado y el error', () => {
   });
 
   it('P6 (paso 18): la API falla por algo que no es de un documento y no se aparta nada', () => {
+    // La de una persona no sigue sola: lo que tiene que hacer ella (paso 12).
     expect(errorView(status(request('fallida', { motivo_codigo: 'saldo' }), pass('fallida', { leidas: 2, ya_leidas: 1 })), es)).toMatchObject({
       title: 'La lectura no terminó.',
-      detail: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo; después sigue solo. Lo ya leído (3) está en Documentos.',
+      detail: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo y vuelve a pedir la lectura. Lo ya leído (3) está en Documentos.',
     });
+    // La automatica, si: "despues sigue solo".
+    expect(errorView(status(request('fallida', { origen: 'automatica', motivo_codigo: 'saldo' })), es)).toMatchObject({
+      detail: 'El saldo de la API se ha acabado (o se llegó al límite de gasto). Recárgalo; después sigue solo.',
+    });
+    expect(reasonOf('api_no_disponible', MESSAGES.nl, 'lector')).toBe('De API is even niet bereikbaar of overbelast. Er is niets apart gezet; vraag het straks opnieuw aan.');
+    expect(reasonOf('api_no_disponible', MESSAGES.nl, 'automatica')).toBe(MESSAGES.nl.aurora.process.reasons.api_no_disponible);
+    expect(reasonOf('clave_rechazada', MESSAGES.en, 'app')).toBe(MESSAGES.en.aurora.process.reasons.clave_rechazada);
     expect(errorView(status(request('fallida', { motivo_codigo: 'clave_rechazada' })), MESSAGES.nl)).toMatchObject({
       title: 'Er is niets gelezen.',
       detail: 'De API weigert de sleutel. De beheerder moet hem vervangen (clave.bat).',
@@ -246,3 +256,62 @@ describe('el resultado y el error', () => {
     }
   });
 });
+
+describe('la lectura automatica en Procesar (paso 18)', () => {
+  const nl = MESSAGES.nl;
+  const auto = (estado: ReadingRequest['estado'], extra: Partial<ReadingRequest> = {}) =>
+    request(estado, {
+      origen: 'automatica',
+      pedida_por: null,
+      autorizacion: { id: 3, fijada_por: { id: 1, nombre: 'Ana Demo' }, fijada_en: '2026-10-28T08:00:00+00:00' },
+      ...extra,
+    });
+
+  it('dice de donde viene y quien firmo la autorizacion, no quien la pidio', () => {
+    expect(isAutomatic(status(auto('comprobando')))).toBe(true);
+    expect(isAutomatic(status(request('comprobando')))).toBe(false);
+    expect(requestNote(status(auto('contando')), nl)).toBe('Automatisch, uit de facturenmailbox · Automatisch lezen ingesteld door Ana Demo');
+    expect(requestNote(status(auto('contando', { autorizacion: null })), es)).toBe('Automática, del buzón de facturas');
+    // La de una persona, como siempre.
+    expect(requestNote(status(request('contando')), nl)).toContain('Ana Demo');
+  });
+
+  it('esperando su si no pide a nadie que decida: la acepta la autorizacion', () => {
+    const view = introView('waiting', status(auto('esperando_aprobacion')), nl);
+    expect(view.title).toMatch(/^12 nieuwe facturen, tussen /);
+    expect(view.detail).toBe('Automatisch, uit de facturenmailbox · Automatisch lezen ingesteld door Ana Demo');
+    expect(view.detail).not.toContain('beslissen');
+  });
+
+  it('una automatica que no se acepto dice por que, no "ya leido"', () => {
+    for (const code of ['limite_dia', 'limite_mes', 'excluidas', 'sin_autorizacion'] as const) {
+      const view = introView('nothing', status(auto('nada_que_leer', { motivo_codigo: code })), nl);
+      expect(view.title, code).toBe(nl.aurora.process.cancelled.title);
+      expect(view.detail, code).toBe(reasonOf(code, nl));
+    }
+    // Las de siempre siguen igual.
+    expect(introView('nothing', status(request('nada_que_leer', { motivo_codigo: 'ya_leidas', pdf_ya_leidos: 3 })), nl).detail).toBe(
+      'De 3 die er zijn, zijn al gelezen: er wordt niets betaald.'
+    );
+  });
+
+  it('lo que la cuenta dejo fuera, con su porque y el nombre con que llego', () => {
+    const s = status(
+      request('esperando_aprobacion', {
+        omitidos: [
+          { nombre: 'a'.repeat(64) + '.pdf', nombre_original: 'factuur-groot.pdf', rechazado_api: true },
+          { nombre: 'beveiligd.pdf', nombre_original: null, rechazado_api: true },
+          { nombre: 'kapot.pdf', nombre_original: null, rechazado_api: false },
+        ],
+      })
+    );
+    expect(omittedOf(s, nl)).toEqual([
+      { label: nl.aurora.process.omitted.api, names: 'factuur-groot.pdf, beveiligd.pdf' },
+      { label: nl.aurora.process.omitted.other, names: 'kapot.pdf' },
+    ]);
+    expect(omittedOf(status(request('esperando_aprobacion')), nl)).toEqual([]);
+    expect(omittedOf(status(request('esperando_aprobacion', { omitidos: [] })), nl)).toEqual([]);
+    expect(omittedOf(null, nl)).toEqual([]);
+  });
+});
+

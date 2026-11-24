@@ -210,6 +210,30 @@ export const STATUS_RULES = {
   datos_prueba: {
     demo: quieto('warning'),
   },
+  /** El buzon de facturas (paso 18, /api/v2/correo: estado). Que no funcione pide que alguien
+   *  lo mire ya: no entra ninguna factura. Lo retenido sigue manana solo. */
+  correo: {
+    al_dia: quieto('success'),
+    retrasado: quieto('warning'),
+    retenido: quieto('info'),
+    error: late('error'),
+    sin_configurar: quieto('default'),
+  },
+  /** La lectura automatica (derivado de lectura_automatica: activa y parada). */
+  lectura_automatica: {
+    encendida: quieto('success'),
+    apagada: quieto('default'),
+    pausada: quieto('warning'),
+    fallo: quieto('error'),
+    limite_dia: quieto('info'),
+    limite_mes: quieto('warning'),
+  },
+  /** El certificado del correo (derivado de credencial.dias: ambar a 60 dias o menos). */
+  certificado: {
+    vigente: quieto('success'),
+    caduca_pronto: quieto('warning'),
+    caducado: late('error'),
+  },
 } as const satisfies Record<string, Record<string, StatusRule>>;
 
 export type StatusGroup = keyof typeof STATUS_RULES;
@@ -286,6 +310,12 @@ export function statusLabel(
       return app(t.status.reading);
     case 'datos_prueba':
       return state === 'demo' ? t.testData.chip : null;
+    case 'correo':
+      return app(t.status.mailbox);
+    case 'lectura_automatica':
+      return app(t.status.autoRead);
+    case 'certificado':
+      return app(t.status.certificate);
     case 'pago':
     case 'aplicacion':
     case 'revision':

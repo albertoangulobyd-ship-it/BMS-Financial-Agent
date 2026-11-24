@@ -72,7 +72,7 @@ describe('sin codigo muerto en frontend/src', () => {
       // El tema claro sale de esas hojas (scripts/aurora-claro.mjs): lleva sus mismas reglas.
       'src/aurora/claro.css',
     ];
-    expect(unusedClasses({ external: ['bms-banda-prueba', 'bms-banda-aislamiento'], verbatim })).toEqual([]);
+    expect(unusedClasses({ external: ['bms-banda-prueba', 'bms-banda-aislamiento', 'bms-banda-urgente'], verbatim })).toEqual([]);
   });
 
   it('cada texto de Aurora se lee en alguna pantalla, en los tres idiomas', () => {

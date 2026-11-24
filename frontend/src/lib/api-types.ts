@@ -610,6 +610,9 @@ export interface ReadingStatus {
   ultima_pasada?: ReadingPass | null;
   plazo_respuesta_segundos?: number;
   consulta_cada_segundos?: number;
+  /** Contrato 2.6 (paso 18): la lectura automatica (como en GET /api/v2/correo, sin quien la
+   *  firmo ni la cola). */
+  automatica?: AutoReadingStatus;
 }
 
 /** El estado de una lectura pedida (solicitud_lectura, lectura.py). */
@@ -626,17 +629,41 @@ export type ReadingRequestState =
   | 'cancelada'
   | 'nada_que_leer';
 
+/** Por que termino asi una lectura (lectura.MOTIVOS): un codigo estable. Contrato 2.6: los
+ *  de la lectura automatica (limite_dia, limite_mes, excluidas, sin_autorizacion) y los de la
+ *  API que fallo por algo que no es del documento (saldo, clave_rechazada, api_no_disponible). */
+export type ReadingReasonCode =
+  | 'buzon_vacio'
+  | 'ya_leidas'
+  | 'clave'
+  | 'salida'
+  | 'aislamiento'
+  | 'contar'
+  | 'sin_tarifa'
+  | 'estimacion'
+  | 'lectura'
+  | 'interrumpida'
+  | 'abandonada'
+  | 'limite_dia'
+  | 'limite_mes'
+  | 'excluidas'
+  | 'sin_autorizacion'
+  | 'saldo'
+  | 'clave_rechazada'
+  | 'api_no_disponible';
+
 export interface ReadingRequest {
   id: number;
   estado: ReadingRequestState;
-  origen: 'app' | 'lector';
+  /** Contrato 2.6: `automatica`, la del ciclo, con la autorizacion (sin persona). */
+  origen: 'app' | 'lector' | 'automatica';
   viva: boolean;
   abandonada: boolean;
   pedida_por: { id: number; nombre: string } | null;
   pedida_en: string | null;
   tomada_en: string | null;
   motivo: string | null;
-  motivo_codigo: string | null;
+  motivo_codigo: ReadingReasonCode | null;
   pdf_nuevos: number | null;
   pdf_ya_leidos: number | null;
   coste_min_usd_micro: number | null;
@@ -646,11 +673,17 @@ export interface ReadingRequest {
   caduca_en: string | null;
   aprobada_por: { id: number; nombre: string } | null;
   aprobada_en: string | null;
-  aprobada_via: 'app' | 'ventana' | null;
+  /** Contrato 2.6: `automatica`, la acepto la autorizacion (sin aprobada_por). */
+  aprobada_via: 'app' | 'ventana' | 'automatica' | null;
   tope_usd_micro: number | null;
   cancelada_en: string | null;
   parar_pedido: boolean;
   terminada_en: string | null;
+  /** Contrato 2.6: la autorizacion que acepto una automatica (o null). */
+  autorizacion?: { id: number; fijada_por: { id: number; nombre: string } | null; fijada_en: string | null } | null;
+  /** Contrato 2.6: lo que la cuenta dejo fuera (no es un PDF, es de la otra base o la API no
+   *  lo acepta: rechazado_api). Los nombres son de quien mando el PDF. */
+  omitidos?: { nombre: string | null; nombre_original: string | null; rechazado_api: boolean }[];
 }
 
 /** Lo que fue de un documento de la pasada (nombre: texto de un tercero). */
@@ -661,6 +694,8 @@ export interface ReadingPassRow {
   factura_id?: number | null;
   numero?: string | null;
   empresa?: string | null;
+  /** Contrato 2.6: el nombre con que llego el PDF (el del adjunto, para los del correo), o null. */
+  nombre_original?: string | null;
 }
 
 /** La pasada de una lectura (pasada_lectura): fases, cuentas y lo gastado, que solo suben. */
@@ -682,6 +717,126 @@ export interface ReadingPass {
   empezada_en: string | null;
   terminada_en: string | null;
   resultado: ReadingPassRow[];
+  /** Contrato 2.6: {"<sha256>.pdf": nombre original} de los PDF que se leen del almacen (los del
+   *  correo); los demas ya se llaman asi. */
+  etiquetas?: Record<string, string>;
+}
+
+// ---- El correo de facturas y la lectura automatica (contrato 2.6, paso 18; solo Docker)
+
+/** El estado del buzon de facturas (GET /api/v2/correo, `estado`). */
+export type MailboxState = 'al_dia' | 'retrasado' | 'retenido' | 'error' | 'sin_configurar';
+
+/** La lista cerrada de errores del correo (§3.7). */
+export type MailboxError =
+  | 'sin_configurar'
+  | 'credencial'
+  | 'reloj'
+  | 'permiso'
+  | 'alcance'
+  | 'control_no_existe'
+  | 'sin_conexion'
+  | 'limitado'
+  | 'aislamiento'
+  | 'salida'
+  | 'disco'
+  | 'interno';
+
+/** Lo que fue de un adjunto (bandeja.RESULTADOS). */
+export type AttachmentResult =
+  | 'documento'
+  | 'no_es_pdf'
+  | 'demasiado_grande'
+  | 'xml'
+  | 'reenvio'
+  | 'no_pdf'
+  | 'enlace'
+  | 'no_deseado'
+  | 'de_prueba'
+  | 'error';
+
+/** Un correo del buzon. Remitente, asunto y nombres: SIN COMPROBAR, los pone quien manda. */
+export interface MailMessage {
+  mensaje_id: number;
+  recibido_en: string;
+  carpeta: 'bandeja' | 'no_deseado';
+  remitente_doc: string | null;
+  asunto_doc: string | null;
+  adjuntos: { nombre_doc: string | null; resultado: AttachmentResult; bytes: number | null; documento_id: number | null }[];
+}
+
+/** Por que una factura no se lee sola (exclusion_automatica). */
+export type ExclusionReason = 'grande' | 'fallo' | 'rechazado_api' | 'persona';
+
+/** Una factura que la lectura automatica aparto y aun sin leer. */
+export interface WaitingInvoice {
+  documento_id: number;
+  nombre_original: string | null;
+  recibido_en: string | null;
+  motivo_codigo: ExclusionReason;
+}
+
+/** Por que la lectura automatica no lee ahora, con ella encendida. */
+export type AutoReadingStop = 'limite_dia' | 'limite_mes' | 'persona' | 'volumen' | 'fallo';
+
+/** La lectura automatica: la autorizacion vigente, lo gastado y si esta parada. Dinero en
+ *  millonesimas de dolar. */
+export interface AutoReadingStatus {
+  activa: boolean;
+  autorizacion_id: number | null;
+  tope_dia_usd_micro: number | null;
+  tope_mes_usd_micro: number | null;
+  max_documentos: number | null;
+  max_por_documento_usd_micro: number | null;
+  fijada_en: string | null;
+  gastado_hoy_usd_micro: number;
+  gastado_mes_usd_micro: number;
+  queda_hoy_usd_micro: number;
+  parada: AutoReadingStop | null;
+  /** Con `fallo`: salida, aislamiento, clave, contar, sin_tarifa, saldo, clave_rechazada o
+   *  api_no_disponible. */
+  motivo_codigo: ReadingReasonCode | null;
+  desde: string | null;
+  proximo_intento: string | null;
+  hasta: string | null;
+  pendientes: number;
+  elegibles: number;
+  elegible_mas_antigua: string | null;
+}
+
+/** Una factura que espera a la lectura automatica (la cola). */
+export interface QueuedInvoice {
+  documento_id: number;
+  nombre_original: string | null;
+  recibido_en: string | null;
+}
+
+/** GET /api/v2/correo (`correo`). En la instalacion nativa no hay correo ni ciclo: `entorno`
+ *  nativo, `configurado` false. */
+export interface Mailbox {
+  configurado: boolean;
+  entorno: 'nativo' | 'contenedor' | 'local';
+  estado: MailboxState;
+  error_codigo: MailboxError | null;
+  error_desde: string | null;
+  ultima_consulta: string | null;
+  ultima_buena: string | null;
+  retenido_hasta: string | null;
+  alcance: { comprobado_en: string | null; bien: boolean | null };
+  credencial: { caduca_en: string | null; dias: number | null };
+  aviso_volumen: boolean;
+  hoy: { mensajes: number; pdf_nuevos: number; bytes: number };
+  ciclo: {
+    visto_en: string | null;
+    variante: 'nativa' | 'docker' | null;
+    pausado: boolean;
+    pausado_desde: string | null;
+    disco_libre_bytes: number | null;
+    disco_bajo: boolean;
+  };
+  recientes: MailMessage[];
+  esperan_persona: { correos: MailMessage[]; correos_total: number; documentos: WaitingInvoice[]; documentos_total: number };
+  lectura_automatica: AutoReadingStatus & { fijada_por: { id: number; nombre: string } | null; cola?: QueuedInvoice[] };
 }
 
 export interface Company {

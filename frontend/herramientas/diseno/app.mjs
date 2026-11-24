@@ -17,6 +17,9 @@ export const NL = {
   betalingVastleggen: 'Betaling vastleggen',
   reden: 'Reden',
   overzicht: 'Geef me een overzicht',
+  systeem: 'Systeem',
+  facturenmailbox: 'Facturenmailbox',
+  automatischLezen: 'Automatisch lezen',
 };
 
 // ------------------------------------------------------------------ lo basico

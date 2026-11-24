@@ -32,9 +32,17 @@ export function whenOf(value: string | null | undefined, t: Messages, now: Date 
   return at.today ? fmt(notes.today, { time: at.time }) : fmt(notes.on, { date: at.date, time: at.time });
 }
 
-/** El por que de un final malo, por su codigo (lectura.MOTIVOS), en el idioma de la persona. */
-export function reasonOf(code: string | null | undefined, t: Messages): string {
+/** El por que de un final malo, por su codigo (lectura.MOTIVOS), en el idioma de la persona.
+ *  `origin`: el de la lectura. La de una persona (o del lector) no sigue sola: sin saldo o con la
+ *  API caida, lo dice con lo que tiene que hacer ella (pedirla otra vez) y no con el "despues
+ *  sigue solo" de la automatica (desviaciones del paso 3, para el paso 12). */
+export function reasonOf(code: string | null | undefined, t: Messages, origin?: ReadingRequest['origen'] | null): string {
   const r = t.aurora.process.reasons;
+  if (origin === 'app' || origin === 'lector') {
+    const h = t.aurora.process.reasonsByHand;
+    if (code === 'saldo') return h.saldo;
+    if (code === 'api_no_disponible') return h.api_no_disponible;
+  }
   const reasons: Record<string, string> = {
     buzon_vacio: r.buzon_vacio,
     ya_leidas: r.ya_leidas,
@@ -91,6 +99,9 @@ function waitingLine(s: ReadingRequest, t: Messages, changed: boolean): string {
   return fmt(already === 1 ? w.lineOne : w.line, { n: already, time });
 }
 
+/** Los finales de una automatica que no se acepto (lectura.autorizar). */
+const AUTOMATIC_ENDS = new Set(['limite_dia', 'limite_mes', 'excluidas', 'sin_autorizacion']);
+
 /** El saludo de cada estado con la cabeza (P0 a P3, P7 y P8). `notice`: lo que paso con el ultimo
  *  "Empezar" (la estimacion cambio, o no se pudo mandar). */
 export function introView(screen: Screen, status: ReadingStatus | null, t: Messages, notice: 'changed' | 'sendFailed' | null = null): ProcessView {
@@ -109,6 +120,8 @@ export function introView(screen: Screen, status: ReadingStatus | null, t: Messa
       return view(p.counting.title, p.counting.line);
     case 'waiting':
       if (!s) return view(p.ready.title, p.ready.line);
+      // Una automatica no espera a nadie: la acepta la autorizacion en cuanto se cuenta.
+      if (s.origen === 'automatica') return view(waitingTitle(s, t, false), automaticNote(s, t));
       if (notice === 'sendFailed') return { ...view(waitingTitle(s, t, false), p.waiting.sendFailed), alert: true };
       return view(waitingTitle(s, t, notice === 'changed'), waitingLine(s, t, notice === 'changed'));
     case 'expired':
@@ -117,6 +130,8 @@ export function introView(screen: Screen, status: ReadingStatus | null, t: Messa
       return view(p.cancelled.title, p.cancelled.line);
     case 'nothing': {
       if (s?.motivo_codigo === 'buzon_vacio') return view(p.nothing.title, p.nothing.empty);
+      // Una automatica que no se acepto (los topes, lo apartado, apagada): no es "ya leido".
+      if (s && AUTOMATIC_ENDS.has(s.motivo_codigo ?? '')) return view(p.cancelled.title, reasonOf(s.motivo_codigo, t, s.origen));
       const n = s?.pdf_ya_leidos ?? 0;
       return view(p.nothing.title, n === 1 ? p.nothing.lineOne : fmt(p.nothing.line, { n }));
     }
@@ -196,7 +211,7 @@ export function readyNote(status: ReadingStatus | null, t: Messages, allowed: bo
 export function lastReading(status: ReadingStatus, t: Messages, now: Date = new Date()): string | null {
   const notes = t.aurora.process.notes;
   const s = status.solicitud ?? null;
-  if (s && s.estado === 'fallida') return fmt(notes.lastFailed, { when: whenOf(s.terminada_en, t, now), reason: reasonOf(s.motivo_codigo, t) });
+  if (s && s.estado === 'fallida') return fmt(notes.lastFailed, { when: whenOf(s.terminada_en, t, now), reason: reasonOf(s.motivo_codigo, t, s.origen) });
   const pass = status.ultima_pasada ?? null;
   if (!pass || (s && s.viva)) return null;
   const o = outcomeOf(pass);
@@ -207,13 +222,42 @@ export function lastReading(status: ReadingStatus, t: Messages, now: Date = new 
   return fmt(notes.lastDone, { when: whenOf(pass.terminada_en, t, now), counts });
 }
 
-/** La nota de P1 a P3: quien la pidio y a que hora. */
+/** La nota de P1 a P3: quien la pidio y a que hora. Una automatica la pidio el ciclo, con la
+ *  autorizacion que firmo una persona: lo dice, con su nombre. */
 export function requestNote(status: ReadingStatus | null, t: Messages): string | null {
   const notes = t.aurora.process.notes;
   const s = status?.solicitud ?? null;
   if (!s) return null;
+  if (s.origen === 'automatica') return automaticNote(s, t);
   if (s.pedida_por) return fmt(notes.requestedBy, { name: s.pedida_por.nombre, time: timeOf(s.pedida_en) });
   return fmt(notes.requestedByReader, { time: timeOf(s.tomada_en ?? s.pedida_en) });
+}
+
+/** "Automatisch, uit de facturenmailbox · Automatisch lezen ingesteld door Ana Demo". */
+export function automaticNote(s: Pick<ReadingRequest, 'autorizacion'>, t: Messages): string {
+  const p = t.aurora.process;
+  const who = s.autorizacion?.fijada_por?.nombre;
+  return who ? `${p.origin.automatica} · ${fmt(p.authorizedBy, { name: who })}` : p.origin.automatica;
+}
+
+/** Una lectura de la automatica: sin "Empezar" (el si es la autorizacion) y su "Stoppen" deja la
+ *  automatica en pausa hasta manana (lectura.cancelar). */
+export function isAutomatic(status: ReadingStatus | null | undefined): boolean {
+  return status?.solicitud?.origen === 'automatica';
+}
+
+/** Lo que la cuenta dejo fuera, en dos grupos con su porque (§13 S1: "omitido con su motivo en
+ *  Procesar"): lo que la API no acepta y lo que no es un PDF que se pueda leer. Los nombres son
+ *  los de quien mando el PDF (el original si se sabe): texto de un tercero. */
+export function omittedOf(status: ReadingStatus | null | undefined, t: Messages): { label: string; names: string }[] {
+  const omitted = status?.solicitud?.omitidos ?? [];
+  const o = t.aurora.process.omitted;
+  const name = (x: (typeof omitted)[number]) => x.nombre_original || x.nombre || NO_VALUE;
+  const groups = [
+    { label: o.api, rows: omitted.filter((x) => x.rechazado_api) },
+    { label: o.other, rows: omitted.filter((x) => !x.rechazado_api) },
+  ];
+  return groups.filter((g) => g.rows.length > 0).map((g) => ({ label: g.label, names: g.rows.map(name).join(', ') }));
 }
 
 /** El saludo del resultado (P5), con las cuentas de Aurora. */
@@ -242,7 +286,7 @@ export function errorView(status: ReadingStatus | null, t: Messages): ProcessVie
   const e = t.aurora.process.error;
   const s = status?.solicitud ?? null;
   const pass = status ? passOf(status) : null;
-  const reason = reasonOf(s?.abandonada && s.viva ? 'abandonada' : s?.motivo_codigo, t);
+  const reason = reasonOf(s?.abandonada && s.viva ? 'abandonada' : s?.motivo_codigo, t, s?.origen);
   const some = handled(pass);
   if (some > 0) return { phase: 'error', title: e.titleSome, detail: `${reason} ${fmt(e.some, { n: some })}` };
   return { phase: 'error', title: e.title, detail: reason };

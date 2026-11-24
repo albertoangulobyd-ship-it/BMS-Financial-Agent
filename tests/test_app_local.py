@@ -530,6 +530,21 @@ def test_la_app_solo_manda_ordenes_que_existen_y_ninguna_paga_ni_aprueba() -> No
     # trimestre (paso 17: en el panel de IVA): el programa no presenta nada.
     donde = _donde_se_manda({"btw_anotar_presentacion"})
     assert donde == {"src/aurora/panels/vat-panel.tsx"}, donde
+    # Paso 18 (solo Docker): la lectura automatica y el buzon de facturas. Encender, cambiar o
+    # apagar lo que el programa gasta leyendo solo (con admin) sale solo de su tarjeta; dar por
+    # mirado un correo, solo de la del buzon. Apartar facturas sale de las dos tarjetas y quitar
+    # la pausa, de la de la automatica y de Procesar ("Weer aanzetten"). Ninguna lee, trae ni
+    # manda nada: el buzon es de solo lectura.
+    automatica = {"fijar_lectura_automatica", "reanudar_lectura_automatica",
+                  "excluir_de_lectura_automatica", "marcar_correo_atendido"}
+    assert automatica <= usadas
+    assert _donde_se_manda({"fijar_lectura_automatica"}) == {
+        "src/aurora/panels/auto-read-card.tsx"}
+    assert _donde_se_manda({"marcar_correo_atendido"}) == {"src/aurora/panels/mailbox-card.tsx"}
+    assert _donde_se_manda({"excluir_de_lectura_automatica"}) == {
+        "src/aurora/panels/auto-read-card.tsx", "src/aurora/panels/mailbox-card.tsx"}
+    assert _donde_se_manda({"reanudar_lectura_automatica"}) == {
+        "src/aurora/panels/auto-read-card.tsx", "src/aurora/processing/processing-workspace.tsx"}
 
 
 def test_los_permisos_de_las_ordenes_de_la_app_son_los_de_servicios() -> None:

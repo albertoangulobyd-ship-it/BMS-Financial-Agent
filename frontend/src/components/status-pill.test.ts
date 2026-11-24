@@ -40,6 +40,11 @@ const DERIVED: Partial<Record<StatusGroup, string[]>> = {
   datos_prueba: ['demo'],
   btw_config: ['confirmada', 'sin_confirmar'],
   empresa: ['completa', 'incompleta'],
+  // Paso 18: el buzon de facturas (el estado de /api/v2/correo), la lectura automatica y el
+  // certificado del correo (derivados en la pantalla).
+  correo: ['al_dia', 'retrasado', 'retenido', 'error', 'sin_configurar'],
+  lectura_automatica: ['encendida', 'apagada', 'pausada', 'fallo', 'limite_dia', 'limite_mes'],
+  certificado: ['vigente', 'caduca_pronto', 'caducado'],
 };
 
 /** Lo que el dueno pidio, tal cual (variante y si late). */
@@ -107,6 +112,17 @@ const OWNER: Record<string, [string, boolean]> = {
   'po_senal.P6': ['warning', false],
   'po_senal.P8': ['info', false],
   'po_senal.P10': ['warning', false],
+  // Paso 18: un buzon que no funciona o un certificado caducado piden mirarlo ya (no entra
+  // ninguna factura); lo demas avisa sin latir.
+  'correo.error': ['error', true],
+  'correo.al_dia': ['success', false],
+  'correo.retrasado': ['warning', false],
+  'correo.sin_configurar': ['default', false],
+  'lectura_automatica.encendida': ['success', false],
+  'lectura_automatica.fallo': ['error', false],
+  'lectura_automatica.apagada': ['default', false],
+  'certificado.caduca_pronto': ['warning', false],
+  'certificado.caducado': ['error', true],
 };
 
 const PING = [
@@ -117,6 +133,8 @@ const PING = [
   'aislamiento.falla',
   'aislamiento.sin_comprobar',
   'aislamiento.caducada',
+  'correo.error',
+  'certificado.caducado',
 ];
 
 const all = (): [StatusGroup, string][] =>

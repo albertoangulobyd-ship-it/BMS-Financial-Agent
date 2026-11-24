@@ -125,14 +125,28 @@ export interface RowTexts {
   phases: Record<'comparando' | 'leyendo' | 'guardando', string>;
 }
 
+/** El nombre de un PDF de la pasada como lo conoce la persona: los del correo se leen del
+ *  almacen como <sha256>.pdf y la pasada dice con que nombre llegaron (etiquetas, contrato 2.6). */
+export function shownName(pass: Pick<ReadingPass, 'etiquetas'> | null, name: string): string {
+  const label = pass?.etiquetas?.[name];
+  return typeof label === 'string' && label ? label : name;
+}
+
 /** Las lineas de la lectura (loader-engine.ts:74-75): las dos ultimas terminadas y la de ahora. */
 export function rowsOf(pass: ReadingPass | null, texts: RowTexts): string {
   if (!pass) return '';
-  const lines = pass.recientes.slice(-2).map((name) => `✓ ${name.padEnd(22)} ${texts.done}`);
+  const lines = pass.recientes.slice(-2).map((name) => `✓ ${shownName(pass, name).padEnd(22)} ${texts.done}`);
   if (pass.documento_actual && !pass.terminada) {
-    lines.push(`> ${pass.documento_actual.padEnd(22)} ${texts.phases[pass.documento_fase ?? 'leyendo']}`);
+    lines.push(`> ${shownName(pass, pass.documento_actual).padEnd(22)} ${texts.phases[pass.documento_fase ?? 'leyendo']}`);
   }
   return lines.join('\n');
+}
+
+/** Si "Empezar" sale: solo con la cuenta esperando el si de una persona. Una automatica no: su si
+ *  es la autorizacion firmada (lectura.aprobar la rechaza, y el CHECK de la 0019 tampoco). */
+export function startable(status: ReadingStatus | null | undefined): boolean {
+  const s = status?.solicitud;
+  return !!s && s.estado === 'esperando_aprobacion' && s.origen !== 'automatica';
 }
 
 /** Lo que fue de cada documento al terminar, y las tres cuentas del resultado. */
@@ -206,8 +220,11 @@ export function update(prev: Drive, status: ReadingStatus, approved: number | nu
   // La viva que se ve es la que sigue la visita (la de un lector que ya no da senales, no).
   const followed = s && s.viva && !s.abandonada ? s.id : prev.followed;
   const ours = s !== null && s.id === followed;
-  // Lo que termino antes de esta visita (o una lectura que esta visita no siguio): P0.
+  // Lo que termino antes de esta visita (o una lectura que esta visita no siguio): P0. Una
+  // automatica que termino sin leer (los topes, parada) tambien: la persona no la pidio, y la
+  // linea de la automatica y la nota de P0 dicen como acabo.
   if ((screen === 'done' || screen === 'failed' || screen === 'reading') && !ours) screen = 'ready';
+  if ((screen === 'nothing' || screen === 'cancelled' || screen === 'expired') && !ours && s?.origen === 'automatica') screen = 'ready';
   const drive: Drive = { ...prev, screen, followed };
   const commands: Command[] = [];
   if (!drive.body) {

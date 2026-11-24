@@ -1006,4 +1006,74 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   kunt ze via Verwerken laten lezen» (lo que el arreglo de los pasos 4 y 5 quitó de
   `servicios.py`): ahora dice lo mismo que `servicios.py` (no se leen, ni solas ni desde
   Procesar; también lo que la automática ya apartó).
+- **Solo Docker en la app** (la decisión del dueño; lo que el paso 11 dejó para aquí). La app
+  pregunta a `GET /api/v2/correo` (al abrir Systeem, Inicio y Procesar, nunca en bucle) y solo
+  enseña el correo y la lectura automática si `entorno` no es `nativo`: en Docker
+  (`contenedor`) y en `local` (la base de prueba de las e2e y las herramientas). En la nativa no
+  sale nada nuevo: ni las dos filas de Systeem, ni la línea de Procesar, ni la de Inicio; la
+  petición se hace y no enseña nada. Tampoco se hace lo de §6.1 para el quinto papel
+  (`settings.roles.correo`, «Alle onderdelen»): es del paso 13, que no se hace. Que la nota de
+  Instellingen en reposo («Bedrijf, afscherming, personen en back-ups») no nombre el buzón es a
+  propósito: en reposo no se sabe la variante sin pedir `/api/v2/correo`.
+- **Dónde va cada cosa en Aurora**, que no tiene la pantalla de Instellingen ni el «Wat op
+  iemand wacht» que §6.1 citaba (`nl.ts:1254-1258` es hoy `money.notices`, del panel del
+  dinero):
+  - Systeem pasa a seis filas (con Personen): `GroupView` gana `limit` y Systeem las enseña todas,
+    sin el buscador (con cinco como máximo, una quedaba detrás de «En nog 1»). Cada fila abre su
+    tarjeta (`mailbox-card.tsx`, `auto-read-card.tsx`), y la fila lleva el estado en su texto y
+    su color (`rowTone`), como las demás.
+  - En Inicio, «N mails en facturen wachten op jou» es una fila más de «WAT AANDACHT VRAAGT»
+    (solo si algo espera) que abre Instellingen › Systeem con la tarjeta del buzón (la vista
+    `mailbox` del panel).
+  - Las listas de las tarjetas («Wacht op jou», los últimos correos) enseñan 5 y «Alle N tonen»
+    (la API da hasta 50); la cola de la automática, entera (hasta 200), con «Alles kiezen».
+- **«Con enlace a Documentos y a Procesar»** (§6.1, las facturas de «Wacht op jou»): una
+  factura que no se ha leído no tiene empresa ni hoja en Documenten, así que no hay sitio al que
+  enlazar. Cada una ofrece «Origineel downloaden» (la descarga auditada de siempre, con un nombre
+  generado, nunca el del adjunto), «Lezen via Verwerken» solo para `grande` y `fallo` (lo que
+  Procesar lee con el sí de una persona) y «Niet vanzelf lezen».
+- **Procesar**: la línea (`process.strip`) sale encima de la escena con la `automatica` de
+  `/api/v2/lectura` (cada 2 s) y la última consulta del buzón de `/api/v2/correo` (al abrir y
+  tras cada orden); sin correo configurado y con la automática apagada no sale (no diría nada).
+  Si está parada, el porqué debajo y «Weer aanzetten» para las dos pausas (`persona` y
+  `volumen`, como en la tarjeta). Una automática no tiene «Empezar» y, si se ve esperando su sí,
+  no dice «Je hebt tot … om te beslissen» sino de dónde viene y quién firmó la autorización. Una
+  automática terminada sin leer que la visita no siguió es P0 (la nota y la línea dicen cómo
+  acabó): si no, Procesar se abría con «Geen nieuwe facturen» de una lectura que nadie pidió. Lo
+  que la cuenta dejó fuera (`omitidos`) sale con su porqué y el nombre con que llegó (§13 S1), y
+  los PDF del correo se nombran por `etiquetas`/`nombre_original`, no por su `<sha256>.pdf`.
+- **La segunda frase de `saldo` y `api_no_disponible` según el origen** (lo que el paso 3 dejó
+  para aquí): «daarna gaat het vanzelf verder» / «het wordt later vanzelf opnieuw geprobeerd» solo
+  en una automática; la de una persona (o del lector) no sigue sola y dice que la vuelva a pedir
+  (`process.reasonsByHand`). `reasonOf` recibe el `origen`. Las bandas del servidor (paso 11)
+  siguen con la frase de la automática.
+- **Los textos de §6.4, con estos cambios**: van en `aurora.mailbox`, `aurora.autoRead`,
+  `aurora.process` y `status.{mailbox,autoRead,certificate}` (las claves de la tabla eran
+  orientativas); los nombres de los scripts, como huecos de `WithScriptNames`
+  (`correo-configurar.bat`, `correo-certificado.bat`, `iniciar.bat`, `automatico.bat`, los de
+  Docker del paso 15). `autoRead.pausedPerson` va sin `{name}`: la API no dice quién paró la
+  automática (la pausa sí lo guarda, pero `parada` no lo trae), y «iemand» dice lo mismo sin otra
+  clave. `autoRead.failed` dice «Volgende poging {when}» con «vandaag om 12:00» o la fecha: el
+  próximo intento puede ser otro día (hasta 24 h). Nuevos, porque la tarjeta los necesita:
+  la última buena (solo si no es la última consulta), «nog nooit», el certificado a 1 día y hoy,
+  qué hacer con él (≤ 60 días), el alcance aún sin comprobar, el ciclo que no ha corrido nunca,
+  el disco libre, los últimos correos, la frase de «Afgehandeld» y de apartar, lo que queda hoy,
+  nunca encendida y apagada, elegir en la cola, los errores del formulario, quién firmó (en
+  Procesar), la línea con la automática apagada, los omitidos y la fila de Inicio (con su
+  singular). El formulario pide los importes en dólares con la notación de la app (`2,00`) en los
+  tres idiomas, y comprueba lo mismo que `lectura_automatica.validar` antes de mandarlo (el
+  servidor lo vuelve a mirar). Una fecha de recepción que no se sabe (`1970-01-01`, §3.8 paso 4)
+  no se enseña.
+- **Las pastillas**: tres grupos nuevos en `status-pill.tsx`: `correo` (el estado de la API),
+  `lectura_automatica` y `certificado` (derivados). Laten un buzón que no funciona y un
+  certificado caducado (no entra ninguna factura); lo demás, quieto.
+- **La banda `.bms-banda-urgente`** (lo que el paso 11 dejó para aquí) tiene estilo propio en
+  `index.css`: el rojo un poco más oscuro, la línea de abajo marcada para que dos seguidas se lean
+  como dos y su peso normal (son frases); igual en los dos temas, como las demás bandas.
+- **Las herramientas de diseño** ganan dos estados (`instellingen-mailbox`,
+  `instellingen-automatisch`): con la base de prueba de las e2e, el buzón sale sin configurar y
+  la automática apagada (con el formulario). Los estados con correo de verdad (los que esperan,
+  una pausa, un fallo) necesitan el simulador del paso 16 (`scripts/simular_correo.py`); aquí se
+  miraron a mano sobre una base de prueba sembrada (las cuatro órdenes en el navegador, los dos
+  temas, 1440 y 400 px).
 

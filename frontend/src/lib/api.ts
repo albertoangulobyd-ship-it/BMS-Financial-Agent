@@ -129,6 +129,8 @@ export const paths = {
   reading: '/api/v2/lectura',
   company: '/api/v2/empresa',
   isolation: '/api/v2/aislamiento',
+  // Paso 18 (contrato 2.6): el buzon de facturas, el ciclo y la lectura automatica.
+  mailbox: '/api/v2/correo',
 } as const;
 
 // Un trimestre como 2026-T3; es lo unico de una ruta que no es un id.

@@ -40,6 +40,14 @@ export const ACTION_PERMISSION = {
   pedir_lectura: 'importar_datos',
   aprobar_lectura: 'importar_datos',
   cancelar_lectura: 'importar_datos',
+  // La lectura automatica y el buzon de facturas (paso 18, solo Docker). Encender, cambiar o
+  // apagar la autorizacion (lo que el programa puede gastar leyendo solo, con sus topes) solo
+  // con admin; las otras tres solo frenan o quitan gasto, o dicen que un correo ya se miro.
+  // Ninguna lee, trae ni manda nada: el buzon es de solo lectura y la app no tiene red.
+  fijar_lectura_automatica: 'admin',
+  reanudar_lectura_automatica: 'importar_datos',
+  excluir_de_lectura_automatica: 'importar_datos',
+  marcar_correo_atendido: 'importar_datos',
 } as const;
 
 export type ActionName = keyof typeof ACTION_PERMISSION | 'fijar_campo' | 'verificar_campo' | 'revertir_campo';

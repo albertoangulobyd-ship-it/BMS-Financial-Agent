@@ -7,12 +7,15 @@
 // resolver) y la de una cuenta (confirmar por telefono en tres pasos, rechazar; las cuentas
 // heredadas). Sustituye a las pantallas de Inicio, Werklijst, Uitzonderingen, IBAN-controles y
 // Kasstroom de los pasos 15 y 16; sus reglas son las mismas (lib/why.ts, iban-model.ts).
-import { useState, type ReactNode } from 'react';
+// Paso 18 (solo Docker, especificacion §6.1): una fila mas, "N mails en facturen wachten op jou",
+// con lo que el programa no pudo leer del buzon de facturas (GET /api/v2/correo, una vez al abrir
+// Inicio y tras cada orden, no en bucle); abre la tarjeta del buzon en Instellingen.
+import { useEffect, useState, type ReactNode } from 'react';
 import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { findingDetail, priorityLabel, ruleText, stateLabel, templateCatalog } from '@/i18n/domain';
 import { formatWith } from '@/i18n/templates';
 import { paths, type InvoiceRow } from '@/lib/api';
-import type { AccountRow, CashFlow, ExceptionRow, Person, PoRow, ProviderAccounts } from '@/lib/api-types';
+import type { AccountRow, CashFlow, ExceptionRow, Mailbox, Person, PoRow, ProviderAccounts } from '@/lib/api-types';
 import { formatDate, formatMoney } from '@/lib/format';
 import { useRefresh } from '@/lib/refresh';
 import { useCan, useSession } from '@/lib/session';
@@ -26,6 +29,7 @@ import { useAurora } from '../root';
 import { ExceptionLines, exceptionOrders, exceptionState } from './exception-orders';
 import { accountStep, buildChecks, checkKey, compactIban, type Check } from './iban-model';
 import { InvoiceCard } from './invoice-card';
+import { mailboxAvailable, waitingCount } from './mailbox-model';
 import { Balance, Detail, GroupView, List, PanelFrame, Row } from './pieces';
 import { FIRST, urgentFirst } from './panel-model';
 import { weekRanges, type Week } from './weeks';
@@ -98,6 +102,26 @@ function useHomeData() {
   }, [session, version]);
 }
 
+/** Cuantos correos y facturas del buzon esperan a una persona (0 sin correo: la nativa). Si no
+ *  se puede leer, 0: Inicio sale igual. */
+function useMailboxWaiting(): number {
+  const { session } = useSession();
+  const { version } = useRefresh();
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!session) return;
+    let alive = true;
+    session.api.get<{ correo: Mailbox }>(paths.mailbox).then(
+      (r) => alive && setN(mailboxAvailable(r.correo) ? waitingCount(r.correo) : 0),
+      () => undefined
+    );
+    return () => {
+      alive = false;
+    };
+  }, [session, version]);
+  return n;
+}
+
 /** De que va una excepcion: su factura (numero y relacion), o el cliente, la PO, la import. */
 export function concerns(
   r: ExceptionRow,
@@ -167,6 +191,7 @@ export function HomePanel({ view }: { view: string | null }) {
   const can = useCan();
   const { dispatch } = useAurora();
   const [state] = useHomeData();
+  const mailWaiting = useMailboxWaiting();
   const [card, setCard] = useState<Card>(null);
   const h = t.aurora.home;
   const data = state.status === 'ready' ? state.data : null;
@@ -361,6 +386,16 @@ export function HomePanel({ view }: { view: string | null }) {
             figure={String(checks.length + inherited.length)}
             state={t.badges.toCheck}
             onOpen={() => setView('iban')}
+          />
+        ),
+        mailWaiting > 0 && (
+          <Row
+            key='mailbox'
+            label={t.aurora.settings.systemRows.mailbox}
+            note={mailWaiting === 1 ? h.mailboxWaitingOne : fmt(h.mailboxWaiting, { n: mailWaiting })}
+            figure={String(mailWaiting)}
+            state={t.aurora.mailbox.waiting}
+            onOpen={() => dispatch({ type: 'enterPanel', index: entryIndex('settings'), view: 'mailbox' })}
           />
         ),
         data.weeks.length > 0 && (

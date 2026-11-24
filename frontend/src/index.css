@@ -296,6 +296,16 @@
   border-bottom-color: #7d1013;
   letter-spacing: 0.02em;
 }
+/* Las urgentes del correo, del ciclo y de la lectura (paso 18, app_local.bandas): una por cosa,
+   apiladas. Rojas como la del aislamiento (llevan tambien su clase), un poco mas oscuras y con la
+   linea de abajo mas marcada para que dos seguidas se lean como dos; son frases, no un rotulo:
+   en su peso normal. Iguales en los dos temas, como las demas bandas. */
+.bms-banda-urgente {
+  background: #8f1317;
+  border-bottom-color: #4f090b;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
 .bms-noscript {
   padding: 1rem;
 }

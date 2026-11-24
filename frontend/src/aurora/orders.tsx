@@ -62,6 +62,8 @@ export interface OrderSpec {
   confirm?: string;
   /** El nombre del boton para un lector de pantalla, si el visible no basta. */
   ariaLabel?: string;
+  /** Lo que dice el boton del formulario, si no es el de la orden ("Opslaan"). */
+  submit?: string;
 }
 
 /** Donde se dice lo hecho: .success en el panel, ws-toast en Documentos. */
@@ -399,7 +401,7 @@ export function Orders({
             if (check()) setStage('confirm');
           }}
         >
-          {order.label}
+          {order.submit ?? order.label}
         </button>
         <button type='button' className='outline' onClick={close}>
           {t.common.cancel}

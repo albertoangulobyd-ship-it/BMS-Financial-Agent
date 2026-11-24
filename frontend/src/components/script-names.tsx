@@ -12,6 +12,11 @@ export const SCRIPT_NAMES = {
   people: 'persona.bat',
   backup: 'copia.bat',
   readScript: 'leer-facturas.bat',
+  // Paso 18 (solo Docker): el correo, su certificado y el trabajo automatico.
+  mailSetup: 'correo-configurar.bat',
+  mailCert: 'correo-certificado.bat',
+  start: 'iniciar.bat',
+  automatic: 'automatico.bat',
 } as const;
 
 export type ScriptName = keyof typeof SCRIPT_NAMES;

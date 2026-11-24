@@ -17,38 +17,48 @@
 //   ("No leer", "Parar la lectura"); el FlowButton guarda su sitio, oculto, cuando no hay nada que
 //   pulsar (P1, P2, sin permiso);
 // - I: los textos, del diccionario.
+// Paso 18 (solo Docker, especificacion §6.1): una linea encima de la escena con la lectura
+// automatica, lo gastado hoy y la ultima consulta del buzon (GET /api/v2/correo, una vez al
+// abrir), y si esta parada, por que, con "Weer aanzetten" para una pausa. Una lectura de la
+// automatica dice de donde viene y quien firmo la autorizacion, no tiene "Empezar" (su si es la
+// autorizacion) y su "Stoppen" dice que la automatica queda en pausa hasta manana. Lo que la
+// cuenta dejo fuera sale con su porque. En la nativa no hay correo: ni la linea.
 import {useCallback,useEffect,useMemo,useRef,useState,type KeyboardEvent as ReactKeyboardEvent} from 'react';
 import {AnimatePresence,motion} from 'framer-motion';
 import {ArrowLeft,ArrowUpRight,Check,Copy,FileText,ScanLine,ShieldCheck} from 'lucide-react';
 import {fmt,useT} from '@/i18n';
 import {ApiError,paths} from '@/lib/api';
-import type {ReadingPassRow,ReadingStatus} from '@/lib/api-types';
+import type {Mailbox,ReadingPassRow,ReadingStatus} from '@/lib/api-types';
 import {useRefresh} from '@/lib/refresh';
 import {useCan,useSession} from '@/lib/session';
 import {DocumentLoader} from './document-loader';
 import {FlowButton} from './flow-button';
 import type {Loader} from './loader-engine';
-import {cardState,completeNote,completeView,entryText,errorView,footerOf,idleLines,introView,readyNote,requestNote,rowTexts,stageLabel,type ProcessView} from './process-texts';
-import {START,STAGES,afterHide,finished,outcomeOf,passOf,requested,rowsOf,update,type Command,type Drive} from './reading-model';
+import {cardState,completeNote,completeView,entryText,errorView,footerOf,idleLines,introView,isAutomatic,omittedOf,readyNote,requestNote,rowTexts,stageLabel,type ProcessView} from './process-texts';
+import {START,STAGES,afterHide,finished,outcomeOf,passOf,requested,rowsOf,shownName,startable,update,type Command,type Drive} from './reading-model';
+import {resumable,stopText,stripOf} from '../panels/mailbox-model';
 import './processing-workspace.css';
 
 /** Las tres ordenes de la lectura (POST /api/v2/acciones, permiso importar_datos). Ninguna lee:
  *  lo hace el lector. aprobar_lectura es el si al coste de leer, con su tope; no aprueba ninguna
  *  factura ni ningun pago. */
 const ORDERS = { request: { action: 'pedir_lectura' }, approve: { action: 'aprobar_lectura' }, cancel: { action: 'cancelar_lectura' } } as const;
+/** "Weer aanzetten": quitar la pausa de la lectura automatica (paso 18; permiso importar_datos). */
+const RESUME = { action: 'reanudar_lectura_automatica' } as const;
 /** Pedir, dar el si y parar, solo con este permiso (como la entrada de la rueda). */
 const PERMISSION='importar_datos';
 /** Lo que dura el fundido de la escena (hide, document-loader.css:2). */
 const FADE_MS=300;
 
-type Busy='request'|'start'|'cancel'|null;
+type Busy='request'|'start'|'cancel'|'resume'|null;
 type Notice='changed'|'sendFailed'|null;
 
 export function ProcessingWorkspace({onBack,onViewChange,onDocuments,onQueue,onOpenInvoice,embedded=false}:{onBack:()=>void;onViewChange?:(view:ProcessView)=>void;onDocuments:()=>void;onQueue:()=>void;onOpenInvoice:(row:ReadingPassRow&{factura_id:number})=>void;embedded?:boolean}){
  const {t}=useT();const p=t.aurora.process;
  const {session}=useSession();const api=session?.api;const can=useCan();const allowed=can(PERMISSION);
- const {bump}=useRefresh();
+ const {bump,version}=useRefresh();
  const [status,setStatus]=useState<ReadingStatus|null>(null);
+ const [mailbox,setMailbox]=useState<Mailbox|null>(null);
  const [drive,setDriveState]=useState<Drive>(START);
  const [announced,setAnnounced]=useState<{i:number;title:string;line:string}|null>(null);
  const [busy,setBusy]=useState<Busy>(null);
@@ -101,6 +111,13 @@ export function ProcessingWorkspace({onBack,onViewChange,onDocuments,onQueue,onO
   return()=>{alive=false;clearTimeout(timer);clearTimeout(hideTimer.current);};
  },[load]);
 
+ // El buzon (la linea de la automatica): una vez al abrir y despues de cada orden, no en bucle.
+ useEffect(()=>{
+  if(!api)return;let alive=true;
+  api.get<{correo:Mailbox}>(paths.mailbox).then((r)=>{if(alive)setMailbox(r.correo);},()=>undefined);
+  return()=>{alive=false;};
+ },[api,version]);
+
  // Un motor nuevo (otra key): lo que se le pidio mientras no estaba.
  useEffect(()=>{const engine=loader.current;if(!engine||!pending.current.length)return;const queued=pending.current;pending.current=[];run(queued);},[drive.engine,drive.phase,run]);
 
@@ -149,6 +166,13 @@ export function ProcessingWorkspace({onBack,onViewChange,onDocuments,onQueue,onO
   void load();
  }
 
+ async function resume(){
+  if(!api||busy)return;setBusy('resume');setOrderError(false);
+  try{await api.action(RESUME.action,{});}catch{setOrderError(true);}
+  finally{setBusy(null);}
+  bump();void load();
+ }
+
  const onFinished=useCallback(()=>{setDrive(finished(driveRef.current));bump();},[setDrive,bump]);
  const onStage=useCallback((i:number,title:string,line:string)=>setAnnounced({i,title,line}),[]);
 
@@ -164,7 +188,14 @@ export function ProcessingWorkspace({onBack,onViewChange,onDocuments,onQueue,onO
  const live=status?.solicitud?.viva??false;
  const askable=screen==='ready'||screen==='expired'||screen==='cancelled'||screen==='nothing';
  const button=screen==='waiting'?{text:p.start,onClick:start,busy:busy==='start'}:{text:p.request,onClick:requestReading,busy:busy==='request'};
- const hidden=!allowed||!(askable||screen==='waiting');
+ // "Empezar" solo para la de una persona: una automatica ya tiene su si (la autorizacion).
+ const hidden=!allowed||!(askable||(screen==='waiting'&&startable(status)));
+ const automatic=isAutomatic(status);
+ const strip=stripOf(status?.automatica,mailbox,t);
+ const auto=status?.automatica??mailbox?.lectura_automatica??null;
+ const stopped=strip?stopText(auto,t):null;
+ const omitted=(screen==='waiting'||screen==='nothing'||phase==='complete')?omittedOf(status,t):[];
+ const omittedLines=omitted.map((o,i)=><span key={'o'+i}><br/>{o.label} <span data-proper-name="">{o.names}</span></span>);
  const note:string[]=askable?readyNote(status,t,allowed):[requestNote(status,t)??''];
  const canStop=allowed&&live&&!status?.solicitud?.parar_pedido;
  const rows=rowsOf(pass,rowTexts(t));
@@ -172,5 +203,5 @@ export function ProcessingWorkspace({onBack,onViewChange,onDocuments,onQueue,onO
  const keyOpen=(row:ReadingPassRow)=>(e:ReactKeyboardEvent)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(row);}};
  const done=completeNote(status,t);
 
- return <section className={'processing-workspace processing-'+phase+(embedded?' processing-embedded':'')} aria-label={p.label}><button className="processing-back" onClick={onBack}><ArrowLeft size={13}/>{p.back}</button><div className="processing-core">{(phase==='intro'||phase==='running')&&<DocumentLoader key={drive.engine} handle={loader} running={phase==='running'} onStage={onStage} onFinished={onFinished} ceiling={drive.ceiling} rows={rows} state={cardState(screen,phase==='running',t)} idle={idleLines(screen,t)} footer={footerOf(status,t)}/>}<AnimatePresence mode="wait" initial={false}>{phase==='intro'?<motion.div className="processing-intro" key="intro" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}><p className="processing-eyebrow">{p.eyebrow}</p><h1>{view.title}</h1><p className="processing-description">{view.detail}</p><div className="processing-plan"><span><ScanLine size={15}/> {p.plan.read}</span><i/><span><Copy size={15}/> {p.plan.compare}</span><i/><span><ShieldCheck size={15}/> {p.plan.analyze}</span></div><FlowButton text={button.text} onClick={()=>void button.onClick()} aria-busy={button.busy||undefined} aria-hidden={hidden||undefined} inert={hidden} style={hidden?{visibility:'hidden'}:undefined}/><p className="processing-demo">{note.map((line,i)=><span key={i}>{i>0&&<br/>}{line}</span>)}{allowed&&live&&!askable&&<> · <button type="button" className="processing-link" onClick={()=>void cancel()}>{p.notRead}</button></>}{orderError&&<span role="alert"><br/>{t.errors.unexpected}</span>}</p></motion.div>:phase==='running'?<motion.div key="running" className="processing-loading" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,scale:.94}}><p className="processing-demo">{fmt(p.step,{n:(announced?.i??0)+1,total:STAGES})}{canStop?<> · <button type="button" className="processing-link" onClick={()=>void cancel()}>{p.stop}</button></>:status?.solicitud?.parar_pedido?<> · {p.stopping}</>:null}</p></motion.div>:phase==='complete'?<motion.div key="complete" className="processing-complete" initial={{opacity:0}} animate={{opacity:1}}><p className="processing-eyebrow">{p.complete.eyebrow}</p><h1>{p.complete.title}</h1><p className="processing-description">{view.detail}</p><div className="analysis-counts"><div className="analysis-new"><strong>{outcome.fresh}</strong><span>{p.complete.new}</span></div><span className="analysis-divider"/><div className="analysis-duplicate"><strong>{outcome.repeated}</strong><span>{p.complete.duplicate}</span></div>{outcome.failed>0&&<><span className="analysis-divider"/><div className="analysis-failed"><strong>{outcome.failed}</strong><span>{p.complete.failed}</span></div></>}</div><div className="analysis-report-list">{outcome.rows.map((e,i)=><a key={i+':'+e.nombre} className={'analysis-entry '+(e.estado==='nueva'?'new':e.estado==='fallida'?'failed':'duplicate')} role="link" tabIndex={0} onClick={()=>open(e)} onKeyDown={keyOpen(e)}><span className="analysis-entry-icon">{e.estado==='nueva'?<Check size={14}/>:e.estado==='fallida'?<FileText size={13}/>:<Copy size={13}/>}</span><span><strong data-proper-name="">{e.numero||e.nombre}</strong><small data-proper-name="">{e.empresa||e.nombre}</small></span><span className="analysis-entry-status">{entryText(e,t)}</span><ArrowUpRight size={13}/></a>)}</div><FlowButton text={p.documents} className="flow-success" onClick={onDocuments}/><p className="processing-demo">{done.map((line,i)=><span key={i}>{i>0&&<br/>}{line}</span>)}{outcome.fresh>0&&<> · <button type="button" className="processing-link" onClick={onQueue}>{p.queue}</button></>}</p></motion.div>:<motion.div key="error" initial={{opacity:0}} animate={{opacity:1}} className="processing-error"><FileText size={30}/><h1>{view.title}</h1><p role="alert">{view.detail}</p>{allowed&&<FlowButton text={p.again} onClick={()=>void requestReading()} aria-busy={busy==='request'||undefined}/>}</motion.div>}</AnimatePresence></div></section>;
+ return <section className={'processing-workspace processing-'+phase+(embedded?' processing-embedded':'')} aria-label={p.label}><button className="processing-back" onClick={onBack}><ArrowLeft size={13}/>{p.back}</button><div className="processing-core">{strip&&<p className="processing-demo processing-strip"><span>{strip}</span>{stopped&&<><br/>{stopped}</>}{allowed&&resumable(auto)&&<> · <button type="button" className="processing-link" disabled={busy==='resume'} onClick={()=>void resume()}>{t.aurora.autoRead.resume}</button></>}</p>}{(phase==='intro'||phase==='running')&&<DocumentLoader key={drive.engine} handle={loader} running={phase==='running'} onStage={onStage} onFinished={onFinished} ceiling={drive.ceiling} rows={rows} state={cardState(screen,phase==='running',t)} idle={idleLines(screen,t)} footer={footerOf(status,t)}/>}<AnimatePresence mode="wait" initial={false}>{phase==='intro'?<motion.div className="processing-intro" key="intro" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}><p className="processing-eyebrow">{p.eyebrow}</p><h1>{view.title}</h1><p className="processing-description">{view.detail}</p><div className="processing-plan"><span><ScanLine size={15}/> {p.plan.read}</span><i/><span><Copy size={15}/> {p.plan.compare}</span><i/><span><ShieldCheck size={15}/> {p.plan.analyze}</span></div><FlowButton text={button.text} onClick={()=>void button.onClick()} aria-busy={button.busy||undefined} aria-hidden={hidden||undefined} inert={hidden} style={hidden?{visibility:'hidden'}:undefined}/><p className="processing-demo">{note.map((line,i)=><span key={i}>{i>0&&<br/>}{line}</span>)}{allowed&&live&&!askable&&<> · <button type="button" className="processing-link" onClick={()=>void cancel()}>{p.notRead}</button>{automatic&&<> · {p.stopAuto}</>}</>}{omittedLines}{orderError&&<span role="alert"><br/>{t.errors.unexpected}</span>}</p></motion.div>:phase==='running'?<motion.div key="running" className="processing-loading" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,scale:.94}}><p className="processing-demo">{fmt(p.step,{n:(announced?.i??0)+1,total:STAGES})}{canStop?<> · <button type="button" className="processing-link" onClick={()=>void cancel()}>{p.stop}</button>{automatic&&<> · {p.stopAuto}</>}</>:status?.solicitud?.parar_pedido?<> · {p.stopping}</>:null}</p></motion.div>:phase==='complete'?<motion.div key="complete" className="processing-complete" initial={{opacity:0}} animate={{opacity:1}}><p className="processing-eyebrow">{p.complete.eyebrow}</p><h1>{p.complete.title}</h1><p className="processing-description">{view.detail}</p><div className="analysis-counts"><div className="analysis-new"><strong>{outcome.fresh}</strong><span>{p.complete.new}</span></div><span className="analysis-divider"/><div className="analysis-duplicate"><strong>{outcome.repeated}</strong><span>{p.complete.duplicate}</span></div>{outcome.failed>0&&<><span className="analysis-divider"/><div className="analysis-failed"><strong>{outcome.failed}</strong><span>{p.complete.failed}</span></div></>}</div><div className="analysis-report-list">{outcome.rows.map((e,i)=><a key={i+':'+e.nombre} className={'analysis-entry '+(e.estado==='nueva'?'new':e.estado==='fallida'?'failed':'duplicate')} role="link" tabIndex={0} onClick={()=>open(e)} onKeyDown={keyOpen(e)}><span className="analysis-entry-icon">{e.estado==='nueva'?<Check size={14}/>:e.estado==='fallida'?<FileText size={13}/>:<Copy size={13}/>}</span><span><strong data-proper-name="">{e.numero||e.nombre_original||shownName(pass,e.nombre)}</strong><small data-proper-name="">{e.empresa||e.nombre_original||shownName(pass,e.nombre)}</small></span><span className="analysis-entry-status">{entryText(e,t)}</span><ArrowUpRight size={13}/></a>)}</div><FlowButton text={p.documents} className="flow-success" onClick={onDocuments}/><p className="processing-demo">{done.map((line,i)=><span key={i}>{i>0&&<br/>}{line}</span>)}{omittedLines}{outcome.fresh>0&&<> · <button type="button" className="processing-link" onClick={onQueue}>{p.queue}</button></>}</p></motion.div>:<motion.div key="error" initial={{opacity:0}} animate={{opacity:1}} className="processing-error"><FileText size={30}/><h1>{view.title}</h1><p role="alert">{view.detail}</p>{allowed&&<FlowButton text={p.again} onClick={()=>void requestReading()} aria-busy={busy==='request'||undefined}/>}</motion.div>}</AnimatePresence></div></section>;
 }

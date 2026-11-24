@@ -255,6 +255,7 @@ export function GroupView<T>({
   total,
   searchable,
   onServerQuery,
+  limit = VIEW_ROWS,
 }: {
   items: readonly T[];
   title: string;
@@ -270,6 +271,9 @@ export function GroupView<T>({
   /** Con .search aunque haya 5 o menos (la lista entera tiene mas). */
   searchable?: boolean;
   onServerQuery?: (query: string) => void;
+  /** Cuantas filas se ven como mucho (5): una vista de ajustes con sus filas fijas las ensena
+   *  todas (Systeem, con el buzon y la lectura automatica, tiene 6). */
+  limit?: number;
 }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
@@ -286,17 +290,17 @@ export function GroupView<T>({
     return q ? items.filter((i) => fold(match(i)).includes(q)) : items;
   }, [items, query, match, onServerQuery]);
   const all = total ?? shown.length;
-  const more = all - Math.min(VIEW_ROWS, shown.length);
+  const more = all - Math.min(limit, shown.length);
   return (
     <>
-      {(searchable || items.length > VIEW_ROWS || (total ?? 0) > VIEW_ROWS) && (
+      {(searchable || items.length > limit || (total ?? 0) > limit) && (
         <label className='search'>
           <Search size={17} />
           <input placeholder={t.aurora.panel.searchPlaceholder} aria-label={t.aurora.panel.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       )}
       <List title={title} count={all}>
-        {shown.slice(0, VIEW_ROWS).map(render)}
+        {shown.slice(0, limit).map(render)}
         {shown.length === 0 && <p className='empty'>{query ? t.aurora.panel.noMatches : t.aurora.panel.nothing}</p>}
         {more > 0 && shown.length > 0 && <p className='empty'>{total !== undefined ? (more === 1 ? t.aurora.panel.moreLinesOne : fmt(t.aurora.panel.moreLines, { n: more })) : fmt(t.aurora.panel.more, { n: more })}</p>}
       </List>

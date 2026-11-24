@@ -7,7 +7,7 @@ los guiones.
 
 | Qué | Para qué | Guion | Sale en |
 | --- | --- | --- | --- |
-| **A. El fichero de diseño** | Las pantallas de la app, paradas y en DOM de verdad (se pueden inspeccionar), en un solo HTML sin red: 23 estados × 1440 y 400 px × oscuro y claro, con una primera página de colores y letra. Para mirar o revisar el diseño sin arrancar la app. | `capturar.mjs` → `montar.mjs` → `comprobar.mjs` | `salida/bms-finance-diseno.html` |
+| **A. El fichero de diseño** | Las pantallas de la app, paradas y en DOM de verdad (se pueden inspeccionar), en un solo HTML sin red: 25 estados × 1440 y 400 px × oscuro y claro, con una primera página de colores y letra. Para mirar o revisar el diseño sin arrancar la app. | `capturar.mjs` → `montar.mjs` → `comprobar.mjs` | `salida/bms-finance-diseno.html` |
 | **B. Las fotos «ahora» y «oscuro»** | Las de la comparación del tema claro (antes y ahora), rehechas con la app de hoy, con los mismos nombres, tamaño y encuadre | `comparacion.mjs` | `salida/comparacion/` (o `--out`) |
 
 ## Qué hace falta
@@ -123,13 +123,15 @@ soltarla). **No se ha corrido en Windows**: solo en Linux.
   (cada cuerpo con su familia, pesos, interlineados y una muestra).
 - **El índice**: cada estado con sus cuatro fotogramas; arriba, los botones que dejan solo un
   tema o un ancho, y la escala (25, 50 o 100 %).
-- **Los fotogramas**: 23 estados × 1440 y 400 px × oscuro y claro, en neerlandés. Cada uno con su
+- **Los fotogramas**: 25 estados × 1440 y 400 px × oscuro y claro, en neerlandés. Cada uno con su
   nombre, su ventana y su tema, en su propio `<iframe srcdoc sandbox>`: ningún estilo se sale de
   su marco ni entra en él. «Solo, a tamaño real» lo deja solo en la página (`#solo=<id>`).
 
 Los estados (`estados.mjs`): `login`, `start`, `start-wiel` (la rueda), `paneel-start-kaart`,
 `te-ontvangen`, `te-ontvangen-kaart`, `bank` (Te bevestigen, con la tarjeta de un cobro que propone
 el banco), `te-betalen`, `te-betalen-kaart`, `btw-kaart`, `instellingen`, `instellingen-kaart`,
+`instellingen-mailbox`, `instellingen-automatisch` (las tarjetas del buzón de facturas y de la
+lectura automática en Systeem, paso 18: en la base de prueba, sin configurar y apagada),
 `gesprek-bento`, `zoeken-filters`, `zoeken-filterlijst` (la lista de un filtro, abierta), `ctrl-k`,
 `documenten-mappen`, `documenten-map-open`, `documenten-klantkaart`, `factuur-ingeklapt`,
 `factuur-uitgeklapt`, `verwerken-start` y `verwerken-bezig` (la lectura en marcha, con el lector de
@@ -184,7 +186,7 @@ y no se dice que sí: no se apunta ningún pago.
   del navegador; los argumentos, el Python y el navegador son de `../entorno.mjs`, común con la
   vista previa.
 - `app.mjs`: moverse por la app como una persona (como `frontend/e2e/nav.ts`, sin `expect`).
-- `estados.mjs`: los 23 estados del fichero de diseño y cómo se llega a cada uno.
+- `estados.mjs`: los 25 estados del fichero de diseño y cómo se llega a cada uno.
 - `congelar.mjs`: lo que corre dentro de la página de la app al capturar: parar la pantalla,
   copiar el DOM, leer los colores con nombre; y lo que corre dentro de cada marco del fichero
   (`RESTAURAR`).

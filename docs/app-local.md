@@ -1451,7 +1451,7 @@ hace y cómo se publica):
   (unos 10 min; solo la primera vez y cuando cambia la API o lo que pide la app), `npm run
   vista-previa:construir` (unos segundos) y `npm run vista-previa:comprobar` (lo abre desde
   `file://`, por http y en un `<iframe sandbox>`, como lo publica claude.ai).
-- `herramientas/diseno/`: las pantallas de la app construida (23 estados a 1440 y 400 px, en
+- `herramientas/diseno/`: las pantallas de la app construida (25 estados a 1440 y 400 px, en
   oscuro y en claro), paradas como DOM de verdad en un solo `.html` con sus colores y su letra, y
   comprobadas píxel a píxel contra la pantalla viva; y las fotos de la comparación del tema claro.
   `npm run diseno:capturar` (unos 9 min), `diseno:montar`, `diseno:comprobar` y

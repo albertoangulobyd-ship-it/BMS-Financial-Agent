@@ -127,3 +127,8 @@ html:not(.dark) .pc-outline{-webkit-mask-image:linear-gradient(#000 calc(100% - 
    inactivo; la x de un filtro puesto, en el terciario. */
 html:not(.dark) .amount-heading>button:disabled{opacity:1;color:var(--l-ink-4)}
 html:not(.dark) .active-filter-chips button svg{color:var(--l-ink-3)}
+
+/* -- El buzon de facturas (paso 18): las casillas de la cola de la lectura automatica son del
+   navegador y Aurora pone color-scheme: dark en :root; en el claro, las del claro (si no, salen
+   rellenas de gris oscuro), con el acento al marcarlas. */
+html:not(.dark) .queue-list input{color-scheme:light;accent-color:var(--l-accent)}

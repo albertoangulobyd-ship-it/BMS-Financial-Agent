@@ -4,6 +4,10 @@
 // momento (la elegida dice "En uso", en verde). Sistema abre la suya: Empresa, Aislamiento (con su
 // .ui-status), Personas (otra vista, con .search) y Copias; cada una, su tarjeta con lo que
 // ensenaba la pantalla de Ajustes de antes. "Salir" sale al momento y lleva a la entrada.
+// Paso 18 (solo Docker, especificacion §6.1): Systeem gana el buzon de facturas y la lectura
+// automatica, cada una con su tarjeta (mailbox-card.tsx, auto-read-card.tsx). En la nativa no hay
+// correo (GET /api/v2/correo dice entorno nativo) y Systeem se queda como estaba. La vista
+// 'mailbox' es Systeem con la tarjeta del buzon abierta (la abre la linea de Inicio).
 import { LogOut } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { WithScriptNames } from '@/components/script-names';
@@ -12,15 +16,20 @@ import { fmt, useT, type Lang, type Messages } from '@/i18n';
 import { permissionText, roleText, templateCatalog } from '@/i18n/domain';
 import { formatWith } from '@/i18n/templates';
 import { paths } from '@/lib/api';
-import type { Company, Isolation, PersonWithRoles } from '@/lib/api-types';
+import type { Company, Isolation, Mailbox, PersonWithRoles } from '@/lib/api-types';
+import { rowTone } from '@/components/status-pill';
+import { useRefresh } from '@/lib/refresh';
 import { roleOf, useCan, useSession } from '@/lib/session';
 import { THEME_CHOICES, useTheme, type ThemeChoice } from '@/lib/theme';
 import { entryLabel } from '../app';
 import { useAurora } from '../root';
+import { AutoReadCard } from './auto-read-card';
+import { MailboxCard } from './mailbox-card';
+import { autoReadState, autoReadStateText, mailboxAvailable, mailboxStateText } from './mailbox-model';
 import { roleIsolation, worstIsolation } from './panel-model';
 import { Detail, GroupView, List, PanelFrame, Row } from './pieces';
 
-type SystemRow = 'company' | 'isolation' | 'people' | 'backups';
+type SystemRow = 'company' | 'isolation' | 'people' | 'backups' | 'mailbox' | 'autoRead';
 
 function systemRow(t: Messages, row: SystemRow): { label: string; note: string } {
   const s = t.aurora.settings;
@@ -29,6 +38,8 @@ function systemRow(t: Messages, row: SystemRow): { label: string; note: string }
     isolation: { label: s.systemRows.isolation, note: s.systemNotes.isolation },
     people: { label: s.systemRows.people, note: s.systemNotes.people },
     backups: { label: s.systemRows.backups, note: s.systemNotes.backups },
+    mailbox: { label: s.systemRows.mailbox, note: s.systemNotes.mailbox },
+    autoRead: { label: s.systemRows.autoRead, note: s.systemNotes.autoRead },
   }[row];
 }
 
@@ -46,14 +57,17 @@ function languageName(t: Messages, code: Lang): string {
   return code === 'nl' ? t.language.nlLong : code === 'en' ? t.language.enLong : t.language.esLong;
 }
 
-type SettingsCard = 'account' | 'company' | 'isolation' | 'backups' | `person:${number}` | null;
+type SettingsCard = 'account' | 'company' | 'isolation' | 'backups' | 'mailbox' | 'autoRead' | `person:${number}` | null;
 
-/** Lo que el sistema cuenta de si mismo (las lecturas de hoy de settings.tsx). */
+/** Lo que el sistema cuenta de si mismo (las lecturas de hoy de settings.tsx) y, desde el paso
+ *  18, el buzon de facturas y la lectura automatica (GET /api/v2/correo; si no se puede leer,
+ *  Systeem sale igual, sin sus dos filas). Se vuelve a leer tras cada orden (useRefresh). */
 function useSystem(enabled: boolean) {
   const { session } = useSession();
+  const { version } = useRefresh();
   const can = useCan();
   const admin = can('admin');
-  const [data, setData] = useState<{ company: Company; isolation: Isolation; people: PersonWithRoles[] | null } | null>(null);
+  const [data, setData] = useState<{ company: Company; isolation: Isolation; people: PersonWithRoles[] | null; mailbox: Mailbox | null } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!enabled || !session) return;
@@ -62,14 +76,18 @@ function useSystem(enabled: boolean) {
       session.api.get<{ empresa: Company }>(paths.company).then((r) => r.empresa),
       session.api.get<{ aislamiento: Isolation }>(paths.isolation).then((r) => r.aislamiento),
       admin ? session.api.get<{ personas: PersonWithRoles[] }>(paths.people).then((r) => r.personas) : Promise.resolve(null),
+      session.api.get<{ correo: Mailbox }>(paths.mailbox).then(
+        (r) => r.correo,
+        () => null
+      ),
     ]).then(
-      ([company, isolation, people]) => alive && setData({ company, isolation, people }),
+      ([company, isolation, people, mailbox]) => alive && setData({ company, isolation, people, mailbox }),
       () => alive && setFailed(true)
     );
     return () => {
       alive = false;
     };
-  }, [enabled, session, admin]);
+  }, [enabled, session, admin, version]);
   return { data, failed };
 }
 
@@ -78,8 +96,12 @@ export function SettingsPanel({ view }: { view: string | null }) {
   const { session, logout } = useSession();
   const { choice, setChoice } = useTheme();
   const { dispatch } = useAurora();
-  const [card, setCard] = useState<SettingsCard>(null);
-  const system = useSystem(view === 'system' || view === 'people');
+  const [card, setCard] = useState<SettingsCard>(view === 'mailbox' ? 'mailbox' : null);
+  const system = useSystem(view === 'system' || view === 'people' || view === 'mailbox');
+  // Desde la linea de Inicio: Systeem con la tarjeta del buzon.
+  useEffect(() => {
+    if (view === 'mailbox') setCard('mailbox');
+  }, [view]);
   const s = t.aurora.settings;
   const me = session?.me;
   const setView = (next: string | null) => {
@@ -132,22 +154,34 @@ export function SettingsPanel({ view }: { view: string | null }) {
         onBack={() => setView(null)}
       />
     );
-  } else if (view === 'system') {
-    const items = (['company', 'isolation', ...(system.data?.people ? (['people'] as const) : []), 'backups'] as const).map((k) => k);
+  } else if (view === 'system' || view === 'mailbox') {
+    const mailbox = system.data?.mailbox ?? null;
+    const mail = mailboxAvailable(mailbox) ? mailbox : null;
+    const items: SystemRow[] = ['company', 'isolation', ...(system.data?.people ? (['people'] as const) : []), 'backups', ...(mail ? (['mailbox', 'autoRead'] as const) : [])];
     const isolation = system.data?.isolation;
     const isolationState = !isolation ? undefined : !isolation.aplica ? s.notApplicable : isolation.correcto ? s.isolationOk : s.isolationBad;
+    const autoState = mail ? autoReadState(mail.lectura_automatica) : null;
+    const stateOf = (k: SystemRow): { state?: string; tone: 'paid' | 'blocked' | '' } => {
+      if (k === 'isolation') return { state: isolationState, tone: isolation?.correcto === true ? 'paid' : '' };
+      if (k === 'company' && system.data) return { state: system.data.company.completa ? s.complete : s.incomplete, tone: system.data.company.completa ? 'paid' : '' };
+      if (k === 'mailbox' && mail) return { state: mailboxStateText(mail.estado, t), tone: rowTone('correo', mail.estado) };
+      if (k === 'autoRead' && autoState) return { state: autoReadStateText(autoState, t), tone: rowTone('lectura_automatica', autoState) };
+      return { tone: '' };
+    };
     body = (
       <GroupView
         items={items}
         title={s.system.toUpperCase()}
         match={(k) => systemRow(t, k).label}
+        limit={items.length}
         render={(k) => (
           <Row
             key={k}
             label={systemRow(t, k).label}
             note={systemRow(t, k).note}
-            state={k === 'isolation' ? isolationState : k === 'company' && system.data ? (system.data.company.completa ? s.complete : s.incomplete) : undefined}
-            tone={(k === 'isolation' ? isolation?.correcto === true : k === 'company' ? system.data?.company.completa === true : false) ? 'paid' : ''}
+            state={stateOf(k).state}
+            tone={stateOf(k).tone}
+            current={card === k}
             onOpen={() => (k === 'people' ? setView('people') : setCard(k))}
           />
         )}
@@ -158,6 +192,8 @@ export function SettingsPanel({ view }: { view: string | null }) {
             {system.failed && <p className='empty'>{t.errors.unexpected}</p>}
             {card === 'company' && system.data && <CompanyCard company={system.data.company} onClose={() => setCard(null)} />}
             {card === 'isolation' && system.data && <IsolationCard isolation={system.data.isolation} onClose={() => setCard(null)} />}
+            {card === 'mailbox' && mail && <MailboxCard mailbox={mail} onClose={() => setCard(null)} />}
+            {card === 'autoRead' && mail && <AutoReadCard mailbox={mail} onClose={() => setCard(null)} />}
             {card === 'backups' && (
               <Detail title={systemRow(t, 'backups').label} onClose={() => setCard(null)}>
                 <p>

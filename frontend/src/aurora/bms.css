@@ -60,6 +60,29 @@
 .order-matches svg{display:inline-block;vertical-align:-1px}
 .detail .chat-export,.ws-dialog .chat-export{position:relative;bottom:auto;right:auto;max-width:none;margin-top:16px;box-shadow:none;backdrop-filter:none}
 
+/* El buzon de facturas y la lectura automatica (paso 18, especificacion §6.1; solo Docker), con
+   las piezas de Aurora: las listas de sus tarjetas (los correos y las facturas que esperan, la
+   cola de la automatica) con la linea de .doc y la letra de .detail p; lo que pone quien manda el
+   correo, con la etiqueta "niet gecontroleerd" en el ambar de doc-end small; los botones de texto
+   ("Alle N tonen", "Alles kiezen") como los de la nota de Procesar, con su zona tactil (relleno y
+   margen negativo, como .panel-top button); y la linea de la automatica encima de la escena de
+   Procesar. */
+.mail-list{margin:6px 0 0;padding:0;list-style:none;overflow-wrap:anywhere}
+.mail-list>li{padding:10px 0;border-bottom:1px solid #ffffff09}
+.mail-list>li:last-child{border-bottom:0}
+.mail-list p{margin-top:3px}
+.mail-list strong{font-weight:400;color:#e8e5ee}
+.mail-tag{display:inline-block;margin-left:4px;font-size:8px;letter-spacing:.5px;text-transform:uppercase;color:#b59a76;border:1px solid #b59a7633;border-radius:6px;padding:0 5px;white-space:nowrap}
+.queue-list label{display:flex;align-items:flex-start;gap:9px;font-size:10px;color:#a494b4;cursor:pointer}
+.queue-list input{flex:none;width:14px;height:14px;margin-top:1px;accent-color:#c2aed7}
+.mail-list .outline,.mail-list .primary{margin-top:8px;padding:9px}
+.queue-list small{display:block;font-size:8px;margin-top:4px;color:#6e657a}
+.detail .list-title{margin:22px 0 6px}
+.mail-more{display:inline;padding:5px 0;margin:-5px 0;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.mail-more:hover{color:#e8e5ee}
+.processing-strip{margin:0 auto 14px;max-width:560px}
+.processing-demo [data-proper-name]{overflow-wrap:anywhere}
+
 /* Las hojas (paso 17 · B2, especificacion §2.3): debajo del papel o de "Descargar original" va
    la tabla de lo que se puede hacer, con el aire que deja el papel (.ws-paper, margin 22px). */
 .ws-dialog .ws-file-table{margin-top:22px}

@@ -408,6 +408,15 @@ html:not(.dark) .doc-end small.blocked{color:var(--l-danger)}
 html:not(.dark) .order-field .composer{box-shadow:none;border-color:var(--l-field)}
 html:not(.dark) .order-error{color:var(--l-danger)!important}
 html:not(.dark) .detail .chat-export,html:not(.dark) .ws-dialog .chat-export{box-shadow:none}
+html:not(.dark) .mail-list>li{border-bottom:1px solid var(--l-line-soft)}
+html:not(.dark) .mail-list>li:last-child{border-bottom:0}
+html:not(.dark) .mail-list strong{color:var(--l-ink-1)}
+html:not(.dark) .mail-tag{color:var(--l-warn);border:1px solid var(--l-warn-line)}
+html:not(.dark) .queue-list label{color:var(--l-ink-2)}
+html:not(.dark) .queue-list input{accent-color:var(--l-ink-2)}
+html:not(.dark) .queue-list small{color:var(--l-ink-3)}
+html:not(.dark) .mail-more{color:inherit}
+html:not(.dark) .mail-more:hover{color:var(--l-ink-1)}
 html:not(.dark) .processing-demo .processing-link{color:inherit}
 html:not(.dark) .processing-demo .processing-link:hover{color:var(--l-ink-1)}
 html:not(.dark) .panel-top button:focus-visible,html:not(.dark) .ws-dialog-top button:focus-visible{outline-offset:3px}
@@ -545,3 +554,8 @@ html:not(.dark) .pc-outline{-webkit-mask-image:linear-gradient(#000 calc(100% - 
    inactivo; la x de un filtro puesto, en el terciario. */
 html:not(.dark) .amount-heading>button:disabled{opacity:1;color:var(--l-ink-4)}
 html:not(.dark) .active-filter-chips button svg{color:var(--l-ink-3)}
+
+/* -- El buzon de facturas (paso 18): las casillas de la cola de la lectura automatica son del
+   navegador y Aurora pone color-scheme: dark en :root; en el claro, las del claro (si no, salen
+   rellenas de gris oscuro), con el acento al marcarlas. */
+html:not(.dark) .queue-list input{color-scheme:light;accent-color:var(--l-accent)}

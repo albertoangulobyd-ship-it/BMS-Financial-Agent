@@ -110,6 +110,7 @@ const NO_SINGULAR: Record<string, string> = {
   'aurora.settings.permissions': 'etiqueta y cifra',
   'aurora.process.step': 'un numero de paso, no una cuenta',
   'aurora.process.error.some': 'sin palabra: "(1)"',
+  'aurora.mailbox.showAll': 'solo sale cuando la lista tiene mas de las 5 que se ven',
 };
 
 describe('las cifras con su singular', () => {

@@ -52,6 +52,20 @@ export const ESTADOS = [
   { id: 'btw-kaart', titulo: 'Paneel Btw · kaart open', nota: 'El panel Btw con la tarjeta del último trimestre terminado.', llegar: (v) => tarjeta(v, 'vat', [1]) },
   { id: 'instellingen', titulo: 'Instellingen', nota: 'El panel Instellingen en reposo.', llegar: (v) => A.entrada(v, 'settings') },
   { id: 'instellingen-kaart', titulo: 'Paneel Instellingen · kaart open', nota: 'Instellingen con la tarjeta de «Jouw account».', llegar: (v) => tarjeta(v, 'settings', [2]) },
+  // Paso 18 (solo Docker; la base de prueba corre en local, que tambien lo ensena): el buzon de
+  // facturas y la lectura automatica, en Systeem. En la base de prueba, sin configurar y apagada.
+  {
+    id: 'instellingen-mailbox',
+    titulo: 'Instellingen · Facturenmailbox',
+    nota: 'Instellingen › Systeem con la tarjeta del buzón de facturas (paso 18; en la base de prueba, sin configurar).',
+    llegar: (v) => tarjeta(v, 'settings', [NL.systeem, NL.facturenmailbox]),
+  },
+  {
+    id: 'instellingen-automatisch',
+    titulo: 'Instellingen · Automatisch lezen',
+    nota: 'Instellingen › Systeem con la tarjeta de la lectura automática: apagada, el formulario (con admin) y la cola (paso 18).',
+    llegar: (v) => tarjeta(v, 'settings', [NL.systeem, NL.automatischLezen]),
+  },
   {
     id: 'gesprek-bento',
     titulo: 'Gesprek met het overzicht',
