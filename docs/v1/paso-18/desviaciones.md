@@ -551,3 +551,63 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   valdrían), un dominio de nivel superior con cifras (las direcciones que no valen tienen que
   dar el error de su campo, `buzon:`, y no el de `buzon_control` por ser de otro dominio), y que
   se quita el `.cer` que deja sin su `.pem` un `crear --siguiente` cortado.
+
+## Paso 8 · el cliente de Graph
+
+- **`aislamiento.EXTERNOS` no cambia** (§7.2 decía que gana los dos hosts de Microsoft): es la
+  comprobación de aislamiento de la nativa (`comprobar-aislamiento`), que no trae el correo
+  (decisión del dueño); el camino de Docker no la usa. `salida.DESTINOS_CORREO`
+  (`login.microsoftonline.com:443`, `graph.microsoft.com:443`) sí, para `salida_correo` (paso
+  15), y `test_alcance_v1.py` lo fija junto a `EXTERNOS`, que sigue como estaba. La excepción
+  con nombre de `httpx2` (`PUEDEN_SALIR`, solo `bms_agent.correo.graph`) ya la puso el paso 1.
+- **Un módulo que el diseño no nombraba, `correo/bandeja.py`**: los nombres y los formatos de
+  la bandeja en un solo sitio (la clave `sha256(graph_id|carpeta)`, los nombres de los
+  ficheros, las listas cerradas de resultados y de códigos, los límites de §3.8, el saneado de
+  los textos de terceros y la escritura de una vez). Lo usan `graph` y `traer`, y lo usará
+  `registrar` (paso 10), que no puede importar `graph` ni `certificado` (§7.2).
+- **Los códigos que §2.3 y §3.1 no fijaban**:
+  - Graph: 401 → `credencial`; 403 y 404 → `permiso` (también un 404 del propio buzón: §2.3
+    solo decía 403); un 5xx que no es de los que limitan (429, 503, 504) → `limitado`; una
+    redirección → `interno` (no se sigue ninguna); otro 4xx → `interno`.
+  - La red: la salida que no deja pasar (un 403 o 407 del proxy) → `salida`; sin conexión o sin
+    respuesta → `sin_conexion`, sin reintentar (lo repite el ciclo siguiente). Los únicos
+    reintentos son los de Microsoft que limita.
+  - El token: cualquier 400 o 401 con un AADSTS que no es el 700024 → `credencial` (también un
+    inquilino que no existe o una aplicación desactivada); un certificado caducado, o que aún
+    no vale por la hora del equipo → `credencial` sin pedir nada.
+  - `comprobar`: cada código HTTP es un veredicto (los de la tabla de §2.3, e `interno` para
+    "otro" también en las pruebas 3 y 5); un token que no se puede leer → `interno`; uno de
+    otro inquilino, de otra aplicación o para otra audiencia → `alcance`. Lo que no es un
+    veredicto (sin red, Microsoft que limita, la salida) es un error y no cambia el alcance
+    guardado.
+- **`Retry-After`, acotado**: como mucho dos reintentos por petición, también con la cabecera
+  (Learn dice que se repita "hasta que funcione"); una cabecera que no es un número de
+  segundos cuenta como si no estuviera. Las esperas son de cada petición: sin cabecera, la
+  primera es de 2 s y la segunda de 8 s.
+- **Un token por cliente (por ronda), que se renueva si le quedan menos de 5 minutos** (una
+  ronda larga). El token y la aserción solo en memoria; el token, en un objeto sin `repr` que
+  lo enseñe y que no se copia (como la credencial del paso 7). Los errores no se encadenan con
+  los de `httpx2`, que llevan la petición entera (con la cabecera `Authorization` o la
+  aserción): se lanzan fuera del `except`.
+- **Las respuestas sin comprimir** (`Accept-Encoding: identity`), y los topes sobre lo que se
+  lee; una respuesta con un `Content-Length` mayor que su tope ni se lee. Sin redirecciones ni
+  HTTP/2. `Accept: */*` solo para el `$value` de un adjunto.
+- **Los registros de `httpx2` y `httpcore2`, a WARNING en el proceso que importa `graph`**:
+  apuntan en INFO cada URL con su consulta (el `$deltatoken`) y en DEBUG las cabeceras de la
+  respuesta. `test_correo_graph.py` lo comprueba con `caplog` en DEBUG.
+- **Un id de Graph que va en una ruta tiene que ser de `[A-Za-z0-9+/=_-]`** (como el `graph_id`
+  de la 0019); `+` y `/` van codificados. **La lista de adjuntos no sigue un
+  `@odata.nextLink`** (Graph no la pagina, y se apuntan como mucho 50, §3.5). **El `Location`
+  de un 410 no se sigue**: la delta empieza otra vez con el filtro de fecha (§3.1).
+- **Las pruebas**: la de §7.2 en un intérprete aparte con `nativo.prohibir_procesos`, que firma
+  y habla con `GraphFalso`, va en `test_correo_graph.py` y no en `test_instalacion_nativa.py`
+  (de la nativa, que no se toca). La de la salida de verdad (`salida.Proxy` con
+  `DESTINOS_CORREO` y la credencial de una pasada): el token lo da `GraphFalso` y lo demás va
+  por la salida, que deja pasar el CONNECT a los dos hosts y el TLS falla contra el eco local
+  (aquí no se puede terminar un TLS de Microsoft); el 403 a `api.anthropic.com:443` (y a
+  `graph.microsoft.com:80`) se prueba con `aislamiento.pedir_tunel`, porque el cliente no sabe
+  ir allí, y el 407 sin credencial (o con otra), con el cliente (`salida`). `GraphFalso` apunta
+  lo que Microsoft no debería ver (un método que no es GET salvo el POST del token, `$expand`,
+  el cuerpo en `$select`, una petición sin `IdType="ImmutableId"`, el `$value` de un adjunto
+  que no es de fichero, otro host u otro buzón) en `violaciones` en vez de lanzar (el límite
+  de errores de cada mensaje se lo tragaría), y cada test falla al final si hay alguna.

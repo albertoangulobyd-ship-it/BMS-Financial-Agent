@@ -1,0 +1,61 @@
+{
+  "_comentario": "Mensajes en la forma de una pagina de delta de Graph con $select=id,internetMessageId,receivedDateTime,hasAttachments,subject,from y Prefer: IdType=\"ImmutableId\" (docs-ms concepts_delta-query-messages.md). Datos inventados, dominios example.test.",
+  "factura": {
+    "@odata.type": "#microsoft.graph.message",
+    "@odata.etag": "W/\"CQAAABYAAAARn2vdzPFjSbaPPxzjlzOTAAASsKZz\"",
+    "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AdNdKvHqGTEiq8hNSaEyA8gAAAAABFAAA",
+    "internetMessageId": "<0412.factuur@proveedor.example.test>",
+    "receivedDateTime": "2026-11-23T08:14:02Z",
+    "hasAttachments": true,
+    "subject": "Factuur 2026-0412",
+    "from": {"emailAddress": {"name": "Proveedor de ejemplo", "address": "facturen@proveedor.example.test"}}
+  },
+  "variado": {
+    "@odata.type": "#microsoft.graph.message",
+    "@odata.etag": "W/\"CQAAABYAAAARn2vdzPFjSbaPPxzjlzOTAAASsKZ0\"",
+    "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AdNdKvHqGTEiq8hNSaEyA8gAAAAABFQAA",
+    "internetMessageId": "<varios.adjuntos@otro.example.test>",
+    "receivedDateTime": "2026-11-23T08:20:41Z",
+    "hasAttachments": true,
+    "subject": "RV: facturas de octubre",
+    "from": {"emailAddress": {"name": "Otro proveedor", "address": "boekhouding@otro.example.test"}}
+  },
+  "sin_adjuntos": {
+    "@odata.type": "#microsoft.graph.message",
+    "@odata.etag": "W/\"CQAAABYAAAARn2vdzPFjSbaPPxzjlzOTAAASsKZ1\"",
+    "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AdNdKvHqGTEiq8hNSaEyA8gAAAAABFgAA",
+    "internetMessageId": "<pregunta@cliente.example.test>",
+    "receivedDateTime": "2026-11-23T09:01:13Z",
+    "hasAttachments": false,
+    "subject": "Una pregunta sobre la factura",
+    "from": {"emailAddress": {"name": "Cliente", "address": "info@cliente.example.test"}}
+  },
+  "raro": {
+    "@odata.type": "#microsoft.graph.message",
+    "@odata.etag": "W/\"CQAAABYAAAARn2vdzPFjSbaPPxzjlzOTAAASsKZ2\"",
+    "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AdNdKvHqGTEiq8hNSaEyA8gAAAAABFwAA",
+    "internetMessageId": "<raro@raro.example.test>",
+    "receivedDateTime": "ayer por la tarde",
+    "hasAttachments": true,
+    "subject": "Un mensaje raro",
+    "from": {"emailAddress": {"name": "Raro", "address": "raro@raro.example.test"}}
+  },
+  "sin_id": {
+    "@odata.type": "#microsoft.graph.message",
+    "internetMessageId": "<sin-id@raro.example.test>",
+    "receivedDateTime": "2026-11-23T09:05:00Z",
+    "hasAttachments": false,
+    "subject": "Sin id",
+    "from": {"emailAddress": {"name": "Raro", "address": "raro@raro.example.test"}}
+  },
+  "spam": {
+    "@odata.type": "#microsoft.graph.message",
+    "@odata.etag": "W/\"CQAAABYAAAARn2vdzPFjSbaPPxzjlzOTAAASsKZ3\"",
+    "id": "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0AdNdKvHqGTEiq8hNSaEyA8gAAAAABGAAA",
+    "internetMessageId": "<oferta@desconocido.example.test>",
+    "receivedDateTime": "2026-11-23T07:55:00Z",
+    "hasAttachments": true,
+    "subject": "Factuur dringend betalen",
+    "from": {"emailAddress": {"name": "Desconocido", "address": "noreply@desconocido.example.test"}}
+  }
+}

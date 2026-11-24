@@ -1,0 +1,24 @@
+{
+  "_comentario": "Listas de adjuntos en la forma de Graph con $select=id,name,contentType,size,isInline (docs-ms api-reference_v1.0_api_message-list-attachments.md y attachment-get.md: @odata.type viene siempre; un referenceAttachment puede venir con isInline true). Sin contentBytes. Datos inventados.",
+  "factura": [
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYd8=", "name": "factuur-0412.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false}
+  ],
+  "variado": [
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/octet-stream", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYd9=", "name": "factuur-octet", "contentType": "application/octet-stream", "size": 3072, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/x-pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeA=", "name": "FACTUUR-MAYUSCULAS.PDF", "contentType": "application/x-pdf", "size": 4096, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeB=", "name": "no-soy-un.pdf", "contentType": "application/pdf", "size": 1200, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeC=", "name": "enorme.pdf", "contentType": "application/pdf", "size": 22020096, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/xml", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeD=", "name": "factuur-0412.xml", "contentType": "application/xml", "size": 9000, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "message/rfc822", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeE=", "name": "reenviado.eml", "contentType": "message/rfc822", "size": 15000, "isInline": false},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "image/png", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeF=", "name": "image001.png", "contentType": "image/png", "size": 5000, "isInline": true},
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeG=", "name": "Draft sales invoice template.docx", "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "size": 13068, "isInline": false},
+    {"@odata.type": "#microsoft.graph.itemAttachment", "id": "AAMkADA1MCJKtzmnlcqVgqI=", "name": "Reminder - please bring laptop", "contentType": null, "size": 32005, "isInline": false},
+    {"@odata.type": "#microsoft.graph.referenceAttachment", "id": "AAMkAGUzY5QKgAAABEgAQAISJOe1FEqdNsMEQmpZjRW8=", "name": "Sales Invoice Template.docx", "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "size": 1060, "isInline": true}
+  ],
+  "raro": [
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeH=", "name": "raro.pdf", "contentType": "application/pdf", "size": 2000, "isInline": false}
+  ],
+  "spam": [
+    {"@odata.type": "#microsoft.graph.fileAttachment", "@odata.mediaContentType": "application/pdf", "id": "AAMkAGUzY5QKjAAABEgAQAMkpJI_X-LBFgvrv1PlZYeI=", "name": "betalen.pdf", "contentType": "application/pdf", "size": 2500, "isInline": false}
+  ]
+}

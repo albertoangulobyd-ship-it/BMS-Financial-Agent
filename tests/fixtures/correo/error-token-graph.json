@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "InvalidAuthenticationToken",
+    "message": "Access token validation failure. Invalid audience.",
+    "innerError": {
+      "date": "2026-11-23T08:14:02",
+      "request-id": "0000aaaa-11bb-cccc-dd22-eeeeee333333",
+      "client-request-id": "0000aaaa-11bb-cccc-dd22-eeeeee333333"
+    }
+  }
+}

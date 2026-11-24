@@ -421,6 +421,9 @@ def test_ningun_modulo_habla_con_la_red_salvo_la_extraccion() -> None:
     from bms_agent import aislamiento, salida
 
     assert salida.PERMITIDOS_POR_DEFECTO == ("api.anthropic.com:443",)
+    # Paso 18: la lista de la salida del correo, aparte (Docker: salida_correo). EXTERNOS es la
+    # comprobacion de aislamiento de la nativa, que no trae el correo: no gana los de Microsoft.
+    assert salida.DESTINOS_CORREO == ("login.microsoftonline.com:443", "graph.microsoft.com:443")
     assert {s.host for s in aislamiento.EXTERNOS} == {"1.1.1.1", "8.8.8.8", "api.anthropic.com"}
     assert _red_de_los_modulos(MODULOS) == {}
 

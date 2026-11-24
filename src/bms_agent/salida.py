@@ -63,6 +63,10 @@ from pathlib import Path
 
 PUERTO_PROXY = 3128
 PERMITIDOS_POR_DEFECTO = ("api.anthropic.com:443",)
+# Paso 18: la lista de la salida del correo (salida_correo en Docker, con su propia red): el
+# token de Microsoft y Graph, y nada mas. Nunca junto a la de la API: el lector no llega a
+# Microsoft y el correo no llega a la API (diseno §1.1, D2).
+DESTINOS_CORREO = ("login.microsoftonline.com:443", "graph.microsoft.com:443")
 MAX_CABECERA = 8192
 ESPERA_CABECERA = 10.0
 ESPERA_CONEXION = 10.0

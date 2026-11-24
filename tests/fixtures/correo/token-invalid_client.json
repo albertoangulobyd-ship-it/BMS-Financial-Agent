@@ -1,0 +1,11 @@
+{
+  "error": "invalid_client",
+  "error_description": "AADSTS700027: Client assertion contains an invalid signature. [Reason - The key was not found.] Trace ID: 0000aaaa-11bb-cccc-dd22-eeeeee333333 Correlation ID: aaaa0000-bb11-2222-33cc-444444dddddd Timestamp: 2026-11-23 08:14:02Z",
+  "error_codes": [
+    700027
+  ],
+  "timestamp": "2026-11-23 08:14:02Z",
+  "trace_id": "0000aaaa-11bb-cccc-dd22-eeeeee333333",
+  "correlation_id": "aaaa0000-bb11-2222-33cc-444444dddddd",
+  "error_uri": "https://login.microsoftonline.com/error?code=700027"
+}
