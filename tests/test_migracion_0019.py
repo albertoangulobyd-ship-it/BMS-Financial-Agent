@@ -26,7 +26,7 @@ from bms_agent.almacen import USUARIOS_SISTEMA, abrir, transaccion, usuario_sist
 from bms_agent.almacen.evidencia import verificar_esquema, verificar_evidencia
 from bms_agent.almacen.migrar import DIRECTORIO_SQL, disponibles, migrar
 from bms_agent.auditoria import verificar_cadena
-from conftest import persona
+from conftest import RAIZ, persona
 
 T = "2026-11-23T{}:00+00:00"
 H1, H2, H3 = "1" * 64, "2" * 64, "3" * 64
@@ -331,6 +331,35 @@ def _autorizacion(db, por: int, **cambios) -> int:
         tuple(valores.values())).lastrowid)
 
 
+# La clase de cada tabla nueva (spec.md §4): las decisiones, de solo escritura; lo que llega
+# de fuera, evidencia; y las dos caches. La misma en sus disparadores y en el modelo de datos
+# (revision de los pasos 0-2).
+CLASES = {"lectura_automatica": "Solo escritura", "exclusion_automatica": "Solo escritura",
+          "pausa_lectura_automatica": "Solo escritura", "correo_atendido": "Solo escritura",
+          "mensaje_correo": "Evidencia", "adjunto_correo": "Evidencia",
+          "ronda_correo": "Evidencia", "estado_correo": "Caché", "estado_ciclo": "Caché"}
+MENSAJE_DE_CLASE = {"Solo escritura": "es de solo escritura: no se",
+                    "Evidencia": "es evidencia: no se"}
+
+
+def test_cada_tabla_nueva_es_de_la_clase_que_dice_el_modelo_de_datos(db) -> None:
+    modelo = (RAIZ / "docs" / "modelo-datos.md").read_text(encoding="utf-8").splitlines()
+    filas = {clase: next(f for f in modelo if f.startswith(f"| **{clase}**"))
+             for clase in set(CLASES.values())}
+    assert set(CLASES) == set(NUEVAS)
+    for tabla, clase in CLASES.items():
+        assert [c for c, fila in filas.items() if f"`{tabla}`" in fila] == [clase], tabla
+        disparadores = {f[0]: f[1] for f in db.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?",
+            (tabla,))}
+        if clase == "Caché":
+            assert not [d for d in disparadores if d.endswith(("_sin_update", "_sin_delete"))]
+            continue
+        for disparador in ("sin_update", "sin_delete"):
+            assert f"'{tabla} {MENSAJE_DE_CLASE[clase]}" in disparadores[
+                f"{tabla}_{disparador}"], (tabla, disparador)
+
+
 def test_la_autorizacion_la_firma_una_persona_y_tiene_techos(db) -> None:
     ana, _bob = _personas(db)
     primera = _autorizacion(db, ana)
@@ -349,9 +378,9 @@ def test_la_autorizacion_la_firma_una_persona_y_tiene_techos(db) -> None:
     # En el techo, entra.
     _autorizacion(db, ana, tope_dia_usd_micro=20_000_000, tope_mes_usd_micro=200_000_000,
                   max_documentos=100, max_por_documento_usd_micro=20_000_000)
-    with pytest.raises(sqlite3.IntegrityError, match="evidencia: no se modifica"):
+    with pytest.raises(sqlite3.IntegrityError, match="solo escritura: no se modifica"):
         db.execute("UPDATE lectura_automatica SET activa = 0 WHERE id = ?", (primera,))
-    with pytest.raises(sqlite3.IntegrityError, match="evidencia: no se borra"):
+    with pytest.raises(sqlite3.IntegrityError, match="solo escritura: no se borra"):
         db.execute("DELETE FROM lectura_automatica")
 
 

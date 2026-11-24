@@ -35,10 +35,14 @@
 --     cabeceras, ni los destinatarios. Remitente, asunto y nombres de adjunto
 --     son texto de fuera (*_doc): se ensenan y nunca deciden nada.
 --
--- Clases de tabla (spec.md §4):
---   lectura_automatica, mensaje_correo, adjunto_correo, exclusion_automatica,
---     pausa_lectura_automatica, correo_atendido, ronda_correo: EVIDENCIA.
---     UPDATE y DELETE abortan siempre (<tabla>_sin_update, <tabla>_sin_delete).
+-- Clases de tabla (spec.md §4, como en docs/modelo-datos.md):
+--   lectura_automatica, exclusion_automatica, pausa_lectura_automatica,
+--     correo_atendido: SOLO ESCRITURA (lo que deciden las personas, o el sistema
+--     en nombre de la autorizacion, como una anulacion o una nota).
+--   mensaje_correo, adjunto_correo, ronda_correo: EVIDENCIA (lo que llego de
+--     fuera: el buzon y lo que conto el componente de correo).
+--   En las siete, UPDATE y DELETE abortan siempre (<tabla>_sin_update,
+--     <tabla>_sin_delete).
 --   solicitud_lectura, pasada_lectura: como en 0018 (avanzan por sus estados
 --     y fases solo como dice lectura.py; terminadas, no cambian; no se borran).
 --   estado_correo, estado_ciclo: CACHE. Una fila cada una, que se reescribe;
@@ -73,9 +77,9 @@ WHEN (SELECT es_sistema FROM usuario WHERE id = NEW.fijada_por) IS NOT 0
 BEGIN SELECT RAISE(ABORT, 'la lectura automatica la autoriza una persona, nunca un usuario de sistema'); END;
 
 CREATE TRIGGER lectura_automatica_sin_update BEFORE UPDATE ON lectura_automatica
-BEGIN SELECT RAISE(ABORT, 'lectura_automatica es evidencia: no se modifica'); END;
+BEGIN SELECT RAISE(ABORT, 'lectura_automatica es de solo escritura: no se modifica'); END;
 CREATE TRIGGER lectura_automatica_sin_delete BEFORE DELETE ON lectura_automatica
-BEGIN SELECT RAISE(ABORT, 'lectura_automatica es evidencia: no se borra'); END;
+BEGIN SELECT RAISE(ABORT, 'lectura_automatica es de solo escritura: no se borra'); END;
 
 -- ---------------------------------------- solicitud_lectura y pasada_lectura
 
@@ -392,9 +396,9 @@ WHEN (NEW.motivo_codigo = 'persona')
 BEGIN SELECT RAISE(ABORT, 'una exclusion de persona la pone una persona; las demas, el sistema'); END;
 
 CREATE TRIGGER exclusion_automatica_sin_update BEFORE UPDATE ON exclusion_automatica
-BEGIN SELECT RAISE(ABORT, 'exclusion_automatica es evidencia: no se modifica'); END;
+BEGIN SELECT RAISE(ABORT, 'exclusion_automatica es de solo escritura: no se modifica'); END;
 CREATE TRIGGER exclusion_automatica_sin_delete BEFORE DELETE ON exclusion_automatica
-BEGIN SELECT RAISE(ABORT, 'exclusion_automatica es evidencia: no se borra'); END;
+BEGIN SELECT RAISE(ABORT, 'exclusion_automatica es de solo escritura: no se borra'); END;
 
 -- ------------------------------------------------- pausa_lectura_automatica
 
@@ -423,9 +427,9 @@ WHEN (NEW.motivo IS 'volumen')
 BEGIN SELECT RAISE(ABORT, 'la pausa por volumen la pone el sistema; parar y reanudar, una persona'); END;
 
 CREATE TRIGGER pausa_lectura_automatica_sin_update BEFORE UPDATE ON pausa_lectura_automatica
-BEGIN SELECT RAISE(ABORT, 'pausa_lectura_automatica es evidencia: no se modifica'); END;
+BEGIN SELECT RAISE(ABORT, 'pausa_lectura_automatica es de solo escritura: no se modifica'); END;
 CREATE TRIGGER pausa_lectura_automatica_sin_delete BEFORE DELETE ON pausa_lectura_automatica
-BEGIN SELECT RAISE(ABORT, 'pausa_lectura_automatica es evidencia: no se borra'); END;
+BEGIN SELECT RAISE(ABORT, 'pausa_lectura_automatica es de solo escritura: no se borra'); END;
 
 -- ---------------------------------------------------------- correo_atendido
 
@@ -444,9 +448,9 @@ WHEN (SELECT es_sistema FROM usuario WHERE id = NEW.por) IS NOT 0
 BEGIN SELECT RAISE(ABORT, 'un correo lo da por atendido una persona'); END;
 
 CREATE TRIGGER correo_atendido_sin_update BEFORE UPDATE ON correo_atendido
-BEGIN SELECT RAISE(ABORT, 'correo_atendido es evidencia: no se modifica'); END;
+BEGIN SELECT RAISE(ABORT, 'correo_atendido es de solo escritura: no se modifica'); END;
 CREATE TRIGGER correo_atendido_sin_delete BEFORE DELETE ON correo_atendido
-BEGIN SELECT RAISE(ABORT, 'correo_atendido es evidencia: no se borra'); END;
+BEGIN SELECT RAISE(ABORT, 'correo_atendido es de solo escritura: no se borra'); END;
 
 -- ------------------------------------------------------------- ronda_correo
 

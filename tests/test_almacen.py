@@ -62,13 +62,15 @@ SOLO_ESCRITURA = ("migracion", "politica_version", "evento", "cambio_campo", "ex
                   "nota", "hallazgo_evento", "anulacion", "excepcion_hallazgo", "revision",
                   "prioridad_manual", "cuenta_bancaria", "cuenta_evento",
                   "reextraccion_resultado", "activacion", "linea_sin_casar",
-                  "orden_compra_modificacion", "hoja_btw", "periodo_btw_declarada")
+                  "orden_compra_modificacion", "hoja_btw", "periodo_btw_declarada",
+                  # Paso 18 (0019): la autorizacion de la lectura automatica y lo que pasa
+                  # con ella.
+                  "lectura_automatica", "exclusion_automatica", "pausa_lectura_automatica",
+                  "correo_atendido")
 EVIDENCIA = ("documento", "importacion", "ejecucion_reglas", "reextraccion", "extracto_bancario",
              "movimiento_bancario", "planning_turno",
-             # Paso 18 (0019): la autorizacion de la lectura automatica y lo que pasa con
-             # ella, y lo que trae el correo.
-             "lectura_automatica", "mensaje_correo", "adjunto_correo", "exclusion_automatica",
-             "pausa_lectura_automatica", "correo_atendido", "ronda_correo")
+             # Paso 18 (0019): lo que trae el correo.
+             "mensaje_correo", "adjunto_correo", "ronda_correo")
 
 
 def _tablas(conn) -> list[str]:

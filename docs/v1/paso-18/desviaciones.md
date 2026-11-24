@@ -109,6 +109,19 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   diseño no dice qué pasa entonces; hoy pararla es `cancelar_lectura`). La prueba
   `test_una_automatica_la_acepta_la_vigente_encendida_y_dentro_de_su_dia` falla si se quita
   cualquiera de las tres condiciones.
+- **Las clases de las siete tablas nuevas, como en `docs/modelo-datos.md` y no como en §3.9**
+  (revisión de los pasos 0-2). §3.9 las llamaba evidencia a todas (y a `lectura_automatica`,
+  «evidencia, solo escritura»); el modelo de datos y la clase de spec.md §4 («lo que llegó de
+  fuera») dicen otra cosa, y la cabecera de la 0019 y el modelo de datos no casaban. Quedan:
+  `lectura_automatica`, `exclusion_automatica`, `pausa_lectura_automatica` y `correo_atendido`,
+  **de solo escritura** (lo que deciden las personas, o el sistema en nombre de la autorización,
+  como una anulación o una nota), con el mensaje «`<tabla>` es de solo escritura: no se
+  modifica / no se borra» en sus disparadores; `mensaje_correo`, `adjunto_correo` y
+  `ronda_correo`, **evidencia** (lo que llegó del buzón y lo que contó el componente de
+  correo), con el mensaje «es evidencia» de §3.9. Lo que la base hace es lo mismo en las siete
+  (`_sin_update` y `_sin_delete` abortan siempre); cambian la cabecera, los mensajes y en qué
+  tupla de `test_almacen.py` está cada una. `test_cada_tabla_nueva_es_de_la_clase_que_dice_el_modelo_de_datos`
+  comprueba que los disparadores y `docs/modelo-datos.md` dicen lo mismo.
 - **Una persona que ya se llamara `correo` o `automatico`** (en minúsculas: antes del paso 18 el
   nombre no estaba reservado) hace parar la 0019 por el `UNIQUE` del nombre, y la base se queda
   en 0018 entera (lo prueba `test_una_0019_que_falla_deja_la_base_en_0018_entera`). No se
