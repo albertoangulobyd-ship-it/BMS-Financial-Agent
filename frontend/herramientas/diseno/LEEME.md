@@ -78,7 +78,7 @@ Con variables (en PowerShell, `$env:BMS_PYTHON = "C:\…\python.exe"`; en sh, de
 | Carpeta (de esta) | Qué | Lo hace |
 | --- | --- | --- |
 | `captura/` | por fotograma, `<estado>-<ancho>-<tema>.json` (el DOM) y `.png` (la pantalla viva); `hoja-0.css` (la hoja tal como la sirve la app), `tokens-<tema>.json` y `captura.json` (el índice, con el commit del repo); `FALLO-*.png` si algo falla | `capturar.mjs` |
-| `salida/` | `bms-finance-diseno.html` (lo que se publica, unos 3,8 MB con los 92 fotogramas) y `montaje.json` | `montar.mjs` |
+| `salida/` | `bms-finance-diseno.html` (lo que se publica, unos 4,0 MB con los 100 fotogramas) y `montaje.json` | `montar.mjs` |
 | `salida/` | `comprobacion.json` | `comprobar.mjs` |
 | `salida/comparacion/` | `ahora-*.jpg` (10) y `oscuro-*.jpg` (2) | `comparacion.mjs` |
 | `.trabajo/` | lo temporal: la base y el servidor de cada pasada; en `comprobar/`, la foto de lo que no pasa | todas |
