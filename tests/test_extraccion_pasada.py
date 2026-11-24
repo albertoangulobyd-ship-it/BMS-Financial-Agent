@@ -241,6 +241,71 @@ def test_un_fichero_que_no_es_pdf_no_llega_a_la_api(tmp_path) -> None:
     assert cliente.llamadas == 0 and r.fallidas == 1
 
 
+class _SeguimientoMinimo:
+    """Lo que pide extract.Seguimiento, sin `fallo` (como antes del paso 18): deja pagar todo
+    y apunta lo que le dicen."""
+
+    def __init__(self) -> None:
+        self.pagos: list = []
+        self.sin_pagar_: list[str] = []
+
+    def empieza(self, nombre, que) -> None:
+        pass
+
+    def cabe(self, doc):
+        return None
+
+    def salida_maxima(self):
+        return None
+
+    def pagado(self, uso) -> None:
+        self.pagos.append(uso)
+
+    def sin_pagar(self, nombre, motivo) -> None:
+        self.sin_pagar_.append(nombre)
+
+
+class _ClienteQueFalla(ClienteFalso):
+    def parse(self, **peticion):
+        self.llamadas += 1
+        raise RuntimeError("la API dijo que no")
+
+
+def test_un_seguimiento_sin_fallo_ve_los_errores_como_siempre(carpeta) -> None:
+    """`fallo` es opcional en el protocolo: sin el, un error es del documento (fallido, con
+    su aviso), como antes del paso 18."""
+    rutas, out = carpeta
+    avisos = []
+    seguimiento = _SeguimientoMinimo()
+    r = extraer_pasada(_ClienteQueFalla(), rutas, out, seguimiento=seguimiento,
+                       informar=lambda t, n, d: avisos.append((t, n)))
+    assert (r.fallidas, r.sin_pagar, avisos) == (1, 0, [("error", "a.pdf")])
+    # Lo que no dijo su uso se cuenta igual: el seguimiento lo ve con None.
+    assert seguimiento.pagos == [None]
+
+
+@pytest.mark.parametrize("no_es_del_documento", [True, False])
+def test_con_fallo_un_error_que_no_es_del_documento_no_es_un_fallido(carpeta,
+                                                                    no_es_del_documento) -> None:
+    """Con `fallo` (paso 18), lo que no es culpa del documento queda sin pagar: ni fallido ni
+    su aviso de error; lo demas, como siempre. `fallo` va despues de `pagado` y con el error."""
+    rutas, out = carpeta
+    avisos, vistos = [], []
+
+    class ConFallo(_SeguimientoMinimo):
+        def fallo(self, nombre, exc):
+            vistos.append((nombre, str(exc), list(self.pagos)))
+            return no_es_del_documento
+
+    r = extraer_pasada(_ClienteQueFalla(), rutas, out, seguimiento=ConFallo(),
+                       informar=lambda t, n, d: avisos.append((t, n)))
+    assert vistos == [("a.pdf", "la API dijo que no", [None])]
+    if no_es_del_documento:
+        assert (r.fallidas, r.sin_pagar, r.errores, avisos) == (0, 1, [], [])
+    else:
+        assert (r.fallidas, r.sin_pagar, avisos) == (1, 0, [("error", "a.pdf")])
+
+
 # --- write_json: nunca pisa ---
 
 def _registro(model="claude-opus-5", prompt="p1", schema="1", numero="2026-001",

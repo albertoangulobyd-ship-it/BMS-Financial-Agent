@@ -445,6 +445,12 @@ class Seguimiento(Protocol):
     `sin_pagar(nombre, motivo)` dice que un documento se quedo sin leer por `cabe`.
     `salida_maxima()` es el max_tokens de la llamada que `cabe` acaba de dejar pagar: lo que
     aun cabe en el tope (None: el de la configuracion).
+
+    Opcional (paso 18, se busca con getattr): `fallo(nombre, exc)` va cuando la llamada de un
+    documento falla, despues de `pagado` y antes de avisar del error. True dice que no es
+    culpa del documento (la API sin saldo, la clave rechazada, la API no disponible): ese
+    documento cuenta como sin pagar, no como fallido, y `cabe` ya no deja pagar los
+    siguientes. Sin `fallo`, todo error es del documento, como antes.
     """
 
     def empieza(self, nombre: str, que: str) -> None: ...
@@ -663,6 +669,12 @@ def extraer_pasada(
             if seguimiento is not None:
                 # Un rechazo se cobra y trae su uso; un fallo sin uso no se sabe si se cobro.
                 seguimiento.pagado(getattr(exc, "uso", None) or None)
+                # Antes de avisar (que lo daria por fallido): si la culpa no es del documento,
+                # para la pasada y este se queda sin pagar (paso 18).
+                fallo = getattr(seguimiento, "fallo", None)
+                if fallo is not None and fallo(ruta_pdf.name, exc):
+                    resultado.sin_pagar += 1
+                    continue
             resultado.fallidas += 1
             resultado.errores.append(f"{ruta_pdf.name}: {type(exc).__name__}: {exc}")
             avisar("error", ruta_pdf.name, f"{type(exc).__name__}: {exc}")

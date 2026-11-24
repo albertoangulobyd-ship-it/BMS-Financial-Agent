@@ -15,6 +15,12 @@ from pathlib import Path
 
 PDF_MAGIC = b"%PDF-"
 
+# Lo mas grande que se manda a la API (paso 18, D12): 20 MiB son unos 28 MB en base64, por
+# debajo de los 32 MB que la API acepta por peticion. Uno mas grande no se manda: al contar
+# queda "omitido" (lectura.estimar), venga del correo o de buzon\facturas. load_pdf no lo
+# mira: un PDF grande se sigue pudiendo leer del disco para saber su hash y si ya esta leido.
+MAX_BYTES_API = 20 * 1024 * 1024
+
 
 class UnsupportedDocument(ValueError):
     """El fichero no es un PDF."""

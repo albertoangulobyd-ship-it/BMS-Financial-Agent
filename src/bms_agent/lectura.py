@@ -114,7 +114,20 @@ MOTIVOS = {
     "lectura": "la lectura ha fallado",
     "interrumpida": "el lector se cerro antes de terminar",
     "abandonada": "el lector dejo de dar senales: la lectura se da por terminada",
+    # Paso 18 (D12): la API fallo por algo que no es del documento. La pasada para en ese
+    # documento, sin apartar ninguno ni contarlo como fallo suyo (clasificar_error).
+    "saldo": ("el saldo de la API se ha acabado (o se llego al limite de gasto): recargalo; "
+              "no se ha apartado nada"),
+    "clave_rechazada": ("la API rechaza la clave: hay que cambiarla con clave.bat; no se ha "
+                        "apartado nada"),
+    "api_no_disponible": ("la API no esta disponible o esta saturada: no se ha apartado nada "
+                          "y se vuelve a probar mas tarde"),
 }
+
+# Lo que un fallo de la API dice de la lectura (clasificar_error): es de ese documento (la
+# pasada sigue con el siguiente) o no lo es, y la pasada para con uno de los tres motivos.
+DOCUMENTO = "documento"
+FALLOS_DE_LA_API = ("saldo", "clave_rechazada", "api_no_disponible")
 
 
 class EstadoNoValido(ValueError):
@@ -134,6 +147,102 @@ class Parada(Exception):
     def __init__(self, estado: str) -> None:
         super().__init__(f"la lectura esta {estado}")
         self.estado = estado
+
+
+class ParadaApi(Exception):
+    """Contando, la API fallo por algo que no es del documento (la clave, el saldo, no esta
+    disponible): no se cuenta nada mas y la peticion se cierra con ese motivo, no con
+    "contar". `motivo` es uno de FALLOS_DE_LA_API; `detalle`, lo que dijo la API."""
+
+    def __init__(self, motivo: str, detalle: str) -> None:
+        super().__init__(f"{MOTIVOS[motivo]}: {detalle}")
+        self.motivo, self.detalle = motivo, detalle
+
+
+# ------------------------------------------------------------ los fallos de la API
+
+def _estado_http(exc: BaseException) -> int | None:
+    """El codigo HTTP de un error de la API (APIStatusError del SDK), o None si no lo es."""
+    estado = getattr(exc, "status_code", None)
+    return estado if isinstance(estado, int) and not isinstance(estado, bool) else None
+
+
+def _texto(valor: Any) -> str | None:
+    return valor if isinstance(valor, str) else None
+
+
+def _del_cuerpo(exc: BaseException) -> tuple[str | None, str | None, str]:
+    """(error.type, error.details.error_code, el mensaje) de un error de la API.
+
+    Se leen del cuerpo de la respuesta (`exc.body`) y, si no estan, de los atributos que pone
+    el SDK, todo con getattr: el SDK fijado (1.13.0) no tiene `error_code` y el de algun
+    entorno de desarrollo es otro (2.x), y la prueba usa errores hechos a mano."""
+    cuerpo = getattr(exc, "body", None)
+    error = cuerpo.get("error") if isinstance(cuerpo, dict) else None
+    error = error if isinstance(error, dict) else {}
+    detalles = error.get("details")
+    tipo = _texto(error.get("type")) or _texto(getattr(exc, "type", None))
+    codigo = (_texto(detalles.get("error_code")) if isinstance(detalles, dict) else None) or (
+        _texto(getattr(exc, "error_code", None)))
+    mensaje = _texto(error.get("message")) or _texto(getattr(exc, "message", None)) or ""
+    return tipo, codigo, mensaje
+
+
+def clasificar_error(exc: BaseException) -> str:
+    """De quien es la culpa de un fallo al contar o leer un documento (paso 18, D12).
+
+    "documento" si es de ese PDF: lo que no es un error de la API (un rechazo del modelo, una
+    respuesta cortada o que no valida) y un 400 o un 413 de la API (demasiado grande, demasiadas
+    paginas, cifrado). Los demas no son del documento, y paran la pasada sin apartar nada:
+
+    - "clave_rechazada": 401 y 403 (la clave no vale, o no le dejan);
+    - "saldo": 402 (billing_error), un 429 por el limite de gasto de la cuenta
+      (error.details.error_code enforced_spend_limit_reached) y un 400 que dice que el saldo no
+      llega ("credit balance");
+    - "api_no_disponible": 429, 5xx y 529 (saturada), sin conexion o sin respuesta a tiempo
+      (despues de los reintentos del SDK) y cualquier otro codigo que no es del documento.
+
+    Pura: mira el codigo HTTP, el cuerpo del error y el nombre de su clase (sin importar el
+    SDK), asi vale con el SDK fijado, con otro y con errores hechos a mano en las pruebas."""
+    estado = _estado_http(exc)
+    if estado is None:
+        clases = {clase.__name__ for clase in type(exc).__mro__}
+        # APITimeoutError es un APIConnectionError: la API no contesto.
+        return "api_no_disponible" if "APIConnectionError" in clases else DOCUMENTO
+    tipo, codigo, mensaje = _del_cuerpo(exc)
+    if estado in (401, 403) or tipo in ("authentication_error", "permission_error"):
+        return "clave_rechazada"
+    if (estado == 402 or tipo == "billing_error" or codigo == "enforced_spend_limit_reached"
+            or (estado == 400 and "credit balance" in mensaje.lower())):
+        return "saldo"
+    if estado in (400, 413):
+        return DOCUMENTO
+    return "api_no_disponible"
+
+
+def _firma(exc: BaseException) -> tuple[int, str | None, str] | None:
+    """Lo que hace iguales dos errores de la API (codigo, error.type y mensaje); None si no es
+    un error de la API."""
+    estado = _estado_http(exc)
+    if estado is None:
+        return None
+    tipo, _codigo, mensaje = _del_cuerpo(exc)
+    return estado, tipo, mensaje
+
+
+def sobre_el_error(exc: BaseException) -> str:
+    """Una linea sobre un error, para el motivo y la ventana del lector: su clase, su codigo
+    HTTP y lo que dijo la API (nunca la peticion ni la clave, que el SDK no pone en sus
+    mensajes), como mucho 300 caracteres."""
+    estado = _estado_http(exc)
+    if estado is None:
+        texto = f"{type(exc).__name__}: {exc}"
+    else:
+        tipo, _codigo, mensaje = _del_cuerpo(exc)
+        texto = f"{type(exc).__name__} {estado}" + (f" {tipo}" if tipo else "") + (
+            f": {mensaje}" if mensaje else "")
+    texto = " ".join(texto.split())
+    return texto if len(texto) <= 300 else texto[:297] + "..."
 
 
 # ------------------------------------------------------------ utilidades
@@ -431,7 +540,9 @@ def _senal(conn: sqlite3.Connection, solicitud_id: int, estados: tuple[str, ...]
 @dataclass(frozen=True)
 class Contado:
     """Un PDF del buzon en la cuenta: nuevo (con su entrada contada y lo que puede costar),
-    ya leido (no se paga) u omitido (no se lee: no es un PDF, o es de la otra base)."""
+    ya leido (no se paga) u omitido (no se lee: no es un PDF, es de la otra base, o la API no
+    lo acepta). `rechazado_api`: omitido porque la API no lo acepta (mas de MAX_BYTES_API, o
+    un 400 o un 413 al contarlo): no se manda al leer, y la lectura automatica lo aparta."""
 
     nombre: str
     sha256: str | None
@@ -440,6 +551,17 @@ class Contado:
     bajo_usd_micro: int | None = 0
     alto_usd_micro: int | None = 0
     detalle: str | None = None
+    rechazado_api: bool = False
+
+
+def _documento_json(d: Contado) -> dict[str, Any]:
+    """Un documento de la cuenta, como se guarda y se aprueba. El que la API no acepta lleva
+    ademas `rechazado_api` y por que (solo el: la huella de los demas no cambia)."""
+    documento = {"nombre": d.nombre, "sha256": d.sha256, "clase": d.clase, "entrada": d.entrada,
+                 "bajo_usd_micro": d.bajo_usd_micro, "alto_usd_micro": d.alto_usd_micro}
+    if d.rechazado_api:
+        documento.update(rechazado_api=True, detalle=d.detalle)
+    return documento
 
 
 @dataclass
@@ -483,10 +605,7 @@ class Estimacion:
         return {"modelo": self.modelo, "prompt_version": self.prompt_version,
                 "schema_version": self.schema_version,
                 "salida": [self.salida_baja, self.salida_alta], "medida": self.salida_medida,
-                "documentos": [{"nombre": d.nombre, "sha256": d.sha256, "clase": d.clase,
-                                "entrada": d.entrada, "bajo_usd_micro": d.bajo_usd_micro,
-                                "alto_usd_micro": d.alto_usd_micro}
-                               for d in self.documentos]}
+                "documentos": [_documento_json(d) for d in self.documentos]}
 
     def huella(self, solicitud_id: int) -> str:
         """Lo que se aprueba: esta peticion, este modelo y estas versiones, cada documento con
@@ -512,11 +631,17 @@ def estimar(client: Any, pdfs: Iterable[str | Path], out_dir: str | Path, *, alm
             antes: Callable[[str], None] | None = None) -> Estimacion:
     """Cuenta lo que costaria leer estos PDF, sin pagar nada: lo ya leido lo decide lo mismo
     que la pasada (extract.Conocido) y cada nuevo se cuenta con la API (count_tokens, que no
-    se cobra). `antes(nombre)` va antes de cada PDF: el lector mira ahi si le dijeron que no."""
+    se cobra). `antes(nombre)` va antes de cada PDF: el lector mira ahi si le dijeron que no.
+
+    Cada PDF por separado (paso 18, D12): uno nuevo de mas de MAX_BYTES_API queda omitido sin
+    mandarlo, y uno que la API no acepta al contarlo (un 400 o un 413: clasificar_error dice
+    "documento") queda omitido con lo que dijo la API; los demas se cuentan. Si la API falla
+    por algo que no es del documento (la clave, el saldo, no esta disponible), no se cuenta
+    nada mas: ParadaApi con su motivo. Cualquier otro error sigue hacia arriba, como antes."""
     from . import coste
     from . import config
     from .cache import CONSERVAR
-    from .documents import UnsupportedDocument, load_pdf
+    from .documents import MAX_BYTES_API, UnsupportedDocument, load_pdf
     from .extract import Conocido, build_request
     from .pricing import estimate_cost
 
@@ -528,6 +653,8 @@ def estimar(client: Any, pdfs: Iterable[str | Path], out_dir: str | Path, *, alm
     est = Estimacion(modelo, config.PROMPT_VERSION, config.SCHEMA_VERSION, salida.bajo,
                      salida.alto, salida.medida, salida.origen)
     vistos: set[str] = set()
+    # Los que la API no acepta, con por que: otra copia del mismo PDF tampoco se manda.
+    rechazados: dict[str, str] = {}
     for ruta in pdfs:
         ruta = Path(ruta)
         if antes is not None:
@@ -538,13 +665,33 @@ def estimar(client: Any, pdfs: Iterable[str | Path], out_dir: str | Path, *, alm
             est.documentos.append(Contado(ruta.name, None, "omitido", detalle=str(exc)))
             continue
         clase, detalle = conocido.clase(doc)
+        if clase == "nuevo" and doc.byte_size > MAX_BYTES_API:
+            rechazados.setdefault(doc.sha256, (
+                f"demasiado grande para la API ({doc.byte_size // (1024 * 1024)} MiB; como "
+                f"mucho {MAX_BYTES_API // (1024 * 1024)} MiB): no se manda"))
+        if clase == "nuevo" and doc.sha256 in rechazados:
+            est.documentos.append(Contado(ruta.name, doc.sha256, "omitido", rechazado_api=True,
+                                          detalle=rechazados[doc.sha256]))
+            continue
         if clase == "nuevo" and doc.sha256 in vistos:
             clase, detalle = "ya_leido", "el mismo PDF esta dos veces en el buzon: se paga una"
         vistos.add(doc.sha256)
         if clase != "nuevo":
             est.documentos.append(Contado(ruta.name, doc.sha256, clase, detalle=detalle))
             continue
-        entrada = coste.contar_entrada(client, build_request(doc, model=modelo))
+        peticion = build_request(doc, model=modelo)
+        try:
+            entrada = coste.contar_entrada(client, peticion)
+        except Exception as exc:  # cada PDF por separado: uno malo no tumba la cuenta
+            de_quien = clasificar_error(exc)
+            if de_quien != DOCUMENTO:
+                raise ParadaApi(de_quien, f"{ruta.name}: {sobre_el_error(exc)}") from exc
+            if _estado_http(exc) is None:
+                raise   # no es la API: un fallo nuestro no se toma por un PDF malo
+            rechazados[doc.sha256] = f"la API no lo acepta: {sobre_el_error(exc)}"
+            est.documentos.append(Contado(ruta.name, doc.sha256, "omitido", rechazado_api=True,
+                                          detalle=rechazados[doc.sha256]))
+            continue
         est.documentos.append(Contado(
             ruta.name, doc.sha256, "nuevo", entrada,
             micro(estimate_cost(modelo, entrada, salida.bajo)),
@@ -708,7 +855,12 @@ class _Seguimiento:
 
     Cada paso de cada documento se escribe en seguida (cada uno en su transaccion; dentro de
     la de tipar y pasar las reglas, con ella): la app lo ve en su siguiente consulta. Tocar
-    la pasada es tambien la senal de que el lector sigue vivo."""
+    la pasada es tambien la senal de que el lector sigue vivo.
+
+    Para (`parada`) por el tope, porque se pidio parar o, desde el paso 18, porque la API
+    fallo por algo que no es del documento (`fallo`): entonces la pasada termina fallida con
+    `motivo_codigo` (saldo, clave_rechazada o api_no_disponible) y nada cuenta como fallo de
+    un documento."""
 
     def __init__(self, conn: sqlite3.Connection, solicitud_id: int, pasada_id: int, *,
                  modelo: str, tope: int, altos: dict[str, int],
@@ -721,6 +873,13 @@ class _Seguimiento:
         self.gastado = 0
         self.parada: str | None = None
         self.motivo_parada: str | None = None
+        # Con parada "fallida": por que (uno de FALLOS_DE_LA_API).
+        self.motivo_codigo: str | None = None
+        # Los que se quedaron sin leer porque la API fallo por otra cosa: ya no son "fallida".
+        self._parados: set[str] = set()
+        # El ultimo fallo de la API de un documento (su firma y su nombre), mientras no se lea
+        # bien otro: dos iguales seguidos no son de los documentos.
+        self._ultimo_fallo: tuple[tuple[int, str | None, str], str] | None = None
         self.estados: dict[str, str] = {}
         self.orden: list[str] = []
         # La llamada que acaba de caber: su max_tokens y lo peor que puede costar.
@@ -813,10 +972,42 @@ class _Seguimiento:
         self._anotar(nombre, "sin_leer")
         self.imprimir("sin_leer", nombre, motivo)
 
+    def fallo(self, nombre: str, exc: BaseException) -> bool:
+        """La llamada a la API de `nombre` fallo (paso 18, D12). False si es cosa del
+        documento: queda fallida, como siempre, y se sigue con el siguiente. True si no lo es
+        (clasificar_error: la clave, el saldo, la API no disponible), o si es el segundo fallo
+        seguido igual que el anterior (mismo codigo, tipo y mensaje: algo de la API que no se
+        ha sabido clasificar, api_no_disponible): la pasada para y termina fallida con ese
+        motivo; este documento, y el anterior si era el otro igual, quedan sin leer (no es
+        culpa suya), y `cabe` no deja pagar ninguno mas."""
+        de_quien = clasificar_error(exc)
+        if de_quien == DOCUMENTO:
+            firma = _firma(exc)
+            anterior = self._ultimo_fallo
+            self._ultimo_fallo = (firma, nombre) if firma is not None else None
+            if firma is None or anterior is None or anterior[0] != firma:
+                return False
+            de_quien = "api_no_disponible"
+            primero = anterior[1]
+            self._parados.add(primero)
+            self.estados[primero] = "sin_leer"
+        self.parada = "fallida"
+        self.motivo_codigo = de_quien
+        self.motivo_parada = f"{MOTIVOS[de_quien]} ({nombre}: {sobre_el_error(exc)})"
+        self._parados.add(nombre)
+        self._anotar(nombre, "sin_leer")
+        self._escribir(**self._cuentas())
+        self.imprimir("sin_leer", nombre, self.motivo_parada)
+        return True
+
     # -- extract.Informar
 
     def informar(self, tipo: str, nombre: str, detalle: str) -> None:
-        self._anotar(nombre, {"ok": "leida", "cache": "ya_leida"}.get(tipo, "fallida"))
+        if tipo == "ok":
+            self._ultimo_fallo = None
+        # Uno que se quedo sin leer porque la API fallo por otra cosa no pasa a fallida.
+        if nombre not in self._parados:
+            self._anotar(nombre, {"ok": "leida", "cache": "ya_leida"}.get(tipo, "fallida"))
         self._escribir(**self._cuentas())
         self.imprimir(tipo, nombre, detalle)
 
@@ -920,11 +1111,13 @@ def empezar(conn: sqlite3.Connection, solicitud_id: int, total: int, *,
 
 def terminar(conn: sqlite3.Connection, seguimiento: _Seguimiento,
              resultado: list[dict[str, Any]], *, errores_tipado: int = 0) -> Leida:
-    """La pasada termina (hecha, tope o cancelada, segun por que paro) con lo que fue de cada
-    documento, y la peticion con ella: hecha, o cancelada si se pidio parar."""
+    """La pasada termina (hecha, tope, cancelada o fallida, segun por que paro) con lo que fue
+    de cada documento, y la peticion con ella: hecha, cancelada si se pidio parar, o fallida
+    con su motivo si la API fallo por algo que no es del documento (paso 18)."""
     solicitud_id, pasada_id = seguimiento.solicitud_id, seguimiento.pasada_id
     fase = seguimiento.parada or "hecha"
-    estado = "cancelada" if fase == "cancelada" else "hecha"
+    estado = fase if fase in ("cancelada", "fallida") else "hecha"
+    por_que = ({"motivo_codigo": seguimiento.motivo_codigo} if estado == "fallida" else {})
     actual = _fila(conn, solicitud_id)
     if actual["estado"] != "leyendo":
         # Otro la dio por abandonada mientras tanto (y termino su pasada): lo leido queda
@@ -950,9 +1143,9 @@ def terminar(conn: sqlite3.Connection, seguimiento: _Seguimiento,
                  "sin_leer": sum(1 for e in seguimiento.estados.values() if e == "sin_leer"),
                  "nuevas": sum(1 for r in resultado if r["estado"] == "nueva"),
                  "posibles_duplicados": sum(1 for r in resultado
-                                            if r["estado"] == "posible_duplicado")}
+                                            if r["estado"] == "posible_duplicado"), **por_que}
         _pasar(conn, solicitud_id, ("leyendo",), estado, tipo="lectura_terminada",
-               motivo=seguimiento.motivo_parada, datos=datos)
+               motivo=seguimiento.motivo_parada, datos=datos, **por_que)
     return Leida(estado, fase, resultado, seguimiento.gastado, cuentas["fallidas"],
                  errores_tipado, seguimiento.motivo_parada)
 
@@ -985,7 +1178,9 @@ def leer(conn: sqlite3.Connection, solicitud_id: int, *, client: Any, almacen: A
     if fila["huella_aprobada"] != fila["huella_estimacion"] or not misma:
         cerrar(conn, solicitud_id, "estimacion")
         return Leida("fallida", "", motivo=MOTIVOS["estimacion"])
-    contados = {d["sha256"] for d in estimacion["documentos"] if d["sha256"]}
+    # Lo que la API no acepto al contar no se manda (paso 18): ni se elige, ni otra copia suya.
+    rechazados = {d["sha256"] for d in estimacion["documentos"] if d.get("rechazado_api")}
+    contados = {d["sha256"] for d in estimacion["documentos"] if d["sha256"]} - rechazados
     elegidos, sha_de = [], {}
     for ruta in pdfs:
         ruta = Path(ruta)

@@ -729,6 +729,13 @@ def _cmd_lectura_contar(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             _anclar(almacen)
             return LECTURA_CANCELADA if parada.estado == "cancelada" else LECTURA_FALLIDA
+        except lectura.ParadaApi as parada:
+            # La API fallo por algo que no es de un PDF (la clave, el saldo, no disponible): se
+            # cierra con ese motivo, no con "contar" (paso 18).
+            lectura.cerrar(conn, args.solicitud, parada.motivo, detalle=parada.detalle)
+            print(f"No se ha podido contar: {parada}. No se ha gastado nada.", file=sys.stderr)
+            _anclar(almacen)
+            return LECTURA_FALLIDA
         except Exception as exc:  # contar es una llamada a la API: puede fallar
             lectura.cerrar(conn, args.solicitud, "contar", detalle=f"{type(exc).__name__}: {exc}")
             print(f"No se ha podido contar: {type(exc).__name__}: {exc}", file=sys.stderr)

@@ -12,7 +12,9 @@ Puertas que viven aqui:
 - si el aislamiento falla no se cuenta ni se lee (y la puerta del lector tampoco deja);
 - sin respuesta o con un no no se gasta nada;
 - el tope para la lectura; el si de la app vale para lo que se conto;
-- sin PDF no se enciende nada.
+- sin PDF no se enciende nada;
+- un PDF que la API no acepta no bloquea los demas, y un fallo de la API que no es de un PDF
+  (la clave, el saldo, no disponible) cierra la lectura con su motivo (paso 18, D12).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from datetime import timedelta
 
 import pytest
 from conftest import RAIZ, persona
-from test_lectura import ClienteQueCuenta, _pdf
+from test_lectura import DEL_DOCUMENTO, FALLOS_API, ClienteQueCuenta, ClienteQueFalla, _pdf
 
 from bms_agent import cli, lectura, permisos, servicios
 from bms_agent.almacen import preparar
@@ -59,6 +61,10 @@ class ApiFalsa(ClienteQueCuenta):
     def parse(self, **peticion):
         assert self.salida.encendida, "leer con la salida apagada"
         return super().parse(**peticion)
+
+
+class ApiQueFalla(ApiFalsa, ClienteQueFalla):
+    """La API sin la salida encendida no se alcanza, y falla en los PDF que se le digan."""
 
 
 @pytest.fixture
@@ -275,6 +281,76 @@ def test_dos_lectores_a_la_vez_no(lector) -> None:
         lectura.tomar(almacen.conn, hay_pdf=True)
     assert lector["leer_facturas"]() == (["tomar"], "ocupada")
     assert lector["salida"].historia == []
+
+
+# ============================================================ los fallos de la API (paso 18)
+
+def test_un_pdf_que_la_api_no_acepta_no_bloquea_los_demas(lector, capsys) -> None:
+    """Antes, un PDF que la API rechazaba al contar cerraba toda la lectura con "contar". Ahora
+    queda omitido (la ventana dice por que) y los demas se cuentan, se aprueban y se leen."""
+    for nombre in ("una", "mala", "otra"):
+        _pdf(lector["buzon"], nombre)
+    api = ApiQueFalla(lector["salida"], al_contar={"mala": DEL_DOCUMENTO["413"]})
+    lector["estado"]["api"] = api
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos, codigo) == (PASOS_COMPLETOS, 0)
+    assert (sorted(api.contados), sorted(api.leidos)) == (["mala", "otra", "una"],
+                                                           ["otra", "una"])
+    assert "mala" not in api.intentos
+    assert re.search(r"omitido +mala\.pdf: la API no lo acepta: \w+ 413 request_too_large",
+                     capsys.readouterr().out)
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["pdf_nuevos"]) == ("hecha", 2)
+    assert lector["salida"].historia == ["encendida", "apagada"]
+
+
+@pytest.mark.parametrize("nombre", sorted(FALLOS_API))
+def test_un_fallo_de_la_api_al_contar_cierra_con_su_motivo(lector, capsys, nombre) -> None:
+    """La clave, el saldo o la API no disponible: no se cuenta nada mas, no se espera ningun si
+    y la lectura termina fallida con ese motivo (no con "contar"); la salida, apagada."""
+    _pdf(lector["buzon"], "una")
+    _pdf(lector["buzon"], "otra")
+    fabrica, motivo = FALLOS_API[nombre]
+    api = ApiQueFalla(lector["salida"], al_contar={"otra": fabrica})
+    lector["estado"]["api"] = api
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos[-3:], codigo) == (["contar", "apagar", "cerrar"], cli.LECTURA_FALLIDA)
+    assert (api.contados, api.intentos) == (["otra"], [])
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["motivo_codigo"]) == ("fallida", motivo)
+    assert fila["motivo"].startswith(lectura.MOTIVOS[motivo] + ": otra.pdf: ")
+    assert lectura.MOTIVOS[motivo] in capsys.readouterr().err
+    assert lector["salida"].historia == ["encendida", "apagada"]
+
+
+def test_un_fallo_nuestro_al_contar_sigue_siendo_contar(lector) -> None:
+    _pdf(lector["buzon"], "una")
+    lector["estado"]["api"] = ApiQueFalla(
+        lector["salida"], al_contar={"una": lambda: TypeError("un fallo nuestro")})
+    _pasos, codigo = lector["leer_facturas"]()
+    fila = lector["ultima"]()
+    assert (codigo, fila["estado"], fila["motivo_codigo"]) == (cli.LECTURA_FALLIDA, "fallida",
+                                                               "contar")
+    assert "un fallo nuestro" in fila["motivo"]
+
+
+def test_sin_saldo_al_leer_el_lector_para_y_no_culpa_a_ninguna(lector, capsys) -> None:
+    """Un 402 en la primera: no se intenta la segunda, ninguna queda "con problemas", y la
+    lectura termina fallida con "saldo" (antes: hecha, con todas fallidas y el texto del SDK)."""
+    _pdf(lector["buzon"], "una")
+    _pdf(lector["buzon"], "otra")
+    api = ApiQueFalla(lector["salida"], al_leer_falla={"otra": FALLOS_API["402"][0]})
+    lector["estado"]["api"] = api
+    pasos, codigo = lector["leer_facturas"]()
+    assert (pasos, codigo) == (PASOS_COMPLETOS, cli.LECTURA_FALLIDA)
+    assert (api.intentos, api.leidos) == (["otra"], [])
+    fila = lector["ultima"]()
+    assert (fila["estado"], fila["motivo_codigo"]) == ("fallida", "saldo")
+    salida = capsys.readouterr().out
+    assert re.search(r"sin leer +otra\.pdf: el saldo de la API se ha acabado", salida)
+    assert re.search(r"sin leer +una\.pdf: el saldo de la API se ha acabado", salida)
+    assert "con problemas 0" in salida and f": fallida (fallida)" in salida
+    assert lector["salida"].historia == ["encendida", "apagada"]
 
 
 # ============================================================ los scripts dicen lo mismo
