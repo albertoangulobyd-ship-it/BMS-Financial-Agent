@@ -439,7 +439,10 @@ funcionando sin crédito.
 - **La imagen**: `docker compose build` en `docker/`. La base es
   `python:3.11.17-slim-trixie` fijada por digest; las dependencias, en
   `docker/requirements.txt` con su sha256 para x86_64 y aarch64
-  (`pip install --require-hashes --only-binary=:all:`). Para cambiar una versión,
+  (`pip install --require-hashes --only-binary=:all:`), y las que solo necesita el
+  correo de facturas (`cryptography`, `cffi`, `pycparser`), igual, en
+  `docker/requirements-correo.txt`: la instalación nativa no las lleva, y
+  `scripts/fijar_windows.py` solo compara con Windows `requirements.txt`. Para cambiar una versión,
   saca las ruedas de las dos plataformas con
   `pip download --no-deps --only-binary=:all: --python-version 3.11 --platform
   manylinux_2_17_x86_64 --platform manylinux_2_17_aarch64 ...`, apunta su sha256

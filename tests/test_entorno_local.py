@@ -214,26 +214,66 @@ def test_el_dockerfile_corre_sin_privilegios_y_con_salud() -> None:
     [instalar] = [i for i in instrucciones if "pip install" in i]
     assert "--require-hashes" in instalar and "--only-binary=:all:" in instalar
     assert "requirements.txt" in instalar
+    # Paso 18: tambien las del correo, en la misma orden (las mismas reglas: hash y ruedas).
+    assert "-r /app/docker/requirements-correo.txt" in instalar
+    assert ("COPY docker/requirements.txt docker/requirements-correo.txt /app/docker/"
+            in instrucciones)
 
 
-def test_las_dependencias_van_con_version_y_hash() -> None:
-    texto = (DOCKER / "requirements.txt").read_text(encoding="utf-8")
+def _fijadas(fichero: str) -> dict[str, tuple[str, list[str]]]:
+    """Las dependencias de un requirements de docker/: nombre normalizado -> (version, sha256
+    de cada rueda). Cada una con version y al menos un hash."""
+    texto = (DOCKER / fichero).read_text(encoding="utf-8")
     paquetes = {}
     for bloque in re.split(r"\n(?=[A-Za-z])", re.sub(r"(?m)^#.*\n", "", texto).strip()):
         cabeza = bloque.split()[0]
         nombre, version = cabeza.split("==")
         hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", bloque)
         assert hashes, nombre
-        paquetes[nombre.lower().replace("_", "-")] = version
-    # Lo que pide pyproject.toml, y las mismas versiones con que pasan los tests.
-    for nombre in ("anthropic", "pydantic", "pyyaml"):
-        assert nombre in paquetes
-    for nombre, version in paquetes.items():
+        paquetes[nombre.lower().replace("_", "-")] = (version, hashes)
+    return paquetes
+
+
+def _instaladas_como_fijadas(paquetes: dict[str, tuple[str, list[str]]]) -> None:
+    """Las mismas versiones con que pasan los tests."""
+    for nombre, (version, _hashes) in paquetes.items():
         try:
             instalada = importlib.metadata.version(nombre)
         except importlib.metadata.PackageNotFoundError:
             continue
         assert instalada == version, (nombre, instalada, version)
+
+
+def test_las_dependencias_van_con_version_y_hash() -> None:
+    paquetes = _fijadas("requirements.txt")
+    # Lo que pide pyproject.toml, y las mismas versiones con que pasan los tests.
+    for nombre in ("anthropic", "pydantic", "pyyaml"):
+        assert nombre in paquetes
+    _instaladas_como_fijadas(paquetes)
+
+
+def test_las_dependencias_del_correo_son_solo_de_docker() -> None:
+    """Paso 18 (decision del dueno: el correo, solo en Docker): la firma del certificado de
+    Microsoft (cryptography, con cffi y pycparser) va fijada con hash para las dos
+    plataformas de la imagen en su propio fichero, que la instalacion nativa no ve:
+    scripts/fijar_windows.py compara requirements.txt con Windows, y Windows no las lleva."""
+    import tomllib
+
+    correo = _fijadas("requirements-correo.txt")
+    assert set(correo) == {"cryptography", "cffi", "pycparser"}
+    # Las binarias, una rueda por plataforma (x86_64 y aarch64); pycparser es py3-none-any.
+    for nombre, ruedas in (("cryptography", 2), ("cffi", 2), ("pycparser", 1)):
+        assert len(set(correo[nombre][1])) == ruedas, nombre
+    assert not set(correo) & set(_fijadas("requirements.txt"))
+    windows = (RAIZ / "windows" / "requirements-windows.txt").read_text(encoding="utf-8")
+    assert not re.search(r"(?im)^(cryptography|cffi|pycparser)==", windows)
+    # En pyproject, un extra: el paquete no la necesita para nada mas que el correo.
+    proyecto = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert not [d for d in proyecto["dependencies"] if d.startswith("cryptography")]
+    [pide] = proyecto["optional-dependencies"]["correo"]
+    minima = re.fullmatch(r"cryptography>=(\d+)", pide)
+    assert minima and int(minima.group(1)) <= int(correo["cryptography"][0].split(".")[0])
+    _instaladas_como_fijadas(correo)
 
 
 def test_dockerignore_y_gitignore_dejan_fuera_los_datos_y_la_clave() -> None:
@@ -242,8 +282,8 @@ def test_dockerignore_y_gitignore_dejan_fuera_los_datos_y_la_clave() -> None:
     # Primero todo fuera; luego solo lo que hace falta para la imagen.
     assert reglas[0] == "**"
     dentro = {r[1:] for r in reglas if r.startswith("!")}
-    assert dentro == {"docker/requirements.txt", "pyproject.toml", "README.md", "config/",
-                      "src/"}
+    assert dentro == {"docker/requirements.txt", "docker/requirements-correo.txt",
+                      "pyproject.toml", "README.md", "config/", "src/"}
     assert {"**/secretos/", "**/*.sqlite3*", "**/.env"} <= set(reglas)
     assert "config/tarifas.yaml" in reglas
     gitignore = (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()

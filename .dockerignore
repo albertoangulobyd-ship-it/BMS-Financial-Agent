@@ -2,6 +2,7 @@
 # copias, entornos de desarrollo y lo que no hace falta para correr.
 **
 !docker/requirements.txt
+!docker/requirements-correo.txt
 !pyproject.toml
 !README.md
 !config/

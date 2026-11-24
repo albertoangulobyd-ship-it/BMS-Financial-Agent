@@ -4,6 +4,54 @@ Lo que se hizo distinto de [diseno.md](diseno.md) al construirlo, o lo que el di
 hubo que decidir, con su porqué. Una sección por paso de §9. El paso 17 lo recoge en la sección
 del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
 
+## Decisión del dueño: solo Docker
+
+El 24-11-2026, con el diseño ya revisado y los pasos 0-5 hechos, el dueño decidió que **el correo
+y la lectura automática desatendida se construyen solo para la variante Docker**. La nativa se
+queda exactamente como está hoy: sin correo y sin lectura automática desatendida, funcionando y
+con sus pruebas en verde. Es lo que ya recomendaba D13 (§1.7): en Docker un fallo en el proceso
+que lee correo de desconocidos no alcanza la base ni la clave de la API; en la nativa sí
+(§1.5, §1.6). Lo que cambia en cada paso:
+
+- **Paso 6 (la dependencia)**: `cryptography`, `cffi` y `pycparser` solo en la imagen de Docker.
+  No se tocan `scripts/fijar_windows.py` (ni su `elegir_rueda`, V11), `windows/requirements-windows.txt`,
+  los paquetes de Windows ni los 17 y las `binarias` de `test_instalacion_nativa.py`. Cómo, en la
+  sección del paso 6.
+- **Paso 7 (certificado y ajustes)**: solo el camino de Docker (los ficheros de
+  `docker\secretos\correo\`, §1.3 y §2.4). No se hacen `secretos.py` por tipos, el DPAPI del
+  certificado, `nativo.certificado_del_correo` ni `Instalacion.fichero_certificado_correo`; las
+  pruebas de §7.1 que los nombran («DPAPI falso», «solo el papel `correo` lo descifra») no van.
+- **Paso 13 (nativa: el papel)**: no se hace. Ni el quinto papel `correo`, ni sus reglas del
+  cortafuegos, ni `Arrancar-Salida-Correo`, `Preparar-Certificados-Correo`,
+  `nativo.exigir_correo`, `aislamiento.motivo_para_no_traer`, `comprobar-aislamiento --rol correo`,
+  `app_local.PAPELES` o `settings.roles` con el correo. `aislamiento.EXTERNOS` (la comprobación
+  de aislamiento de la nativa) no gana los hosts de Microsoft: la aserción de
+  `test_alcance_v1.py` sobre `EXTERNOS` sigue como está; `salida.DESTINOS_CORREO` es del paso 8.
+- **Paso 14 (nativa: solo)**: no se hace. Ni `windows\ciclo.ps1` ni `windows\automatico.ps1`, ni la
+  pausa y el cerrojo en los scripts de `windows\`, ni `correo-configurar`/`correo-certificado`
+  nativos, ni los cambios de `iniciar.ps1 -EnSegundoPlano`. `serve --solo-errores` solo servía
+  para el registro de la consola que arranca el vigilante de la nativa (O17; en Docker el registro
+  de la consola ya rota, `docker-compose.yml:35-37`): tampoco se hace. Lo que los pasos 4 y 5 ya
+  pusieron en `windows\comun.ps1` (los códigos 8 y 9 de la lectura, que `test_lectura_lector.py`
+  compara) se queda: no cambia lo que hace la nativa.
+- **Paso 15 (Docker)**: se hace entero. Lo que §4.4 pedía «en los dos `comun.ps1`» (la pausa, el
+  cerrojo) va solo en `docker\comun.ps1`, y los `PASOS` de `ciclo.ps1` de `test_lectura_lector.py`
+  (§7.2) son solo los de `docker\`. Los códigos de `correo` (`CORREO_SIN_CONFIGURAR`,
+  `CORREO_FALLO`) se copian solo en `docker\comun.ps1`.
+- **Paso 17 (documentos)**: el correo y la lectura automática se documentan solo para Docker:
+  `docs/correo-m365.md` con los scripts de `docker\`; `entorno-local.md` con el correo, la
+  salida del correo y la lectura automática; en `instalacion-nativa.md`, una línea que diga que la
+  nativa no trae correo ni lectura automática desatendida y que para eso está Docker (en vez de
+  la columna nativa de §1.5, la renovación nativa de §2.4 y la fila «El correo y la clave de la
+  API» en su §11); D13 pasa de «recomendada» a «solo Docker». El registro (§8.1) apunta esta
+  decisión entre sus desviaciones, y «lo que deben saber los pasos siguientes» deja el correo en
+  la nativa (y con él el usuario de Windows aparte del papel `correo`, el paso 19 de §1.7) como
+  trabajo futuro, si el dueño lo pide.
+- **La app (pasos 11, 12 y 16)**: en la nativa no hay ciclo que lea solo ni correo que traer. Lo
+  que la app enseñe del correo y de la autorización tiene que decirlo sin prometer lo que la
+  nativa no hace (la variante llega con `ciclo latido --variante`, §3.9, que en la nativa nunca
+  corre): lo decide el paso 12.
+
 ## Paso 0 · el entorno
 
 - **Un fallo de entorno más de los que dice §9.** Además de los dos que da el `anthropic` del
@@ -396,3 +444,40 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   `_Seguimiento.cabe`; `max_documentos` y la pausa en `autorizar`) tienen ahora cada uno una
   prueba que falla sin él (arreglo tras la revisión: las de antes pasaban sin ellos, porque
   `_pdfs_a_leer` ya recortaba la lista).
+
+## Paso 6 · la dependencia
+
+- **Solo Docker, y en su propio fichero: `docker/requirements-correo.txt`**, no en
+  `docker/requirements.txt` (la decisión del dueño, arriba). `scripts/fijar_windows.py --comprobar`
+  exige que `windows/requirements-windows.txt` tenga exactamente lo de `docker/requirements.txt`
+  (más `tzdata`), y lo prueban `test_las_dependencias_de_windows_son_las_de_docker_con_su_hash` y
+  `test_fijar_comprobar_sale_con_0_con_lo_que_hay_en_el_repositorio`: con `cryptography` en
+  `requirements.txt`, la puerta de la nativa fallaría sin tocar `fijar_windows.py` ni llevarla a
+  Windows, que es lo que no se hace. El `Dockerfile` copia los dos ficheros y los instala en la
+  misma orden (`pip install --only-binary=:all: --require-hashes -r requirements.txt -r
+  requirements-correo.txt`), `.dockerignore` deja entrar el nuevo, y
+  `docs/entorno-local.md` §13 lo dice. No cambian `fijar_windows.py` (ni su `elegir_rueda`, V11),
+  `requirements-windows.txt`, los paquetes de Windows ni `test_instalacion_nativa.py` (los 17,
+  `binarias`).
+- **Las versiones**: `cryptography` 50.0.2 (la rueda `cp311-abi3`), `cffi` 2.1.1 (`cp311`) y
+  `pycparser` 3.12 (`py3-none-any`), las últimas publicadas, todas de hace más de un mes; las
+  ruedas `manylinux_2_17` (manylinux2014) de x86_64 y aarch64, bajadas como dice
+  `entorno-local.md` §13 (`pip download --no-deps --only-binary=:all: --python-version 3.11
+  --platform manylinux_2_17_…`), con su sha256 comprobado contra el que publica PyPI. La imagen
+  (Debian trixie) admite las 2_17; con `--require-hashes`, pip solo elige entre las ruedas cuyo
+  hash está fijado.
+- **En `pyproject.toml`, un extra `correo = ["cryptography>=50"]`**, no una dependencia del
+  paquete: la nativa no la lleva y nada fuera de `bms_agent.correo.certificado` la usa. `dev`
+  incluye `bms-agent[correo]`, porque las pruebas del certificado la necesitan. La imagen de
+  Docker no instala el paquete con pip (corre de `PYTHONPATH=/app/src`): el extra es lo que
+  declara, y `requirements-correo.txt`, lo que se instala.
+- **Una prueba nueva**, `test_las_dependencias_del_correo_son_solo_de_docker`
+  (`test_entorno_local.py`): las tres, con hash, una rueda por plataforma en las binarias,
+  ninguna en `requirements.txt` ni en `requirements-windows.txt`, el extra en `pyproject.toml` y
+  las versiones instaladas iguales a las fijadas. Va aparte de
+  `test_las_dependencias_van_con_version_y_hash` para que no la tape el fallo de entorno de esa
+  prueba en Python 3.11 (el `anthropic` 2.8.0 de aquí, paso 0).
+- Los entornos de prueba (el `.venv` 3.11 y el 3.13 del paso 0) llevan las versiones fijadas. Lo
+  que la columna «Solo en Windows» de §9 pedía para este paso (que `instalar.bat` desempaquete
+  las ruedas nuevas) no aplica; en su lugar, que `docker compose build` instala las tres en la
+  imagen se comprueba donde hay demonio de Docker (aquí no lo hay).

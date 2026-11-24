@@ -12,7 +12,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# Paso 18: la firma del certificado del correo de facturas (bms_agent.correo.certificado). Solo
+# la lleva la imagen de Docker, fijada en docker/requirements-correo.txt: el correo es solo de
+# Docker y la instalacion nativa no la trae. Las pruebas la necesitan.
+correo = ["cryptography>=50"]
+dev = ["pytest>=8.0", "bms-agent[correo]"]
 
 [project.scripts]
 bms-agent = "bms_agent.cli:main"

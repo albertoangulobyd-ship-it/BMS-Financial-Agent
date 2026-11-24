@@ -25,13 +25,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY docker/requirements.txt /app/docker/requirements.txt
+# requirements-correo.txt: lo que solo necesita el correo de facturas (la firma del
+# certificado de Microsoft, paso 18), aparte porque la instalacion nativa no lo trae.
+COPY docker/requirements.txt docker/requirements-correo.txt /app/docker/
 # ca_extra es opcional: solo hace falta detras de un proxy de empresa que intercepta
 # TLS (docker build --secret id=ca_extra,src=su-certificado.pem). No queda en la imagen.
 RUN --mount=type=secret,id=ca_extra,required=false \
     if [ -s /run/secrets/ca_extra ]; then export PIP_CERT=/run/secrets/ca_extra; fi; \
     pip install --no-cache-dir --only-binary=:all: --require-hashes \
-        -r /app/docker/requirements.txt
+        -r /app/docker/requirements.txt -r /app/docker/requirements-correo.txt
 
 COPY pyproject.toml README.md /app/
 COPY config /app/config
