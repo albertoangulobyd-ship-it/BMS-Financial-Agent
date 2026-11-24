@@ -540,3 +540,14 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   cargan de verdad. **Para los pasos 8 y 9**: `cryptography.x509` importa `email.utils`, que
   importa `socket` (sin abrir nada); la guarda transitiva que se haga allí no puede exigir que
   `socket` no se cargue.
+- **Las comprobaciones que se daban por probadas tienen ahora cada una una prueba que falla sin
+  ella** (arreglo tras la revisión de los pasos 6 y 7; el código no cambia). Pasaban también
+  sin su código: el mínimo de 3072 bits (la clave de 2048 llevaba el certificado de otra y se
+  rechazaba por el par; ahora lleva el suyo, y cada `.pem` que no vale comprueba el motivo que
+  da), los GUID en minúsculas (el inquilino de las pruebas no tenía letras; ahora las tiene, y
+  el inquilino y la aplicación se pasan en mayúsculas a la aserción, a `ajustes fijar` y en el
+  fichero), el tope de 1 000 PDF al día (y que los dos máximos se admiten), las claves
+  repetidas, `NaN` e `Infinity` y los 16 KiB (cada uno sobre unos ajustes que, sin eso,
+  valdrían), un dominio de nivel superior con cifras (las direcciones que no valen tienen que
+  dar el error de su campo, `buzon:`, y no el de `buzon_control` por ser de otro dominio), y que
+  se quita el `.cer` que deja sin su `.pem` un `crear --siguiente` cortado.

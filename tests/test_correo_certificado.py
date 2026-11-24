@@ -43,8 +43,11 @@ from bms_agent.correo import MAX_PDF, ajustes, certificado
 
 SRC = RAIZ / "src" / "bms_agent"
 AHORA = datetime(2026, 11, 24, 10, 0, tzinfo=timezone.utc)
-INQUILINO = "11111111-2222-4333-8444-555555555555"
+# Los dos con letras: las pruebas los pasan tambien en mayusculas y tienen que salir en
+# minusculas (el `tid` del token se compara con el de los ajustes, paso 8).
+INQUILINO = "1111abcd-2222-4333-8444-55555555ef55"
 APLICACION = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+assert INQUILINO.upper() != INQUILINO and APLICACION.upper() != APLICACION
 BUZON = "facturen@contoso.onmicrosoft.com"
 CONTROL = "bms-control@contoso.onmicrosoft.com"
 
@@ -193,7 +196,8 @@ def test_la_asercion_es_la_que_pide_microsoft(creado) -> None:
     credencial = certificado.cargar(certificado.rutas(salida)[0])
     assert credencial.datos == datos
     momento = AHORA + timedelta(days=1, seconds=7)
-    asercion = credencial.asercion(INQUILINO.upper(), APLICACION, ahora=momento)
+    # En mayusculas o con espacios, el inquilino y la aplicacion salen en minusculas.
+    asercion = credencial.asercion(f" {INQUILINO.upper()}", APLICACION.upper(), ahora=momento)
     cabecera, carga, firma = asercion.split(".")
     der = x509.load_pem_x509_certificate(certificado.rutas(salida)[1].read_bytes()).public_bytes(
         serialization.Encoding.DER)
@@ -265,6 +269,17 @@ def _pkcs8(clave, cifrado=None) -> bytes:
                                cifrado or serialization.NoEncryption())
 
 
+def _autofirmado(clave) -> bytes:
+    """Un certificado autofirmado de esa clave (de cualquier tipo), en PEM: el par es suyo, asi
+    que un .pem con los dos solo se rechaza por la clave."""
+    nombre = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "otro")])
+    return (x509.CertificateBuilder().subject_name(nombre).issuer_name(nombre)
+            .public_key(clave.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(AHORA - timedelta(days=1))
+            .not_valid_after(AHORA + timedelta(days=365))
+            .sign(clave, hashes.SHA256())).public_bytes(serialization.Encoding.PEM)
+
+
 def test_un_pem_que_no_vale_se_dice_sin_la_clave(creado, carpeta) -> None:
     salida, _datos = creado
     bueno = certificado.rutas(salida)[0].read_bytes()
@@ -278,28 +293,35 @@ def test_un_pem_que_no_vale_se_dice_sin_la_clave(creado, carpeta) -> None:
                                serialization.NoEncryption())
     cifrada = _pkcs8(otra, serialization.BestAvailableEncryption(b"una contrasena"))
     rota = clave_pem.replace(clave_pem.split(b"\n")[5], b"A" * 64)
+    forma = "no es una clave privada PKCS#8 sin cifrar seguida de su certificado"
+    no_es_rsa = f"la clave no es RSA de {certificado.BITS} bits o mas"
+    # Cada uno con lo que tiene que decir: asi cada comprobacion se prueba sola, y no la tapa
+    # otra que va despues (una clave de 2048 bits con el certificado de otra se rechazaria
+    # tambien sin mirar los bits).
     casos = {
-        "vacio": b"",
-        "basura": b"esto no es un certificado\n",
-        "solo la clave": clave_pem,
-        "solo el certificado": cert_pem,
-        "otra clave": _pkcs8(otra) + cert_pem,
-        "pkcs1": pkcs1 + cert_pem,
-        "cifrada": cifrada + cert_pem,
-        "2048 bits": _pkcs8(pequena) + cert_pem,
-        "curva eliptica": _pkcs8(curva) + cert_pem,
-        "algo detras": bueno + b"y algo mas\n",
-        "algo delante": b"hola\n" + bueno,
-        "dos claves": clave_pem + bueno,
-        "clave rota": rota + cert_pem,
-        "demasiado grande": bueno + b"\n" * (certificado.MAX_PEM),
+        "vacio": (b"", forma),
+        "basura": (b"esto no es un certificado\n", forma),
+        "solo la clave": (clave_pem, forma),
+        "solo el certificado": (cert_pem, forma),
+        "otra clave": (_pkcs8(otra) + cert_pem, "el certificado no es el de esa clave"),
+        "pkcs1": (pkcs1 + cert_pem, forma),
+        "cifrada": (cifrada + cert_pem, forma),
+        "2048 bits": (_pkcs8(pequena) + _autofirmado(pequena), no_es_rsa),
+        "curva eliptica": (_pkcs8(curva) + _autofirmado(curva), no_es_rsa),
+        "algo detras": (bueno + b"y algo mas\n", forma),
+        "algo delante": (b"hola\n" + bueno, forma),
+        "dos claves": (clave_pem + bueno, forma),
+        "clave rota": (rota + cert_pem, "la clave o el certificado no se pueden leer"),
+        "demasiado grande": (bueno + b"\n" * (certificado.MAX_PEM),
+                             f"mas de {certificado.MAX_PEM} bytes"),
     }
-    for nombre, contenido in casos.items():
+    for nombre, (contenido, motivo) in casos.items():
         ruta = carpeta / f"{nombre}.pem"
         ruta.write_bytes(contenido)
         with pytest.raises(certificado.CertificadoNoValido) as error:
             certificado.cargar(ruta)
         exc = error.value
+        assert motivo in str(exc), (nombre, str(exc))
         # Ni encadenada a la de cryptography (que podria llevar algo de lo leido).
         assert exc.__cause__ is None and exc.__context__ is None, nombre
         texto = _excepcion_entera(exc)
@@ -418,6 +440,33 @@ def test_borrar_sin_opciones_corta_el_acceso(carpeta) -> None:
     assert _en_los_ajustes(carpeta) == (None, None, None)
 
 
+def test_un_cer_sin_su_pem_no_se_queda(carpeta, monkeypatch) -> None:
+    """Un `crear --siguiente` cortado tras escribir el .cer (el .pem va despues) deja un .cer
+    sin clave: nadie lo tiene que subir a Entra. La orden siguiente que cambia la carpeta lo
+    quita, aunque no sea suyo."""
+    _fijar_ajustes(carpeta)
+    actual = certificado.crear(carpeta, ahora=AHORA).datos.huella_sha256
+    escribir = ajustes.escribir_de_una_vez
+
+    def sin_sitio_para_el_pem(ruta: Path, contenido: bytes) -> None:
+        if ruta.suffix == ".pem":
+            raise OSError(28, "No space left on device")
+        escribir(ruta, contenido)
+
+    monkeypatch.setattr(ajustes, "escribir_de_una_vez", sin_sitio_para_el_pem)
+    with pytest.raises(OSError):
+        certificado.crear(carpeta, siguiente=True, ahora=AHORA)
+    monkeypatch.undo()
+    pem, cer = certificado.rutas(carpeta, "siguiente")
+    assert cer.is_file() and not pem.exists()
+    assert certificado.estado(carpeta)["siguiente"] is None
+    assert certificado.borrar(carpeta, "anterior") == ([], None)
+    assert not cer.exists()
+    assert sorted(p.name for p in carpeta.iterdir()) == [
+        "correo_ajustes.json", "correo_certificado.cer", "correo_certificado.pem"]
+    assert _en_los_ajustes(carpeta) == (actual, None, None)
+
+
 def test_unos_ajustes_que_no_valen_no_paran_la_renovacion(carpeta) -> None:
     (carpeta / ajustes.FICHERO).write_text("{}", encoding="utf-8")
     hecho = certificado.crear(carpeta, ahora=AHORA)
@@ -452,12 +501,13 @@ def test_la_cli_del_certificado_y_de_los_ajustes(carpeta, capsys, caplog) -> Non
     codigo, _salida, error = _cli(capsys, "ajustes", "fijar", "--carpeta", c, "--buzon", BUZON)
     assert codigo == 2 and "--inquilino, --aplicacion, --buzon-control" in error
     codigo, salida, error = _cli(capsys, "ajustes", "fijar", "--carpeta", c,
-                                 "--inquilino", INQUILINO.upper(), "--aplicacion", APLICACION,
+                                 "--inquilino", INQUILINO.upper(),
+                                 "--aplicacion", APLICACION.upper(),
                                  "--buzon", "Facturen@Contoso.onmicrosoft.com",
                                  "--buzon-control", CONTROL)
     assert (codigo, error) == (0, "")
     leidos = ajustes.leer(carpeta / ajustes.FICHERO)
-    assert (leidos.inquilino, leidos.buzon) == (INQUILINO, BUZON)
+    assert (leidos.inquilino, leidos.aplicacion, leidos.buzon) == (INQUILINO, APLICACION, BUZON)
     assert leidos.certificado.huella_sha256 == huella
     # Despues, solo lo que cambia: otro buzon de control (§2.3, control_no_existe).
     otro = "control-2@contoso.onmicrosoft.com"
@@ -536,29 +586,45 @@ def test_los_ajustes_se_leen_y_se_escriben_iguales(carpeta) -> None:
         ajustes.leer(carpeta / "no-esta.json")
 
 
+def test_los_ids_se_quedan_en_minusculas_y_los_topes_llegan_a_su_maximo(carpeta) -> None:
+    """Un GUID escrito en mayusculas se lee en minusculas (el inquilino va en `aud` y el paso 8
+    lo compara con el `tid` del token); los topes valen de 1 a su maximo, ambos incluidos."""
+    ruta = carpeta / ajustes.FICHERO
+    for pdf_dia, mib_dia in ((ajustes.TOPE_PDF_DIA, ajustes.TOPE_MIB_DIA), (1, 1)):
+        ruta.write_text(json.dumps(_ajustes_validos(
+            inquilino=INQUILINO.upper(), aplicacion=f"{APLICACION.upper()} ",
+            limites={"pdf_dia": pdf_dia, "mib_dia": mib_dia})), encoding="utf-8")
+        leidos = ajustes.leer(ruta)
+        assert (leidos.inquilino, leidos.aplicacion) == (INQUILINO, APLICACION)
+        assert leidos.limites == ajustes.Limites(pdf_dia, mib_dia)
+    assert (ajustes.TOPE_PDF_DIA, ajustes.TOPE_MIB_DIA) == (1000, 4096)
+
+
 @pytest.mark.parametrize("cambios, campo", [
     ({"version": 2}, "version"),
     ({"version": True}, "version"),
     ({"inquilino": "contoso.onmicrosoft.com"}, "inquilino"),
     ({"inquilino": "11111111-2222-4333-8444-55555555555g"}, "inquilino"),
     ({"aplicacion": "11111111222243338444555555555555"}, "aplicacion"),
-    ({"buzon": "facturen@contoso.onmicrosoft.com/../users"}, "buzon"),
-    ({"buzon": "facturen@contoso.onmicrosoft.com?$expand=x"}, "buzon"),
-    ({"buzon": "fac#turen@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": "fac%2Fturen@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": "fac turen@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": "facturen@contoso"}, "buzon"),
-    ({"buzon": "factuKen@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": ".facturen@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": "a" * 65 + "@contoso.onmicrosoft.com"}, "buzon"),
-    ({"buzon": 7}, "buzon"),
-    ({"buzon_control": BUZON}, "buzon_control"),
-    ({"buzon_control": "bms-control@fabrikam.example"}, "buzon_control"),
+    ({"buzon": "facturen@contoso.onmicrosoft.com/../users"}, "buzon:"),
+    ({"buzon": "facturen@contoso.onmicrosoft.com?$expand=x"}, "buzon:"),
+    ({"buzon": "fac#turen@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": "fac%2Fturen@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": "fac turen@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": "facturen@contoso"}, "buzon:"),
+    ({"buzon": "facturen@contoso.123"}, "buzon:"),
+    ({"buzon": "factuKen@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": ".facturen@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": "a" * 65 + "@contoso.onmicrosoft.com"}, "buzon:"),
+    ({"buzon": 7}, "buzon:"),
+    ({"buzon_control": BUZON}, "buzon_control:"),
+    ({"buzon_control": "bms-control@fabrikam.example"}, "buzon_control:"),
     ({"desde": "2026-13-01"}, "desde"),
     ({"desde": "25-10-2026"}, "desde"),
     ({"limites": {"pdf_dia": 0, "mib_dia": 750}}, "limites.pdf_dia"),
     ({"limites": {"pdf_dia": True, "mib_dia": 750}}, "limites.pdf_dia"),
-    ({"limites": {"pdf_dia": 150, "mib_dia": 10 ** 6}}, "limites.mib_dia"),
+    ({"limites": {"pdf_dia": 1001, "mib_dia": 750}}, "limites.pdf_dia"),
+    ({"limites": {"pdf_dia": 150, "mib_dia": 4097}}, "limites.mib_dia"),
     ({"limites": {"pdf_dia": 150}}, "limites"),
     ({"certificado": {"huella_sha256": "A" * 64, "caduca_en": "2028-11-24T10:00:00Z"}},
      "certificado.huella_sha256"),
@@ -580,14 +646,39 @@ def test_unos_ajustes_que_no_valen_dicen_el_campo_y_no_lo_que_pone(carpeta, camb
             assert valor not in texto
 
 
-@pytest.mark.parametrize("contenido", [
-    b"", b"[]", b"no es json", b'{"version": 1, "version": 1}', b"\xff\xfe",
-    b'{"version": NaN}', b"[" * 16000, b" " * (ajustes.MAX_BYTES + 1)])
-def test_un_fichero_de_ajustes_que_no_es_json_de_ajustes(carpeta, contenido) -> None:
+_BUENOS = json.dumps(_ajustes_validos()).encode("ascii")
+_NO_ES_JSON = "no es JSON en UTF-8 (o lleva claves repetidas)"
+
+
+def _con(viejo: bytes, nuevo: bytes) -> bytes:
+    assert _BUENOS.count(viejo) == 1
+    return _BUENOS.replace(viejo, nuevo)
+
+
+@pytest.mark.parametrize("contenido, motivo", [
+    (b"", _NO_ES_JSON),
+    (b"[]", "no son un objeto JSON"),
+    (b"no es json", _NO_ES_JSON),
+    (b"\xff\xfe", _NO_ES_JSON),
+    (b"[" * 16000, _NO_ES_JSON),
+    (b" " * (ajustes.MAX_BYTES + 1), f"mas de {ajustes.MAX_BYTES} bytes"),
+    # Unos ajustes buenos con algo mas: cada uno se rechaza por lo suyo, no por otra cosa
+    # (sin la comprobacion de las repetidas, el JSON se quedaria con la ultima y valdria).
+    (_BUENOS[:-1] + b', "desde": "2026-10-24"}', _NO_ES_JSON),
+    (_con(b'"mib_dia": 750}', b'"mib_dia": 750, "pdf_dia": 20}'), _NO_ES_JSON),
+    (_con(b'"pdf_dia": 150', b'"pdf_dia": NaN'), _NO_ES_JSON),
+    (_con(b'"mib_dia": 750', b'"mib_dia": Infinity'), _NO_ES_JSON),
+    (_BUENOS + b" " * ajustes.MAX_BYTES, f"mas de {ajustes.MAX_BYTES} bytes"),
+])
+def test_un_fichero_de_ajustes_que_no_es_json_de_ajustes(carpeta, contenido, motivo) -> None:
     ruta = carpeta / ajustes.FICHERO
     ruta.write_bytes(contenido)
-    with pytest.raises(ajustes.AjustesNoValidos):
+    with pytest.raises(ajustes.AjustesNoValidos) as error:
         ajustes.leer(ruta)
+    assert motivo in str(error.value)
+    # Lo de antes de cada cambio son unos ajustes que valen.
+    ruta.write_bytes(_BUENOS)
+    assert ajustes.leer(ruta).limites == ajustes.Limites(150, 750)
 
 
 def test_fijar_los_ajustes() -> None:
@@ -605,6 +696,16 @@ def test_fijar_los_ajustes() -> None:
         ajustes.fijar(primeros, hoy=hoy, desde="2026-11-25")
     with pytest.raises(ajustes.AjustesNoValidos, match="limites.mib_dia"):
         ajustes.fijar(primeros, hoy=hoy, mib_dia=0)
+    with pytest.raises(ajustes.AjustesNoValidos, match="limites.pdf_dia"):
+        ajustes.fijar(primeros, hoy=hoy, pdf_dia=ajustes.TOPE_PDF_DIA + 1)
+    with pytest.raises(ajustes.AjustesNoValidos, match="limites.mib_dia"):
+        ajustes.fijar(primeros, hoy=hoy, mib_dia=ajustes.TOPE_MIB_DIA + 1)
+    assert ajustes.fijar(primeros, hoy=hoy, pdf_dia=ajustes.TOPE_PDF_DIA,
+                         mib_dia=ajustes.TOPE_MIB_DIA).limites == ajustes.Limites(1000, 4096)
+    # Los ids, en minusculas aunque se den en mayusculas.
+    otros = ajustes.fijar(primeros, hoy=hoy, inquilino=INQUILINO.upper(),
+                          aplicacion=APLICACION.upper())
+    assert (otros.inquilino, otros.aplicacion) == (INQUILINO, APLICACION)
     with pytest.raises(ajustes.AjustesNoValidos, match="otro buzon"):
         ajustes.fijar(primeros, hoy=hoy, buzon_control=BUZON.upper())
 
