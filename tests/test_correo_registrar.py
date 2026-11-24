@@ -310,6 +310,8 @@ def test_una_carpeta_cambiada_por_un_enlace_no_se_toca(almacen, caja, tmp_path, 
         assert hecho.mensajes == 0 and _filas(almacen.conn, "mensaje_correo") == []
     estado = almacen.conn.execute("SELECT * FROM estado_correo").fetchone()
     assert estado["error_codigo"] == "interno"
+    assert [(r["error_codigo"], r["terminada_en"]) for r in _filas(almacen.conn, "ronda_correo")
+            if r["error_codigo"] == "interno"] == [("interno", None)]
 
 
 def test_json_que_no_vale_se_rechaza_y_se_quita(almacen, caja) -> None:
@@ -331,7 +333,9 @@ def test_json_que_no_vale_se_rechaza_y_se_quita(almacen, caja) -> None:
         "fecha": bandeja.como_json(dict(base, recibido_en="2026-11-23 08:14:02")),
         "asunto": bandeja.como_json(dict(base, asunto="x" * 201)),
         "remitente": bandeja.como_json(dict(base, remitente=["a"])),
-        "adjuntos": bandeja.como_json(dict(base, adjuntos=[caja.adjunto("xml")] * 51)),
+        # 51 adjuntos, cada uno con su id (si no, lo rechazaria el id repetido, no el tope).
+        "adjuntos": bandeja.como_json(dict(base, adjuntos=[caja.adjunto("xml")
+                                                           for _ in range(51)])),
         "resultado": bandeja.como_json(dict(base, adjuntos=[dict(caja.adjunto("xml"),
                                                                  resultado="documento")])),
         "sha_sin_pdf": bandeja.como_json(dict(base, adjuntos=[dict(caja.adjunto("xml"),
@@ -350,9 +354,17 @@ def test_json_que_no_vale_se_rechaza_y_se_quita(almacen, caja) -> None:
     hecho = _registrar(almacen, caja)
     assert hecho.mensajes == 0
     assert len(hecho.rechazados) == len(casos) + 1
+    assert sum("adjuntos no validos" in r for r in hecho.rechazados) == 1
     assert caja.ficheros() == [] and _filas(almacen.conn, "mensaje_correo") == []
     # Lo que dice no copia nada de lo que venia.
     assert not any("hola" in r or "enviados" in r or "otro" in r for r in hecho.rechazados)
+
+
+def test_cincuenta_adjuntos_entran(almacen, caja) -> None:
+    caja.llegada(*(caja.adjunto("xml", f"a-{i}.xml") for i in range(bandeja.MAX_ADJUNTOS)))
+    hecho = _registrar(almacen, caja)
+    assert (hecho.mensajes, hecho.rechazados) == (1, [])
+    assert len(_filas(almacen.conn, "adjunto_correo")) == 50
 
 
 def test_un_pdf_que_no_casa_o_no_es_pdf_queda_error(almacen, caja) -> None:
@@ -368,6 +380,35 @@ def test_un_pdf_que_no_casa_o_no_es_pdf_queda_error(almacen, caja) -> None:
     assert [(a["resultado"], a["sha256"]) for a in _filas(almacen.conn, "adjunto_correo")] == [
         ("documento", sha256_bytes(bueno)), ("error", None), ("error", None), ("error", None)]
     assert len(hecho.rechazados) == 2 and caja.ficheros() == []
+
+
+def test_un_documento_apuntado_sin_su_original(almacen, caja) -> None:
+    """Un documento que ya estaba apuntado sin su original (su hash, sin los bytes): si su PDF
+    llega bien, el original se anade; si no esta o no casa, el adjunto apunta igual a ese
+    documento (no es `error`: el documento existe), y el original sigue faltando."""
+    conn = almacen.conn
+    contenidos = {"con.pdf": pdf("con"), "no-casa.pdf": pdf("no-casa"), "falta.pdf": pdf("falta")}
+    with transaccion(conn):
+        ids = {nombre: registrar_documento(
+            almacen, sha256=sha256_bytes(contenido), contenido=None, nombre_original=nombre,
+            tipo_mime="application/pdf", origen="carpeta", ruta_declarada="entrante",
+            recibido_en=None, recibido_fuente="desconocido",
+            actor=usuario_sistema(conn, "extractor")).id
+            for nombre, contenido in contenidos.items()}
+    no_casa = caja.adjunto_pdf(contenidos["no-casa.pdf"], escribir=False)
+    (caja.pdf / f"{no_casa['sha256']}.pdf").write_bytes(pdf("otro"))
+    caja.llegada(caja.adjunto_pdf(contenidos["con.pdf"]), no_casa,
+                 caja.adjunto_pdf(contenidos["falta.pdf"], escribir=False))
+    hecho = _registrar(almacen, caja)
+    assert (hecho.mensajes, hecho.documentos_nuevos, len(hecho.rechazados)) == (1, 0, 1)
+    assert [(a["resultado"], a["documento_id"]) for a in _filas(conn, "adjunto_correo")] == [
+        ("documento", ids["con.pdf"]), ("documento", ids["no-casa.pdf"]),
+        ("documento", ids["falta.pdf"])]
+    rutas = {d["id"]: d["ruta_cas"] for d in _filas(conn, "documento")}
+    assert rutas[ids["con.pdf"]] is not None
+    assert rutas[ids["no-casa.pdf"]] is None and rutas[ids["falta.pdf"]] is None
+    assert caja.ficheros() == []
+    assert verificar_evidencia(conn) == []
 
 
 def test_un_pdf_de_mas_de_20_mib_queda_error(almacen, caja, monkeypatch) -> None:
@@ -416,8 +457,17 @@ def test_una_llegada_del_futuro_espera_y_el_correo_dice_reloj(almacen, caja, rel
     assert (caja.llegadas / caja.nombre(futura)).exists()        # se queda
     estado = conn.execute("SELECT * FROM estado_correo").fetchone()
     assert (estado["error_codigo"], estado["error_desde"]) == ("reloj", marca(AHORA))
+    # Lo que vio la pasada queda en ronda_correo, una fila sin terminada_en (no es una ronda),
+    # solo cuando el codigo cambia.
+    assert [(r["error_codigo"], r["terminada_en"], r["empezada_en"])
+            for r in _filas(conn, "ronda_correo")] == [
+        (None, "2026-11-24T09:55:00+00:00", "2026-11-24T09:55:00+00:00"),
+        ("reloj", None, marca(AHORA))]
+    reloj.avanzar(seconds=30)
+    assert _registrar(almacen, caja).error_codigo == "reloj"
+    assert len(_filas(conn, "ronda_correo")) == 2
     # El reloj se pone bien (y el correo hace otra ronda): entra, con su fecha del servidor.
-    reloj.avanzar(minutes=10)
+    reloj.avanzar(minutes=9, seconds=30)
     caja.estado_json(empezada="2026-11-24T10:09:00Z", mensajes=0, pdf=0)
     hecho = _registrar(almacen, caja)
     assert (hecho.mensajes, hecho.esperan_reloj, hecho.error_codigo) == (1, 0, None)
@@ -440,6 +490,119 @@ def test_2500_ficheros_mira_2000_los_mas_antiguos(almacen, caja) -> None:
     hecho = _registrar(almacen, caja)
     assert hecho.mensajes == 500 and not hecho.quedan
     assert caja.ficheros() == []
+
+
+def test_las_mas_antiguas_aunque_haya_muchas_mas(tmp_path) -> None:
+    """Con mas de 4 veces las que caben, _mas_antiguas recorta por el camino (no guarda un millon
+    de nombres): se queda siempre con las mas antiguas, esten donde esten en la carpeta."""
+    carpeta = tmp_path / "llegadas"
+    carpeta.mkdir()
+    for i in range(30):
+        (carpeta / f"{i:064x}.json").write_bytes(b"{}")
+    orden = [e.name for e in os.scandir(carpeta)]          # el orden en que las lee scandir
+    # Las dos mas antiguas, justo antes del primer recorte (con 2, caben 8 antes de recortar).
+    for posicion, nombre in enumerate(orden):
+        segundos = 1 if posicion in (5, 6) else 1000 + posicion
+        os.utime(carpeta / nombre, ns=(segundos * 10 ** 9,) * 2)
+    descriptor = os.open(carpeta, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        normales, raras, mas = registrar._mas_antiguas(descriptor, bandeja.NOMBRE_LLEGADA, 2, 2)
+    finally:
+        os.close(descriptor)
+    assert (sorted(normales), raras, mas) == (sorted(orden[5:7]), [], True)
+
+
+def test_lo_que_no_es_un_fichero_no_ocupa_el_sitio_de_las_llegadas(almacen, caja,
+                                                                   monkeypatch) -> None:
+    """Carpetas con nombre de llegada o de PDF, mas antiguas que todo: se quitan aparte, sin
+    leerlas y sin ocupar el sitio de las de verdad (si no, 2 000 asi pararian el correo para
+    siempre). Una carpeta vacia se quita; una con algo dentro no (nada de dentro se borra):
+    cuenta, y la pasada deja `interno` para que lo mire una persona."""
+    monkeypatch.setattr(registrar, "POR_PASADA", 3)
+
+    def carpeta(ruta: Path, *, llena: bool = False) -> Path:
+        ruta.mkdir()
+        if llena:
+            (ruta / "dentro").write_bytes(b"x")
+        os.utime(ruta, (1, 1))
+        return ruta
+
+    vacias = [carpeta(caja.llegadas / f"{i:064x}.json") for i in range(2)]
+    llena = carpeta(caja.llegadas / f"{9:064x}.json", llena=True)
+    pdf_vacia = carpeta(caja.pdf / ("b" * 64 + ".pdf"))
+    pdf_llena = carpeta(caja.pdf / ("c" * 64 + ".pdf"), llena=True)
+    caja.llegada(caja.adjunto_pdf(pdf("buena")))
+    hecho = _registrar(almacen, caja)
+    assert (hecho.mensajes, hecho.documentos_nuevos) == (1, 1)
+    assert len(hecho.rechazados) == 5 and hecho.sin_quitar == 2
+    assert hecho.pdf_borrados == 2                  # el de la llegada y la carpeta vacia
+    assert not any(v.exists() for v in vacias) and not pdf_vacia.exists()
+    assert (llena / "dentro").exists() and (pdf_llena / "dentro").exists()
+    assert hecho.error_codigo == "interno"
+    assert almacen.conn.execute("SELECT error_codigo FROM estado_correo").fetchone()[0] == (
+        "interno")
+    # La pasada siguiente: lo que llega despues entra igual.
+    caja.llegada(caja.adjunto_pdf(pdf("otra")))
+    hecho = _registrar(almacen, caja)
+    assert (hecho.mensajes, hecho.sin_quitar, hecho.pdf_borrados) == (1, 2, 1)
+
+
+def test_un_acuse_que_no_se_puede_hacer_no_se_calla(tmp_path, caja, monkeypatch,
+                                                    capsys) -> None:
+    """Si la bandeja no deja quitar lo registrado (el volumen con otro dueno), no se calla: lo
+    cuenta, la pasada deja `interno` (la app lo dice) y la CLI sale con CORREO_FALLO; la vez
+    siguiente es un repetido y lo sigue diciendo. Sin esto, la bandeja se llenaba sin que nadie
+    lo viera y, con 2 000 asi, el correo nuevo no entraba nunca."""
+    import errno
+
+    real = os.unlink
+
+    def unlink(ruta, *, dir_fd=None):
+        if dir_fd is not None:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real(ruta)
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {unlink})
+    caja.estado_json()
+    caja.llegada(caja.adjunto_pdf(pdf("acuse")))
+    db = tmp_path / "datos" / "bms.sqlite3"
+    argumentos = ["correo", "registrar", "--entrada", str(caja.entrada), "--estado",
+                  str(caja.estado), "--db", str(db)]
+    assert cli.main(argumentos) == cli.CORREO_FALLO
+    salida = capsys.readouterr()
+    assert "1 mensajes" in salida.out and "0 PDF quitados" in salida.out
+    assert "2 entradas de la bandeja no se han podido quitar" in salida.err
+    assert len(caja.ficheros()) == 2
+    assert cli.main(argumentos) == cli.CORREO_FALLO
+    salida = capsys.readouterr()
+    assert "0 mensajes" in salida.out and "1 repetidos" in salida.out
+    assert "2 entradas de la bandeja no se han podido quitar" in salida.err
+    with preparar(db) as almacen:
+        correo = consultas.correo(almacen.conn, "contenedor")
+        assert (correo["estado"], correo["error_codigo"]) == ("error", "interno")
+        assert almacen.conn.execute("SELECT count(*) FROM mensaje_correo").fetchone()[0] == 1
+
+
+def test_borrar_no_sigue_enlaces_ni_vacia_carpetas(tmp_path) -> None:
+    carpeta = tmp_path / "c"
+    carpeta.mkdir()
+    fuera = tmp_path / "fuera"
+    fuera.mkdir()
+    (fuera / "f").write_bytes(b"x")
+    (carpeta / "enlace").symlink_to(fuera, target_is_directory=True)
+    (carpeta / "vacia").mkdir()
+    (carpeta / "llena").mkdir()
+    (carpeta / "llena" / "f").write_bytes(b"x")
+    (carpeta / "fichero").write_bytes(b"x")
+    descriptor = os.open(carpeta, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert [registrar._borrar(descriptor, n) for n in (
+            "enlace", "vacia", "llena", "fichero", "no-esta")] == [True, True, None, True, False]
+    finally:
+        os.close(descriptor)
+    assert sorted(p.name for p in carpeta.iterdir()) == ["llena"]
+    assert (fuera / "f").exists() and (carpeta / "llena" / "f").exists()
 
 
 # ============================================================ idempotencia
@@ -572,6 +735,8 @@ def test_sin_estado_json_el_correo_sigue_sin_configurar(almacen, caja) -> None:
     {"version": 2}, {"aviso_volumen": 1}, {"buzon": "a\u202eb@contoso.onmicrosoft.com"},
     {"ronda": {"empezada": "x"}}, {"hoy": {"fecha": "hoy", "mensajes": 0, "pdf": 0, "bytes": 0}},
     {"alcance": {"comprobado_en": None, "bien": True, "motivo_codigo": None}},
+    {"alcance": {"comprobado_en": "2026-11-24T09:00:00Z", "bien": False,
+                 "motivo_codigo": "otro"}},
     {"sobra": 1}])
 def test_un_estado_json_que_no_vale_es_interno(almacen, caja, cambio) -> None:
     datos = caja.estado_json()
@@ -606,10 +771,35 @@ def test_el_codigo_que_no_es_de_la_ronda_no_lo_tapa_una_ronda_vieja(almacen, caj
     assert verificar_evidencia(conn) == []
 
 
-def test_fallo_sin_estado_previo(almacen) -> None:
-    assert registrar.apuntar_fallo(almacen, "disco")
-    estado = almacen.conn.execute("SELECT * FROM estado_correo").fetchone()
-    assert (estado["error_codigo"], estado["hoy_json"], estado["buzon"]) == ("disco", "{}", None)
+def test_un_fallo_sin_el_correo_no_lo_da_por_configurado(almacen, caja, reloj) -> None:
+    """El ciclo apunta `--fallo disco` sin mirar si hay correo (§4.1, paso 2). Sin nada del
+    correo (estado_correo vacio) no se apunta nada: la app sigue en sin_configurar, sin la banda
+    del buzon (la del disco la pone estado_ciclo), y no queda nada que nadie vaya a quitar."""
+    from bms_agent import ciclo
+
+    conn = almacen.conn
+    ciclo.latido(conn, disco_libre=5 * 1024 ** 3, variante="docker")
+    assert registrar.apuntar_fallo(almacen, "disco") is None
+    assert registrar.apuntar_fallo(almacen, "salida") is None
+    assert _filas(conn, "estado_correo") == [] and _filas(conn, "ronda_correo") == []
+    correo = consultas.correo(conn, "contenedor")
+    assert (correo["configurado"], correo["estado"], correo["error_codigo"]) == (
+        False, "sin_configurar", None)
+    assert [b.split(" · ")[0] for b in consultas.bandas_urgentes(conn)] == ["SCHIJF"]
+    # El disco vuelve: no queda nada.
+    reloj.avanzar(hours=2)
+    ciclo.latido(conn, disco_libre=200 * 1024 ** 3)
+    assert consultas.bandas_urgentes(conn) == []
+    assert consultas.correo(conn, "contenedor")["estado"] == "sin_configurar"
+    # Con el correo ya registrado, si se apunta; y la ronda siguiente del correo lo quita.
+    caja.estado_json(empezada="2026-11-24T11:55:00Z")
+    _registrar(almacen, caja)
+    assert registrar.apuntar_fallo(almacen, "disco") is True
+    assert consultas.correo(conn, "contenedor")["error_codigo"] == "disco"
+    reloj.avanzar(minutes=5)
+    caja.estado_json(empezada="2026-11-24T12:04:00Z", mensajes=0, pdf=0)
+    assert _registrar(almacen, caja).error_codigo is None
+    assert consultas.correo(conn, "contenedor")["estado"] == "al_dia"
     with pytest.raises(ValueError):
         registrar.apuntar_fallo(almacen, "ocupado")
 
@@ -644,8 +834,14 @@ def test_la_cli(tmp_path, caja, capsys, monkeypatch) -> None:
     assert cli.main(argumentos) == 0
     salida = capsys.readouterr()
     assert "1 mensajes, 1 documentos nuevos" in salida.out
+    # Sin estado.json todavia, el correo sigue sin configurar: --fallo no apunta nada.
     assert cli.main(["correo", "registrar", "--fallo", "salida", "--db", str(db)]) == 0
-    assert "salida" in capsys.readouterr().out
+    assert "no se apunta salida" in capsys.readouterr().out
+    caja.estado_json()
+    assert cli.main(argumentos) == 0
+    capsys.readouterr()
+    assert cli.main(["correo", "registrar", "--fallo", "salida", "--db", str(db)]) == 0
+    assert "Correo: apuntado salida." in capsys.readouterr().out
     assert cli.main(["correo", "registrar", "--db", str(db)]) == 2          # faltan carpetas
     caja.escribir_llegada({}, nombre="0" * 64 + ".json", contenido=b"Asunto-que-no-se-dice{")
     assert cli.main(argumentos) == cli.CORREO_FALLO

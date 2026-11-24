@@ -677,3 +677,43 @@ def test_el_estado_del_correo(tmp_path, columnas, minutos, esperado) -> None:
     assert correo["retenido_hasta"] == (columnas["retenido_hasta"] if esperado == "retenido"
                                         else None)
     conn.close()
+
+
+def test_el_correo_hoy_los_recientes_y_los_dias_del_certificado(tmp_path) -> None:
+    """`hoy` es solo el de hoy en Amsterdam (el estado.json de ayer da ceros); `recientes`, los
+    10 mas recientes por la hora del servidor (no por el orden en que se registraron);
+    `credencial.dias`, los dias enteros que quedan, negativos si ya caduco."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    from test_lectura_automatica import _correo
+
+    from bms_agent.almacen import abrir
+    from bms_agent.almacen.migrar import migrar
+    from bms_agent.reloj import RelojFijo, marca
+
+    ahora = datetime(2026, 11, 24, 23, 30, tzinfo=timezone.utc)     # el 25 en Amsterdam
+    conn = abrir(":memory:", reloj=RelojFijo(ahora))
+    migrar(conn)
+
+    def estado(fecha: str, caduca: datetime) -> dict:
+        conn.execute("DELETE FROM estado_correo")
+        conn.execute(
+            "INSERT INTO estado_correo (id, ultima_consulta, ultima_buena, credencial_caduca_en, "
+            "hoy_json, aviso_volumen, actualizado_en) VALUES (1, ?, ?, ?, ?, 0, ?)",
+            (marca(ahora), marca(ahora), marca(caduca),
+             json.dumps({"fecha": fecha, "mensajes": 3, "pdf": 2, "bytes": 4000}), marca(ahora)))
+        return consultas.correo(conn, "contenedor")
+
+    correo = estado("2026-11-25", ahora + timedelta(days=12, hours=1))
+    assert correo["hoy"] == {"mensajes": 3, "pdf_nuevos": 2, "bytes": 4000}
+    assert correo["credencial"]["dias"] == 12
+    correo = estado("2026-11-24", ahora - timedelta(days=3))
+    assert correo["hoy"] == {"mensajes": 0, "pdf_nuevos": 0, "bytes": 0}
+    assert correo["credencial"]["dias"] == -3
+    # 12 correos registrados en un orden que no es el de su llegada al servidor.
+    horas = [5, 1, 11, 3, 9, 0, 7, 2, 10, 4, 8, 6]
+    ids = {hora: _correo(conn, marca(ahora - timedelta(hours=12 - hora))) for hora in horas}
+    recientes = consultas.correo(conn, "contenedor")["recientes"]
+    assert [m["mensaje_id"] for m in recientes] == [ids[h] for h in range(11, 1, -1)]
+    conn.close()

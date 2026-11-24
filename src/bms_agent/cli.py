@@ -3190,8 +3190,12 @@ def _cmd_correo_registrar(args: argparse.Namespace) -> int:
             if args.fallo is not None:
                 cambio = registrar.apuntar_fallo(almacen, args.fallo)
                 _anclar(almacen)
-                print(f"Correo: apuntado {args.fallo}"
-                      + ("." if cambio else " (ya estaba)."))
+                if cambio is None:
+                    print(f"Correo: sin configurar (aun no ha dejado su estado): no se apunta "
+                          f"{args.fallo}.")
+                else:
+                    print(f"Correo: apuntado {args.fallo}"
+                          + ("." if cambio else " (ya estaba)."))
                 return 0
             hecho = registrar.registrar(almacen, entrada=args.entrada, estado=args.estado)
             _anclar(almacen)
@@ -3223,6 +3227,11 @@ def _cmd_correo_registrar(args: argparse.Namespace) -> int:
     if hecho.fallidos:
         print(f"  {hecho.fallidos} mensajes no han entrado (la base o el almacen): se quedan en la "
               "bandeja para la proxima vez.", file=sys.stderr)
+        malo = True
+    if hecho.sin_quitar:
+        print(f"  {hecho.sin_quitar} entradas de la bandeja no se han podido quitar (permisos, o "
+              "una carpeta con algo dentro): la bandeja no se vacia; que lo mire una persona.",
+              file=sys.stderr)
         malo = True
     return CORREO_FALLO if malo else 0
 

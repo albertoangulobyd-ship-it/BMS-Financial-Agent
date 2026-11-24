@@ -3820,8 +3820,14 @@ def bandas_urgentes(conn: sqlite3.Connection) -> list[str]:
             correo_parado("het programma kan meer lezen dan alleen de facturenmailbox.",
                           "the program can read more than the invoice mailbox.")
         buena = _instante_de(fila["ultima_buena"])
+        if buena is None:
+            # Aun ninguna buena (un buzon recien configurado cuya primera ronda fallo): las 24
+            # horas cuentan desde lo primero que se supo del correo, no desde siempre.
+            primera = conn.execute("SELECT min(datetime(empezada_en)) FROM ronda_correo"
+                                   ).fetchone()[0]
+            buena = _instante_de(primera or fila["error_desde"])
         # Con el porque ya dicho (el certificado, el alcance), no se repite.
-        if not parado and (buena is None or ahora - buena > BANDA_SIN_RONDA_BUENA):
+        if not parado and buena is not None and ahora - buena > BANDA_SIN_RONDA_BUENA:
             correo_parado("al meer dan 24 uur geen geslaagde controle van de mailbox.",
                           "no successful mailbox check for more than 24 hours.")
     latido = ciclo.leer(conn)
@@ -3849,17 +3855,21 @@ def bandas_urgentes(conn: sqlite3.Connection) -> list[str]:
         nl, en = _BANDA_API[ultima["motivo_codigo"]]
         lineas.append(f"LEZEN · {nl} · READING · {en}")
     resumen = lectura_automatica.resumen(conn, ahora)
-    antigua = _instante_de(resumen["elegible_mas_antigua"])
+    corte = ahora - BANDA_ESPERA
+    encendida = _instante_de(lectura_automatica.encendida_desde(conn))
+    # Las que esperan mas de 4 horas desde que entraron (las registro `correo registrar`, no
+    # cuando las recibio Microsoft) con la automatica encendida todo ese tiempo, sin pausa ni
+    # tope, y sin ninguna automatica buena en esas 4 horas: la lectura falla sin decirlo (O2).
     if (resumen["activa"] and resumen["parada"] not in ("persona", "volumen", "limite_dia",
                                                          "limite_mes")
-            and antigua is not None and ahora - antigua > BANDA_ESPERA):
+            and encendida is not None and encendida <= corte):
         from .reloj import marca
 
+        cuantas = lectura_automatica.elegibles_que_esperan(conn, corte)
         buena_desde = conn.execute(
             "SELECT 1 FROM solicitud_lectura WHERE origen = 'automatica' AND estado = 'hecha' "
-            "AND datetime(terminada_en) > datetime(?)", (marca(antigua),)).fetchone()
-        if buena_desde is None:
-            cuantas = lectura_automatica.elegibles_que_esperan(conn, ahora - BANDA_ESPERA)
+            "AND datetime(terminada_en) > datetime(?)", (marca(corte),)).fetchone()
+        if cuantas and buena_desde is None:
             lineas.append(f"LEZEN · {cuantas} facturen wachten al meer dan 4 uur op automatisch "
                           f"lezen. · READING · {cuantas} invoices have waited more than 4 hours "
                           "for automatic reading.")

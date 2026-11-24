@@ -139,11 +139,16 @@ def test_sin_nada_no_hay_bandas(almacen) -> None:
     ({"alcance_bien": 0, "error_codigo": "alcance", "error_desde": marca(AHORA)},
      "het programma kan meer lezen dan alleen de facturenmailbox",
      "the program can read more than the invoice mailbox"),
+    # La ultima comprobacion del alcance salio mal, aunque la ronda no lo diga como error.
+    ({"alcance_bien": 0}, "het programma kan meer lezen dan alleen de facturenmailbox",
+     "the program can read more than the invoice mailbox"),
     ({"error_codigo": "control_no_existe", "error_desde": marca(AHORA)},
      "de controlemailbox bestaat niet meer", "the control mailbox no longer exists"),
     ({"ultima_buena": marca(AHORA - timedelta(hours=25))},
      "al meer dan 24 uur geen geslaagde controle", "no successful mailbox check for more"),
-    ({"ultima_buena": None, "error_codigo": "credencial", "error_desde": marca(AHORA)},
+    # Sin ninguna buena todavia (ni rondas apuntadas): desde que empezo el error.
+    ({"ultima_buena": None, "error_codigo": "credencial",
+      "error_desde": marca(AHORA - timedelta(hours=25))},
      "al meer dan 24 uur geen geslaagde controle", "no successful mailbox check for more"),
 ])
 def test_las_bandas_del_correo(almacen, columnas, nl, en) -> None:
@@ -209,15 +214,25 @@ def test_la_banda_de_la_api_sin_saldo_o_con_la_clave_rechazada(almacen) -> None:
 
 
 def test_la_banda_de_las_facturas_que_esperan_mas_de_4_horas(almacen, reloj) -> None:
+    """§6.1: elegibles que esperan mas de 4 horas desde que entraron (las registro `correo
+    registrar`), con la automatica encendida todo ese tiempo, sin pausa ni tope, y sin ninguna
+    automatica buena en esas 4 horas (la lectura falla sin decirlo)."""
     from conftest import persona
     from test_lectura_automatica import POR_DEFECTO, _del_correo
 
     conn = almacen.conn
-    _del_correo(almacen, "una", "dos", recibido=marca(AHORA - timedelta(hours=5)))
-    _del_correo(almacen, "nueva", recibido=marca(AHORA - timedelta(hours=1)))
-    assert _bandas(conn) == []                         # apagada: no se espera nada
     ana = persona(conn, "Ana", "administrador")
+    _del_correo(almacen, "una", "dos", recibido=marca(AHORA - timedelta(hours=1)))
+    reloj.avanzar(hours=5)
+    assert _bandas(conn) == []                         # apagada: no se espera nada
+    # Recien encendida, lo que ya estaba no lleva 4 horas esperando a la automatica.
     auto.fijar(conn, ana, **POR_DEFECTO, motivo="Las del correo")
+    reloj.avanzar(hours=3, minutes=59)
+    assert _bandas(conn) == []
+    # Cambiar los topes no la apaga: sigue contando desde que se encendio.
+    auto.fijar(conn, ana, **{**POR_DEFECTO, "max_documentos": 7}, motivo="Mas por ronda")
+    reloj.avanzar(minutes=2)
+    _del_correo(almacen, "nueva", recibido=marca(reloj.ahora() - timedelta(minutes=1)))
     [banda] = _bandas(conn)
     assert banda == ("LEZEN · 2 facturen wachten al meer dan 4 uur op automatisch lezen. · "
                      "READING · 2 invoices have waited more than 4 hours for automatic reading.")
@@ -226,11 +241,85 @@ def test_la_banda_de_las_facturas_que_esperan_mas_de_4_horas(almacen, reloj) -> 
     assert _bandas(conn) == []
 
 
+def test_la_espera_cuenta_desde_que_entro_no_desde_que_la_recibio_microsoft(almacen, reloj
+                                                                            ) -> None:
+    """Un correo que llego de noche (o antes de configurar el correo) y que se registra ahora no
+    lleva horas esperando: la banda cuenta desde que entro."""
+    from conftest import persona
+    from test_lectura_automatica import POR_DEFECTO, _correo, _documento
+
+    conn = almacen.conn
+    auto.fijar(conn, persona(conn, "Ana", "administrador"), **POR_DEFECTO, motivo="Solas")
+    reloj.avanzar(hours=6)
+    documento = _documento(almacen, "noche")
+    mensaje = _correo(conn, marca(reloj.ahora() - timedelta(hours=8)),
+                      ("documento", documento, "noche.pdf"))
+    conn.execute("DROP TRIGGER mensaje_correo_sin_update")
+    conn.execute("UPDATE mensaje_correo SET registrado_en = ? WHERE id = ?",
+                 (marca(reloj.ahora()), mensaje))
+    assert _bandas(conn) == []
+    reloj.avanzar(hours=4, minutes=1)
+    [banda] = _bandas(conn)
+    assert banda.startswith("LEZEN · 1 facturen wachten al meer dan 4 uur")
+
+
+def test_una_automatica_buena_en_las_ultimas_4_horas_quita_la_banda(almacen, reloj) -> None:
+    """Una automatica que salio bien hace poco dice que la lectura funciona; una de hace mas de 4
+    horas, con las lecturas fallando desde entonces, no tapa la banda (O2)."""
+    from conftest import persona
+    from test_lectura_automatica import POR_DEFECTO, _automatica, _del_correo
+
+    conn = almacen.conn
+    auto.fijar(conn, persona(conn, "Ana", "administrador"), **POR_DEFECTO, motivo="Solas")
+    _del_correo(almacen, "una", recibido=marca(AHORA))
+    reloj.avanzar(hours=1)
+
+    def hecha() -> None:
+        _automatica(conn, marca(reloj.ahora()), 1000, autorizacion=auto.vigente(conn)["id"])
+
+    hecha()                         # leyo otras; esta sigue esperando
+    reloj.avanzar(hours=3, minutes=30)
+    assert _bandas(conn) == []      # una buena hace 3,5 horas
+    reloj.avanzar(minutes=31)
+    [banda] = _bandas(conn)         # la ultima buena, hace mas de 4 horas
+    assert banda.startswith("LEZEN · 1 facturen wachten al meer dan 4 uur")
+    hecha()
+    assert _bandas(conn) == []
+
+
 def test_la_banda_por_lo_que_dejo_registrar(almacen, tmp_path) -> None:
     """De `correo registrar --fallo` a la banda: un certificado que caduca dentro de poco sale
     aunque el correo este parado por la salida."""
-    registrar.apuntar_fallo(almacen, "salida")
-    almacen.conn.execute("UPDATE estado_correo SET ultima_buena = ?, credencial_caduca_en = ?",
-                         (marca(AHORA), marca(AHORA + timedelta(days=5))))
+    _estado_correo(almacen.conn, credencial_caduca_en=marca(AHORA + timedelta(days=5)))
+    assert registrar.apuntar_fallo(almacen, "salida")
     [banda] = _bandas(almacen.conn)
     assert "verloopt over 5 dagen" in banda
+
+
+def test_la_primera_ronda_que_falla_no_es_24_horas_sin_ronda_buena(almacen, reloj,
+                                                                    tmp_path) -> None:
+    """Un buzon recien configurado cuya primera ronda fallo hace 5 minutos no lleva 24 horas sin
+    ninguna buena: la API dice `retrasado` y no hay banda. Las 24 horas cuentan desde la primera
+    ronda apuntada."""
+    from test_correo_registrar import Bandeja
+
+    caja = Bandeja(tmp_path / "correo")
+    caja.estado_json(empezada="2026-11-24T09:55:00Z", codigo="sin_conexion", mensajes=0, pdf=0,
+                     ultima_buena=None)
+    # Sin ninguna buena, sin rondas apuntadas y sin error: no hay desde cuando contar.
+    _estado_correo(almacen.conn, ultima_buena=None)
+    assert _bandas(almacen.conn) == []
+    registrar.registrar(almacen, entrada=caja.entrada, estado=caja.estado)
+    correo = consultas.correo(almacen.conn, "contenedor")
+    assert (correo["estado"], correo["error_codigo"], correo["ultima_buena"]) == (
+        "retrasado", "sin_conexion", None)
+    assert _bandas(almacen.conn) == []
+    # Un dia despues, sin ninguna buena todavia (otro error, otra fila): ya si.
+    reloj.avanzar(hours=23, minutes=50)
+    caja.estado_json(empezada="2026-11-25T09:45:00Z", codigo="credencial", mensajes=0, pdf=0,
+                     ultima_buena=None)
+    registrar.registrar(almacen, entrada=caja.entrada, estado=caja.estado)
+    assert _bandas(almacen.conn) == []
+    reloj.avanzar(minutes=10, seconds=1)
+    [banda] = _bandas(almacen.conn)
+    assert "al meer dan 24 uur geen geslaagde controle" in banda

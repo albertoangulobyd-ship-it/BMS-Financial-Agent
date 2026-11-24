@@ -23,7 +23,10 @@ bandeja como no confiable: lo escribio un proceso que lee correo de desconocidos
    correo_mensaje_registrado) va en una transaccion. Uno malo no para los demas.
 7. Acuse: tras la transaccion se borra de la bandeja la llegada y cada PDF suyo (unlink relativo
    a la carpeta: borra la entrada, nunca sigue un enlace). Lo rechazado se borra tambien. Un PDF
-   suelto cuyo sha256 ya esta en la base, tambien.
+   suelto cuyo sha256 ya esta en la base, tambien. Lo que tiene nombre de la bandeja y no es un
+   fichero normal se quita aparte (una carpeta, solo vacia), sin ocupar el sitio de lo de
+   verdad. Lo que no se puede quitar (permisos, una carpeta con algo dentro) queda contado y la
+   pasada deja `interno`: la bandeja no se vaciaria nunca.
 8. estado.json, validado igual, a estado_correo (la cache) y, si la ronda trajo algo o el codigo
    de error cambio, una fila en ronda_correo con su evento. Con aviso_volumen de hoy, la pausa
    por volumen de la lectura automatica (una vez al dia: lectura_automatica.pausar).
@@ -112,6 +115,7 @@ class Resultado:
     esperan_reloj: int = 0            # llegadas "del futuro": se quedan
     fallidos: int = 0                 # mensajes que no entraron por algo de la base: se quedan
     pdf_borrados: int = 0             # PDF quitados de la bandeja (acuse o rechazados)
+    sin_quitar: int = 0               # entradas que no se han podido quitar (la pasada: interno)
     quedan: bool = False              # habia mas de POR_PASADA: lo demas, la proxima vez
     rechazados: list[str] = field(default_factory=list)   # motivos fijos, uno por fichero
     carpetas_malas: list[str] = field(default_factory=list)
@@ -189,31 +193,37 @@ def _leer(dir_fd: int, nombre: str, maximo: int) -> bytes:
     return b"".join(trozos)
 
 
-def _borrar(dir_fd: int, nombre: str) -> bool:
-    """Quita una entrada de la carpeta (un fichero, o un enlace sin seguirlo)."""
+def _borrar(dir_fd: int, nombre: str) -> bool | None:
+    """Quita una entrada de la carpeta sin seguirla: un fichero, un enlace o una carpeta vacia
+    (nunca lo que hay dentro de una carpeta). True si la quito, False si ya no estaba, None si no
+    se puede (permisos, una carpeta con algo dentro...)."""
     try:
         os.unlink(nombre, dir_fd=dir_fd)
         return True
     except FileNotFoundError:
         return False
     except OSError:
+        pass
+    try:
+        if not stat.S_ISDIR(os.lstat(nombre, dir_fd=dir_fd).st_mode):
+            return None
+        os.rmdir(nombre, dir_fd=dir_fd)
+        return True
+    except FileNotFoundError:
         return False
+    except OSError:
+        return None
 
 
-@dataclass(frozen=True)
-class _Entrada:
-    nombre: str
-    normal: bool       # un fichero normal (lo demas se rechaza y se quita)
-
-
-def _mas_antiguas(dir_fd: int, patron: re.Pattern[str], cuantas: int) -> tuple[list[_Entrada],
-                                                                                bool]:
-    """Las `cuantas` entradas mas antiguas cuyo nombre es el del patron (lo demas se ignora), y si
-    habia mas."""
-    if cuantas <= 0:
-        return [], False
-    candidatas: list[tuple[int, str, bool]] = []
-    total = 0
+def _mas_antiguas(dir_fd: int, patron: re.Pattern[str], normales: int, raras: int
+                  ) -> tuple[list[str], list[str], bool]:
+    """Las `normales` entradas mas antiguas cuyo nombre es el del patron y que son ficheros
+    normales, aparte las `raras` mas antiguas que no lo son (un enlace, una carpeta, un FIFO: se
+    quitan sin leerlas, y no ocupan el sitio de las de verdad), y si habia mas de unas u otras.
+    Lo que no tiene el nombre del patron se ignora."""
+    topes = {True: max(normales, 0), False: max(raras, 0)}
+    candidatas: dict[bool, list[tuple[int, str]]] = {True: [], False: []}
+    vistas = {True: 0, False: 0}
     with os.scandir(dir_fd) as entradas:
         for entrada in entradas:
             if not patron.fullmatch(entrada.name):
@@ -222,12 +232,18 @@ def _mas_antiguas(dir_fd: int, patron: re.Pattern[str], cuantas: int) -> tuple[l
                 datos = entrada.stat(follow_symlinks=False)
             except OSError:
                 continue
-            total += 1
-            candidatas.append((datos.st_mtime_ns, entrada.name, stat.S_ISREG(datos.st_mode)))
-            if len(candidatas) > 4 * cuantas:
-                candidatas = heapq.nsmallest(cuantas, candidatas)
-    elegidas = heapq.nsmallest(cuantas, candidatas)
-    return [_Entrada(nombre, normal) for _m, nombre, normal in elegidas], total > cuantas
+            normal = stat.S_ISREG(datos.st_mode)
+            vistas[normal] += 1
+            tope = topes[normal]
+            if tope == 0:
+                continue
+            lista = candidatas[normal]
+            lista.append((datos.st_mtime_ns, entrada.name))
+            if len(lista) > 4 * tope:
+                candidatas[normal] = heapq.nsmallest(tope, lista)
+    elegidas = {normal: [nombre for _m, nombre in heapq.nsmallest(topes[normal], lista)]
+                for normal, lista in candidatas.items()}
+    return elegidas[True], elegidas[False], any(vistas[k] > topes[k] for k in vistas)
 
 
 # ------------------------------------------------------------------ JSON estricto
@@ -459,6 +475,8 @@ class _Pasada:
         self.anulacion: str | None = None   # el error que deja esta pasada (reloj, interno)
         # Lo que se vio de cada PDF en esta pasada: los de prueba, por su sha256.
         self.de_prueba: set[str] = set()
+        # Las entradas que no se han podido quitar en esta pasada (se cuentan una vez).
+        self.sin_quitar: set[str] = set()
 
     # -------------------------------------------------------------- carpetas
 
@@ -511,28 +529,42 @@ class _Pasada:
     # -------------------------------------------------------------- las llegadas
 
     def _llegadas(self, llegadas: int, pdf: int) -> int:
-        """Las llegadas mas antiguas, una a una. Devuelve cuantas entradas quedan por mirar."""
-        elegidas, mas = _mas_antiguas(llegadas, bandeja.NOMBRE_LLEGADA, POR_PASADA)
+        """Las llegadas mas antiguas, una a una (y aparte, lo que tiene su nombre y no es un
+        fichero normal: fuera). Devuelve cuantas entradas quedan por mirar."""
+        normales, raras, mas = _mas_antiguas(llegadas, bandeja.NOMBRE_LLEGADA, POR_PASADA,
+                                             POR_PASADA)
         self.resultado.quedan = mas
-        for entrada in elegidas:
-            self._llegada(llegadas, pdf, entrada)
-        return POR_PASADA - len(elegidas)
+        for nombre in raras:
+            self._rechazar(llegadas, nombre, "no es un fichero normal")
+        for nombre in normales:
+            self._llegada(llegadas, pdf, nombre)
+        return POR_PASADA - len(normales)
 
-    def _rechazar(self, carpeta: int, nombre: str, motivo: str) -> None:
+    def _quitar(self, carpeta: int, nombre: str) -> bool:
+        """Quita una entrada de la bandeja (el acuse, o lo rechazado). True si la quito. Si no se
+        puede (permisos, una carpeta con algo dentro), lo cuenta y la pasada deja `interno`: si
+        no, la bandeja no se vaciaria nunca sin que nadie lo viera."""
+        if nombre in self.sin_quitar:
+            return False        # ya se intento en esta pasada (el acuse y luego los sueltos)
+        quitada = _borrar(carpeta, nombre)
+        if quitada is None:
+            self.sin_quitar.add(nombre)
+            self.resultado.sin_quitar += 1
+            self.anulacion = "interno"
+            return False
+        return quitada
+
+    def _rechazar(self, carpeta: int, nombre: str, motivo: str) -> bool:
         self.resultado.rechazados.append(f"{nombre[:12]}...: {motivo}")
-        _borrar(carpeta, nombre)
+        return self._quitar(carpeta, nombre)
 
-    def _llegada(self, llegadas: int, pdf: int, entrada: _Entrada) -> None:
-        if not entrada.normal:
-            self._rechazar(llegadas, entrada.nombre, "no es un fichero normal")
-            return
+    def _llegada(self, llegadas: int, pdf: int, nombre: str) -> None:
         try:
-            llegada = validar_llegada(entrada.nombre,
-                                      _leer(llegadas, entrada.nombre, bandeja.MAX_LLEGADA))
+            llegada = validar_llegada(nombre, _leer(llegadas, nombre, bandeja.MAX_LLEGADA))
         except FileNotFoundError:
             return
         except _Rechazo as rechazo:
-            self._rechazar(llegadas, entrada.nombre, str(rechazo))
+            self._rechazar(llegadas, nombre, str(rechazo))
             return
         if llegada.recibido_en > self.ahora + FUTURO:
             # El reloj de este equipo va atrasado: no se registra todavia (el documento no se
@@ -545,7 +577,7 @@ class _Pasada:
         if ya is not None:
             # La delta volvio a empezar y la trajo otra vez: ya esta, no se apunta dos veces.
             self.resultado.repetidos += 1
-            _borrar(llegadas, entrada.nombre)
+            self._quitar(llegadas, nombre)
             self._acuse(pdf, llegada)
             return
         try:
@@ -555,7 +587,7 @@ class _Pasada:
             # proxima vez (y lo dice la CLI).
             self.resultado.fallidos += 1
             return
-        _borrar(llegadas, entrada.nombre)
+        self._quitar(llegadas, nombre)
         self._acuse(pdf, llegada)
 
     def _pdf(self, pdf: int, adjunto: _Adjunto) -> tuple[str, bytes | None]:
@@ -653,30 +685,27 @@ class _Pasada:
                 "SELECT 1 FROM documento WHERE sha256 = ? AND ruta_cas IS NOT NULL",
                 (adjunto.sha256,)).fetchone() is not None
             if en_la_base or adjunto.sha256 in self.de_prueba:
-                self.resultado.pdf_borrados += _borrar(pdf, nombre)
+                self.resultado.pdf_borrados += self._quitar(pdf, nombre)
                 continue
             como, _datos = self._pdf(pdf, adjunto)
             if como == "rechazado":
-                self.resultado.rechazados.append(f"{nombre[:12]}...: el PDF no es el de su "
-                                                 "nombre o no empieza por %PDF-")
-                self.resultado.pdf_borrados += _borrar(pdf, nombre)
+                self.resultado.pdf_borrados += self._rechazar(
+                    pdf, nombre, "el PDF no es el de su nombre o no empieza por %PDF-")
 
     def _pdf_sueltos(self, pdf: int, restan: int) -> None:
         """Los PDF de la bandeja cuyo sha256 ya esta en la base (con su original) no hacen falta:
         fuera. Los demas esperan a su llegada (un mensaje con otro adjunto pendiente); los que
         nunca la tengan los quita el correo a los 45 dias. Lo que tiene nombre de PDF y no es un
-        fichero normal, fuera."""
-        elegidas, mas = _mas_antiguas(pdf, bandeja.NOMBRE_PDF, restan)
+        fichero normal, fuera (aparte: no ocupa el sitio de los de verdad)."""
+        normales, raras, mas = _mas_antiguas(pdf, bandeja.NOMBRE_PDF, restan, POR_PASADA)
         self.resultado.quedan = self.resultado.quedan or mas
-        for entrada in elegidas:
-            if not entrada.normal:
-                self._rechazar(pdf, entrada.nombre, "no es un fichero normal")
-                self.resultado.pdf_borrados += 1
-                continue
-            sha = entrada.nombre[:-4]
+        for nombre in raras:
+            self.resultado.pdf_borrados += self._rechazar(pdf, nombre, "no es un fichero normal")
+        for nombre in normales:
+            sha = nombre[:-4]
             if self.conn.execute("SELECT 1 FROM documento WHERE sha256 = ? AND ruta_cas IS NOT "
                                  "NULL", (sha,)).fetchone() is not None:
-                self.resultado.pdf_borrados += _borrar(pdf, entrada.nombre)
+                self.resultado.pdf_borrados += self._quitar(pdf, nombre)
 
     # -------------------------------------------------------------- estado_correo y ronda_correo
 
@@ -825,10 +854,16 @@ def registrar(almacen: Almacen, *, entrada: str | os.PathLike[str],
     return _Pasada(almacen, os.fspath(entrada), os.fspath(estado)).hacer()
 
 
-def apuntar_fallo(almacen: Almacen, codigo: str) -> bool:
+def apuntar_fallo(almacen: Almacen, codigo: str) -> bool | None:
     """`correo registrar --fallo CODIGO` (§4.1): el ciclo no pudo traer nada (la salida, el
     aislamiento, el disco). Queda en estado_correo y, si el codigo cambia, en ronda_correo (una
-    fila sin `terminada_en`: no es una ronda entera). True si cambio."""
+    fila sin `terminada_en`: no es una ronda entera). True si cambio, False si ya estaba.
+
+    None, sin apuntar nada, si el correo no ha dejado nunca su estado (estado_correo vacio): no
+    esta configurado, o aun no ha hecho ninguna ronda. Una fila en estado_correo es lo que dice
+    a la app que el correo esta configurado (§6.2), y la de un `--fallo` no la quitaria nadie:
+    el ciclo apunta `--fallo disco` sin mirar si hay correo (§4.1, paso 2), y el disco ya lo
+    dice estado_ciclo, con su banda."""
     if codigo not in bandeja.CODIGOS:
         raise ValueError("codigo de error del correo desconocido")
     _exigir(almacen)
@@ -836,13 +871,15 @@ def apuntar_fallo(almacen: Almacen, codigo: str) -> bool:
     ahora = reloj_de(conn).ahora()
     with transaccion(conn):
         anterior = conn.execute("SELECT * FROM estado_correo WHERE id = 1").fetchone()
-        cambia = anterior is None or anterior["error_codigo"] != codigo
+        if anterior is None:
+            return None
+        cambia = anterior["error_codigo"] != codigo
         if cambia:
             _fila_de_fallo(conn, codigo, ahora, usuario_sistema(conn, "correo"))
-        valores = ({k: anterior[k] for k in (
+        valores = {k: anterior[k] for k in (
             "buzon", "ultima_consulta", "ultima_buena", "alcance_comprobado_en", "alcance_bien",
             "credencial_caduca_en", "delta_reiniciado_en", "retenido_hasta", "hoy_json",
-            "aviso_volumen")} if anterior is not None else {"hoy_json": "{}", "aviso_volumen": 0})
+            "aviso_volumen")}
         _codigo, desde = _desde(anterior, codigo, ahora)
         _escribir_estado(conn, valores, codigo, desde, ahora)
     return cambia

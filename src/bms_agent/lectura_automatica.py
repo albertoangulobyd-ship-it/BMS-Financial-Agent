@@ -142,6 +142,17 @@ def encendida(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return fila if fila is not None and fila["activa"] == 1 else None
 
 
+def encendida_desde(conn: sqlite3.Connection) -> str | None:
+    """Desde cuando esta encendida sin parar (la primera autorizacion despues de la ultima
+    apagada: cambiar los topes no la apaga), o None si la vigente esta apagada o no hay."""
+    if encendida(conn) is None:
+        return None
+    fila = conn.execute(
+        "SELECT fijada_en FROM lectura_automatica WHERE id > coalesce((SELECT max(id) FROM "
+        "lectura_automatica WHERE activa = 0), 0) ORDER BY id LIMIT 1").fetchone()
+    return fila["fijada_en"] if fila is not None else None
+
+
 def _entero(nombre: str, valor: Any, minimo: int, maximo: int) -> int:
     if isinstance(valor, bool) or not isinstance(valor, int):
         raise ValorNoValido(f"{nombre}: se espera un entero")
@@ -310,10 +321,12 @@ def contar_elegibles(conn: sqlite3.Connection) -> tuple[int, str | None]:
 
 
 def elegibles_que_esperan(conn: sqlite3.Connection, antes: datetime) -> int:
-    """Cuantas elegibles llegaron antes de `antes` (la banda de las que esperan, §6.1)."""
+    """Cuantas elegibles entraron antes de `antes` (la banda de las que esperan, §6.1): por la
+    primera vez que `correo registrar` las registro, no por cuando las recibio Microsoft (lo
+    que llego de noche, o lo de antes de configurar el correo, no lleva horas esperando)."""
     return int(conn.execute(
-        "SELECT count(*) FROM (SELECT min(datetime(m.recibido_en)) AS llegada "
-        f"{_desde_el_correo('todas')} GROUP BY d.id) WHERE llegada < datetime(?)",
+        "SELECT count(*) FROM (SELECT min(datetime(m.registrado_en)) AS entrada "
+        f"{_desde_el_correo('todas')} GROUP BY d.id) WHERE entrada < datetime(?)",
         (marca(antes),)).fetchone()[0])
 
 
