@@ -19,7 +19,8 @@ el evento dice que autorizacion la cubrio y quien la firmo.
 Se para sola (`pausar`) si una persona para una automatica ("Stoppen": hasta las 00:00 del dia
 siguiente) o si llega un volumen anormal de correo (hasta que una persona la reanude), y espera
 cada vez mas tras un fallo tecnico (`espera_tras_fallo`). Lo que no se lee solo (`excluir`) espera
-a una persona, que lo puede leer a mano desde Procesar.
+a una persona, que lo puede leer a mano desde Procesar, salvo lo que la API no acepta y lo que
+aparto una persona (que tambien puede apartar del todo lo que aparto la automatica).
 
 Nada de aqui habla con la red, lanza procesos, aprueba una factura ni paga: solo lee y escribe la
 base. Lo que viene del correo (remitente, asunto, nombres de adjunto) es texto de fuera: se
@@ -57,6 +58,10 @@ NOTA_MAX = 500
 
 # Por que una factura no se lee sola (exclusion_automatica.motivo_codigo).
 EXCLUSIONES = ("grande", "fallo", "rechazado_api", "persona")
+# Lo apartado que tampoco entra en lo que lee una persona desde Procesar: lo que aparto ella
+# (para eso lo aparto) y lo que la API no acepta (contarlo otra vez no lo cambia, y solo, deja
+# su lectura fallida). Lo grande y lo que fallo, si: leerlo es decision suya.
+FUERA_DE_PROCESAR = ("persona", "rechazado_api")
 PAUSAS = ("persona", "volumen")
 # Los finales de una automatica que son un fallo tecnico (no de un documento): la siguiente
 # espera 1 h, y el doble tras cada uno seguido, como mucho 24 h.
@@ -246,8 +251,10 @@ def _desde_el_correo(excluidas: str) -> str:
     """Los documentos que llegaron por la bandeja de entrada (no desde "no deseado"), con su
     original en el almacen y sin extraccion vigente (la regla de ingesta.vigentes_por_documento:
     cualquier extraccion que no sea una candidata sin activar), sin las exclusiones de
-    `excluidas` (todas, o solo las de una persona). Una fila por llegada: se agrupa por d.id."""
-    filtro = {"todas": "", "persona": " AND x.motivo_codigo = 'persona'"}[excluidas]
+    `excluidas` (todas, o las que dejan algo fuera de Procesar: FUERA_DE_PROCESAR). Una fila por
+    llegada: se agrupa por d.id."""
+    fuera = ", ".join(f"'{m}'" for m in FUERA_DE_PROCESAR)
+    filtro = {"todas": "", "a_mano": f" AND x.motivo_codigo IN ({fuera})"}[excluidas]
     return ("FROM documento AS d "
             "JOIN adjunto_correo AS a ON a.documento_id = d.id AND a.resultado = 'documento' "
             "JOIN mensaje_correo AS m ON m.id = a.mensaje_id AND m.carpeta = 'bandeja' "
@@ -283,8 +290,9 @@ def pendientes_del_correo(conn: sqlite3.Connection, limite: int | None = None
                           ) -> list[dict[str, Any]]:
     """Lo del correo que falta por leer y que una persona puede leer desde Procesar: todo lo
     pendiente menos lo que una persona aparto ("Niet vanzelf lezen" no se lee a mano sin
-    querer; lo que aparto la automatica si: espera a una persona, que puede leerlo)."""
-    return _del_correo(conn, excluidas="persona", limite=limite)
+    querer) y lo que la API no acepta (FUERA_DE_PROCESAR). Lo grande y lo que fallo leyendose
+    solo, si: esperan a una persona, que puede leerlo o apartarlo del todo."""
+    return _del_correo(conn, excluidas="a_mano", limite=limite)
 
 
 def elegibles(conn: sqlite3.Connection, autorizacion: sqlite3.Row | None = None,
@@ -303,14 +311,18 @@ def contar_elegibles(conn: sqlite3.Connection) -> tuple[int, str | None]:
 
 # ------------------------------------------------------------ las exclusiones
 
-def excluidos(conn: sqlite3.Connection, documento_ids: Iterable[int]) -> set[int]:
-    """Los de esos documentos que ya no se leen solos."""
+def excluidos(conn: sqlite3.Connection, documento_ids: Iterable[int], *,
+              por_una_persona: bool = False) -> set[int]:
+    """Los de esos documentos que ya no se leen solos (o, con `por_una_persona`, los que
+    aparto una persona)."""
     ids = sorted({int(i) for i in documento_ids})
     if not ids:
         return set()
     marcas = ", ".join("?" * len(ids))
+    solo = " AND motivo_codigo = 'persona'" if por_una_persona else ""
     return {f[0] for f in conn.execute(
-        f"SELECT documento_id FROM exclusion_automatica WHERE documento_id IN ({marcas})", ids)}
+        f"SELECT documento_id FROM exclusion_automatica WHERE documento_id IN ({marcas}){solo}",
+        ids)}
 
 
 def _ids(documento_ids: Any) -> list[int]:
@@ -329,12 +341,14 @@ def excluir(conn: sqlite3.Connection, documento_ids: Any, motivo_codigo: str, po
             solicitud_id: int | None = None, motivo: str | None = None,
             peticion_id: str | None = None, datos: dict[str, Any] | None = None
             ) -> list[tuple[int, int]]:
-    """Esos documentos no se leen solos: esperan a una persona (leerlos a mano sigue siendo
-    posible). `persona` la pone una persona (excluir_de_lectura_automatica, hasta MAX_EXCLUIR
+    """Esos documentos no se leen solos: esperan a una persona (lo grande y lo que fallo, ella
+    lo puede leer desde Procesar; FUERA_DE_PROCESAR). `persona` la pone una persona (excluir_de_lectura_automatica, hasta MAX_EXCLUIR
     de una vez, sin peticion); grande, fallo y rechazado_api, el usuario automatico con la
-    peticion que lo vio. Una por documento y para siempre: los que ya estaban, se dejan como
-    estaban. (id de la exclusion, id de su evento) de cada una nueva; el primer evento lleva
-    `peticion_id` (la idempotencia de la orden)."""
+    peticion que lo vio. Para siempre: los que ya estaban, se dejan como estaban. Como mucho
+    una del sistema y una de una persona por documento: una persona puede apartar del todo
+    (tambien de Procesar) uno que la automatica ya aparto; la automatica no aparta lo que ya
+    esta apartado. (id de la exclusion, id de su evento) de cada una nueva; el primer evento
+    lleva `peticion_id` (la idempotencia de la orden)."""
     if motivo_codigo not in EXCLUSIONES:
         raise ValorNoValido(f"motivo de exclusion desconocido: {motivo_codigo!r}")
     ids = _ids(documento_ids)
@@ -349,9 +363,9 @@ def excluir(conn: sqlite3.Connection, documento_ids: Any, motivo_codigo: str, po
         faltan = [i for i in ids if i not in existen]
         if faltan:
             raise LookupError(f"no hay documento {', '.join(map(str, faltan))}")
-        ya = excluidos(conn, ids)
-        ahora = marca(_ahora(conn))
         persona = por if motivo_codigo == "persona" else None
+        ya = excluidos(conn, ids, por_una_persona=motivo_codigo == "persona")
+        ahora = marca(_ahora(conn))
         for documento_id in ids:
             if documento_id in ya:
                 continue
@@ -548,9 +562,12 @@ _CORREOS_QUE_ESPERAN = (
     "AND NOT (m.carpeta = 'no_deseado' AND EXISTS (SELECT 1 FROM mensaje_correo AS b "
     "      WHERE b.graph_id = m.graph_id AND b.carpeta = 'bandeja'))")
 
+# Una fila por documento: la ultima exclusion (la de una persona, si aparto una que ya habia
+# apartado la automatica).
 _DOCUMENTOS_QUE_ESPERAN = (
     "FROM exclusion_automatica AS x JOIN documento AS d ON d.id = x.documento_id "
-    f"WHERE {_SIN_VIGENTE}")
+    f"WHERE {_SIN_VIGENTE} AND x.id = (SELECT max(y.id) FROM exclusion_automatica AS y "
+    "WHERE y.documento_id = x.documento_id)")
 
 
 def esperan_persona(conn: sqlite3.Connection, limite: int = ESPERAN_LIMITE) -> dict[str, Any]:
@@ -624,7 +641,7 @@ def resumen(conn: sqlite3.Connection, ahora: datetime | None = None) -> dict[str
                              (autorizacion["fijada_por"],)).fetchone()
         fijada_por = {"id": quien["id"], "nombre": quien["nombre"]} if quien else None
     numero, mas_antigua = contar_elegibles(conn)
-    pendientes, _ = _cuantos(conn, "persona")
+    pendientes, _ = _cuantos(conn, "a_mano")
 
     def valor(columna: str) -> Any:
         return autorizacion[columna] if autorizacion is not None else None

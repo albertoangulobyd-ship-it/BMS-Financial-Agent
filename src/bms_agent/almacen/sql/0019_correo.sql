@@ -372,16 +372,18 @@ BEGIN SELECT RAISE(ABORT, 'adjunto_correo es evidencia: no se borra'); END;
 
 -- ----------------------------------------------------- exclusion_automatica
 
--- "Este documento no se lee solo: espera a una persona." Una por documento, y
--- para siempre (leerlo a mano desde Procesar sigue siendo posible). grande:
+-- "Este documento no se lee solo: espera a una persona." Para siempre. grande:
 -- la estimacion lo pone por encima del maximo por factura; rechazado_api: la
 -- API no lo quiso contar; fallo: fallo por el documento en dos automaticas;
--- persona: una persona lo aparto (excluir_de_lectura_automatica). Las tres
--- primeras las apunta automatico con la peticion que las vio; la ultima, una
--- persona, sin peticion.
+-- persona: una persona lo aparto (excluir_de_lectura_automatica), y tampoco
+-- entra en lo que lee una persona desde Procesar. Las tres primeras las apunta
+-- automatico con la peticion que las vio; la ultima, una persona, sin
+-- peticion. Como mucho una del sistema y una de una persona por documento: la
+-- persona puede apartar del todo una que la automatica ya aparto (una grande
+-- que no quiere pagar, una que falla), y si no, entraria en cada lectura suya.
 CREATE TABLE exclusion_automatica (
     id            INTEGER PRIMARY KEY,
-    documento_id  INTEGER NOT NULL UNIQUE REFERENCES documento(id),
+    documento_id  INTEGER NOT NULL REFERENCES documento(id),
     motivo_codigo TEXT NOT NULL CHECK (motivo_codigo IN (
         'grande', 'fallo', 'rechazado_api', 'persona')),
     solicitud_id  INTEGER REFERENCES solicitud_lectura(id),
@@ -389,6 +391,11 @@ CREATE TABLE exclusion_automatica (
     en            TEXT NOT NULL CHECK (datetime(en) IS NOT NULL),
     CHECK ((motivo_codigo = 'persona') = (solicitud_id IS NULL))
 ) STRICT;
+
+CREATE UNIQUE INDEX exclusion_automatica_una_del_sistema ON exclusion_automatica (documento_id)
+    WHERE motivo_codigo <> 'persona';
+CREATE UNIQUE INDEX exclusion_automatica_una_de_persona ON exclusion_automatica (documento_id)
+    WHERE motivo_codigo = 'persona';
 
 CREATE TRIGGER exclusion_automatica_quien BEFORE INSERT ON exclusion_automatica
 WHEN (NEW.motivo_codigo = 'persona')

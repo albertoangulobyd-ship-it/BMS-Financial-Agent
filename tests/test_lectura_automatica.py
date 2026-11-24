@@ -576,6 +576,47 @@ def test_esperan_persona(almacen, gente) -> None:
     assert (len(recortado["correos"]), recortado["correos_total"]) == (1, 3)
 
 
+def test_una_persona_aparta_del_todo_lo_que_aparto_la_automatica(almacen, gente) -> None:
+    """Lo que aparto la automatica por grande o por fallo entra en lo que lee una persona desde
+    Procesar (leerlo es decision suya); si no lo quiere leer, lo aparta del todo, aunque ya
+    estuviera apartado (si no, entraria en cada lectura suya, y una grande en cada cuenta). Lo
+    que la API no acepta no entra: contarlo otra vez no lo cambia, y solo, dejaria su lectura
+    fallida."""
+    conn = almacen.conn
+    grande, fallida, rechazada, buena = (_documento(almacen, n) for n in (
+        "grande", "fallida", "rechazada", "buena"))
+    for i, documento in enumerate((grande, fallida, rechazada, buena)):
+        _correo(conn, f"2026-10-14T0{i}:00:00+00:00", ("documento", documento))
+    automatico = usuario_sistema(conn, "automatico")
+    solicitud = _terminada(conn, "2026-10-14T09:00:00+00:00", "nada_que_leer", "excluidas")
+    for documento, motivo in ((grande, "grande"), (fallida, "fallo"),
+                              (rechazada, "rechazado_api")):
+        auto.excluir(conn, [documento], motivo, automatico, solicitud_id=solicitud)
+    assert [d["documento_id"] for d in auto.pendientes_del_correo(conn)] == [
+        grande, fallida, buena]
+    assert auto.resumen(conn)["pendientes"] == 3
+    assert [d["documento_id"] for d in auto.elegibles(conn)] == [buena]
+    diferencia = servicios.ejecutar(conn, "excluir_de_lectura_automatica",
+                                    {"documento_ids": [grande, fallida],
+                                     "motivo": "No la quiero pagar"},
+                                    usuario_id=gente["berta"])
+    assert diferencia.detalle == {"excluidos": 2, "ya_estaban": 0}
+    assert [d["documento_id"] for d in auto.pendientes_del_correo(conn)] == [buena]
+    assert auto.resumen(conn)["pendientes"] == 1
+    # Una vez por persona, y la automatica no vuelve a apartar lo que ya esta apartado.
+    assert servicios.ejecutar(conn, "excluir_de_lectura_automatica", {"documento_ids": [grande]},
+                              usuario_id=gente["berta"]).detalle == {"excluidos": 0,
+                                                                      "ya_estaban": 1}
+    assert auto.excluir(conn, [grande, rechazada], "fallo", automatico,
+                        solicitud_id=solicitud) == []
+    # Lo que espera a una persona: cada factura una vez, con su ultima exclusion.
+    esperan = auto.esperan_persona(conn)
+    assert sorted((d["documento_id"], d["motivo_codigo"]) for d in esperan["documentos"]) == (
+        sorted([(grande, "persona"), (fallida, "persona"), (rechazada, "rechazado_api")]))
+    assert esperan["documentos_total"] == 3
+    assert verificar_evidencia(conn) == []
+
+
 def test_marcar_un_correo_atendido(almacen, gente) -> None:
     conn = almacen.conn
     mensaje = _correo(conn, "2026-10-14T07:00:00+00:00")
@@ -729,7 +770,7 @@ def _fila(conn, solicitud):
 
 def _excluidos(conn) -> dict[int, str]:
     return {f[0]: f[1] for f in conn.execute(
-        "SELECT documento_id, motivo_codigo FROM exclusion_automatica")}
+        "SELECT documento_id, motivo_codigo FROM exclusion_automatica ORDER BY id")}
 
 
 def test_una_automatica_entera_leyendo_del_almacen(almacen, gente, tmp_path) -> None:
@@ -1168,25 +1209,38 @@ def test_una_automatica_que_esperaba_se_cierra_y_la_de_una_persona_se_vuelve_a_c
 
 def test_lo_que_lee_una_persona_incluye_lo_del_correo(almacen, gente, tmp_path) -> None:
     """La lectura de una persona (Procesar, leer-facturas): el buzon y lo que el correo trajo
-    y falta por leer, menos lo que una persona aparto; la automatica, solo lo elegible."""
+    y falta por leer, menos lo que aparto una persona y lo que la API no acepta; la
+    automatica, solo lo elegible."""
     conn = almacen.conn
     buzon = tmp_path / "buzon"
     buzon.mkdir()
     (buzon / "papel.pdf").write_bytes(PDF + b"%marca:papel\n")
-    correo, apartada, grande = _del_correo(almacen, "correo", "apartada", "grande")
+    correo, apartada, grande, fallida, rechazada = _del_correo(
+        almacen, "correo", "apartada", "grande", "fallida", "rechazada")
     auto.excluir(conn, [apartada], "persona", gente["berta"])
-    auto.excluir(conn, [grande], "grande", usuario_sistema(conn, "automatico"),
-                 solicitud_id=_terminada(conn, "2026-10-14T09:00:00+00:00", "nada_que_leer",
-                                         "excluidas"))
+    solicitud = _terminada(conn, "2026-10-14T09:00:00+00:00", "nada_que_leer", "excluidas")
+    for documento, motivo in ((grande, "grande"), (fallida, "fallo"),
+                              (rechazada, "rechazado_api")):
+        auto.excluir(conn, [documento], motivo, usuario_sistema(conn, "automatico"),
+                     solicitud_id=solicitud)
     nombres = {p.name for p in cli._pdfs_a_leer(str(buzon), almacen, automatica=False)}
     sha = {d: conn.execute("SELECT sha256 FROM documento WHERE id = ?", (d,)).fetchone()[0]
-           for d in (correo, apartada, grande)}
-    assert nombres == {"papel.pdf", f"{sha[correo]}.pdf", f"{sha[grande]}.pdf"}
+           for d in (correo, apartada, grande, fallida, rechazada)}
+    # Lo grande y lo que fallo leyendose solo, si; lo que aparto una persona y lo que la API no
+    # acepta, no.
+    assert nombres == {"papel.pdf", f"{sha[correo]}.pdf", f"{sha[grande]}.pdf",
+                       f"{sha[fallida]}.pdf"}
     # La automatica: nada sin autorizacion encendida; con ella, solo lo elegible.
     assert cli._pdfs_a_leer(str(buzon), almacen, automatica=True) == []
     _fijar(conn, gente["ana"])
     assert [p.name for p in cli._pdfs_a_leer(str(buzon), almacen, automatica=True)] == [
         f"{sha[correo]}.pdf"]
+    # Sin el buzon, una del correo que la API no acepta no deja una lectura fallida: no hay
+    # nada que leer.
+    (buzon / "papel.pdf").unlink()
+    auto.excluir(conn, [correo, grande, fallida], "persona", gente["berta"])
+    assert cli._pdfs_a_leer(str(buzon), almacen, automatica=False) == []
+    assert lectura.tomar(conn, hay_pdf=False).como == lectura.VACIO
 
 
 # ============================================================ el ciclo, por la CLI

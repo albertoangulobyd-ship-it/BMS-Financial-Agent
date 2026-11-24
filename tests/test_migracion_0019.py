@@ -543,7 +543,7 @@ def test_cada_adjunto_con_lo_que_se_hizo_y_su_documento(db) -> None:
 
 
 def test_exclusiones_pausas_y_atendidos_los_pone_quien_toca(db) -> None:
-    ana, _bob = _personas(db)
+    ana, bob = _personas(db)
     automatico = usuario_sistema(db, "automatico")
     documento, otro = _documento(db), _documento(db, "cd" * 32)
     peticion = _peticion(db, "automatica", None, "comprobando", _t("08:00"))
@@ -563,8 +563,15 @@ def test_exclusiones_pausas_y_atendidos_los_pone_quien_toca(db) -> None:
             excluir(doc, motivo, por, solicitud)
     excluir(documento, "persona", ana, None)
     excluir(otro, "rechazado_api", automatico, peticion)
-    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):     # una vez y para siempre
-        excluir(documento, "fallo", automatico, peticion)
+    # Como mucho una del sistema y una de una persona por documento, y para siempre: una
+    # persona puede apartar del todo una que la automatica ya aparto.
+    excluir(otro, "persona", ana, None)
+    for doc, motivo, por, solicitud in ((documento, "persona", bob, None),
+                                        (otro, "persona", ana, None),
+                                        (otro, "fallo", automatico, peticion),
+                                        (otro, "grande", automatico, peticion)):
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+            excluir(doc, motivo, por, solicitud)
 
     def pausa(tipo, motivo, por, *, hasta=None, solicitud=None):
         db.execute("INSERT INTO pausa_lectura_automatica (tipo, motivo, solicitud_id, por, en, "

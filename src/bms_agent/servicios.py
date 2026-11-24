@@ -1970,8 +1970,9 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "un dia con mucho correo).",
            (_MOTIVO,), _reanudar_lectura_automatica, recalcula=False),
     Accion("excluir_de_lectura_automatica", P.IMPORTAR_DATOS.value,
-           "Que estas facturas no se lean solas (hasta 200 de una vez): esperan a una persona, "
-           "que las puede leer desde Procesar.",
+           "Que estas facturas del correo no se lean (hasta 200 de una vez), ni solas ni desde "
+           "Procesar: esperan a una persona. Vale tambien para las que la lectura automatica "
+           "ya aparto.",
            (_p("documento_ids", LISTA, ayuda="ids de documento, de 1 a 200"), _MOTIVO),
            _excluir_de_lectura_automatica, recalcula=False),
     Accion("marcar_correo_atendido", P.IMPORTAR_DATOS.value,
