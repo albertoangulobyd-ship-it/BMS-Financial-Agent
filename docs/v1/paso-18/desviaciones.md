@@ -137,3 +137,56 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
   `pausa_lectura_automatica` (pasos 4 y 5), y `mensaje_correo`, `adjunto_correo`,
   `ronda_correo` y `correo_atendido` (pasos 4 y 10), decide con eso delante (los mensajes y sus
   adjuntos irían en el evento de su mensaje, como los movimientos en el de su extracto).
+
+## Paso 3 · la lectura que no se bloquea
+
+- **`clasificar_error` solo da «documento» a un 400 o un 413** (y a lo que no es un error de la
+  API: un rechazo del modelo, una respuesta cortada o que no valida). Lo que la tabla de §5.3
+  no nombra (un 404 porque el modelo no existe, 408, 409, 422, 503…) es `api_no_disponible`, no
+  «documento»: al contar, un «documento» queda omitido y el paso 5 lo excluye con
+  `rechazado_api`, así que un 404 de configuración apartaría todas las facturas a «Wacht op
+  jou». El freno de «dos iguales seguidos» sigue para los 400 al leer.
+- **Al contar, una excepción que no es de la API** (un fallo del programa, sin código HTTP)
+  sigue cerrando la petición con `contar`, como antes, en vez de dejar ese PDF omitido con
+  `rechazado_api`: un fallo nuestro no se toma por un PDF malo.
+- **El PDF de más de `MAX_BYTES_API` también lleva `rechazado_api`.** §5.7 solo se lo ponía al
+  que la API rechaza al contar, pero §5.5 («tamaño, páginas, cifrado») dice que en la
+  automática se excluye con ese motivo; sin él, el paso 5 lo dejaría elegible para siempre, el
+  más antiguo de la cola, contado y omitido cada ronda. El tope se mira después de saber si ya
+  está leído: un PDF grande ya leído sigue siendo «ya leído». Otra copia de un PDF rechazado
+  (el mismo hash, con otro nombre) queda omitida igual, sin volver a mandarla.
+- **La cuenta guardada (`estimacion_json`, y por tanto su huella) lleva `rechazado_api: true` y
+  su `detalle` solo en los documentos rechazados.** La de una cuenta sin rechazados queda igual
+  que antes (la misma huella para lo mismo). El paso 5 (`autorizar`) lee de ahí qué excluir.
+  `leer` no elige los rechazados: ni se mandan ni salen en el progreso (antes, un omitido con
+  hash se elegía y `cabe` lo dejaba «sin leer» con un motivo que no era el suyo).
+- **Lo gastado por un fallo sin uso sigue siendo lo peor que podía costar** (§5.3: «como hoy»),
+  también para un error HTTP de la API, que no se cobra. Con el `max_tokens` de la
+  configuración, el primer fallo de una lectura corta se lleva casi todo su tope y el segundo
+  documento ya no cabe (`tope`), así que el freno de «dos iguales seguidos» solo se ve con
+  varias facturas por delante; las pruebas bajan `BMS_EXTRACT_MAX_TOKENS` para verlo. Contar a
+  0 un error HTTP sería otra decisión, que no se tomó.
+- **El primero de «dos iguales seguidos», que ya había quedado fallido, pasa a «sin leer» al
+  llegar el segundo**: así ninguno de los dos cuenta como fallo del documento (§5.3) ni, en el
+  paso 5, para la exclusión `fallo`. Un rechazo del modelo, una respuesta cortada o una lectura
+  buena en medio cortan la cadena. El `ResultadoPasada.fallidas` de `extract` sigue contando el
+  primero; la lectura pedida no lo usa (la pasada y la petición cuentan con el seguimiento).
+- **`terminar` cierra la fallida con el evento `lectura_terminada`** (la fila 6 de la tabla de
+  §5.3), con `fase` y `motivo_codigo` en sus datos; `lectura_fallida` sigue siendo el de
+  `cerrar`. `lectura leer` sale entonces con `LECTURA_FALLIDA` (7) y no con 1; los dos
+  `leer-facturas.ps1` tratan igual cualquier código que no es 0 ni 5, así que no cambian.
+- **Los textos, los de §6.4 tal cual**, pero su segunda frase («daarna gaat het vanzelf
+  verder», «después sigue solo», «se vuelve a probar solo más tarde») es la de la lectura
+  automática: en una lectura de una persona sobre `buzon\facturas` no sigue sola. Hasta el paso
+  5 solo hay lecturas de una persona. Para el paso 12 (Procesar sabe el origen de la petición):
+  decidir si la frase cambia con el origen.
+- **Un buzón con solo PDF rechazados termina `nada_que_leer`** con `buzon_vacio` (o
+  `ya_leidas`), como hoy uno con un fichero que no es un PDF: la ventana del lector dice
+  «omitido … la API no lo acepta: …», pero la app no enseña los omitidos (no están en
+  `GET /api/v2/lectura`) hasta los pasos 11 y 12 («omitido con su motivo en Procesar», §13 S1).
+- **`docs/integracion-web.md` no cambia aquí**: `motivo_codigo` de `GET /api/v2/lectura` ya
+  puede valer `saldo`, `clave_rechazada` o `api_no_disponible` (la app los dice con su texto),
+  y la lista de ese documento los añade el paso 11, con el contrato 2.6 (§9).
+- Una guarda más, `test_cada_motivo_tiene_su_texto_en_la_app`: cada código de
+  `lectura.MOTIVOS` tiene su línea en `reasonOf` (`process-texts.ts`); los pasos 4 y 5, que
+  añaden motivos, la tienen que cumplir.
