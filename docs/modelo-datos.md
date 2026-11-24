@@ -8,8 +8,15 @@ especificación ([v1/spec.md](v1/spec.md), §4 y §5), y lo que cambió al
 construirla, en [v1/registro.md](v1/registro.md).
 
 La base la crean las migraciones de `src/bms_agent/almacen/sql/`, de la `0001`
-a la `0016`, en orden. Una migración aplicada no se edita nunca: su sha256
+a la `0019`, en orden. Una migración aplicada no se edita nunca: su sha256
 queda en la tabla `migracion`, y lo que haga falta después va en la siguiente.
+Las tres últimas:
+
+| Migración | Qué hace |
+| --- | --- |
+| `0017_pendiente_solo_deudas` | Lo pendiente de `v_proveedor_totales` y `v_cliente_totales` es lo que se debe en el signo de cada factura: una factura pagada de más ya no resta de lo que sí se debe (revisión final de la V1) |
+| `0018_lectura_pedida` | `solicitud_lectura` y `pasada_lectura`: la lectura de los PDF pedida desde la app, con su estimación, su sí y su progreso (paso 17) |
+| `0019_correo` | El correo de facturas y la lectura automática con tope (paso 18): los usuarios de sistema `correo` y `automatico`, la autorización (`lectura_automatica`), sus exclusiones y pausas, los mensajes y adjuntos del correo, y las cachés del correo y del ciclo. Rehace `solicitud_lectura` y `pasada_lectura` con los mismos datos para admitir la lectura automática |
 
 ---
 
@@ -45,9 +52,13 @@ queda en la tabla `migracion`, y lo que haga falta después va en la siguiente.
 | Clase | Qué garantiza la base | Ejemplos |
 | --- | --- | --- |
 | **Controlada** (*tracked*) | Lleva `rev`. Un disparador exige `NEW.rev = OLD.rev + 1` y la fila de `cambio_campo` de ese cambio; no se borra (se retira con `retirada_en`) | `factura`, `factura_linea`, `factura_imputacion`, `proveedor`, `orden_compra`, `excepcion`, `aplicacion_pago`, `periodo_btw` |
-| **Solo escritura** (*append-only*) | No se actualiza ni se borra | `evento` (salvo el sello de su hash), `cambio_campo`, `nota`, `revision`, `hallazgo_evento`, `anulacion`, `cuenta_evento`, `orden_compra_modificacion`, `politica_version`, `hoja_btw`, `periodo_btw_declarada` |
-| **Evidencia** (*immutable*) | Lo que llegó de fuera, tal cual | `documento`, `extraccion`, `movimiento_bancario`, `extracto_bancario`, `planning_turno` |
-| **Caché** | Se rehace en cada pasada del motor; nunca es la fuente de la verdad | `evaluacion`, `factura_estado`, `prioridad` |
+| **Solo escritura** (*append-only*) | No se actualiza ni se borra | `evento` (salvo el sello de su hash), `cambio_campo`, `nota`, `revision`, `hallazgo_evento`, `anulacion`, `cuenta_evento`, `orden_compra_modificacion`, `politica_version`, `hoja_btw`, `periodo_btw_declarada`, `lectura_automatica`, `exclusion_automatica`, `pausa_lectura_automatica`, `correo_atendido` |
+| **Evidencia** (*immutable*) | Lo que llegó de fuera, tal cual | `documento`, `extraccion`, `movimiento_bancario`, `extracto_bancario`, `planning_turno`, `mensaje_correo`, `adjunto_correo`, `ronda_correo` |
+| **Caché** | Se rehace en cada pasada del motor (o, las del correo y del ciclo, en cada ronda y en cada latido); nunca es la fuente de la verdad | `evaluacion`, `factura_estado`, `prioridad`, `estado_correo`, `estado_ciclo` |
+
+`solicitud_lectura` y `pasada_lectura` no se borran y avanzan solo por sus
+estados y sus fases (lo que se pidió, se aprobó y se canceló no cambia, y una
+lectura terminada tampoco), como `importacion` mientras está en curso.
 
 `cuenta_bancaria` es de solo inserción: una cuenta no cambia, lo que le pasa
 va a `cuenta_evento`. **Ningún camino lleva de una extracción a
@@ -65,7 +76,7 @@ y nunca se usa para pagar.
 | --- | --- |
 | `migracion` | Cada migración aplicada, con su sha256 |
 | `politica_version` | Cada fichero de configuración tal como se aplicó (reglas, prioridad, BTW, empresa, mapeos), con su sha256 |
-| `usuario` | Personas y usuarios de sistema (sistema, extractor, importador, motor), con el hash de su token personal |
+| `usuario` | Personas y usuarios de sistema (sistema, extractor, importador, motor y, desde la 0019, correo y automatico), con el hash de su token personal. Los de sistema no tienen roles ni token |
 | `permiso`, `rol`, `rol_permiso`, `usuario_rol` | Los catorce permisos, los roles (de partida: `administrador`, `administracion`, `consulta`) y quién tiene cuál, con fechas |
 | `evento` | Cada orden, importación, pasada, denegación y apertura de un documento, encadenados por hash |
 | `cambio_campo` | Cada cambio de cada campo: antes y después, fuente anterior y nueva, motivo (obligatorio en una corrección a mano). Es el historial de cambios |
@@ -134,6 +145,27 @@ y nunca se usa para pagar.
 | `activacion` | Una candidata que pasa a ser la extracción vigente de su documento; la activa una persona con `admin` después de la comparación |
 | `linea_sin_casar` | Una línea que una persona editó y que la lectura nueva ya no trae (M2) |
 
+### Lectura de los PDF (pasos 17 y 18)
+
+| Tabla | Qué guarda |
+| --- | --- |
+| `solicitud_lectura` | Cada petición de leer PDF y su vida: quién la pidió (`app`, `lector` o `automatica`), la estimación y su huella, el sí (quién, por dónde: `app`, `ventana` o `automatica` con su `autorizacion_id`; con qué tope y para qué huella), quién la paró y cómo terminó (`motivo_codigo`). Viva, una sola. Una persona no puede dar el sí a una automática |
+| `pasada_lectura` | El progreso de la lectura de una petición: fase, cuentas, lo gastado (solo sube), el documento de ahora y lo que fue de cada uno |
+| `lectura_automatica` | Cada versión de la autorización permanente de leer sin pedir el sí cada vez: encendida o no, los topes por día, mes, ronda y factura (en millonésimas de dólar, con techos de 20 y 200 USD), quién la firmó (una persona) y por qué. Vale la de mayor `id`; sin ninguna, apagada |
+| `exclusion_automatica` | Los documentos que no se leen solos y esperan a una persona: demasiado caros (`grande`), que la API no quiso contar (`rechazado_api`), que fallaron en dos automáticas (`fallo`) o que una persona apartó (`persona`). Una por documento |
+| `pausa_lectura_automatica` | Cada pausa (`persona`: alguien paró una automática, hasta medianoche; `volumen`: más de 200 correos en un día, hasta que una persona la quite) y cada reanudación. Manda la última fila |
+
+### Correo (paso 18)
+
+| Tabla | Qué guarda |
+| --- | --- |
+| `mensaje_correo` | Cada llegada de un mensaje al buzón de facturas, por (id inmutable de Graph, carpeta): la hora del servidor, el `internetMessageId`, el remitente y el asunto (`*_doc`: no comprobados, solo para enseñarlos) y cuántos adjuntos trae. Nunca el cuerpo, los destinatarios ni las cabeceras |
+| `adjunto_correo` | Cada adjunto de un mensaje y lo que se hizo con él: un PDF entra en el almacén (`documento`, con su `documento_id` y su sha256); lo demás (XML, otros ficheros, un correo adjunto, un enlace, lo de «no deseado») se apunta y se queda en el buzón |
+| `correo_atendido` | Un correo que el programa no podía leer y que una persona ya miró |
+| `ronda_correo` | Las rondas del correo que trajeron algo o cambiaron de error, con su código de la lista cerrada |
+| `estado_correo` | Caché de una fila: el último estado del correo (última consulta, error y desde cuándo, alcance comprobado, caducidad del certificado, retenido hasta, lo de hoy, aviso de volumen). Sin fila, el correo no está configurado |
+| `estado_ciclo` | Caché de una fila: el latido del ciclo automático (cuándo pasó, variante, si está en pausa y el espacio libre del disco) |
+
 ### BTW
 
 | Tabla | Qué guarda |
@@ -158,7 +190,7 @@ reloj del almacén y, cuando hace falta en SQL, lo deja en una caché.
 | `v_factura_saldo` | Total, acreditado, pagado, saldo y el estado de pago sin `hoy` |
 | `v_imputacion_vigente` | Las imputaciones activas de las facturas que cuentan (ni anuladas, ni fusionadas, ni sustituidas) |
 | `v_iva_vigente`, `v_btw_linea` | Las líneas de IVA que cuentan y su trimestre |
-| `v_proveedor_totales`, `v_cliente_totales` | Lo facturado de siempre por proveedor y por cliente |
+| `v_proveedor_totales`, `v_cliente_totales` | Lo facturado de siempre por proveedor y por cliente; lo pendiente, lo que se debe en el signo de cada factura (0017) |
 | `v_po_vigente`, `v_po_consumo` | El valor vigente de cada PO y lo consumido |
 | `v_turno_vigente`, `v_planning_estado` | La última foto aceptada del planning por día, y por turno las horas conciliadas con compras y ventas |
 | `v_factura_ediciones` | Las marcas de edición a mano por factura |
@@ -185,6 +217,8 @@ sus días y eso se hace en Python (`trabajo.importes_por_semana`).
 | **Prioridad** (normal, atención, urgente, bloqueada) | `prioridad.py`, en `factura_estado` (facturas) y en `prioridad` (excepciones, PO, proveedores, clientes, Objetos, trimestres) |
 | **Estado de una cuenta bancaria** | `v_cuenta_estado`: manda el último evento de una persona; si no, heredada o registrada sin verificar |
 | **Estado de una excepción, del BTW** | Lo pone una persona, con su evento |
+| **Lectura de los PDF** (pedida, contando, esperando el sí, leyendo, hecha…) | `solicitud_lectura` y `pasada_lectura`. Lo gastado por la lectura automática hoy y este mes es la suma de las pasadas de sus peticiones (`aprobada_via = 'automatica'`); si lee sola, de la última `lectura_automatica`, sus pausas y sus exclusiones |
+| **Estado del correo y del ciclo automático** | Las cachés `estado_correo` y `estado_ciclo`, que reescriben `correo registrar` y `ciclo latido`; lo que esperan a una persona, de `adjunto_correo`, `exclusion_automatica` y `correo_atendido` |
 | **Si una factura cuenta en los totales** | `v_factura_listado.cuenta`: ni anulada, ni copia fusionada, ni sustituida o corregida por otra. La búsqueda, las vistas de las partes, los Objetos y el BTW usan la misma regla |
 
 La búsqueda y el panel leen las cachés: dicen de qué día es su estado
