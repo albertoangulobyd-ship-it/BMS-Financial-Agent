@@ -50,6 +50,7 @@ from . import (
     excepciones,
     hallazgos,
     lectura,
+    lectura_automatica,
     ordenes_compra,
     pagos,
     relaciones,
@@ -1667,6 +1668,44 @@ def _cancelar_lectura(ctx: Contexto, d: dict[str, Any]) -> Hecho:
     return Hecho(evento, detalle={"solicitud_id": d["solicitud_id"], "estado": fila[0]})
 
 
+# Paso 18: la lectura automatica (lectura_automatica.py). Encenderla, cambiarla o apagarla es
+# de admin: autoriza gastar sin un si cada vez, con sus topes. Las otras tres solo frenan o
+# quitan gasto (o apuntan que una persona miro un correo): las da quien pide lecturas. Ninguna
+# lee, habla con la API ni aprueba nada.
+
+def _fijar_lectura_automatica(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    fila_id, evento = lectura_automatica.fijar(
+        ctx.conn, ctx.persona.usuario_id, activa=d["activa"],
+        tope_dia_usd_micro=d["tope_dia_usd_micro"], tope_mes_usd_micro=d["tope_mes_usd_micro"],
+        max_documentos=d["max_documentos"],
+        max_por_documento_usd_micro=d["max_por_documento_usd_micro"],
+        motivo=ctx.persona.motivo, peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"autorizacion_id": fila_id, "activa": bool(d["activa"])})
+
+
+def _reanudar_lectura_automatica(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    fila_id, evento = lectura_automatica.reanudar(
+        ctx.conn, ctx.persona.usuario_id, ctx.persona.motivo,
+        peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"reanudada": fila_id})
+
+
+def _excluir_de_lectura_automatica(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    hechas = lectura_automatica.excluir(
+        ctx.conn, d["documento_ids"], "persona", ctx.persona.usuario_id,
+        motivo=ctx.persona.motivo, peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    pedidas = len(set(d["documento_ids"]))
+    return Hecho(hechas[0][1] if hechas else None,
+                 detalle={"excluidos": len(hechas), "ya_estaban": pedidas - len(hechas)})
+
+
+def _marcar_correo_atendido(ctx: Contexto, d: dict[str, Any]) -> Hecho:
+    fila_id, evento = lectura_automatica.marcar_atendido(
+        ctx.conn, d["mensaje_id"], ctx.persona.usuario_id, d.get("nota"),
+        peticion_id=ctx.persona.peticion_id, datos=ctx.datos_evento)
+    return Hecho(evento, detalle={"mensaje_id": d["mensaje_id"], "atendido": fila_id})
+
+
 def _p(nombre: str, tipo: str = ENTERO, obligatorio: bool = True, ayuda: str = "") -> Parametro:
     return Parametro(nombre, tipo, obligatorio, ayuda)
 
@@ -1914,6 +1953,31 @@ ACCIONES: dict[str, Accion] = {a.nombre: a for a in (
            "No leer: antes de empezar, el lector apaga la salida sin gastar nada; leyendo, "
            "para despues del documento en curso.",
            (_p("solicitud_id"), _MOTIVO), _cancelar_lectura, recalcula=False),
+    # Paso 18: la lectura automatica. Solo gasta en leer, dentro de los topes que firma una
+    # persona con admin; no aprueba ninguna factura ni ningun pago.
+    Accion("fijar_lectura_automatica", P.ADMIN.value,
+           "Encender, cambiar o apagar la lectura automatica de las facturas del correo, con sus "
+           "topes en millonesimas de dolar: por dia, por mes y por factura, y facturas por "
+           "ronda. Cada cambio queda firmado.",
+           (_p("activa", ayuda="1 encendida, 0 apagada"),
+            _p("tope_dia_usd_micro", ayuda="de 1 a 20000000 (20 USD)"),
+            _p("tope_mes_usd_micro", ayuda="del tope del dia a 200000000 (200 USD)"),
+            _p("max_documentos", ayuda="facturas por ronda, de 1 a 100"),
+            _p("max_por_documento_usd_micro", ayuda="de 1 al tope del dia"), _MOTIVO),
+           _fijar_lectura_automatica, motivo="obligatorio", recalcula=False),
+    Accion("reanudar_lectura_automatica", P.IMPORTAR_DATOS.value,
+           "Quitar la pausa de la lectura automatica (la de quien paro una automatica, o la de "
+           "un dia con mucho correo).",
+           (_MOTIVO,), _reanudar_lectura_automatica, recalcula=False),
+    Accion("excluir_de_lectura_automatica", P.IMPORTAR_DATOS.value,
+           "Que estas facturas no se lean solas (hasta 200 de una vez): esperan a una persona, "
+           "que las puede leer desde Procesar.",
+           (_p("documento_ids", LISTA, ayuda="ids de documento, de 1 a 200"), _MOTIVO),
+           _excluir_de_lectura_automatica, recalcula=False),
+    Accion("marcar_correo_atendido", P.IMPORTAR_DATOS.value,
+           "Dar por atendido un correo que el programa no podia leer: una persona ya lo miro.",
+           (_p("mensaje_id"), _p("nota", TEXTO, False, "como mucho 500 caracteres")),
+           _marcar_correo_atendido, recalcula=False),
     Accion("recalcular", P.VER_FACTURAS.value,
            "Volver a pasar las reglas (cada orden ya lo hace al terminar).",
            (), _recalcular),

@@ -3239,6 +3239,22 @@
       "etiqueta": "Don't read",
       "descripcion": "Before it starts, the reader closes its internet connection without spending anything; if it is already reading, it stops after the current invoice."
     },
+    "fijar_lectura_automatica": {
+      "etiqueta": "Set automatic reading",
+      "descripcion": "Turn automatic reading of the invoices from the invoice mailbox on or off, with its caps: per day, per month and per invoice, and invoices per round. Every change is recorded with your name."
+    },
+    "reanudar_lectura_automatica": {
+      "etiqueta": "Turn automatic reading back on",
+      "descripcion": "Removes the pause of automatic reading (after someone stopped an automatic reading, or after a day with unusually many emails)."
+    },
+    "excluir_de_lectura_automatica": {
+      "etiqueta": "Do not read automatically",
+      "descripcion": "These invoices are not read automatically (up to 200 at once): they wait for you, and you can have them read from Process."
+    },
+    "marcar_correo_atendido": {
+      "etiqueta": "Email handled",
+      "descripcion": "Mark an email the program could not read as handled: someone has looked at it."
+    },
     "recalcular": {
       "etiqueta": "Run checks again",
       "descripcion": "Run all checks again (every action already does this)."

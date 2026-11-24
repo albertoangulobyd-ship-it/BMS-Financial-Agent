@@ -3239,6 +3239,22 @@
       "etiqueta": "No leer",
       "descripcion": "Antes de empezar, el lector cierra su conexión a internet sin gastar nada; si ya está leyendo, para después de la factura en curso."
     },
+    "fijar_lectura_automatica": {
+      "etiqueta": "Fijar la lectura automática",
+      "descripcion": "Enciende, cambia o apaga la lectura automática de las facturas del buzón de facturas, con sus topes: por día, por mes y por factura, y las facturas por ronda. Cada cambio queda firmado con tu nombre."
+    },
+    "reanudar_lectura_automatica": {
+      "etiqueta": "Volver a encender la lectura automática",
+      "descripcion": "Quita la pausa de la lectura automática (después de que alguien parara una lectura automática, o tras un día con muchos más correos de lo normal)."
+    },
+    "excluir_de_lectura_automatica": {
+      "etiqueta": "No leer solas",
+      "descripcion": "Estas facturas no se leen solas (hasta 200 de una vez): esperan a una persona, que puede leerlas desde Procesar."
+    },
+    "marcar_correo_atendido": {
+      "etiqueta": "Correo atendido",
+      "descripcion": "Marca como atendido un correo que el programa no ha podido leer: una persona ya lo ha mirado."
+    },
     "recalcular": {
       "etiqueta": "Volver a comprobar",
       "descripcion": "Vuelve a pasar todos los controles (cada acción ya lo hace)."

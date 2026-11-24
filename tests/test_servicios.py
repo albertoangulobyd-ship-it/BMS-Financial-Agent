@@ -251,6 +251,30 @@ def _lectura(conn) -> tuple[int, str]:
     return (fila[0], fila[1] or "0" * 64) if fila else (0, "0" * 64)
 
 
+def _preparar_pausa(almacen, _admin) -> None:
+    from bms_agent import lectura_automatica
+
+    lectura_automatica.pausar(almacen.conn, "volumen")
+
+
+def _preparar_correo(almacen, _admin) -> None:
+    """Un correo registrado que el programa no pudo leer (sin PDF)."""
+    from bms_agent.almacen import transaccion
+
+    conn = almacen.conn
+    with transaccion(conn):
+        conn.execute(
+            "INSERT INTO mensaje_correo (graph_id, carpeta, recibido_en, adjuntos, en_linea, "
+            "traido_en, registrado_en, registrado_por) VALUES ('AAMkAGI1', 'bandeja', ?, 0, 0, "
+            "?, ?, ?)", ("2026-10-14T08:00:00+00:00", "2026-10-14T08:05:00+00:00",
+                         "2026-10-14T08:06:00+00:00", usuario_sistema(conn, "correo")))
+
+
+def _mensaje(conn) -> int:
+    fila = conn.execute("SELECT max(id) FROM mensaje_correo").fetchone()
+    return fila[0] or 0
+
+
 # (caso, orden, permiso que pide, datos, preparacion)
 CASOS = [
     ("rellenar_campo", "fijar_campo", "anadir_informacion", lambda c, i: {
@@ -399,6 +423,19 @@ CASOS = [
      _preparar_lectura_contada),
     ("cancelar_lectura", "cancelar_lectura", "importar_datos", lambda c, i: {
         "solicitud_id": _lectura(c)[0]}, _preparar_lectura_pedida),
+    # Paso 18: la lectura automatica. Encenderla es de admin; frenarla, de quien pide lecturas.
+    ("fijar_lectura_automatica", "fijar_lectura_automatica", "admin", lambda c, i: {
+        "activa": 1, "tope_dia_usd_micro": 2_000_000, "tope_mes_usd_micro": 25_000_000,
+        "max_documentos": 20, "max_por_documento_usd_micro": 500_000,
+        "motivo": "Las facturas del correo, solas"}, None),
+    ("reanudar_lectura_automatica", "reanudar_lectura_automatica", "importar_datos",
+     lambda c, i: {"motivo": "Ya se miro la lista"}, _preparar_pausa),
+    ("excluir_de_lectura_automatica", "excluir_de_lectura_automatica", "importar_datos",
+     lambda c, i: {"documento_ids": [c.execute("SELECT min(id) FROM documento").fetchone()[0]],
+                   "motivo": "No es una factura"}, None),
+    ("marcar_correo_atendido", "marcar_correo_atendido", "importar_datos",
+     lambda c, i: {"mensaje_id": _mensaje(c), "nota": "Factura pedida otra vez"},
+     _preparar_correo),
     ("recalcular", "recalcular", "ver_facturas", lambda c, i: {}, None),
 ]
 
@@ -442,7 +479,11 @@ def test_la_matriz_cubre_cada_orden_y_es_la_del_paragrafo_6() -> None:
         "btw_anotar_presentacion": "gestionar_btw",
         # Paso 17.
         "pedir_lectura": "importar_datos", "aprobar_lectura": "importar_datos",
-        "cancelar_lectura": "importar_datos"}
+        "cancelar_lectura": "importar_datos",
+        # Paso 18.
+        "fijar_lectura_automatica": "admin", "reanudar_lectura_automatica": "importar_datos",
+        "excluir_de_lectura_automatica": "importar_datos",
+        "marcar_correo_atendido": "importar_datos"}
 
 
 @pytest.mark.parametrize("caso, orden, permiso, datos, preparar", CASOS,

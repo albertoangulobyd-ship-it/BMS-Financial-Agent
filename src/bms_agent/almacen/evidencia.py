@@ -30,7 +30,10 @@ orden_compra_modificacion (como una nota); la del paso 10, planning_turno,
 con todos los turnos de una importacion en su evento planning_registrado
 (`TURNOS`), como los movimientos; las del paso 11, hoja_btw (como una nota, con
 su texto rehasheado) y periodo_btw_declarada, toda la de un trimestre en el
-evento de su presentacion (`DECLARADAS`). La procedencia de los campos
+evento de su presentacion (`DECLARADAS`); las del paso 18, lectura_automatica,
+exclusion_automatica, pausa_lectura_automatica (una pausa y una reanudacion son filas de la
+misma tabla, cada una con su evento de alta: `ALTAS_TAMBIEN`) y correo_atendido, cada fila con
+su evento. La procedencia de los campos
 de las tablas controladas tiene su propia comprobacion, con la misma idea
 (campos.verificar_procedencia), y la excepcion la suya
 (excepciones.verificar), como el periodo del BTW (btw.verificar).
@@ -110,6 +113,14 @@ COLUMNAS: dict[str, tuple[str, ...]] = {
     # Lo declarado de cada factura al presentar un trimestre: todas en el evento de
     # la presentacion (`DECLARADAS`), como los movimientos de un extracto.
     "periodo_btw_declarada": ("periodo_id", "factura_id", "huella", "base_cent", "cuota_cent"),
+    # Paso 18: la autorizacion de la lectura automatica que firma una persona, lo que no se lee
+    # solo, sus pausas y reanudaciones, y el correo que una persona dio por atendido.
+    "lectura_automatica": ("activa", "tope_dia_usd_micro", "tope_mes_usd_micro",
+                           "max_documentos", "max_por_documento_usd_micro", "fijada_por",
+                           "fijada_en", "motivo"),
+    "exclusion_automatica": ("documento_id", "motivo_codigo", "solicitud_id", "por", "en"),
+    "pausa_lectura_automatica": ("tipo", "motivo", "solicitud_id", "por", "en", "hasta"),
+    "correo_atendido": ("mensaje_id", "por", "en", "nota"),
 }
 
 # Los movimientos de un extracto no tienen un evento cada uno (un extracto trae
@@ -165,7 +176,21 @@ EVENTOS: dict[str, tuple[str, tuple[str, ...]]] = {
     "extracto_bancario": ("extracto_registrado", ()),
     "orden_compra_modificacion": ("po_modificada", ()),
     "hoja_btw": ("btw_hoja_guardada", ()),
+    "lectura_automatica": ("lectura_automatica_fijada", ()),
+    "exclusion_automatica": ("lectura_excluida", ()),
+    "pausa_lectura_automatica": ("lectura_automatica_pausada", ()),
+    "correo_atendido": ("correo_atendido", ()),
 }
+
+# Tablas con filas de dos clases, cada una con su evento de alta: cualquiera de ellos da de
+# alta la fila (una pausa de la lectura automatica, o su reanudacion).
+ALTAS_TAMBIEN: dict[str, tuple[str, ...]] = {
+    "pausa_lectura_automatica": ("lectura_automatica_reanudada",),
+}
+
+
+def _altas(tabla: str) -> tuple[str, ...]:
+    return (EVENTOS[tabla][0], *ALTAS_TAMBIEN.get(tabla, ()))
 
 # Tablas cuya fila apunta a su evento (columna evento_id) en vez de que el
 # evento apunte a la fila: el evento de una nota es de la fila anotada, para
@@ -208,7 +233,8 @@ def _datos(evento: sqlite3.Row) -> dict[str, Any]:
 
 
 def _eventos_de_evidencia(conn: sqlite3.Connection) -> dict[tuple[str, int], list[sqlite3.Row]]:
-    tipos = sorted({t for alta, mods in EVENTOS.values() for t in (alta, *mods)})
+    tipos = sorted({t for tabla, (_alta, mods) in EVENTOS.items()
+                    for t in (*_altas(tabla), *mods)})
     marcas = ", ".join("?" * len(tipos))
     por_fila: dict[tuple[str, int], list[sqlite3.Row]] = {}
     for evento in conn.execute(
@@ -216,7 +242,7 @@ def _eventos_de_evidencia(conn: sqlite3.Connection) -> dict[tuple[str, int], lis
         "ORDER BY id", tipos,
     ):
         if evento["tabla"] in EVENTOS and evento["tabla"] not in POR_EVENTO and evento["tipo"] in (
-            EVENTOS[evento["tabla"]][0], *EVENTOS[evento["tabla"]][1]
+            *_altas(evento["tabla"]), *EVENTOS[evento["tabla"]][1]
         ):
             por_fila.setdefault((evento["tabla"], evento["fila_id"]), []).append(evento)
     return por_fila
@@ -226,12 +252,12 @@ def _comprobar_fila(
     tabla: str, fila_id: int, actual: dict[str, Any], eventos: list[sqlite3.Row]
 ) -> list[str]:
     alta, modificaciones = EVENTOS[tabla]
-    altas = [e for e in eventos if e["tipo"] == alta]
+    altas = [e for e in eventos if e["tipo"] in _altas(tabla)]
     if not altas:
         return [f"{tabla} {fila_id} no tiene su evento {alta}: se ha metido por detras"]
     if len(altas) > 1:
         return [f"{tabla} {fila_id} tiene {len(altas)} eventos {alta}"]
-    validos = [e for e in eventos if e["tipo"] == alta or (
+    validos = [e for e in eventos if e["tipo"] in _altas(tabla) or (
         e["tipo"] in modificaciones and e["id"] > altas[0]["id"])]
     ultimo = validos[-1]
     esperada = _datos(ultimo).get("fila")

@@ -218,3 +218,61 @@ del paso 18 del registro (§8.1, «Desviaciones, y por qué»).
 - Una guarda más, `test_cada_motivo_tiene_su_texto_en_la_app`: cada código de
   `lectura.MOTIVOS` tiene su línea en `reasonOf` (`process-texts.ts`); los pasos 4 y 5, que
   añaden motivos, la tienen que cumplir.
+
+## Paso 4 · la autorización, las pausas y las exclusiones
+
+- **Los eventos que el diseño no nombraba**: `lectura_automatica_pausada` y
+  `lectura_automatica_reanudada` (una fila de `pausa_lectura_automatica` cada uno) y
+  `correo_atendido`; los de §5.1 y §5.3 (`lectura_automatica_fijada`, `lectura_excluida`), con
+  esos nombres. Ninguno casa con lo que `test_alcance_v1.py` prohíbe.
+- **`almacen/evidencia.py` gana las cuatro tablas que escribe este paso** (el hueco que dejó
+  apuntado el paso 2): `lectura_automatica`, `exclusion_automatica`, `pausa_lectura_automatica`
+  y `correo_atendido`, cada fila con su evento de alta y la `foto()` en sus datos, así que
+  `db verificar` ve una fila metida por detrás. Como una pausa y una reanudación son filas de la
+  misma tabla con eventos distintos, `ALTAS_TAMBIEN` deja que una tabla tenga más de un evento
+  de alta. Las tres del correo (`mensaje_correo`, `adjunto_correo`, `ronda_correo`) son del
+  paso 10, que las escribe.
+- **`excluir_de_lectura_automatica` deja un evento por documento** (la foto de cada fila), y
+  solo el primero lleva el `peticion_id` de la orden: `evento.peticion_id` es `UNIQUE`
+  (`0001_almacen.sql:170`). Un documento que ya estaba apartado se deja como estaba (una
+  exclusión por documento, para siempre); la respuesta dice `excluidos` y `ya_estaban`. Una
+  lista con más de 200, vacía, con algo que no es un id o con un documento que no existe no
+  aparta ninguno (`invalido` o `no_existe`). La lista se comprueba en
+  `lectura_automatica.excluir`: el tipo `LISTA` de `servicios` admite cualquier lista.
+- **`fijar_lectura_automatica` pide motivo** (`motivo="obligatorio"`): §5.1 dice «con
+  `motivo`» y la columna lo admite vacío; encender o subir lo que el programa gasta solo es
+  una decisión que conviene que diga por qué. Las otras tres lo admiten sin pedirlo («Weer
+  aanzetten» es un botón). `nota` de `marcar_correo_atendido` es opcional (hasta 500).
+- **La pausa vigente no es solo la última fila** (§3.9 punto 7 decía «el estado es la última
+  fila»): cuenta todo lo que hay después de la última reanudación, y una de `volumen` gana a
+  una de `persona`. Si no, una persona que para una automática con la pausa de volumen puesta
+  (no debería pasar, pero nada lo impide en la base) dejaría la de volumen acabada a las 00:00,
+  sin que nadie mirara la lista.
+- **La pausa por volumen, una vez por día de Amsterdam**: si ese día ya se puso una (aunque una
+  persona la haya quitado), `pausar("volumen")` no hace nada. Es lo que pide §5.2 («por primera
+  vez ese día») y la prueba de §7.1; si no, `correo registrar` la volvería a poner cada 5
+  minutos tras quitarla, porque `estado.json` sigue diciendo `aviso_volumen` todo el día.
+- **`reanudar_lectura_automatica` sin ninguna pausa vigente es un 409** (`estado_no_valido`),
+  no una fila más.
+- **«Sin extracción vigente» con SQL** (`NOT EXISTS` de una extracción que no es una candidata
+  sin activar, `extracciones.SIN_CANDIDATAS`), no con `ingesta.vigentes_por_documento`, que
+  carga el JSON de cada extracción: `lectura siguiente` corre cada 5 minutos. Es la misma regla
+  (un documento con alguna extracción que no es candidata tiene vigente);
+  `test_una_extraccion_candidata_no_cuenta_como_leida` lo compara con la función de ingesta.
+- **`marcar_correo_atendido` vive en `lectura_automatica.py`**, junto a `esperan_persona`: el
+  diseño no la colocaba y el paquete `correo` (paso 7) es de lo que trae, que no abre la base.
+  Un correo ya atendido es un 409.
+- Lo que §6.1/§6.2 no fijaba y se decidió: la llegada de un documento es la primera vez que
+  llegó por la bandeja (las elegibles van por ahí, las más antiguas primero);
+  `pendientes_del_correo` (lo que una persona lee desde Procesar) quita solo lo que apartó una
+  persona, y las elegibles, todo lo apartado; en `esperan_persona`, los correos más recientes
+  primero y las facturas apartadas por orden inverso de exclusión. En `resumen`,
+  `queda_hoy_usd_micro` es lo que queda del día sin pasar de lo que queda del mes, y `parada`
+  mira la pausa, la espera tras un fallo y los topes, en ese orden, solo con la automática
+  encendida.
+- **El tope del mes se mira antes que el del día** (`tope_alcanzado`, para `siguiente`,
+  `autorizar` y la app): con el mes acabado, `limite_dia` diría «lo demás se lee mañana», que no
+  es verdad.
+- `frontend/src/lib/actions.ts` no gana las cuatro acciones todavía: la app no las manda hasta
+  el paso 12 (§6.3), y la tabla solo lista lo que la app ofrece. Las etiquetas de
+  `textos/*.json` son las de §6.4; las descripciones son nuevas.

@@ -3239,6 +3239,22 @@
       "etiqueta": "Niet lezen",
       "descripcion": "Vóór de start sluit de lezer zijn internetverbinding zonder iets uit te geven; als hij al leest, stopt hij na de huidige factuur."
     },
+    "fijar_lectura_automatica": {
+      "etiqueta": "Automatisch lezen instellen",
+      "descripcion": "Automatisch lezen van de facturen uit de facturenmailbox aan- of uitzetten, met de plafonds: per dag, per maand en per factuur, en het aantal facturen per ronde. Elke wijziging wordt met jouw naam vastgelegd."
+    },
+    "reanudar_lectura_automatica": {
+      "etiqueta": "Automatisch lezen weer aanzetten",
+      "descripcion": "Haalt de pauze van automatisch lezen weg (nadat iemand een automatische lezing stopte, of na een dag met ongewoon veel mails)."
+    },
+    "excluir_de_lectura_automatica": {
+      "etiqueta": "Niet vanzelf lezen",
+      "descripcion": "Deze facturen worden niet vanzelf gelezen (tot 200 tegelijk): ze wachten op jou, en je kunt ze via Verwerken laten lezen."
+    },
+    "marcar_correo_atendido": {
+      "etiqueta": "Mail afgehandeld",
+      "descripcion": "Een mail die het programma niet kon lezen als afgehandeld markeren: iemand heeft hem bekeken."
+    },
     "recalcular": {
       "etiqueta": "Controles opnieuw uitvoeren",
       "descripcion": "Alle controles opnieuw uitvoeren (elke actie doet dat al vanzelf)."

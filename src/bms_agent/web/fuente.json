@@ -1,7 +1,7 @@
 {
   "_nota": "Huella de lo que entra en la construccion de la app (frontend/build-inputs.json) y de lo construido. La escribe frontend/scripts/fuente.mjs al construir; tests/test_app_local.py la comprueba. Para rehacerla: cd frontend; npm ci; npm run build.",
   "algoritmo": "sha256 de \"<ruta>\\0<sha256 del fichero con CRLF como LF>\\n\", en orden de ruta",
-  "sha256": "d02c40e04953625b9f142e507541677f873cd4c598fc8d645cec4b7900fafef9",
+  "sha256": "3dbf22c5c81f8f2190ca4f92544b3433e7ff2a82aa280d7fe56a64b826203c45",
   "entradas": {
     "frontend/build-inputs.json": "4aa55cfa8cfd1fd06de3caab3e0d3d85679623d50903140ad3f5320c475e2125",
     "frontend/components.json": "e4afe74cce02191e21624050df9f16c4dbe1e27cac33071bc23d50559fa09a27",
@@ -133,16 +133,16 @@
     "frontend/tsconfig.app.json": "495ad4991e36ca7aec91753dc64e2795eb1fa0e73e015e513eabfe75db5e18c0",
     "frontend/tsconfig.json": "1f10234e851ddbb03e1c2d73bdd7aa13be4e1d8c33cc16b84372f1341a172c3c",
     "frontend/vite.config.ts": "2910a23f69f65fd99b90a92c4477c79d4ac7aca111fc4c799d7a5432cb49ee5c",
-    "src/bms_agent/textos/en.json": "45df4005d7abe363b7390bb314ad9b11fc026fe461ca6d4a1ad1cadd8f6fcb66",
-    "src/bms_agent/textos/es.json": "3d491684d5419c4847d8313dbf373e01a24e37dca83a81fd91231653ad22b25b",
-    "src/bms_agent/textos/nl.json": "c2d7478a826c49750d7a9a72fde123290edf2b875e3a3924c7fd8651ae9e72cb"
+    "src/bms_agent/textos/en.json": "10da401a0c3aaa49613d27dc16a88df23b0a8b2ed4f02b9c71f03418abc6c44f",
+    "src/bms_agent/textos/es.json": "13e7192b8a0599969d71feab55a3b2f4781386f14430039e161d7b440753c980",
+    "src/bms_agent/textos/nl.json": "7453c1397d341aab8b59d6bf54df0da9ceab5bd32a5758d55468b726b9cd9975"
   },
   "salida": {
     "assets/favicon-DxmLE3Gc.svg": "8217cb47c58015a93d1ece754b3568b0f5d745c4b5f2643c4603da154373bc93",
-    "assets/index-DHAnWX_7.js": "df17e5e2e9b4dd6a2e519b315c5322280966be7ffffce366ea49b784a8843cdd",
+    "assets/index-CmJIqiYl.js": "278cbc9ed8ba355110e6d9a1e9a1afcb19ceb32c7dbfa9f550df6f25ff552b0a",
     "assets/style-Bb5qUQqJ.css": "35481221b322ae571fef871994077a4703d6435d981dc2a36bd7e778afa6eb0d",
-    "assets/textos-ChzHv6aK.js": "a5cf5cef0181edeefd5ee4f74b74b730a535ba03f76b53e1f89366d759a8a8c5",
+    "assets/textos-CgL17gTW.js": "3d4c709fe23e0ab41556a32d4be889c1ea23d099de3fafeb6f106619d0daa883",
     "assets/vendor-CLTjCOK0.js": "bf2929b415ce6a7633cd62a977b057238385a30b1a94a7024acedea3421cc162",
-    "index.html": "b56fa3f31a3335b67bbde34a8afe59e20dbc4c31f68eb6f17dd88da5a2821b6f"
+    "index.html": "36c0195b42ba9aab0aa3bc763db1d54c78e05bbbaf8ecfb59e50bf9b3c30e3ad"
   }
 }
