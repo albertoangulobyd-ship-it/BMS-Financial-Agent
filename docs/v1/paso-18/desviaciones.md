@@ -1409,3 +1409,56 @@ caducidad (§9.2, pregunta 1) y un Mac sin otras cuentas (§3.5, lo dice la guí
 - `test_entorno_local.py`: los `.ps1` de `docker\` son `SCRIPTS`, `comun` y `SIN_COMUN` (los que
   corren como administrador sin `comun.ps1`, con sus pruebas en `test_tunel_mac.py`), y pasan las
   mismas reglas de Windows PowerShell 5.1.
+- **`docker\mac.ps1` es el borrador con el anexo C, y estos arreglos** (15b.1):
+  - **`$estado` era el `[switch]$Estado` de los parámetros.** PowerShell no distingue mayúsculas
+    en los nombres: en el borrador, `$estado = Leer-Estado` intentaba meter el estado en el
+    parámetro `-Estado` (un `[switch]`) y fallaba, así que ninguna acción podía leer ni guardar la
+    lista de Mac. Ahora es `$EstadoDelTunel`, y `test_pwsh_ninguna_variable_pisa_un_parametro`
+    (con el analizador de PowerShell) exige que ni el script ni ninguna función asigne a una
+    variable que se llama como uno de sus parámetros, salvo los que la ventana normal rellena para
+    la de administrador (`-Nombre`, `-Ip`, `-Clave`, `-MismaClave`, `-Usuario`; en `proteger.ps1`,
+    `-Dueno`).
+  - **La contraseña de `bms-tunel` va letra a letra a un `SecureString`** (de solo lectura), sin
+    `ConvertTo-SecureString -AsPlainText`: el texto no pasa como argumento de una orden, y los
+    `.ps1` de `docker\` no usan `-AsPlainText` (la regla de Windows PowerShell 5.1 de
+    `test_entorno_local.py`, que ahora también miran `mac.ps1` y `proteger.ps1`).
+  - **Volver atrás con `secedit` no es aplicar lo exportado.** `secedit /configure` solo toca los
+    derechos que trae la plantilla, y el export omite los que no tienen a nadie: si `secedit`
+    cambiara algo de más, aplicar el export de antes no quitaría a `bms-tunel` de los
+    «Denegar…» que antes estaban vacíos ni lo que se hubiera añadido de más. `Texto-Vuelta`
+    escribe cada derecho de antes y de después (y los cuatro), con lo de antes y vacío si no
+    estaba. Que un derecho con el valor vacío se quede sin nadie es lo mismo que ya daba por hecho
+    `Texto-Negaciones -Quitar` **[comprobar en Windows 11]**.
+  - **`Guardar-Estado` escribe solo lo de §2.8** (versión, instalado, antes, apagado,
+    `config_sha256` y de cada Mac nombre, IP, clave pública y alta), armado ahí mismo, en vez de
+    serializar el objeto que le llegue: un campo de más no puede acabar en el registro.
+  - **`-MismaClave` se comprueba en la ventana de administrador**: la clave que llega tiene que ser
+    la que ya tenía ese Mac (§2.13 decía que se pasa, no qué se hace con ella).
+  - Sin instalar, `-Estado`, `-QuitarClave`, `-Apagar`… lo dicen **antes** de pedir ser
+    administrador (el estado se lee en el registro sin elevar).
+  - Las claves de personas (`C:\Users\*\.ssh\authorized_keys`) se buscan en la carpeta de
+    perfiles de `ProfileList` (como `proteger.ps1`), no en `$env:SystemDrive\Users`. La ruta del
+    servicio se compara con la carpeta entera (`…\OpenSSH\`). `Lectores-De-Datos` falla cerrado
+    si no puede leer una ACL.
+  - **`-Estado`**, lo que §2.7 no fijaba: la app que no contesta, la regla de Microsoft encendida,
+    rechazos en la semana o la fecha de Windows Update que no se sabe son «aviso»; el acumulado de
+    más de 35 días, la cuenta, los datos, las claves, la configuración, el reenvío y la carpeta
+    `ssh`, «mal». La red solo informa, salvo un perfil que bloquea todas las entradas (aviso). Una
+    entrada con una clave que ya no está en la lista lo dice. Enseña las carpetas `ssh.apartada-*`.
+  - `-QuitarClave` dice «cortados» solo si de verdad no queda ningún proceso; si queda, lo dice en
+    rojo y que hay que reiniciar. Y recuerda el token nuevo de la persona de ese Mac (`persona.bat`).
+- **`mac.ps1` se prueba corrido**, además de los pines de §5.1 y de sus funciones puras con
+  `pwsh`: `test_tunel_mac.py` lo copia sustituyendo lo de Windows (las cuentas, la capacidad, el
+  servicio, el cortafuegos, el registro, las ACL, los procesos) por funciones que leen y escriben
+  un «mundo» en JSON, con `sshd`, `icacls`, `taskkill`, `secedit` y `takeown` falsos en
+  `$env:SystemRoot\System32`. Así se ven, en orden, `-Instalar` de cero (los ficheros de §2.3 y
+  §2.4 tal cual, el estado, la cuenta, los cuatro «Denegar…», las reglas), `-Estado` (todo
+  «bien», y en rojo lo que está mal), `-AnadirClave`, `-QuitarClave` con un túnel que Windows no
+  deja cortar, `-Apagar`/`-Encender`, `-Quitar` en un equipo sin y con el servidor de antes (y
+  `-SustituirConfiguracion`), lo que falla (sshd `-t` y `-T`, `secedit`, los grupos) dejando
+  sshd parado y el cortafuegos cerrado, la carpeta `ssh` de otro que se aparta, los datos que
+  otros leen, lo que otra cuenta puede cambiar, `-CopiarParaElMac`, las preguntas de la ventana
+  normal y lo que la de administrador vuelve a validar. Lo que de verdad hace Windows (ACL,
+  `secedit`, el cortafuegos, sshd) sigue en la lista de §5.2. De las 26 mutaciones que se
+  probaron, 25 hacen fallar alguna prueba; la que no (quitar la comprobación de los 51 bytes de la
+  clave) es equivalente: la expresión ya exige 68 caracteres de base64 sin `=`, que son 51 bytes.

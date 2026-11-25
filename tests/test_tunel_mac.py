@@ -2,8 +2,9 @@
 
 Lo que se puede probar aqui, en Linux, sin Windows ni macOS (mac.md §5.1): los pines de
 docker/proteger.ps1 (la carpeta del proyecto protegida), y que lo que protege casa con lo que de
-verdad escriben los scripts del ciclo automatico (paso 15). Lo que solo se ve en un Windows 11 o
-en un Mac de verdad esta en la lista de mac.md §5.2.
+verdad escriben los scripts del ciclo automatico (paso 15); los de docker/mac.ps1 (el tunel en el
+mini PC), sus funciones puras con pwsh y el script entero corrido con lo de Windows sustituido. Lo
+que solo se ve en un Windows 11 o en un Mac de verdad esta en la lista de mac.md §5.2.
 
 Las de pwsh se saltan sin el, como en test_instalacion_nativa.py; el codigo "sin comentarios ni
 cadenas" es _codigo, como alli.
@@ -27,7 +28,7 @@ WINDOWS = RAIZ / "windows"
 PWSH = shutil.which("pwsh")
 
 # Los dos .ps1 de este paso que corren como administrador y no cargan comun.ps1.
-ADMINISTRADOR = ("proteger",)
+ADMINISTRADOR = ("proteger", "mac")
 
 SID_SISTEMA = "S-1-5-18"
 SID_ADMINISTRADORES = "S-1-5-32-544"
@@ -98,9 +99,19 @@ def test_mac_ps1_no_carga_comun_ni_usa_docker(nombre) -> None:
     assert not re.search(r"\bdocker\b", codigo, re.IGNORECASE)
     assert not re.search(r"Invoke-Expression|\biex\b|DownloadString|DownloadFile|"
                          r"Start-BitsTransfer|\bcurl\b|\bwget\b|Net\.WebClient|-EncodedCommand|"
-                         r"Set-ExecutionPolicy|Invoke-WebRequest|Invoke-RestMethod|-OutFile|"
+                         r"Set-ExecutionPolicy|Invoke-RestMethod|-OutFile|"
                          r"Add-Type|ServerCertificateValidationCallback",
                          codigo, re.IGNORECASE)
+    # Solo se pregunta a la app de este equipo (mac.bat -Estado), nunca a otro sitio.
+    for linea in [l for l in texto.splitlines() if "Invoke-WebRequest" in l and
+                  not l.lstrip().startswith("#")]:
+        assert '-Uri ("http://127.0.0.1:" + $PuertoApp + "/consola")' in linea, linea
+    # El base64 solo para mirar una clave publica (y su huella).
+    sin = texto
+    for funcion in ("Clave-Publica-Valida", "Huella-Sha256"):
+        if f"function {funcion}" in sin:
+            sin = sin.replace(_funcion(sin, funcion), "")
+    assert "FromBase64String" not in _codigo(sin)
     # Lo que solo entiende PowerShell 7 (como los demas scripts de docker\).
     assert not re.search(r"&&|\|\||\?\?|\?\.|-Parallel|-AsPlainText|-AsHashtable|utf8NoBOM|"
                          r"\$PSStyle|GetRelativePath", codigo)
@@ -153,7 +164,8 @@ def test_por_sid_y_nunca_por_nombre(nombre) -> None:
     codigo = _codigo(texto)
     sin_comentarios = _sin_comentarios(texto)
     for grupo in NOMBRES_DE_GRUPOS:
-        assert not re.search(rf"\b{grupo}\b", codigo), grupo
+        # (Solo-Administradores es el nombre de una funcion, no un grupo.)
+        assert not re.search(rf"(?<![\w-]){grupo}\b", codigo), grupo
         assert f'"{grupo}' not in sin_comentarios, grupo
         assert not re.search(rf"\\{grupo}\b", sin_comentarios), grupo
     assert f'$SidSistema = "{SID_SISTEMA}"' in texto
@@ -613,3 +625,1397 @@ def test_lo_que_escriben_de_verdad_el_ciclo_y_la_pausa_esta_en_escribe_bms(tmp_p
     assert fuera == set()
     assert any(r.startswith("docker\\estado\\registro\\") for r in cambiadas)
     assert "docker\\estado\\ciclo.json" in cambiadas
+
+
+# ============================================================ mac.ps1 (15b.1): los pines
+
+
+def _mac() -> str:
+    return _ps1(DOCKER, "mac")
+
+
+def _flujo() -> str:
+    """Lo que corre el script fuera de las funciones: la entrada y las acciones."""
+    texto = _sin_comentarios(_mac())
+    return texto[texto.index("$acciones = @()"):]
+
+
+def _accion(nombre: str) -> str:
+    """El bloque de una accion del switch (hasta la siguiente)."""
+    flujo = _flujo()
+    inicio = flujo.index(f'    "{nombre}" {{\n')
+    fin = flujo.find('\n    "', inicio + 10)
+    return flujo[inicio:fin if fin > 0 else len(flujo)]
+
+
+def test_mac_solo_en_docker() -> None:
+    """La decision del dueno: el Mac solo con la variante Docker. Ni mac.ps1 ni mac.bat en
+    windows\\ (mac.md §2.1 los pedia iguales alli), y nada de la nativa cambia (15b.3 no va)."""
+    assert (DOCKER / "mac.ps1").is_file() and (DOCKER / "mac.bat").is_file()
+    assert not list(WINDOWS.glob("mac.*"))
+    for nombre in ("instalar", "desinstalar", "comprobar"):
+        assert "TunelMac" not in _ps1(WINDOWS, nombre) and "bms-tunel" not in _ps1(WINDOWS,
+                                                                                  nombre)
+
+
+def test_lo_de_sshd_se_escribe_sin_bom() -> None:
+    texto = _mac()
+    escribir = _funcion(texto, "Escribir-Ascii")
+    assert "[IO.File]::WriteAllText($Ruta, $Texto, (New-Object Text.UTF8Encoding($false)))" in escribir
+    codigo = _codigo(texto)
+    for prohibido in ("Out-File", "Set-Content", "Add-Content", "Export-Clixml", "Tee-Object"):
+        assert prohibido not in codigo, prohibido
+    # Ninguna redireccion a un fichero: solo 2>&1 y 2>$null.
+    assert set(re.findall(r"\S*>\S*", codigo)) <= {"2>&1", "2>$null"}
+    # Las otras dos, las plantillas de secedit (UTF-16, como las exporta), en Negar-Inicios.
+    assert len(re.findall(r"WriteAllText\(", texto)) == 3
+    negar = _funcion(texto, "Negar-Inicios")
+    assert ("[IO.File]::WriteAllText($nueva, (Texto-Negaciones $textoAntes $Sid -Quitar:$Quitar), "
+            "[Text.Encoding]::Unicode)") in negar
+    assert ("[IO.File]::WriteAllText($vuelta, (Texto-Vuelta $derechosAntes $derechosDespues), "
+            "[Text.Encoding]::Unicode)") in negar
+
+
+def test_aplicar_falla_cerrado() -> None:
+    """mac.md §2.8: primero se cierra todo; lo nuevo se escribe y se comprueba con el propio sshd;
+    solo al final se arranca y se abre a los Mac. Si algo falla antes, sshd queda parado y el
+    cortafuegos cerrado (Fallar sale del script)."""
+    aplicar = _sin_comentarios(_funcion(_mac(), "Aplicar"))
+    _en_orden(aplicar, [
+        "Poner-Reglas -Cerrado",
+        "Stop-Service -Name sshd -Force",
+        "$script:Quedan = Parar-Tuneles",
+        "$pegas = @(Carpeta-Ssh-Segura)",
+        "if ($pegas.Count -gt 0) { Fallar",
+        "Escribir-Ascii $FicheroClaves (Texto-Claves $macs)",
+        "Solo-Administradores $FicheroClaves",
+        "Escribir-Ascii $ConfigNueva (Texto-Config $macs)",
+        "& $Sshd -t -f $ConfigNueva",
+        "if ($LASTEXITCODE -ne 0) {",
+        "Fallar",
+        "Move-Item -LiteralPath $ConfigNueva -Destination $Config -Force",
+        "$mal = Comprobar-Lo-Que-Se-Aplica $macs",
+        "if ($mal) { Fallar",
+        "Set-Service -Name sshd -StartupType Automatic",
+        "Start-Service -Name sshd",
+        "if (-not (Esperar-Escucha 20)) { Fallar",
+        "Poner-Reglas $macs",
+        "ATENCION: queda",
+    ])
+    # Apagado: ni se arranca ni se abre (el "resto" se queda con Any).
+    apagado = aplicar[aplicar.index("if ($E.apagado) {"):aplicar.index("} else {")]
+    assert "Start-Service" not in apagado and "Poner-Reglas" not in apagado
+    assert "Set-Service -Name sshd -StartupType Disabled" in apagado
+    # Cerrado: "resto" bloquea a todos (Any) y la de los Mac no se pone.
+    reglas = _funcion(_mac(), "Poner-Reglas")
+    assert '$bloqueados = @("Any")' in reglas and "if (-not $abierto) { return }" in reglas
+
+
+def test_parar_tuneles() -> None:
+    texto = _mac()
+    procesos = _funcion(texto, "Procesos-De-Sshd")
+    assert "Get-CimInstance Win32_Process -Filter \"Name LIKE 'sshd%'\"" in procesos
+    assert "$_.ExecutablePath.StartsWith($carpeta, [StringComparison]::OrdinalIgnoreCase)" in procesos
+    parar = _funcion(texto, "Parar-Tuneles")
+    assert "& $Taskkill /F /PID ([int]$p.ProcessId)" in parar
+    assert "for ($i = 0; $i -lt 10; $i++) {" in parar and "Procesos-De-Sshd).Count -eq 0) { return 0 }" in parar
+    assert parar.rstrip().endswith("return @(Procesos-De-Sshd).Count\n}")
+    quitar = _accion("Quitar")
+    assert quitar.index("Stop-Service -Name sshd") < quitar.index("Parar-Tuneles")
+    # -Estado dice cuantos procesos de sshd hay y que tuneles estan abiertos.
+    estado = _funcion(texto, "Mostrar-Estado")
+    assert "@(Procesos-De-Sshd).Count" in estado
+    assert "Get-NetTCPConnection -LocalPort 22 -State Established" in estado
+
+
+def test_instalar_en_orden() -> None:
+    """mac.md §2.8, -Instalar ya elevado: lo que para sin tocar nada, la pregunta, la foto de
+    antes, y solo entonces la capacidad, el cortafuegos cerrado antes de arrancar nada, la carpeta
+    de fiar, la clave del equipo, la cuenta y Aplicar."""
+    _en_orden(_accion("Instalar"), [
+        'if ($tipo -eq "otra" -and -not $SustituirConfiguracion) {',
+        "Fallar",
+        "$servicio.PathName",
+        "Fallar",
+        "$lee = Lectores-De-Datos (Rutas-De-Datos) $sidTunel",
+        "if ($lee) {",
+        "Fallar",
+        'Read-Host "Seguir?',
+        "antes = (Foto-De-Antes)",
+        "Guardar-Estado $EstadoDelTunel",
+        "Add-WindowsCapability -Online -Name $Capacidad",
+        "Get-NetFirewallRule -Name $ReglaMicrosoft -ErrorAction SilentlyContinue | Disable-NetFirewallRule",
+        "Poner-Reglas -Cerrado",
+        "$pegas = @(Carpeta-Ssh-Segura)",
+        'Read-Host "Apartarla?',
+        "Apartar-Carpeta-Ssh",
+        "Start-Service -Name sshd",
+        "Stop-Service -Name sshd -Force",
+        "$pegas = @(Carpeta-Ssh-Segura)",
+        "Fallar",
+        "Copy-Item -LiteralPath $Config -Destination $ConfigAntes",
+        "Asegurar-Cuenta",
+        "Aplicar $EstadoDelTunel",
+        "Decir-Para-El-Mac",
+    ])
+
+
+def test_no_se_eleva_sin_mirar_quien_puede_cambiar() -> None:
+    """mac.md §2.11: antes de pedir ser administrador (y otra vez ya elevado, porque la
+    comprobacion esta fuera del if), que nadie mas pueda cambiar mac.ps1, mac.bat ni lo de mac\\;
+    y lo del Mac solo se copia despues."""
+    flujo = _flujo()
+    _en_orden(flujo, [
+        "$ficheros = @($PSCommandPath, (Join-Path $PSScriptRoot \"mac.bat\"))",
+        "$carpetas = @($PSScriptRoot)",
+        "$ficheros += @($FicherosDelMac | ForEach-Object { Join-Path $CarpetaDelMac $_ })",
+        "$carpetas += $CarpetaDelMac",
+        "$quien = Quien-Mas-Puede-Cambiar $ficheros $carpetas $Usuario",
+        "if ($quien) {",
+        "Fallar",
+        'if ($accion -eq "CopiarParaElMac") { Copiar-Para-El-Mac $CopiarParaElMac; exit 0 }',
+        "if (-not $Elevado) {",
+        "Pedir-Mac",
+        "-Verb RunAs",
+    ])
+    assert flujo.count("Quien-Mas-Puede-Cambiar") == 1
+    assert flujo.index("Quien-Mas-Puede-Cambiar") < flujo.index("if (-not $Elevado) {")
+    texto = _mac()
+    assert ('$FicherosDelMac = @("preparar.command", "abrir-bms.command", "LEEME.txt")'
+            in texto)
+    assert '$CarpetaDelMac = Join-Path (Split-Path -Parent $PSScriptRoot) "mac"' in texto
+    assert ('$SidTrustedInstaller = "S-1-5-80-956008885-3418522649-1831038044-1853292631-'
+            '2271478464"') in texto
+    quien = _funcion(texto, "Quien-Mas-Puede-Cambiar")
+    assert ("$permitidos = @($SidSistema, $SidAdministradores, $SidTrustedInstaller, "
+            "$SidDeQuienLoAbre)") in quien
+    en_su_carpeta = re.search(r'\$enSuCarpeta = \[[^\]]+\]"([^"]+)"', quien).group(1)
+    assert {"CreateFiles", "CreateDirectories", "Delete", "DeleteSubdirectoriesAndFiles",
+            "ChangePermissions", "TakeOwnership"} <= {x.strip() for x in en_su_carpeta.split(",")}
+    en_fichero = re.search(r'\$enFichero = \[[^\]]+\]"([^"]+)"', quien).group(1)
+    assert {"WriteData", "AppendData", "WriteAttributes", "Delete", "ChangePermissions",
+            "TakeOwnership"} <= {x.strip() for x in en_fichero.split(",")}
+    assert "GetOwner(" in quien and "ReparsePoint" in quien and "InheritOnly" in quien
+    # Lo del Mac se copia sin administrador y despues de la comprobacion.
+    copiar = _funcion(texto, "Copiar-Para-El-Mac")
+    assert "Copy-Item -LiteralPath (Join-Path $CarpetaDelMac $f)" in copiar
+
+
+def test_lo_del_mac_se_pregunta_antes_de_elevar() -> None:
+    """mac.md §2.13: la ventana de administrador no recibe ficheros arrastrados (UIPI): lo del
+    Mac se pregunta antes, y lo que pasa a la de administrador se vuelve a validar alli."""
+    texto = _mac()
+    flujo = _flujo()
+    preguntas = flujo[flujo.index("if (-not $Elevado) {"):flujo.index("if (-not (Es-Administrador)) {")]
+    for llamada in ("Pedir-Mac $leido", "Elegir-Mac $leido"):
+        assert llamada in preguntas
+        assert flujo.count(llamada.split()[0] + " ") == 1, llamada
+    assert "arrastra" not in _sin_comentarios(texto).lower()
+    elevado = flujo[flujo.index("-Verb RunAs"):]
+    _en_orden(elevado, ["$origen = Origen-Valido $Ip",
+                        '$completa = Clave-Publica-Valida ("ssh-ed25519 " + $Clave)',
+                        "if (-not $origen -or -not $completa) { Fallar",
+                        "$nuevoMac = [pscustomobject][ordered]@{ nombre = $Nombre; ip = $origen; "
+                        "clave = $completa;"])
+    assert "if ($Usuario -notmatch '^S-1-5-21-\\d+-\\d+-\\d+-\\d+$') { Fallar" in flujo
+    assert ("if ($Nombre -and $Nombre -notmatch $PatronNombre) { Fallar" in flujo and
+            "$PatronNombre = '^[a-z0-9][a-z0-9-]{0,30}$'" in texto)
+    # A la ventana de administrador solo pasan el nombre, la IP, el base64 de la clave y si es la
+    # misma; con -MismaClave, la clave tiene que ser la que ya tenia ese Mac.
+    assert "$Clave = $m.clave.Split(\" \")[1]" in flujo
+    assert "$deAntes[0].clave -ne $nuevoMac.clave" in flujo
+
+
+def test_las_reglas_del_cortafuegos() -> None:
+    texto = _mac()
+    codigo = _sin_comentarios(texto)
+    nuevas = re.findall(r"New-NetFirewallRule (.*?)\| Out-Null", codigo, re.S)
+    assert len(nuevas) == 2
+    for regla in nuevas:
+        regla = " ".join(regla.replace("`", " ").split())
+        for trozo in ("-Direction Inbound", "-Protocol TCP -LocalPort 22 -Program $Sshd",
+                      "-Profile Any"):
+            assert trozo in regla, (trozo, regla)
+    acciones = sorted(" ".join(r.split()) for r in nuevas)
+    assert any("-Name $ReglaResto" in r and "-Action Block" in r and
+               "-RemoteAddress $bloqueados" in r for r in acciones)
+    assert any("-Name $ReglaMac " in r and "-Action Allow" in r and
+               "-RemoteAddress $origenes" in r for r in acciones)
+    for prohibido in ("Set-NetConnectionProfile", "Set-NetFirewallProfile", "-Profile Private",
+                      "-Profile Public", "NetworkCategory Private"):
+        assert prohibido not in codigo, prohibido
+    for linea in [l for l in codigo.splitlines() if "Remove-NetFirewallRule" in l]:
+        assert re.search(r"-Name \$(ReglaMac|ReglaResto|ReglaMicrosoft) ", linea), linea
+    assert codigo.count("-Name $ReglaMicrosoft -ErrorAction SilentlyContinue | Remove-NetFirewallRule") == 1
+    # La de Microsoft solo se borra en -Quitar (y si la capacidad no estaba antes); si no, se apaga.
+    assert ("-Name $ReglaMicrosoft -ErrorAction SilentlyContinue | Remove-NetFirewallRule"
+            in _accion("Quitar"))
+    for linea in [l for l in codigo.splitlines() if "able-NetFirewallRule" in l]:
+        assert "$ReglaMicrosoft" in linea, linea
+    assert '$ReglaMac = "BMS-Tunel-Mac-sshd"' in texto
+    assert '$ReglaResto = "BMS-Tunel-Mac-sshd-resto"' in texto
+    assert '$ReglaMicrosoft = "OpenSSH-Server-In-TCP"' in texto
+
+
+def test_la_cuenta() -> None:
+    texto = _mac()
+    sin = _sin_comentarios(texto)
+    nueva = " ".join(re.search(r"New-LocalUser (.*?)\| Out-Null", sin, re.S).group(1)
+                     .replace("`", " ").split())
+    for trozo in ("-Name $Cuenta", "-Password (Contrasena-Que-Nadie-Guarda)",
+                  "-PasswordNeverExpires", "-AccountNeverExpires", "-UserMayNotChangePassword"):
+        assert trozo in nueva, trozo
+    assert "Add-LocalGroupMember" not in sin and "Get-LocalGroupMember" not in sin
+    assert sin.count("Contrasena-Que-Nadie-Guarda") == 2  # la funcion y New-LocalUser
+    contrasena = _funcion(sin, "Contrasena-Que-Nadie-Guarda")
+    for prohibido in ("Escribir", "Write-", "Set-ItemProperty", "Guardar-Estado", "Out-", "$env:"):
+        assert prohibido not in contrasena, prohibido
+    assert "[Security.Cryptography.RandomNumberGenerator]::Create()" in contrasena
+    grupos = _funcion(texto, "Grupos-De-La-Cuenta")
+    assert '[ADSI]("WinNT://" + $env:COMPUTERNAME + "/" + $Nombre + ",user")' in grupos
+    asegurar = _sin_comentarios(_funcion(texto, "Asegurar-Cuenta"))
+    _en_orden(asegurar, ["try { $grupos = @(Grupos-De-La-Cuenta $Cuenta) } catch { Fallar",
+                         "Remove-LocalGroupMember -SID $g -Member $sid -ErrorAction Stop",
+                         "$mal = Negar-Inicios $sid", "if ($mal) { Fallar",
+                         "New-ItemProperty -Path $ListaDeInicio -Name $Cuenta -PropertyType DWord -Value 0"])
+    derechos = re.search(r"\$DerechosNegados = @\((.*?)\)", texto, re.S).group(1)
+    assert re.findall(r'"(\w+)"', derechos) == [
+        "SeDenyInteractiveLogonRight", "SeDenyRemoteInteractiveLogonRight",
+        "SeDenyBatchLogonRight", "SeDenyServiceLogonRight"]
+    assert "SeDenyNetworkLogonRight" not in sin and "SeNetworkLogonRight" not in sin
+    # secedit, solo para esos derechos (USER_RIGHTS), y solo en Negar-Inicios (y el /export de
+    # Negaciones-Que-Faltan, para -Estado).
+    usos = [l for l in sin.splitlines() if "& $Secedit" in l]
+    assert usos and all("/areas USER_RIGHTS" in l for l in usos)
+    sin_las_dos = sin.replace(_funcion(sin, "Negar-Inicios"), "").replace(
+        _funcion(sin, "Negaciones-Que-Faltan"), "")
+    assert "$Secedit" not in sin_las_dos.replace('$Secedit = Join-Path', "")
+    assert "/configure" not in _funcion(sin, "Negaciones-Que-Faltan")
+    quitar = _accion("Quitar")
+    _en_orden(quitar, ["$mal = Negar-Inicios $u.SID.Value -Quitar", "Remove-CimInstance",
+                       "Remove-LocalUser -Name $Cuenta"])
+
+
+def test_ningun_secreto_en_el_estado() -> None:
+    """El estado del registro (HKLM\\SOFTWARE\\bms-agent\\TunelMac): solo lo de mac.md §2.8, y de
+    cada Mac su nombre, su IP, su clave publica y la fecha."""
+    guardar = _sin_comentarios(_funcion(_mac(), "Guardar-Estado"))
+    claves = re.findall(r"(\w+) = ", guardar[guardar.index("$guardado = [ordered]@{"):
+                                                guardar.index("Set-ItemProperty")])
+    assert claves == ["guardado", "version", "instalado", "antes", "apagado", "config_sha256",
+                      "macs", "nombre", "ip", "clave", "alta"]
+    assert ("Set-ItemProperty -Path $ClaveDeEstado -Name \"Estado\" -Value "
+            "(ConvertTo-Json -InputObject $guardado -Depth 5 -Compress)") in guardar
+    assert '$ClaveDeEstado = "HKLM:\\SOFTWARE\\bms-agent\\TunelMac"' in _mac()
+
+
+@pytest.mark.skipif(PWSH is None, reason="sin pwsh")
+def test_pwsh_ninguna_variable_pisa_un_parametro() -> None:
+    """En PowerShell los nombres no distinguen mayusculas: $estado = ... en el script es el
+    [switch]$Estado de sus parametros, y no puede guardar el estado (le paso al borrador). Ni el
+    script ni ninguna funcion asigna a una variable que se llama como uno de sus parametros, salvo
+    los que la ventana normal rellena para la de administrador."""
+    guion = r"""
+param([string]$Fichero)
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Fichero, [ref]$null, [ref]$null)
+$salida = @()
+$ambitos = @($ast) + @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+foreach ($a in $ambitos) {
+    if ($a -is [System.Management.Automation.Language.FunctionDefinitionAst]) {
+        $nombre = $a.Name; $cuerpo = $a.Body; $params = @()
+        if ($a.Parameters) { $params += $a.Parameters }
+        if ($a.Body.ParamBlock) { $params += $a.Body.ParamBlock.Parameters }
+    } else {
+        $nombre = "(script)"; $cuerpo = $a; $params = @()
+        if ($a.ParamBlock) { $params += $a.ParamBlock.Parameters }
+    }
+    $nombres = @($params | ForEach-Object { $_.Name.VariablePath.UserPath.ToLower() })
+    $nodos = $cuerpo.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -or $args[0] -is [System.Management.Automation.Language.ForEachStatementAst] }, $true)
+    foreach ($x in $nodos) {
+        $padre = $x.Parent; $propia = $true
+        while ($padre -and $padre -ne $cuerpo) {
+            if ($padre -is [System.Management.Automation.Language.FunctionDefinitionAst]) { $propia = $false; break }
+            $padre = $padre.Parent
+        }
+        if (-not $propia) { continue }
+        if ($x -is [System.Management.Automation.Language.ForEachStatementAst]) { $izq = $x.Variable } else { $izq = $x.Left }
+        if ($izq -is [System.Management.Automation.Language.ConvertExpressionAst]) { $izq = $izq.Child }
+        if ($izq -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+        if ($nombres -contains $izq.VariablePath.UserPath.ToLower()) { $salida += ($nombre + ":" + $izq.VariablePath.UserPath) }
+    }
+}
+$salida | Sort-Object -Unique
+"""
+    for nombre, permitidas in (("mac", {"(script):Usuario", "(script):Nombre", "(script):Ip",
+                                        "(script):Clave", "(script):MismaClave"}),
+                               ("proteger", {"(script):Dueno"})):
+        proceso = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                                  "& { " + guion + " } -Fichero '" + str(DOCKER / f"{nombre}.ps1") + "'"],
+                                 capture_output=True, text=True, timeout=120)
+        assert proceso.returncode == 0, proceso.stderr
+        assert set(proceso.stdout.split()) == permitidas, (nombre, proceso.stdout)
+
+
+# ============================================================ mac.ps1: las funciones puras con pwsh
+
+# Las constantes del script (de $Cuenta a $Quedan) y sus funciones, sin correr la entrada; $Sshd,
+# un sshd falso que imprime lo que daria "sshd -T" segun $env:SSHD_FALSO (mac.md §5.1, como el de
+# pruebas-final/sshd-falso.ps1).
+SSHD_FALSO = r"""
+$quien = ("" + ($args -join " "))
+$v = $env:SSHD_FALSO
+if ($v -eq "vacio") { exit 1 }
+if ($quien -match "user=bms-tunel") {
+    "allowtcpforwarding local"
+    if ($v -eq "permitopen_any") { "permitopen any" } else { "permitopen 127.0.0.1:8765" }
+    "permitlisten none"; "permittty no"; "maxsessions 0"
+    "forcecommand exit 1"; "passwordauthentication no"; "authenticationmethods publickey"; "allowagentforwarding no"
+    "gatewayports no"; "allowstreamlocalforwarding no"; "permittunnel no"
+    if ($v -eq "x11_si") { "x11forwarding yes" } elseif ($v -ne "x11_ausente") { "x11forwarding no" }
+    "authorizedkeysfile __PROGRAMDATA__/ssh/bms_tunel_authorized_keys"
+} else {
+    "allowtcpforwarding no"; "permitopen none"; "allowstreamlocalforwarding no"
+    if ($v -eq "96") { "authorizedkeysfile none" }
+    if ($v -eq "malo") { "authorizedkeysfile .ssh/authorized_keys" }
+}
+"""
+
+PURAS = r"""
+param([string]$Script, [string]$Falso)
+$ErrorActionPreference = "Stop"
+$texto = [IO.File]::ReadAllText($Script)
+$desde = $texto.IndexOf('$Cuenta = "bms-tunel"')
+$hasta = $texto.IndexOf('$Quedan = 0')
+$carpeta = "'" + (Split-Path -Parent $Script).Replace("'", "''") + "'"
+. ([scriptblock]::Create($texto.Substring($desde, $hasta - $desde).Replace('$PSScriptRoot', $carpeta)))
+$Sshd = $Falso
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$null)
+foreach ($f in $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+    . ([scriptblock]::Create($f.Extent.Text))
+}
+$r = [ordered]@{}
+$vector = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f prueba@mac"
+$r["huella"] = Huella-Sha256 $vector
+$r["valida"] = Clave-Publica-Valida $vector
+$r["malas"] = @(@(
+    ('command="x" ' + $vector),
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC",
+    ($vector + "`nssh-ed25519 AAAA"),
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4= x",
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE4AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+    ($vector + ' ' + ('x' * 201)),
+    "") | ForEach-Object { "" + (Clave-Publica-Valida $_) })
+$r["comentario_raro"] = Clave-Publica-Valida ($vector + ' "a",command="b"' + [char]9)
+$ips = @("192.168.1.23", "10.0.0.5", "172.16.4.4", "172.31.255.254", "8.8.8.8", "127.0.0.1",
+    "0.0.0.0", "192.168.1.256", "192.168.001.23", "192.168.1.23/24", "::1", "192.168.1.1,10.0.0.1",
+    "172.32.0.1", "192.168.1.0", "192.168.1.255", " 192.168.1.9 ", "mac.local", "", "169.254.1.1")
+$r["ips"] = [ordered]@{}
+foreach ($i in $ips) { $r["ips"][$i] = "" + (Ip-Valida $i) }
+$r["red"] = @(@((Red-De "192.168.1.23" 24), (Red-De "10.1.2.3" 16), (Red-De "8.8.8.8" 24), (Red-De "192.168.1.23" 8), (Red-De "192.168.1.23" 31)) | ForEach-Object { "" + $_ })
+$r["origen"] = [ordered]@{}
+foreach ($o in @("192.168.1.23", "192.168.1.0/24", "10.1.0.0/16", "192.168.1.5/24", "8.8.8.0/24",
+    "192.168.001.0/24", "192.168.1.0/8", "192.168.1.0/31", "192.168.1.0", "300.1.1.0/24",
+    "192.168.1.0/24 ", "192.168.1.0/24,1.2.3.4")) { $r["origen"][$o] = "" + (Origen-Valido $o) }
+$r["resto"] = [ordered]@{}
+foreach ($caso in @("192.168.1.23", "192.168.1.40,192.168.1.23", "192.168.1.0/24", "10.0.0.1,10.0.0.2",
+    "192.168.1.0/24,192.168.1.7", "10.0.0.1,172.16.0.0/16,192.168.1.23")) {
+    $r["resto"][$caso] = @(Resto-De $caso.Split(","))
+}
+$k = Clave-Publica-Valida $vector
+$uno = @([pscustomobject]@{ nombre = "mac-oficina"; ip = "192.168.1.23"; clave = $k; alta = "2026-11-25" })
+$dos = @($uno[0], [pscustomobject]@{ nombre = "mac-casa"; ip = "192.168.1.31"; clave = $k; alta = "2026-11-25" })
+$r["config0"] = Texto-Config @()
+$r["config1"] = Texto-Config $uno
+$r["config2"] = Texto-Config $dos
+$r["claves0"] = Texto-Claves @()
+$r["claves1"] = Texto-Claves $uno
+$r["claves2"] = Texto-Claves $dos
+$red = @([pscustomobject]@{ nombre = "toda-la-red"; ip = "192.168.1.0/24"; clave = $k; alta = "x" })
+$r["claves_red"] = Texto-Claves $red
+$r["quien_es"] = @((Mac-De-La-Ip "192.168.1.31" $dos), (Mac-De-La-Ip "192.168.1.99" $dos), (Mac-De-La-Ip "192.168.1.99" $red), (Mac-De-La-Ip "::1" $dos))
+$r["aplica"] = [ordered]@{}
+foreach ($v in @("96", "103", "malo", "permitopen_any", "x11_ausente", "x11_si", "vacio")) {
+    $env:SSHD_FALSO = $v
+    $r["aplica"][$v] = "" + (Comprobar-Lo-Que-Se-Aplica $uno)
+}
+$r["si"] = @(@("si", "S", " si ", ("s" + [char]0x00ED), "no", "", "sip") | ForEach-Object { Es-Si $_ })
+$r["macs"] = @((@(Macs-De ('{"macs":[{"nombre":"a"}]}' | ConvertFrom-Json))).Count, (@(Macs-De ('{"macs":[]}' | ConvertFrom-Json))).Count, (@(Macs-De $null)).Count)
+# Los derechos de "denegar" (mac.md 2.2; los casos de pruebas-final/probar.ps1).
+$exportado = "[Unicode]`r`nUnicode=yes`r`n[System Access]`r`nMinimumPasswordAge = 0`r`n[Privilege Rights]`r`nSeNetworkLogonRight = *S-1-1-0,*S-1-5-32-544,*S-1-5-32-545`r`nSeDenyNetworkLogonRight = Guest`r`nSeDenyInteractiveLogonRight = Guest`r`nSeInteractiveLogonRight = Guest,*S-1-5-32-544,*S-1-5-32-545`r`n"
+$sid = "S-1-5-21-1-2-3-1005"
+$n = [ordered]@{}
+$t = Texto-Negaciones $exportado $sid
+$n["plantilla"] = $t
+$n["quitar"] = Texto-Negaciones ($exportado.Replace("SeDenyInteractiveLogonRight = Guest", "SeDenyInteractiveLogonRight = Guest,*$sid")) $sid -Quitar
+$antes = Lineas-De-Derechos $exportado
+$con = $exportado.Replace("SeDenyInteractiveLogonRight = Guest", "SeDenyInteractiveLogonRight = Guest,*$sid") + "SeDenyRemoteInteractiveLogonRight = *$sid`r`nSeDenyBatchLogonRight = *$sid`r`nSeDenyServiceLogonRight = *$sid`r`n"
+$bien = Lineas-De-Derechos $con
+$n["tras_bien"] = "" + (Diferencias-De-Derechos $antes $bien $sid)
+$n["tras_otro_cambio"] = "" + (Diferencias-De-Derechos $antes (Lineas-De-Derechos ($con.Replace("SeNetworkLogonRight = *S-1-1-0,*S-1-5-32-544,*S-1-5-32-545", "SeNetworkLogonRight = *S-1-1-0,*S-1-5-32-544"))) $sid)
+$n["tras_red_cambiada"] = "" + (Diferencias-De-Derechos $antes (Lineas-De-Derechos ($con.Replace("SeDenyNetworkLogonRight = Guest", "SeDenyNetworkLogonRight = Guest,*$sid"))) $sid)
+$n["tras_falta_uno"] = "" + (Diferencias-De-Derechos $antes (Lineas-De-Derechos ($con.Replace("SeDenyBatchLogonRight = *$sid", "SeDenyBatchLogonRight = "))) $sid)
+$n["tras_quitar_linea_vacia"] = "" + (Diferencias-De-Derechos $bien (Lineas-De-Derechos $exportado) $sid -Quitar)
+$n["tras_por_nombre"] = "" + (Diferencias-De-Derechos $antes (Lineas-De-Derechos ($exportado.Replace("SeDenyInteractiveLogonRight = Guest", "SeDenyInteractiveLogonRight = Guest,bms-tunel") + "SeDenyRemoteInteractiveLogonRight = EQUIPO\bms-tunel`r`nSeDenyBatchLogonRight = *$sid`r`nSeDenyServiceLogonRight = bms-tunel`r`n")) $sid)
+$conNombre = $exportado.Replace("SeDenyInteractiveLogonRight = Guest", "SeDenyInteractiveLogonRight = Guest,bms-tunel")
+$n["plantilla_con_nombre"] = Texto-Negaciones $conNombre $sid
+$n["quitar_con_nombre"] = Texto-Negaciones $conNombre $sid -Quitar
+$n["vuelta"] = Texto-Vuelta $antes (Lineas-De-Derechos ($con + "SeShutdownPrivilege = *S-1-5-32-545`r`n"))
+$r["negaciones"] = $n
+$r | ConvertTo-Json -Depth 6
+"""
+
+VECTOR = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
+
+
+@pytest.fixture(scope="module")
+def puras(tmp_path_factory):
+    if PWSH is None:
+        pytest.skip("sin pwsh")
+    carpeta = tmp_path_factory.mktemp("puras")
+    (carpeta / "puras.ps1").write_text(PURAS, encoding="ascii")
+    (carpeta / "sshd-falso.ps1").write_text(SSHD_FALSO, encoding="ascii")
+    entorno = {**os.environ, "SystemRoot": str(carpeta / "Windows"),
+               "ProgramData": str(carpeta / "ProgramData")}
+    proceso = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File",
+                              str(carpeta / "puras.ps1"), str(DOCKER / "mac.ps1"),
+                              str(carpeta / "sshd-falso.ps1")],
+                             env=entorno, capture_output=True, text=True, timeout=180)
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    return json.loads(proceso.stdout)
+
+
+def _bloque_del_diseno(seccion: str) -> str:
+    texto = (RAIZ / "docs" / "v1" / "paso-18" / "mac.md").read_text(encoding="utf-8")
+    return re.search(r"```\n(.*?)```", texto[texto.index(seccion):], re.S).group(1)
+
+
+def test_pwsh_el_sshd_config(puras) -> None:
+    """mac.md §2.3: con un Mac, igual caracter a caracter al sshd_config que se probo con un
+    OpenSSH 9.6 de verdad; con dos, AllowUsers con los dos; sin ninguno, DenyUsers *."""
+    uno = puras["config1"]
+    assert uno == _bloque_del_diseno("### 2.3 El `sshd_config` exacto")
+    assert "\r" not in uno and not uno.startswith("﻿") and uno.isascii()
+    assert puras["config2"] == uno.replace(
+        "AllowUsers bms-tunel@192.168.1.23\n",
+        "AllowUsers bms-tunel@192.168.1.23 bms-tunel@192.168.1.31\n")
+    cero = puras["config0"]
+    assert "\nDenyUsers *\n" in cero and "AllowUsers" not in cero
+    assert cero.replace("DenyUsers *", "AllowUsers bms-tunel@192.168.1.23") == uno
+    for config in (cero, uno, puras["config2"]):
+        lineas = config.splitlines()
+        fuera = lineas[:lineas.index("Match User bms-tunel")]
+        directivas = [l.split()[0] for l in fuera if l and not l.startswith("#")]
+        assert len(directivas) == len(set(directivas))
+        assert lineas[lineas.index("Match User bms-tunel"):] == [
+            "Match User bms-tunel",
+            "    AuthorizedKeysFile __PROGRAMDATA__/ssh/bms_tunel_authorized_keys",
+            "    AllowTcpForwarding local", "    PermitOpen 127.0.0.1:8765"]
+        for linea in ("AllowStreamLocalForwarding no", "X11Forwarding no", "PermitTunnel no",
+                      "AuthorizedKeysFile none", "PasswordAuthentication no", "MaxSessions 0",
+                      "ForceCommand exit 1", "PermitTTY no", "PermitListen none"):
+            assert linea in fuera, linea
+        for prohibido in ("Subsystem", "PasswordAuthentication yes", "AllowTcpForwarding yes",
+                          "GatewayPorts yes", "PermitOpen any", "StrictModes",
+                          "DisableForwarding", "ListenAddress", "PerSourcePenalties",
+                          "Match Group", "administrators_authorized_keys", "PermitRootLogin",
+                          "localhost"):
+            assert prohibido not in config, prohibido
+
+
+def test_pwsh_el_fichero_de_claves(puras) -> None:
+    """mac.md §2.4: las opciones las pone el script; de lo que llega del Mac solo la clave."""
+    assert puras["claves1"] == _bloque_del_diseno("### 2.4 El fichero de claves exacto")
+    assert puras["claves0"] == ("# bms-agent: las claves de los Mac (mac.ps1). No lo cambies a "
+                                "mano: lo rehace mac.bat.\n")
+    lineas = puras["claves2"].splitlines()
+    assert lineas[1:] == [
+        f'restrict,port-forwarding,permitopen="127.0.0.1:8765",from="{ip}",command="exit 1" '
+        f"{VECTOR} bms-{nombre}" for nombre, ip in (("mac-oficina", "192.168.1.23"),
+                                                   ("mac-casa", "192.168.1.31"))]
+    assert 'from="192.168.1.0/24"' in puras["claves_red"]
+    for texto in (puras["claves0"], puras["claves1"], puras["claves2"]):
+        assert "\r" not in texto and texto.isascii()
+
+
+def test_pwsh_la_clave_pegada(puras) -> None:
+    """Solo "ssh-ed25519 <68 de base64> [comentario]", con el blob de 51 bytes y su cabecera; nada
+    de opciones delante, otro tipo, otra longitud, dos lineas ni un comentario larguisimo. Un
+    comentario con comillas o comas no importa: se tira (la linea la escribe el script)."""
+    assert puras["valida"] == VECTOR
+    assert puras["malas"] == [""] * 8
+    assert puras["comentario_raro"] == VECTOR
+
+
+def test_pwsh_la_huella(puras) -> None:
+    import base64
+    import hashlib
+
+    blob = base64.b64decode(VECTOR.split()[1])
+    esperada = "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+    assert puras["huella"] == esperada == "SHA256:ZkAslGjFiUHdGf/WUL8rQvkib4PTvQatUV0OUQSncCA"
+
+
+def test_pwsh_las_ip(puras) -> None:
+    buenas = {"192.168.1.23", "10.0.0.5", "172.16.4.4", "172.31.255.254"}
+    for ip, valida in puras["ips"].items():
+        if ip in buenas:
+            assert valida == ip
+        elif ip == " 192.168.1.9 ":
+            assert valida == "192.168.1.9"
+        else:
+            assert valida == "", ip
+    assert puras["red"] == ["192.168.1.0/24", "10.1.0.0/16", "", "", ""]
+    assert puras["origen"] == {
+        "192.168.1.23": "192.168.1.23", "192.168.1.0/24": "192.168.1.0/24",
+        "10.1.0.0/16": "10.1.0.0/16", "192.168.1.5/24": "", "8.8.8.0/24": "",
+        "192.168.001.0/24": "", "192.168.1.0/8": "", "192.168.1.0/31": "", "192.168.1.0": "",
+        "300.1.1.0/24": "", "192.168.1.0/24 ": "192.168.1.0/24", "192.168.1.0/24,1.2.3.4": ""}
+    assert puras["quien_es"] == ["mac-casa", "?", "toda-la-red", "?"]
+
+
+def _numero(ip: str) -> int:
+    a, b, c, d = (int(x) for x in ip.split("."))
+    return (a << 24) | (b << 16) | (c << 8) | d
+
+
+def test_pwsh_el_resto(puras) -> None:
+    """La regla "resto" bloquea todo IPv4 menos los Mac: sin huecos ni solapes."""
+    assert puras["resto"]["192.168.1.23"] == ["0.0.0.0-192.168.1.22",
+                                             "192.168.1.24-255.255.255.255"]
+    assert puras["resto"]["10.0.0.1,10.0.0.2"] == ["0.0.0.0-10.0.0.0",
+                                                  "10.0.0.3-255.255.255.255"]
+    for caso, rangos in puras["resto"].items():
+        dentro = set()
+        for origen in caso.split(","):
+            base, _, prefijo = origen.partition("/")
+            n = _numero(base)
+            tam = 1 << (32 - int(prefijo)) if prefijo else 1
+            dentro.add((n, n + tam - 1))
+        tramos = sorted([(_numero(a), _numero(b)) for a, b in (r.split("-") for r in rangos)] +
+                        list(dentro))
+        # Juntos, los rangos bloqueados y los de los Mac cubren 0..2^32-1 sin solaparse (salvo
+        # lo que los Mac comparten entre si).
+        siguiente = 0
+        for inicio, fin in tramos:
+            assert inicio <= siguiente, (caso, inicio, siguiente)
+            siguiente = max(siguiente, fin + 1)
+        assert siguiente == 1 << 32
+        for a, b in (r.split("-") for r in rangos):
+            for inicio, fin in dentro:
+                assert _numero(b) < inicio or _numero(a) > fin, (caso, a, b)
+
+
+def test_pwsh_comprobar_lo_que_se_aplica(puras) -> None:
+    """mac.md §2.3: con lo que dice el propio sshd (-T). Un 9.6 (authorizedkeysfile none para
+    otra cuenta) y uno >= 10.3 (sin la linea) valen; claves para otra cuenta, permitopen any, X11
+    o un sshd que no dice nada, no."""
+    a = puras["aplica"]
+    assert a["96"] == "" and a["103"] == "" and a["x11_ausente"] == ""
+    assert a["malo"] == "para otra cuenta, sshd no queda cerrado"
+    assert "permitopen es 'any'" in a["permitopen_any"]
+    assert "x11forwarding es 'yes'" in a["x11_si"]
+    assert a["vacio"] == "sshd -T no dice nada"
+
+
+def test_pwsh_las_negaciones(puras) -> None:
+    n = puras["negaciones"]
+    sid = "S-1-5-21-1-2-3-1005"
+    plantilla = n["plantilla"].split("\r\n")
+    assert plantilla[:6] == ["[Unicode]", "Unicode=yes", "[Version]", 'signature="$CHICAGO$"',
+                             "Revision=1", "[Privilege Rights]"]
+    assert [l for l in plantilla if l.startswith("Se")] == [
+        f"SeDenyInteractiveLogonRight = Guest,*{sid}",
+        f"SeDenyRemoteInteractiveLogonRight = *{sid}", f"SeDenyBatchLogonRight = *{sid}",
+        f"SeDenyServiceLogonRight = *{sid}"]
+    assert "Network" not in n["plantilla"]
+    assert "SeDenyInteractiveLogonRight = Guest\r\n" in n["quitar"] and sid not in n["quitar"]
+    assert n["tras_bien"] == ""
+    assert n["tras_otro_cambio"] == "SeNetworkLogonRight"
+    assert n["tras_red_cambiada"] == "SeDenyNetworkLogonRight"
+    assert n["tras_falta_uno"] == "SeDenyBatchLogonRight"
+    assert n["tras_quitar_linea_vacia"] == ""
+    assert n["tras_por_nombre"] == ""
+    assert "SeDenyInteractiveLogonRight = Guest,*" + sid + "\r\n" in n["plantilla_con_nombre"]
+    assert "bms-tunel" not in n["plantilla_con_nombre"]
+    assert "SeDenyInteractiveLogonRight = Guest\r\n" in n["quitar_con_nombre"]
+    # La vuelta atras lleva cada derecho de antes y de despues, con lo de antes (vacio si no
+    # estaba): secedit /configure solo toca lo que trae la plantilla.
+    vuelta = [l for l in n["vuelta"].split("\r\n") if l.startswith("Se")]
+    assert vuelta == sorted(vuelta) and len(vuelta) == 8
+    assert "SeShutdownPrivilege = " in vuelta and "SeDenyBatchLogonRight = " in vuelta
+    assert "SeDenyInteractiveLogonRight = Guest" in vuelta
+    assert "SeNetworkLogonRight = *S-1-1-0,*S-1-5-32-544,*S-1-5-32-545" in vuelta
+
+
+def test_pwsh_las_ayudas(puras) -> None:
+    assert puras["si"] == [True, True, True, True, False, False, False]
+    assert puras["macs"] == [1, 0, 0]
+
+
+# ============================================================ mac.ps1 corrido, con Windows sustituido
+
+# Lo de Windows que mac.ps1 usa, sustituido en una copia del script (tras $ErrorActionPreference)
+# por funciones que leen y escriben un "mundo" en JSON (el registro, el servicio, la capacidad,
+# las reglas del cortafuegos, las cuentas, los procesos, las ACL...) y apuntan cada llamada. Los
+# programas (sshd, icacls, taskkill, secedit, takeown) son falsos de verdad, en
+# $env:SystemRoot\System32, y apuntan en el mismo sitio: asi se ve el orden de todo.
+SUSTITUTOS_MAC = r"""
+function Mundo { return (Microsoft.PowerShell.Management\Get-Content -LiteralPath $env:PRUEBA_MUNDO -Raw | ConvertFrom-Json -AsHashtable) }
+function Guardar-Mundo($M) { [IO.File]::WriteAllText($env:PRUEBA_MUNDO, (ConvertTo-Json -InputObject $M -Depth 10)) }
+function Apuntar([string]$Que, $Datos) { [IO.File]::AppendAllText($env:PRUEBA_LLAMADAS, (ConvertTo-Json -Compress -Depth 5 -InputObject @($Que, $Datos)) + "`n") }
+function Get-LocalUser { [CmdletBinding()] param([string]$Name)
+    $u = (Mundo).usuarios[$Name]
+    if (-not $u) { return $null }
+    return [pscustomobject]@{ Name = $Name; SID = [pscustomobject]@{ Value = $u.SID }; Enabled = [bool]$u.Enabled; PasswordExpires = $u.PasswordExpires }
+}
+function New-LocalUser { [CmdletBinding()] param([string]$Name, $Password, [switch]$PasswordNeverExpires, [switch]$AccountNeverExpires, [switch]$UserMayNotChangePassword, [string]$Description)
+    Apuntar "New-LocalUser" @{ Name = $Name; Password = $Password.GetType().FullName; Longitud = $Password.Length; SoloLectura = $Password.IsReadOnly();
+        PasswordNeverExpires = [bool]$PasswordNeverExpires; AccountNeverExpires = [bool]$AccountNeverExpires; UserMayNotChangePassword = [bool]$UserMayNotChangePassword; Description = $Description }
+    $m = Mundo; $m.usuarios[$Name] = @{ SID = $env:PRUEBA_SID_TUNEL; Enabled = $true; PasswordExpires = $null }; $m.perfiles = @($env:PRUEBA_SID_TUNEL); Guardar-Mundo $m
+    return [pscustomobject]@{ Name = $Name }
+}
+function Enable-LocalUser { [CmdletBinding()] param([string]$Name) Apuntar "Enable-LocalUser" $Name; $m = Mundo; $m.usuarios[$Name].Enabled = $true; Guardar-Mundo $m }
+function Remove-LocalUser { [CmdletBinding()] param([string]$Name) Apuntar "Remove-LocalUser" $Name; $m = Mundo; $m.usuarios.Remove($Name); Guardar-Mundo $m }
+function Remove-LocalGroupMember { [CmdletBinding()] param([string]$SID, [string]$Member)
+    Apuntar "Remove-LocalGroupMember" @($SID, $Member); $m = Mundo; $m.grupos_tunel = @($m.grupos_tunel | Where-Object { $_ -ne $SID }); Guardar-Mundo $m }
+function Get-WindowsCapability { [CmdletBinding()] param([switch]$Online, [string]$Name) return [pscustomobject]@{ Name = $Name; State = (Mundo).capacidad } }
+function Add-WindowsCapability { [CmdletBinding()] param([switch]$Online, [string]$Name)
+    Apuntar "Add-WindowsCapability" $Name
+    $m = Mundo; $m.capacidad = "Installed"; $m.servicio = @{ Status = "Stopped"; StartType = "Manual" }
+    $m.reglas["OpenSSH-Server-In-TCP"] = @{ Enabled = "True"; Action = "Allow"; Profile = "Any" }; Guardar-Mundo $m
+    return [pscustomobject]@{ RestartNeeded = $false }
+}
+function Remove-WindowsCapability { [CmdletBinding()] param([switch]$Online, [string]$Name)
+    Apuntar "Remove-WindowsCapability" $Name; $m = Mundo; $m.capacidad = "NotPresent"; $m.servicio = $null; Guardar-Mundo $m }
+function Get-Service { [CmdletBinding()] param([string]$Name)
+    $s = (Mundo).servicio; if (-not $s) { return $null }
+    return [pscustomobject]@{ Name = $Name; Status = $s.Status; StartType = $s.StartType } }
+function Set-Service { [CmdletBinding()] param([string]$Name, [string]$StartupType)
+    Apuntar "Set-Service" $StartupType; $m = Mundo; $m.servicio.StartType = $StartupType; Guardar-Mundo $m }
+function Start-Service { [CmdletBinding()] param([string]$Name)
+    Apuntar "Start-Service" $Name
+    $m = Mundo; if (-not $m.servicio) { throw "no hay servicio sshd" }
+    $c = Join-Path $env:ProgramData "ssh"
+    if (-not (Microsoft.PowerShell.Management\Test-Path -LiteralPath $c)) { Microsoft.PowerShell.Management\New-Item -ItemType Directory -Path $c | Out-Null }
+    $k = Join-Path $c "ssh_host_ed25519_key.pub"
+    if (-not (Microsoft.PowerShell.Management\Test-Path -LiteralPath $k)) {
+        [IO.File]::WriteAllText($k, $env:PRUEBA_CLAVE_EQUIPO + " root@minipc`n")
+        [IO.File]::WriteAllText((Join-Path $c "ssh_host_ed25519_key"), "privada")
+    }
+    $f = Join-Path $c "sshd_config"
+    if (-not (Microsoft.PowerShell.Management\Test-Path -LiteralPath $f)) { [IO.File]::WriteAllText($f, [IO.File]::ReadAllText($ConfigDeFabrica)) }
+    $m.servicio.Status = "Running"; Guardar-Mundo $m
+}
+function Stop-Service { [CmdletBinding()] param([string]$Name, [switch]$Force)
+    Apuntar "Stop-Service" $Name; $m = Mundo; if ($m.servicio) { $m.servicio.Status = "Stopped"; Guardar-Mundo $m } }
+function Get-CimInstance { [CmdletBinding()] param([Parameter(Position = 0)][string]$ClassName, [string]$Filter)
+    $m = Mundo
+    if ($ClassName -eq "Win32_Service") {
+        if (-not $m.servicio) { return $null }
+        return [pscustomobject]@{ Name = "sshd"; ProcessId = 4000; State = $m.servicio.Status; PathName = ('"' + $ProgramasSsh + '\sshd.exe"') }
+    }
+    if ($ClassName -eq "Win32_Process") { return @($m.procesos | ForEach-Object { [pscustomobject]@{ ProcessId = $_.ProcessId; Name = "sshd.exe"; ExecutablePath = ($ProgramasSsh + "\sshd.exe") } }) }
+    if ($ClassName -eq "Win32_UserProfile") { return @($m.perfiles | ForEach-Object { [pscustomobject]@{ SID = $_ } }) }
+}
+function Remove-CimInstance { [CmdletBinding()] param([Parameter(ValueFromPipeline = $true)]$InputObject)
+    process { Apuntar "Remove-CimInstance" $InputObject.SID; $m = Mundo; $m.perfiles = @($m.perfiles | Where-Object { $_ -ne $InputObject.SID }); Guardar-Mundo $m } }
+function Get-NetFirewallRule { [CmdletBinding()] param([string]$Name)
+    $r = (Mundo).reglas[$Name]; if (-not $r) { return $null }
+    return [pscustomobject]@{ Name = $Name; Enabled = $r.Enabled; Action = $r.Action; Profile = $r.Profile } }
+function Remove-NetFirewallRule { [CmdletBinding()] param([Parameter(ValueFromPipeline = $true)]$InputObject)
+    process { if ($InputObject) { Apuntar "Remove-NetFirewallRule" $InputObject.Name; $m = Mundo; $m.reglas.Remove($InputObject.Name); Guardar-Mundo $m } } }
+function Disable-NetFirewallRule { [CmdletBinding()] param([Parameter(ValueFromPipeline = $true)]$InputObject, [string]$Name)
+    process { $n = $Name; if ($InputObject) { $n = $InputObject.Name }; if (-not $n) { return }; Apuntar "Disable-NetFirewallRule" $n; $m = Mundo; $m.reglas[$n].Enabled = "False"; Guardar-Mundo $m } }
+function Enable-NetFirewallRule { [CmdletBinding()] param([Parameter(ValueFromPipeline = $true)]$InputObject, [string]$Name)
+    process { $n = $Name; if ($InputObject) { $n = $InputObject.Name }; if (-not $n) { return }; Apuntar "Enable-NetFirewallRule" $n; $m = Mundo; $m.reglas[$n].Enabled = "True"; Guardar-Mundo $m } }
+function New-NetFirewallRule { [CmdletBinding()] param([string]$Name, [string]$DisplayName, [string]$Direction, [string]$Action, [string]$Protocol, $LocalPort, [string]$Program, [string]$Profile, [string[]]$RemoteAddress)
+    $r = @{ Enabled = "True"; Action = $Action; Profile = $Profile; RemoteAddress = @($RemoteAddress); Program = $Program; LocalPort = ("" + $LocalPort); Direction = $Direction; Protocol = $Protocol }
+    Apuntar "New-NetFirewallRule" @{ Name = $Name; Regla = $r }
+    $m = Mundo; $m.reglas[$Name] = $r; Guardar-Mundo $m
+    return [pscustomobject]@{ Name = $Name } }
+function Get-NetFirewallProfile { [CmdletBinding()] param([string]$Name) return [pscustomobject]@{ Name = $Name; AllowInboundRules = (Mundo).entrada } }
+function Get-NetIPConfiguration { [CmdletBinding()] param()
+    return @((Mundo).ips | ForEach-Object { [pscustomobject]@{ InterfaceAlias = $_.Interfaz; InterfaceIndex = $_.Indice; IPv4DefaultGateway = "192.168.1.1";
+        IPv4Address = @([pscustomobject]@{ IPAddress = $_.Ip; PrefixLength = $_.Prefijo }) } }) }
+function Get-NetConnectionProfile { [CmdletBinding()] param($InterfaceIndex)
+    $i = @((Mundo).ips | Where-Object { $_.Indice -eq $InterfaceIndex })[0]
+    if ($i) { return [pscustomobject]@{ NetworkCategory = $i.Red } } }
+function Get-NetTCPConnection { [CmdletBinding()] param($LocalPort, [string]$State)
+    $m = Mundo
+    if ($LocalPort -eq 22 -and $State -eq "Listen") { if ($m.servicio -and $m.servicio.Status -eq "Running") { return [pscustomobject]@{ LocalPort = 22; OwningProcess = $PID } }; return $null }
+    if ($LocalPort -eq 22) { return @($m.conexiones | ForEach-Object { [pscustomobject]@{ RemoteAddress = $_ } }) }
+    if ($m.app) { return [pscustomobject]@{ LocalPort = $LocalPort; OwningProcess = $PID } } }
+function Get-Acl { [CmdletBinding()] param([string]$LiteralPath)
+    $m = Mundo; $a = $m.acl[$LiteralPath]
+    # Una ACL con testigo es de esa carpeta mientras el testigo este dentro (si se aparta la
+    # carpeta, la nueva que crea el servicio ya no la lleva).
+    if ($a -and $a.testigo -and -not (Microsoft.PowerShell.Management\Test-Path -LiteralPath (Join-Path $LiteralPath $a.testigo))) { $a = $null }
+    # Lo que crea el servicio en ProgramData\ssh: de SYSTEM y Administradores (las claves del
+    # equipo, solo de ellos); lo demas, como el proyecto protegido.
+    if (-not $a -and $LiteralPath -like "*ssh_host_*_key") { $a = $m.acl_clave }
+    if (-not $a -and $LiteralPath.StartsWith($env:ProgramData)) { $a = $m.acl_ssh }
+    if (-not $a) { $a = $m.acl_defecto }
+    $reglas = @()
+    foreach ($r in @($a.reglas)) {
+        $id = [pscustomobject]@{ Sid = $r.sid }
+        $id | Add-Member -MemberType ScriptMethod -Name Translate -Value { param($Tipo) [pscustomobject]@{ Value = $this.Sid } }
+        $id | Add-Member -MemberType ScriptMethod -Name ToString -Value { $this.Sid } -Force
+        $flags = [Security.AccessControl.PropagationFlags]::None
+        if ($r.solo_herencia) { $flags = [Security.AccessControl.PropagationFlags]::InheritOnly }
+        $reglas += [pscustomobject]@{ IdentityReference = $id; AccessControlType = $r.tipo; FileSystemRights = [Security.AccessControl.FileSystemRights]$r.derechos; PropagationFlags = $flags }
+    }
+    $acl = [pscustomobject]@{ Access = $reglas; Owner = $a.dueno; Sid = $a.dueno }
+    $acl | Add-Member -MemberType ScriptMethod -Name GetOwner -Value { param($Tipo) [pscustomobject]@{ Value = $this.Sid } }
+    return $acl }
+function Test-Path { [CmdletBinding()] param([Parameter(Position = 0)][string]$Path, [string]$LiteralPath, [string]$PathType)
+    $p = $Path; if ($LiteralPath) { $p = $LiteralPath }
+    if ($p -like "HKLM:*") { return (Mundo).registro.ContainsKey($p) }
+    $a = @{}; if ($LiteralPath) { $a["LiteralPath"] = $LiteralPath } else { $a["Path"] = $Path }
+    if ($PathType) { $a["PathType"] = $PathType }
+    return (Microsoft.PowerShell.Management\Test-Path @a) }
+function New-Item { [CmdletBinding()] param([string]$Path, [string]$ItemType, [switch]$Force)
+    if ($Path -like "HKLM:*") { $m = Mundo; if (-not $m.registro.ContainsKey($Path)) { $m.registro[$Path] = @{} }; Guardar-Mundo $m; return [pscustomobject]@{ Name = $Path } }
+    $a = @{ Path = $Path }; if ($ItemType) { $a["ItemType"] = $ItemType }; if ($Force) { $a["Force"] = $true }
+    return (Microsoft.PowerShell.Management\New-Item @a) }
+function Remove-Item { [CmdletBinding()] param([string]$Path, [string]$LiteralPath, [switch]$Recurse, [switch]$Force)
+    $p = $Path; if ($LiteralPath) { $p = $LiteralPath }
+    if ($p -like "HKLM:*") { Apuntar "Remove-Item" $p; $m = Mundo; $m.registro.Remove($p); Guardar-Mundo $m; return }
+    $a = @{}; if ($LiteralPath) { $a["LiteralPath"] = $LiteralPath } else { $a["Path"] = $Path }
+    if ($Recurse) { $a["Recurse"] = $true }; if ($Force) { $a["Force"] = $true }
+    if ($PSBoundParameters["ErrorAction"]) { $a["ErrorAction"] = $PSBoundParameters["ErrorAction"] }
+    Microsoft.PowerShell.Management\Remove-Item @a }
+function Get-ItemProperty { [CmdletBinding()] param([string]$Path, [string]$LiteralPath, [string]$Name)
+    $p = $Path; if ($LiteralPath) { $p = $LiteralPath }
+    $clave = (Mundo).registro[$p]
+    if ($null -eq $clave -or -not $clave.ContainsKey($Name)) {
+        if ($PSBoundParameters["ErrorAction"] -eq "Stop") { throw ("no hay " + $p) }
+        return $null }
+    $o = [pscustomobject]@{}; $o | Add-Member -NotePropertyName $Name -NotePropertyValue $clave[$Name]; return $o }
+function Set-ItemProperty { [CmdletBinding()] param([string]$Path, [string]$Name, $Value) $m = Mundo; $m.registro[$Path][$Name] = $Value; Guardar-Mundo $m }
+function New-ItemProperty { [CmdletBinding()] param([string]$Path, [string]$Name, [string]$PropertyType, $Value, [switch]$Force)
+    $m = Mundo; $m.registro[$Path][$Name] = $Value; Guardar-Mundo $m; return $null }
+function Remove-ItemProperty { [CmdletBinding()] param([string]$Path, [string]$Name)
+    $m = Mundo; if ($m.registro[$Path]) { $m.registro[$Path].Remove($Name) }; Guardar-Mundo $m }
+function Get-WinEvent { [CmdletBinding()] param([string]$LogName, [int]$MaxEvents)
+    return @((Mundo).eventos | ForEach-Object { [pscustomobject]@{ TimeCreated = [datetime]$_.cuando; Message = $_.texto } }) }
+function Get-HotFix { [CmdletBinding()] param() $f = (Mundo).hotfix; if ($f) { return [pscustomobject]@{ InstalledOn = [datetime]$f } } }
+function Invoke-WebRequest { [CmdletBinding()] param([switch]$UseBasicParsing, [int]$TimeoutSec, [string]$Uri)
+    Apuntar "Invoke-WebRequest" $Uri; if ((Mundo).app) { return [pscustomobject]@{ StatusCode = 200 } }; throw "no contesta" }
+function Start-Sleep { [CmdletBinding()] param([int]$Seconds) }
+function Start-Process { [CmdletBinding()] param([string]$FilePath, [string[]]$ArgumentList, [string]$Verb, [switch]$Wait, [switch]$PassThru)
+    Apuntar "Start-Process" @{ Verb = $Verb; ArgumentList = @($ArgumentList) }
+    return [pscustomobject]@{ ExitCode = 0 } }
+"""
+
+PROGRAMA_FALSO = r'''#!{python}
+import json, os, sys
+nombre = os.path.basename(sys.argv[0])
+a = sys.argv[1:]
+with open(os.environ["PRUEBA_LLAMADAS"], "a", encoding="utf-8") as f:
+    f.write(json.dumps([nombre, a]) + "\n")
+with open(os.environ["PRUEBA_MUNDO"], encoding="utf-8") as f:
+    mundo = json.load(f)
+
+def guardar():
+    with open(os.environ["PRUEBA_MUNDO"], "w", encoding="utf-8") as f:
+        json.dump(mundo, f)
+
+def derechos(texto):
+    d, dentro = {{}}, False
+    for linea in texto.replace("\r", "").split("\n"):
+        t = linea.strip()
+        if t.startswith("["):
+            dentro = t == "[Privilege Rights]"
+        elif dentro and "=" in t:
+            k, v = t.split("=", 1)
+            d[k.strip()] = v.strip()
+    return d
+
+def escribir_derechos(d):
+    return "[Unicode]\r\nUnicode=yes\r\n[Privilege Rights]\r\n" + "".join(
+        f"{{k}} = {{v}}\r\n" for k, v in d.items() if v)
+
+if nombre == "sshd.exe":
+    if a[:1] == ["-t"]:
+        if "-f" in a and mundo.get("sshd_t") == "falla":
+            print("/x/sshd_config line 2: Bad configuration option: X11Forwarding")
+            sys.exit(255)
+        sys.exit(0)
+    if a[:1] == ["-T"]:
+        tunel = "user=bms-tunel" in a[a.index("-C") + 1]
+        v = mundo.get("sshd_T", "96")
+        if tunel:
+            print("\n".join(["allowtcpforwarding local", "permitopen 127.0.0.1:8765",
+                             "permitlisten none", "permittty no", "maxsessions 0",
+                             "forcecommand exit 1", "passwordauthentication no",
+                             "authenticationmethods publickey", "allowagentforwarding no",
+                             "gatewayports no", "allowstreamlocalforwarding no",
+                             "x11forwarding no", "permittunnel no",
+                             "authorizedkeysfile __PROGRAMDATA__/ssh/bms_tunel_authorized_keys"]))
+        else:
+            print("allowtcpforwarding no\npermitopen none")
+            print("authorizedkeysfile " + (".ssh/authorized_keys" if v == "malo" else "none"))
+        sys.exit(0)
+elif nombre == "taskkill.exe":
+    pid = int(a[a.index("/PID") + 1])
+    mundo["procesos"] = [p for p in mundo["procesos"] if p["ProcessId"] != pid or p.get("duro")]
+    guardar()
+elif nombre == "secedit.exe":
+    cfg = a[a.index("/cfg") + 1]
+    if a[0] == "/export":
+        with open(cfg, "w", encoding="utf-16") as f:
+            f.write(mundo["derechos"])
+    elif a[0] == "/configure":
+        with open(cfg, encoding="utf-16") as f:
+            pedido = derechos(f.read())
+        actual = derechos(mundo["derechos"])
+        actual.update(pedido)
+        if mundo.get("secedit") == "de_mas" and "vuelta" not in a[a.index("/db") + 1]:
+            actual["SeShutdownPrivilege"] = "*S-1-5-32-545"
+        mundo["derechos"] = escribir_derechos(actual)
+        guardar()
+sys.exit(0)
+'''
+
+SID_TUNEL = "S-1-5-21-9-9-9-1010"
+SID_DUENO = "S-1-5-21-1-2-3-1001"
+SID_BMS = "S-1-5-21-1-2-3-1002"
+# La clave del equipo (otro vector: 32 bytes 0x20..0x3f).
+CLAVE_EQUIPO = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/"
+DERECHOS_DE_ANTES = ("[Unicode]\r\nUnicode=yes\r\n[Privilege Rights]\r\n"
+                     "SeNetworkLogonRight = *S-1-1-0,*S-1-5-32-544,*S-1-5-32-545\r\n"
+                     "SeDenyInteractiveLogonRight = Guest\r\n"
+                     "SeInteractiveLogonRight = Guest,*S-1-5-32-544,*S-1-5-32-545\r\n")
+NEGADOS = ("SeDenyInteractiveLogonRight", "SeDenyRemoteInteractiveLogonRight",
+           "SeDenyBatchLogonRight", "SeDenyServiceLogonRight")
+
+
+class Tunel:
+    """Una copia del proyecto (docker\\mac.ps1, mac.bat y mac\\) con lo de Windows sustituido."""
+
+    def __init__(self, raiz: Path) -> None:
+        self.raiz = raiz
+        self.docker = raiz / "proyecto" / "docker"
+        self.docker.mkdir(parents=True)
+        self.carpeta_mac = raiz / "proyecto" / "mac"
+        self.carpeta_mac.mkdir()
+        for nombre in ("preparar.command", "abrir-bms.command", "LEEME.txt"):
+            (self.carpeta_mac / nombre).write_text(f"# {nombre}\n", encoding="ascii")
+        shutil.copy(DOCKER / "mac.bat", self.docker / "mac.bat")
+        texto = (DOCKER / "mac.ps1").read_bytes().decode("ascii").replace("\r\n", "\n")
+        for antes, despues in (
+                ('$ErrorActionPreference = "Continue"\n',
+                 '$ErrorActionPreference = "Continue"\n' + SUSTITUTOS_MAC),
+                ("    $yo = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]"
+                 "::GetCurrent()\n    return $yo.IsInRole([Security.Principal.WindowsBuiltInRole]"
+                 "::Administrator)\n", "    return [bool](Mundo).admin\n"),
+                ('    $u = [ADSI]("WinNT://" + $env:COMPUTERNAME + "/" + $Nombre + ",user")\n',
+                 '    $g = (Mundo).grupos_tunel\n    if ($g -eq "falla") { throw "ADSI" }\n'
+                 '    return @($g)\n')):
+            assert texto.count(antes) == 1, antes
+            texto = texto.replace(antes, despues)
+        (self.docker / "mac.ps1").write_bytes(texto.replace("\n", "\r\n").encode("ascii"))
+        self.programdata = raiz / "ProgramData"
+        self.programdata.mkdir()
+        self.ssh = self.programdata / "ssh"
+        openssh = raiz / "Windows" / "System32" / "OpenSSH"
+        openssh.mkdir(parents=True)
+        (openssh / "sshd_config_default").write_text("# de fabrica\nSubsystem sftp sftp-server.exe\n",
+                                                     encoding="ascii")
+        for programa, carpeta in (("sshd.exe", openssh), ("icacls.exe", openssh.parent),
+                                  ("taskkill.exe", openssh.parent),
+                                  ("secedit.exe", openssh.parent),
+                                  ("takeown.exe", openssh.parent)):
+            (carpeta / programa).write_text(PROGRAMA_FALSO.format(python=sys.executable),
+                                            encoding="utf-8")
+            (carpeta / programa).chmod(0o755)
+        self.usb = raiz / "usb"
+        self.usb.mkdir()
+        admin = {"sid": SID_ADMINISTRADORES, "tipo": "Allow", "derechos": "FullControl"}
+        sistema = {"sid": SID_SISTEMA, "tipo": "Allow", "derechos": "FullControl"}
+        self.mundo = {
+            "admin": True, "capacidad": "NotPresent", "servicio": None, "reglas": {},
+            "usuarios": {}, "grupos_tunel": [], "procesos": [], "conexiones": [], "perfiles": [],
+            "derechos": DERECHOS_DE_ANTES, "entrada": "NotConfigured", "app": True,
+            "hotfix": "2026-11-12", "eventos": [], "sshd_t": "", "sshd_T": "96",
+            "ips": [{"Interfaz": "Ethernet", "Indice": 7, "Ip": "192.168.1.10", "Prefijo": 24,
+                     "Red": "Public"}],
+            "registro": {"HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList":
+                         {"ProfilesDirectory": str(raiz / "Users")},
+                         "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\"
+                         "SpecialAccounts\\UserList": {}},
+            "acl_defecto": {"dueno": SID_ADMINISTRADORES, "reglas": [sistema, admin, {
+                "sid": SID_DUENO, "tipo": "Allow", "derechos": "Modify"}, {
+                "sid": SID_BMS, "tipo": "Allow", "derechos": "ReadAndExecute"}]},
+            "acl": {},
+            "acl_ssh": {"dueno": SID_ADMINISTRADORES, "reglas": [sistema, admin, {
+                "sid": "S-1-5-11", "tipo": "Allow", "derechos": "ReadAndExecute"}]},
+            "acl_clave": {"dueno": SID_ADMINISTRADORES, "reglas": [sistema, admin]},
+        }
+
+    def correr(self, *argumentos: str, entrada: str = "", elevado: bool = True,
+               ) -> subprocess.CompletedProcess:
+        self.mundo["admin"] = elevado
+        (self.raiz / "mundo.json").write_text(json.dumps(self.mundo), encoding="utf-8")
+        (self.raiz / "llamadas.log").write_text("", encoding="utf-8")
+        entorno = {**os.environ, "SystemRoot": str(self.raiz / "Windows"),
+                   "ProgramData": str(self.programdata), "SystemDrive": str(self.raiz),
+                   "PRUEBA_MUNDO": str(self.raiz / "mundo.json"),
+                   "PRUEBA_LLAMADAS": str(self.raiz / "llamadas.log"),
+                   "PRUEBA_SID_TUNEL": SID_TUNEL, "PRUEBA_CLAVE_EQUIPO": CLAVE_EQUIPO,
+                   "TMPDIR": str(self.raiz)}
+        extra = ["-Elevado"] if elevado else []
+        proceso = subprocess.run(
+            [PWSH, "-NoProfile", "-File", str(self.docker / "mac.ps1"), *argumentos, *extra,
+             "-Usuario", SID_DUENO], env=entorno, input=entrada + "\n" * 5,
+            capture_output=True, text=True, timeout=300)
+        self.mundo = json.loads((self.raiz / "mundo.json").read_text(encoding="utf-8"))
+        return proceso
+
+    def llamadas(self) -> list[list]:
+        texto = (self.raiz / "llamadas.log").read_text(encoding="utf-8")
+        return [json.loads(l) for l in texto.splitlines()]
+
+    def nombres(self) -> list[str]:
+        """Las llamadas en orden, en corto: "Start-Service", "icacls.exe /inheritance:r"..."""
+        salida = []
+        for nombre, datos in self.llamadas():
+            if nombre == "New-NetFirewallRule":
+                salida.append(f"New-NetFirewallRule {datos['Name']}")
+            elif nombre.endswith(".exe"):
+                salida.append(f"{nombre} {datos[0] if datos else ''}".strip())
+            else:
+                salida.append(nombre)
+        return salida
+
+    def estado(self) -> dict | None:
+        clave = self.mundo["registro"].get("HKLM:\\SOFTWARE\\bms-agent\\TunelMac")
+        return json.loads(clave["Estado"]) if clave else None
+
+    def instalar(self, *mas: str, entrada: str = "si\n") -> subprocess.CompletedProcess:
+        """-Instalar ya elevado, con el Mac de ejemplo (como lo pasa la ventana normal)."""
+        return self.correr("-Instalar", "-Nombre", "mac-oficina", "-Ip", "192.168.1.23",
+                           "-Clave", VECTOR.split()[1], *mas, entrada=entrada)
+
+
+@pytest.fixture
+def tunel(tmp_path):
+    if PWSH is None:
+        pytest.skip("sin pwsh")
+    return Tunel(tmp_path)
+
+
+def _salida(proceso: subprocess.CompletedProcess) -> str:
+    return proceso.stdout + proceso.stderr
+
+
+def test_pwsh_mac_instalar_de_cero_con_un_mac(tunel) -> None:
+    proceso = tunel.instalar()
+    assert proceso.returncode == 0, _salida(proceso)
+    salida = proceso.stdout
+    # Lo que queda escrito: el sshd_config y las claves de mac.md, sin BOM ni CR.
+    config = (tunel.ssh / "sshd_config").read_bytes()
+    assert config.decode("ascii") == _bloque_del_diseno("### 2.3 El `sshd_config` exacto")
+    claves = (tunel.ssh / "bms_tunel_authorized_keys").read_bytes()
+    assert claves.decode("ascii") == _bloque_del_diseno("### 2.4 El fichero de claves exacto")
+    assert not (tunel.ssh / "sshd_config.bms-nueva").exists()
+    assert not (tunel.ssh / "sshd_config.antes-bms").exists()
+    # El estado: la foto de antes y el Mac, nada mas.
+    estado = tunel.estado()
+    assert set(estado) == {"version", "instalado", "antes", "apagado", "config_sha256", "macs"}
+    assert estado["antes"] == {"capacidad": "NotPresent", "carpeta": False, "config": "ausente",
+                               "servicio_inicio": "", "servicio_en_marcha": False,
+                               "regla_microsoft": "no_existe"}
+    assert [set(m) for m in estado["macs"]] == [{"nombre", "ip", "clave", "alta"}]
+    assert estado["macs"][0]["clave"] == VECTOR and estado["apagado"] is False
+    import hashlib
+    assert estado["config_sha256"] == hashlib.sha256(config).hexdigest().upper()
+    # La cuenta: con una contrasena que nadie ve, sin caducidad, oculta y sin poder entrar.
+    nueva = [d for n, d in tunel.llamadas() if n == "New-LocalUser"][0]
+    assert nueva["Password"] == "System.Security.SecureString" and nueva["SoloLectura"]
+    assert nueva["Longitud"] == 48 and nueva["PasswordNeverExpires"]
+    assert nueva["UserMayNotChangePassword"] and nueva["AccountNeverExpires"]
+    assert tunel.mundo["registro"]["HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\"
+                                   "Winlogon\\SpecialAccounts\\UserList"] == {"bms-tunel": 0}
+    derechos = dict(l.split(" = ") for l in tunel.mundo["derechos"].split("\r\n") if " = " in l)
+    for negado in NEGADOS:
+        assert f"*{SID_TUNEL}" in derechos[negado].split(","), negado
+    assert derechos["SeNetworkLogonRight"] == "*S-1-1-0,*S-1-5-32-544,*S-1-5-32-545"
+    assert derechos["SeDenyInteractiveLogonRight"] == f"Guest,*{SID_TUNEL}"
+    # El servicio, en marcha y automatico; el cortafuegos: la de Microsoft apagada, "resto" a
+    # todos menos al Mac y la de los Mac solo a su IP, en cualquier perfil.
+    assert tunel.mundo["servicio"] == {"Status": "Running", "StartType": "Automatic"}
+    reglas = tunel.mundo["reglas"]
+    assert reglas["OpenSSH-Server-In-TCP"]["Enabled"] == "False"
+    assert reglas["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == [
+        "0.0.0.0-192.168.1.22", "192.168.1.24-255.255.255.255"]
+    assert reglas["BMS-Tunel-Mac-sshd"]["RemoteAddress"] == ["192.168.1.23"]
+    for nombre in ("BMS-Tunel-Mac-sshd-resto", "BMS-Tunel-Mac-sshd"):
+        r = reglas[nombre]
+        assert (r["Profile"], r["LocalPort"], r["Protocol"], r["Direction"]) == (
+            "Any", "22", "TCP", "Inbound")
+        assert r["Program"].endswith("sshd.exe")
+    assert reglas["BMS-Tunel-Mac-sshd-resto"]["Action"] == "Block"
+    assert reglas["BMS-Tunel-Mac-sshd"]["Action"] == "Allow"
+    # En orden: nada arranca antes de cerrar el cortafuegos; la clave del equipo se crea con el
+    # cortafuegos cerrado; solo al final se abre a los Mac.
+    orden = tunel.nombres()
+    _en_orden("\n".join(orden), [
+        "Add-WindowsCapability", "Disable-NetFirewallRule",
+        "New-NetFirewallRule BMS-Tunel-Mac-sshd-resto", "Start-Service", "Stop-Service",
+        "New-LocalUser", "secedit.exe /export", "secedit.exe /configure", "secedit.exe /export",
+        "New-NetFirewallRule BMS-Tunel-Mac-sshd-resto", "Stop-Service",
+        "icacls.exe", "sshd.exe -t", "sshd.exe -T", "sshd.exe -T", "Set-Service",
+        "Start-Service", "New-NetFirewallRule BMS-Tunel-Mac-sshd-resto",
+        "New-NetFirewallRule BMS-Tunel-Mac-sshd"])
+    assert orden.index("New-NetFirewallRule BMS-Tunel-Mac-sshd") == len(orden) - 1 or \
+        "Start-Service" not in orden[orden.index("New-NetFirewallRule BMS-Tunel-Mac-sshd"):]
+    # El fichero de claves: solo SYSTEM y Administradores, por SID.
+    icacls = [d for n, d in tunel.llamadas() if n == "icacls.exe"]
+    ruta = str(tunel.ssh / "bms_tunel_authorized_keys")
+    assert [ruta, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"] in icacls
+    assert [ruta, "/setowner", "*S-1-5-32-544"] in icacls
+    # Lo que se dice para el Mac: la IP de este equipo y su huella; nunca una clave entera.
+    assert "la IP de este equipo: 192.168.1.10" in salida
+    assert "SHA256:" in salida and "Listo." in salida
+    assert VECTOR.split()[1] not in salida and CLAVE_EQUIPO.split()[1] not in salida
+
+
+def test_pwsh_mac_estado_tras_instalar_todo_bien_y_sin_claves(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    tunel.mundo["conexiones"] = ["192.168.1.23"]
+    tunel.mundo["eventos"] = [{"cuando": "2026-11-25T09:14:00", "texto":
+                               "Accepted publickey for bms-tunel from 192.168.1.23 port 51234 "
+                               "ssh2: ED25519 SHA256:ZkAslGjFiUHdGf/WUL8rQvkib4PTvQatUV0OUQSncCA"}]
+    tunel.mundo["hotfix"] = (__import__("datetime").date.today().isoformat())
+    proceso = tunel.correr("-Estado")
+    assert proceso.returncode == 0, _salida(proceso)
+    lineas = {l.split()[0]: l for l in proceso.stdout.splitlines()
+              if l.startswith("   ") and len(l.split()) > 1}
+    for que in ("servidor", "config", "reenvio", "cuenta", "datos", "scripts", "claves",
+                "cortafuegos", "app", "rechazos", "windows"):
+        assert re.match(rf"\s+{que}\s+.*?\bbien\b", lineas[que]), lineas.get(que)
+    assert "carpeta ssh" in proceso.stdout and "mal" not in proceso.stdout.split()
+    assert "mac-oficina      192.168.1.23" in proceso.stdout
+    assert "1 abierto(s) ahora: mac-oficina (192.168.1.23)" in proceso.stdout
+    assert "entro      25-11-2026 09:14  mac-oficina desde 192.168.1.23" in proceso.stdout
+    assert VECTOR.split()[1] not in proceso.stdout
+    # -Estado no cambia nada.
+    assert not [n for n in tunel.nombres() if n in (
+        "Start-Service", "Stop-Service", "Set-Service", "New-NetFirewallRule",
+        "Remove-NetFirewallRule", "New-LocalUser", "icacls.exe", "secedit.exe /configure")]
+
+
+def test_pwsh_mac_estado_dice_en_rojo_lo_que_esta_mal(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    tunel.mundo["hotfix"] = "2026-01-01"
+    tunel.mundo["grupos_tunel"] = ["S-1-5-32-555"]
+    tunel.mundo["acl"][str(tunel.docker.parent)] = {"dueno": SID_ADMINISTRADORES, "reglas": [
+        {"sid": "S-1-5-11", "tipo": "Allow", "derechos": "ReadAndExecute"}]}
+    (tunel.ssh / "bms_tunel_authorized_keys").write_text("# a mano\n", encoding="ascii")
+    tunel.mundo["reglas"]["OpenSSH-Server-In-TCP"]["Enabled"] = "True"
+    tunel.mundo["app"] = False
+    proceso = tunel.correr("-Estado")
+    assert proceso.returncode == 0, _salida(proceso)
+    salida = proceso.stdout
+    for que, nivel in (("windows", "mal"), ("cuenta", "mal"), ("datos", "mal"),
+                       ("claves", "mal"), ("cortafuegos", "aviso"), ("app", "aviso")):
+        linea = [l for l in salida.splitlines() if l.strip().startswith(que + " ")][0]
+        assert linea.split()[1] == nivel, linea
+    assert "actualiza Windows o, hasta entonces, mac.bat -Apagar" in salida
+    assert "proteger.bat -Usuario bms" in salida
+
+
+def test_pwsh_mac_anadir_y_quitar_un_mac_y_el_tunel_que_no_se_corta(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    proceso = tunel.correr("-AnadirClave", "-Nombre", "mac-casa", "-Ip", "192.168.1.31",
+                           "-Clave", CLAVE_EQUIPO.split()[1])
+    assert proceso.returncode == 0, _salida(proceso)
+    config = (tunel.ssh / "sshd_config").read_text(encoding="ascii")
+    assert "AllowUsers bms-tunel@192.168.1.23 bms-tunel@192.168.1.31\n" in config
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd"]["RemoteAddress"] == [
+        "192.168.1.23", "192.168.1.31"]
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == [
+        "0.0.0.0-192.168.1.22", "192.168.1.24-192.168.1.30", "192.168.1.32-255.255.255.255"]
+    assert [m["nombre"] for m in tunel.estado()["macs"]] == ["mac-oficina", "mac-casa"]
+    # Quitar uno con un tunel abierto que Windows no deja cortar: lo dice en rojo.
+    tunel.mundo["procesos"] = [{"ProcessId": 501}, {"ProcessId": 502, "duro": True}]
+    proceso = tunel.correr("-QuitarClave", "-Nombre", "mac-oficina")
+    assert proceso.returncode == 0, _salida(proceso)
+    assert [p["ProcessId"] for p in tunel.mundo["procesos"]] == [502]
+    assert "ATENCION: queda 1 proceso(s)" in proceso.stdout
+    assert "hasta que reinicies el equipo" in proceso.stdout
+    assert ["taskkill.exe", ["/F", "/PID", "501"]] in tunel.llamadas()
+    claves = (tunel.ssh / "bms_tunel_authorized_keys").read_text(encoding="ascii")
+    assert "bms-mac-oficina" not in claves and "bms-mac-casa" in claves
+    assert "AllowUsers bms-tunel@192.168.1.31\n" in (tunel.ssh / "sshd_config").read_text(
+        encoding="ascii")
+    # Sin procesos que se resistan: "cortados".
+    tunel.mundo["procesos"] = []
+    proceso = tunel.correr("-QuitarClave", "-Nombre", "mac-casa")
+    assert proceso.returncode == 0 and "se han cortado los tuneles abiertos" in proceso.stdout
+    config = (tunel.ssh / "sshd_config").read_text(encoding="ascii")
+    assert "\nDenyUsers *\n" in config and "AllowUsers" not in config
+    assert "BMS-Tunel-Mac-sshd" not in tunel.mundo["reglas"]
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == ["Any"]
+
+
+def test_pwsh_mac_apagar_y_encender(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    proceso = tunel.correr("-Apagar")
+    assert proceso.returncode == 0, _salida(proceso)
+    assert tunel.mundo["servicio"] == {"Status": "Stopped", "StartType": "Disabled"}
+    assert "BMS-Tunel-Mac-sshd" not in tunel.mundo["reglas"]
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == ["Any"]
+    assert tunel.estado()["apagado"] is True
+    assert "Start-Service" not in tunel.nombres()
+    proceso = tunel.correr("-Encender")
+    assert proceso.returncode == 0, _salida(proceso)
+    assert tunel.mundo["servicio"] == {"Status": "Running", "StartType": "Automatic"}
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd"]["RemoteAddress"] == ["192.168.1.23"]
+
+
+def test_pwsh_mac_quitar_deja_el_equipo_como_estaba(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    proceso = tunel.correr("-Quitar", entrada="si\nno\n")
+    assert proceso.returncode == 0, _salida(proceso)
+    m = tunel.mundo
+    assert m["capacidad"] == "NotPresent" and m["servicio"] is None
+    assert m["reglas"] == {} and m["usuarios"] == {} and m["perfiles"] == []
+    assert "HKLM:\\SOFTWARE\\bms-agent\\TunelMac" not in m["registro"]
+    assert m["registro"]["HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\"
+                         "SpecialAccounts\\UserList"] == {}
+    assert SID_TUNEL not in m["derechos"]
+    assert not (tunel.ssh / "bms_tunel_authorized_keys").exists()
+    assert not (tunel.ssh / "sshd_config").exists()
+    # La carpeta ssh no estaba antes: se pregunta, y con "no" se queda.
+    assert tunel.ssh.is_dir()
+    orden = tunel.nombres()
+    _en_orden("\n".join(orden), ["Stop-Service", "Remove-NetFirewallRule",
+                                 "secedit.exe /configure", "Remove-CimInstance",
+                                 "Remove-LocalUser", "Remove-WindowsCapability",
+                                 "Remove-NetFirewallRule", "Remove-Item"])
+    assert "preparar.command --borrar" in proceso.stdout
+
+
+def test_pwsh_mac_quitar_devuelve_un_servidor_que_ya_estaba(tunel) -> None:
+    """Con la capacidad ya puesta, sshd en marcha, la regla de Microsoft encendida y un
+    sshd_config del dueno: -Instalar para; con -SustituirConfiguracion sigue y guarda el de
+    antes; -Quitar lo devuelve todo."""
+    tunel.mundo["capacidad"] = "Installed"
+    tunel.mundo["servicio"] = {"Status": "Running", "StartType": "Automatic"}
+    tunel.mundo["reglas"]["OpenSSH-Server-In-TCP"] = {"Enabled": "True", "Action": "Allow",
+                                                     "Profile": "Any"}
+    tunel.ssh.mkdir()
+    (tunel.ssh / "sshd_config").write_text("Port 2222\n", encoding="ascii")
+    (tunel.ssh / "ssh_host_ed25519_key.pub").write_text(CLAVE_EQUIPO + "\n", encoding="ascii")
+    proceso = tunel.instalar()
+    assert proceso.returncode == 1 and "-SustituirConfiguracion" in proceso.stdout
+    assert tunel.estado() is None and tunel.mundo["usuarios"] == {}
+    assert (tunel.ssh / "sshd_config").read_text() == "Port 2222\n"
+    proceso = tunel.instalar("-SustituirConfiguracion")
+    assert proceso.returncode == 0, _salida(proceso)
+    assert "ya estaba en marcha" in proceso.stdout
+    assert (tunel.ssh / "sshd_config.antes-bms").read_text() == "Port 2222\n"
+    assert tunel.estado()["antes"]["config"] == "otra"
+    proceso = tunel.correr("-Quitar", entrada="si\n")
+    assert proceso.returncode == 0, _salida(proceso)
+    m = tunel.mundo
+    assert (tunel.ssh / "sshd_config").read_text() == "Port 2222\n"
+    assert m["capacidad"] == "Installed"
+    assert m["servicio"] == {"Status": "Running", "StartType": "Automatic"}
+    assert m["reglas"] == {"OpenSSH-Server-In-TCP": {"Enabled": "True", "Action": "Allow",
+                                                     "Profile": "Any"}}
+
+
+@pytest.mark.parametrize("caso", ["sshd_t", "sshd_T", "secedit", "grupos"])
+def test_pwsh_mac_lo_que_falla_deja_sshd_parado_y_el_cortafuegos_cerrado(tunel, caso) -> None:
+    if caso == "sshd_t":
+        tunel.mundo["sshd_t"] = "falla"
+    elif caso == "sshd_T":
+        tunel.mundo["sshd_T"] = "malo"
+    elif caso == "secedit":
+        tunel.mundo["secedit"] = "de_mas"
+    else:
+        tunel.mundo["grupos_tunel"] = "falla"
+    proceso = tunel.instalar()
+    assert proceso.returncode == 1, _salida(proceso)
+    esperado = {"sshd_t": "sshd no acepta la configuracion nueva",
+                "sshd_T": "para otra cuenta, sshd no queda cerrado",
+                "secedit": "se ha vuelto a poner todo como estaba",
+                "grupos": "No se han podido mirar los grupos de bms-tunel"}[caso]
+    assert esperado in proceso.stdout
+    assert tunel.mundo["servicio"]["Status"] == "Stopped"
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == ["Any"]
+    assert "BMS-Tunel-Mac-sshd" not in tunel.mundo["reglas"]
+    if caso == "sshd_t":
+        assert not (tunel.ssh / "sshd_config.bms-nueva").exists()
+        assert not (tunel.ssh / "sshd_config").read_text().startswith("# bms-agent")
+    if caso == "secedit":
+        # Vuelve a estar como antes: tambien lo que secedit anadio de mas y los derechos que
+        # antes no tenian a nadie (secedit /configure solo toca lo que trae la plantilla).
+        assert tunel.mundo["derechos"] == DERECHOS_DE_ANTES
+
+
+@pytest.mark.parametrize("pega", ["dueno", "permiso", "clave_legible", "enlace"])
+def test_pwsh_mac_la_carpeta_ssh_de_otro_se_aparta(tunel, pega) -> None:
+    """mac.md §2.8.1: una C:\\ProgramData\\ssh creada por otra cuenta (o que otra puede cambiar,
+    con la clave del equipo a la vista o un enlace dentro) se aparta entera (con "si") y el
+    servicio la rehace; sin "si", nada arranca."""
+    tunel.ssh.mkdir()
+    (tunel.ssh / "plantado.txt").write_text("# plantado\n", encoding="ascii")
+    if pega == "dueno":
+        acl = {"dueno": SID_BMS, "reglas": []}
+        tunel.mundo["acl"][str(tunel.ssh)] = {**acl, "testigo": "plantado.txt"}
+        esperado = "es de " + SID_BMS
+    elif pega == "permiso":
+        tunel.mundo["acl"][str(tunel.ssh)] = {"dueno": SID_ADMINISTRADORES, "testigo": "plantado.txt",
+                                             "reglas": [{"sid": SID_BMS, "tipo": "Allow",
+                                                         "derechos": "AppendData"}]}
+        esperado = SID_BMS + " puede cambiarlo"
+    elif pega == "clave_legible":
+        (tunel.ssh / "ssh_host_ed25519_key").write_text("privada", encoding="ascii")
+        tunel.mundo["acl"][str(tunel.ssh / "ssh_host_ed25519_key")] = {
+            "dueno": SID_ADMINISTRADORES, "testigo": "../plantado.txt", "reglas": [
+                {"sid": "S-1-5-32-545", "tipo": "Allow", "derechos": "ReadAndExecute"}]}
+        esperado = "puede leer la clave del equipo"
+    else:
+        (tunel.ssh / "enlace").symlink_to(tunel.raiz)
+        esperado = "es un enlace"
+    proceso = tunel.instalar(entrada="si\nno\n")
+    assert proceso.returncode == 1 and "no es de fiar" in proceso.stdout
+    assert esperado in proceso.stdout, proceso.stdout
+    assert "Start-Service" not in tunel.nombres() and tunel.ssh.is_dir()
+    proceso = tunel.instalar(entrada="si\nsi\n")
+    assert proceso.returncode == 0, _salida(proceso)
+    apartadas = list(tunel.programdata.glob("ssh.apartada-*"))
+    assert len(apartadas) == 1 and (apartadas[0] / "plantado.txt").read_text() == "# plantado\n"
+    assert not (tunel.ssh / "plantado.txt").exists()
+    llamadas = tunel.llamadas()
+    assert ["takeown.exe", ["/F", str(apartadas[0]), "/A", "/R", "/D", "Y"]] in llamadas
+    assert (tunel.ssh / "ssh_host_ed25519_key.pub").exists()
+    assert (tunel.ssh / "sshd_config").read_text().startswith("# bms-agent")
+
+
+def test_pwsh_mac_no_sigue_si_otros_leen_los_datos(tunel) -> None:
+    tunel.mundo["acl"][str(tunel.docker.parent / "docker" / "secretos")] = {
+        "dueno": SID_ADMINISTRADORES, "reglas": [
+            {"sid": "S-1-5-32-545", "tipo": "Allow", "derechos": "ReadAndExecute"}]}
+    (tunel.docker / "secretos").mkdir()
+    proceso = tunel.instalar()
+    assert proceso.returncode == 1 and "proteger.bat -Usuario bms" in proceso.stdout
+    assert tunel.estado() is None and "Add-WindowsCapability" not in tunel.nombres()
+
+
+@pytest.mark.parametrize("donde, como", [
+    ("docker", {"sid": "S-1-5-32-545", "tipo": "Allow", "derechos": "Modify"}),
+    ("docker", {"sid": SID_BMS, "tipo": "Allow", "derechos": "CreateFiles"}),
+    ("mac/preparar.command", "dueno"),
+    ("mac", {"sid": SID_BMS, "tipo": "Allow", "derechos": "AppendData"}),
+    ("arriba", {"sid": "S-1-5-11", "tipo": "Allow", "derechos": "Delete"})])
+def test_pwsh_mac_no_corre_si_otra_cuenta_puede_cambiarlo(tunel, donde, como) -> None:
+    """mac.md §2.11: ni elevar, ni preguntar, ni copiar al Mac."""
+    if donde == "arriba":
+        ruta = str(tunel.docker.parent.parent)
+    else:
+        ruta = str(tunel.docker.parent / donde)
+    if como == "dueno":
+        tunel.mundo["acl"][ruta] = {"dueno": SID_BMS, "reglas": []}
+    else:
+        tunel.mundo["acl"][ruta] = {"dueno": SID_ADMINISTRADORES, "reglas": [como]}
+    for argumentos in (["-Estado"], ["-CopiarParaElMac", str(tunel.usb)]):
+        proceso = tunel.correr(*argumentos, elevado=False)
+        assert proceso.returncode == 1, _salida(proceso)
+        assert "Otra cuenta de este equipo puede cambiar" in proceso.stdout
+        assert "Start-Process" not in tunel.nombres() and not (tunel.usb / "bms-mac").exists()
+    # Una regla que solo se hereda (CREATOR OWNER en C:\) no cuenta.
+    tunel.mundo["acl"][ruta] = {"dueno": SID_ADMINISTRADORES, "reglas": [
+        {"sid": "S-1-3-0", "tipo": "Allow", "derechos": "FullControl", "solo_herencia": True}]}
+    proceso = tunel.correr("-CopiarParaElMac", str(tunel.usb), elevado=False)
+    assert proceso.returncode == 0, _salida(proceso)
+
+
+def test_pwsh_mac_copiar_para_el_mac(tunel) -> None:
+    proceso = tunel.correr("-CopiarParaElMac", str(tunel.usb), elevado=False)
+    assert proceso.returncode == 0, _salida(proceso)
+    import hashlib
+    for nombre in ("preparar.command", "abrir-bms.command", "LEEME.txt"):
+        copiado = (tunel.usb / "bms-mac" / nombre).read_bytes()
+        assert copiado == (tunel.carpeta_mac / nombre).read_bytes()
+        assert f"{nombre}   sha256 {hashlib.sha256(copiado).hexdigest()[:16]}" in proceso.stdout
+    assert "192.168.1.10" in proceso.stdout and "Start-Process" not in tunel.nombres()
+    # Otra vez: pregunta antes de sustituir.
+    proceso = tunel.correr("-CopiarParaElMac", str(tunel.usb), elevado=False, entrada="no\n")
+    assert proceso.returncode == 1 and "No se ha copiado nada." in proceso.stdout
+    shutil.rmtree(tunel.carpeta_mac)
+    proceso = tunel.correr("-CopiarParaElMac", str(tunel.usb), elevado=False)
+    assert proceso.returncode == 1 and "Falta la carpeta" in proceso.stdout
+
+
+def test_pwsh_mac_lo_del_mac_se_pregunta_en_la_ventana_normal(tunel) -> None:
+    """Sin elevar: la clave de la memoria (bms-mac\\bms-<nombre>.pub), su nombre, la IP y la
+    huella, y a la ventana de administrador solo el nombre, la IP y el base64."""
+    usb_mac = tunel.usb / "bms-mac"
+    usb_mac.mkdir()
+    (usb_mac / "bms-mac-oficina.pub").write_text(VECTOR + " bms-mac-oficina\n", encoding="ascii")
+    tunel.mundo["registro"]["HKLM:\\SOFTWARE\\bms-agent\\TunelMac"] = {"Estado": json.dumps(
+        {"version": 1, "instalado": "x", "antes": {}, "apagado": False, "config_sha256": "",
+         "macs": []})}
+    # Las "memorias" son las unidades que ve .NET: aqui, se pide la ruta (o se pega la linea).
+    entrada = "\n".join(["mac-oficina", "8.8.8.8", "192.168.1.10", "192.168.1.23",
+                         "no-es-una-clave", str(usb_mac / "bms-mac-oficina.pub"), "si"]) + "\n"
+    proceso = tunel.correr("-AnadirClave", elevado=False, entrada=entrada)
+    assert proceso.returncode == 0, _salida(proceso)
+    salida = proceso.stdout
+    assert "eso no es una IP de una red privada" in salida
+    assert "esa es la IP de este equipo, no la del Mac" in salida
+    assert "eso no es una clave publica ed25519" in salida
+    assert "Huella de la clave del Mac: SHA256:ZkAslGjFiUHdGf/WUL8rQvkib4PTvQatUV0OUQSncCA" in salida
+    [(nombre, datos)] = [x for x in tunel.llamadas() if x[0] == "Start-Process"]
+    assert datos["Verb"] == "RunAs"
+    argumentos = datos["ArgumentList"]
+    assert argumentos[5:] == ["-AnadirClave", "-Elevado", "-Usuario", SID_DUENO, "-Nombre",
+                              "mac-oficina", "-Ip", "192.168.1.23", "-Clave", VECTOR.split()[1]]
+    assert argumentos[:4] == ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    # Sin "si" a la huella, no se pide ser administrador.
+    entrada = "\n".join(["mac-oficina", "192.168.1.23", VECTOR, "no"]) + "\n"
+    proceso = tunel.correr("-AnadirClave", elevado=False, entrada=entrada)
+    assert proceso.returncode == 1 and "Start-Process" not in tunel.nombres()
+
+
+def test_pwsh_mac_lo_que_llega_a_la_ventana_de_administrador_se_vuelve_a_mirar(tunel) -> None:
+    assert tunel.instalar().returncode == 0
+    for ip, clave in (("8.8.8.8", VECTOR.split()[1]), ("192.168.1.31", "AAAA" * 17),
+                      ("192.168.1.5/24", VECTOR.split()[1])):
+        proceso = tunel.correr("-AnadirClave", "-Nombre", "mac-casa", "-Ip", ip, "-Clave", clave)
+        assert proceso.returncode == 1 and "Uso interno" in proceso.stdout, (ip, clave)
+    # -MismaClave con otra clave: no.
+    proceso = tunel.correr("-AnadirClave", "-Nombre", "mac-oficina", "-Ip", "192.168.1.40",
+                           "-Clave", CLAVE_EQUIPO.split()[1], "-MismaClave")
+    assert proceso.returncode == 1 and "-MismaClave" in proceso.stdout
+    # Con la que tenia: solo cambia la IP.
+    proceso = tunel.correr("-AnadirClave", "-Nombre", "mac-oficina", "-Ip", "192.168.1.40",
+                           "-Clave", VECTOR.split()[1], "-MismaClave")
+    assert proceso.returncode == 0, _salida(proceso)
+    assert [(m["nombre"], m["ip"]) for m in tunel.estado()["macs"]] == [("mac-oficina",
+                                                                         "192.168.1.40")]
+    # La reserva "red": la red entera, en las tres capas.
+    proceso = tunel.correr("-AnadirClave", "-Nombre", "mac-oficina", "-Ip", "192.168.1.0/24",
+                           "-Clave", VECTOR.split()[1])
+    assert proceso.returncode == 0, _salida(proceso)
+    assert "AllowUsers bms-tunel@192.168.1.0/24\n" in (tunel.ssh / "sshd_config").read_text()
+    assert 'from="192.168.1.0/24"' in (tunel.ssh / "bms_tunel_authorized_keys").read_text()
+    assert tunel.mundo["reglas"]["BMS-Tunel-Mac-sshd-resto"]["RemoteAddress"] == [
+        "0.0.0.0-192.168.0.255", "192.168.2.0-255.255.255.255"]
+
+
+def test_pwsh_mac_sin_instalar_no_hace_nada_mas(tunel) -> None:
+    for accion in ("-Estado", "-QuitarClave", "-Apagar", "-Quitar"):
+        proceso = tunel.correr(accion, elevado=False)
+        assert proceso.returncode == 1 and "no esta instalado" in proceso.stdout, accion
+        assert "Start-Process" not in tunel.nombres()
+    proceso = tunel.correr("-Estado", "-Apagar")
+    assert proceso.returncode == 1 and "Di una cosa" in proceso.stdout
+    proceso = tunel.correr("-Instalar", "-Nombre", "Mac Oficina")
+    assert proceso.returncode == 1 and "El nombre del Mac" in proceso.stdout

@@ -399,7 +399,7 @@ SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar"
            "ciclo", "automatico", "correo-configurar", "correo-certificado")
 # Paso 18b: los que corren como administrador y no cargan comun.ps1 (sus pruebas, en
 # tests/test_tunel_mac.py).
-SIN_COMUN = ("proteger",)
+SIN_COMUN = ("proteger", "mac")
 
 
 def _ps1(nombre: str) -> str:
@@ -944,6 +944,10 @@ def test_los_scripts_de_docker_son_de_windows_powershell_5_1_y_no_bajan_nada() -
     todos = {p.stem: p.read_text(encoding="utf-8") for p in DOCKER.glob("*.ps1")}
     assert set(todos) == set(SCRIPTS) | {"comun"} | set(SIN_COMUN)
     for nombre, texto in todos.items():
+        if nombre == "mac":
+            # Mirar una clave publica pide FromBase64String: solo ahi (test_tunel_mac.py).
+            for funcion in ("Clave-Publica-Valida", "Huella-Sha256"):
+                texto = texto.replace(_funcion(texto, funcion), "")
         codigo = _codigo(texto)
         assert not re.search(r"&&|\|\||\?\?|\?\.|\s\?\s[^:\n]+\s:\s", codigo), nombre
         assert not re.search(r"-Parallel|-AsPlainText|-AsHashtable|-AsByteStream|utf8NoBOM|"
