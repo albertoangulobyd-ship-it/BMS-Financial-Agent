@@ -1,0 +1,9 @@
+bms-agent: lo de esta carpeta es para un Mac, no para el mini PC.
+Sirve para abrir la app del mini PC desde el navegador de un Mac de la misma red,
+por un tunel cifrado. Nada del programa se instala en el Mac.
+
+Se lleva al Mac con mac.bat -CopiarParaElMac (en el mini PC), no copiandola a mano.
+La primera vez: en Terminal, escribe "bash " (con el espacio), arrastra aqui
+preparar.command y pulsa Intro. Despues, cada dia: BMS en el Escritorio.
+
+La guia paso a paso: docs/entorno-local.md, apartado "Usarlo desde un Mac".

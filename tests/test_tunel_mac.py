@@ -329,10 +329,10 @@ def test_proteger_en_orden_y_con_los_cuatro_permisos() -> None:
         "if ($grupos -contains $SidAdministradores) { Fallar",
         'Read-Host "Seguir?',
         "-Verb RunAs",
-        '"/setowner", $administradores, "/T", "/C"',
+        '"/setowner", $administradores, "/T", "/C", "/L"',
         '"/inheritance:r", "/grant:r"',
         '"/remove:g"',
-        '"/reset", "/T", "/C"',
+        '"/reset", "/T", "/C", "/L"',
         '"/grant", ("*" + $sidBms + ":(OI)(CI)M")',
         "(Get-Acl -LiteralPath $Proyecto).Access",
     ])
@@ -487,14 +487,15 @@ def test_pwsh_proteger_pone_los_permisos_en_orden(proteger) -> None:
     assert proceso.returncode == 0, proceso.stdout + proceso.stderr
     p = str(proteger.proyecto)
     llamadas = proteger.icacls()
-    assert llamadas[0] == [p, "/setowner", "*S-1-5-32-544", "/T", "/C", "/Q"]
+    assert llamadas[0] == [p, "/setowner", "*S-1-5-32-544", "/T", "/C", "/L", "/Q"]
     assert llamadas[1] == [p, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F",
                            "*S-1-5-32-544:(OI)(CI)F", f"*{DUENO}:(OI)(CI)M", f"*{BMS}:(OI)(CI)RX",
                            "/Q"]
     # Lo de dentro (tambien el buzon, que se crea vacio) hereda solo eso.
     hijos = sorted(Path(l[0]).name for l in llamadas if l[1:2] == ["/reset"])
     assert hijos == ["buzon", "docker", "src"]
-    assert all(l[1:] == ["/reset", "/T", "/C", "/Q"] for l in llamadas if l[1:2] == ["/reset"])
+    assert all(l[1:] == ["/reset", "/T", "/C", "/L", "/Q"] for l in llamadas
+               if l[1:2] == ["/reset"])
     # La M de "bms", al final y solo en docker\estado y docker\secretos\correo (que se crean).
     assert llamadas[-2:] == [
         [str(proteger.proyecto / "docker" / "estado"), "/grant", f"*{BMS}:(OI)(CI)M", "/Q"],
@@ -1893,7 +1894,12 @@ def test_pwsh_mac_la_carpeta_ssh_de_otro_se_aparta(tunel, pega) -> None:
     assert len(apartadas) == 1 and (apartadas[0] / "plantado.txt").read_text() == "# plantado\n"
     assert not (tunel.ssh / "plantado.txt").exists()
     llamadas = tunel.llamadas()
-    assert ["takeown.exe", ["/F", str(apartadas[0]), "/A", "/R", "/D", "Y"]] in llamadas
+    # Solo la carpeta de arriba: sin /R ni /T (dentro podria haber enlaces a otros sitios).
+    assert ["takeown.exe", ["/F", str(apartadas[0]), "/A"]] in llamadas
+    assert [str(apartadas[0]), "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F", "/L", "/Q"] in [d for n, d in llamadas if n == "icacls.exe"]
+    assert not [d for n, d in llamadas if n in ("takeown.exe", "icacls.exe") and
+                ("/R" in d or "/T" in d)]
     assert (tunel.ssh / "ssh_host_ed25519_key.pub").exists()
     assert (tunel.ssh / "sshd_config").read_text().startswith("# bms-agent")
 
@@ -2019,3 +2025,723 @@ def test_pwsh_mac_sin_instalar_no_hace_nada_mas(tunel) -> None:
     assert proceso.returncode == 1 and "Di una cosa" in proceso.stdout
     proceso = tunel.correr("-Instalar", "-Nombre", "Mac Oficina")
     assert proceso.returncode == 1 and "El nombre del Mac" in proceso.stdout
+
+
+# ============================================================ el lado del Mac (15b.2)
+
+MAC = RAIZ / "mac"
+COMMANDS = ("preparar.command", "abrir-bms.command")
+BASH = shutil.which("bash")
+# Las herramientas que importan, por su variable y su ruta (mac.md §3.1): nada del PATH del dueno
+# decide que ssh corre (un OpenSSH de Homebrew no entiende UseKeychain).
+HERRAMIENTAS = {"SSH": "/usr/bin/ssh", "SSH_ADD": "/usr/bin/ssh-add",
+                "SSH_KEYGEN": "/usr/bin/ssh-keygen", "SSH_KEYSCAN": "/usr/bin/ssh-keyscan",
+                "NC": "/usr/bin/nc", "CURL": "/usr/bin/curl", "OPEN": "/usr/bin/open",
+                "PGREP": "/usr/bin/pgrep", "LSOF": "/usr/sbin/lsof"}
+
+
+def _command(nombre: str) -> str:
+    return (MAC / nombre).read_text(encoding="ascii")
+
+
+def _sin_comentarios_bash(texto: str) -> str:
+    return "\n".join(l for l in texto.splitlines() if not l.lstrip().startswith("#"))
+
+
+def test_mac_lo_que_va_al_mac() -> None:
+    """mac.md §3.1: tres ficheros, en LF (bash no lee CRLF), ASCII, y los .command con el bit de
+    ejecucion en git (100755)."""
+    assert sorted(p.name for p in MAC.iterdir()) == ["LEEME.txt", "abrir-bms.command",
+                                                     "preparar.command"]
+    atributos = (RAIZ / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "mac/*.command text eol=lf" in atributos and "mac/*.txt text eol=lf" in atributos
+    for nombre in (*COMMANDS, "LEEME.txt"):
+        crudo = (MAC / nombre).read_bytes()
+        assert b"\r" not in crudo and crudo.isascii() and crudo.endswith(b"\n"), nombre
+    leeme = (MAC / "LEEME.txt").read_text(encoding="ascii")
+    texto = (RAIZ / "docs" / "v1" / "paso-18" / "mac.md").read_text(encoding="utf-8")
+    assert leeme == re.search(r"```\n(.*?)```", texto[texto.index("`mac/LEEME.txt`:"):],
+                              re.S).group(1)
+    indice = subprocess.run(["git", "-C", str(RAIZ), "ls-files", "-s", "--", "mac"],
+                            capture_output=True, text=True, check=True).stdout
+    modos = {l.split("\t")[1]: l.split()[0] for l in indice.splitlines()}
+    assert modos == {"mac/LEEME.txt": "100644", "mac/abrir-bms.command": "100755",
+                     "mac/preparar.command": "100755"}
+    eol = subprocess.run(["git", "-C", str(RAIZ), "check-attr", "eol", "--",
+                          "mac/preparar.command", "mac/LEEME.txt"],
+                         capture_output=True, text=True, check=True).stdout
+    assert eol.count("eol: lf") == 2
+
+
+@pytest.mark.parametrize("nombre", COMMANDS)
+def test_mac_command_bash_3_2_y_solo_herramientas_del_sistema(nombre) -> None:
+    texto = _command(nombre)
+    lineas = texto.splitlines()
+    assert lineas[0] == "#!/bin/bash"
+    codigo = [l for l in lineas[1:] if l.strip() and not l.lstrip().startswith("#")]
+    # El PATH del sistema antes de nada que llame a un programa.
+    assert "export PATH=/usr/bin:/bin:/usr/sbin:/sbin" in codigo[:3], codigo[:3]
+    sin = _sin_comentarios_bash(texto)
+    # bash 3.2 de Apple: nada de bash 4.
+    for prohibido in (r"declare -A", r"local -A", r"\$\{\w+,,\}", r"\$\{\w+\^\^\}", r"\bmapfile\b",
+                      r"\breadarray\b", r"\|&", r"&>>", r"\bcoproc\b", r"wait -n", r"local -n",
+                      r"declare -n", r"\[\[ -v"):
+        assert not re.search(prohibido, sin), prohibido
+    # Cada herramienta, por su variable con su ruta; nunca a pelo como orden.
+    usadas = dict(re.findall(r"^([A-Z_]+)=(/\S+)$", sin, re.M))
+    for variable, ruta in usadas.items():
+        if variable in HERRAMIENTAS:
+            assert ruta == HERRAMIENTAS[variable], variable
+    assert usadas.get("SSH") == "/usr/bin/ssh" and usadas.get("LSOF") == "/usr/sbin/lsof"
+    for orden in ("ssh", "ssh-add", "ssh-keygen", "ssh-keyscan", "nc", "curl", "open", "pgrep",
+                  "lsof"):
+        assert not re.search(rf"(^|[;&|(]|\$\(|then|do|else)\s*{re.escape(orden)}\s", sin,
+                             re.M), orden
+    # pgrep, siempre de los procesos de esta cuenta.
+    for linea in [l for l in sin.splitlines() if '"$PGREP"' in l]:
+        assert '"$PGREP" -U "$YO" -f' in linea, linea
+    # ssh, siempre con su configuracion aislada (-F) y sin consola (-N); salvo ssh -V.
+    for linea in [l for l in sin.splitlines() if re.search(r'"\$SSH" -', l)]:
+        assert '"$SSH" -V' in linea or '"$SSH" -F "$CONFIG" -N' in linea, linea
+    for prohibido in (r"\bsudo\b", r"xattr -r", r"xattr -c", r"\|\s*(ba)?sh\b", r"\beval\b",
+                      r"StrictHostKeyChecking (no|accept-new|off)", r"\bsource\b"):
+        assert not re.search(prohibido, sin), prohibido
+    if "rm -rf" in sin:
+        assert [l.strip() for l in sin.splitlines() if "rm -rf" in l] == ['rm -rf "$DIR"']
+        assert 'rm -rf "$DIR"' in sin[sin.index("borrar() {"):sin.index("\n}\n",
+                                                                       sin.index("borrar() {"))]
+
+
+@pytest.mark.skipif(BASH is None, reason="sin bash")
+@pytest.mark.parametrize("nombre", COMMANDS)
+def test_mac_command_bash_n(nombre) -> None:
+    for opciones in (["-n"], ["--posix", "-n"]):
+        proceso = subprocess.run([BASH, *opciones, str(MAC / nombre)], capture_output=True,
+                                 text=True, timeout=60)
+        assert proceso.returncode == 0, (opciones, proceso.stderr)
+
+
+def test_mac_la_configuracion_del_tunel() -> None:
+    """mac.md §3.4: el ssh_config que escribe preparar.command, con las lineas del diseno, y
+    nada que abra mas de lo que hace falta."""
+    texto = _command("preparar.command")
+    heredoc = texto[texto.index('cat > "$CONFIG" <<FIN\n') + len('cat > "$CONFIG" <<FIN\n'):]
+    heredoc = heredoc[:heredoc.index("\nFIN\n")]
+    disenado = _bloque_del_diseno("`ssh_config` (lo escribe `preparar`")
+    esperado = (disenado.replace("bms-minipc", "$ALIAS").replace("192.168.1.10", "$ipmini")
+                .replace("/Users/<usuario>/.bms-tunel/clave_ed25519", "$CLAVE")
+                .replace("/Users/<usuario>/.bms-tunel/known_hosts", "$CONOCIDOS")
+                .replace("User bms-tunel", "User $CUENTA").replace("8765", "$PUERTO"))
+    lineas = [l for l in heredoc.splitlines() if not l.startswith("#")]
+    assert "\n".join(lineas) + "\n" == esperado
+    for prohibido in ("GatewayPorts yes", "RemoteForward", "DynamicForward", "ForwardAgent yes",
+                      "ProxyCommand", "0.0.0.0", "localhost", "StrictHostKeyChecking no",
+                      "accept-new", "PermitLocalCommand yes"):
+        assert prohibido not in heredoc, prohibido
+    assert not re.search(r"(?m)^\s*LocalCommand", heredoc)
+
+
+def test_mac_preparar_en_orden() -> None:
+    """Sin frase no vale; la huella se compara (con "si") antes de fijarla; el enlace del
+    Escritorio se comprueba; y lo que llega del mini PC se mira antes de usarlo."""
+    texto = _sin_comentarios_bash(_command("preparar.command"))
+    _en_orden(texto, [
+        'tunel_abierto && fallar',
+        'cp -X "$AQUI/preparar.command"',
+        'xattr -d com.apple.quarantine "$DIR/abrir-bms.command"',
+        '"$SSH_KEYGEN" -q -t ed25519 -a 100 -C "bms-$nombre" -f "$CLAVE"',
+        'if "$SSH_KEYGEN" -y -P "" -f "$CLAVE" >/dev/null 2>&1; then',
+        "continue",
+        '"$SSH_ADD" --apple-use-keychain "$CLAVE"',
+        'while ! ip_privada "$ipmini" >/dev/null; do',
+        '"$SSH_KEYSCAN" -T 5 -t ed25519',
+        "grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]{68}$'",
+        'es_si "$r" || { rm -f "$tmp"; fallar',
+        'mv -f "$tmp" "$CONOCIDOS"',
+        'cat > "$CONFIG" <<FIN',
+        'quitar_reserva',
+        'if puerto_ocupado; then',
+        '"$SSH" -F "$CONFIG" -N -o BatchMode=yes "$ALIAS"',
+        'if ln -sfn "$DIR/abrir-bms.command" "$HOME/Desktop/BMS.command" 2>/dev/null && '
+        '[ -L "$HOME/Desktop/BMS.command" ]; then',
+    ])
+    assert "umask 077" in texto and 'chmod 700 "$DIR"' in texto
+    assert 'chmod 600 "$CONFIG" "$CONOCIDOS"' in texto
+
+
+def test_mac_abrir_bms_guarda_el_puerto() -> None:
+    """mac.md §3.5: la reserva se suelta justo antes de ssh y se pone justo cuando ssh termina
+    (la pestana de la app sigue llamando con el token)."""
+    texto = _sin_comentarios_bash(_command("abrir-bms.command"))
+    lineas = [l.strip() for l in texto.splitlines() if l.strip()]
+    i = lineas.index('"$SSH" -F "$CONFIG" -N -o BatchMode="$LOTE" "$ALIAS" 2>"$ERRORES" &')
+    assert lineas[i - 1] == "soltar"
+    j = lineas.index('wait "$PID_SSH"')
+    assert lineas[j + 1] == 'PID_SSH=""'
+    assert lineas[j + 2] == 'if [ "$abierta" = si ] && ! reservar; then'
+    assert '"$NC" -lk 127.0.0.1 "$PUERTO" </dev/null >/dev/null 2>&1 &' in texto
+    assert "trap cerrar EXIT" in texto and "INT TERM HUP" in texto
+    # Ya abierto solo si quien escucha es ese ssh (lsof), y el puerto ocupado para.
+    _en_orden(texto, ['for p in $("$PGREP" -U "$YO" -f "ssh -F $CONFIG -N"', 'if escucha_el "$p"',
+                      'for p in $("$PGREP" -U "$YO" -f "nc -lk 127.0.0.1 $PUERTO"',
+                      "if puerto_ocupado; then", "fallar"])
+
+
+# ------------------------------------------------------------ con programas falsos
+
+# Los programas de macOS que usan los .command, falsos (pruebas-final/falso de mac.md §5.1): ssh
+# sigue un guion (abre y se corta, deniega, la huella, el puerto ocupado...), nc guarda el puerto,
+# lsof dice quien escucha. Solo se cambian las lineas del PATH y de las herramientas del script.
+FALSOS = {
+    "ssh": r"""#!/bin/bash
+[ "$1" = "-V" ] && { echo "OpenSSH_9.8p1, LibreSSL 3.3.6" >&2; exit 0; }
+n=$(cat "$FALSO/cuenta" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$FALSO/cuenta"
+echo "$*" >> "$FALSO/ssh.log"
+linea=$(sed -n "${n}p" "$FALSO/guion"); [ -n "$linea" ] || linea=$(tail -n 1 "$FALSO/guion")
+que=${linea%% *}; seg=${linea#* }
+echo "ssh-inicio $n $que" >> "$FALSO/eventos.log"
+case "$que" in
+  abre|abre-y-roban)
+    echo $$ > "$FALSO/escucha"
+    trap 'rm -f "$FALSO/escucha"; echo "ssh-fin $n matado" >> "$FALSO/eventos.log"; exit 255' TERM
+    /bin/sleep "$seg"
+    rm -f "$FALSO/escucha"
+    [ "$que" = abre-y-roban ] && touch "$FALSO/robar"
+    echo "ssh-fin $n" >> "$FALSO/eventos.log"
+    echo "Connection to bms-minipc closed by remote host." >&2; exit 255 ;;
+  sigue) echo $$ > "$FALSO/escucha"; trap 'rm -f "$FALSO/escucha"; exit 255' TERM; while :; do /bin/sleep 0.1; done ;;
+  colgado) trap 'exit 255' TERM; while :; do /bin/sleep 0.1; done ;;
+  deniega) echo "bms-tunel@bms-minipc: Permission denied (publickey)." >&2; exit 255 ;;
+  huella) echo "Host key verification failed." >&2; exit 255 ;;
+  ocupado) echo "bind [127.0.0.1]:8765: Address already in use" >&2; echo "Could not request local forwarding." >&2; exit 255 ;;
+  *) /bin/sleep 0.2; echo "ssh: connect to host 192.168.1.10 port 22: Operation timed out" >&2; exit 255 ;;
+esac
+""",
+    "nc": r"""#!/bin/bash
+case " $* " in
+  *" -z "*" 22 "*) [ -f "$FALSO/sin-22" ] && exit 1; exit 0 ;;
+  *" -z "*) [ -f "$FALSO/escucha" ] || [ -f "$FALSO/ocupado" ]; exit $? ;;
+  *" -lk "*)
+    if [ -f "$FALSO/ocupado" ] || [ -f "$FALSO/robar" ]; then echo "reserva-falla" >> "$FALSO/eventos.log"; exit 1; fi
+    echo $$ > "$FALSO/escucha"; echo "reserva" >> "$FALSO/eventos.log"
+    trap 'rm -f "$FALSO/escucha"; echo "suelta" >> "$FALSO/eventos.log"; exit 0' TERM
+    while :; do /bin/sleep 0.1; done ;;
+esac
+exit 1
+""",
+    "lsof": r"""#!/bin/bash
+pid=""; prev=""
+for a in "$@"; do [ "$prev" = "-p" ] && pid="$a"; prev="$a"; done
+[ -n "$pid" ] && [ -f "$FALSO/escucha" ] && [ "$(cat "$FALSO/escucha")" = "$pid" ] && { echo "$pid"; exit 0; }
+exit 1
+""",
+    "pgrep": r"""#!/bin/bash
+echo "pgrep $*" >> "$FALSO/pgrep.log"
+case "$*" in
+  *"ssh -F"*) [ -s "$FALSO/pgrep-ssh" ] && cat "$FALSO/pgrep-ssh" && exit 0 ;;
+  *"nc -lk"*) [ -s "$FALSO/pgrep-nc" ] && cat "$FALSO/pgrep-nc" && exit 0 ;;
+esac
+exit 1
+""",
+    "curl": '#!/bin/bash\necho "curl $*" >> "$FALSO/curl.log"\ncat "$FALSO/codigo" 2>/dev/null || echo 200\n',
+    "open": '#!/bin/bash\necho "open $*" >> "$FALSO/open.log"\n',
+    "ssh-add": '#!/bin/bash\necho "ssh-add $*" >> "$FALSO/ssh-add.log"\nexit 0\n',
+    "sleep": '#!/bin/bash\necho "sleep $1" >> "$FALSO/sleep.log"\ncase "$1" in 0.*) exec /bin/sleep 0.05 ;; *) exec /bin/sleep 0.2 ;; esac\n',
+    # Lo de preparar.command.
+    "cp": '#!/bin/bash\n# cp de macOS: -X (sin atributos extendidos) no existe en el cp de GNU.\na=(); for x in "$@"; do [ "$x" = "-X" ] || a+=("$x"); done; exec /bin/cp "${a[@]}"\n',
+    "ipconfig": "#!/bin/bash\necho 192.168.1.23\n",
+    "route": '#!/bin/bash\necho "  interface: en0"\n',
+    "pbcopy": "#!/bin/bash\ncat >/dev/null\n",
+    "uname": "#!/bin/bash\necho Darwin\n",
+    "xattr": '#!/bin/bash\necho "xattr $*" >> "$FALSO/xattr.log"\nexit 0\n',
+    "ssh-keygen": '#!/bin/bash\necho "256 SHA256:ZkAslGjFiUHdGf/WUL8rQvkib4PTvQatUV0OUQSncCA nada (ED25519)"\n',
+    "ssh-keyscan": '#!/bin/bash\ncat "$FALSO/keyscan" 2>/dev/null || echo "bms-minipc ' + VECTOR + '"\n',
+}
+
+
+class MacFalso:
+    """Un Mac de mentira: un HOME, ~/.bms-tunel ya preparado (o no), una "memoria" con los
+    .command y los programas falsos delante."""
+
+    def __init__(self, raiz: Path) -> None:
+        self.raiz = raiz
+        self.bin = raiz / "bin"
+        self.bin.mkdir()
+        for nombre, texto in FALSOS.items():
+            (self.bin / nombre).write_text(texto, encoding="utf-8")
+            (self.bin / nombre).chmod(0o755)
+        self.estado = raiz / "estado"
+        self.estado.mkdir()
+        self.home = raiz / "home"
+        self.dir = self.home / ".bms-tunel"
+        self.dir.mkdir(parents=True)
+        (self.home / "Desktop").mkdir()
+        self.usb = raiz / "usb" / "bms-mac"
+        self.usb.mkdir(parents=True)
+        for nombre in COMMANDS:
+            texto = _command(nombre)
+            texto = re.sub(r"(?m)^export PATH=.*$", f"export PATH={self.bin}:/usr/bin:/bin", texto)
+            for variable in HERRAMIENTAS:
+                texto = re.sub(rf"(?m)^{variable}=/\S+$",
+                               f"{variable}={self.bin}/{HERRAMIENTAS[variable].rsplit('/', 1)[1]}",
+                               texto)
+            (self.usb / nombre).write_text(texto, encoding="ascii")
+
+    def preparado(self) -> None:
+        """~/.bms-tunel como lo deja un preparar.command que llego al final."""
+        (self.dir / "ssh_config").write_text("# de prueba\n", encoding="ascii")
+        (self.dir / "known_hosts").write_text(f"bms-minipc {VECTOR}\n", encoding="ascii")
+        (self.dir / "clave_ed25519").write_text("privada de prueba\n", encoding="ascii")
+        (self.dir / "clave_ed25519.pub").write_text(VECTOR + " bms-mac-oficina\n",
+                                                    encoding="ascii")
+        (self.dir / "nombre").write_text("mac-oficina\n", encoding="ascii")
+        (self.dir / "ip-minipc").write_text("192.168.1.10\n", encoding="ascii")
+
+    def correr(self, nombre: str, guion: str = "abre 1", entrada: str = "",
+               *argumentos: str) -> subprocess.CompletedProcess:
+        (self.estado / "guion").write_text(guion.replace("|", "\n") + "\n", encoding="ascii")
+        entorno = {"HOME": str(self.home), "FALSO": str(self.estado), "LANG": "C",
+                   "PATH": "/usr/bin:/bin"}
+        proceso = subprocess.Popen([BASH, str(self.usb / nombre), *argumentos], env=entorno,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        try:
+            salida, _ = proceso.communicate(entrada, timeout=90)
+        finally:
+            # Lo que se haya quedado (un nc o un ssh falsos): fuera.
+            try:
+                os.killpg(proceso.pid, 9)
+            except ProcessLookupError:
+                pass
+        return subprocess.CompletedProcess(proceso.args, proceso.returncode, salida, "")
+
+    def leer(self, nombre: str) -> str:
+        fichero = self.estado / nombre
+        return fichero.read_text(encoding="utf-8") if fichero.exists() else ""
+
+    def eventos(self) -> list[str]:
+        return self.leer("eventos.log").split()
+
+
+@pytest.fixture
+def mac_falso(tmp_path):
+    if BASH is None:
+        pytest.skip("sin bash")
+    return MacFalso(tmp_path)
+
+
+def test_abrir_bms_se_corta_vuelve_y_guarda_el_puerto_entre_medias(mac_falso) -> None:
+    """Caso 1: abre, se corta y vuelve sin reabrir el navegador, con la reserva entre medias;
+    y cuando el mini PC deja de aceptar la clave, para con el puerto guardado hasta Intro."""
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "abre 1|abre 1|deniega", "\n")
+    salida = proceso.stdout
+    assert proceso.returncode == 1, salida
+    assert mac_falso.leer("open.log") == "open http://127.0.0.1:8765/app\n"
+    assert "Tunel abierto otra vez" in salida and "Se reintenta en 5 s" in salida
+    assert "Se reintenta en 10 s" in salida
+    assert "El mini PC no acepta la clave de este Mac" in salida
+    assert "Cierra la pestana de la app" in salida
+    # Entre un ssh y el siguiente, la reserva; y al final se suelta.
+    eventos = " ".join(mac_falso.eventos())
+    assert eventos == ("ssh-inicio 1 abre ssh-fin 1 reserva suelta ssh-inicio 2 abre ssh-fin 2 "
+                       "reserva suelta ssh-inicio 3 deniega reserva suelta")
+    assert not (mac_falso.estado / "escucha").exists()
+    # La frase, del Llavero; y el ssh, aislado y en lote.
+    assert "ssh-add --apple-use-keychain" in mac_falso.leer("ssh-add.log")
+    assert mac_falso.leer("ssh.log").splitlines()[0] == (
+        f"-F {mac_falso.dir}/ssh_config -N -o BatchMode=yes bms-minipc")
+
+
+@pytest.mark.parametrize("caso", ["ocupado", "ssh_nuestro_que_no_escucha"])
+def test_abrir_bms_no_abre_con_el_puerto_ocupado(mac_falso, caso) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "ocupado").touch()
+    if caso == "ssh_nuestro_que_no_escucha":
+        (mac_falso.estado / "pgrep-ssh").write_text("4242\n")
+    proceso = mac_falso.correr("abrir-bms.command")
+    assert proceso.returncode == 1
+    assert "Otro programa de este Mac usa ya el puerto 8765" in proceso.stdout
+    assert mac_falso.leer("cuenta") == "" and mac_falso.leer("open.log") == ""
+
+
+def test_abrir_bms_la_clave_quitada_a_la_primera(mac_falso) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "deniega")
+    assert proceso.returncode == 1 and "no acepta la clave" in proceso.stdout
+    # Nunca llego a abrir: ni navegador, ni reserva, ni esperar a nadie.
+    assert mac_falso.leer("open.log") == "" and "reserva" not in mac_falso.eventos()
+    assert "Cierra la pestana" not in proceso.stdout
+
+
+def test_abrir_bms_la_huella_cambiada_para(mac_falso) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "abre 1|huella", "\n")
+    assert proceso.returncode == 1
+    assert "La identidad del mini PC NO es la que se fijo" in proceso.stdout
+    assert mac_falso.leer("cuenta") == "2\n"
+
+
+def test_abrir_bms_si_alguien_coge_el_puerto_al_cortarse(mac_falso) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "abre-y-roban 1|abre 1")
+    assert proceso.returncode == 1
+    assert "otro programa de este Mac ha cogido el puerto 8765" in proceso.stdout
+    assert "token nuevo" in proceso.stdout
+    assert mac_falso.leer("cuenta") == "1\n"
+
+
+def test_abrir_bms_ya_abierto_en_otra_ventana(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "pgrep-ssh").write_text("4242\n")
+    (mac_falso.estado / "escucha").write_text("4242\n")
+    proceso = mac_falso.correr("abrir-bms.command")
+    assert proceso.returncode == 0 and "ya esta abierto en otra ventana" in proceso.stdout
+    assert mac_falso.leer("open.log") == "open http://127.0.0.1:8765/app\n"
+    assert mac_falso.leer("cuenta") == ""
+    assert '-U ' in mac_falso.leer("pgrep.log")
+
+
+def test_abrir_bms_quita_una_reserva_huerfana(mac_falso) -> None:
+    mac_falso.preparado()
+    huerfana = subprocess.Popen([str(mac_falso.bin / "nc"), "-lk", "127.0.0.1", "8765"],
+                                env={"FALSO": str(mac_falso.estado), "PATH": "/usr/bin:/bin"},
+                                start_new_session=True)
+    try:
+        for _ in range(100):
+            if (mac_falso.estado / "escucha").exists():
+                break
+            __import__("time").sleep(0.05)
+        (mac_falso.estado / "pgrep-nc").write_text(f"{huerfana.pid}\n")
+        proceso = mac_falso.correr("abrir-bms.command", "abre 1|deniega", "\n")
+        assert proceso.returncode == 1, proceso.stdout
+        assert mac_falso.eventos()[:3] == ["reserva", "suelta", "ssh-inicio"]
+        assert mac_falso.leer("open.log") == "open http://127.0.0.1:8765/app\n"
+    finally:
+        huerfana.kill()
+        huerfana.wait()
+
+
+def test_abrir_bms_sin_red_no_abre(mac_falso) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "nada")
+    assert proceso.returncode == 1
+    assert "Operation timed out" in proceso.stdout
+    assert "No se ha podido abrir el tunel" in proceso.stdout
+    assert mac_falso.leer("open.log") == ""
+
+
+def test_abrir_bms_alguien_se_cuela_entre_soltar_y_ssh(mac_falso) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "abre 1|ocupado", "\n")
+    assert proceso.returncode == 1
+    assert "Otro programa de este Mac ha cogido el puerto 8765" in proceso.stdout
+    assert " ".join(mac_falso.eventos()).endswith("ssh-inicio 2 ocupado reserva suelta")
+
+
+def test_abrir_bms_espera_cada_vez_mas_hasta_60_s(mac_falso) -> None:
+    """Tras cortes seguidos: 5, 10, 20, 40 y luego 60 s (no 80)."""
+    mac_falso.preparado()
+    proceso = mac_falso.correr("abrir-bms.command", "abre 1|abre 1|abre 1|abre 1|abre 1|abre 1|"
+                               "deniega", "\n")
+    assert proceso.returncode == 1, proceso.stdout
+    esperas = re.findall(r"Se reintenta en (\d+) s", proceso.stdout)
+    assert esperas == ["5", "10", "20", "40", "60", "60"]
+
+
+def test_abrir_bms_sin_preparar(mac_falso) -> None:
+    proceso = mac_falso.correr("abrir-bms.command")
+    assert proceso.returncode == 1 and "abre antes preparar.command" in proceso.stdout
+
+
+@pytest.mark.parametrize("codigo, abre", [("200", "/app"), ("503", "/consola"), ("000", "")])
+def test_abrir_bms_lo_que_abre_segun_contesta_la_app(mac_falso, codigo, abre) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "codigo").write_text(codigo)
+    proceso = mac_falso.correr("abrir-bms.command", "abre 1|deniega", "\n")
+    assert proceso.returncode == 1
+    if abre:
+        assert mac_falso.leer("open.log") == f"open http://127.0.0.1:8765{abre}\n"
+    else:
+        assert mac_falso.leer("open.log") == ""
+        assert "la app del mini PC no contesta" in proceso.stdout
+
+
+# preparar.command
+
+
+def test_preparar_funciona_y_deja_bms_en_el_escritorio(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "guion").write_text("sigue\n")
+    proceso = mac_falso.correr("preparar.command", "sigue", "\n")
+    assert proceso.returncode == 0, proceso.stdout
+    salida = proceso.stdout
+    assert "Funciona: la app del mini PC contesta por el tunel." in salida
+    assert "La huella del mini PC es la de siempre" in salida
+    escritorio = mac_falso.home / "Desktop" / "BMS.command"
+    assert escritorio.is_symlink() and os.readlink(escritorio) == str(
+        mac_falso.dir / "abrir-bms.command")
+    # La clave publica, en la memoria (alli la busca mac.bat), y las copias sin cuarentena.
+    assert (mac_falso.usb / "bms-mac-oficina.pub").read_text() == VECTOR + " bms-mac-oficina\n"
+    for nombre in COMMANDS:
+        assert (mac_falso.dir / nombre).read_bytes() == (mac_falso.usb / nombre).read_bytes()
+        assert oct((mac_falso.dir / nombre).stat().st_mode & 0o777) == "0o700"
+    assert mac_falso.leer("xattr.log") == (
+        f"xattr -d com.apple.quarantine {mac_falso.dir}/abrir-bms.command\n")
+    assert oct(mac_falso.dir.stat().st_mode & 0o777) == "0o700"
+    config = (mac_falso.dir / "ssh_config").read_text()
+    assert "    HostName 192.168.1.10\n" in config
+    assert f"    IdentityFile {mac_falso.dir}/clave_ed25519\n" in config
+    assert oct((mac_falso.dir / "ssh_config").stat().st_mode & 0o777) == "0o600"
+    assert "IP de este Mac:       192.168.1.23" in salida
+    assert "SHA256:ZkAslGjFiUHdGf/WUL8rQvkib4PTvQatUV0OUQSncCA" in salida
+
+
+@pytest.mark.parametrize("guion, rc, texto", [
+    ("nada", 1, "No se ha podido abrir el tunel"),
+    ("colgado", 1, "El mini PC tarda en contestar"),
+    ("deniega", 1, "mac.bat -AnadirClave (nombre mac-oficina, IP 192.168.1.23, el fichero "
+                   "bms-mac-oficina.pub)"),
+    ("huella", 1, "La identidad del mini PC NO es la que se acaba de fijar")])
+def test_preparar_dice_por_que_no_abre(mac_falso, guion, rc, texto) -> None:
+    mac_falso.preparado()
+    proceso = mac_falso.correr("preparar.command", guion, "\n")
+    assert proceso.returncode == rc and texto in proceso.stdout, proceso.stdout
+    assert not (mac_falso.home / "Desktop" / "BMS.command").exists()
+
+
+def test_preparar_sin_el_mini_pc_termina_bien_y_sigue_despues(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "sin-22").touch()
+    proceso = mac_falso.correr("preparar.command", "abre 1", "\n")
+    assert proceso.returncode == 0, proceso.stdout
+    assert "El mini PC no contesta en 192.168.1.10" in proceso.stdout
+    assert "bash ~/.bms-tunel/preparar.command" in proceso.stdout
+    assert mac_falso.leer("cuenta") == ""
+
+
+def test_preparar_el_escritorio_que_no_deja(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.bin / "ln").write_text('#!/bin/bash\necho "ln: Operation not permitted" >&2\nexit 1\n')
+    (mac_falso.bin / "ln").chmod(0o755)
+    proceso = mac_falso.correr("preparar.command", "sigue", "\n")
+    assert proceso.returncode == 0, proceso.stdout
+    assert "No he podido dejar BMS en el Escritorio" in proceso.stdout
+    assert f"bash {mac_falso.dir}/abrir-bms.command" in proceso.stdout
+
+
+def test_preparar_una_huella_nueva_se_compara_y_sin_si_no_se_fija(mac_falso) -> None:
+    mac_falso.preparado()
+    otra = "bms-minipc " + CLAVE_EQUIPO
+    (mac_falso.estado / "keyscan").write_text(otra + "\n")
+    proceso = mac_falso.correr("preparar.command", "sigue", "\nno\n")
+    assert proceso.returncode == 1
+    assert "ATENCION: la huella del mini PC NO es la que se fijo" in proceso.stdout
+    assert (mac_falso.dir / "known_hosts").read_text() == f"bms-minipc {VECTOR}\n"
+    proceso = mac_falso.correr("preparar.command", "sigue", "\nsi\n")
+    assert proceso.returncode == 0, proceso.stdout
+    assert (mac_falso.dir / "known_hosts").read_text() == otra + "\n"
+
+
+@pytest.mark.parametrize("linea", [
+    "bms-minipc ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC",
+    "bms-minipc ssh-ed25519 AAAA;rm",
+    "bms-minipc ssh-ed25519 " + VECTOR.split()[1] + "x"])
+def test_preparar_no_se_cree_lo_que_da_el_mini_pc(mac_falso, linea) -> None:
+    mac_falso.preparado()
+    (mac_falso.dir / "known_hosts").unlink()
+    (mac_falso.estado / "keyscan").write_text(linea + "\n")
+    proceso = mac_falso.correr("preparar.command", "sigue", "\nsi\n")
+    assert proceso.returncode == 1
+    assert ("no es la que se espera" in proceso.stdout or
+            "El mini PC no ha dado su clave" in proceso.stdout), proceso.stdout
+    assert not (mac_falso.dir / "known_hosts").exists()
+
+
+def test_preparar_con_el_tunel_abierto_no_hace_nada(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.estado / "pgrep-ssh").write_text("4242\n")
+    for argumentos in ((), ("--borrar",)):
+        proceso = mac_falso.correr("preparar.command", "sigue", "si\n", *argumentos)
+        assert proceso.returncode == 1 and "Hay un tunel abierto" in proceso.stdout
+    assert (mac_falso.dir / "clave_ed25519").exists()
+
+
+def test_preparar_borrar(mac_falso) -> None:
+    mac_falso.preparado()
+    (mac_falso.home / "Desktop" / "BMS.command").symlink_to(mac_falso.dir / "abrir-bms.command")
+    proceso = mac_falso.correr("preparar.command", "sigue", "no\n", "--borrar")
+    assert proceso.returncode == 1 and mac_falso.dir.exists()
+    proceso = mac_falso.correr("preparar.command", "sigue", "si\n", "--borrar")
+    assert proceso.returncode == 0, proceso.stdout
+    assert not mac_falso.dir.exists()
+    assert not (mac_falso.home / "Desktop" / "BMS.command").is_symlink()
+    assert "ssh-add -d --apple-use-keychain" in mac_falso.leer("ssh-add.log")
+    assert "mac.bat -QuitarClave -Nombre mac-oficina" in proceso.stdout
+
+
+# ------------------------------------------------------------ con un OpenSSH de verdad
+
+# La configuracion que escribe mac.ps1 (Texto-Config y Texto-Claves, con pwsh), probada con el sshd
+# de un OpenSSH 9.6 de verdad (mac.md §0, "Con un OpenSSH de verdad"). Necesita la raiz de un
+# OpenSSH sacado de sus .deb (BMS_OPENSSH, con usr/sbin/sshd y usr/bin/ssh), ser root y unshare:
+# corre en un espacio de montaje propio (/run, un tmpfs nuevo; /etc/passwd con el usuario de la
+# separacion de privilegios), sin cambiar nada del sistema. Prueba la semantica de OpenSSH, no la
+# de Windows (mac.md §5.2).
+DENTRO = r"""#!/bin/bash
+set -u
+O=$1; P=$2; T=/run/bmstunel
+SSHD=$O/usr/sbin/sshd; SSH=$O/usr/bin/ssh; KEYGEN=$O/usr/bin/ssh-keygen; SFTP=$O/usr/bin/sftp
+export LD_LIBRARY_PATH=$O/usr/lib/x86_64-linux-gnu
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy
+mount -t tmpfs -o mode=755 tmpfs /run
+mkdir -p /run/sshd $T && chmod 755 $T
+cp /etc/passwd $P/passwd && echo 'sshd:x:105:65534::/run/sshd:/usr/sbin/nologin' >> $P/passwd
+mount --bind $P/passwd /etc/passwd
+$KEYGEN -q -t ed25519 -N '' -f $T/ssh_host_ed25519_key
+$KEYGEN -q -t ed25519 -N '' -C mac -f $T/mac
+$KEYGEN -q -t ed25519 -N '' -C otra -f $T/otra
+# La configuracion de mac.ps1, con las rutas, el puerto y la cuenta de esta prueba.
+sed -e "s#__PROGRAMDATA__/ssh/#$T/#g" -e 's#^Port 22$#Port 2223\nListenAddress 127.0.0.1#' \
+    -e 's#bms-tunel@192.168.1.23#root@127.0.0.1#' -e 's#^Match User bms-tunel#Match User root#' \
+    $P/sshd_config > $T/sshd_config
+# Las claves de mac.ps1, con la clave de esta prueba y desde 127.0.0.1.
+clave="$(cut -d' ' -f1,2 $T/mac.pub)"
+sed -e 's#from="192.168.1.23"#from="127.0.0.1"#' -e "s#ssh-ed25519 [A-Za-z0-9+/]* bms-#$clave bms-#" \
+    $P/claves > $T/bms_tunel_authorized_keys
+chmod 600 $T/bms_tunel_authorized_keys
+echo "=== F1"; $SSHD -t -f $T/sshd_config; echo "rc=$?"
+echo "=== F2"; $SSHD -T -f $T/sshd_config -C user=root,host=mac,addr=127.0.0.1
+echo "=== F3"; $SSHD -T -f $T/sshd_config -C user=otra,host=mac,addr=127.0.0.1
+echo "=== FIN-T"
+python3 -I $P/servidores.py $T/docker.sock & SRV=$!
+$SSHD -D -e -f $T/sshd_config 2>$P/sshd.log & SSHD_PID=$!
+sleep 1.5
+C=(-F /dev/null -p 2223 -i $T/mac -o IdentitiesOnly=yes -o UserKnownHostsFile=$T/kh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5)
+tunel() { $SSH "${C[@]}" -N -o ExitOnForwardFailure=yes $1 root@127.0.0.1 2>$P/cli.err & local p=$!; sleep 1.2; eval "$2"; kill $p 2>/dev/null; wait $p 2>/dev/null; }
+pedir() { python3 -I -c 'import socket,sys
+s=socket.create_connection(("127.0.0.1",int(sys.argv[1])),3); s.settimeout(3); s.sendall(b"GET / HTTP/1.0\r\n\r\n")
+d=b""
+try:
+    while True:
+        x=s.recv(4096)
+        if not x: break
+        d+=x
+except Exception: pass
+print(d.decode(errors="replace").splitlines()[-1] if d else "NADA")' $1 2>/dev/null || echo NADA; }
+echo "=== L8765"; tunel "-L 127.0.0.1:18765:127.0.0.1:8765" "pedir 18765"
+echo "=== L9000"; tunel "-L 127.0.0.1:18765:127.0.0.1:9000" "pedir 18765"
+echo "=== Llocalhost"; tunel "-L 127.0.0.1:18765:localhost:8765" "pedir 18765"
+echo "=== Lunix"; tunel "-L 127.0.0.1:18766:$T/docker.sock" "pedir 18766"
+echo "=== Rtcp"; timeout 5 $SSH "${C[@]}" -N -o ExitOnForwardFailure=yes -R 127.0.0.1:19000:127.0.0.1:8765 root@127.0.0.1 2>&1 | head -2
+echo "=== Runix"; $SSH "${C[@]}" -N -o ExitOnForwardFailure=yes -R $T/plantado.sock:127.0.0.1:8765 root@127.0.0.1 2>/dev/null & p=$!; sleep 1.5; [ -S $T/plantado.sock ] && echo "SOCKET CREADO" || echo "sin socket"; kill $p 2>/dev/null; wait $p 2>/dev/null
+echo "=== orden"; timeout 5 $SSH "${C[@]}" root@127.0.0.1 'echo EJECUTADO' 2>&1 | head -2
+echo "=== sftp"; timeout 5 $SFTP -S $SSH -F /dev/null -P 2223 -i $T/mac -o IdentitiesOnly=yes -o UserKnownHostsFile=$T/kh -o BatchMode=yes root@127.0.0.1 <<<'ls' 2>&1 | head -2
+echo "=== contrasena"; timeout 5 $SSH -F /dev/null -p 2223 -o UserKnownHostsFile=$T/kh -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no -o BatchMode=yes root@127.0.0.1 true 2>&1 | head -1
+echo "=== otra"; timeout 5 $SSH -F /dev/null -p 2223 -i $T/otra -o IdentitiesOnly=yes -o UserKnownHostsFile=$T/kh -o BatchMode=yes -N root@127.0.0.1 2>&1 | head -1
+echo "=== otra-ip"; sed -i 's#from="127.0.0.1"#from="192.0.2.1"#' $T/bms_tunel_authorized_keys; timeout 5 $SSH "${C[@]}" -N root@127.0.0.1 2>&1 | head -1
+kill $SSHD_PID 2>/dev/null; wait $SSHD_PID 2>/dev/null
+echo "=== strictmodes"
+sed -i 's#from="192.0.2.1"#from="127.0.0.1"#' $T/bms_tunel_authorized_keys
+mkdir -p $T/comun/prueba && chmod 1777 $T/comun && chmod 700 $T/comun/prueba
+cp $T/bms_tunel_authorized_keys $T/comun/prueba/
+sed -e "s#AuthorizedKeysFile $T/bms_tunel_authorized_keys#AuthorizedKeysFile $T/comun/prueba/bms_tunel_authorized_keys#" $T/sshd_config > $T/sshd_config2
+$SSHD -D -e -f $T/sshd_config2 2>$P/sshd2.log & SSHD_PID=$!; sleep 1.2
+timeout 5 $SSH "${C[@]}" -N root@127.0.0.1 2>&1 | head -1
+kill $SSHD_PID $SRV 2>/dev/null; wait 2>/dev/null
+grep -E 'bad ownership or modes' $P/sshd2.log | head -1
+echo "=== registro"; grep -E 'denied|refused|prohibit|no more sessions|not allowed|Accepted' $P/sshd.log | head -30
+"""
+
+SERVIDORES = r"""
+import socket, sys, threading, os
+def tcp(puerto, texto):
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("127.0.0.1", puerto)); s.listen(16)
+    while True:
+        c, _ = s.accept()
+        try:
+            c.recv(4096); c.sendall(b"HTTP/1.0 200 OK\r\n\r\n" + texto)
+        finally:
+            c.close()
+def unix(ruta, texto):
+    s = socket.socket(socket.AF_UNIX); s.bind(ruta); s.listen(16)
+    while True:
+        c, _ = s.accept()
+        try:
+            c.recv(4096); c.sendall(b"HTTP/1.0 200 OK\r\n\r\n" + texto)
+        finally:
+            c.close()
+threading.Thread(target=tcp, args=(8765, b"APP-8765"), daemon=True).start()
+threading.Thread(target=tcp, args=(9000, b"OTRO-9000"), daemon=True).start()
+threading.Thread(target=unix, args=(sys.argv[1], b"SOCKET-UNIX"), daemon=True).start()
+threading.Event().wait()
+"""
+
+
+def _openssh() -> Path | None:
+    raiz = os.environ.get("BMS_OPENSSH")
+    if not raiz:
+        return None
+    raiz = Path(raiz)
+    if not (raiz / "usr" / "sbin" / "sshd").exists() or not (raiz / "usr" / "bin" / "ssh").exists():
+        return None
+    return raiz
+
+
+def test_sshd_de_verdad(puras, tmp_path) -> None:
+    """mac.md §5.1, test_sshd_de_verdad: el sshd_config y el fichero de claves que genera mac.ps1
+    pasan sshd -t; sshd -T da lo de §2.3 para la cuenta del tunel y deja cerrada otra; el -L al
+    8765 funciona y lo demas (otro puerto, localhost, un socket Unix, -D, -R, una orden, sftp,
+    contrasena, otra clave, otra IP) no; y StrictModes rechaza las claves bajo una carpeta 1777."""
+    raiz = _openssh()
+    if raiz is None:
+        pytest.skip("sin BMS_OPENSSH (la raiz de un OpenSSH sacado de sus .deb)")
+    if os.geteuid() != 0 or shutil.which("unshare") is None:
+        pytest.skip("hace falta ser root y unshare (un espacio de montaje propio)")
+    if any(_puerto_ocupado(p) for p in (2223, 8765, 9000, 18765, 18766)):
+        pytest.skip("un puerto de la prueba esta en uso")
+    (tmp_path / "sshd_config").write_text(puras["config1"], encoding="ascii")
+    (tmp_path / "claves").write_text(puras["claves1"], encoding="ascii")
+    (tmp_path / "servidores.py").write_text(SERVIDORES, encoding="ascii")
+    (tmp_path / "dentro.sh").write_text(DENTRO, encoding="ascii")
+    proceso = subprocess.run(["unshare", "-m", "bash", str(tmp_path / "dentro.sh"), str(raiz),
+                              str(tmp_path)], capture_output=True, text=True, timeout=240)
+    salida = proceso.stdout
+    trozos = re.split(r"(?m)^=== (\S+)$", salida)
+    partes = {trozos[i]: trozos[i + 1].strip("\n") for i in range(1, len(trozos) - 1, 2)}
+    assert partes["F1"].strip() == "rc=0", salida + proceso.stderr
+    tunel = dict(l.split(" ", 1) for l in partes["F2"].splitlines() if " " in l)
+    for clave, valor in (("allowtcpforwarding", "local"), ("permitopen", "127.0.0.1:8765"),
+                         ("permitlisten", "none"), ("permittty", "no"), ("maxsessions", "0"),
+                         ("forcecommand", "exit 1"), ("passwordauthentication", "no"),
+                         ("authenticationmethods", "publickey"), ("allowagentforwarding", "no"),
+                         ("gatewayports", "no"), ("allowstreamlocalforwarding", "no"),
+                         ("x11forwarding", "no"), ("permittunnel", "no"),
+                         ("pubkeyacceptedalgorithms", "ssh-ed25519")):
+        assert tunel.get(clave) == valor, (clave, tunel.get(clave))
+    assert tunel["authorizedkeysfile"].endswith("/bms_tunel_authorized_keys")
+    otra = dict(l.split(" ", 1) for l in partes["F3"].splitlines() if " " in l)
+    assert (otra["allowtcpforwarding"], otra["permitopen"], otra["authorizedkeysfile"]) == (
+        "no", "none", "none")
+    assert partes["L8765"].strip() == "APP-8765"
+    for caso in ("L9000", "Llocalhost", "Lunix"):
+        assert "OTRO-9000" not in partes[caso] and "SOCKET-UNIX" not in partes[caso]
+        assert "APP-8765" not in partes[caso], caso
+    assert "remote port forwarding failed" in partes["Rtcp"]
+    assert partes["Runix"].strip() == "sin socket"
+    assert "EJECUTADO" not in partes["orden"] and "sftp>" not in partes["sftp"]
+    assert "Permission denied" in partes["contrasena"]
+    assert "Permission denied" in partes["otra"] and "Permission denied" in partes["otra-ip"]
+    assert "Permission denied" in partes["strictmodes"]
+    assert "bad ownership or modes for directory" in partes["strictmodes"]
+    registro = partes["registro"]
+    assert "administratively prohibited" in registro or "but the request was denied" in registro
+    assert "refused streamlocal port forward" in registro
+
+
+def _puerto_ocupado(puerto: int) -> bool:
+    import socket
+
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", puerto)) == 0

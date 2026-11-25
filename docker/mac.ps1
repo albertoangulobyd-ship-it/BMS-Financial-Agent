@@ -590,14 +590,19 @@ function Carpeta-Ssh-Segura {
 
 function Apartar-Carpeta-Ssh {
     # La carpeta que no es de fiar se aparta entera (con lo que hubiera dentro) y la vuelve a
-    # crear el servicio al arrancar, con sus permisos. Las claves del equipo seran nuevas.
+    # crear el servicio al arrancar, con sus permisos. Las claves del equipo seran nuevas. Nada
+    # usa ya lo apartado: se cierra solo la carpeta de arriba, sin /R ni /T (dentro puede haber
+    # enlaces a otros sitios, que takeown e icacls seguirian), y nada si ella misma era un enlace.
     Stop-Service -Name sshd -Force -ErrorAction SilentlyContinue
+    $enlace = [bool]((Get-Item -LiteralPath $CarpetaSsh -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
     $apartada = $CarpetaSsh + ".apartada-" + (Get-Date -Format "yyyyMMdd-HHmmss")
     try { Move-Item -LiteralPath $CarpetaSsh -Destination $apartada -ErrorAction Stop } catch {
         Fallar ("No se puede apartar " + $CarpetaSsh + " (algo la tiene abierta). Reinicia el equipo y repite mac.bat -Instalar antes de abrir nada mas.")
     }
-    & $Takeown /F $apartada /A /R /D Y 2>&1 | Out-Null
-    & $Icacls $apartada /inheritance:r /grant:r ("*" + $SidSistema + ":(OI)(CI)F") ("*" + $SidAdministradores + ":(OI)(CI)F") /T /C /Q 2>&1 | Out-Null
+    if (-not $enlace) {
+        & $Takeown /F $apartada /A 2>&1 | Out-Null
+        & $Icacls $apartada /inheritance:r /grant:r ("*" + $SidSistema + ":(OI)(CI)F") ("*" + $SidAdministradores + ":(OI)(CI)F") /L /Q 2>&1 | Out-Null
+    }
     return $apartada
 }
 

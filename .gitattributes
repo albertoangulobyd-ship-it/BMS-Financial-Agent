@@ -5,3 +5,6 @@ src/bms_agent/almacen/sql/*.sql text eol=lf
 *.bat text eol=crlf
 # Paso 15: la app construida va byte a byte (web/fuente.json lleva el sha256 de cada fichero).
 src/bms_agent/web/** -text
+# Paso 18b: lo que va al Mac, con fin de linea de Unix (bash no lee CRLF).
+mac/*.command text eol=lf
+mac/*.txt text eol=lf

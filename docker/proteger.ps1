@@ -163,8 +163,10 @@ $administradores = "*" + $SidAdministradores
 foreach ($r in $MontaBms) {
     New-Item -ItemType Directory -Force -Path (Join-Path $Proyecto $r) -ErrorAction SilentlyContinue | Out-Null
 }
-# 1. Todo, de los administradores: ni "bms" ni nadie puede cambiar los permisos.
-Cambiar-Permisos @($Proyecto, "/setowner", $administradores, "/T", "/C", "/Q")
+# 1. Todo, de los administradores: ni "bms" ni nadie puede cambiar los permisos. Con /L, icacls
+#    trata un enlace que aparezca ahora (despues de mirar) como el enlace, sin entrar en el sitio
+#    al que apunta.
+Cambiar-Permisos @($Proyecto, "/setowner", $administradores, "/T", "/C", "/L", "/Q")
 # 2. La raiz: sin la herencia de C:\ (que deja a cualquier usuario cambiar y leer).
 Cambiar-Permisos @($Proyecto, "/inheritance:r", "/grant:r", ($sistema + ":(OI)(CI)F"), ($administradores + ":(OI)(CI)F"),
     ("*" + $Dueno + ":(OI)(CI)M"), ("*" + $sidBms + ":(OI)(CI)RX"), "/Q")
@@ -175,7 +177,7 @@ foreach ($regla in @((Get-Acl -LiteralPath $Proyecto).Access | Where-Object { -n
 }
 # 3. Lo de dentro hereda solo eso.
 foreach ($hijo in @(Get-ChildItem -Force -LiteralPath $Proyecto)) {
-    Cambiar-Permisos @($hijo.FullName, "/reset", "/T", "/C", "/Q")
+    Cambiar-Permisos @($hijo.FullName, "/reset", "/T", "/C", "/L", "/Q")
 }
 # 4. Donde escribe "bms".
 foreach ($r in $EscribeBms) {

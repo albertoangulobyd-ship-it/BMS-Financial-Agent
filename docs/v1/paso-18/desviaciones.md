@@ -1462,3 +1462,42 @@ caducidad (§9.2, pregunta 1) y un Mac sin otras cuentas (§3.5, lo dice la guí
   `secedit`, el cortafuegos, sshd) sigue en la lista de §5.2. De las 26 mutaciones que se
   probaron, 25 hacen fallar alguna prueba; la que no (quitar la comprobación de los 51 bytes de la
   clave) es equivalente: la expresión ya exige 68 caracteres de base64 sin `=`, que son 51 bytes.
+- **Lo que hace `icacls` en todo el árbol no entra en enlaces** (revisión propia antes de
+  entregar). `proteger.ps1` mira que no haya ningún enlace antes de empezar, pero al volver a
+  ponerlo con una versión nueva «bms» ya escribe en `docker\estado` y podría poner uno justo
+  después de mirar: `icacls /T` entraría en el sitio al que apunta (y le pondría los permisos del
+  proyecto, o la `M` de «bms»). `/setowner` y `/reset` van con `/L` (el enlace como enlace, sin
+  seguirlo) **[comprobar en Windows 11]** que `icacls /T /L` no entra en una unión; lo que queda
+  (la herencia de la `M` de «bms» en `docker\estado` al ponerla) es el momento de confianza de
+  §2.12: **para el paso 17**, decir en la guía que `proteger.bat` se vuelve a abrir con la sesión de
+  «bms» cerrada. En `mac.ps1`, `Apartar-Carpeta-Ssh` cierra solo la carpeta apartada de arriba
+  (`takeown /A` e `icacls /L`, sin `/R` ni `/T`; nada si la propia carpeta `ssh` era un enlace): lo
+  de dentro lo pudo poner otra cuenta (también enlaces a carpetas del sistema) y nada lo usa ya
+  (§2.8.1 pedía `takeown /R` e `icacls /T`).
+- **Lo del Mac** (15b.2): `mac/preparar.command` y `mac/abrir-bms.command` son los de los anexos A
+  y B, en LF y con el bit de ejecución en git (`100755`, `.gitattributes` con `mac/*.command` y
+  `mac/*.txt` en `eol=lf`), y `mac/LEEME.txt` el de §3.1, con dos cambios:
+  - `abrir-bms` esperaba 5, 10, 20, 40 y **80** s entre intentos (doblaba mientras la espera era
+    menor de 60); ahora 5, 10, 20, 40 y 60, como dice §3.5;
+  - `preparar` solo se cree de lo que da `ssh-keyscan` una línea `ssh-ed25519 <68 de base64>`
+    antes de enseñar su huella y fijarla (lo demás llega por la red sin autenticar).
+  Las pruebas del Mac (`test_tunel_mac.py`): los pines de §5.1 (bash 3.2, `bash -n` y
+  `bash --posix -n`, cada herramienta por su variable con su ruta y nunca a pelo, `pgrep -U`,
+  `ssh -F … -N`, la reserva justo antes y justo después de `ssh`, el `ssh_config` de §3.4 línea a
+  línea, la frase obligatoria, la huella con «si» antes de fijarla, el enlace del Escritorio
+  comprobado) y los dos scripts corridos contra los programas falsos de `pruebas-final/falso`:
+  los 10 casos de `abrir-bms` y los 5 de `preparar` del diseño, y además las esperas, lo que abre
+  según contesta la app (`200`, `503`, nada), una huella nueva con y sin «si», lo que da el mini
+  PC que no es una clave ed25519, el túnel ya abierto, `--borrar` y el mini PC que aún no contesta
+  (acaba bien). Las 17 mutaciones que se probaron hacen fallar alguna prueba.
+- **`test_sshd_de_verdad` no usa `BMS_PROBAR_SSHD=1` con `sshd` en el `PATH`** (§5.1): el OpenSSH
+  sacado de los `.deb` necesita sus bibliotecas y el usuario de la separación de privilegios, así
+  que la prueba hace lo que hacía `dentro.sh`: con `BMS_OPENSSH` (la raíz de ese OpenSSH), siendo
+  root y con `unshare`, corre en un espacio de montaje propio (`/run` nuevo, `/etc/passwd` con el
+  usuario `sshd`), con las claves bajo ese `/run` (bajo `/tmp`, `StrictModes` las rechaza; fuera
+  del espacio de montaje no cambia nada). Usa el `sshd_config` y el fichero de claves que genera
+  `mac.ps1` (con `pwsh`) y comprueba F1-F9 de `dentro.sh` y lo de `pruebas-seg` que no depende de
+  otra herramienta: el `-L` al 8765 funciona; a otro puerto, a `localhost`, a un socket Unix, el
+  `-R` (TCP y de un socket), una orden, `sftp`, la contraseña, otra clave y la clave desde otra IP,
+  no; y `StrictModes` con una carpeta `1777`. Sin `BMS_OPENSSH` se salta (en la suite de aquí se
+  corrió aparte, con él).
