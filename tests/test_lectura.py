@@ -1208,8 +1208,15 @@ def test_si_la_api_no_acepta_ninguno_de_los_nuevos_no_dice_que_no_hay_nada(
         client, sorted(carpeta.glob("*.pdf")), out, almacen=almacen, antes=antes))
     assert (estado, est.nuevos, est.ya_leidos) == ("fallida", 0, 1)
     fila = _fila(conn, solicitud)
-    assert (fila["estado"], fila["motivo_codigo"], fila["estimacion_json"]) == (
+    assert (fila["estado"], fila["motivo_codigo"], fila["huella_estimacion"]) == (
         "fallida", "contar", None)
+    # Paso 12 (§13 S1): la cuenta se guarda (sin huella: no hay nada que aprobar) para que
+    # Procesar diga cuales no acepta la API, sin el texto de la API.
+    vista = lectura.para_la_app(conn)["solicitud"]
+    assert (vista["id"], vista["estado"]) == (solicitud, "fallida")
+    assert sorted((o["nombre"], o["rechazado_api"]) for o in vista["omitidos"]) == [
+        ("nueva-1.pdf", True), ("nueva-2.pdf", True)]
+    assert "request_too_large" not in json.dumps(vista["omitidos"])
     assert fila["motivo"].startswith(
         lectura.MOTIVOS["contar"] + ": la API no acepta ninguno de los PDF nuevos: "
         "nueva-1.pdf (la API no lo acepta: ")
@@ -1233,6 +1240,8 @@ def test_si_la_api_no_acepta_ninguno_de_los_nuevos_no_dice_que_no_hay_nada(
     fila = _fila(conn, solicitud)
     assert (estado, fila["motivo_codigo"], client.contados) == ("fallida", "contar", [])
     assert "nueva-3.pdf (demasiado grande para la API" in fila["motivo"]
+    assert [(o["nombre"], o["rechazado_api"])
+            for o in lectura.para_la_app(conn)["solicitud"]["omitidos"]] == [("nueva-3.pdf", True)]
 
 
 @pytest.mark.parametrize("nombre", sorted(FALLOS_API))
@@ -1674,3 +1683,62 @@ def test_la_app_ve_lo_que_la_cuenta_dejo_fuera(almacen, buzon) -> None:
                   for o in vista["omitidos"]) == [("nueva-2.pdf", True, None),
                                                   ("roto.pdf", False, None)]
     assert "request_too_large" not in json.dumps(vista) and "maximum" not in json.dumps(vista)
+
+
+def test_lo_que_aparto_una_persona_se_lee_si_su_pdf_vuelve_a_buzon_facturas(almacen, gente,
+                                                                            buzon) -> None:
+    """Paso 12: una factura del correo que una persona aparto ("Niet vanzelf lezen", quiza en
+    bloque y sin querer) no entra en lo que se lee, pero no se pierde: la app la ensena aparte
+    con su original, y su PDF dejado en buzon/facturas se lee con el si de siempre. Leida, sale
+    de lo apartado."""
+    from test_lectura_automatica import _correo, _documento
+
+    from bms_agent import lectura_automatica
+
+    conn = almacen.conn
+    carpeta, out = buzon
+    for nombre in ("nueva-1", "nueva-2"):
+        (carpeta / f"{nombre}.pdf").unlink()
+    apartada = _documento(almacen, "apartada")
+    _correo(conn, "2026-10-14T07:00:00+00:00", ("documento", apartada))
+    lectura_automatica.excluir(conn, [apartada], "persona", gente["ana"])
+    assert lectura_automatica.pendientes_del_correo(conn) == []
+    assert [d["documento_id"] for d in lectura_automatica.apartadas_por_persona(conn)[
+        "documentos"]] == [apartada]
+    _pdf(carpeta, "apartada")          # los mismos bytes que el original descargado
+    client = ClienteQueCuenta()
+    solicitud = _contada(almacen, gente["ana"], carpeta, out, client)
+    lectura.aprobar(conn, gente["ana"], solicitud, _fila(conn, solicitud)["huella_estimacion"])
+    leida = _leer(almacen, solicitud, carpeta, out, client)
+    assert (leida.estado, client.leidos) == ("hecha", ["apartada"])
+    assert {r["nombre"]: (r["estado"], r["documento_id"]) for r in leida.resultado}[
+        "apartada.pdf"] == ("nueva", apartada)
+    assert lectura_automatica.apartadas_por_persona(conn) == {"documentos": [], "total": 0}
+
+
+def test_sin_nada_que_leer_la_app_ve_lo_que_no_era_un_pdf(almacen, buzon) -> None:
+    """Paso 12 (§13 S1): una cuenta que termina sin nada que leer (lo que hay ya esta leido)
+    tambien dice lo que dejo fuera: un fichero que se llama .pdf y no lo es. Antes solo la que
+    esperaba el si guardaba la cuenta, y Procesar no podia decir cual."""
+    conn = almacen.conn
+    carpeta, out = buzon
+    for nombre in ("nueva-1", "nueva-2"):
+        (carpeta / f"{nombre}.pdf").unlink()
+    (carpeta / "roto.pdf").write_bytes(b"no soy un pdf")
+    ana = persona(conn, "Ana", "administracion")
+    solicitud, _e = lectura.pedir(conn, ana)
+    lectura.tomar(conn, hay_pdf=True)
+    estado, _est = lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+        ClienteQueFalla(), sorted(carpeta.glob("*.pdf")), out, almacen=almacen, antes=antes))
+    vista = lectura.para_la_app(conn)["solicitud"]
+    assert (estado, vista["motivo_codigo"], vista["huella_estimacion"]) == (
+        "nada_que_leer", "ya_leidas", None)
+    assert [(o["nombre"], o["rechazado_api"]) for o in vista["omitidos"]] == [("roto.pdf", False)]
+    # Sin nada fuera, la cuenta de una peticion que no espera el si no se guarda (como antes).
+    (carpeta / "roto.pdf").unlink()
+    solicitud, _e = lectura.pedir(conn, ana)
+    lectura.tomar(conn, hay_pdf=True)
+    lectura.contar(conn, solicitud, lambda antes: lectura.estimar(
+        ClienteQueFalla(), sorted(carpeta.glob("*.pdf")), out, almacen=almacen, antes=antes))
+    assert _fila(conn, solicitud)["estimacion_json"] is None
+    assert lectura.para_la_app(conn)["solicitud"]["omitidos"] == []

@@ -737,7 +737,7 @@ class Manejador(BaseHTTPRequestHandler):
             return []
         try:
             with self._almacen() as almacen:
-                return consultas.bandas_urgentes(almacen.conn)
+                return consultas.bandas_urgentes(almacen.conn, self._entorno())
         except Exception:  # noqa: BLE001 - la pagina no depende de esto
             return []
 

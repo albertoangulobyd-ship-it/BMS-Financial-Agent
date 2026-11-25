@@ -622,6 +622,32 @@ def esperan_persona(conn: sqlite3.Connection, limite: int = ESPERAN_LIMITE) -> d
             "documentos_total": total_documentos}
 
 
+_APARTADAS_POR_PERSONA = (
+    "FROM exclusion_automatica AS x JOIN documento AS d ON d.id = x.documento_id "
+    "JOIN usuario AS u ON u.id = x.por "
+    f"WHERE {_SIN_VIGENTE} AND x.motivo_codigo = 'persona'")
+
+
+def apartadas_por_persona(conn: sqlite3.Connection, limite: int = ESPERAN_LIMITE
+                          ) -> dict[str, Any]:
+    """Lo que una persona aparto ("Niet vanzelf lezen") y sigue sin leer (paso 12): ya no
+    espera a nadie ni se lee (FUERA_DE_PROCESAR), pero no se pierde de vista. La app lo ensena
+    con su original, para encontrar una factura de verdad que se aparto sin querer (en bloque,
+    durante una inundacion). Las ultimas apartadas primero, como mucho `limite`, y el total.
+    Una que despues se lee (su PDF dejado en buzon/facturas) sale de aqui."""
+    filas = conn.execute(
+        "SELECT x.documento_id, d.nombre_original, d.recibido_en, x.en, u.id AS por_id, "
+        f"u.nombre AS por_nombre {_APARTADAS_POR_PERSONA} ORDER BY x.id DESC LIMIT ?",
+        (limite,)).fetchall()
+    total = conn.execute(f"SELECT count(*) {_APARTADAS_POR_PERSONA}").fetchone()[0]
+    return {"documentos": [{"documento_id": f["documento_id"],
+                            "nombre_original": f["nombre_original"],
+                            "recibido_en": f["recibido_en"], "apartada_en": f["en"],
+                            "apartada_por": {"id": f["por_id"], "nombre": f["por_nombre"]}}
+                           for f in filas],
+            "total": total}
+
+
 # ------------------------------------------------------------ lo que ensena la app
 
 @dataclass(frozen=True)

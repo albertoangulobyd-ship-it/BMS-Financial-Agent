@@ -800,7 +800,9 @@ persona.
                                 // (fijada_por: {id, nombre}), o null
   "omitidos": [ {"nombre", "nombre_original", "rechazado_api"} ],
                                 // 2.6: lo que la cuenta dejó fuera (no es un PDF, es de la
-                                // otra base, o la API no lo acepta: rechazado_api); no se lee
+                                // otra base, o la API no lo acepta: rechazado_api); no se lee.
+                                // También en una que acabó al contar (nada_que_leer, o
+                                // fallida con contar: la API no acepta ninguno de los nuevos)
   "cancelada_por", "cancelada_en", "cancelada_via",
   "parar_pedido",               // leyendo, y alguien pidió parar
   "terminada_en", "actualizada_en"
@@ -904,9 +906,14 @@ y da las órdenes de abajo. En la instalación nativa no hay correo ni ciclo: `c
                                 // saldo, clave_rechazada o api_no_disponible
     "desde", "proximo_intento", "hasta",
     "pendientes", "elegibles", "elegible_mas_antigua",
-    "cola": [ {"documento_id", "nombre_original", "recibido_en"} ]}}
+    "cola": [ {"documento_id", "nombre_original", "recibido_en"} ],
                                 // cola: las elegibles, las más antiguas primero, como mucho
                                 // 200 (las que se apartan de una vez); solo aquí
+    "apartadas": {"documentos": [ {"documento_id", "nombre_original", "recibido_en",
+                                   "apartada_en", "apartada_por"} ], "total"}}}
+                                // apartadas: lo que una persona apartó y sigue sin leer (ya no
+                                // espera a nadie ni se lee), las últimas primero (50), con
+                                // quién ({id, nombre}) y cuándo; solo aquí
 ```
 
 El remitente, el asunto y los nombres de los adjuntos son texto de un tercero (saneados al
@@ -915,7 +922,7 @@ con la etiqueta «no comprobado», y no identifican nunca a un proveedor. Ni el 
 correo, ni sus destinatarios, ni sus cabeceras están en la base: no se traen nunca.
 
 `GET /api/v2/lectura` lleva **`automatica`**, con la forma de `lectura_automatica` de arriba
-sin `fijada_por` ni `cola`.
+sin `fijada_por`, `cola` ni `apartadas`.
 
 **Las órdenes** (`POST /api/v2/acciones`; ninguna pasa el motor de reglas:
 `diferencia.ejecucion_id` es `null`):

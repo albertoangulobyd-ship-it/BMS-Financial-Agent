@@ -589,6 +589,14 @@ def test_esperan_persona(almacen, gente) -> None:
     # Como mucho `limite` filas, con su total.
     recortado = auto.esperan_persona(conn, limite=1)
     assert (len(recortado["correos"]), recortado["correos_total"]) == (1, 3)
+    # Lo que aparto una persona no se pierde de vista (paso 12): sigue sin leer, con quien y
+    # cuando. La ya leida no (ya esta en Documentos), ni la que aparto solo la automatica.
+    apartadas = auto.apartadas_por_persona(conn)
+    [fila] = apartadas["documentos"]
+    assert fila == {"documento_id": apartada, "nombre_original": "apartada.pdf",
+                    "recibido_en": "2026-10-14T08:00:00+00:00", "apartada_en": fila["apartada_en"],
+                    "apartada_por": {"id": gente["berta"], "nombre": "Berta"}}
+    assert apartadas["total"] == 1
 
 
 def test_una_persona_aparta_del_todo_lo_que_aparto_la_automatica(almacen, gente) -> None:
@@ -635,6 +643,15 @@ def test_una_persona_aparta_del_todo_lo_que_aparto_la_automatica(almacen, gente)
                        usuario_id=gente["berta"])
     assert auto.esperan_persona(conn)["documentos"] == []
     assert auto.esperan_persona(conn)["documentos_total"] == 0
+    # Sale de "Wacht op jou", pero no de la vista (paso 12): las ultimas apartadas primero,
+    # como mucho `limite`, con su total. Una que despues se lee (su PDF en buzon/facturas) sale.
+    assert [d["documento_id"] for d in auto.apartadas_por_persona(conn)["documentos"]] == [
+        rechazada, fallida, grande]
+    recortado = auto.apartadas_por_persona(conn, limite=2)
+    assert (len(recortado["documentos"]), recortado["total"]) == (2, 3)
+    _leido(conn, grande)
+    assert [d["documento_id"] for d in auto.apartadas_por_persona(conn)["documentos"]] == [
+        rechazada, fallida]
     assert verificar_evidencia(conn) == []
 
 

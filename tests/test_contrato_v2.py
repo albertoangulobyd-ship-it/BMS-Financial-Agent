@@ -747,3 +747,10 @@ def test_la_cola_de_la_lectura_automatica(almacen, monkeypatch) -> None:
     monkeypatch.setattr(lectura_automatica, "MAX_EXCLUIR", 1)
     assert [d["documento_id"] for d in consultas.correo(
         conn, "contenedor")["lectura_automatica"]["cola"]] == [vieja]
+    # Lo que aparto una persona sale de la cola y de "Wacht op jou", pero se sigue viendo
+    # (paso 12): `apartadas`, solo aqui.
+    apartadas = consultas.correo(conn, "contenedor")["lectura_automatica"]["apartadas"]
+    assert [d["documento_id"] for d in apartadas["documentos"]] == [apartada]
+    assert apartadas["total"] == 1
+    assert apartadas["documentos"][0]["apartada_por"]["nombre"] == "Berta Demo"
+    assert "apartadas" not in lectura.para_la_app(conn)["automatica"]

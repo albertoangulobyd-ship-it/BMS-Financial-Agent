@@ -207,6 +207,15 @@ def test_la_banda_de_la_api_sin_saldo_o_con_la_clave_rechazada(almacen) -> None:
         lectura.cerrar(conn, solicitud, motivo)
         [banda] = _bandas(conn)
         assert banda.startswith(f"LEZEN · {nl}") and f"READING · {en}" in banda
+        # En la nativa (y en local) la clave se cambia con clave.bat; en Docker no hay
+        # clave.bat: se nombra el fichero de docker\secretos (paso 12).
+        docker = consultas.bandas_urgentes(conn, "contenedor")
+        if motivo == "clave_rechazada":
+            assert "(clave.bat)" in banda and "clave.bat" not in docker[0]
+            assert "docker\\secretos\\anthropic_api_key.txt" in docker[0]
+            assert consultas.bandas_urgentes(conn, "nativo") == [banda]
+        else:
+            assert docker == [banda]
     # Una lectura que termina de otra forma despues: ya no.
     solicitud, _e = lectura.pedir(conn, ana)
     lectura.cerrar(conn, solicitud, "salida")

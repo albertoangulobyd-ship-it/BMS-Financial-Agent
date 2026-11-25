@@ -1112,6 +1112,12 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
         automatica = _sigue(conn, solicitud_id, ("contando",))["origen"] == "automatica"
         cuentas = {"pdf_nuevos": est.nuevos, "pdf_ya_leidos": est.ya_leidos,
                    "contada_en": marca(ahora)}
+        # Paso 12 (§13 S1): una peticion que acaba aqui sin esperar el si guarda tambien la
+        # cuenta si dejo algo fuera, para que Procesar diga cual y por que (_omitidos); sobre
+        # todo la de una persona en la que la API no acepta ninguno de los nuevos. Sin huella:
+        # no hay nada que aprobar.
+        omitidos = ({"estimacion_json": json_canonico(est.a_json())}
+                    if est.de_clase("omitido") else {})
         datos = {"nuevos": est.nuevos, "ya_leidos": est.ya_leidos,
                  "omitidos": len(est.de_clase("omitido")),
                  "coste_min_usd_micro": est.coste_min_usd_micro,
@@ -1126,7 +1132,7 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
                       + (f"; y {len(rechazados) - 3} mas" if len(rechazados) > 3 else "") + ")")
             _pasar(conn, solicitud_id, ("contando",), "nada_que_leer", tipo="lectura_nada",
                    motivo=motivo, motivo_codigo="excluidas", coste_min_usd_micro=0,
-                   coste_max_usd_micro=0, **cuentas,
+                   coste_max_usd_micro=0, **cuentas, **omitidos,
                    datos={**datos, "motivo_codigo": "excluidas"})
             return "nada_que_leer", est
         if not est.nuevos and rechazados:
@@ -1137,7 +1143,7 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
                       + "; ".join(f"{d.nombre} ({d.detalle})" for d in rechazados[:3])
                       + (f"; y {len(rechazados) - 3} mas" if len(rechazados) > 3 else ""))
             _pasar(conn, solicitud_id, ("contando",), "fallida", tipo="lectura_fallida",
-                   motivo=motivo, motivo_codigo="contar", **cuentas,
+                   motivo=motivo, motivo_codigo="contar", **cuentas, **omitidos,
                    datos={**datos, "rechazados_api": len(rechazados),
                           "motivo_codigo": "contar"})
             return "fallida", est
@@ -1145,12 +1151,12 @@ def contar(conn: sqlite3.Connection, solicitud_id: int,
             codigo = "ya_leidas" if est.ya_leidos else "buzon_vacio"
             _pasar(conn, solicitud_id, ("contando",), "nada_que_leer", tipo="lectura_nada",
                    motivo=MOTIVOS[codigo], motivo_codigo=codigo, coste_min_usd_micro=0,
-                   coste_max_usd_micro=0, **cuentas, datos=datos)
+                   coste_max_usd_micro=0, **cuentas, **omitidos, datos=datos)
             return "nada_que_leer", est
         if est.coste_max_usd_micro is None or est.coste_min_usd_micro is None:
             _pasar(conn, solicitud_id, ("contando",), "fallida", tipo="lectura_fallida",
                    motivo=MOTIVOS["sin_tarifa"], motivo_codigo="sin_tarifa", **cuentas,
-                   datos={**datos, "motivo_codigo": "sin_tarifa"})
+                   **omitidos, datos={**datos, "motivo_codigo": "sin_tarifa"})
             return "fallida", est
         huella = est.huella(solicitud_id)
         _pasar(conn, solicitud_id, ("contando",), "esperando_aprobacion",

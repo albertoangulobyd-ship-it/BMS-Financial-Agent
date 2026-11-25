@@ -3753,7 +3753,8 @@ def correo(conn: sqlite3.Connection, entorno: str) -> dict[str, Any]:
         "recientes": [lectura_automatica.mensaje(conn, m) for m in recientes],
         "esperan_persona": lectura_automatica.esperan_persona(conn),
         "lectura_automatica": {**lectura_automatica.resumen(conn, ahora),
-                               "cola": _cola_automatica(conn)},
+                               "cola": _cola_automatica(conn),
+                               "apartadas": lectura_automatica.apartadas_por_persona(conn)},
     }
 
 
@@ -3783,6 +3784,8 @@ def _cuando(texto: str | None) -> str:
 
 
 # Lo que dicen las bandas de la lectura que la API paro (§6.4, process.reasons), NL y EN.
+# Con la clave rechazada, donde se cambia: clave.bat en la nativa; en Docker no hay clave.bat
+# (la clave es el fichero de docker\secretos), asi que alli se nombra el fichero (paso 12).
 _BANDA_API = {
     "saldo": ("Het tegoed voor de API is op (of het bestedingslimiet is bereikt). Vul het aan; "
               "daarna gaat het vanzelf verder.",
@@ -3793,12 +3796,21 @@ _BANDA_API = {
                         "The API refuses the key. The administrator needs to replace it "
                         "(clave.bat)."),
 }
+_BANDA_API_DOCKER = {
+    **_BANDA_API,
+    "clave_rechazada": ("De API weigert de sleutel. De beheerder moet hem vervangen in "
+                        "docker\\secretos\\anthropic_api_key.txt.",
+                        "The API refuses the key. The administrator needs to replace it in "
+                        "docker\\secretos\\anthropic_api_key.txt."),
+}
 
 
-def bandas_urgentes(conn: sqlite3.Connection) -> list[str]:
+def bandas_urgentes(conn: sqlite3.Connection, entorno: str = "local") -> list[str]:
     """Las bandas rojas del servidor (paso 18, §6.1): solo lo urgente, una linea cada cosa, en
     neerlandes e ingles. Lo dice el servidor (app_local.bandas), asi que se ve aunque el script
-    no cargue. Solo numeros, fechas y textos fijos: nada de lo que trajo el correo."""
+    no cargue. Solo numeros, fechas y textos fijos: nada de lo que trajo el correo. `entorno`
+    (nativo, contenedor o local, como en /api/v2/correo): en Docker (contenedor) no se nombra
+    ningun script que solo tiene la nativa."""
     from . import ciclo, lectura_automatica
     from .almacen import reloj_de
 
@@ -3866,7 +3878,8 @@ def bandas_urgentes(conn: sqlite3.Connection) -> list[str]:
                           "WHERE terminada_en IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
     if ultima is not None and ultima["estado"] == "fallida" and ultima["motivo_codigo"] in (
             _BANDA_API):
-        nl, en = _BANDA_API[ultima["motivo_codigo"]]
+        nl, en = (_BANDA_API_DOCKER if entorno == "contenedor" else _BANDA_API)[
+            ultima["motivo_codigo"]]
         lineas.append(f"LEZEN · {nl} · READING · {en}")
     resumen = lectura_automatica.resumen(conn, ahora)
     corte = ahora - BANDA_ESPERA
