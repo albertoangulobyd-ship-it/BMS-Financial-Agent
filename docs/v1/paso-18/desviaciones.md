@@ -1174,9 +1174,10 @@ pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
   (`docker\estado\ciclo.json`): si no, un Docker sin automatización que pasa por `parar.bat`
   quedaba para siempre «en pausa» en la app (y con la banda de las 24 horas). Antes del cerrojo
   podía pisarlo el latido de un ciclo en marcha. Si no consigue el cerrojo (una lectura larga), la
-  pausa se queda puesta y lo apunta el propio bucle en cuanto el cerrojo queda libre (una vez por
-  pausa, también con el cerrojo: así no abre la base en medio de una restauración). El latido va
-  siempre a la base de verdad (`BMS_BASE=bms` solo para esa orden).
+  pausa se queda puesta (salvo con `-SoloSiSigue`: abajo, arreglo tras la revisión) y lo apunta
+  el propio bucle en cuanto el cerrojo queda libre (una vez por pausa, también con el cerrojo: así
+  no abre la base en medio de una restauración). El latido va siempre a la base de verdad
+  (`BMS_BASE=bms` solo para esa orden).
 - **`Reanudar-Automatico` no escribe en la base**: el bucle mira la pausa cada 30 segundos y, al
   quitarla, corre un ciclo enseguida, cuyo latido lo dice. Así `iniciar.bat` reanuda sin esperar a
   Docker. **`-SiLaPuseYo`** (nuevo): `restaurar.bat` y `correo-certificado.bat -Activar` solo
@@ -1247,6 +1248,65 @@ pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
   nombre del grupo). Con todo dicho, quien la usa con su propia cuenta puede seguir. En Docker
   las tareas son «solo con la sesión iniciada»: no guardan contraseña, y un 0x8007052E solo
   saldría del inicio de sesión automático.
+- **Sin el cerrojo, `restaurar.bat` y `correo-certificado.bat -Activar` no dejan la pausa**
+  (arreglo tras la revisión). `Pausar-Automatico` escribe la pausa antes de esperar al cerrojo y,
+  si no lo conseguía, la dejaba puesta mientras quien llamó decía «No se ha tocado nada». Al
+  volver a abrir `restaurar.bat` o `-Activar` la encontraban puesta (`PausaYaEstaba`) y
+  `-SiLaPuseYo` no la quitaba al acabar: lo automático se quedaba parado, sin traer ni leer,
+  hasta que alguien abriera `iniciar.bat` o `automatico.bat -Reanudar` (con el Mac pueden ser
+  días; la banda de la app sale a las 24 horas). Ahora esos dos llaman con **`-SoloSiSigue`**: sin
+  el cerrojo se quita la pausa que puso esa llamada (una de antes, no) y dice que todo sigue como
+  estaba. `parar.bat` y `automatico.bat -Pausar` la dejan, como dice §4.4: mientras, no empieza
+  nada nuevo.
+- **`automatico.bat -Quitar` deja de decirlo en la app** (arreglo tras la revisión; el diseño no
+  decía qué pasa al quitar las tareas). Sin ellas nadie vuelve a escribir el latido, y
+  `estado_ciclo` y `docker\estado\ciclo.json` se quedaban: la banda roja «Het automatische werk
+  loopt niet sinds…» para siempre, `iniciar.bat` diciendo «El ciclo automatico no corre
+  desde…» y `parar.bat` apuntando `--pausado` en la base (`Automatizacion-Puesta` mira
+  `ciclo.json`). Ahora `-Quitar` borra `ciclo.json` y corre **`ciclo quitar`** (nuevo en la CLI:
+  borra la fila de `estado_ciclo`, que es una caché; la app queda como en un Docker cuyo ciclo no
+  ha corrido nunca), en la base de verdad. Sin Docker lo dice, y se puede repetir: sin tareas que
+  quitar hace lo demás; pero si no ve ninguna tarea y el ciclo ha pasado en los últimos 30
+  minutos, las puso otra cuenta (que es la que las ve) y no toca nada.
+- **El bucle se cierra solo con una versión nueva del programa** (arreglo tras la revisión; §4.2
+  decía «nunca sale por sí mismo»). Guarda al empezar la fecha y el tamaño de `ciclo.ps1` y
+  `comun.ps1` y, entre dos ciclos (también en pausa), mira si han cambiado: si es así, lo apunta y
+  se cierra con 0, y el vigilante de la tarea lo vuelve a arrancar con la nueva en como mucho 15
+  minutos. Antes, copiar una versión nueva encima dejaba el bucle corriendo la de antes (la que
+  tiene en memoria) contra el `docker-compose.yml` y la imagen nuevos hasta el siguiente inicio de
+  sesión. Además, la carpeta de trabajo de la tarea es `%SystemRoot%\System32` y no `docker\` (los
+  scripts no dependen de ella: `comun.ps1` se pone en su carpeta), así que con el bucle en pausa
+  nada tiene abierta la carpeta del proyecto y se puede sustituir entera (Windows no deja quitar
+  ni renombrar la carpeta de trabajo de un proceso). **Para el paso 17** (`entorno-local.md` §12,
+  «una versión nueva»): `parar.bat` antes (pone la pausa); guardar también `docker\estado` (la
+  pausa, `ciclo.json`, los registros) junto a `docker\secretos` (que ya lleva `secretos\correo`)
+  y `buzon`, y volver a ponerla (sin la pausa, el bucle nuevo trabajaría a mitad de la
+  actualización); `docker compose build` e `iniciar.bat`, que quita la pausa. Sin
+  `automatico.bat -Quitar` ni `-Instalar` **[comprobar en Windows 11]**.
+- **Con Windows Terminal, el bucle no se oculta** (arreglo tras la revisión). Desde Windows 11 22H2
+  la terminal por defecto («que decida Windows») es Windows Terminal, y con ella `powershell.exe
+  -WindowStyle Hidden` no oculta la ventana (microsoft/terminal#12464): el bucle se vería todo el
+  rato en la sesión que lo corre, y cerrarla lo para hasta el vigilante. `automatico.bat
+  -Instalar` mira la terminal de esa cuenta (`HKCU\Console\%%Startup`, `DelegationConsole` y
+  `DelegationTerminal`: lo que guarda Configuración → Sistema → Para programadores → Terminal) y,
+  si no es la consola de Windows, lo dice y ofrece ponerla solo para esa cuenta (con «si»; si no,
+  sigue y avisa de que la ventana se verá). La acción de la tarea no cambia: no se arranca con
+  `conhost.exe --headless`, que no está documentado, ni con un `.vbs` (VBScript está en retirada
+  en Windows). **[comprobar en Windows 11]** que con la consola de Windows la ventana no se ve
+  (como mucho un parpadeo al empezar).
+- **Restaurar no recupera lo que llegó por correo después de la copia** (hueco del diseño, tras la
+  revisión). `correo registrar` quita de la bandeja lo que registra (§3.8, paso 7) y la copia solo
+  lleva la base, los originales y las anclas: tras `restaurar.bat`, lo registrado después de la
+  copia ya no está en la base y el correo no lo vuelve a traer (la delta y `vistos.json` siguen
+  desde ahora). En el buzón sigue (solo se lee), pero el programa lo perdía sin decirlo. Ahora
+  `restaurar.bat`, con el correo configurado (`correo_ajustes.json`) y la base de verdad, lo dice
+  al acabar con la fecha de la copia (la de su nombre, `bms-copia-…-AAAAMMDD-HHMMSS`): buscar en
+  el buzón los correos desde ese día, guardar sus PDF en `buzon\facturas` y leerlos con
+  `leer-facturas.bat` (entran como los de esa carpeta, sin su correo). Volver a pedirlos solo
+  (una orden del correo que deje la delta sin enlace, con `al_dia_en` en la fecha de la copia, y
+  vacíe `vistos.json`; lo repetido ya lo descarta `registrar`) queda como trabajo futuro: gastaría
+  los topes del día y podría poner la pausa por volumen, para un caso raro. **Para el paso 17**:
+  decirlo en «Copias de seguridad» de `entorno-local.md` y en `correo-m365.md`.
 - **Las pruebas**: los pines de §7.2 en `test_entorno_local.py` (seis servicios, las redes y sus
   vecinos, las dos salidas, los secretos, los volúmenes, los perfiles, el `mkdir`/`chown`, los
   `-v` de `secretos`, `SCRIPTS`, la pausa, el cerrojo, las tareas, el ciclo, el correo, PowerShell
@@ -1261,7 +1321,19 @@ pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
   fallar alguna prueba. `test_app_local.py` (el lanzador espera a `/consola`) admite que
   `$consola_url` se defina antes de esperar: el camino rápido de `iniciar` también la usa.
   `test_entorno_docker.py` (con `BMS_PROBAR_DOCKER=1`) gana las filas de §7.2, coherentes con el
-  `compose` nuevo, pero aquí no hay demonio: **va a la lista del mini PC**.
+  `compose` nuevo, pero aquí no hay demonio: **va a la lista del mini PC**. Tras la revisión,
+  cinco mutaciones más pasaban todas las pruebas: `Pausar-Automatico` que sigue sin el cerrojo
+  (`parar` y `restaurar` paraban en medio de una lectura), `Apuntar-Pausa` sin él, el ciclo que
+  sigue trayendo y leyendo con poco disco, y las dos puntas del código del correo (`Correo:
+  <código>: …`, que escribe la CLI y lee `Comprobar-Correo`; de él depende volver al certificado
+  de antes). Ahora `test_ciclo_docker.py` corre también `parar`, `restaurar`,
+  `correo-certificado -Activar` y `automatico -Quitar` (con un Programador de tareas falso) con el
+  cerrojo en manos de otro proceso (la espera de 2 minutos, a 3 segundos en la copia del script),
+  el ciclo con el umbral del disco subido en la copia, y el bucle en pausa con el cerrojo de otro
+  y con una versión nueva; `test_correo_traer.py` toma de `comun.ps1` la expresión con que se lee
+  el código y la aplica a lo que dice `correo comprobar`. Esas cinco y las de este arreglo
+  (`-SoloSiSigue`, la pausa de otro, `-Quitar`, `ciclo quitar`, la versión nueva, el aviso de
+  `restaurar`, la carpeta de trabajo, la terminal) hacen fallar alguna prueba.
 - **Lo que queda para el mini PC (§7.4, «Docker: solo»)**: `BMS_PROBAR_DOCKER=1 pytest
   tests/test_entorno_docker.py` (las redes del correo, los 200 a Microsoft por `proxy-correo`, y que
   el correo, uid 10001, escribe en sus volúmenes; también si un volumen que crea primero un
@@ -1275,4 +1347,9 @@ pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
   como ficheros montados que lee el usuario 10001; `iniciar.bat` sin `docker\secretos\correo` (los
   dos secretos del correo, declarados y sin sus ficheros, no tienen que impedir que arranquen la
   consola y las dos salidas, que no los usan); y `orden` escribiendo en `docker\secretos\correo`
-  montado (renovar el certificado).
+  montado (renovar el certificado). Del arreglo tras la revisión: que con la consola de Windows
+  como terminal de «bms» (`HKCU\Console\%%Startup`, lo que ofrece `-Instalar`) la ventana del
+  bucle no se ve; que el vigilante vuelve a arrancar el bucle que se cerró por una versión nueva;
+  sustituir la carpeta del proyecto con el bucle en pausa (la carpeta de trabajo `System32`); y
+  `automatico.bat -Quitar` con la cuenta que puso las tareas y desde otra (que no las ve y no
+  toca nada mientras el ciclo pase).
