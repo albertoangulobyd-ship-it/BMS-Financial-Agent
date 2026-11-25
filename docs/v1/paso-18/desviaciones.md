@@ -1026,7 +1026,8 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
     (solo si algo espera) que abre Instellingen › Systeem con la tarjeta del buzón (la vista
     `mailbox` del panel).
   - Las listas de las tarjetas («Wacht op jou», los últimos correos) enseñan 5 y «Alle N tonen»
-    (la API da hasta 50); la cola de la automática, entera (hasta 200), con «Alles kiezen».
+    (la API da hasta 50; con más, «50 van 61 tonen», abajo); la cola de la automática, entera
+    (hasta 200), con «Alles kiezen».
 - **«Con enlace a Documentos y a Procesar»** (§6.1, las facturas de «Wacht op jou»): una
   factura que no se ha leído no tiene empresa ni hoja en Documenten, así que no hay sitio al que
   enlazar. Cada una ofrece «Origineel downloaden» (la descarga auditada de siempre, con un nombre
@@ -1076,4 +1077,69 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   una pausa, un fallo) necesitan el simulador del paso 16 (`scripts/simular_correo.py`); aquí se
   miraron a mano sobre una base de prueba sembrada (las cuatro órdenes en el navegador, los dos
   temas, 1440 y 400 px).
+- **Lo que una persona aparta se sigue viendo: «Apart gezet»** (arreglo tras la revisión del paso
+  12). Con la primera desviación de esta sección, una factura apartada con «Niet vanzelf lezen»
+  (también con «Alles kiezen», 200 de una vez, en una inundación) salía de la cola y de «Wacht op
+  jou» y, sin extracción, tampoco estaba en Documenten: desaparecía de la app, y la exclusión no
+  se quita nunca. Ahora `GET /api/v2/correo` lleva `lectura_automatica.apartadas` (solo ahí, como
+  `cola`): lo que una persona apartó y sigue sin leer, las últimas primero, como mucho 50, con su
+  total, quién y cuándo (`lectura_automatica.apartadas_por_persona`). La tarjeta «Automatisch
+  lezen» lo enseña debajo de la cola, solo para verlo y bajar el original (con un nombre
+  generado), sin ninguna orden. El camino de vuelta, que ya existía y ahora tiene su prueba
+  (`test_lo_que_aparto_una_persona_se_lee_si_su_pdf_vuelve_a_buzon_facturas`): el PDF dejado en
+  `buzon\facturas` se lee con el sí de siempre (las exclusiones solo quitan lo del correo), y
+  leído sale de «Apart gezet». La tarjeta lo dice, y los dos textos de apartar («Niet vanzelf
+  lezen» en «Wacht op jou» y en la cola) dicen dónde se encuentra después. §6.1 dejaba lo apartado
+  por una persona en «Wacht op jou»; no se vuelve a eso porque no espera a nadie (la lista no se
+  vaciaría nunca), y la lista aparte enseña lo mismo sin pedir nada.
+- **Lo que la cuenta dejó fuera, también cuando la petición acaba al contar** (§13 S1; arreglo tras
+  la revisión). `solicitud.omitidos` sale de `estimacion_json`, y solo la petición que esperaba el
+  sí la guardaba: la de una persona en la que la API no acepta ninguno de los PDF nuevos (`fallida`
+  con `contar`, el caso para el que estaba S1) y la que no tiene nada que leer no decían cuál, y
+  Procesar solo decía «Kon niet uitrekenen wat het kost». Ahora `lectura.contar` guarda la cuenta
+  (sin huella: no hay nada que aprobar) también en sus finales sin sí (`nada_que_leer`, `fallida`
+  con `contar` o `sin_tarifa`) cuando dejó algo fuera; sin nada fuera, como antes
+  (`test_lectura.py` pasa de pedir `estimacion_json` nulo a pedir los omitidos en la API).
+  Procesar los enseña también en la pantalla de error y, para quien llega después, en P0 junto a
+  «Laatste leesronde niet afgemaakt» (`omittedShown`), con el nombre con que llegaron. La lectura de una persona sigue sin apartar nada de lo del correo que la API no
+  acepta (lo hace solo la automática, paso 5); con el nombre a la vista, una persona lo aparta
+  desde la cola, o quita el fichero de `buzon\facturas`.
+- **En Docker no se nombra ningún script de la nativa** (arreglo tras la revisión). El correo y la
+  automática solo existen en Docker, que no tiene `clave.bat` ni `comprobar.bat` (la clave es
+  `docker\secretos\anthropic_api_key.txt`, `entorno-local.md` §4), y la tarjeta y la línea de
+  Procesar decían «Voer comprobar.bat uit» (`mailboxErrors.aislamiento` de §6.4) o, en el fallo de
+  la automática, los porqués de la lectura con `clave.bat` y `comprobar.bat`. Ahora:
+  - el error `aislamiento` del buzón dice que no se trae nada hasta que la persona que mantiene
+    el programa revise la instalación (sin script: Docker no tiene uno que compruebe el
+    aislamiento, y `automatico.bat -Estado` del paso 15 no lo mira);
+  - `reasonOf` tiene los porqués de Docker (`process.reasonsDocker`: `clave`, `clave_rechazada`
+    con el fichero de `docker\secretos`; `aislamiento`, que revise la instalación) para una
+    automática siempre y, en Docker, también para la de una persona: Procesar sabe la variante
+    por `GET /api/v2/correo` (`entorno` `contenedor`), que ya pedía. Con `leer-facturas.bat` de
+    Docker sin la clave, la petición acaba con `clave` y Procesar decía `clave.bat` desde el paso
+    17; en la nativa (y en `local`) todo sigue igual;
+  - la banda roja de la clave rechazada (paso 11) lo mismo: `consultas.bandas_urgentes` recibe el
+    entorno del servidor y en `contenedor` nombra el fichero.
+  `{invoiceFolder}` (`buzon\facturas`) entra en `SCRIPT_NAMES` como nombre propio, como los de
+  los `.bat`: es como se llama en el disco.
+- **La espera de una automática dice lo que la pantalla ofrece** (arreglo tras la revisión). La
+  tarjeta decía «Het nakijken begint als je op Beginnen drukt» sin «Beginnen»; el origen salía dos
+  veces (la línea y la nota); y junto a «Niet lezen» decía «Stoppen zet automatisch lezen op pauze
+  tot morgen». Ahora la tarjeta dice que empieza sola (`card.startAutoNote`), la línea dice que
+  cabe en los límites de la automática (`waiting.automatic`) y la nota, de dónde viene y quién
+  firmó; `stopAuto` no nombra ningún botón («Automatisch lezen pauzeert dan tot morgen»), porque
+  sale junto a «Niet lezen» (esperando) y junto a «Lezen stoppen» (leyendo).
+- **«Alle 50 tonen» con 61 esperando** (arreglo tras la revisión). Las listas de la tarjeta del
+  buzón (y «Apart gezet») tienen su total: si la API no las trae todas (50), el botón dice «50 van
+  61 tonen» y, abierta, «en nog 11», como la cola (`foldedText`).
+- **Las reglas que solo sostenía el componente, al modelo, con su prueba** (arreglo tras la
+  revisión: quitar la regla de la nativa en Systeem o en Inicio, enseñar «Beginnen» a una
+  automática o la etiqueta «niet gecontroleerd» pasaba todas las pruebas). `systemRowsOf` (las
+  filas de Systeem y el buzón que se enseña, sin nada en la nativa), `waitingCount` (0 en la
+  nativa) e `introButtonHidden` (el botón de la intro de Procesar) deciden lo que antes decía el
+  componente, y `mailbox-card.test.ts` pinta un correo con `react-dom/server` (como
+  `status-pill.test.ts`) y exige las dos etiquetas y el texto de fuera como texto. **Para el paso
+  16**: `correo.spec.ts` corre sobre la base de las e2e (`entorno` `local`); el caso de la nativa
+  necesita un `page.route` que devuelva `entorno: 'nativo'` en `/api/v2/correo` (Systeem con sus
+  cuatro filas, Inicio sin la fila, Procesar sin la línea), como hizo la revisión a mano.
 
