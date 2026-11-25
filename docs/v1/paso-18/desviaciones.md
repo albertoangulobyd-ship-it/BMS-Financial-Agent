@@ -1143,3 +1143,136 @@ que lee correo de desconocidos no alcanza la base ni la clave de la API; en la n
   necesita un `page.route` que devuelva `entorno: 'nativo'` en `/api/v2/correo` (Systeem con sus
   cuatro filas, Inicio sin la fila, Procesar sin la línea), como hizo la revisión a mano.
 
+
+## Paso 15 · Docker
+
+Lo de §1.3 (`docker-compose.yml`, el `Dockerfile`), §4.1-§4.6 (el ciclo, las tareas, la pausa y
+el cerrojo), §2.4 y §2.6 (el certificado y la primera vez) para la variante Docker. Por la
+decisión del dueño, nada de esto va en la nativa: ni `windows\ciclo.ps1`, ni `automatico`, ni la
+pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
+(`test_los_codigos_del_correo_son_los_de_la_cli_y_solo_de_docker` lo exige).
+
+- **Las tareas, en la carpeta raíz del Programador de tareas** (`\`), no en `\BMS Finanzas\`:
+  `automatico.ps1 -Instalar` corre sin elevar, con la cuenta que se queda con la sesión, y una
+  cuenta estándar puede no poder crear una carpeta de tareas **[comprobar en Windows 11]**. Se
+  llaman `BMS Finanzas - ciclo (Docker)` y `BMS Finanzas - bloquear (Docker)` (las dos con
+  «(Docker)»). Con `-SinBloquear` no se pone la de bloquear la pantalla (quien use su propia
+  cuenta y no el usuario aparte). Repetir `-Instalar` (otros `-Minutos`) para el bucle de antes
+  con el cerrojo en la mano, para no cortar una lectura. La repetición del vigilante (15 min) se
+  pone sin `-RepetitionDuration` (sin fin) y `ExecutionTimeLimit` como `"PT0S"` literal, que es
+  lo que fija la prueba **[comprobar en Windows 11 que se registra así]**.
+- **`Pausar-Automatico` no apaga la tarea en Docker** (§4.4 decía «deshabilita las tareas si
+  puede»). La tarea solo arranca `ciclo.ps1 -Bucle`, que no hace nada con la pausa puesta; apagarla
+  no añade nada y deja una trampa: `parar.bat` o `restaurar.bat` los abre el dueño con su cuenta,
+  que no es la dueña de la tarea, y una tarea apagada por «bms» (`automatico.bat -Pausar`) que el
+  dueño no puede volver a encender (`iniciar.bat`) se quedaría apagada y, tras el siguiente
+  reinicio, nada arrancaría solo sin que nadie lo viera. `Reanudar-Automatico` sí la enciende si
+  alguien la apagó y esa cuenta puede; si no, lo dice. `-Estado` dice si está apagada.
+- **La pausa se dice a la app con el cerrojo en la mano y solo con la automatización puesta.**
+  `Pausar-Automatico` escribe el fichero, toma el cerrojo (2 minutos) y solo entonces `ciclo
+  latido --pausado`, y solo si la tarea está (si esa cuenta la ve) o el ciclo ya corrió aquí
+  (`docker\estado\ciclo.json`): si no, un Docker sin automatización que pasa por `parar.bat`
+  quedaba para siempre «en pausa» en la app (y con la banda de las 24 horas). Antes del cerrojo
+  podía pisarlo el latido de un ciclo en marcha. Si no consigue el cerrojo (una lectura larga), la
+  pausa se queda puesta y lo apunta el propio bucle en cuanto el cerrojo queda libre (una vez por
+  pausa, también con el cerrojo: así no abre la base en medio de una restauración). El latido va
+  siempre a la base de verdad (`BMS_BASE=bms` solo para esa orden).
+- **`Reanudar-Automatico` no escribe en la base**: el bucle mira la pausa cada 30 segundos y, al
+  quitarla, corre un ciclo enseguida, cuyo latido lo dice. Así `iniciar.bat` reanuda sin esperar a
+  Docker. **`-SiLaPuseYo`** (nuevo): `restaurar.bat` y `correo-certificado.bat -Activar` solo
+  reanudan si la pausa la pusieron ellos; una de antes (`automatico.bat -Pausar` para el
+  mantenimiento) se respeta. `iniciar.bat` reanuda siempre, como dice §4.4.
+- **La salida, antes del lector y del correo, con `docker compose up -d --wait`.** En Docker no
+  hay comprobación de aislamiento (la hace la red), pero una salida que no arranca tiene que dar
+  su motivo: la lectura se cierra con `salida` (y cuenta para la espera creciente de §5.2) y el
+  correo apunta `correo registrar --fallo salida`. Sin esto, `compose run lector` fallaba sin
+  decir por qué y la petición acababa `interrumpida`. Un `correo traer` que no dice cómo acabó
+  (ni 0, ni 10, ni 11: su contenedor no arrancó o un fallo del programa) apunta `--fallo
+  interno`. `correo registrar` corre siempre después (lo que dejó el paso 10).
+- **El correo «configurado» es que estén los dos ficheros** (`correo_ajustes.json` y
+  `correo_certificado.pem`): sin ellos `compose run correo` ni arranca (son sus secretos), así que
+  `correo traer` no puede dejar `sin_configurar` en su `estado.json`. Con la carpeta
+  `docker\secretos\correo` y alguno de los dos sin estar (la fase 1 de `correo-configurar`, o
+  `correo-certificado -Borrar`), el ciclo apunta `--fallo sin_configurar`, que no escribe nada si
+  el correo nunca llegó a la base (paso 10) y, si llegó, deja de enseñar el último estado bueno
+  (lo que el paso 10 dejaba como «lo que cuesta»). Sin la carpeta, nada.
+- **Con la consola en DATOS DE PRUEBA, el ciclo no lee** (el diseño no lo decía). `compose up
+  salida` y `compose run lector` arrancan sus dependencias, y compose vuelve a crear la consola si
+  su configuración cambió (`BMS_DB`): una lectura del ciclo pasaba la consola de `iniciar.bat
+  -Demo` a la base de verdad en medio de una demostración. El ciclo mira la cabecera
+  `X-BMS-Entorno: demo` de `127.0.0.1:8765/consola` antes de `lectura siguiente`; el correo se
+  sigue trayendo y registrando (no toca la consola).
+- **El disco libre es el menor de dos unidades**: la del proyecto y la de `%LOCALAPPDATA%`, donde
+  Docker Desktop guarda por defecto su disco de WSL2 (que es donde crecen la base y los
+  originales). §4.1 decía «la unidad de la instalación», que en Docker no es la de los datos.
+- **El registro del ciclo no es una transcripción** (`Start-Transcript`, §4.6): en Windows
+  PowerShell 5.1 no recoge lo que un programa escribe directamente en la consola, que es todo lo
+  de `docker compose`. `Anotar` y `Compose-Anotado` (en `comun.ps1`) escriben cada línea de las
+  dos salidas de cada orden, con su hora, en `docker\estado\registro\ciclo-AAAA-MM-DD.log` (30
+  días, por el nombre). `Cerrar-Lectura` pasa por `Anotar` (lo mismo en pantalla para
+  `leer-facturas`). Lo que dicen las órdenes no lleva secretos (pasos 8-10).
+- **`ciclo.bat`** (nuevo): un ciclo a mano, a la vista, para probarlo en el mini PC; `ciclo.ps1`
+  sin `-Bucle` es eso. El bucle pide `correo traer --comprobar` en su primera ronda (§2.3: «y el
+  bucle de Docker, al empezar») hasta que una ronda acaba bien. Los cuatro `.bat` nuevos
+  (`ciclo`, `automatico`, `correo-configurar`, `correo-certificado`) dejan la ventana abierta al
+  acabar también si todo fue bien, como `comprobar.bat` de la nativa: lo que dicen (la nota y el
+  `.cer` para el informático, el estado de lo automático) hay que leerlo; los de antes de Docker,
+  solo si algo falla.
+- **`iniciar.bat` rápido hace la pasada del día si el ciclo no la ha hecho hoy** (§4.4 decía «sin
+  recalcular»): sin la automatización puesta, una consola que lleva días en marcha ya no tendría
+  nunca su pasada del día, que antes hacía cada `iniciar.bat`. Se mira en `ciclo.json` (sin abrir
+  la base) y no para nada. **Solo con el cerrojo libre, sin esperarlo** (§4.4 decía «sin
+  cerrojo»: lo que no se quiere es que `iniciar.bat` espere): con un ciclo leyendo, la pasada la
+  hace él, y dos transacciones largas a la vez en la base se pisarían (§10.2, `busy_timeout` de 5
+  s). También dice si el ciclo no pasa desde hace más de 30 minutos (§4.5).
+- **`leer-facturas.bat` y `copia.bat` esperan el cerrojo** (hasta 15 minutos, §4.4; la fila de §9
+  no los nombraba); `copia.bat -Comprobar` no (solo lee la copia). **`correo-configurar.bat`
+  también** para la comprobación y `correo registrar` (con una ronda en marcha, `correo
+  comprobar` dice que está ocupado y sale con 1).
+- **`correo-configurar.bat`**, lo que §2.6 no fijaba: la fase 2 empieza preguntando si ya hay los
+  cuatro datos (si no, vuelve a enseñar el `.cer` y la nota); los guardados salen de
+  `correo_ajustes.json` (en el equipo, sin Docker) entre corchetes y con Intro se dejan; lo que
+  se escribe se mira antes (GUID, dirección, distintas y del mismo dominio, la fecha) y `correo
+  ajustes fijar` lo vuelve a validar entero antes de guardar nada. Termina siempre con `correo
+  registrar` (lo que dejó el paso 10), y dice `automatico.bat -Instalar` si las tareas no están.
+- **`correo-certificado.bat`**: sin nada crea el siguiente (§2.4, paso 1); además `-Ver`,
+  `-Descartar` (`borrar --siguiente`) y `-Borrar` (todos, §2.5), con «si». `-Activar` con un
+  anterior aún sin comprobar (una activación cortada sin red) no vuelve a activar: solo repite la
+  comprobación. Tras `volver` (Microsoft no acepta el nuevo) se comprueba otra vez con el de
+  antes, para que la app no se quede en `credencial` hasta la ronda siguiente.
+- **`automatico.ps1 -Instalar` avisa y pregunta, no se niega**: una cuenta que no es local
+  (`Get-LocalUser` no la encuentra: de la empresa o de un dominio), una de Microsoft
+  (`PrincipalSource`), una contraseña que caduca (con la orden de `Set-LocalUser`), una cuenta
+  administradora o fuera de `docker-users` (`whoami /groups`, por el SID de Administradores y el
+  nombre del grupo). Con todo dicho, quien la usa con su propia cuenta puede seguir. En Docker
+  las tareas son «solo con la sesión iniciada»: no guardan contraseña, y un 0x8007052E solo
+  saldría del inicio de sesión automático.
+- **Las pruebas**: los pines de §7.2 en `test_entorno_local.py` (seis servicios, las redes y sus
+  vecinos, las dos salidas, los secretos, los volúmenes, los perfiles, el `mkdir`/`chown`, los
+  `-v` de `secretos`, `SCRIPTS`, la pausa, el cerrojo, las tareas, el ciclo, el correo, PowerShell
+  5.1, y `pwsh` analiza cada `.ps1` de `docker/`); los pasos de la lectura del ciclo y sus motivos,
+  en `test_lectura_lector.py`; y uno nuevo, **`tests/test_ciclo_docker.py`**: `ciclo.ps1` y
+  `comun.ps1` de verdad con `pwsh` y un `docker` falso delante en el PATH (cada orden, en su orden,
+  con cada código de salida; la pausa; el cerrojo de otro proceso; los DATOS DE PRUEBA; el bucle
+  que no sale con todo fallando, la pausa una vez, la vuelta tras quitarla y `--comprobar` hasta
+  la primera ronda buena). Las 24 mutaciones que se probaron (quitar la pausa de `parar`, el
+  cerrojo exclusivo, `PT0S`, `IgnoreNew`, `registrar` al final, `--solo-app`, el `-v` solo de
+  `secretos\correo`, el `chown` de un volumen, la red propia de la salida del correo…) hacen
+  fallar alguna prueba. `test_app_local.py` (el lanzador espera a `/consola`) admite que
+  `$consola_url` se defina antes de esperar: el camino rápido de `iniciar` también la usa.
+  `test_entorno_docker.py` (con `BMS_PROBAR_DOCKER=1`) gana las filas de §7.2, coherentes con el
+  `compose` nuevo, pero aquí no hay demonio: **va a la lista del mini PC**.
+- **Lo que queda para el mini PC (§7.4, «Docker: solo»)**: `BMS_PROBAR_DOCKER=1 pytest
+  tests/test_entorno_docker.py` (las redes del correo, los 200 a Microsoft por `proxy-correo`, y que
+  el correo, uid 10001, escribe en sus volúmenes; también si un volumen que crea primero un
+  montaje `:ro` toma el dueño de la imagen); `automatico.bat -Instalar` con una cuenta estándar
+  (la carpeta raíz, el disparador al iniciar sesión con su retraso y su repetición, `PT0S`, la
+  tarea de bloquear) y `-Estado`; el bucle oculto en Windows PowerShell 5.1 tras un arranque en
+  frío de WSL2 y tres días; `docker compose up --wait` con el compose de Docker Desktop; el
+  cerrojo entre la cuenta «bms» y la del dueño (los permisos de `docker\estado`, que pone el
+  `proteger.bat` del paso 15b); las órdenes de Docker desde la cuenta del dueño con Docker Desktop
+  en la sesión de «bms» (`docker-users`); `Get-PSDrive` y `%LOCALAPPDATA%`; los secretos del correo
+  como ficheros montados que lee el usuario 10001; `iniciar.bat` sin `docker\secretos\correo` (los
+  dos secretos del correo, declarados y sin sus ficheros, no tienen que impedir que arranquen la
+  consola y las dos salidas, que no los usan); y `orden` escribiendo en `docker\secretos\correo`
+  montado (renovar el certificado).
