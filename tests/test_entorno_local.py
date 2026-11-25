@@ -397,6 +397,9 @@ SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar"
            "empresa", "orden",
            # Paso 18: el ciclo automatico (ciclo.bat, uno a mano), sus tareas, y el correo.
            "ciclo", "automatico", "correo-configurar", "correo-certificado")
+# Paso 18b: los que corren como administrador y no cargan comun.ps1 (sus pruebas, en
+# tests/test_tunel_mac.py).
+SIN_COMUN = ("proteger",)
 
 
 def _ps1(nombre: str) -> str:
@@ -939,7 +942,7 @@ def test_los_scripts_de_docker_son_de_windows_powershell_5_1_y_no_bajan_nada() -
     """Como los de la nativa (test_instalacion_nativa.py): nada que solo entienda PowerShell 7,
     nada que ejecute texto ni que baje algo."""
     todos = {p.stem: p.read_text(encoding="utf-8") for p in DOCKER.glob("*.ps1")}
-    assert set(todos) == set(SCRIPTS) | {"comun"}
+    assert set(todos) == set(SCRIPTS) | {"comun"} | set(SIN_COMUN)
     for nombre, texto in todos.items():
         codigo = _codigo(texto)
         assert not re.search(r"&&|\|\||\?\?|\?\.|\s\?\s[^:\n]+\s:\s", codigo), nombre
@@ -974,7 +977,7 @@ def test_pwsh_cada_script_de_docker_pasa_el_analizador() -> None:
                              capture_output=True, text=True, timeout=120)
     assert proceso.returncode == 0, proceso.stderr
     errores = json.loads(proceso.stdout)
-    assert set(errores) == {f"{n}.ps1" for n in SCRIPTS} | {"comun.ps1"}
+    assert set(errores) == {f"{n}.ps1" for n in (*SCRIPTS, *SIN_COMUN)} | {"comun.ps1"}
     assert {n: e for n, e in errores.items() if e} == {}
 
 

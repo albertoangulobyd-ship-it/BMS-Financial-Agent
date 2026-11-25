@@ -1353,3 +1353,59 @@ pausa o el cerrojo en `windows\comun.ps1`, ni los códigos del correo allí
   sustituir la carpeta del proyecto con el bucle en pausa (la carpeta de trabajo `System32`); y
   `automatico.bat -Quitar` con la cuenta que puso las tareas y desde otra (que no las ve y no
   toca nada mientras el ciclo pase).
+
+## Paso 15b · el Mac por el mini PC (solo Docker)
+
+Lo de [mac.md](mac.md) §7 (15b.0, 15b.1 y 15b.2) para la variante Docker. Por la decisión del dueño
+(arriba), **no se hace 15b.3** (la nativa no lleva `mac\` ni nada del túnel: `instalar.ps1`,
+`desinstalar.ps1` y `comprobar.ps1` no cambian) y **no hay copia en `windows\`** de `mac.ps1` ni de
+`mac.bat` (§2.1 las pedía byte a byte iguales; sin ellas, `test_instalacion_nativa.py` no cambia y
+`test_los_dos_mac_ps1_son_el_mismo` no va). Las decisiones del dueño que estaban abiertas, con lo que
+el diseño ponía por defecto: el Mac con su propia persona de rol `administracion` (M13), la clave sin
+caducidad (§9.2, pregunta 1) y un Mac sin otras cuentas (§3.5, lo dice la guía del paso 17).
+
+- **Lo que escribe «bms», mirado otra vez contra el paso 15**: sigue siendo solo `docker\estado` (la
+  pausa, el cerrojo, `ciclo.json` y `registro\`) y `docker\secretos\correo` (lo que escribe el
+  `orden` montado del certificado), así que `$EscribeBms` es la de §2.12. Lo único nuevo: **el
+  Docker Desktop de «bms» monta `..\buzon`** (`docker-compose.yml`, `../buzon:/buzon:ro`, en el
+  `lector` y en `orden`, que el ciclo arranca), y si falta lo crea él al montarlo (la forma corta
+  de un volumen de compose crea la carpeta que no existe); con la raíz en `RX` no podría, y el ciclo
+  fallaría en cada vuelta hasta que el dueño abriera `leer-facturas.bat`. `proteger.ps1` crea
+  `buzon` vacío si falta (`$MontaBms`) antes de poner los permisos; «bms» lo lee, no escribe en él.
+  **[comprobar en Windows 11]** que Docker Desktop crea la carpeta que falta como la cuenta que lo
+  corre.
+- **La prueba de lo que escribe «bms» no mira los `Join-Path $PSScriptRoot` literales** (§5.1):
+  `ciclo.ps1` nombra `comun.ps1` y `comun.ps1` la clave de la API, que solo se leen, y la prueba
+  fallaría con lo que ya hay. `test_proteger_deja_escribir_a_bms_justo_donde_escriben_los_scripts_del_paso_15`
+  busca cada escritura de `ciclo.ps1`, `automatico.ps1` y `comun.ps1` (`New-Item`, `Set-Content`,
+  `Remove-Item`…, `[IO.File]::…`, una redirección, un `-v` sin `:ro`), sigue cada variable hasta su
+  `Join-Path $PSScriptRoot "<x>"` (también las que salen de otra y los `foreach` sobre un
+  `Get-ChildItem`) y exige que esté en `$EscribeBms`; una que no sabe seguir, falla. Y
+  `test_lo_que_escriben_de_verdad_el_ciclo_y_la_pausa_esta_en_escribe_bms` lo corre: un ciclo entero
+  con el correo y una automática, `automatico -Pausar` y `-Reanudar`, con el `docker` falso de
+  `test_ciclo_docker.py`, y lo que cambia en la carpeta del proyecto está todo en `$EscribeBms`.
+- **Lo que `proteger.ps1` comprueba de más** (el anexo D era el borrador):
+  - **ningún enlace en todo el árbol**, no solo en el primer nivel: `icacls /T` entra en el sitio
+    al que apunta un enlace o una unión, y un `docker\estado` que fuera una unión a otra carpeta
+    acabaría con la `M` de «bms» (y el dueño Administradores, y la herencia quitada) fuera del
+    proyecto. Se recorre sin entrar en ninguno (`Enlace-Dentro`) y, si hay uno, para sin tocar nada;
+  - **la carpeta no puede estar en la de los perfiles** (`C:\Users`, la de `ProfileList`): en la del
+    dueño «bms» no llega, y en la de «bms» las carpetas de arriba son suyas (las podría renombrar y
+    poner otra en su sitio). Es lo que §2.12 explicaba («ninguna ubicación natural sirve sin más»),
+    ahora comprobado;
+  - «dentro de `C:\Program Files`» y las demás comparan la carpeta entera (`C:\Programas` no está
+    dentro de `C:\Program`), con el separador de la plataforma (así se prueba con `pwsh` en Linux);
+  - `Get-LocalUser -SID` solo con algo que tiene forma de SID (con otra cosa daba un error rojo de
+    PowerShell antes de «No hay ningún usuario local»).
+  La función que llama a `icacls` se llama `Cambiar-Permisos` (en el anexo D, `Icacls`, que se
+  confunde con el programa en la prueba de que nada lo llama a pelo).
+- **`proteger.ps1` se prueba también corrido** (`pwsh`, con un `icacls` falso por
+  `$env:SystemRoot`, `Get-LocalUser` y `Get-Acl` sustituidos y los grupos sin ADSI): las llamadas a
+  `icacls` en orden y con sus argumentos, la `M` de «bms» solo en sus dos carpetas, lo puesto a mano
+  en la raíz que se quita (y que para si no se puede), y que con una cuenta que no vale, un enlace,
+  la carpeta en los perfiles o en la del sistema, o sin «si», no llama a `icacls`. Las 15 mutaciones
+  que se probaron (sin `/inheritance:r`, «bms» con `M` en la raíz, sin mirar los enlaces, el
+  registro del ciclo fuera de `docker\estado`…) hacen fallar alguna prueba.
+- `test_entorno_local.py`: los `.ps1` de `docker\` son `SCRIPTS`, `comun` y `SIN_COMUN` (los que
+  corren como administrador sin `comun.ps1`, con sus pruebas en `test_tunel_mac.py`), y pasan las
+  mismas reglas de Windows PowerShell 5.1.
