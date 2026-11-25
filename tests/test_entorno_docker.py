@@ -9,7 +9,10 @@ que la configuracion promete:
 - desde el lector no se llega a internet directamente, solo al proxy;
 - el proxy deja ir a api.anthropic.com:443 y a nada mas, y apunta cada intento;
 - el cliente HTTP del SDK sale por el proxy (HTTPS_PROXY);
-- el registro de la salida sigue despues de `docker compose down` (su volumen).
+- el registro de la salida sigue despues de `docker compose down` (su volumen);
+- paso 18: el correo solo llega a su proxy, que solo deja ir a los dos hosts de Microsoft; el
+  lector no llega a Microsoft ni al proxy del correo; la salida del correo no llega a la
+  consola; y el correo (uid 10001) escribe en sus dos volumenes.
 
 No llama a la API: el tunel hasta api.anthropic.com se abre y se cierra sin mandar nada.
 Necesita la imagen bms-agent:local ya construida (docs/entorno-local.md). En una maquina
@@ -64,6 +67,13 @@ def entorno(tmp_path_factory):
     buzon = carpeta / "buzon"
     (buzon / "facturas").mkdir(parents=True)
     buzon.chmod(0o755)
+    # Paso 18: los dos secretos del correo, de mentira (no se pide nada a Microsoft).
+    ajustes = carpeta / "correo_ajustes.json"
+    ajustes.write_text("{}\n", encoding="utf-8")
+    certificado = carpeta / "correo_certificado.pem"
+    certificado.write_text("de prueba\n", encoding="utf-8")
+    for fichero in (ajustes, certificado):
+        fichero.chmod(0o644)
     extra = carpeta / "prueba.yml"
     # La base de prueba se dice aqui y no con BMS_BASE: sudo no pasa el entorno.
     demo = "    environment: {BMS_DB: /datos/demo.sqlite3}\n"
@@ -72,10 +82,12 @@ def entorno(tmp_path_factory):
         f"  consola:\n{demo}"
         f"  lector:\n{demo}    volumes: [\"datos:/datos\", \"{buzon}:/buzon:ro\"]\n"
         f"  orden:\n{demo}    volumes: [\"datos:/datos\", \"{buzon}:/buzon:ro\"]\n"
-        f"secrets:\n  anthropic_api_key:\n    file: {clave}\n", encoding="utf-8")
+        f"secrets:\n  anthropic_api_key:\n    file: {clave}\n"
+        f"  correo_ajustes:\n    file: {ajustes}\n"
+        f"  correo_certificado:\n    file: {certificado}\n", encoding="utf-8")
     _compose(extra, "run", "--rm", "-T", "orden", "demo", "crear", "--db",
              "/datos/demo.sqlite3")
-    _compose(extra, "up", "-d", "consola", "salida")
+    _compose(extra, "up", "-d", "consola", "salida", "salida_correo")
     try:
         for _intento in range(60):
             try:
@@ -104,8 +116,8 @@ for destino, puerto in {destinos}:
 
 def _desde(entorno: Path, servicio: str, destinos: list[tuple[str, int]]) -> dict[str, str]:
     codigo = _PROBAR.format(destinos=destinos)
-    if servicio == "consola":
-        proceso = _compose(entorno, "exec", "-T", "consola", "python", "-", entrada=codigo)
+    if servicio in ("consola", "salida_correo"):
+        proceso = _compose(entorno, "exec", "-T", servicio, "python", "-", entrada=codigo)
     else:
         proceso = _compose(entorno, "run", "--rm", "-T", "--entrypoint", "python", servicio, "-",
                            entrada=codigo)
@@ -132,9 +144,86 @@ def test_la_consola_no_llega_a_internet_ni_al_proxy(entorno) -> None:
 def test_el_lector_solo_llega_al_proxy(entorno) -> None:
     resultado = _desde(entorno, "lector", [("1.1.1.1", 443), ("api.anthropic.com", 443),
                                            ("consola", 8765), ("entrada", 8765),
-                                           ("proxy", 3128)])
+                                           ("proxy", 3128), ("proxy-correo", 3128),
+                                           ("graph.microsoft.com", 443)])
     assert resultado == {"1.1.1.1:443": "no", "api.anthropic.com:443": "no",
-                         "consola:8765": "no", "entrada:8765": "no", "proxy:3128": "conecta"}
+                         "consola:8765": "no", "entrada:8765": "no", "proxy:3128": "conecta",
+                         "proxy-correo:3128": "no", "graph.microsoft.com:443": "no"}
+
+
+def test_el_correo_solo_llega_a_su_proxy(entorno) -> None:
+    """Paso 18: la red del correo tiene un solo vecino, su salida; ni la de la API ni la
+    consola."""
+    resultado = _desde(entorno, "correo", [("1.1.1.1", 443), ("graph.microsoft.com", 443),
+                                           ("proxy", 3128), ("salida", 3128),
+                                           ("consola", 8765), ("entrada", 8765),
+                                           ("proxy-correo", 3128)])
+    assert resultado == {"1.1.1.1:443": "no", "graph.microsoft.com:443": "no",
+                         "proxy:3128": "no", "salida:3128": "no", "consola:8765": "no",
+                         "entrada:8765": "no", "proxy-correo:3128": "conecta"}
+
+
+def test_la_salida_del_correo_no_llega_a_la_consola(entorno) -> None:
+    """S7: la salida del correo sale por su propia red: no ve la entrada a la consola (que la
+    salida de la API escucha en red_exterior), ni la consola, ni la salida de la API."""
+    resultado = _desde(entorno, "salida_correo", [("entrada", 8765), ("salida", 8765),
+                                                  ("consola", 8765), ("proxy", 3128)])
+    assert resultado == {"entrada:8765": "no", "salida:8765": "no", "consola:8765": "no",
+                         "proxy:3128": "no"}
+
+
+_POR_EL_PROXY_DEL_CORREO = r"""
+import socket
+def pedir(texto):
+    s = socket.create_connection(("proxy-correo", 3128), timeout=15)
+    s.sendall(texto.encode())
+    linea = s.recv(200).split(b"\r\n")[0].decode()
+    s.close()
+    return linea.split(" ")[1]
+for destino in ["login.microsoftonline.com:443", "graph.microsoft.com:443",
+                "api.anthropic.com:443", "example.com:443", "graph.microsoft.com:80",
+                "graph.microsoft.com.evil.example:443"]:
+    print(destino, pedir(f"CONNECT {destino} HTTP/1.1\r\nHost: {destino}\r\n\r\n"))
+"""
+
+
+def test_el_proxy_del_correo_solo_deja_ir_a_microsoft(entorno) -> None:
+    proceso = _compose(entorno, "run", "--rm", "-T", "--entrypoint", "python", "correo", "-",
+                       entrada=_POR_EL_PROXY_DEL_CORREO)
+    resultado = dict(l.split(" ", 1) for l in proceso.stdout.strip().splitlines())
+    assert resultado == {"login.microsoftonline.com:443": "200", "graph.microsoft.com:443": "200",
+                         "api.anthropic.com:443": "403", "example.com:443": "403",
+                         "graph.microsoft.com:80": "403",
+                         "graph.microsoft.com.evil.example:443": "403"}
+    registro = _compose(entorno, "logs", "salida_correo").stdout
+    assert "CONNECT api.anthropic.com:443" in registro and "decision=rechazada" in registro
+
+
+_ESCRIBIR = r"""
+import os
+print("uid", os.getuid())
+for carpeta in ("/correo/estado", "/correo/entrada"):
+    try:
+        with open(os.path.join(carpeta, "prueba-escritura"), "w") as f:
+            f.write("x")
+        os.remove(os.path.join(carpeta, "prueba-escritura"))
+        print(carpeta, "escribe")
+    except OSError:
+        print(carpeta, "no")
+"""
+
+
+def test_el_correo_escribe_en_sus_volumenes_y_orden_solo_en_la_bandeja(entorno) -> None:
+    """V1: la imagen da a bms los dos puntos de montaje del correo; el correo (uid 10001)
+    escribe en los dos; las ordenes, en la bandeja (el acuse) y no en el estado."""
+    correo = _compose(entorno, "run", "--rm", "-T", "--entrypoint", "python", "correo", "-",
+                      entrada=_ESCRIBIR).stdout
+    assert dict(l.split(" ", 1) for l in correo.strip().splitlines()) == {
+        "uid": "10001", "/correo/estado": "escribe", "/correo/entrada": "escribe"}
+    orden = _compose(entorno, "run", "--rm", "-T", "--entrypoint", "python", "orden", "-",
+                     entrada=_ESCRIBIR).stdout
+    assert dict(l.split(" ", 1) for l in orden.strip().splitlines()) == {
+        "uid": "10001", "/correo/estado": "no", "/correo/entrada": "escribe"}
 
 
 _POR_EL_PROXY = r"""
@@ -146,7 +235,8 @@ def pedir(texto):
     s.close()
     return linea.split(" ")[1]
 for destino in ["api.anthropic.com:443", "example.com:443", "api.anthropic.com.evil.example:443",
-                "160.79.104.10:443", "api.anthropic.com:80"]:
+                "160.79.104.10:443", "api.anthropic.com:80", "graph.microsoft.com:443",
+                "login.microsoftonline.com:443"]:
     print(destino, pedir(f"CONNECT {destino} HTTP/1.1\r\nHost: {destino}\r\n\r\n"))
 print("GET", pedir("GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n"))
 import httpx2
@@ -164,7 +254,9 @@ def test_el_proxy_solo_deja_ir_a_la_api_y_lo_apunta(entorno) -> None:
     resultado = dict(l.split(" ", 1) for l in proceso.stdout.strip().splitlines())
     assert resultado == {"api.anthropic.com:443": "200", "example.com:443": "403",
                          "api.anthropic.com.evil.example:443": "403", "160.79.104.10:443": "403",
-                         "api.anthropic.com:80": "403", "GET": "405", "sdk": "ProxyError"}
+                         "api.anthropic.com:80": "403", "graph.microsoft.com:443": "403",
+                         "login.microsoftonline.com:443": "403", "GET": "405",
+                         "sdk": "ProxyError"}
     registro = _compose(entorno, "logs", "salida").stdout
     for destino in ("api.anthropic.com:443", "example.com:443",
                     "api.anthropic.com.evil.example:443"):
@@ -177,7 +269,7 @@ def test_el_registro_de_la_salida_sobrevive_a_parar_y_arrancar(entorno) -> None:
     """iniciar, parar y restaurar hacen `docker compose down`, que se lleva el registro de
     Docker: el de la salida vive en su volumen y sigue ahi (va el ultimo: para el entorno)."""
     _compose(entorno, "down")
-    _compose(entorno, "up", "-d", "consola", "salida")
+    _compose(entorno, "up", "-d", "consola", "salida", "salida_correo")
     proceso = _compose(entorno, "run", "--rm", "-T", "orden", "salida-registro", "--rechazados")
     assert "example.com:443" in proceso.stdout
     assert "api.anthropic.com.evil.example:443" in proceso.stdout

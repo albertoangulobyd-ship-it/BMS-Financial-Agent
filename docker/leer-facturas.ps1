@@ -34,6 +34,10 @@ Comprobar-Docker
 Asegurar-Imagen
 Elegir-Base
 New-Item -ItemType Directory -Force -Path $facturas | Out-Null
+# Paso 18: una sola cosa a la vez con el ciclo automatico (lo espera como mucho 15 minutos).
+if (-not (Tomar-Cerrojo -Esperar 900 -Aviso "El ciclo automatico esta trabajando: espero a que acabe (como mucho 15 minutos)...")) {
+    Fallar "El ciclo automatico sigue trabajando (miralo en Procesar). Vuelve a probar dentro de un rato."
+}
 
 # La lectura pedida desde la app, o una nueva. Sin ningun PDF no hay nada que leer.
 $lineas = @(docker compose run --rm -T orden lectura tomar /buzon/facturas)

@@ -1,6 +1,6 @@
 # El entorno local de bms-agent en el ordenador del dueno (paso 13, docs/entorno-local.md).
 #
-# Cuatro servicios con la misma imagen y tres redes:
+# Seis servicios con la misma imagen y cinco redes:
 #
 #   consola  la consola interna. Solo esta en red_consola, que es interna: no tiene
 #            ninguna salida. Se llega a ella desde el navegador del dueno por
@@ -9,11 +9,19 @@
 #            (perfil "lector", o "docker compose run lector"). Esta en red_lector,
 #            interna tambien: su unico camino es el proxy de la salida (HTTPS_PROXY).
 #            Es el unico que ve la clave de la API, como secreto de Docker.
-#   salida   el unico contenedor con un pie fuera: el proxy CONNECT que solo deja ir a
-#            api.anthropic.com:443 (bms-agent salida) y la entrada a la consola.
+#   salida   el unico contenedor con un pie fuera hacia la API: el proxy CONNECT que solo
+#            deja ir a api.anthropic.com:443 (bms-agent salida) y la entrada a la consola.
 #   orden    las ordenes sueltas (importar, crear la base de prueba, copias, ver lo que
-#            ha salido). Sin red ninguna (network_mode none). Perfil "ordenes": solo con
-#            "run".
+#            ha salido, registrar lo que trajo el correo). Sin red ninguna (network_mode
+#            none). Perfil "ordenes": solo con "run".
+#   correo   (paso 18) trae del buzon de facturas de Microsoft 365, solo leyendo, a su
+#            bandeja (el volumen correo_entrada). Solo con "run" (perfil "correo"), cada
+#            ronda del ciclo automatico. Esta en red_correo, interna: su unico camino es
+#            la salida del correo. No ve la base (sin el volumen datos) ni la clave de la
+#            API; ve solo sus dos secretos (el certificado y los ajustes).
+#   salida_correo  (paso 18) el proxy CONNECT del correo: solo deja ir a
+#            login.microsoftonline.com:443 y graph.microsoft.com:443. Sale por su propia
+#            red (red_exterior_correo): en red_exterior escucha la entrada a la consola.
 #
 # Docker no publica el puerto de un contenedor que solo esta en redes internas: por eso
 # lo publica la salida (en 127.0.0.1, nunca en la red de la casa) y la consola sigue sin
@@ -123,10 +131,82 @@ services:
       - datos:/datos
       - ../buzon:/buzon:ro
       - registro_salida:/registro:ro
+      # Paso 18: registrar lee la bandeja del correo como no confiable y borra lo que ya
+      # esta en la base (el acuse); el estado y el registro de su salida, solo leerlos.
+      - correo_entrada:/correo/entrada
+      - correo_estado:/correo/estado:ro
+      - registro_correo:/registro-correo:ro
     network_mode: none
     healthcheck:
       disable: true
     mem_limit: 1g
+
+  correo:
+    <<: *endurecido
+    profiles: ["correo"]
+    # Una ronda (correo traer): lo nuevo del buzon, solo leyendo, a su bandeja. Las rutas
+    # van aqui y no en variables (test_alcance_v1.py fija las que lee el codigo).
+    command:
+      - correo
+      - traer
+      - --ajustes
+      - /run/secrets/correo_ajustes
+      - --certificado-fichero
+      - /run/secrets/correo_certificado
+      - --estado
+      - /correo/estado
+      - --entrada
+      - /correo/entrada
+    environment:
+      HTTPS_PROXY: http://proxy-correo:3128
+      https_proxy: http://proxy-correo:3128
+      NO_PROXY: ""
+      no_proxy: ""
+    # Solo sus dos ficheros, nunca la carpeta docker\secretos (alli esta la clave de la API).
+    secrets:
+      - correo_ajustes
+      - correo_certificado
+    volumes:
+      - correo_estado:/correo/estado
+      - correo_entrada:/correo/entrada
+    networks:
+      - red_correo
+    # La de la imagen mira 127.0.0.1:8765 (la consola).
+    healthcheck:
+      disable: true
+    mem_limit: 256m
+    depends_on:
+      salida_correo:
+        condition: service_healthy
+
+  salida_correo:
+    <<: *endurecido
+    command:
+      - salida
+      - --escuchar
+      - proxy-correo:3128
+      - --permitir
+      - login.microsoftonline.com:443
+      - --permitir
+      - graph.microsoft.com:443
+      - --registro
+      - /registro/salida-correo.log
+    volumes:
+      - registro_correo:/registro
+    networks:
+      red_correo:
+        aliases: [proxy-correo]
+      # Su propia red con salida: no comparte red_exterior con "salida", que escucha ahi la
+      # entrada a la consola.
+      red_exterior_correo: {}
+    healthcheck:
+      test: ["CMD", "python", "-m", "bms_agent.cli", "salud", "proxy-correo:3128"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    mem_limit: 128m
+    restart: unless-stopped
 
 networks:
   red_consola:
@@ -134,11 +214,23 @@ networks:
   red_lector:
     internal: true
   red_exterior: {}
+  red_correo:
+    internal: true
+  red_exterior_correo: {}
 
 volumes:
   datos: {}
   registro_salida: {}
+  correo_estado: {}
+  correo_entrada: {}
+  registro_correo: {}
 
 secrets:
   anthropic_api_key:
     file: ./secretos/anthropic_api_key.txt
+  # Paso 18: los del correo, en su propia carpeta (docker\secretos\correo). Los crea
+  # correo-configurar.bat; los ve solo el contenedor del correo.
+  correo_ajustes:
+    file: ./secretos/correo/correo_ajustes.json
+  correo_certificado:
+    file: ./secretos/correo/correo_certificado.pem

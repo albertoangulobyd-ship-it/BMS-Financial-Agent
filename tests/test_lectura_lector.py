@@ -519,6 +519,32 @@ def test_los_codigos_del_lector_son_los_de_la_cli(carpeta) -> None:
             assert motivo in lectura.MOTIVOS, motivo
 
 
+def test_el_ciclo_de_docker_lee_como_el_lector_y_nunca_escribe_que_si() -> None:
+    """Paso 18 (§4.1, solo Docker: la nativa no lee sola): docker/ciclo.ps1 cuenta y lee con el
+    lector y la salida, toma y espera en el contenedor sin red, entre contar y leer pone el si
+    de la autorizacion (autorizar) o el de la app (esperar --solo-app), y nunca el de una
+    ventana; la lectura no se queda viva. Sus motivos son los de la CLI, y los codigos de
+    lectura siguiente, los de comun.ps1. Los pasos de punta a punta, en test_ciclo_docker.py."""
+    texto = _sin_comentarios((DOCKER / "ciclo.ps1").read_text(encoding="utf-8"))
+    leer = texto[texto.index("function Leer-Con-Salida"):texto.index("function Lectura-Del-Ciclo")]
+    pasos = ['"lector", "lectura", "contar", $Solicitud, "/buzon/facturas", "--out", "/datos/out"',
+             '"orden", "lectura", "autorizar", $Solicitud',
+             '"orden", "lectura", "esperar", $Solicitud, "--solo-app"',
+             '"lector", "lectura", "leer", $Solicitud, "/buzon/facturas", "--out", "/datos/out"',
+             "} finally {", 'Cerrar-Lectura $Solicitud "interrumpida" -SiViva']
+    posiciones = [leer.index(trozo) for trozo in pasos]
+    assert posiciones == sorted(posiciones)
+    for orden in ("contar", "esperar", "leer", "autorizar"):
+        assert len(re.findall(rf'"lectura", "{orden}"', texto)) == 1, orden
+    assert "extract" not in texto and "coste" not in texto and "Read-Host" not in texto
+    assert '"lector", "lectura", "esperar"' not in texto
+    for motivo in re.findall(r'Cerrar-Lectura \$Solicitud "([a-z_]+)"', texto):
+        assert motivo in lectura.MOTIVOS, motivo
+    assert "$toca.Codigo -eq $LecturaPedida" in texto
+    # La nativa no tiene ciclo (decision del dueno: el correo y la lectura sola, solo en Docker).
+    assert not (WINDOWS / "ciclo.ps1").exists()
+
+
 def test_docker_espera_el_si_en_el_contenedor_sin_red() -> None:
     texto = (DOCKER / "leer-facturas.ps1").read_text(encoding="utf-8")
     # Tomar, esperar y cerrar no hablan con la API: el contenedor de las ordenes, sin red.

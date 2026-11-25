@@ -31,6 +31,10 @@ if (-not (Test-Path $Destino)) {
     Fallar "No encuentro $Destino. Conecta y desbloquea el disco cifrado, crea la carpeta y vuelve a probar."
 }
 $destinoCompleto = (Resolve-Path $Destino).Path
+# Paso 18: una sola cosa a la vez con el ciclo automatico (lo espera como mucho 15 minutos).
+if (-not (Tomar-Cerrojo -Esperar 900 -Aviso "El ciclo automatico esta trabajando: espero a que acabe (como mucho 15 minutos)...")) {
+    Fallar "El ciclo automatico sigue trabajando (miralo en Procesar). Vuelve a probar dentro de un rato."
+}
 
 Escribir "Haciendo la copia en $destinoCompleto..." "Cyan"
 docker compose run --rm -T -v "${destinoCompleto}:/copia" orden copia /copia --db $base

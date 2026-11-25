@@ -7,11 +7,19 @@ Puertas que viven aqui (la de los contenedores de verdad esta en test_entorno_do
   127.0.0.1; todos con el sistema de ficheros de solo lectura, sin capacidades y sin
   escalar privilegios; la clave es un secreto que solo ve el lector y nunca una
   variable; el lector solo arranca a proposito y sale por el proxy;
+- paso 18: el correo, en su propia red interna con un solo vecino (la salida del correo,
+  que solo deja ir a Microsoft y sale por su propia red), sin la base ni la clave de la
+  API, con solo sus dos secretos; la imagen da a bms cada punto de montaje en que se
+  escribe;
 - el Dockerfile: base fijada por etiqueta y digest, usuario sin privilegios,
   comprobacion de salud, dependencias con su hash;
 - .dockerignore y .gitignore dejan fuera los datos, el buzon y la clave;
 - los scripts de Windows: existen, dicen las cosas en claro, nunca borran el volumen
-  ni llevan la clave;
+  ni llevan la clave; paso 18: el ciclo automatico (que no sale nunca por si mismo), la
+  pausa y el cerrojo, las tareas, el correo, y ningun montaje de docker/secretos salvo
+  docker/secretos/correo en el contenedor de las ordenes; con pwsh, cada script pasa el
+  analizador de PowerShell (el ciclo de verdad contra un docker falso, en
+  test_ciclo_docker.py);
 - la consola solo escucha en 0.0.0.0 dentro de un contenedor, y ahi no lee PDF;
 - la clave se lee de su fichero sin ensenarla;
 - la copia de seguridad sale entera, comprobada y sin sobrescribir otra.
@@ -40,7 +48,7 @@ from bms_agent.serve import crear_servidor, en_contenedor, interfaz_permitida
 
 DOCKER = RAIZ / "docker"
 COMPOSE = DOCKER / "docker-compose.yml"
-SERVICIOS = ("consola", "salida", "lector", "orden")
+SERVICIOS = ("consola", "salida", "lector", "orden", "correo", "salida_correo")
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +63,7 @@ def _redes(servicio: dict) -> set[str]:
 
 # ============================================================ docker-compose.yml
 
-def test_estan_los_cuatro_servicios_con_la_misma_imagen(compose) -> None:
+def test_estan_los_seis_servicios_con_la_misma_imagen(compose) -> None:
     assert set(compose["services"]) == set(SERVICIOS)
     assert {s["image"] for s in compose["services"].values()} == {"bms-agent:local"}
     assert compose["services"]["consola"]["build"] == {"context": "..",
@@ -84,18 +92,27 @@ def test_la_consola_y_el_lector_solo_estan_en_redes_internas(compose) -> None:
     assert servicios["orden"]["network_mode"] == "none" and not _redes(servicios["orden"])
     assert redes["red_consola"]["internal"] is True
     assert redes["red_lector"]["internal"] is True
-    # La unica red con salida, y solo la salida esta en ella.
+    # Las redes con salida, y en cada una solo su salida (paso 18: la del correo, aparte).
     externas = {n for n, r in redes.items() if not (r or {}).get("internal")}
-    assert externas == {"red_exterior"}
+    assert externas == {"red_exterior", "red_exterior_correo"}
     con_salida = {n for n, s in servicios.items() if _redes(s) & externas}
-    assert con_salida == {"salida"}
+    assert con_salida == {"salida", "salida_correo"}
     assert _redes(servicios["salida"]) == {"red_consola", "red_lector", "red_exterior"}
+    # Paso 18: el correo, solo en su red interna; la salida del correo, en esa y en la suya
+    # con salida, no en red_exterior (alli escucha la entrada a la consola) ni en la del lector.
+    assert _redes(servicios["correo"]) == {"red_correo"}
+    assert redes["red_correo"]["internal"] is True
+    assert _redes(servicios["salida_correo"]) == {"red_correo", "red_exterior_correo"}
+    vecinos = {red: {n for n, s in servicios.items() if red in _redes(s)} for red in redes}
+    assert vecinos == {"red_consola": {"consola", "salida"}, "red_lector": {"lector", "salida"},
+                       "red_exterior": {"salida"}, "red_correo": {"correo", "salida_correo"},
+                       "red_exterior_correo": {"salida_correo"}}
 
 
 def test_el_unico_puerto_es_el_de_la_consola_en_127_0_0_1(compose) -> None:
     publicados = {n: s.get("ports", []) for n, s in compose["services"].items()}
     assert publicados == {"consola": [], "salida": ["127.0.0.1:8765:8765"], "lector": [],
-                          "orden": []}
+                          "orden": [], "correo": [], "salida_correo": []}
     for servicio in compose["services"].values():
         assert "expose" not in servicio
 
@@ -118,12 +135,57 @@ def test_la_salida_solo_deja_ir_a_la_api_y_escucha_en_la_red_del_lector(compose)
     assert s["healthcheck"]["test"][-2:] == ["salud", "proxy:3128"]
 
 
+def test_la_salida_del_correo_solo_deja_ir_a_microsoft_y_escucha_en_su_red(compose) -> None:
+    """Paso 18 (D2, §1.3): la gemela de la salida de la API, con su lista (los dos hosts de
+    Microsoft, salida.DESTINOS_CORREO), su registro y sin reenviar nada a la consola."""
+    s = compose["services"]["salida_correo"]
+    assert s["command"] == ["salida", "--escuchar", "proxy-correo:3128",
+                            "--permitir", "login.microsoftonline.com:443",
+                            "--permitir", "graph.microsoft.com:443",
+                            "--registro", "/registro/salida-correo.log"]
+    orden = s["command"]
+    permitidos = tuple(orden[i + 1] for i, a in enumerate(orden) if a == "--permitir")
+    assert permitidos == salida.DESTINOS_CORREO
+    salida.lista_blanca(list(permitidos))
+    # "proxy-correo" es su nombre solo en la red del correo; en la suya de fuera, ninguno.
+    assert s["networks"]["red_correo"]["aliases"] == ["proxy-correo"]
+    assert not (s["networks"]["red_exterior_correo"] or {}).get("aliases")
+    assert s["healthcheck"]["test"][-2:] == ["salud", "proxy-correo:3128"]
+    assert s["volumes"] == ["registro_correo:/registro"]
+    assert s["restart"] == "unless-stopped" and "depends_on" not in s
+    # La de la API sigue con su unica lista.
+    assert compose["services"]["salida"]["command"].count("--permitir") == 1
+
+
+def test_el_correo_solo_trae_por_su_salida_y_no_ve_la_base_ni_la_clave(compose) -> None:
+    """Paso 18 (D1, §1.3): una ronda (correo traer) por la salida del correo, con sus dos
+    volumenes; sin el volumen datos, sin el buzon y sin el registro de la API."""
+    correo = compose["services"]["correo"]
+    assert correo["profiles"] == ["correo"]
+    assert correo["command"] == ["correo", "traer", "--ajustes", "/run/secrets/correo_ajustes",
+                                 "--certificado-fichero", "/run/secrets/correo_certificado",
+                                 "--estado", "/correo/estado", "--entrada", "/correo/entrada"]
+    entorno = correo["environment"]
+    assert entorno == {"HTTPS_PROXY": "http://proxy-correo:3128",
+                       "https_proxy": "http://proxy-correo:3128", "NO_PROXY": "", "no_proxy": ""}
+    assert correo["depends_on"] == {"salida_correo": {"condition": "service_healthy"}}
+    assert correo["healthcheck"] == {"disable": True}
+    assert correo["volumes"] == ["correo_estado:/correo/estado", "correo_entrada:/correo/entrada"]
+    # Lo que corre el ciclo es lo mismo (docker/comun.ps1, $OrdenTraer).
+    comun = (DOCKER / "comun.ps1").read_text(encoding="utf-8")
+    traer = re.search(r"^\$OrdenTraer = @\((.*)\)$", comun, re.M).group(1)
+    assert re.findall(r'"([^"]*)"', traer) == correo["command"]
+    comprobar = re.search(r"^\$OrdenComprobar = @\((.*)\)$", comun, re.M).group(1)
+    assert re.findall(r'"([^"]*)"', comprobar) == ["correo", "comprobar"] + correo["command"][2:8]
+
+
 def test_el_lector_solo_arranca_a_proposito_y_sale_por_el_proxy(compose) -> None:
     lector = compose["services"]["lector"]
     assert lector["profiles"] == ["lector"]
     assert compose["services"]["orden"]["profiles"] == ["ordenes"]
     assert "profiles" not in compose["services"]["consola"]
     assert "profiles" not in compose["services"]["salida"]
+    assert "profiles" not in compose["services"]["salida_correo"]
     entorno = lector["environment"]
     assert entorno["HTTPS_PROXY"] == entorno["https_proxy"] == "http://proxy:3128"
     assert entorno["NO_PROXY"] == entorno["no_proxy"] == ""
@@ -134,10 +196,14 @@ def test_el_lector_solo_arranca_a_proposito_y_sale_por_el_proxy(compose) -> None
 
 def test_la_clave_es_un_secreto_que_solo_ve_el_lector(compose) -> None:
     servicios = compose["services"]
-    assert {n for n, s in servicios.items() if s.get("secrets")} == {"lector"}
-    assert servicios["lector"]["secrets"] == ["anthropic_api_key"]
-    assert compose["secrets"] == {"anthropic_api_key": {
-        "file": "./secretos/anthropic_api_key.txt"}}
+    # Paso 18: solo el lector ve la clave de la API, y solo el correo sus dos ficheros (de su
+    # propia carpeta, docker\secretos\correo).
+    assert {n: s["secrets"] for n, s in servicios.items() if s.get("secrets")} == {
+        "lector": ["anthropic_api_key"], "correo": ["correo_ajustes", "correo_certificado"]}
+    assert compose["secrets"] == {
+        "anthropic_api_key": {"file": "./secretos/anthropic_api_key.txt"},
+        "correo_ajustes": {"file": "./secretos/correo/correo_ajustes.json"},
+        "correo_certificado": {"file": "./secretos/correo/correo_certificado.pem"}}
     assert servicios["lector"]["environment"]["BMS_CLAVE_API_FICHERO"] == \
         "/run/secrets/anthropic_api_key"
     texto = COMPOSE.read_text(encoding="utf-8")
@@ -150,14 +216,24 @@ def test_la_clave_es_un_secreto_que_solo_ve_el_lector(compose) -> None:
 
 def test_los_datos_van_en_un_volumen_y_el_buzon_se_lee_sin_escribir(compose) -> None:
     servicios = compose["services"]
-    assert compose["volumes"] == {"datos": {}, "registro_salida": {}}
+    assert compose["volumes"] == {"datos": {}, "registro_salida": {}, "correo_estado": {},
+                                  "correo_entrada": {}, "registro_correo": {}}
     assert servicios["consola"]["volumes"] == ["datos:/datos"]
     # La salida (el unico contenedor con internet) no ve los datos: solo su registro, que
     # vive en su volumen para que no se pierda con el contenedor (docker compose down).
     assert servicios["salida"]["volumes"] == ["registro_salida:/registro"]
     assert servicios["lector"]["volumes"] == ["datos:/datos", "../buzon:/buzon:ro"]
+    # Paso 18: las ordenes registran lo del correo y lo quitan de su bandeja (el acuse); su
+    # estado y el registro de su salida, solo para leerlos.
     assert servicios["orden"]["volumes"] == ["datos:/datos", "../buzon:/buzon:ro",
-                                             "registro_salida:/registro:ro"]
+                                             "registro_salida:/registro:ro",
+                                             "correo_entrada:/correo/entrada",
+                                             "correo_estado:/correo/estado:ro",
+                                             "registro_correo:/registro-correo:ro"]
+    # Lo que ve la base, nunca el correo ni su salida.
+    for nombre in ("correo", "salida_correo"):
+        assert not [v for v in servicios[nombre]["volumes"]
+                    if v.split(":")[0] in ("datos", "../buzon", "registro_salida")], nombre
     for nombre in ("consola", "lector", "orden"):
         assert servicios[nombre]["environment"]["BMS_DB"] == "/datos/${BMS_BASE:-bms}.sqlite3"
 
@@ -180,7 +256,7 @@ def test_docker_compose_config_lo_acepta() -> None:
     assert proceso.returncode == 0, proceso.stderr
     perfiles = subprocess.run(["docker", "compose", "-f", str(COMPOSE), "config", "--profiles"],
                               capture_output=True, text=True, timeout=60)
-    assert set(perfiles.stdout.split()) == {"lector", "ordenes"}
+    assert set(perfiles.stdout.split()) == {"lector", "ordenes", "correo"}
 
 
 # ============================================================ Dockerfile y dependencias
@@ -218,6 +294,24 @@ def test_el_dockerfile_corre_sin_privilegios_y_con_salud() -> None:
     assert "-r /app/docker/requirements-correo.txt" in instalar
     assert ("COPY docker/requirements.txt docker/requirements-correo.txt /app/docker/"
             in instrucciones)
+
+
+def test_cada_volumen_en_que_se_escribe_es_de_bms_en_la_imagen(compose) -> None:
+    """Paso 18 (V1): un volumen nuevo toma el dueno de su carpeta en la imagen; si no existe,
+    es de root y el usuario 10001 no puede escribir. Cada volumen con nombre que algun servicio
+    monta con escritura tiene su punto de montaje en el mkdir y en el chown de la imagen."""
+    [hecho] = [i for i in _dockerfile() if "mkdir -p" in i]
+    creadas = re.search(r"mkdir -p ([^&]+)", hecho).group(1).split()
+    de_bms = re.search(r"chown bms:bms ([^&]+)", hecho).group(1).split()
+    escritos = set()
+    for servicio in compose["services"].values():
+        for volumen in servicio.get("volumes", []):
+            partes = volumen.split(":")
+            if partes[0] in compose["volumes"] and partes[2:] != ["ro"]:
+                escritos.add(partes[1])
+    assert escritos == {"/datos", "/registro", "/correo/estado", "/correo/entrada"}
+    assert escritos <= set(creadas) and escritos <= set(de_bms)
+    assert "/buzon" in creadas and "/buzon" not in de_bms
 
 
 def _fijadas(fichero: str) -> dict[str, tuple[str, list[str]]]:
@@ -300,7 +394,39 @@ def test_dockerignore_y_gitignore_dejan_fuera_los_datos_y_la_clave() -> None:
 SCRIPTS = ("iniciar", "parar", "importar", "leer-facturas", "copia", "restaurar", "persona",
            "ver-salida",
            # Revision final: la identidad de la empresa y las ordenes sueltas con el token.
-           "empresa", "orden")
+           "empresa", "orden",
+           # Paso 18: el ciclo automatico (ciclo.bat, uno a mano), sus tareas, y el correo.
+           "ciclo", "automatico", "correo-configurar", "correo-certificado")
+
+
+def _ps1(nombre: str) -> str:
+    return (DOCKER / f"{nombre}.ps1").read_text(encoding="utf-8")
+
+
+def _codigo(texto: str) -> str:
+    """El script sin sus comentarios ni lo que va entre comillas: lo que de verdad se ejecuta
+    (como en test_instalacion_nativa.py)."""
+    sin_cadenas = re.sub(r'"(?:[^"`]|`.)*"|\'[^\']*\'', '""', texto)
+    return "\n".join(linea.split("#", 1)[0] for linea in sin_cadenas.splitlines())
+
+
+def _sin_comentarios(texto: str) -> str:
+    return "\n".join(l for l in texto.splitlines() if not l.lstrip().startswith("#"))
+
+
+def _en_orden(texto: str, pasos: list[str]) -> None:
+    """Cada paso aparece en el texto despues del anterior."""
+    desde = 0
+    for paso in pasos:
+        encontrado = texto.find(paso, desde)
+        assert encontrado >= 0, (paso, texto[desde:desde + 200])
+        desde = encontrado + len(paso)
+
+
+def _funcion(texto: str, nombre: str) -> str:
+    """El cuerpo de una funcion de un .ps1 (hasta la llave que la cierra, en su columna)."""
+    inicio = texto.index(f"function {nombre}")
+    return texto[inicio:texto.index("\n}\n", inicio) + 3]
 
 
 @pytest.mark.parametrize("nombre", SCRIPTS)
@@ -309,12 +435,25 @@ def test_cada_script_tiene_su_bat_y_habla_claro(nombre) -> None:
     bat = (DOCKER / f"{nombre}.bat").read_text(encoding="utf-8")
     assert f'-File "%~dp0{nombre}.ps1" %*' in bat and "-ExecutionPolicy Bypass" in bat
     assert '. "$PSScriptRoot\\comun.ps1"' in ps1
-    assert "Comprobar-Docker" in ps1
+    # El ciclo no sale nunca por si mismo (Comprobar-Docker sale si Docker no esta): espera a
+    # Docker con Docker-Listo.
+    if nombre == "ciclo":
+        assert "Comprobar-Docker" not in ps1 and "Docker-Listo" in ps1
+    else:
+        assert "Comprobar-Docker" in ps1
     # Windows PowerShell lee un .ps1 sin BOM como ANSI: nada fuera del ASCII.
     assert ps1.isascii() and bat.isascii()
     assert "sk-ant-" not in ps1
     assert not re.search(r"down\s+(-v|--volumes)", ps1)
-    assert "Escribir" in ps1 or "Fallar" in ps1
+    assert "Escribir" in ps1 or "Fallar" in ps1 or "Anotar" in ps1
+    # Paso 18: lo que hay que leer al acabar (la nota para el informatico y el .cer, como esta lo
+    # automatico, un ciclo a mano) deja la ventana abierta tambien si todo fue bien, como
+    # comprobar.bat de la nativa; los demas, solo si algo fallo.
+    lineas = [l.strip() for l in bat.splitlines()]
+    if nombre in ("ciclo", "automatico", "correo-configurar", "correo-certificado"):
+        assert lineas[-1] == "pause" and "if errorlevel 1 pause" not in lineas
+    else:
+        assert lineas[-1] == "if errorlevel 1 pause"
 
 
 def test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace() -> None:
@@ -323,6 +462,8 @@ def test_iniciar_con_demo_usa_la_base_de_prueba_y_la_rehace() -> None:
     assert '$env:BMS_BASE = "demo"' in comun and '$env:BMS_BASE = "bms"' in comun
     assert '"demo", "crear", "--rehacer", "--db", "/datos/demo.sqlite3"' in iniciar
     assert "up -d consola salida" in iniciar
+    # Paso 18: tambien la salida del correo (§1.3).
+    assert "docker compose up -d consola salida salida_correo\n" in iniciar
     # Paso 15: se espera a la consola (no depende de lo construido) y se abre la app en su
     # ventana de Edge; si la app no esta construida, la consola, de reserva.
     assert '$base = "http://127.0.0.1:8765"' in iniciar
@@ -426,6 +567,382 @@ def test_usuario_asegurar_no_da_otro_rol_a_quien_ya_existe(tmp_path, capsys) -> 
     listado = capsys.readouterr().out
     assert re.search(r"Bram\s+persona\s+administrador\n", listado)
     assert re.search(r"Bra\s+persona\s+consulta\n", listado)
+
+
+# ============================================================ paso 18: funcionar solo
+
+
+def test_los_codigos_del_correo_son_los_de_la_cli_y_solo_de_docker() -> None:
+    """Como acaban correo traer y correo comprobar: los mismos numeros en la CLI y en
+    docker/comun.ps1; la nativa no trae el correo (decision del dueno) y no los tiene."""
+    from bms_agent import cli
+
+    comun = _ps1("comun")
+    assert f"$CorreoSinConfigurar = {cli.CORREO_SIN_CONFIGURAR}\n" in comun
+    assert f"$CorreoFallo = {cli.CORREO_FALLO}\n" in comun
+    nativa = (RAIZ / "windows" / "comun.ps1").read_text(encoding="utf-8")
+    assert "$Correo" not in nativa
+    assert not list((RAIZ / "windows").glob("ciclo.*"))
+    assert not list((RAIZ / "windows").glob("automatico.*"))
+    assert not list((RAIZ / "windows").glob("correo-*"))
+
+
+def test_ningun_script_monta_la_carpeta_de_secretos_salvo_la_del_correo_en_orden() -> None:
+    """S5: la clave de la API vive en docker/secretos. Ningun -v de un script la monta en ningun
+    servicio; la unica carpeta de secretos que se monta es docker/secretos/correo, solo en el
+    contenedor de las ordenes (sin red) y solo para las ordenes del certificado y de los
+    ajustes (§2.4)."""
+    montajes = []
+    for script in sorted(DOCKER.glob("*.ps1")):
+        codigo = _sin_comentarios(script.read_text(encoding="utf-8"))
+        for m in re.finditer(r'-v\s+"([^"]+)"\s+(\S+)', codigo):
+            montajes.append((script.name, m.group(1), m.group(2)))
+    con_secretos = [(n, v, s) for n, v, s in montajes if "secretos" in v.lower()]
+    assert con_secretos == [("comun.ps1", "${CarpetaSecretosCorreo}:/secretos-correo", "orden")]
+    assert '$CarpetaSecretosCorreo = Join-Path $PSScriptRoot "secretos\\correo"\n' in _ps1("comun")
+    # Los demas montajes son los de siempre (la copia), y ninguno con una ruta de secretos.
+    otros = {v.split(":")[0] for _n, v, _s in montajes} - {"${CarpetaSecretosCorreo}"}
+    assert otros == {"${carpeta}", "${destinoCompleto}", "${origenCompleto}"}
+    orden = _funcion(_ps1("comun"), "Orden-Secretos-Correo")
+    assert "orden @Argumentos --carpeta /secretos-correo" in orden
+    # Y solo los dos scripts del correo la usan.
+    usan = {s.stem for s in DOCKER.glob("*.ps1") if "Orden-Secretos-Correo" in
+            _sin_comentarios(s.read_text(encoding="utf-8"))} - {"comun"}
+    assert usan == {"correo-configurar", "correo-certificado"}
+
+
+def test_lo_que_escriben_el_ciclo_y_la_pausa_esta_en_docker_estado() -> None:
+    """La pausa, el cerrojo, ciclo.json y el registro del ciclo, en docker/estado (fuera de git);
+    el ciclo no nombra ninguna otra ruta del proyecto (lo de secretos solo lo mira)."""
+    comun = _ps1("comun")
+    rutas = dict(re.findall(r'^\$(\w+) = Join-Path \$PSScriptRoot "([^"]+)"$', comun, re.M))
+    assert rutas == {
+        "CarpetaEstado": "estado", "FicheroPausa": "estado\\automatico.pausa",
+        "FicheroCerrojo": "estado\\ciclo.cerrojo", "FicheroCiclo": "estado\\ciclo.json",
+        "CarpetaRegistroCiclo": "estado\\registro", "CarpetaSecretosCorreo": "secretos\\correo",
+        "FicheroAjustesCorreo": "secretos\\correo\\correo_ajustes.json",
+        "FicheroCertificadoCorreo": "secretos\\correo\\correo_certificado.pem",
+        "FicheroClaveApi": "secretos\\anthropic_api_key.txt"}
+    for nombre in ("ciclo", "automatico"):
+        assert "Join-Path $PSScriptRoot" not in _sin_comentarios(_ps1(nombre)).replace(
+            'Join-Path $PSScriptRoot "ciclo.ps1"', ""), nombre
+    for funcion in ("Tomar-Cerrojo", "Pausar-Automatico", "Reanudar-Automatico", "Anotar"):
+        assert "$PSScriptRoot" not in _funcion(comun, funcion), funcion
+    assert "/docker/estado/" in (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_el_cerrojo_y_la_pausa() -> None:
+    """§4.4: el cerrojo es un fichero abierto en exclusiva (si el proceso muere, Windows lo
+    suelta); la pausa espera como mucho 2 minutos al cerrojo y la app la ve."""
+    comun = _ps1("comun")
+    tomar = _funcion(comun, "Tomar-Cerrojo")
+    assert "[System.IO.File]::Open($FicheroCerrojo, [System.IO.FileMode]::OpenOrCreate, " \
+           "[System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)" in tomar
+    pausar = _funcion(comun, "Pausar-Automatico")
+    assert pausar.index("Set-Content -LiteralPath $FicheroPausa") < pausar.index(
+        "Tomar-Cerrojo -Esperar 120") < pausar.index("ciclo latido --pausado --variante docker")
+    assert '$env:BMS_BASE = "bms"' in pausar
+    reanudar = _funcion(comun, "Reanudar-Automatico")
+    assert "Remove-Item -LiteralPath $FicheroPausa" in reanudar
+    assert "$SiLaPuseYo -and $script:PausaYaEstaba" in reanudar
+    # Ni la pausa ni el cerrojo salen del script: quien los llama decide.
+    for funcion in ("Tomar-Cerrojo", "Soltar-Cerrojo", "En-Pausa", "Pausar-Automatico",
+                    "Reanudar-Automatico", "Docker-Listo", "Imagen-Lista", "Anotar",
+                    "Compose-Anotado", "Disco-Libre", "Leer-Ciclo", "Instante-Utc",
+                    "Texto-Utc", "Entorno-De-La-Consola", "Cerrar-Lectura", "Elegir-Base",
+                    "Tarea-Del-Ciclo", "Automatizacion-Puesta"):
+        cuerpo = _codigo(_funcion(comun, funcion))
+        assert "Fallar" not in cuerpo and not re.search(r"\bexit\b", cuerpo), funcion
+
+
+@pytest.mark.parametrize("nombre, antes", [("parar", "docker compose down\n"),
+                                           ("restaurar", "docker compose down | Out-Host")])
+def test_parar_y_restaurar_pausan_antes_de_parar_nada(nombre, antes) -> None:
+    """O4: sin la pausa, el ciclo (y el depends_on de compose) lo volverian a arrancar en
+    minutos. Si no se puede esperar a lo que esta en marcha, no se toca nada."""
+    texto = _sin_comentarios(_ps1(nombre))
+    pausa = texto.index(f'if (-not (Pausar-Automatico "{nombre}.bat")) {{')
+    assert pausa < texto.index(antes)
+    assert texto.index("Fallar", pausa) < texto.index(antes)
+    if nombre == "restaurar":
+        # Vuelve al terminar bien (si la pausa la puso el); si algo falla, se queda en pausa.
+        assert texto.index("db verificar") < texto.index("Reanudar-Automatico -SiLaPuseYo")
+    else:
+        assert "Reanudar-Automatico" not in texto
+        assert "automatico.bat -Reanudar" in texto
+
+
+def test_iniciar_no_se_queda_colgado_y_reanuda() -> None:
+    """§4.4: con la consola ya en marcha con la base de verdad y la nuestra, solo se abre (sin
+    parar nada); si no, el cerrojo esperando como mucho 1 minuto, y lo de siempre."""
+    texto = _sin_comentarios(_ps1("iniciar"))
+    rapido = texto[texto.index('if (-not $Demo -and (Entorno-De-La-Consola) -eq "") {'):
+                   texto.index("Tomar-Cerrojo -Esperar 60")]
+    assert '$enMarcha -contains "consola" -and $enMarcha -contains "salida"' in rapido
+    assert "Reanudar-Automatico" in rapido and "Abrir-App $direccion" in rapido
+    assert "exit 0" in rapido
+    for nada in ("compose down", "compose up", "Tomar-Cerrojo -Esperar"):
+        assert nada not in rapido, nada
+    # La pasada del dia, si el ciclo no la ha hecho hoy, solo con el cerrojo libre y sin
+    # esperarlo: no se pisa con un ciclo que esta leyendo.
+    assert re.search(r'\$ciclo\.diaria\) -ne \$hoy\) -and \(Tomar-Cerrojo\)\) \{\n'
+                     r'\s+docker compose run --rm -T orden recalcular --diaria \*> \$null\n'
+                     r'\s+Soltar-Cerrojo\n', rapido.replace("\r\n", "\n"))
+    assert rapido.count("recalcular") == 1
+    cerrojo = texto.index("Tomar-Cerrojo -Esperar 60")
+    assert cerrojo < texto.index("docker compose down") < texto.index(
+        "up -d consola salida salida_correo") < texto.index("Soltar-Cerrojo", cerrojo) < \
+        texto.rindex("Reanudar-Automatico")
+    assert texto.index("Fallar", cerrojo) < texto.index("docker compose down")
+    comun = _ps1("comun")
+    assert '-ieq "X-BMS-Entorno"' in _funcion(comun, "Entorno-De-La-Consola")
+    assert "ps --status running --services" in _funcion(comun, "Servicios-En-Marcha")
+
+
+@pytest.mark.parametrize("nombre, primero", [
+    ("leer-facturas", "docker compose run --rm -T orden lectura tomar"),
+    ("copia", "docker compose run --rm -T -v \"${destinoCompleto}:/copia\" orden copia")])
+def test_leer_facturas_y_copia_esperan_al_ciclo(nombre, primero) -> None:
+    texto = _sin_comentarios(_ps1(nombre))
+    cerrojo = texto.index("Tomar-Cerrojo -Esperar 900")
+    assert cerrojo < texto.index(primero)
+    assert texto.index("Fallar", cerrojo) < texto.index(primero)
+
+
+def test_automatico_pone_las_tareas_sin_limite_y_comprueba_la_cuenta() -> None:
+    """§4.2 (Docker): el bucle al iniciar sesion (2 minutos) y el vigilante cada 15, una sola
+    instancia, sin limite de tiempo (PT0S: las 72 horas de por defecto cortarian el bucle),
+    reintentos; solo con la sesion iniciada y sin guardar contrasena; la pantalla bloqueada;
+    y avisa de la cuenta (local, estandar, sin caducidad, en docker-users)."""
+    texto = _sin_comentarios(_ps1("automatico"))
+    assert "[ValidateRange(5, 60)][int]$Minutos = 5" in texto
+    assert ('$powershell = Join-Path $env:SystemRoot '
+            '"System32\\WindowsPowerShell\\v1.0\\powershell.exe"') in texto
+    assert ("'-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"' "
+            "+ $ciclo + '\" -Bucle -Minutos ' + $Minutos") in texto
+    assert '$ciclo = Join-Path $PSScriptRoot "ciclo.ps1"' in texto
+    assert "New-ScheduledTaskTrigger -AtLogOn -User $usuario" in texto
+    assert '$alEntrar.Delay = "PT2M"' in texto
+    assert "-RepetitionInterval (New-TimeSpan -Minutes 15)" in texto
+    assert "-RepetitionDuration" not in texto
+    ajustes = texto[texto.index("$ajustes = New-ScheduledTaskSettingsSet"):]
+    ajustes = ajustes[:ajustes.index("\n", ajustes.index("$ajustes.ExecutionTimeLimit")) + 1]
+    for pieza in ("-MultipleInstances IgnoreNew", "-RestartCount 3",
+                  "-RestartInterval (New-TimeSpan -Minutes 5)",
+                  '$ajustes.ExecutionTimeLimit = "PT0S"'):
+        assert pieza in ajustes, pieza
+    assert ("New-ScheduledTaskPrincipal -UserId $usuario -LogonType Interactive "
+            "-RunLevel Limited") in texto
+    assert len(re.findall(r"(?<![\w-])Register-ScheduledTask -TaskName", texto)) == 2
+    assert not re.search(r"-Password\b|-RunLevel Highest|LogonType (Password|S4U)|"
+                         r"Read-Host[^\n]*-AsSecureString", _codigo(texto))
+    assert ('New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot '
+            '"System32\\rundll32.exe") -Argument "user32.dll,LockWorkStation"') in texto
+    for pieza in ("Get-LocalUser", "PasswordExpires", "PasswordNeverExpires", "PrincipalSource",
+                  '"S-1-5-32-544"', '"\\docker-users"', '"System32\\whoami.exe"'):
+        assert pieza in texto, pieza
+    # Las acciones, con la pausa y el cerrojo de comun.ps1; -Estado sin abrir la base.
+    assert 'Pausar-Automatico "automatico.bat -Pausar"' in texto and "Reanudar-Automatico" in texto
+    estado = texto[texto.index("# -Estado") if "# -Estado" in texto else texto.index(
+        'Escribir "Lo automatico (Docker):"'):]
+    assert "compose run" not in estado and "Leer-Ciclo" in estado
+    assert "$FicheroAjustesCorreo" in estado and "caduca_en" in estado
+    assert "Get-ScheduledTaskInfo" in estado and "LastTaskResult" in estado
+    comun = _ps1("comun")
+    assert '$TareaCiclo = "BMS Finanzas - ciclo (Docker)"' in comun
+    assert '$TareaBloquear = "BMS Finanzas - bloquear (Docker)"' in comun
+
+
+def test_el_ciclo_no_sale_nunca_y_hace_sus_pasos_en_su_orden() -> None:
+    """§4.1 y §4.2 (O9): -Bucle es un bucle sin fin que no llama a nada que salga (Fallar,
+    Comprobar-Docker, Asegurar-Imagen, exit); espera a Docker hasta 10 minutos. Cada ciclo: la
+    pausa, el cerrojo sin esperar, otra vez la pausa, el latido con el disco (con poco, nada
+    mas), el correo y registrar, la pasada del dia y la lectura."""
+    texto = _ps1("ciclo")
+    codigo = _codigo(texto)
+    for prohibido in ("Fallar", "Comprobar-Docker", "Asegurar-Imagen", "Pedir-Token",
+                      "BMS_TOKEN"):
+        assert prohibido not in codigo, prohibido
+    assert not re.search(r"\bexit\b", codigo)
+    assert "while ($true) {" in texto and "Docker-Listo 600" in texto
+    bucle = texto[texto.index("while ($true) {"):]
+    assert "} catch {" in bucle and "Start-Sleep -Seconds 30" in bucle
+    ciclo = _funcion(texto, "Un-Ciclo")
+    pasos = ["if (En-Pausa) {", "if (-not (Tomar-Cerrojo)) {", "if (En-Pausa) {",
+             '"ciclo", "latido", "--variante", "docker"', "--disco-libre",
+             "$libre -lt $DiscoMinimo", '"registrar", "--fallo", "disco"',
+             "Pasada-Del-Correo", "Pasada-Del-Dia", "Lectura-Del-Ciclo"]
+    posiciones = []
+    desde = 0
+    for paso in pasos:
+        desde = ciclo.index(paso, desde)
+        posiciones.append(desde)
+    assert posiciones == sorted(posiciones)
+    assert "Tomar-Cerrojo -Esperar" not in ciclo
+    # Cada paso en su propio try: sin correo se puede leer lo que ya hay.
+    for paso in ("Pasada-Del-Correo", "Pasada-Del-Dia", "Lectura-Del-Ciclo"):
+        assert f"try {{ {paso} }} catch {{" in ciclo, paso
+    comun = _ps1("comun")
+    assert "$DiscoMinimo = 10GB\n" in comun
+    from bms_agent import ciclo as modulo_ciclo
+    assert modulo_ciclo.DISCO_MINIMO == 10 * 1024 ** 3
+    disco = _funcion(comun, "Disco-Libre")
+    assert "Get-PSDrive" in disco and "$env:LOCALAPPDATA" in disco
+
+
+def test_el_correo_del_ciclo_registra_siempre_y_apunta_lo_que_no_pudo() -> None:
+    """§4.1 paso 3 (y lo que dejo el paso 10): la ronda por la salida del correo; si la salida
+    no arranca, --fallo salida; si el correo no dice como acabo, --fallo interno; y registrar
+    siempre, tambien si no trajo nada. Sin el correo configurado, no se trae nada."""
+    texto = _ps1("ciclo")
+    correo = _funcion(texto, "Pasada-Del-Correo")
+    orden = ["Test-Path -LiteralPath $FicheroAjustesCorreo",
+             '"registrar", "--fallo", "sin_configurar"',
+             '"up", "-d", "--wait", "--wait-timeout", "120", "salida_correo"',
+             '"registrar", "--fallo", "salida"', '"run", "--rm", "-T", "correo"',
+             "@(0, $CorreoSinConfigurar, $CorreoFallo) -notcontains $traer.Codigo",
+             '"registrar", "--fallo", "interno"',
+             '"registrar", "--entrada", "/correo/entrada", "--estado", "/correo/estado"']
+    posiciones = [correo.index(p) for p in orden]
+    assert posiciones == sorted(posiciones)
+    # Registrar va fuera de las ramas: tambien cuando la salida no arranco.
+    final = correo[correo.rindex("    }\n"):]
+    assert '"registrar", "--entrada"' in final
+    # Al empezar el bucle, comprueba el alcance (§2.3).
+    assert "$OrdenTraer + @(\"--comprobar\")" in correo
+    assert "$PrimeraRonda = $Bucle.IsPresent" in texto
+
+
+def test_la_lectura_del_ciclo_no_escribe_nunca_que_si() -> None:
+    """§4.1 paso 5: la pedida en la app con el si de la app (esperar --solo-app); la automatica
+    con la autorizacion vigente (autorizar). Contar y leer una vez cada uno, nunca extract, y
+    la lectura no se queda viva."""
+    texto = _ps1("ciclo")
+    codigo = _sin_comentarios(texto)
+    assert '"si"' not in codigo.lower() and "extract" not in codigo
+    for orden in ("contar", "leer", "autorizar", "esperar"):
+        assert len(re.findall(rf'"lectura", "{orden}"', codigo)) == 1, orden
+    assert '"lectura", "esperar", $Solicitud, "--solo-app"' in codigo
+    leer = _funcion(texto, "Leer-Con-Salida")
+    pasos = ["Test-Path -LiteralPath $FicheroClaveApi", 'Cerrar-Lectura $Solicitud "clave"',
+             "try {", '"up", "-d", "--wait", "--wait-timeout", "180", "salida"',
+             'Cerrar-Lectura $Solicitud "salida"', '"lector", "lectura", "contar"',
+             "if ($Automatica) {", '"orden", "lectura", "autorizar"',
+             '"orden", "lectura", "esperar"', '"lector", "lectura", "leer"', "} finally {",
+             'Cerrar-Lectura $Solicitud "interrumpida" -SiViva']
+    posiciones = [leer.index(p) for p in pasos]
+    assert posiciones == sorted(posiciones)
+    for anterior, siguiente in (("contar", "autorizar"), ('esperar"', "leer")):
+        trozo = leer[leer.index(anterior):leer.index(f'"lectura", "{siguiente}')]
+        assert ".Codigo -ne 0) { return }" in trozo, (anterior, siguiente)
+    lectura = _funcion(texto, "Lectura-Del-Ciclo")
+    pasos = ['(Entorno-De-La-Consola) -eq "demo"', '"lectura", "siguiente"',
+             "if ($toca.Codigo -eq 0) {", '"lectura", "tomar", "--automatica"',
+             "Leer-Con-Salida $solicitud -Automatica", "$toca.Codigo -eq $LecturaPedida",
+             '"lectura", "tomar", "/buzon/facturas", "--solo-pedida"',
+             "Leer-Con-Salida $solicitud\n"]
+    posiciones = [lectura.index(p) for p in pasos]
+    assert posiciones == sorted(posiciones)
+    from bms_agent import lectura as modulo_lectura
+    for motivo in re.findall(r'Cerrar-Lectura \$Solicitud "([a-z_]+)"', texto):
+        assert motivo in modulo_lectura.MOTIVOS, motivo
+
+
+def test_correo_certificado_activa_con_la_pausa_y_vuelve_si_no_vale() -> None:
+    """§2.4: crear el siguiente; -Activar con la automatizacion en pausa: activar (local),
+    comprobar con el contenedor del correo de siempre, y borrar el anterior si vale o volver a
+    el si Microsoft no acepta el nuevo; registrar y reanudar."""
+    texto = _sin_comentarios(_ps1("correo-certificado"))
+    assert 'Orden-Secretos-Correo @("correo", "certificado", "crear", "--siguiente")' in texto
+    activar = texto[texto.index("# -Activar") if "# -Activar" in texto else texto.index(
+        'Pausar-Automatico "correo-certificado.bat -Activar"'):]
+    pasos = ['Pausar-Automatico "correo-certificado.bat -Activar"',
+             'Orden-Secretos-Correo @("correo", "certificado", "activar")',
+             "$comprobado = Comprobar-Correo", "if ($comprobado.Codigo -eq 0) {",
+             '"certificado", "borrar", "--anterior"', '$comprobado.Que -eq "credencial"',
+             '"certificado", "volver"', "Registrar-Correo", "Soltar-Cerrojo",
+             "Reanudar-Automatico -SiLaPuseYo", "if ($final) { Fallar $final }"]
+    _en_orden(activar, pasos)
+    # Si no se pudo activar, no se comprueba nada y se reanuda (si la pausa la puso el).
+    fallo = activar[activar.index('"certificado", "activar")'):activar.index(
+        "$comprobado = Comprobar-Correo")]
+    assert fallo.index("Reanudar-Automatico -SiLaPuseYo") < fallo.index("Fallar")
+    # Nunca rehace el actual.
+    assert '@("correo", "certificado", "crear")' not in texto
+
+
+def test_correo_configurar_en_dos_fases_sin_rehacer_nunca_el_certificado() -> None:
+    """§2.6: fase 1, el certificado (solo si no hay); fase 2, los cuatro datos, la comprobacion
+    y, al final, registrar (la app lo ve sin esperar al ciclo)."""
+    texto = _sin_comentarios(_ps1("correo-configurar"))
+    pasos = ['Orden-Secretos-Correo @("correo", "certificado", "ver")',
+             "if ($ver -eq $CorreoSinConfigurar) {",
+             'Orden-Secretos-Correo @("correo", "certificado", "crear")',
+             '"correo", "ajustes", "fijar", "--inquilino", $inquilino',
+             "Tomar-Cerrojo -Esperar 900", "$comprobado = Comprobar-Correo",
+             "Registrar-Correo", "Soltar-Cerrojo", '"permiso" {', '"alcance" {',
+             '"credencial" {', '"control_no_existe" {']
+    posiciones = [texto.index(p) for p in pasos]
+    assert posiciones == sorted(posiciones)
+    assert texto.count('"certificado", "crear"') == 1
+    for nunca in ("--siguiente", '"activar"', '"volver"', '"borrar"', "Pausar-Automatico"):
+        assert nunca not in texto, nunca
+    comun = _ps1("comun")
+    comprobar = _funcion(comun, "Comprobar-Correo")
+    assert "docker compose run --rm -T correo @OrdenComprobar 2>&1" in comprobar
+    assert "orden correo registrar --entrada /correo/entrada --estado /correo/estado" in \
+        _funcion(comun, "Registrar-Correo")
+
+
+def test_ver_salida_ensena_los_dos_registros() -> None:
+    texto = _ps1("ver-salida")
+    assert '$argumentos = @("salida-registro")' in texto
+    assert '@("salida-registro", "--fichero", "/registro-correo/salida-correo.log")' in texto
+    for host in ("api.anthropic.com", "login.microsoftonline.com", "graph.microsoft.com"):
+        assert host in texto, host
+
+
+def test_los_scripts_de_docker_son_de_windows_powershell_5_1_y_no_bajan_nada() -> None:
+    """Como los de la nativa (test_instalacion_nativa.py): nada que solo entienda PowerShell 7,
+    nada que ejecute texto ni que baje algo."""
+    todos = {p.stem: p.read_text(encoding="utf-8") for p in DOCKER.glob("*.ps1")}
+    assert set(todos) == set(SCRIPTS) | {"comun"}
+    for nombre, texto in todos.items():
+        codigo = _codigo(texto)
+        assert not re.search(r"&&|\|\||\?\?|\?\.|\s\?\s[^:\n]+\s:\s", codigo), nombre
+        assert not re.search(r"-Parallel|-AsPlainText|-AsHashtable|-AsByteStream|utf8NoBOM|"
+                             r"\$PSStyle|-SkipCertificateCheck|GetRelativePath|\bclean\s*\{",
+                             codigo, re.IGNORECASE), nombre
+        assert not re.search(r"Invoke-Expression|\biex\b|DownloadString|DownloadFile|"
+                             r"Start-BitsTransfer|\bcurl\b|\bwget\b|Net\.WebClient|"
+                             r"FromBase64String|-EncodedCommand|Set-ExecutionPolicy|"
+                             r"ServerCertificateValidationCallback|-OutFile",
+                             codigo, re.IGNORECASE), nombre
+        simple = r'(?:\$[\w.:]+|"[^"]*")'
+        assert not re.search(rf"Join-Path[ \t]+{simple}[ \t]+{simple}[ \t]+{simple}",
+                             _sin_comentarios(texto)), nombre
+        assert texto.isascii(), nombre
+        assert not re.search(r"sk-ant-[A-Za-z0-9_-]{6,}", texto), nombre
+
+
+def test_pwsh_cada_script_de_docker_pasa_el_analizador() -> None:
+    """Sin errores de sintaxis en ningun .ps1 de docker/ (con el analizador de PowerShell; el
+    de Windows PowerShell 5.1 solo esta en Windows, §7.4)."""
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("sin pwsh")
+    carpeta = str(DOCKER).replace("'", "''")
+    guion = ("$e = @{}; foreach ($f in Get-ChildItem -LiteralPath '" + carpeta + "' -Filter "
+             "*.ps1) { "
+             "$t = $null; $x = $null; [System.Management.Automation.Language.Parser]::ParseFile("
+             "$f.FullName, [ref]$t, [ref]$x) | Out-Null; "
+             "$e[$f.Name] = @($x | ForEach-Object { $_.Message }) }; $e | ConvertTo-Json -Depth 3")
+    proceso = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", guion],
+                             capture_output=True, text=True, timeout=120)
+    assert proceso.returncode == 0, proceso.stderr
+    errores = json.loads(proceso.stdout)
+    assert set(errores) == {f"{n}.ps1" for n in SCRIPTS} | {"comun.ps1"}
+    assert {n: e for n, e in errores.items() if e} == {}
 
 
 # ============================================================ la consola en un contenedor

@@ -6,6 +6,10 @@
 # Para la consola, comprueba la copia y la restaura. Lo que hubiera antes no se pierde:
 # queda guardado entero en el volumen, en antes-de-restaurar. La vuelta atras queda en la
 # auditoria (un evento de restauracion) y db verificar la ensena.
+#
+# Paso 18: antes de parar la consola, la automatizacion queda en pausa (y se espera a lo que
+# este en marcha); si todo va bien, vuelve al terminar (si no estaba ya en pausa). Si algo
+# falla, se queda en pausa: que lo mire una persona.
 param(
     [Parameter(Mandatory = $true)][string]$Origen,
     [switch]$Demo
@@ -26,6 +30,9 @@ if (-not (Es-Si $respuesta)) {
     Escribir "No has escrito si: no se ha tocado nada." "Yellow"
     exit 0
 }
+if (-not (Pausar-Automatico "restaurar.bat")) {
+    Fallar "No se ha tocado nada. Vuelve a abrir restaurar.bat cuando acabe la lectura."
+}
 Escribir "Parando la consola..." "Cyan"
 docker compose down | Out-Host
 # Montada con su nombre (bms-copia-...): el evento de la restauracion dice de que copia viene.
@@ -34,4 +41,6 @@ docker compose run --rm -T -v "${origenCompleto}:/copias/${nombre}:ro" orden res
 if ($LASTEXITCODE -ne 0) { Fallar "No se ha restaurado. Tus datos siguen como estaban. Mira el mensaje de arriba." }
 docker compose run --rm -T orden db verificar --db $base | Out-Host
 if ($LASTEXITCODE -ne 0) { Fallar "La copia esta puesta pero no cuadra. No sigas trabajando y avisa a quien mantiene el programa." }
+Soltar-Cerrojo
+Reanudar-Automatico -SiLaPuseYo
 Escribir "Restaurada y comprobada. Arranca la consola con .\iniciar.ps1" "Green"

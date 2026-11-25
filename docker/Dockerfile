@@ -10,7 +10,8 @@
 # - corre como un usuario sin privilegios (uid 10001), nunca como root;
 # - el sistema de ficheros de la imagen es de solo lectura en compose (read_only): lo
 #   unico que se escribe es /datos (el volumen), /registro (el registro de la salida, en
-#   su volumen) y /tmp (en memoria);
+#   su volumen), /correo/estado y /correo/entrada (el estado y la bandeja del correo de
+#   facturas, paso 18, en los suyos) y /tmp (en memoria);
 # - la clave de la API no entra nunca en la imagen: es un secreto de Docker que solo
 #   ve el lector, en tiempo de ejecucion.
 FROM python:3.11.17-slim-trixie@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
@@ -39,12 +40,15 @@ COPY pyproject.toml README.md /app/
 COPY config /app/config
 COPY src /app/src
 
+# Cada punto de montaje en que un servicio escribe (docker-compose.yml) existe en la imagen y
+# es de bms: un volumen nuevo toma el dueno de su carpeta en la imagen; sin ella, seria de
+# root y el usuario 10001 no podria escribir (paso 18: los dos del correo).
 RUN python -m compileall -q /app/src \
     && groupadd --gid 10001 bms \
     && useradd --uid 10001 --gid bms --no-create-home --home-dir /tmp \
         --shell /usr/sbin/nologin bms \
-    && mkdir -p /datos /buzon /registro \
-    && chown bms:bms /datos /registro
+    && mkdir -p /datos /buzon /registro /correo/estado /correo/entrada \
+    && chown bms:bms /datos /registro /correo/estado /correo/entrada
 
 USER 10001:10001
 

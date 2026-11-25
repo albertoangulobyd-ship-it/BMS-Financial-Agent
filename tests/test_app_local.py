@@ -635,8 +635,11 @@ def test_sin_la_app_construida_el_lanzador_abre_la_consola(carpeta) -> None:
     iniciar = (RAIZ / carpeta / "iniciar.ps1").read_text(encoding="utf-8")
     espera = iniciar[iniciar.index("Esperando a que la consola conteste"):]
     espera = espera[:espera.index("Abrir-App")]
-    # Lista cuando contesta /consola, no /app.
-    assert '"/consola"' in espera and "-Uri $consola_url" in espera
+    # Lista cuando contesta /consola, no /app. (En docker, $consola_url se define antes de
+    # esperar: el camino rapido de iniciar del paso 18 tambien la usa.)
+    hasta_abrir = iniciar[:iniciar.index("Esperando a que la consola conteste") + len(espera)]
+    assert iniciar.count("$consola_url = ") == 1
+    assert '$consola_url = $base + "/consola"' in hasta_abrir and "-Uri $consola_url" in espera
     assert "-Uri $direccion" not in espera and '/app"' not in espera.split("Direccion-De-La-App")[0]
     assert "$direccion = Direccion-De-La-App $base" in iniciar
     assert "Abrir-App $direccion" in iniciar

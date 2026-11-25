@@ -1,8 +1,34 @@
-Aqui va la clave de la API de Anthropic, y nada mas.
+Aqui va la clave de la API de Anthropic y, en la carpeta correo, lo del correo de facturas.
+Nada de esta carpeta entra en git (.gitignore) ni en la imagen (.dockerignore).
 
+La clave de la API
+------------------
 Crea en esta carpeta un fichero llamado anthropic_api_key.txt con la clave en una
 sola linea (empieza por sk-ant-). Lo lee solo el contenedor del lector, como secreto
 de Docker: no entra en la imagen, ni en una variable de entorno, ni en git (esta
 carpeta esta en .gitignore y en .dockerignore).
 
 Los pasos, con capturas de lo que se ve, en docs/entorno-local.md ("La clave de la API").
+
+El correo de facturas (paso 18): la carpeta correo
+--------------------------------------------------
+No la llenes a mano: la crean correo-configurar.bat y correo-certificado.bat.
+
+  correo_certificado.pem             la clave privada del certificado con que el programa
+                                     pide su permiso a Microsoft, y el certificado. Es un
+                                     secreto: no sale nunca de este equipo, no se manda a
+                                     nadie y no se sube a ningun sitio.
+  correo_certificado.cer             la parte publica, la que el informatico sube a la
+                                     aplicacion de Entra (docs/correo-m365.md).
+  correo_certificado-siguiente.pem/.cer   al renovar (correo-certificado.bat), el nuevo,
+                                     hasta que se active (correo-certificado.bat -Activar).
+  correo_certificado-anterior.pem/.cer    el de antes, hasta que se comprueba el nuevo.
+  correo_ajustes.json                el id del inquilino y el de la aplicacion de Entra, la
+                                     direccion del buzon de las facturas y la del buzon de
+                                     control, desde cuando se trae y los topes por dia. No
+                                     son secretos, pero si datos de la empresa.
+
+El contenedor del correo solo ve dos ficheros, correo_certificado.pem y
+correo_ajustes.json, como secretos de Docker. La carpeta entera solo la ve el
+contenedor de las ordenes (sin red), y solo mientras dura una orden del certificado o de
+los ajustes. Ningun contenedor ve nunca esta carpeta entera, donde esta la clave de la API.
