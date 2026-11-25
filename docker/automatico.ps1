@@ -3,7 +3,7 @@
 #
 #   .\automatico.ps1 -Instalar      pone las dos tareas (sin ser administrador, con la cuenta
 #                                   que las va a correr)
-#   .\automatico.ps1 -Quitar        las quita
+#   .\automatico.ps1 -Quitar        las quita, y la app deja de decir nada del ciclo
 #   .\automatico.ps1 -Pausar        nada arranca solo hasta -Reanudar (o iniciar.bat): para
 #                                   actualizar Docker Desktop o Windows
 #   .\automatico.ps1 -Reanudar      vuelve a funcionar
@@ -85,6 +85,35 @@ function Avisos-De-La-Cuenta {
     return $avisos
 }
 
+# La consola de Windows (conhost) como terminal: con Windows Terminal, lo que Windows 11 elige
+# si no se le dice otra cosa, -WindowStyle Hidden no oculta la ventana (microsoft/terminal
+# 12464) y el bucle se veria todo el rato; si alguien la cierra, se para hasta el vigilante.
+$ClaveTerminal = "HKCU:\Console\%%Startup"
+$ConsolaDeWindows = "{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}"
+
+function Terminal-Es-La-Consola {
+    # Si las ventanas de consola de esta cuenta se abren con la consola de Windows (los dos
+    # valores de Configuracion > Sistema > Para programadores > Terminal). Fuera de Windows, si.
+    if (-not (Test-Path -LiteralPath "HKCU:\Console")) { return $true }
+    $valores = Get-ItemProperty -LiteralPath $ClaveTerminal -ErrorAction SilentlyContinue
+    if ($null -eq $valores) { return $false }
+    return ((("" + $valores.DelegationConsole) -eq $ConsolaDeWindows) -and (("" + $valores.DelegationTerminal) -eq $ConsolaDeWindows))
+}
+
+function Poner-La-Consola {
+    # Lo mismo que elegir "Host de la consola de Windows" en esa pantalla, solo para esta cuenta.
+    try {
+        if (-not (Test-Path -LiteralPath $ClaveTerminal)) { New-Item -Path $ClaveTerminal -ErrorAction Stop | Out-Null }
+        foreach ($nombre in @("DelegationConsole", "DelegationTerminal")) {
+            New-ItemProperty -LiteralPath $ClaveTerminal -Name $nombre -PropertyType String -Value $ConsolaDeWindows -Force -ErrorAction Stop | Out-Null
+        }
+        return $true
+    } catch {
+        Escribir ("No se ha podido cambiar: " + $_.Exception.Message) "Yellow"
+        return $false
+    }
+}
+
 function Decir-Resultado($Resultado) {
     # LastTaskResult, en claro.
     $hex = "0x{0:X8}" -f $Resultado
@@ -111,11 +140,23 @@ if ($Instalar) {
             exit 0
         }
     }
+    if (-not (Terminal-Es-La-Consola)) {
+        Escribir "En esta cuenta, PowerShell se abre en Windows Terminal: asi el ciclo no se puede ocultar y se veria su ventana todo el rato (si alguien la cierra, se para hasta que el vigilante lo vuelve a arrancar)." "Yellow"
+        $respuesta = Read-Host "Abrir las ventanas de consola de esta cuenta con la consola de Windows, como antes de Windows 11? (escribe si)"
+        if ((Es-Si $respuesta) -and (Poner-La-Consola)) {
+            Escribir "Hecho (se puede cambiar en Configuracion > Sistema > Para programadores > Terminal)."
+        } else {
+            Escribir "Sigue igual: la ventana del ciclo se vera; no la cierres." "Yellow"
+        }
+    }
     $usuario = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
     $ciclo = Join-Path $PSScriptRoot "ciclo.ps1"
     $argumentos = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $ciclo + '" -Bucle -Minutos ' + $Minutos
-    $accion = New-ScheduledTaskAction -Execute $powershell -Argument $argumentos -WorkingDirectory $PSScriptRoot
+    # Fuera de la carpeta del proyecto: el bucle no la tiene como carpeta de trabajo, y con la
+    # automatizacion en pausa se puede sustituir (una version nueva). Los scripts no dependen de
+    # ella: comun.ps1 se pone en su carpeta (Set-Location).
+    $accion = New-ScheduledTaskAction -Execute $powershell -Argument $argumentos -WorkingDirectory (Join-Path $env:SystemRoot "System32")
     # Al iniciar sesion esta cuenta, a los 2 minutos, y despues cada 15 (el vigilante).
     $alEntrar = New-ScheduledTaskTrigger -AtLogOn -User $usuario
     $alEntrar.Delay = "PT2M"
@@ -168,15 +209,49 @@ if ($Quitar) {
     if (-not (Tomar-Cerrojo -Esperar 120 -Aviso "El ciclo automatico esta trabajando: espero a que acabe (como mucho 2 minutos)...")) {
         Fallar "Hay una lectura en marcha (miralo en Procesar): espera a que termine o parala, y vuelve a probar."
     }
+    $vistas = 0
+    $quedan = 0
     foreach ($tarea in @($TareaCiclo, $TareaBloquear)) {
+        if (-not (Get-ScheduledTask -TaskName $tarea -TaskPath "\" -ErrorAction SilentlyContinue)) { continue }
+        $vistas += 1
         Stop-ScheduledTask -TaskName $tarea -TaskPath "\" -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $tarea -TaskPath "\" -Confirm:$false -ErrorAction SilentlyContinue
         if (Get-ScheduledTask -TaskName $tarea -TaskPath "\" -ErrorAction SilentlyContinue) {
             Escribir ("No se ha podido quitar '" + $tarea + "': quitala con la cuenta que la puso.") "Yellow"
+            $quedan += 1
         }
+    }
+    if ($vistas -eq 0) {
+        # Ya quitadas (otra vez -Quitar, por ejemplo porque Docker no contestaba) o puestas por
+        # otra cuenta, que no las deja ver: si el ciclo acaba de pasar, es eso.
+        $ciclo = Leer-Ciclo
+        $visto = if ($null -ne $ciclo) { Instante-Utc $ciclo.visto_en } else { $null }
+        if ($null -ne $visto -and ((Get-Date).ToUniversalTime() - $visto).TotalMinutes -le 30) {
+            Soltar-Cerrojo
+            Fallar "Con esta cuenta no veo las tareas, y el ciclo ha pasado hace poco: las puso otra cuenta (por ejemplo 'bms'). Abre automatico.bat -Quitar con esa cuenta."
+        }
+        Escribir "Con esta cuenta no hay tareas que quitar (si las puso otra, quitalas con esa)." "Yellow"
+    }
+    if ($quedan -gt 0) {
+        Soltar-Cerrojo
+        Fallar "No se ha quitado todo (arriba, que). Lo demas sigue como estaba."
+    }
+    # Sin las tareas, nada vuelve a escribir el latido: la app y iniciar.bat dejan de decir que
+    # el trabajo automatico no corre (ciclo.json y estado_ciclo).
+    Remove-Item -LiteralPath $FicheroCiclo -Force -ErrorAction SilentlyContinue
+    $enLaApp = $false
+    if ((Docker-Listo 0) -and (Imagen-Lista)) {
+        $base = $env:BMS_BASE
+        $env:BMS_BASE = "bms"
+        docker compose run --rm -T orden ciclo quitar | Out-Host
+        $enLaApp = ($LASTEXITCODE -eq 0)
+        $env:BMS_BASE = $base
     }
     Soltar-Cerrojo
     Escribir "Quitado: ya no se trae el correo ni se lee nada solo. La consola sigue como estaba (iniciar.bat, parar.bat)." "Green"
+    if (-not $enLaApp) {
+        Escribir "La app seguira diciendo que el trabajo automatico no corre: con Docker Desktop en marcha, vuelve a abrir automatico.bat -Quitar." "Yellow"
+    }
     exit 0
 }
 

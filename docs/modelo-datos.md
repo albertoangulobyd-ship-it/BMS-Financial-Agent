@@ -164,7 +164,7 @@ y nunca se usa para pagar.
 | `correo_atendido` | Un correo que el programa no podía leer y que una persona ya miró |
 | `ronda_correo` | Las rondas del correo que trajeron algo o cambiaron de error, con su código de la lista cerrada |
 | `estado_correo` | Caché de una fila: el último estado del correo (última consulta, error y desde cuándo, alcance comprobado, caducidad del certificado, retenido hasta, lo de hoy, aviso de volumen). Sin fila, el correo no está configurado |
-| `estado_ciclo` | Caché de una fila: el latido del ciclo automático (cuándo pasó, variante, si está en pausa y el espacio libre del disco) |
+| `estado_ciclo` | Caché de una fila: el latido del ciclo automático (cuándo pasó, variante, si está en pausa y el espacio libre del disco); `ciclo quitar` (`automatico.bat -Quitar`) la borra |
 
 ### BTW
 

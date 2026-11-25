@@ -4,7 +4,8 @@ El ciclo (docker\\ciclo.ps1, cada 5 minutos) lo llama al principio de cada vuelt
 espacio libre que mide desde Windows (en Docker el contenedor solo veria el disco virtual de
 WSL2), y Pausar-Automatico con --pausado. Deja una fila en estado_ciclo (una CACHE: se
 reescribe), que es lo que la app dice del ciclo ("el trabajo automatico no corre desde...") y
-del disco. No decide nada ni lanza nada: solo apunta.
+del disco. No decide nada ni lanza nada: solo apunta. `ciclo quitar` (automatico.bat -Quitar)
+la borra: sin la automatizacion, la app no dice nada del ciclo, como si no hubiera corrido nunca.
 """
 
 from __future__ import annotations
@@ -75,3 +76,11 @@ def leer(conn: sqlite3.Connection) -> Latido | None:
         return None
     return Latido(fila["visto_en"], fila["variante"], fila["pausado"] == 1,
                   fila["pausado_desde"], fila["disco_libre_bytes"])
+
+
+def quitar(conn: sqlite3.Connection) -> bool:
+    """La automatizacion se ha quitado (automatico.bat -Quitar): se borra el latido, para que la
+    app no diga para siempre que el trabajo automatico no corre (es una CACHE, no evidencia).
+    Devuelve si habia alguno."""
+    with transaccion(conn):
+        return conn.execute("DELETE FROM estado_ciclo WHERE id = 1").rowcount > 0

@@ -625,7 +625,8 @@ def test_lo_que_escriben_el_ciclo_y_la_pausa_esta_en_docker_estado() -> None:
         "FicheroClaveApi": "secretos\\anthropic_api_key.txt"}
     for nombre in ("ciclo", "automatico"):
         assert "Join-Path $PSScriptRoot" not in _sin_comentarios(_ps1(nombre)).replace(
-            'Join-Path $PSScriptRoot "ciclo.ps1"', ""), nombre
+            'Join-Path $PSScriptRoot "ciclo.ps1"', "").replace(
+            'Join-Path $PSScriptRoot "comun.ps1"', ""), nombre
     for funcion in ("Tomar-Cerrojo", "Pausar-Automatico", "Reanudar-Automatico", "Anotar"):
         assert "$PSScriptRoot" not in _funcion(comun, funcion), funcion
     assert "/docker/estado/" in (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()
@@ -642,6 +643,12 @@ def test_el_cerrojo_y_la_pausa() -> None:
     assert pausar.index("Set-Content -LiteralPath $FicheroPausa") < pausar.index(
         "Tomar-Cerrojo -Esperar 120") < pausar.index("ciclo latido --pausado --variante docker")
     assert '$env:BMS_BASE = "bms"' in pausar
+    # Sin el cerrojo, con -SoloSiSigue se quita la pausa que puso esta llamada (y solo esa).
+    sin_cerrojo = pausar[pausar.index("Tomar-Cerrojo -Esperar 120"):]
+    sin_cerrojo = sin_cerrojo[:sin_cerrojo.index("return $false")]
+    assert ("if ($SoloSiSigue -and -not $script:PausaYaEstaba) {\n"
+            "            Remove-Item -LiteralPath $FicheroPausa") in sin_cerrojo.replace("\r\n",
+                                                                                   "\n")
     reanudar = _funcion(comun, "Reanudar-Automatico")
     assert "Remove-Item -LiteralPath $FicheroPausa" in reanudar
     assert "$SiLaPuseYo -and $script:PausaYaEstaba" in reanudar
@@ -655,13 +662,15 @@ def test_el_cerrojo_y_la_pausa() -> None:
         assert "Fallar" not in cuerpo and not re.search(r"\bexit\b", cuerpo), funcion
 
 
-@pytest.mark.parametrize("nombre, antes", [("parar", "docker compose down\n"),
-                                           ("restaurar", "docker compose down | Out-Host")])
-def test_parar_y_restaurar_pausan_antes_de_parar_nada(nombre, antes) -> None:
+@pytest.mark.parametrize("nombre, antes, llamada", [
+    ("parar", "docker compose down\n", '"parar.bat"'),
+    ("restaurar", "docker compose down | Out-Host", '"restaurar.bat" -SoloSiSigue')])
+def test_parar_y_restaurar_pausan_antes_de_parar_nada(nombre, antes, llamada) -> None:
     """O4: sin la pausa, el ciclo (y el depends_on de compose) lo volverian a arrancar en
-    minutos. Si no se puede esperar a lo que esta en marcha, no se toca nada."""
+    minutos. Si no se puede esperar a lo que esta en marcha, no se toca nada: restaurar ni
+    siquiera deja la pausa (si no, al volver a abrirlo no la quitaria); parar, si."""
     texto = _sin_comentarios(_ps1(nombre))
-    pausa = texto.index(f'if (-not (Pausar-Automatico "{nombre}.bat")) {{')
+    pausa = texto.index(f"if (-not (Pausar-Automatico {llamada})) {{")
     assert pausa < texto.index(antes)
     assert texto.index("Fallar", pausa) < texto.index(antes)
     if nombre == "restaurar":
@@ -721,6 +730,22 @@ def test_automatico_pone_las_tareas_sin_limite_y_comprueba_la_cuenta() -> None:
     assert ("'-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"' "
             "+ $ciclo + '\" -Bucle -Minutos ' + $Minutos") in texto
     assert '$ciclo = Join-Path $PSScriptRoot "ciclo.ps1"' in texto
+    # La carpeta de trabajo del bucle, fuera del proyecto (asi se puede sustituir la carpeta).
+    assert ("New-ScheduledTaskAction -Execute $powershell -Argument $argumentos "
+            '-WorkingDirectory (Join-Path $env:SystemRoot "System32")') in texto
+    assert "-WorkingDirectory $PSScriptRoot" not in texto
+    # Con Windows Terminal, -WindowStyle Hidden no oculta nada: -Instalar ofrece la consola de
+    # Windows para esa cuenta (lo que pone Configuracion > Para programadores > Terminal).
+    assert '$ClaveTerminal = "HKCU:\\Console\\%%Startup"' in texto
+    assert '$ConsolaDeWindows = "{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}"' in texto
+    poner = _funcion(texto, "Poner-La-Consola")
+    assert '@("DelegationConsole", "DelegationTerminal")' in poner
+    assert "-PropertyType String -Value $ConsolaDeWindows -Force" in poner
+    assert "New-Item -Path $ClaveTerminal -ErrorAction Stop" in poner
+    assert "-Force" not in poner[:poner.index("foreach")]
+    instalar = texto[texto.index("if ($Instalar) {"):texto.index("if ($Quitar) {")]
+    assert instalar.index("if (-not (Terminal-Es-La-Consola)) {") < instalar.index(
+        "(Es-Si $respuesta) -and (Poner-La-Consola)") < instalar.index("Register-ScheduledTask")
     assert "New-ScheduledTaskTrigger -AtLogOn -User $usuario" in texto
     assert '$alEntrar.Delay = "PT2M"' in texto
     assert "-RepetitionInterval (New-TimeSpan -Minutes 15)" in texto
@@ -767,6 +792,14 @@ def test_el_ciclo_no_sale_nunca_y_hace_sus_pasos_en_su_orden() -> None:
     assert "while ($true) {" in texto and "Docker-Listo 600" in texto
     bucle = texto[texto.index("while ($true) {"):]
     assert "} catch {" in bucle and "Start-Sleep -Seconds 30" in bucle
+    # Lo unico que lo cierra: una version nueva de ciclo.ps1 o comun.ps1 (lo que tiene en
+    # memoria es la de antes), mirado entre dos ciclos; el vigilante lo vuelve a arrancar.
+    assert texto.index("$programa = Huella-Del-Programa") < texto.index("while ($true) {")
+    _en_orden(bucle, ["try {", "if ((Huella-Del-Programa) -ne $programa) {", "break",
+                      "if (En-Pausa) {"])
+    assert len(re.findall(r"\bbreak\b", codigo)) == 1
+    huella = _funcion(texto, "Huella-Del-Programa")
+    assert '@($PSCommandPath, (Join-Path $PSScriptRoot "comun.ps1"))' in huella
     ciclo = _funcion(texto, "Un-Ciclo")
     pasos = ["if (En-Pausa) {", "if (-not (Tomar-Cerrojo)) {", "if (En-Pausa) {",
              '"ciclo", "latido", "--variante", "docker"', "--disco-libre",
@@ -856,7 +889,7 @@ def test_correo_certificado_activa_con_la_pausa_y_vuelve_si_no_vale() -> None:
     assert 'Orden-Secretos-Correo @("correo", "certificado", "crear", "--siguiente")' in texto
     activar = texto[texto.index("# -Activar") if "# -Activar" in texto else texto.index(
         'Pausar-Automatico "correo-certificado.bat -Activar"'):]
-    pasos = ['Pausar-Automatico "correo-certificado.bat -Activar"',
+    pasos = ['Pausar-Automatico "correo-certificado.bat -Activar" -SoloSiSigue',
              'Orden-Secretos-Correo @("correo", "certificado", "activar")',
              "$comprobado = Comprobar-Correo", "if ($comprobado.Codigo -eq 0) {",
              '"certificado", "borrar", "--anterior"', '$comprobado.Que -eq "credencial"',

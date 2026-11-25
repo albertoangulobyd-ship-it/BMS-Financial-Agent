@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -1106,7 +1107,14 @@ def test_la_cli_dice_lo_que_paso_sin_datos_del_buzon(correo, falso, por_el_falso
     assert cli.main(_argumentos(correo, "comprobar")) == 0
     falso.estado_control = 200
     assert cli.main(_argumentos(correo, "comprobar")) == cli.CORREO_FALLO
-    assert "alcance" in capsys.readouterr().err
+    # El codigo del correo, en la forma que lee Comprobar-Correo de docker/comun.ps1: con el,
+    # correo-certificado.bat -Activar vuelve al certificado de antes si Microsoft no acepta el
+    # nuevo (credencial), y correo-configurar dice que hacer con cada uno.
+    patron = re.search(r"if \(\$linea -match '([^']+)'\) \{ \$que = \$Matches\[1\] \}",
+                       (RAIZ / "docker" / "comun.ps1").read_text(encoding="utf-8"))
+    codigos = [m.group(1) for linea in capsys.readouterr().err.splitlines()
+               if (m := re.match(patron.group(1), linea))]
+    assert codigos == ["alcance"]
     correo.ajustes.unlink()
     assert cli.main(_argumentos(correo)) == cli.CORREO_SIN_CONFIGURAR
 

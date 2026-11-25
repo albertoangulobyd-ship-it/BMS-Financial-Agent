@@ -11,9 +11,11 @@ tareas, Docker Desktop, el disco de verdad) va en la lista de §7.4 del diseno.
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -131,6 +133,28 @@ class Ciclo:
             timeout=300)
         return proceso, self.ordenes()
 
+    def script(self, nombre: str, *argumentos: str, reglas=(), entrada: str = "",
+               ) -> tuple[subprocess.CompletedProcess, list[str]]:
+        """Otro script de docker/ (parar, restaurar...), con lo que se le escribe por teclado
+        (Read-Host lee la entrada; por eso sin -NonInteractive)."""
+        proceso = subprocess.run(
+            [PWSH, "-NoProfile", "-File", str(self.docker / f"{nombre}.ps1"), *argumentos],
+            env=self.entorno(list(reglas)), input=entrada, capture_output=True, text=True,
+            timeout=300)
+        return proceso, self.ordenes()
+
+    def parchear(self, nombre: str, antes: str, despues: str) -> None:
+        """Cambia algo de la copia de un script (una espera, un umbral) para probarlo sin
+        esperar minutos ni llenar el disco. Tiene que estar una vez exactamente."""
+        fichero = self.docker / nombre
+        texto = fichero.read_bytes().decode("ascii")
+        assert texto.count(antes) == 1, (nombre, antes)
+        fichero.write_bytes(texto.replace(antes, despues).encode("ascii"))
+
+    @property
+    def pausa(self):
+        return self.estado / "automatico.pausa"
+
     def llamadas(self) -> list[dict]:
         texto = self.registro.read_text(encoding="utf-8") if self.registro.exists() else ""
         return [json.loads(linea) for linea in texto.splitlines()]
@@ -139,7 +163,8 @@ class Ciclo:
         """Las ordenes, con el disco libre del latido como N."""
         ordenes = []
         for llamada in self.llamadas():
-            orden = llamada["orden"]
+            orden = re.sub(r"-v \S+:/secretos-correo", "-v SECRETOS:/secretos-correo",
+                           llamada["orden"])
             if orden.startswith(LATIDO):
                 self.libre = int(orden.removeprefix(LATIDO).strip())
                 orden = LATIDO + " N"
@@ -159,6 +184,18 @@ def ciclo(tmp_path):
     if not _puerto_libre():
         pytest.skip("el puerto 8765 esta en uso (hay una consola en marcha)")
     return Ciclo(tmp_path)
+
+
+@contextlib.contextmanager
+def _cerrojo_de_otro(ciclo: Ciclo):
+    """docker/estado/ciclo.cerrojo en manos de otro proceso (un ciclo leyendo, una copia)."""
+    ciclo.estado.mkdir(parents=True, exist_ok=True)
+    fd = os.open(ciclo.estado / "ciclo.cerrojo", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
 
 
 def _con_disco(ciclo: Ciclo, ordenes: list[str]) -> None:
@@ -348,6 +385,22 @@ def test_con_el_cerrojo_de_otro_se_salta_sin_esperar(ciclo) -> None:
         os.close(fd)
     assert proceso.returncode == 0 and ordenes == ["info"]
     assert "este ciclo se salta" in ciclo.registro_del_dia()
+
+
+def test_con_poco_disco_solo_lo_apunta_y_no_trae_ni_lee(ciclo) -> None:
+    """§4.1 paso 2: con menos de 10 GiB libres, el latido, correo registrar --fallo disco y
+    nada mas, aunque haya correo y algo que leer (el umbral se sube en la copia del script: el
+    disco de la maquina de pruebas tiene lo que tenga)."""
+    ciclo.parchear("comun.ps1", "$DiscoMinimo = 10GB", "$DiscoMinimo = 1PB")
+    ciclo.correo()
+    ciclo.clave()
+    ciclo.hoy_hecho()
+    proceso, ordenes = ciclo.correr([["lectura siguiente", 0, ""],
+                                     ["lectura tomar --automatica", 0, "17"]])
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    assert ordenes == INICIO + [LATIDO + " N",
+                                "compose run --rm -T orden correo registrar --fallo disco"]
+    assert "menos de 10 GiB" in ciclo.registro_del_dia()
 
 
 def test_sin_la_imagen_no_hace_nada(ciclo) -> None:
@@ -554,3 +607,220 @@ def test_la_pausa_el_cerrojo_y_el_aviso_del_ciclo(ciclo) -> None:
     latidos = [c for c in ciclo.llamadas() if "latido" in c["orden"]]
     assert latidos == [{"orden": "compose run --rm -T orden ciclo latido --pausado --variante "
                                  "docker", "base": "bms"}]
+
+
+def test_el_bucle_apunta_la_pausa_solo_con_el_cerrojo(ciclo) -> None:
+    """La pausa se dice a la app (latido --pausado) con el cerrojo en la mano: con una
+    restauracion o una lectura teniendolo, el bucle no abre la base (ni llama a Docker)."""
+    ciclo.estado.mkdir(parents=True)
+    ciclo.pausa.write_text("En pausa.", encoding="utf-8")
+    with _cerrojo_de_otro(ciclo):
+        proceso = _bucle(ciclo, [])
+        try:
+            assert _esperar(lambda: "En pausa: no se hace nada" in ciclo.registro_del_dia(),
+                            60), ciclo.registro_del_dia()
+            time.sleep(4)
+            assert ciclo.ordenes() == [] and proceso.poll() is None
+        finally:
+            proceso.kill()
+            proceso.wait(timeout=30)
+
+
+def test_el_bucle_se_cierra_con_una_version_nueva_del_programa(ciclo) -> None:
+    """Actualizar: si ciclo.ps1 o comun.ps1 cambian, el bucle (que tiene en memoria la version
+    de antes) se cierra entre dos ciclos; el vigilante de la tarea lo vuelve a arrancar."""
+    ciclo.estado.mkdir(parents=True)
+    ciclo.pausa.write_text("En pausa.", encoding="utf-8")
+    proceso = _bucle(ciclo, [])
+    try:
+        assert _esperar(lambda: PAUSADO in ciclo.ordenes(), 60), ciclo.ordenes()
+        time.sleep(2)
+        assert proceso.poll() is None
+        with open(ciclo.docker / "comun.ps1", "ab") as fichero:
+            fichero.write(b"# version nueva\r\n")
+        assert proceso.wait(timeout=60) == 0
+    finally:
+        proceso.kill()
+        proceso.wait(timeout=30)
+    assert "version nueva de ciclo.ps1 o comun.ps1" in ciclo.registro_del_dia()
+
+
+# ============================================================ quien pausa: parar, restaurar...
+
+
+DOWN = "compose down"
+
+
+def test_parar_sin_el_cerrojo_no_para_nada_y_deja_la_pausa(ciclo) -> None:
+    """§4.4: si en 2 minutos no se puede esperar a lo que esta en marcha, parar.bat no toca
+    nada, y la pausa se queda (no empieza nada nuevo). Con el cerrojo libre, para."""
+    ciclo.parchear("comun.ps1", "Tomar-Cerrojo -Esperar 120 ", "Tomar-Cerrojo -Esperar 3 ")
+    with _cerrojo_de_otro(ciclo):
+        proceso, ordenes = ciclo.script("parar")
+    assert proceso.returncode == 1 and DOWN not in ordenes, ordenes
+    assert ciclo.pausa.exists()
+    proceso, ordenes = ciclo.script("parar")
+    assert proceso.returncode == 0 and ordenes == INICIO[:1] + [DOWN], ordenes
+    assert ciclo.pausa.exists()
+
+
+def _copia(ciclo: Ciclo):
+    copia = ciclo.raiz / "bms-copia-bms-20261016-090256"
+    copia.mkdir()
+    return copia
+
+
+def test_restaurar_sin_el_cerrojo_no_toca_nada_tampoco_la_pausa(ciclo) -> None:
+    """Restaurar que no puede esperar a lo que esta en marcha no deja la pausa puesta: al
+    volver a abrirlo, la encontraria y no la quitaria al acabar (-SiLaPuseYo), y lo automatico
+    se quedaria parado sin que nadie lo pidiera. La de otro (automatico.bat -Pausar) se queda."""
+    ciclo.parchear("comun.ps1", "Tomar-Cerrojo -Esperar 120 ", "Tomar-Cerrojo -Esperar 3 ")
+    copia = _copia(ciclo)
+    with _cerrojo_de_otro(ciclo):
+        proceso, ordenes = ciclo.script("restaurar", "-Origen", str(copia), entrada="si\n")
+    assert proceso.returncode == 1 and ordenes == INICIO, ordenes
+    assert not ciclo.pausa.exists()
+    # Con el cerrojo libre: para, restaura, comprueba y quita la pausa que puso.
+    proceso, ordenes = ciclo.script("restaurar", "-Origen", str(copia), entrada="si\n")
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    assert ordenes == INICIO + [
+        DOWN, f"compose run --rm -T -v {copia}:/copias/{copia.name}:ro orden restaurar "
+              f"/copias/{copia.name} --db /datos/bms.sqlite3",
+        "compose run --rm -T orden db verificar --db /datos/bms.sqlite3"]
+    assert not ciclo.pausa.exists()
+    assert "correo de facturas" not in proceso.stdout
+    # Una pausa de antes no se quita, ni sin el cerrojo ni al acabar.
+    ciclo.pausa.write_text("En pausa (automatico.bat -Pausar).", encoding="utf-8")
+    with _cerrojo_de_otro(ciclo):
+        proceso, _ordenes = ciclo.script("restaurar", "-Origen", str(copia), entrada="si\n")
+    assert proceso.returncode == 1 and ciclo.pausa.exists()
+    proceso, _ordenes = ciclo.script("restaurar", "-Origen", str(copia), entrada="si\n")
+    assert proceso.returncode == 0 and ciclo.pausa.exists()
+
+
+def test_restaurar_con_el_correo_dice_que_hacer_con_lo_que_llego_despues(ciclo) -> None:
+    """Lo que el correo registro despues de la copia no esta en los datos restaurados y el correo
+    no lo vuelve a traer (ya lo quito de su bandeja): restaurar lo dice, con la fecha."""
+    ciclo.correo()
+    proceso, _ordenes = ciclo.script("restaurar", "-Origen", str(_copia(ciclo)),
+                                     entrada="si\n")
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    texto = " ".join(proceso.stdout.split())
+    assert "desde 2026-10-16 no esta en los datos restaurados" in texto
+    assert "buzon\\facturas" in texto
+
+
+SECRETOS = "compose run --rm -T -v SECRETOS:/secretos-correo orden correo certificado"
+COMPROBAR = ("compose run --rm -T correo correo comprobar --ajustes /run/secrets/correo_ajustes "
+             "--certificado-fichero /run/secrets/correo_certificado --estado /correo/estado")
+REGISTRAR = ("compose run --rm -T orden correo registrar --entrada /correo/entrada "
+             "--estado /correo/estado")
+
+
+def _siguiente(ciclo: Ciclo) -> None:
+    ciclo.correo()
+    (ciclo.docker / "secretos" / "correo" / "correo_certificado-siguiente.pem").write_text(
+        "de prueba", encoding="utf-8")
+
+
+@pytest.mark.parametrize("comprobar, esperado, codigo", [
+    ((0, "Correo: la comprobacion ha ido bien."),
+     [f"{SECRETOS} activar --carpeta /secretos-correo", COMPROBAR,
+      f"{SECRETOS} borrar --anterior --carpeta /secretos-correo", REGISTRAR], 0),
+    # Microsoft no acepta el nuevo: vuelve el de antes (y se comprueba con el).
+    ((11, "Correo: credencial: Microsoft no acepta el certificado."),
+     [f"{SECRETOS} activar --carpeta /secretos-correo", COMPROBAR,
+      f"{SECRETOS} volver --carpeta /secretos-correo", COMPROBAR, REGISTRAR], 1),
+    # No se ha podido comprobar (sin red): se quedan los dos, para otro -Activar.
+    ((11, "Correo: sin_conexion: no hay conexion."),
+     [f"{SECRETOS} activar --carpeta /secretos-correo", COMPROBAR, REGISTRAR], 1)])
+def test_correo_certificado_activar_vuelve_al_de_antes_si_microsoft_no_lo_acepta(
+        ciclo, comprobar, esperado, codigo) -> None:
+    """§2.4: el codigo del correo (lo que dice correo comprobar, «Correo: <codigo>: ...») decide:
+    con credencial, volver; con otro fallo, nada. Al acabar, registrar y quitar la pausa."""
+    _siguiente(ciclo)
+    proceso, ordenes = ciclo.script("correo-certificado", "-Activar",
+                                    reglas=[["correo comprobar", *comprobar]])
+    assert proceso.returncode == codigo, proceso.stdout + proceso.stderr
+    assert ordenes == INICIO + esperado
+    assert not ciclo.pausa.exists()
+
+
+def test_correo_certificado_activar_sin_el_cerrojo_no_toca_nada(ciclo) -> None:
+    ciclo.parchear("comun.ps1", "Tomar-Cerrojo -Esperar 120 ", "Tomar-Cerrojo -Esperar 3 ")
+    _siguiente(ciclo)
+    with _cerrojo_de_otro(ciclo):
+        proceso, ordenes = ciclo.script("correo-certificado", "-Activar")
+    assert proceso.returncode == 1 and ordenes == INICIO, ordenes
+    assert not ciclo.pausa.exists()
+
+
+# El Programador de tareas, falso (pwsh en Linux no lo tiene): las tareas que hay y lo que se
+# les hace. automatico.ps1 corre de verdad.
+TAREAS_FALSAS = r"""
+$global:Tareas = @{}
+foreach ($nombre in @($args[2..($args.Count - 1)])) { if ($nombre) { $global:Tareas[$nombre] = $true } }
+$global:Apunte = $args[1]
+function global:Register-ScheduledTask { [CmdletBinding()] param() }
+function global:Get-ScheduledTask {
+    [CmdletBinding()] param([string]$TaskName, [string]$TaskPath)
+    if ($global:Tareas[$TaskName]) { return [pscustomobject]@{ TaskName = $TaskName; State = "Ready" } }
+}
+function global:Stop-ScheduledTask {
+    [CmdletBinding()] param([string]$TaskName, [string]$TaskPath)
+    Add-Content -LiteralPath $global:Apunte -Value ("parar " + $TaskName)
+}
+function global:Unregister-ScheduledTask {
+    [CmdletBinding(SupportsShouldProcess = $true)] param([string]$TaskName, [string]$TaskPath)
+    Add-Content -LiteralPath $global:Apunte -Value ("quitar " + $TaskName)
+    $global:Tareas.Remove($TaskName)
+}
+& (Join-Path $args[0] "automatico.ps1") -Quitar
+exit $LASTEXITCODE
+"""
+
+TAREAS = ["BMS Finanzas - ciclo (Docker)", "BMS Finanzas - bloquear (Docker)"]
+
+
+def _quitar(ciclo: Ciclo, tareas, reglas=()):
+    guion = ciclo.raiz / "tareas.ps1"
+    guion.write_text(TAREAS_FALSAS, encoding="ascii")
+    apunte = ciclo.raiz / "tareas.log"
+    apunte.write_text("", encoding="ascii")
+    proceso = subprocess.run(
+        [PWSH, "-NoProfile", "-NonInteractive", "-File", str(guion), str(ciclo.docker),
+         str(apunte), *(tareas or [""])], env=ciclo.entorno(list(reglas)), capture_output=True,
+        text=True, timeout=300)
+    return proceso, ciclo.ordenes(), apunte.read_text(encoding="ascii").splitlines()
+
+
+def test_quitar_lo_automatico_deja_de_decirlo_en_la_app(ciclo) -> None:
+    """-Quitar: las dos tareas fuera y, sin ellas, nadie vuelve a escribir el latido: se borran
+    ciclo.json (lo que leen iniciar.bat, parar.bat y -Estado) y estado_ciclo (la banda de la
+    app «el trabajo automatico no corre desde...»), en la base de verdad."""
+    ciclo.hoy_hecho()
+    proceso, ordenes, hecho = _quitar(ciclo, TAREAS)
+    assert proceso.returncode == 0, proceso.stdout + proceso.stderr
+    assert hecho == [f"{que} {tarea}" for tarea in TAREAS for que in ("parar", "quitar")]
+    assert not (ciclo.estado / "ciclo.json").exists()
+    assert ordenes == INICIO + ["compose run --rm -T orden ciclo quitar"]
+    assert [c["base"] for c in ciclo.llamadas() if c["orden"].startswith("compose")] == ["bms"]
+    # Otra vez (por ejemplo, la primera Docker no contestaba): sin tareas, lo demas igual.
+    proceso, ordenes, hecho = _quitar(ciclo, [])
+    assert proceso.returncode == 0 and hecho == []
+    assert ordenes == INICIO + ["compose run --rm -T orden ciclo quitar"]
+
+
+def test_quitar_sin_docker_lo_dice_y_sin_ver_las_tareas_no_toca_nada(ciclo) -> None:
+    ciclo.hoy_hecho()
+    proceso, ordenes, _hecho = _quitar(ciclo, TAREAS, reglas=[["info", 1, ""]])
+    assert proceso.returncode == 0 and ordenes == ["info"]
+    assert not (ciclo.estado / "ciclo.json").exists()
+    assert "La app seguira diciendo" in proceso.stdout
+    # Sin ver ninguna tarea y con el ciclo pasando hace nada: las puso otra cuenta.
+    (ciclo.estado / "ciclo.json").write_text(json.dumps({"visto_en": datetime.now(
+        timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}), encoding="utf-8")
+    proceso, ordenes, hecho = _quitar(ciclo, [])
+    assert proceso.returncode == 1 and ordenes == [] and hecho == []
+    assert (ciclo.estado / "ciclo.json").exists()
+    assert "otra cuenta" in proceso.stdout

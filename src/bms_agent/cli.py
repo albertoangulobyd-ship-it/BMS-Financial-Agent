@@ -62,6 +62,8 @@ persona. Uso, ayuda y errores en castellano (argumentos.Parser).
                                   registrado fuera de su bandeja; --fallo CODIGO: el ciclo no
                                   pudo traer nada (la salida, el aislamiento, el disco)
     bms-agent ciclo latido ...    el ciclo automatico ha pasado (con el disco libre, o en pausa)
+    bms-agent ciclo quitar        la automatizacion se ha quitado (automatico.bat -Quitar): la app
+                                  deja de decir nada del ciclo
 
 Cada orden que cambia algo que una regla lee (importar-out, ingestar,
 extract, sembrar) termina recalculando las reglas en su misma transaccion;
@@ -3276,9 +3278,16 @@ def _cmd_correo(args: argparse.Namespace) -> int:
 
 
 def _cmd_ciclo(args: argparse.Namespace) -> int:
-    """`ciclo latido` (paso 18, §4.1): el ciclo automatico ha pasado; lo lee la app."""
+    """`ciclo latido` (paso 18, §4.1): el ciclo automatico ha pasado; lo lee la app. `ciclo
+    quitar` (automatico.bat -Quitar): la automatizacion ya no esta y la app deja de decirlo."""
     from . import ciclo
 
+    if args.accion == "quitar":
+        with _abrir_almacen(args.db) as almacen:
+            habia = ciclo.quitar(almacen.conn)
+        print("Ciclo automatico: quitado; la app ya no dice nada de el." if habia else
+              "Ciclo automatico: no habia nada apuntado.")
+        return 0
     try:
         with _abrir_almacen(args.db) as almacen:
             hecho = ciclo.latido(almacen.conn, disco_libre=args.disco_libre,
@@ -4030,7 +4039,8 @@ def main(argv: list[str] | None = None) -> int:
     p_reg.add_argument("--db", help=_AYUDA_DB)
     p_correo.set_defaults(func=_cmd_correo)
 
-    p_ciclo = sub.add_parser("ciclo", help="el ciclo automatico (paso 18): su latido")
+    p_ciclo = sub.add_parser("ciclo", help="el ciclo automatico (paso 18): su latido, o "
+                                            "que se ha quitado")
     sub_ciclo = p_ciclo.add_subparsers(dest="accion", required=True)
     p_lat = sub_ciclo.add_parser("latido", help="el ciclo ha pasado ahora (con el disco libre, o "
                                                 "en pausa)")
@@ -4043,6 +4053,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="la automatizacion corre (lo mismo que sin --pausado)")
     p_lat.add_argument("--variante", choices=("nativa", "docker"))
     p_lat.add_argument("--db", help=_AYUDA_DB)
+    p_quitar = sub_ciclo.add_parser("quitar", help="la automatizacion se ha quitado "
+                                                   "(automatico.bat -Quitar): la app deja de "
+                                                   "decir nada del ciclo")
+    p_quitar.add_argument("--db", help=_AYUDA_DB)
     p_ciclo.set_defaults(func=_cmd_ciclo)
 
     argv = sys.argv[1:] if argv is None else list(argv)

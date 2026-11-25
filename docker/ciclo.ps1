@@ -10,7 +10,9 @@
 # tardar), espera; si algo falla, lo apunta en su registro (docker\estado\registro) y sigue en
 # la vuelta siguiente. Con la pausa puesta (docker\estado\automatico.pausa, la ponen
 # parar.bat, restaurar.bat, correo-certificado.bat -Activar y automatico.bat -Pausar) no hace
-# nada. Siempre con la base de verdad, nunca con los DATOS DE PRUEBA.
+# nada. Siempre con la base de verdad, nunca con los DATOS DE PRUEBA. Solo sale (entre dos
+# ciclos) si alguien pone una version nueva de ciclo.ps1 o comun.ps1: lo que tiene en memoria
+# es la de antes, y el vigilante de la tarea lo vuelve a arrancar con la nueva.
 #
 # Cada ciclo, en este orden (diseno del paso 18, seccion 4.1): la pausa; el cerrojo (sin
 # esperar: si otro lo tiene, este ciclo se salta) y otra vez la pausa; el latido con el disco
@@ -223,6 +225,16 @@ function Un-Ciclo {
     try { Lectura-Del-Ciclo } catch { Anotar ("La lectura ha fallado: " + $_.Exception.Message) "Red" }
 }
 
+function Huella-Del-Programa {
+    # La fecha y el tamano de ciclo.ps1 y comun.ps1, lo que el bucle cargo al empezar.
+    $partes = @()
+    foreach ($fichero in @($PSCommandPath, (Join-Path $PSScriptRoot "comun.ps1"))) {
+        $dato = Get-Item -LiteralPath $fichero -ErrorAction SilentlyContinue
+        if ($null -eq $dato) { $partes += "no esta" } else { $partes += ("" + $dato.LastWriteTimeUtc.Ticks + "/" + $dato.Length) }
+    }
+    return ($partes -join " ")
+}
+
 function Apuntar-Pausa {
     # Una vez por pausa, que la app lo vea (ciclo latido --pausado), con el cerrojo (no se pisa
     # una restauracion). Pausar-Automatico ya lo hace; esto es por si no pudo (habia una
@@ -260,8 +272,15 @@ if (-not $Bucle) {
 $proximo = Get-Date
 $proximaPausa = Get-Date
 $pausaApuntada = $false
+$programa = Huella-Del-Programa
 while ($true) {
     try {
+        if ((Huella-Del-Programa) -ne $programa) {
+            # Una version nueva (actualizar el programa): esta vuelta seria la de antes.
+            Abrir-Registro
+            Anotar "Hay una version nueva de ciclo.ps1 o comun.ps1: este bucle se cierra y la tarea lo vuelve a arrancar con ella (como mucho en 15 minutos)." "Yellow"
+            break
+        }
         if (En-Pausa) {
             if (-not $pausaApuntada -and (Get-Date) -ge $proximaPausa) {
                 $proximaPausa = (Get-Date).AddMinutes($Minutos)

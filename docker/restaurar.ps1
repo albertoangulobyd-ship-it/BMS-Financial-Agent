@@ -9,7 +9,9 @@
 #
 # Paso 18: antes de parar la consola, la automatizacion queda en pausa (y se espera a lo que
 # este en marcha); si todo va bien, vuelve al terminar (si no estaba ya en pausa). Si algo
-# falla, se queda en pausa: que lo mire una persona.
+# falla, se queda en pausa: que lo mire una persona. Si no se puede esperar a lo que esta en
+# marcha, no se toca nada (tampoco la pausa). Con el correo de facturas, dice que hacer con lo
+# que llego por correo despues de la copia.
 param(
     [Parameter(Mandatory = $true)][string]$Origen,
     [switch]$Demo
@@ -30,7 +32,7 @@ if (-not (Es-Si $respuesta)) {
     Escribir "No has escrito si: no se ha tocado nada." "Yellow"
     exit 0
 }
-if (-not (Pausar-Automatico "restaurar.bat")) {
+if (-not (Pausar-Automatico "restaurar.bat" -SoloSiSigue)) {
     Fallar "No se ha tocado nada. Vuelve a abrir restaurar.bat cuando acabe la lectura."
 }
 Escribir "Parando la consola..." "Cyan"
@@ -44,3 +46,13 @@ if ($LASTEXITCODE -ne 0) { Fallar "La copia esta puesta pero no cuadra. No sigas
 Soltar-Cerrojo
 Reanudar-Automatico -SiLaPuseYo
 Escribir "Restaurada y comprobada. Arranca la consola con .\iniciar.ps1" "Green"
+if (-not $Demo -and (Test-Path -LiteralPath $FicheroAjustesCorreo)) {
+    # Lo que el correo registro despues de la copia no esta en los datos restaurados, y el
+    # correo no lo vuelve a traer (ya lo trajo y lo quito de su bandeja): se dice, con la fecha.
+    $desde = "la fecha de la copia"
+    if ($nombre -match '-([0-9]{4})([0-9]{2})([0-9]{2})-[0-9]{6}(-[0-9]+)?$') {
+        $desde = $Matches[1] + "-" + $Matches[2] + "-" + $Matches[3]
+    }
+    Escribir ""
+    Escribir ("Ojo, el correo de facturas: lo que llego al buzon desde " + $desde + " no esta en los datos restaurados y no se vuelve a traer solo. Busca en el buzon de facturas los correos desde ese dia, guarda sus PDF en buzon\facturas y leelos con leer-facturas.bat.") "Yellow"
+}

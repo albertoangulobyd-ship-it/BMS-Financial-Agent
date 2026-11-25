@@ -259,12 +259,16 @@ function Automatizacion-Puesta {
     return (($null -ne (Tarea-Del-Ciclo)) -or (Test-Path -LiteralPath $FicheroCiclo))
 }
 
-function Pausar-Automatico([string]$Quien) {
+function Pausar-Automatico([string]$Quien, [switch]$SoloSiSigue) {
     # Antes de parar, actualizar, restaurar o activar un certificado: el ciclo y el vigilante no
     # arrancan nada mientras exista docker\estado\automatico.pausa. Despues toma el cerrojo,
     # esperando como mucho 2 minutos a lo que este en marcha. Devuelve verdadero con el cerrojo
-    # en la mano; falso si no se pudo (y quien llamo no toca nada). La pausa se queda puesta
-    # en los dos casos: se quita con Reanudar-Automatico (iniciar.bat, automatico.bat -Reanudar).
+    # en la mano; falso si no se pudo (y quien llamo no toca nada). Con el cerrojo, la pausa se
+    # queda puesta: se quita con Reanudar-Automatico (iniciar.bat, automatico.bat -Reanudar).
+    # Sin el, se queda (parar.bat, automatico.bat -Pausar: no empieza nada nuevo), salvo con
+    # -SoloSiSigue (restaurar.bat, correo-certificado.bat -Activar, que se vuelven a abrir mas
+    # tarde): entonces se quita la pausa que puso esta llamada, y todo sigue como estaba. Si no,
+    # la vez siguiente la encontraria puesta y no la quitaria al acabar (-SiLaPuseYo).
     $script:PausaYaEstaba = Test-Path -LiteralPath $FicheroPausa
     if (-not $script:PausaYaEstaba) {
         try {
@@ -278,7 +282,14 @@ function Pausar-Automatico([string]$Quien) {
     }
     Escribir "La automatizacion queda en pausa: no arranca nada sola hasta iniciar.bat o automatico.bat -Reanudar." "Yellow"
     if (-not (Tomar-Cerrojo -Esperar 120 -Aviso "El ciclo automatico esta trabajando: espero a que acabe (como mucho 2 minutos)...")) {
-        Escribir "Hay una lectura en marcha (miralo en Procesar): espera a que termine o parala, y vuelve a probar. Mientras, no empieza nada nuevo." "Yellow"
+        if ($SoloSiSigue -and -not $script:PausaYaEstaba) {
+            Remove-Item -LiteralPath $FicheroPausa -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $FicheroPausa) {
+            Escribir "Hay una lectura en marcha (miralo en Procesar): espera a que termine o parala, y vuelve a probar. Mientras, no empieza nada nuevo." "Yellow"
+        } else {
+            Escribir "Hay una lectura en marcha (miralo en Procesar): espera a que termine o parala, y vuelve a probar. La automatizacion sigue como estaba." "Yellow"
+        }
         return $false
     }
     # La app lo dice (ciclo latido --pausado), si la automatizacion esta puesta y Docker contesta.

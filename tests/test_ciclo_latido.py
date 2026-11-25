@@ -97,6 +97,31 @@ def test_ciclo_latido_por_la_cli(tmp_path, capsys) -> None:
                                                                                 "docker")
 
 
+def test_ciclo_quitar_borra_el_latido_y_la_app_deja_de_decirlo(tmp_path, capsys) -> None:
+    """automatico.bat -Quitar: sin la automatizacion, la banda «el trabajo automatico no corre
+    desde...» no puede quedarse para siempre. Se borra la cache (y se puede repetir)."""
+    db = tmp_path / "datos" / "bms.sqlite3"
+    assert cli.main(["ciclo", "latido", "--disco-libre", str(50 * GIB), "--variante", "docker",
+                     "--db", str(db)]) == 0
+    capsys.readouterr()
+    assert cli.main(["ciclo", "quitar", "--db", str(db)]) == 0
+    assert "quitado" in capsys.readouterr().out
+    with preparar(db) as almacen:
+        assert ciclo.leer(almacen.conn) is None
+    assert cli.main(["ciclo", "quitar", "--db", str(db)]) == 0
+    assert "no habia nada" in capsys.readouterr().out
+
+
+def test_sin_el_latido_no_hay_banda_del_ciclo(almacen, reloj) -> None:
+    conn = almacen.conn
+    ciclo.latido(conn, disco_libre=200 * GIB)
+    reloj.avanzar(days=3)
+    assert len(consultas.bandas_urgentes(conn)) == 1
+    assert ciclo.quitar(conn) is True and ciclo.quitar(conn) is False
+    assert consultas.bandas_urgentes(conn) == []
+    assert consultas.correo(conn, "contenedor")["ciclo"]["visto_en"] is None
+
+
 # ============================================================ las bandas del servidor (§6.1)
 
 from bms_agent import consultas  # noqa: E402

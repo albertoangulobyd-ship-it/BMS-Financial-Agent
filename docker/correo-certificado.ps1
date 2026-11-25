@@ -86,7 +86,7 @@ if (-not $Activar) {
 if (-not (Test-Path -LiteralPath $pemSiguiente) -and -not (Test-Path -LiteralPath $pemAnterior)) {
     Fallar "No hay certificado siguiente que activar: primero correo-certificado.bat (sin nada), y que el informatico lo suba."
 }
-if (-not (Pausar-Automatico "correo-certificado.bat -Activar")) {
+if (-not (Pausar-Automatico "correo-certificado.bat -Activar" -SoloSiSigue)) {
     Fallar "No se ha tocado nada. Vuelve a abrir correo-certificado.bat -Activar cuando acabe la lectura."
 }
 if (Test-Path -LiteralPath $pemAnterior) {
