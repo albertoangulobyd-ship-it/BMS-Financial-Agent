@@ -7,8 +7,10 @@ import type { ReadingPass, ReadingRequest, ReadingStatus } from '@/lib/api-types
 import {
   START,
   afterHide,
+  askable,
   ceilingOf,
   finished,
+  introButtonHidden,
   outcomeOf,
   requested,
   rowsOf,
@@ -291,6 +293,23 @@ describe('la lectura automatica (paso 18)', () => {
     expect(startable(status(auto('esperando_aprobacion')))).toBe(false);
     for (const estado of ['pedida', 'contando', 'aprobada', 'leyendo', 'hecha'] as const) expect(startable(status(request(estado))), estado).toBe(false);
     expect(startable(null)).toBe(false);
+  });
+
+  it('el boton de la intro: "Empezar" escondido para una automatica, a la vista para la de una persona (revision del paso 12)', () => {
+    // Lo que decide Procesar (processing-workspace.tsx no tiene otra regla).
+    expect(introButtonHidden('waiting', status(auto('esperando_aprobacion')), true)).toBe(true);
+    expect(introButtonHidden('waiting', status(request('esperando_aprobacion')), true)).toBe(false);
+    expect(introButtonHidden('waiting', status(request('esperando_aprobacion')), false)).toBe(true);
+    // Pedir una lectura: en P0, P7, P8 y sin nada que leer; en P1 y P2, nada que pulsar.
+    for (const screen of ['ready', 'expired', 'cancelled', 'nothing'] as const) {
+      expect(askable(screen), screen).toBe(true);
+      expect(introButtonHidden(screen, null, true), screen).toBe(false);
+      expect(introButtonHidden(screen, null, false), screen).toBe(true);
+    }
+    for (const screen of ['requested', 'checking', 'counting'] as const) {
+      expect(askable(screen), screen).toBe(false);
+      expect(introButtonHidden(screen, status(request('contando')), true), screen).toBe(true);
+    }
   });
 
   it('los PDF del correo se leen como <sha256>.pdf: la linea dice el nombre con que llegaron', () => {

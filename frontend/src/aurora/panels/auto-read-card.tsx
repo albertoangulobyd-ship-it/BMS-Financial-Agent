@@ -2,21 +2,27 @@
 // Instellingen › Systeem › Automatisch lezen. Si esta encendida, quien la fijo y cuando, sus
 // cuatro valores, lo gastado hoy y este mes y lo que queda hoy; si esta parada, por que, con
 // "Weer aanzetten" para una pausa; la lista "Wacht op automatisch lezen" (las facturas que leera,
-// las mas antiguas primero) con casillas y "Niet vanzelf lezen"; y, con admin, el formulario.
+// las mas antiguas primero) con casillas y "Niet vanzelf lezen"; "Apart gezet", lo que una
+// persona aparto y sigue sin leer, solo para verlo y bajar su original (una factura de verdad
+// apartada sin querer no se pierde); y, con admin, el formulario.
 //
 // Lo unico que cambia sin una persona es gastar dinero de la API en leer, dentro de la
 // autorizacion que una persona con admin firma aqui (fijar_lectura_automatica, con su motivo).
 // Ninguna orden de aqui aprueba, paga ni crea una factura: despues de leer, lo de siempre.
 import { ScanLine } from 'lucide-react';
 import { useState } from 'react';
+import { WithScriptNames } from '@/components/script-names';
 import { StatusPill } from '@/components/status-pill';
 import { fmt, useT, type Messages } from '@/i18n';
 import { actionText } from '@/i18n/domain';
-import type { AutoReadingStatus, Mailbox, QueuedInvoice } from '@/lib/api-types';
+import { paths } from '@/lib/api';
+import type { AutoReadingStatus, Mailbox, QueuedInvoice, SetAsideInvoice } from '@/lib/api-types';
 import { formatDateTime, formatUsdMicro } from '@/lib/format';
 import { useCan } from '@/lib/session';
-import { Orders, type OrderSpec, type OrderValues } from '../orders';
+import { ErrorLine, Orders, apiErrorMessage, type OrderSpec, type OrderValues } from '../orders';
 import { whenOf } from '../processing/process-texts';
+import { useOriginalDownload } from './invoice-card';
+import { Folded } from './mailbox-card';
 import { autoReadState, autoReadStateText, checkForm, formValues, knownInstant, resumable, stopText, type AutoReadForm } from './mailbox-model';
 import { Detail } from './pieces';
 
@@ -145,13 +151,65 @@ function Queue({ queue, total, canAct }: { queue: readonly QueuedInvoice[]; tota
 /** "Ingesteld door Ana Demo op 24-11-2026 10:41": el nombre, como nombre propio. */
 function SetBy({ a }: { a: Pick<Mailbox['lectura_automatica'], 'fijada_por' | 'fijada_en'> }) {
   const { t } = useT();
-  const [before, after = ''] = fmt(t.aurora.autoRead.setBy, { date: formatDateTime(a.fijada_en) }).split('{name}');
+  return <ByName text={t.aurora.autoRead.setBy} name={a.fijada_por?.nombre} date={a.fijada_en} />;
+}
+
+/** Un texto con {name} y {date}: el nombre de una persona, como nombre propio. */
+function ByName({ text, name, date }: { text: string; name: string | null | undefined; date: string | null }) {
+  const [before, after = ''] = fmt(text, { date: formatDateTime(date) }).split('{name}');
   return (
     <p>
       {before}
-      <span data-proper-name=''>{a.fijada_por?.nombre ?? '—'}</span>
+      <span data-proper-name=''>{name ?? '—'}</span>
       {after}
     </p>
+  );
+}
+
+/** Una factura que una persona aparto: su nombre (el del adjunto: texto de quien lo mando),
+ *  quien y cuando, y su original (con un nombre generado). Ninguna orden: no se lee. */
+function SetAsideItem({ doc }: { doc: SetAsideInvoice }) {
+  const { t, lang } = useT();
+  const original = useOriginalDownload();
+  const known = knownInstant(doc.recibido_en);
+  return (
+    <li>
+      <p>
+        <strong data-proper-name=''>{doc.nombre_original || '—'}</strong>
+        {known && <small> {whenOf(known, t)}</small>}
+      </p>
+      <ByName text={t.aurora.autoRead.setAsideBy} name={doc.apartada_por?.nombre} date={doc.apartada_en} />
+      {original.error !== null && <ErrorLine error={original.error} message={apiErrorMessage(original.error, t, lang)} />}
+      <p>
+        <button
+          type='button'
+          className='outline'
+          disabled={original.busy}
+          onClick={() => void original.download(paths.documentOriginal(doc.documento_id), `documento-${doc.documento_id}.pdf`)}
+        >
+          {t.aurora.card.downloadOriginal}
+        </button>
+      </p>
+    </li>
+  );
+}
+
+/** "Apart gezet": lo que una persona aparto y sigue sin leer (las ultimas primero, 50, con su
+ *  total). Solo si hay algo. */
+function SetAside({ setAside }: { setAside: { documentos: readonly SetAsideInvoice[]; total: number } | undefined }) {
+  const { t } = useT();
+  const r = t.aurora.autoRead;
+  if (!setAside || setAside.total === 0) return null;
+  return (
+    <>
+      <div className='list-title'>
+        {r.setAside.toUpperCase()} <span>{setAside.total}</span>
+      </div>
+      <p>
+        <WithScriptNames text={r.setAsideHelp} />
+      </p>
+      <Folded items={setAside.documentos} total={setAside.total} render={(doc) => <SetAsideItem key={doc.documento_id} doc={doc} />} />
+    </>
   );
 }
 
@@ -197,6 +255,7 @@ export function AutoReadCard({ mailbox, onClose }: { mailbox: Mailbox; onClose: 
       )}
       {can('admin') ? <Orders orders={[settingsOrder(a, t, label)]} /> : <span>{r.onlyAdmin}</span>}
       <Queue queue={a.cola ?? []} total={a.elegibles} canAct={can('importar_datos')} />
+      <SetAside setAside={a.apartadas} />
     </Detail>
   );
 }

@@ -7,7 +7,7 @@ import { SCRIPT_NAMES } from '@/components/script-names';
 import { fmt, type Messages } from '@/i18n';
 import type { ReadingPassRow, ReadingRequest, ReadingStatus } from '@/lib/api-types';
 import { NO_VALUE, formatTimeOfDay, formatUsdMicro } from '@/lib/format';
-import { handled, outcomeOf, passOf, type Outcome, type RowTexts, type Screen } from './reading-model';
+import { handled, outcomeOf, passOf, type Outcome, type Phase, type RowTexts, type Screen } from './reading-model';
 
 /** El saludo de Procesar (processView de Aurora): titulo y linea. `alert`, la linea es un aviso;
  *  `properName`, un nombre propio dentro del titulo (el acceso directo, en castellano). */
@@ -35,9 +35,18 @@ export function whenOf(value: string | null | undefined, t: Messages, now: Date 
 /** El por que de un final malo, por su codigo (lectura.MOTIVOS), en el idioma de la persona.
  *  `origin`: el de la lectura. La de una persona (o del lector) no sigue sola: sin saldo o con la
  *  API caida, lo dice con lo que tiene que hacer ella (pedirla otra vez) y no con el "despues
- *  sigue solo" de la automatica (desviaciones del paso 3, para el paso 12). */
-export function reasonOf(code: string | null | undefined, t: Messages, origin?: ReadingRequest['origen'] | null): string {
+ *  sigue solo" de la automatica (desviaciones del paso 3, para el paso 12). `docker`: la app
+ *  corre en Docker (GET /api/v2/correo dice entorno contenedor). Alli no hay clave.bat ni
+ *  comprobar.bat: la clave es el fichero de docker\secretos. Una automatica solo existe en
+ *  Docker (decision del dueno), asi que lo es siempre. */
+export function reasonOf(code: string | null | undefined, t: Messages, origin?: ReadingRequest['origen'] | null, docker = false): string {
   const r = t.aurora.process.reasons;
+  if (docker || origin === 'automatica') {
+    const d = t.aurora.process.reasonsDocker;
+    if (code === 'clave') return d.clave;
+    if (code === 'clave_rechazada') return d.clave_rechazada;
+    if (code === 'aislamiento') return d.aislamiento;
+  }
   if (origin === 'app' || origin === 'lector') {
     const h = t.aurora.process.reasonsByHand;
     if (code === 'saldo') return h.saldo;
@@ -104,7 +113,7 @@ const AUTOMATIC_ENDS = new Set(['limite_dia', 'limite_mes', 'excluidas', 'sin_au
 
 /** El saludo de cada estado con la cabeza (P0 a P3, P7 y P8). `notice`: lo que paso con el ultimo
  *  "Empezar" (la estimacion cambio, o no se pudo mandar). */
-export function introView(screen: Screen, status: ReadingStatus | null, t: Messages, notice: 'changed' | 'sendFailed' | null = null): ProcessView {
+export function introView(screen: Screen, status: ReadingStatus | null, t: Messages, notice: 'changed' | 'sendFailed' | null = null, docker = false): ProcessView {
   const p = t.aurora.process;
   const s = status?.solicitud ?? null;
   const view = (title: string, detail: string): ProcessView => ({ phase: 'intro', title, detail });
@@ -120,8 +129,9 @@ export function introView(screen: Screen, status: ReadingStatus | null, t: Messa
       return view(p.counting.title, p.counting.line);
     case 'waiting':
       if (!s) return view(p.ready.title, p.ready.line);
-      // Una automatica no espera a nadie: la acepta la autorizacion en cuanto se cuenta.
-      if (s.origen === 'automatica') return view(waitingTitle(s, t, false), automaticNote(s, t));
+      // Una automatica no espera a nadie: la acepta la autorizacion en cuanto se cuenta. De
+      // donde viene y quien la firmo lo dice la nota (requestNote), no otra vez aqui.
+      if (s.origen === 'automatica') return view(waitingTitle(s, t, false), p.waiting.automatic);
       if (notice === 'sendFailed') return { ...view(waitingTitle(s, t, false), p.waiting.sendFailed), alert: true };
       return view(waitingTitle(s, t, notice === 'changed'), waitingLine(s, t, notice === 'changed'));
     case 'expired':
@@ -131,7 +141,7 @@ export function introView(screen: Screen, status: ReadingStatus | null, t: Messa
     case 'nothing': {
       if (s?.motivo_codigo === 'buzon_vacio') return view(p.nothing.title, p.nothing.empty);
       // Una automatica que no se acepto (los topes, lo apartado, apagada): no es "ya leido".
-      if (s && AUTOMATIC_ENDS.has(s.motivo_codigo ?? '')) return view(p.cancelled.title, reasonOf(s.motivo_codigo, t, s.origen));
+      if (s && AUTOMATIC_ENDS.has(s.motivo_codigo ?? '')) return view(p.cancelled.title, reasonOf(s.motivo_codigo, t, s.origen, docker));
       const n = s?.pdf_ya_leidos ?? 0;
       return view(p.nothing.title, n === 1 ? p.nothing.lineOne : fmt(p.nothing.line, { n }));
     }
@@ -141,10 +151,12 @@ export function introView(screen: Screen, status: ReadingStatus | null, t: Messa
 }
 
 /** Las dos lineas de la tarjeta antes de empezar: las de Aurora con el "Empezar" a la vista (P3);
- *  en los demas, lo que cuesta y que no se gasta nada sin un si. */
-export function idleLines(screen: Screen, t: Messages): [string, string] {
+ *  en los demas, lo que cuesta y que no se gasta nada sin un si. Una automatica esperando no
+ *  tiene "Empezar" (su si es la autorizacion): empieza sola. */
+export function idleLines(screen: Screen, t: Messages, status: ReadingStatus | null = null): [string, string] {
   const c = t.aurora.process.card;
-  return screen === 'waiting' ? [c.start, c.startNote] : [c.idle, c.idleNote];
+  if (screen !== 'waiting') return [c.idle, c.idleNote];
+  return [c.start, isAutomatic(status) ? c.startAutoNote : c.startNote];
 }
 
 /** La etiqueta de la tarjeta (pc-label): lista, esperando al lector o en proceso. */
@@ -189,7 +201,7 @@ export function footerOf(status: ReadingStatus | null, t: Messages): string {
 
 /** La nota de P0, P7 y P8: lo gastado hasta hoy, lo que cuesta cada factura y como acabo la
  *  ultima lectura. Sin el permiso, que pedir lo hace otra persona. */
-export function readyNote(status: ReadingStatus | null, t: Messages, allowed: boolean, now: Date = new Date()): string[] {
+export function readyNote(status: ReadingStatus | null, t: Messages, allowed: boolean, now: Date = new Date(), docker = false): string[] {
   const notes = t.aurora.process.notes;
   const lines: string[] = [];
   if (!allowed) lines.push(notes.noPermission);
@@ -201,17 +213,17 @@ export function readyNote(status: ReadingStatus | null, t: Messages, allowed: bo
         ? fmt(notes.spent, { spent, low: formatUsdMicro(est.por_documento_bajo_usd_micro, 3), high: formatUsdMicro(est.por_documento_alto_usd_micro, 3) })
         : fmt(notes.spentOnly, { spent })
     );
-    const last = lastReading(status, t, now);
+    const last = lastReading(status, t, now, docker);
     if (last) lines.push(last);
   }
   return lines;
 }
 
 /** Como acabo la ultima lectura (la nota de P0). */
-export function lastReading(status: ReadingStatus, t: Messages, now: Date = new Date()): string | null {
+export function lastReading(status: ReadingStatus, t: Messages, now: Date = new Date(), docker = false): string | null {
   const notes = t.aurora.process.notes;
   const s = status.solicitud ?? null;
-  if (s && s.estado === 'fallida') return fmt(notes.lastFailed, { when: whenOf(s.terminada_en, t, now), reason: reasonOf(s.motivo_codigo, t, s.origen) });
+  if (s && s.estado === 'fallida') return fmt(notes.lastFailed, { when: whenOf(s.terminada_en, t, now), reason: reasonOf(s.motivo_codigo, t, s.origen, docker) });
   const pass = status.ultima_pasada ?? null;
   if (!pass || (s && s.viva)) return null;
   const o = outcomeOf(pass);
@@ -244,6 +256,16 @@ export function automaticNote(s: Pick<ReadingRequest, 'autorizacion'>, t: Messag
  *  automatica en pausa hasta manana (lectura.cancelar). */
 export function isAutomatic(status: ReadingStatus | null | undefined): boolean {
   return status?.solicitud?.origen === 'automatica';
+}
+
+/** Donde sale lo que la cuenta dejo fuera: esperando el si, sin nada que leer, en el resultado y
+ *  en el error (la de una persona en la que la API no acepta ninguno de los nuevos termina
+ *  fallida con "contar": es justo cuando hay que decir cual, §13 S1), y en P0 si la ultima
+ *  fallo (su nota lo dice: "Laatste leesronde niet afgemaakt"), para quien llega despues. */
+export function omittedShown(screen: Screen, phase: Phase, status: ReadingStatus | null = null): boolean {
+  if (phase === 'complete' || phase === 'error') return true;
+  if (phase !== 'intro') return false;
+  return screen === 'waiting' || screen === 'nothing' || (screen === 'ready' && status?.solicitud?.estado === 'fallida');
 }
 
 /** Lo que la cuenta dejo fuera, en dos grupos con su porque (§13 S1: "omitido con su motivo en
@@ -282,11 +304,11 @@ export function completeNote(status: ReadingStatus | null, t: Messages): string[
 }
 
 /** El saludo del error (P6): nada leido o una parte, y el por que. */
-export function errorView(status: ReadingStatus | null, t: Messages): ProcessView {
+export function errorView(status: ReadingStatus | null, t: Messages, docker = false): ProcessView {
   const e = t.aurora.process.error;
   const s = status?.solicitud ?? null;
   const pass = status ? passOf(status) : null;
-  const reason = reasonOf(s?.abandonada && s.viva ? 'abandonada' : s?.motivo_codigo, t, s?.origen);
+  const reason = reasonOf(s?.abandonada && s.viva ? 'abandonada' : s?.motivo_codigo, t, s?.origen, docker);
   const some = handled(pass);
   if (some > 0) return { phase: 'error', title: e.titleSome, detail: `${reason} ${fmt(e.some, { n: some })}` };
   return { phase: 'error', title: e.title, detail: reason };

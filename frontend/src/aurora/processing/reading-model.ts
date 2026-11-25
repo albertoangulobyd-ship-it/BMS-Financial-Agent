@@ -149,6 +149,18 @@ export function startable(status: ReadingStatus | null | undefined): boolean {
   return !!s && s.estado === 'esperando_aprobacion' && s.origen !== 'automatica';
 }
 
+/** Las pantallas en que el boton de la intro pide una lectura (P0, P7, P8 y "nada que leer"). */
+export function askable(screen: Screen): boolean {
+  return screen === 'ready' || screen === 'expired' || screen === 'cancelled' || screen === 'nothing';
+}
+
+/** Si el boton de la intro (FlowButton) se esconde, guardando su sitio: sin el permiso; en P1 y
+ *  P2 (no hay nada que pulsar); y esperando un si que no se da aqui, el de una automatica (paso
+ *  18: "Empezar" solo para la de una persona). */
+export function introButtonHidden(screen: Screen, status: ReadingStatus | null | undefined, allowed: boolean): boolean {
+  return !allowed || !(askable(screen) || (screen === 'waiting' && startable(status)));
+}
+
 /** Lo que fue de cada documento al terminar, y las tres cuentas del resultado. */
 export interface Outcome {
   rows: ReadingPassRow[];

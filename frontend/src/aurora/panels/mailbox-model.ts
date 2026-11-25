@@ -29,6 +29,18 @@ export function mailboxAvailable(m: Pick<Mailbox, 'entorno'> | null | undefined)
   return !!m && m.entorno !== 'nativo';
 }
 
+/** Las filas de Instellingen › Systeem. */
+export type SystemRow = 'company' | 'isolation' | 'people' | 'backups' | 'mailbox' | 'autoRead';
+
+/** Systeem: sus filas (Personen solo con admin, que es quien recibe la lista) y el buzon que se
+ *  ensena en sus dos filas y sus tarjetas. En la nativa (o sin respuesta de /api/v2/correo), ni
+ *  las dos filas ni el buzon: Systeem se queda como estaba (decision del dueno: solo Docker). */
+export function systemRowsOf(people: boolean, mailbox: Mailbox | null | undefined): { rows: SystemRow[]; mail: Mailbox | null } {
+  const mail = mailbox && mailboxAvailable(mailbox) ? mailbox : null;
+  const rows: SystemRow[] = ['company', 'isolation', ...(people ? (['people'] as const) : []), 'backups', ...(mail ? (['mailbox', 'autoRead'] as const) : [])];
+  return { rows, mail };
+}
+
 // ---------------------------------------------------------------- el buzon
 
 /** El estado del buzon en palabras (Facturenmailbox: Bijgewerkt, Werkt niet...). */
@@ -128,10 +140,23 @@ export function knownInstant(value: string | null | undefined): string | null {
   return value && /^\d{4}-/.test(value) && value.slice(0, 4) >= '2000' ? value : null;
 }
 
-/** Cuantos correos y facturas esperan a una persona (la linea de Inicio). */
-export function waitingCount(m: Pick<Mailbox, 'esperan_persona'> | null | undefined): number {
-  if (!m) return 0;
+/** Cuantos correos y facturas esperan a una persona (la linea de Inicio). En la nativa, 0: alli
+ *  no hay correo y Inicio no gana la fila. */
+export function waitingCount(m: Pick<Mailbox, 'entorno' | 'esperan_persona'> | null | undefined): number {
+  if (!m || !mailboxAvailable(m)) return 0;
   return m.esperan_persona.correos_total + m.esperan_persona.documentos_total;
+}
+
+/** Lo que dice una lista plegada de la tarjeta (los 5 primeros y el boton). `shown`: las filas
+ *  que trajo la API (como mucho 50); `total`: las que hay. Si la API no las trajo todas, el
+ *  boton no dice "Alle N" (escondia las demas) sino cuantas de cuantas, y abierta dice cuantas
+ *  faltan. */
+export function foldedText(shown: number, total: number, open: boolean, t: Messages, first = 5): { toggle: string | null; more: string | null } {
+  const b = t.aurora.mailbox;
+  const rest = Math.max(0, total - shown);
+  const toggle = shown <= first ? null : open ? b.showLess : rest > 0 ? fmt(b.showSome, { n: shown, total }) : fmt(b.showAll, { n: shown });
+  const more = open || shown <= first ? (rest === 0 ? null : rest === 1 ? t.why.moreOne : fmt(t.why.more, { n: rest })) : null;
+  return { toggle, more };
 }
 
 /** El espacio libre en GB enteros, como la banda del servidor ("12 GB"). */

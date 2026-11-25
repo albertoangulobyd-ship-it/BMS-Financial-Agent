@@ -29,6 +29,7 @@ import {
   certState,
   certText,
   exclusionText,
+  foldedText,
   formatGigabytes,
   knownInstant,
   mailboxErrorText,
@@ -61,18 +62,21 @@ function Unverified() {
   );
 }
 
-/** Una lista con sus primeras filas y "Alle N tonen" / "Minder tonen". */
-function Folded<T>({ items, render }: { items: readonly T[]; render: (item: T) => ReactNode }) {
+/** Una lista con sus primeras filas y "Alle N tonen" / "Minder tonen". `total`: las que hay, si
+ *  la API no las trae todas (como mucho 50): entonces dice "50 van 61 tonen" y "en nog 11". */
+export function Folded<T>({ items, total = items.length, render }: { items: readonly T[]; total?: number; render: (item: T) => ReactNode }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const shown = open ? items : items.slice(0, FIRST_ROWS);
+  const { toggle, more } = foldedText(items.length, total, open, t, FIRST_ROWS);
   return (
     <>
       <ul className='mail-list'>{shown.map(render)}</ul>
-      {items.length > FIRST_ROWS && (
+      {more && <p>{more}</p>}
+      {toggle && (
         <p>
           <button type='button' className='mail-more' aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? t.aurora.mailbox.showLess : fmt(t.aurora.mailbox.showAll, { n: items.length })}
+            {toggle}
           </button>
         </p>
       )}
@@ -80,8 +84,9 @@ function Folded<T>({ items, render }: { items: readonly T[]; render: (item: T) =
   );
 }
 
-/** Un correo: remitente y asunto (sin comprobar), cuando llego y lo que fue de cada adjunto. */
-function MailItem({ message: m, advice, orders }: { message: MailMessage; advice?: boolean; orders?: readonly OrderSpec[] }) {
+/** Un correo: remitente y asunto (sin comprobar), cuando llego y lo que fue de cada adjunto.
+ *  Exportado para su prueba (mailbox-card.test.ts: la etiqueta "niet gecontroleerd"). */
+export function MailItem({ message: m, advice, orders }: { message: MailMessage; advice?: boolean; orders?: readonly OrderSpec[] }) {
   const { t } = useT();
   const b = t.aurora.mailbox;
   const tip = advice ? adviceFor(m, t) : null;
@@ -236,7 +241,7 @@ export function MailboxCard({ mailbox: m, onClose }: { mailbox: Mailbox; onClose
             {b.waitingMail} ({waiting.correos_total})
           </span>
           <p>{b.unverifiedHelp}</p>
-          <Folded items={waiting.correos} render={(message) => <MailItem key={message.mensaje_id} message={message} advice orders={canAct ? [handled(message)] : []} />} />
+          <Folded items={waiting.correos} total={waiting.correos_total} render={(message) => <MailItem key={message.mensaje_id} message={message} advice orders={canAct ? [handled(message)] : []} />} />
         </>
       )}
       {waiting.documentos_total > 0 && (
@@ -244,7 +249,7 @@ export function MailboxCard({ mailbox: m, onClose }: { mailbox: Mailbox; onClose
           <span>
             {b.waitingDocs} ({waiting.documentos_total})
           </span>
-          <Folded items={waiting.documentos} render={(doc) => <WaitingInvoiceItem key={doc.documento_id} doc={doc} canRead={canAct} />} />
+          <Folded items={waiting.documentos} total={waiting.documentos_total} render={(doc) => <WaitingInvoiceItem key={doc.documento_id} doc={doc} canRead={canAct} />} />
         </>
       )}
 

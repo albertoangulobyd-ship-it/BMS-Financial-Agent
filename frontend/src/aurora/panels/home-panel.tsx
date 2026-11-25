@@ -29,7 +29,7 @@ import { useAurora } from '../root';
 import { ExceptionLines, exceptionOrders, exceptionState } from './exception-orders';
 import { accountStep, buildChecks, checkKey, compactIban, type Check } from './iban-model';
 import { InvoiceCard } from './invoice-card';
-import { mailboxAvailable, waitingCount } from './mailbox-model';
+import { waitingCount } from './mailbox-model';
 import { Balance, Detail, GroupView, List, PanelFrame, Row } from './pieces';
 import { FIRST, urgentFirst } from './panel-model';
 import { weekRanges, type Week } from './weeks';
@@ -112,7 +112,8 @@ function useMailboxWaiting(): number {
     if (!session) return;
     let alive = true;
     session.api.get<{ correo: Mailbox }>(paths.mailbox).then(
-      (r) => alive && setN(mailboxAvailable(r.correo) ? waitingCount(r.correo) : 0),
+      // En la nativa, 0 (waitingCount): Inicio no gana la fila.
+      (r) => alive && setN(waitingCount(r.correo)),
       () => undefined
     );
     return () => {

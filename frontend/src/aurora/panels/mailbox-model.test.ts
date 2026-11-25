@@ -17,6 +17,7 @@ import {
   certText,
   checkForm,
   exclusionText,
+  foldedText,
   formValues,
   formatGigabytes,
   knownInstant,
@@ -28,6 +29,7 @@ import {
   resumable,
   stopText,
   stripOf,
+  systemRowsOf,
   usdInput,
   waitingCount,
 } from './mailbox-model';
@@ -108,6 +110,38 @@ describe('solo Docker: en la nativa no hay correo ni lectura automatica', () => 
     expect(stripOf(auto(), mailbox({ entorno: 'nativo' }), nl)).toBeNull();
     expect(stripOf(auto(), null, nl)).toBeNull();
   });
+
+  it('en la nativa, Systeem se queda con sus filas de siempre y sin tarjetas del buzon (revision del paso 12)', () => {
+    // Lo que ensena settings-panel.tsx: no tiene otra regla.
+    expect(systemRowsOf(true, mailbox())).toEqual({ rows: ['company', 'isolation', 'people', 'backups', 'mailbox', 'autoRead'], mail: mailbox() });
+    expect(systemRowsOf(false, mailbox({ entorno: 'local' })).rows).toEqual(['company', 'isolation', 'backups', 'mailbox', 'autoRead']);
+    expect(systemRowsOf(true, mailbox({ entorno: 'nativo' }))).toEqual({ rows: ['company', 'isolation', 'people', 'backups'], mail: null });
+    expect(systemRowsOf(false, mailbox({ entorno: 'nativo' }))).toEqual({ rows: ['company', 'isolation', 'backups'], mail: null });
+    expect(systemRowsOf(true, null)).toEqual({ rows: ['company', 'isolation', 'people', 'backups'], mail: null });
+  });
+
+  it('en la nativa, Inicio no gana la fila de lo que espera, aunque la respuesta diga algo', () => {
+    const waiting = { correos: [], correos_total: 2, documentos: [], documentos_total: 3 };
+    expect(waitingCount(mailbox({ esperan_persona: waiting }))).toBe(5);
+    expect(waitingCount(mailbox({ entorno: 'local', esperan_persona: waiting }))).toBe(5);
+    expect(waitingCount(mailbox({ entorno: 'nativo', esperan_persona: waiting }))).toBe(0);
+  });
+});
+
+describe('las listas de las tarjetas (revision del paso 12)', () => {
+  it('si la API no las trae todas, no dice "Alle N": cuantas de cuantas, y abierta, cuantas faltan', () => {
+    // 61 correos esperan; la API trae 50.
+    expect(foldedText(50, 61, false, nl)).toEqual({ toggle: '50 van 61 tonen', more: null });
+    expect(foldedText(50, 61, true, nl)).toEqual({ toggle: 'Minder tonen', more: 'en nog 11' });
+    expect(foldedText(50, 51, true, en)).toEqual({ toggle: en.aurora.mailbox.showLess, more: 'and 1 more' });
+    expect(foldedText(50, 61, false, es).toggle).toBe('Ver 50 de 61');
+    // Todas: "Alle 12 tonen", sin "en nog".
+    expect(foldedText(12, 12, false, nl)).toEqual({ toggle: 'Alle 12 tonen', more: null });
+    expect(foldedText(12, 12, true, nl)).toEqual({ toggle: 'Minder tonen', more: null });
+    // Cinco o menos: ni boton.
+    expect(foldedText(5, 5, false, nl)).toEqual({ toggle: null, more: null });
+    expect(foldedText(3, 3, false, nl)).toEqual({ toggle: null, more: null });
+  });
 });
 
 describe('el buzon', () => {
@@ -127,6 +161,11 @@ describe('el buzon', () => {
       expect(new Set(texts).size).toBe(codes.length);
     }
     expect(mailboxErrorText('credencial', nl)).toContain('{mailCert}');
+    // Solo Docker: ningun error del buzon manda a un script que solo tiene la nativa (revision
+    // del paso 12: el aislamiento decia "Voer comprobar.bat uit").
+    for (const t of [nl, en, es]) {
+      for (const c of [...codes, 'sin_configurar']) expect(mailboxErrorText(c, t), c).not.toMatch(/\{check\}|comprobar\.bat|clave\.bat/);
+    }
     expect(mailboxErrorText('sin_configurar', nl)).toBe(nl.aurora.mailbox.notSetUp);
     expect(mailboxErrorText('otra_cosa', en)).toBe(en.aurora.mailbox.errors.interno);
     expect(mailboxErrorText(null, nl)).toBeNull();
@@ -211,6 +250,15 @@ describe('la lectura automatica', () => {
     // El fallo de la automatica: el texto que sigue solo, y la hora en Amsterdam.
     expect(stopText(auto({ parada: 'fallo', motivo_codigo: 'saldo', proximo_intento: '2026-11-24T11:00:00+00:00' }), nl, now)).toBe(
       `Gestopt na een fout: ${nl.aurora.process.reasons.saldo} Volgende poging vandaag om 12:00.`
+    );
+    // Solo Docker: ningun fallo tecnico manda a clave.bat o comprobar.bat (revision del paso 12).
+    for (const t of [nl, en, es]) {
+      for (const code of ['salida', 'aislamiento', 'clave', 'contar', 'sin_tarifa', 'saldo', 'clave_rechazada', 'api_no_disponible'] as const) {
+        expect(stopText(auto({ parada: 'fallo', motivo_codigo: code, proximo_intento: '2026-11-24T11:00:00+00:00' }), t, now), code).not.toMatch(/clave\.bat|comprobar\.bat/);
+      }
+    }
+    expect(stopText(auto({ parada: 'fallo', motivo_codigo: 'clave_rechazada', proximo_intento: '2026-11-24T11:00:00+00:00' }), nl, now)).toContain(
+      'docker\\secretos\\anthropic_api_key.txt'
     );
   });
 

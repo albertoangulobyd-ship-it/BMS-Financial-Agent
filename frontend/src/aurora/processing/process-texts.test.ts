@@ -16,6 +16,7 @@ import {
   isAutomatic,
   lastReading,
   omittedOf,
+  omittedShown,
   readyNote,
   reasonOf,
   requestNote,
@@ -277,10 +278,27 @@ describe('la lectura automatica en Procesar (paso 18)', () => {
   });
 
   it('esperando su si no pide a nadie que decida: la acepta la autorizacion', () => {
-    const view = introView('waiting', status(auto('esperando_aprobacion')), nl);
+    const waiting = status(auto('esperando_aprobacion'));
+    const view = introView('waiting', waiting, nl);
     expect(view.title).toMatch(/^12 nieuwe facturen, tussen /);
-    expect(view.detail).toBe('Automatisch, uit de facturenmailbox · Automatisch lezen ingesteld door Ana Demo');
+    expect(view.detail).toBe('Dit valt binnen de grenzen van automatisch lezen: het begint zonder dat iemand ja zegt.');
     expect(view.detail).not.toContain('beslissen');
+    // De donde viene y quien firmo, una vez: en la nota (no tambien en la linea, revision del
+    // paso 12).
+    expect(requestNote(waiting, nl)).toBe('Automatisch, uit de facturenmailbox · Automatisch lezen ingesteld door Ana Demo');
+    expect(view.detail).not.toContain(nl.aurora.process.origin.automatica);
+    // La tarjeta no dice que empieza al pulsar "Beginnen" (no lo hay): empieza sola.
+    expect(idleLines('waiting', nl, waiting)).toEqual(['Eén zoektocht tegelijk.', 'Het nakijken begint vanzelf.']);
+    expect(idleLines('waiting', nl, status(request('esperando_aprobacion')))[1]).toBe('Het nakijken begint als je op Beginnen drukt.');
+    for (const lang of ['nl', 'en', 'es'] as const) {
+      const p = MESSAGES[lang].aurora.process;
+      expect(idleLines('waiting', MESSAGES[lang], waiting)[1], lang).not.toContain(p.start);
+      // La nota de parar sale junto a "Niet lezen" (esperando) y junto a "Lezen stoppen" (leyendo):
+      // no nombra ninguno de los dos.
+      expect(p.stopAuto.toLowerCase(), lang).not.toContain(p.notRead.toLowerCase());
+      expect(p.stopAuto.toLowerCase(), lang).not.toContain(p.stop.toLowerCase());
+      expect(p.stopAuto.toLowerCase(), lang).not.toMatch(/^(stoppen|stopping|parar)\b/);
+    }
   });
 
   it('una automatica que no se acepto dice por que, no "ya leido"', () => {
@@ -312,6 +330,49 @@ describe('la lectura automatica en Procesar (paso 18)', () => {
     expect(omittedOf(status(request('esperando_aprobacion')), nl)).toEqual([]);
     expect(omittedOf(status(request('esperando_aprobacion', { omitidos: [] })), nl)).toEqual([]);
     expect(omittedOf(null, nl)).toEqual([]);
+  });
+
+  it('lo que la cuenta dejo fuera sale tambien en el error y sin nada que leer (§13 S1)', () => {
+    // La de una persona en la que la API no acepta ninguno de los nuevos acaba fallida con
+    // "contar": justo ahi hay que decir cual (revision del paso 12).
+    expect(omittedShown('failed', 'error')).toBe(true);
+    expect(omittedShown('waiting', 'intro')).toBe(true);
+    expect(omittedShown('nothing', 'intro')).toBe(true);
+    expect(omittedShown('done', 'complete')).toBe(true);
+    for (const screen of ['ready', 'requested', 'checking', 'counting', 'expired', 'cancelled'] as const) expect(omittedShown(screen, 'intro'), screen).toBe(false);
+    expect(omittedShown('reading', 'running')).toBe(false);
+    // Quien llega despues ve P0 con "la ultima no termino": tambien cual no acepto la API.
+    expect(omittedShown('ready', 'intro', status(request('fallida', { motivo_codigo: 'contar' })))).toBe(true);
+    expect(omittedShown('ready', 'intro', status(request('hecha')))).toBe(false);
+    expect(omittedShown('requested', 'intro', status(request('fallida')))).toBe(false);
+  });
+});
+
+describe('en Docker no se nombra ningun script de la nativa (revision del paso 12)', () => {
+  const NATIVE = /clave\.bat|comprobar\.bat|\{check\}/;
+  it('la automatica (solo Docker) y, en Docker, la de una persona: la clave es el fichero de docker\\secretos', () => {
+    for (const lang of ['nl', 'en', 'es'] as const) {
+      const t = MESSAGES[lang];
+      for (const code of ['clave', 'clave_rechazada', 'aislamiento']) {
+        expect(reasonOf(code, t, 'automatica'), `${lang} ${code}`).not.toMatch(NATIVE);
+        expect(reasonOf(code, t, 'app', true), `${lang} ${code}`).not.toMatch(NATIVE);
+        expect(reasonOf(code, t, 'lector', true), `${lang} ${code}`).toBe(reasonOf(code, t, 'automatica'));
+      }
+      expect(reasonOf('clave', t, 'automatica')).toContain('docker\\secretos\\anthropic_api_key.txt');
+      expect(reasonOf('clave_rechazada', t, 'automatica')).toContain('docker\\secretos\\anthropic_api_key.txt');
+      // Lo demas no cambia con Docker.
+      for (const code of ['saldo', 'api_no_disponible', 'salida', 'contar']) expect(reasonOf(code, t, 'app', true)).toBe(reasonOf(code, t, 'app'));
+    }
+    // La nativa, como hoy.
+    expect(reasonOf('clave_rechazada', MESSAGES.nl, 'app')).toBe('De API weigert de sleutel. De beheerder moet hem vervangen (clave.bat).');
+    expect(reasonOf('aislamiento', MESSAGES.nl, 'lector')).toContain('comprobar.bat');
+    // Y donde lo usa Procesar: el error, la nota de la ultima y una automatica que no se acepto.
+    const failed = status(request('fallida', { motivo_codigo: 'clave', terminada_en: '2026-10-28T09:30:00+00:00' }));
+    expect(errorView(failed, MESSAGES.nl, true).detail).not.toMatch(NATIVE);
+    expect(errorView(failed, MESSAGES.nl).detail).toContain('clave.bat');
+    expect(lastReading(failed, MESSAGES.nl, NOW, true)).not.toMatch(NATIVE);
+    expect(lastReading(failed, MESSAGES.nl, NOW)).toContain('clave.bat');
+    expect(readyNote(failed, MESSAGES.nl, true, NOW, true).join(' ')).not.toMatch(NATIVE);
   });
 });
 

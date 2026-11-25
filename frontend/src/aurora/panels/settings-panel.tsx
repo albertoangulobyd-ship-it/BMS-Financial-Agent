@@ -25,11 +25,9 @@ import { entryLabel } from '../app';
 import { useAurora } from '../root';
 import { AutoReadCard } from './auto-read-card';
 import { MailboxCard } from './mailbox-card';
-import { autoReadState, autoReadStateText, mailboxAvailable, mailboxStateText } from './mailbox-model';
+import { autoReadState, autoReadStateText, mailboxStateText, systemRowsOf, type SystemRow } from './mailbox-model';
 import { roleIsolation, worstIsolation } from './panel-model';
 import { Detail, GroupView, List, PanelFrame, Row } from './pieces';
-
-type SystemRow = 'company' | 'isolation' | 'people' | 'backups' | 'mailbox' | 'autoRead';
 
 function systemRow(t: Messages, row: SystemRow): { label: string; note: string } {
   const s = t.aurora.settings;
@@ -155,9 +153,8 @@ export function SettingsPanel({ view }: { view: string | null }) {
       />
     );
   } else if (view === 'system' || view === 'mailbox') {
-    const mailbox = system.data?.mailbox ?? null;
-    const mail = mailboxAvailable(mailbox) ? mailbox : null;
-    const items: SystemRow[] = ['company', 'isolation', ...(system.data?.people ? (['people'] as const) : []), 'backups', ...(mail ? (['mailbox', 'autoRead'] as const) : [])];
+    // Solo Docker: en la nativa, ni las dos filas del buzon ni sus tarjetas (systemRowsOf).
+    const { rows: items, mail } = systemRowsOf(!!system.data?.people, system.data?.mailbox);
     const isolation = system.data?.isolation;
     const isolationState = !isolation ? undefined : !isolation.aplica ? s.notApplicable : isolation.correcto ? s.isolationOk : s.isolationBad;
     const autoState = mail ? autoReadState(mail.lectura_automatica) : null;

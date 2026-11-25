@@ -17,6 +17,9 @@ export const SCRIPT_NAMES = {
   mailCert: 'correo-certificado.bat',
   start: 'iniciar.bat',
   automatic: 'automatico.bat',
+  // La carpeta de donde leen los PDF el lector y Procesar (paso 12: "Apart gezet" dice que un PDF
+  // apartado sin querer se lee dejandolo alli). En el disco se llama asi.
+  invoiceFolder: 'buzon\\facturas',
 } as const;
 
 export type ScriptName = keyof typeof SCRIPT_NAMES;

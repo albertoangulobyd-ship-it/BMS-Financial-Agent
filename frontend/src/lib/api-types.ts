@@ -811,6 +811,16 @@ export interface QueuedInvoice {
   recibido_en: string | null;
 }
 
+/** Una factura que una persona aparto ("Niet vanzelf lezen") y sigue sin leer: no se lee, pero se
+ *  sigue viendo con su original (paso 12; solo en GET /api/v2/correo). */
+export interface SetAsideInvoice {
+  documento_id: number;
+  nombre_original: string | null;
+  recibido_en: string | null;
+  apartada_en: string;
+  apartada_por: { id: number; nombre: string } | null;
+}
+
 /** GET /api/v2/correo (`correo`). En la instalacion nativa no hay correo ni ciclo: `entorno`
  *  nativo, `configurado` false. */
 export interface Mailbox {
@@ -836,7 +846,11 @@ export interface Mailbox {
   };
   recientes: MailMessage[];
   esperan_persona: { correos: MailMessage[]; correos_total: number; documentos: WaitingInvoice[]; documentos_total: number };
-  lectura_automatica: AutoReadingStatus & { fijada_por: { id: number; nombre: string } | null; cola?: QueuedInvoice[] };
+  lectura_automatica: AutoReadingStatus & {
+    fijada_por: { id: number; nombre: string } | null;
+    cola?: QueuedInvoice[];
+    apartadas?: { documentos: SetAsideInvoice[]; total: number };
+  };
 }
 
 export interface Company {
